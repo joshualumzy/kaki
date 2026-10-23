@@ -1,0 +1,64 @@
+{
+  "events": [
+    {
+      "type": "HOST_SPEECH_TRIGGERED",
+      "audience": { "kind": "screen" },
+      "payload": {
+        "kind": "OPENING",
+        "text": "Welcome to the Hawker Heroes launch-readiness meeting."
+      }
+    },
+    {
+      "type": "MEETING_RECORD_UPDATED",
+      "audience": { "kind": "all" },
+      "payload": {
+        "agendaIndex": 0,
+        "openQuestions": [
+          {
+            "id": "q-starfruit-build",
+            "text": "When does Starfruit need the final build?",
+            "forRole": "producer"
+          }
+        ],
+        "elapsedSeconds": 125,
+        "speakerTalkSeconds": { "lead_programmer": 90, "producer": 35 }
+      }
+    },
+    {
+      "type": "NUDGE",
+      "audience": { "kind": "role", "role": "game_designer" },
+      "payload": {
+        "text": "Level 5 difficulty starts in 1 min. 14 of 20 playtesters quit there; tap to read their comments."
+      }
+    },
+    {
+      "type": "FACT_FOUND",
+      "audience": { "kind": "role", "role": "producer" },
+      "payload": {
+        "questionId": "q-starfruit-build",
+        "question": "When does Starfruit need the final build?",
+        "facts": [
+          {
+            "text": "Starfruit needs the final build by 18 November, one week before launch.",
+            "source": "Publisher email",
+            "date": "2026-10-14"
+          }
+        ]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "title": "Fix the crash after serving ten customers",
+      "context": "Hawker Heroes crashes after serving 10 customers in a row. Raised in the Build and bugs discussion; it blocks the launch build.",
+      "suggestedAssignee": "lead_programmer",
+      "actionKind": "gitea_issue"
+    },
+    {
+      "title": "Ask a streamer to play Hawker Heroes on launch day",
+      "context": "The launch marketing plan has no live stream yet. Find a streamer and propose a launch-day slot.",
+      "suggestedAssignee": "marketing_lead",
+      "actionKind": "email"
+    }
+  ]
+}
