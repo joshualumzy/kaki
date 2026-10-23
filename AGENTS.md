@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-GitHub issues tracked via `gh` CLI for `ziyouledi/IT5007-project`. See `docs/agents/issue-tracker.md`.
+GitHub issues tracked via `gh` CLI for `IT5007-2610/it5007-courseproject-group-14`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
