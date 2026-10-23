@@ -11,14 +11,33 @@ const ScenarioContext = createContext<Scenario | null>(null);
 
 let scenarioPromise: Promise<Scenario> | undefined;
 
-function loadScenario(): Promise<Scenario> {
-  scenarioPromise ??= (async () => {
-    const response = await fetch('/api/scenario');
-    if (!response.ok) {
-      throw new Error(`GET /api/scenario failed (${response.status})`);
+const LOAD_RETRIES = 10;
+const LOAD_RETRY_DELAY_MS = 1_000;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchScenario(): Promise<Scenario> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetch('/api/scenario');
+      if (!response.ok) {
+        throw new Error(`GET /api/scenario failed (${response.status})`);
+      }
+      return parseScenario(await response.json());
+    } catch (error) {
+      if (attempt >= LOAD_RETRIES) throw error;
+      await wait(LOAD_RETRY_DELAY_MS);
     }
-    return parseScenario(await response.json());
-  })();
+  }
+}
+
+function loadScenario(): Promise<Scenario> {
+  scenarioPromise ??= fetchScenario().catch((error: unknown) => {
+    scenarioPromise = undefined;
+    throw error;
+  });
   return scenarioPromise;
 }
 

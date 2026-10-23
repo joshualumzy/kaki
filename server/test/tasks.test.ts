@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, TaskStatus } from '@kaki/shared';
+import { CommandError } from '../src/hub';
 import { createTestApp } from './helpers';
 
 describe('task store change handlers', () => {
@@ -74,5 +75,31 @@ describe('task store change handlers', () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it('clears a previous error when a failed task runs again', () => {
+    const task = app.tasks.suggest({
+      title: 'Fix the oven',
+      context: 'The oven trips the fuse.',
+      suggestedAssignee: 'chef',
+    });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    app.tasks.transition(task.id, 'CLAIMED', { mode: 'MANUAL' });
+    app.tasks.transition(task.id, 'FAILED', { error: 'boom' });
+    app.tasks.transition(task.id, 'RUNNING');
+    expect(app.tasks.get(task.id)?.error).toBeUndefined();
+
+    const completed = app.tasks.transition(task.id, 'COMPLETED');
+    expect(completed.error).toBeUndefined();
+  });
+
+  it('rejects an invalid suggestion with a CommandError', () => {
+    expect(() =>
+      app.tasks.suggest({
+        title: '  ',
+        context: 'Ask for Friday delivery.',
+        suggestedAssignee: 'chef',
+      }),
+    ).toThrow(CommandError);
   });
 });

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isKakiEvent, isSuggestInput, type Scenario } from '@kaki/shared';
-import { createHub, type Hub } from './hub';
+import { CommandError, createHub, type Hub } from './hub';
 import type { KakiModule } from './modules';
 import { createTaskStore, type TaskStore } from './tasks';
 
@@ -9,6 +9,7 @@ export interface CreateAppOptions {
   port?: number;
   scenario: Scenario;
   modules?: KakiModule[];
+  devRoutes?: boolean;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -23,11 +24,10 @@ interface RequestContext {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
+  devRoutes: boolean;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
-// Dev-emitted events are all retained so pages opened after `npm run emit-demo` still see them.
-let devEmitCount = 0;
 
 type JsonBody = { ok: true; value: unknown } | { ok: false; status: number; error: string };
 
@@ -75,10 +75,6 @@ async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
   }
 }
 
-function isDevEnvironment(): boolean {
-  return process.env.NODE_ENV !== 'production';
-}
-
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -97,7 +93,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/emit' && isDevEnvironment()) {
+    if (request.method === 'POST' && path === '/dev/emit' && context.devRoutes) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -108,13 +104,12 @@ async function handleRequest(
         return;
       }
 
-      devEmitCount += 1;
-      context.hub.publish(body.value, { retainKey: `dev:${devEmitCount}` });
+      context.hub.publish(body.value, { retainKey: `dev:${JSON.stringify(body.value)}` });
       sendJson(response, 200, { ok: true });
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/suggest-task' && isDevEnvironment()) {
+    if (request.method === 'POST' && path === '/dev/suggest-task' && context.devRoutes) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -131,6 +126,10 @@ async function handleRequest(
 
     sendJson(response, 404, { error: 'Not found' });
   } catch (error) {
+    if (error instanceof CommandError) {
+      sendJson(response, 400, { error: error.message });
+      return;
+    }
     console.error('kaki server: request failed', error);
     sendJson(response, 500, { error: 'Internal server error' });
   }
@@ -158,15 +157,22 @@ export async function createApp({
   port = 0,
   scenario,
   modules = [],
+  devRoutes = false,
 }: CreateAppOptions): Promise<KakiApp> {
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario });
+    void handleRequest(request, response, { hub, tasks, scenario, devRoutes });
   });
   const hub = createHub(server, scenario);
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
 
-  await listen(server, port);
+  try {
+    await listen(server, port);
+  } catch (error) {
+    hub.close();
+    await closeServer(server).catch(() => undefined);
+    throw error;
+  }
 
   const cleanups: Array<() => void> = [];
 

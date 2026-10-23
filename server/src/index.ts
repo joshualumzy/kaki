@@ -15,5 +15,6 @@ await createApp({
   port,
   scenario,
   modules: [...hostModules, ...wingmanModules, ...devModules],
+  devRoutes: process.env.KAKI_DEV_ROUTES === '1',
 });
 console.log(`kaki server listening on http://localhost:${port} (scenario: ${scenario.id})`);

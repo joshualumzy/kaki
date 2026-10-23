@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const children = [
-  spawn(npm, ['run', 'dev', '-w', '@kaki/server'], { stdio: 'inherit' }),
+  spawn(npm, ['run', 'dev', '-w', '@kaki/server'], {
+    stdio: 'inherit',
+    env: { ...process.env, KAKI_DEV_ROUTES: process.env.KAKI_DEV_ROUTES ?? '1' },
+  }),
   spawn(npm, ['run', 'dev', '-w', '@kaki/web'], { stdio: 'inherit' }),
 ];
 

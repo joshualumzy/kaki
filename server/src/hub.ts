@@ -61,6 +61,9 @@ function rejectionFor(audience: ClientAudience, commandType: string, reason: str
 /** Create the `/ws` hub attached to an existing HTTP server for one scenario. */
 export function createHub(httpServer: Server, scenario: Scenario): Hub {
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  // ws re-emits the HTTP server's errors here; without a listener a port clash crashes the process
+  // instead of letting listen() in createApp reject.
+  wss.on('error', (error) => console.error('kaki hub: server error', error));
   const clients = new Map<WebSocket, ClientAudience>();
   const subscribers = new Set<(event: KakiEvent) => void>();
   const retained = new Map<string, KakiEvent>();
@@ -133,7 +136,7 @@ export function createHub(httpServer: Server, scenario: Scenario): Hub {
       rawRole === 'screen' ? 'screen' : isRoleIn(scenario, rawRole) ? rawRole : undefined;
 
     if (audience === undefined) {
-      const reason = rawRole === null ? 'Missing role' : `Unknown role: ${rawRole.slice(0, 80)}`;
+      const reason = rawRole === null ? 'Missing role' : 'Unknown role';
       socket.close(1008, reason);
       return;
     }

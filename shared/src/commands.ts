@@ -8,7 +8,7 @@ export type KakiCommand =
   | { type: 'DISMISS_TASK'; taskId: string }
   | { type: 'CLAIM_TASK'; taskId: string; mode: 'ACTION_AGENT' | 'MANUAL' }
   | { type: 'APPROVE_ACTION'; taskId: string; draft: ActionDraft }
-  | { type: 'RETRY_ACTION'; taskId: string }
+  | { type: 'RETRY_ACTION'; taskId: string; draft?: ActionDraft }
   | { type: 'MARK_DONE'; taskId: string }
   | { type: 'SYNC_TASK'; taskId: string };
 
@@ -42,7 +42,6 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
     case 'DISPATCH_TASK':
       return isRoleIn(scenario, value.assignee);
     case 'DISMISS_TASK':
-    case 'RETRY_ACTION':
     case 'MARK_DONE':
     case 'SYNC_TASK':
       return true;
@@ -50,5 +49,7 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
       return value.mode === 'ACTION_AGENT' || value.mode === 'MANUAL';
     case 'APPROVE_ACTION':
       return isActionDraft(value.draft);
+    case 'RETRY_ACTION':
+      return value.draft === undefined || isActionDraft(value.draft);
   }
 }

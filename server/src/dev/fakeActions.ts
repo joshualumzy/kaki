@@ -31,12 +31,9 @@ function draftFor(task: Task, actionKind: ActionKind): ActionDraft {
 export const fakeActionsModule: KakiModule = {
   name: 'fake-actions',
   start({ tasks }) {
-    const handled = new Set<string>();
     const timers = new Set<ReturnType<typeof setTimeout>>();
 
-    function schedule(key: string, delay: number, run: () => void): void {
-      if (handled.has(key)) return;
-      handled.add(key);
+    function schedule(delay: number, run: () => void): void {
       const timer = setTimeout(() => {
         timers.delete(timer);
         run();
@@ -45,11 +42,9 @@ export const fakeActionsModule: KakiModule = {
     }
 
     const unsubscribe = tasks.onChange((task) => {
-      const key = `${task.id}:${task.status}:${task.updatedAt}`;
-
       if (task.status === 'CLAIMED' && task.mode === 'ACTION_AGENT' && task.actionKind !== undefined) {
         const actionKind = task.actionKind;
-        schedule(key, DRAFT_DELAY_MS, () => {
+        schedule(DRAFT_DELAY_MS, () => {
           const current = tasks.get(task.id);
           if (current === undefined || current.status !== task.status || current.updatedAt !== task.updatedAt) {
             return;
@@ -64,7 +59,7 @@ export const fakeActionsModule: KakiModule = {
       }
 
       if (task.status === 'RUNNING') {
-        schedule(key, RUN_DELAY_MS, () => {
+        schedule(RUN_DELAY_MS, () => {
           const current = tasks.get(task.id);
           if (current === undefined || current.status !== task.status || current.updatedAt !== task.updatedAt) {
             return;

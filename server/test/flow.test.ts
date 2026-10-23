@@ -7,7 +7,6 @@ import {
   portOf,
   settle,
   taskStatuses,
-  waitFor,
   waitForEvent,
   type TestClient,
 } from './helpers';
@@ -193,7 +192,7 @@ describe('task flows', () => {
     expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
   });
 
-  it('fails an approved action whose draft contains FAIL, then retries it', async () => {
+  it('fails an approved action whose draft contains FAIL, then completes a retry with a fixed draft', async () => {
     const screen = await connect('screen');
     const chef = await connect('chef');
 
@@ -220,11 +219,19 @@ describe('task flows', () => {
     const failed = await waitForEvent(chef, isStatus(task.id, 'FAILED'), 'failure', 5_000);
     expect(taskOf(failed).error).toBe('fake failure');
 
-    send(chef, { type: 'RETRY_ACTION', taskId: task.id });
-    await waitFor(
-      () => (app.tasks.get(task.id)?.status === 'RUNNING' ? true : undefined),
-      'retry running',
+    send(chef, {
+      type: 'RETRY_ACTION',
+      taskId: task.id,
+      draft: { ...draft, body: 'Please deliver on Friday.' },
+    });
+    const completed = await waitForEvent(
+      chef,
+      isStatus(task.id, 'COMPLETED'),
+      'retry completion',
+      5_000,
     );
-    expect(app.tasks.get(task.id)?.status).toBe('RUNNING');
+    expect(taskOf(completed).error).toBeUndefined();
+    expect(app.tasks.get(task.id)?.status).toBe('COMPLETED');
+    expect(app.tasks.get(task.id)?.error).toBeUndefined();
   });
 });

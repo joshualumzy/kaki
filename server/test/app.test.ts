@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createApp } from '../src/app';
+import { CommandError } from '../src/hub';
 import { loadScenario } from '../src/loadScenario';
 import { createTestApp, connectClient, portOf, settle, type TestClient } from './helpers';
 import { testScenario } from './fixtures/scenario';
@@ -25,7 +27,7 @@ describe('app', () => {
   let clients: TestClient[];
 
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createTestApp({ devRoutes: true });
     port = portOf(app);
     clients = [];
   });
@@ -49,6 +51,18 @@ describe('app', () => {
     const missing = await closeInfoFor(`ws://127.0.0.1:${port}/ws`);
     expect(missing.code).toBe(1008);
     expect(missing.reason).toContain('Missing role');
+  });
+
+  it('closes an over-long unknown role without crashing the server', async () => {
+    const role = '€'.repeat(80);
+    const unknown = await closeInfoFor(
+      `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
+    );
+    expect(unknown.code).toBe(1008);
+    expect(unknown.reason).toBe('Unknown role');
+
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(health.status).toBe(200);
   });
 
   it('accepts scenario roles and the screen', async () => {
@@ -112,6 +126,21 @@ describe('app', () => {
     expect(screen.messages).toEqual([]);
   });
 
+  it('replays an identical dev event only once to a late client', async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(`http://127.0.0.1:${port}/dev/emit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(opening),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const screen = await connect('screen');
+    await settle();
+    expect(screen.messages).toEqual([opening]);
+  });
+
   it('suggests a task through the dev endpoint', async () => {
     const screen = await connect('screen');
 
@@ -133,20 +162,40 @@ describe('app', () => {
     expect(screen.messages.some((event) => event.type === 'TASK_UPDATED')).toBe(true);
   });
 
-  it('returns 404 for dev endpoints in production', async () => {
-    const previous = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    const productionApp = await createTestApp();
+  it('returns 400 with the message when a dev suggestion is rejected', async () => {
+    const suggest = vi.spyOn(app.tasks, 'suggest').mockImplementation(() => {
+      throw new CommandError('Invalid task suggestion');
+    });
+
     try {
-      const productionPort = portOf(productionApp);
-      const emit = await fetch(`http://127.0.0.1:${productionPort}/dev/emit`, {
+      const response = await fetch(`http://127.0.0.1:${port}/dev/suggest-task`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Fix the oven',
+          context: 'It trips the fuse.',
+          suggestedAssignee: 'chef',
+        }),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'Invalid task suggestion' });
+    } finally {
+      suggest.mockRestore();
+    }
+  });
+
+  it('returns 404 for dev endpoints when dev routes are off', async () => {
+    const appWithoutDevRoutes = await createTestApp();
+    try {
+      const offPort = portOf(appWithoutDevRoutes);
+      const emit = await fetch(`http://127.0.0.1:${offPort}/dev/emit`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(opening),
       });
       expect(emit.status).toBe(404);
 
-      const suggest = await fetch(`http://127.0.0.1:${productionPort}/dev/suggest-task`, {
+      const suggest = await fetch(`http://127.0.0.1:${offPort}/dev/suggest-task`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -157,8 +206,32 @@ describe('app', () => {
       });
       expect(suggest.status).toBe(404);
     } finally {
-      await productionApp.close();
-      process.env.NODE_ENV = previous;
+      await appWithoutDevRoutes.close();
+    }
+  });
+
+  it('rejects createApp with EADDRINUSE when the port is taken', async () => {
+    const occupied = createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once('error', reject);
+      occupied.listen(0, () => {
+        occupied.off('error', reject);
+        resolve();
+      });
+    });
+
+    try {
+      const address = occupied.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error('Expected the occupied server to listen on a TCP port');
+      }
+      await expect(
+        createApp({ port: address.port, scenario: testScenario }),
+      ).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        occupied.close((error) => (error ? reject(error) : resolve()));
+      });
     }
   });
 

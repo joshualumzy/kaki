@@ -102,7 +102,7 @@ Server → client events:
 
 Client → server commands:
 - Shared screen only: `DISPATCH_TASK { taskId, assignee }`, `DISMISS_TASK { taskId }`
-- Assignee's phone only: `CLAIM_TASK { taskId, mode: 'ACTION_AGENT'|'MANUAL' }`, `APPROVE_ACTION { taskId, draft }`, `RETRY_ACTION { taskId }`, `MARK_DONE { taskId }`, `SYNC_TASK { taskId }`
+- Assignee's phone only: `CLAIM_TASK { taskId, mode: 'ACTION_AGENT'|'MANUAL' }`, `APPROVE_ACTION { taskId, draft }`, `RETRY_ACTION { taskId, draft? }`, `MARK_DONE { taskId }`, `SYNC_TASK { taskId }`
 
 Task lifecycle (enforced by the server's task store):
 `SUGGESTED → DISPATCHED | DISMISSED`; `DISPATCHED → CLAIMED`; `CLAIMED → DRAFT_READY | COMPLETED (manual) | FAILED`; `DRAFT_READY → RUNNING` (assignee approved the draft); `RUNNING → COMPLETED | FAILED`; `FAILED → RUNNING` (retry); `COMPLETED → SYNCED`.

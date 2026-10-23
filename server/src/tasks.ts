@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   canTransition,
   isActionDraft,
-  isActionKind,
   isRoleIn,
+  isSuggestInput,
   type ActionDraft,
   type KakiCommand,
   type KakiEvent,
@@ -90,14 +90,20 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     }
     assertPatch(patch, scenario);
 
+    const { error, ...rest } = patch;
     const draft: ActionDraft | undefined = patch.draft === undefined ? current.draft : { ...patch.draft };
     const next: Task = {
       ...current,
-      ...patch,
+      ...rest,
       draft,
       status: to,
       updatedAt: new Date().toISOString(),
     };
+    if (to === 'FAILED' && error !== undefined) {
+      next.error = error;
+    } else {
+      delete next.error;
+    }
     tasks.set(id, next);
     publishTask(next);
     notifyChange(next, current.status);
@@ -105,15 +111,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
   }
 
   function suggest(input: SuggestInput): Task {
-    if (input.title.trim().length === 0 || input.context.trim().length === 0) {
-      throw new Error('A task needs a non-empty title and context');
-    }
-    if (!isRoleIn(scenario, input.suggestedAssignee)) {
-      throw new Error(`Unknown suggested assignee: ${input.suggestedAssignee}`);
-    }
-    if (input.actionKind !== undefined && !isActionKind(input.actionKind)) {
-      throw new Error(`Unknown action kind: ${input.actionKind}`);
-    }
+    if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
 
     const task: Task = {
       id: `task-${randomUUID()}`,
@@ -167,7 +165,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       case 'RETRY_ACTION': {
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);
-        transition(command.taskId, 'RUNNING');
+        transition(command.taskId, 'RUNNING', command.draft === undefined ? {} : { draft: command.draft });
         return;
       }
       case 'MARK_DONE': {

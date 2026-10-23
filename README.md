@@ -13,6 +13,10 @@ npm run emit-demo                 # in a second terminal: sends the scenario's s
 npm test                          # all tests
 ```
 
+`npm run dev` sets `KAKI_DEV_ROUTES=1`, enabling the `/dev/emit` and `/dev/suggest-task` routes that
+`npm run emit-demo` uses; set `KAKI_DEV_ROUTES=0` to turn them off. `KAKI_FAKE_ACTIONS=1` makes fake
+actions stand in for Gitea/Mattermost/email.
+
 Open:
 - Shared Action Panel: http://localhost:5173/screen
 - A participant's phone: http://localhost:5173/phone?role=lead_programmer (roles come from the scenario)

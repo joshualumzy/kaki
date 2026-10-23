@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { isRoleIn, roleLabel, type KakiCommand, type Scenario, type Task } from '@kaki/shared';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useKaki, useScenario } from '../kaki';
@@ -91,10 +91,6 @@ function PhoneTask({
   const [body, setBody] = useState(task.draft?.body ?? '');
   const draft = task.draft;
 
-  useEffect(() => {
-    setBody(task.draft?.body ?? '');
-  }, [task.draft?.body]);
-
   return (
     <Card>
       <h2 className="card-title">{task.title}</h2>
@@ -122,7 +118,7 @@ function PhoneTask({
         </div>
       ) : null}
 
-      {task.status === 'DRAFT_READY' && draft !== undefined ? (
+      {(task.status === 'DRAFT_READY' || task.status === 'FAILED') && draft !== undefined ? (
         <>
           <p className="task-meta">To: {draft.target}</p>
           <p className="task-meta">Subject: {draft.subject}</p>
@@ -135,21 +131,34 @@ function PhoneTask({
               onChange={(event) => setBody(event.target.value)}
             />
           </label>
-          <div className="task-actions">
-            <Button
-              onClick={() =>
-                send({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, body } })
-              }
-            >
-              Approve
-            </Button>
-          </div>
         </>
+      ) : null}
+
+      {task.status === 'DRAFT_READY' && draft !== undefined ? (
+        <div className="task-actions">
+          <Button
+            onClick={() =>
+              send({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, body } })
+            }
+          >
+            Approve
+          </Button>
+        </div>
       ) : null}
 
       {task.status === 'FAILED' ? (
         <div className="task-actions">
-          <Button onClick={() => send({ type: 'RETRY_ACTION', taskId: task.id })}>Retry</Button>
+          <Button
+            onClick={() =>
+              send(
+                draft === undefined
+                  ? { type: 'RETRY_ACTION', taskId: task.id }
+                  : { type: 'RETRY_ACTION', taskId: task.id, draft: { ...draft, body } },
+              )
+            }
+          >
+            Retry
+          </Button>
         </div>
       ) : null}
 
