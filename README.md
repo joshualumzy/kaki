@@ -1,1 +1,25 @@
 # it5007-courseproject-group-14
+
+**Kaki**: a multi-agent meeting assistant. See the [PRD](docs/spec/PRD-kaki-meeting-assistant.md) and the [glossary](CONTEXT.md).
+
+## Getting started
+
+Requires Node 22.
+
+```bash
+npm install
+KAKI_FAKE_ACTIONS=1 npm run dev   # server on :3001, web app on :5173; fake actions stand in for Gitea/Mattermost/email
+npm run emit-demo                 # in a second terminal: sends the scenario's sample events and tasks
+npm test                          # all tests
+```
+
+Open:
+- Shared Action Panel: http://localhost:5173/screen
+- A participant's phone: http://localhost:5173/phone?role=lead_programmer (roles come from the scenario)
+
+The server keeps state in memory and restarts when server code changes; run `npm run emit-demo` again after a restart.
+
+## Working on the code
+
+- Folder ownership and the rules for changing shared code: [docs/ownership.md](docs/ownership.md).
+- Demo scenarios: [scenarios/README.md](scenarios/README.md).
