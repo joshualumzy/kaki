@@ -1,0 +1,216 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { isKakiEvent, isSuggestInput, type Scenario } from '@kaki/shared';
+import { createHub, type Hub } from './hub';
+import type { KakiModule } from './modules';
+import { createTaskStore, type TaskStore } from './tasks';
+
+/** Options for creating the Kaki server; port 0 picks a free port for tests. */
+export interface CreateAppOptions {
+  port?: number;
+  scenario: Scenario;
+  modules?: KakiModule[];
+}
+
+/** A listening Kaki server and its hub and task store. */
+export interface KakiApp {
+  server: Server;
+  hub: Hub;
+  tasks: TaskStore;
+  close(): Promise<void>;
+}
+
+interface RequestContext {
+  hub: Hub;
+  tasks: TaskStore;
+  scenario: Scenario;
+}
+
+const MAX_BODY_BYTES = 1_000_000;
+// Dev-emitted events are all retained so pages opened after `npm run emit-demo` still see them.
+let devEmitCount = 0;
+
+type JsonBody = { ok: true; value: unknown } | { ok: false; status: number; error: string };
+
+function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  if (response.writableEnded) return;
+  response.writeHead(status, { 'content-type': 'application/json' });
+  response.end(JSON.stringify(body));
+}
+
+function readBody(request: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    let overflowed = false;
+    const chunks: Buffer[] = [];
+
+    request.on('data', (chunk: Buffer) => {
+      if (overflowed) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        overflowed = true;
+        reject(new Error(`Request body exceeds ${MAX_BODY_BYTES} bytes`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on('end', () => {
+      if (!overflowed) resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    request.on('error', reject);
+  });
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
+  let body: string;
+  try {
+    body = await readBody(request);
+  } catch (error) {
+    return { ok: false, status: 400, error: error instanceof Error ? error.message : 'Could not read body' };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(body) as unknown };
+  } catch {
+    return { ok: false, status: 400, error: 'Body must be valid JSON' };
+  }
+}
+
+function isDevEnvironment(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
+
+async function handleRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RequestContext,
+): Promise<void> {
+  try {
+    const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+
+    if (request.method === 'GET' && path === '/health') {
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'GET' && path === '/api/scenario') {
+      sendJson(response, 200, context.scenario);
+      return;
+    }
+
+    if (request.method === 'POST' && path === '/dev/emit' && isDevEnvironment()) {
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      if (!isKakiEvent(body.value, context.scenario)) {
+        sendJson(response, 400, { error: 'Body must be a valid KakiEvent' });
+        return;
+      }
+
+      devEmitCount += 1;
+      context.hub.publish(body.value, { retainKey: `dev:${devEmitCount}` });
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && path === '/dev/suggest-task' && isDevEnvironment()) {
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      if (!isSuggestInput(body.value, context.scenario)) {
+        sendJson(response, 400, { error: 'Body must be a valid task suggestion' });
+        return;
+      }
+
+      sendJson(response, 200, context.tasks.suggest(body.value));
+      return;
+    }
+
+    sendJson(response, 404, { error: 'Not found' });
+  } catch (error) {
+    console.error('kaki server: request failed', error);
+    sendJson(response, 500, { error: 'Internal server error' });
+  }
+}
+
+function listen(server: Server, port: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once('error', onError);
+    server.listen(port, () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+/** Create the HTTP server, the `/ws` hub and the task store, then start every module. */
+export async function createApp({
+  port = 0,
+  scenario,
+  modules = [],
+}: CreateAppOptions): Promise<KakiApp> {
+  const server = createServer((request, response) => {
+    void handleRequest(request, response, { hub, tasks, scenario });
+  });
+  const hub = createHub(server, scenario);
+  const tasks = createTaskStore({ hub, scenario });
+  hub.onCommand(tasks.handleCommand);
+
+  await listen(server, port);
+
+  const cleanups: Array<() => void> = [];
+
+  for (const feature of modules) {
+    try {
+      const stop = feature.start({ hub, tasks, scenario });
+      if (typeof stop === 'function') cleanups.push(stop);
+    } catch (error) {
+      for (const cleanup of cleanups.reverse()) {
+        try {
+          cleanup();
+        } catch (cleanupError) {
+          console.error('kaki server: a module failed to stop after startup failed', cleanupError);
+        }
+      }
+      hub.close();
+      await closeServer(server);
+      throw new Error(
+        `kaki server: module "${feature.name}" failed to start: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      );
+    }
+  }
+
+  let closed = false;
+
+  return {
+    server,
+    hub,
+    tasks,
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      for (const cleanup of cleanups.reverse()) {
+        try {
+          cleanup();
+        } catch (error) {
+          console.error('kaki server: a module failed to stop', error);
+        }
+      }
+      hub.close();
+      await closeServer(server);
+    },
+  };
+}
