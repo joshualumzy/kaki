@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isKakiEvent, isSuggestInput, type Scenario } from '@kaki/shared';
 import { CommandError, createHub, type Hub } from './hub';
+import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import { createTaskStore, type TaskStore } from './tasks';
 
@@ -90,6 +91,16 @@ async function handleRequest(
 
     if (request.method === 'GET' && path === '/api/scenario') {
       sendJson(response, 200, context.scenario);
+      return;
+    }
+
+    if (request.method === 'GET' && path === '/api/join-info') {
+      const join = resolveJoinBaseUrl();
+      if (!join.ok) {
+        sendJson(response, 503, { error: join.error });
+        return;
+      }
+      sendJson(response, 200, { baseUrl: join.baseUrl });
       return;
     }
 

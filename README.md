@@ -17,6 +17,10 @@ npm test                          # all tests
 `npm run emit-demo` uses; set `KAKI_DEV_ROUTES=0` to turn them off. `KAKI_FAKE_ACTIONS=1` makes fake
 actions stand in for Gitea/Mattermost/email.
 
+The shared screen's "Join on your phone" QR codes use `KAKI_PUBLIC_URL` when set (for example
+`http://192.168.1.20:5173`); otherwise the server detects its first LAN IPv4 address and uses
+`KAKI_WEB_PORT` (default `5173`). Set `KAKI_PUBLIC_URL` if phones cannot reach the detected address.
+
 Open:
 - Shared Action Panel: http://localhost:5173/screen
 - A participant's phone: http://localhost:5173/phone?role=lead_programmer (roles come from the scenario)
