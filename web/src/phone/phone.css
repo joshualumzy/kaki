@@ -1,0 +1,248 @@
+.phone {
+  width: 100%;
+  max-width: 30rem;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: var(--space-4);
+  padding-top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
+  padding-right: calc(var(--space-4) + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(var(--space-4) + env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.phone-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.phone-header .eyebrow {
+  font-size: 0.7rem;
+}
+
+.phone-header h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.phone-intro {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.phone .card {
+  min-width: 0;
+}
+
+.phone .card-title {
+  overflow-wrap: anywhere;
+}
+
+.phone .role-picker .btn {
+  width: 100%;
+}
+
+.phone .btn {
+  min-height: 44px;
+  padding: var(--space-3) var(--space-4);
+  font-size: 1rem;
+}
+
+.phone .task-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.phone .task-actions .btn {
+  width: 100%;
+}
+
+.phone .artifact-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  overflow-wrap: anywhere;
+}
+
+.phone .task-meta {
+  font-size: 0.88rem;
+}
+
+.phone .draft-field {
+  font-size: 0.88rem;
+}
+
+.phone .draft-body {
+  width: 100%;
+  max-width: 100%;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.phone-current {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.phone-section-eyebrow {
+  margin: 0;
+}
+
+.phone-current .card {
+  padding: var(--space-5) var(--space-4);
+  border-color: var(--color-accent);
+  box-shadow: 0 2px 4px rgba(31, 39, 36, 0.08), 0 18px 44px rgba(31, 39, 36, 0.1);
+}
+
+.phone-current .card-title {
+  margin-bottom: var(--space-2);
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
+.phone-current-text {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.45;
+}
+
+.phone-current.phone-calm .card {
+  padding: var(--space-4);
+  border-color: var(--color-border);
+  background: var(--color-accent-soft);
+  box-shadow: var(--shadow-card);
+}
+
+.phone-current.phone-calm .card-title {
+  margin-bottom: var(--space-1);
+  font-size: 1.1rem;
+}
+
+.phone-task-context {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
+}
+
+.phone-time {
+  flex: none;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.phone-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.phone-history > h2 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.phone-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.phone-history-list > li {
+  min-width: 0;
+}
+
+.phone-history-list .card {
+  padding: var(--space-3) var(--space-4);
+}
+
+.phone-history-list .card-title {
+  margin-bottom: var(--space-1);
+  font-size: 0.98rem;
+  line-height: 1.3;
+}
+
+.phone-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  min-width: 0;
+}
+
+.phone-item-kind {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.phone-item-text {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.phone-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.phone-fact-question {
+  overflow-wrap: anywhere;
+}
+
+.phone-facts {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.phone-fact {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+
+.phone-fact-text {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.phone-fact-source {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+@media (min-width: 26rem) {
+  .phone {
+    padding-top: calc(var(--space-5) + env(safe-area-inset-top, 0px));
+  }
+}
