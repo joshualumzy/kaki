@@ -25,6 +25,7 @@ export interface GiteaIssueSeed {
   body: string;
   createdAt?: string;
   closedAt?: string;
+  date: string;
 }
 
 export interface GiteaSeed {
@@ -126,6 +127,14 @@ function isoDateAt(value: unknown, file: string, where: string): string {
   return text;
 }
 
+function dayAt(value: unknown, file: string, where: string): string {
+  const text = stringAt(value, file, where);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(text))) {
+    fail(file, `${where} must be a YYYY-MM-DD date`);
+  }
+  return text;
+}
+
 function parseAddress(value: unknown, file: string, where: string): MailAddressSeed {
   const address = objectAt(value, file, where);
   return {
@@ -174,6 +183,7 @@ export function parseGiteaSeed(value: unknown, file = 'gitea/issues.json'): Gite
     if (state !== 'open' && state !== 'closed') {
       fail(file, `issues[${index}].state must be "open" or "closed"`);
     }
+    const createdAt = isoDateAt(issue.createdAt, file, `issues[${index}].createdAt`);
     return {
       title: stringAt(issue.title, file, `issues[${index}].title`),
       state: state as 'open' | 'closed',
@@ -181,8 +191,9 @@ export function parseGiteaSeed(value: unknown, file = 'gitea/issues.json'): Gite
         stringAt(label, file, `issues[${index}].labels[${labelIndex}]`),
       ),
       body: stringAt(issue.body, file, `issues[${index}].body`),
-      createdAt: isoDateAt(issue.createdAt, file, `issues[${index}].createdAt`),
+      createdAt,
       closedAt: issue.closedAt === undefined ? undefined : isoDateAt(issue.closedAt, file, `issues[${index}].closedAt`),
+      date: issue.date === undefined ? createdAt.slice(0, 10) : dayAt(issue.date, file, `issues[${index}].date`),
     };
   });
   if (issues.length === 0) fail(file, 'issues must not be empty');

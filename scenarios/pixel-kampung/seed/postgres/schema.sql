@@ -9,7 +9,8 @@ CREATE TABLE playtest_quit_stats (
   players_started integer NOT NULL,
   players_quit integer NOT NULL,
   quit_rate numeric(5, 2) NOT NULL,
-  notes text
+  notes text,
+  updated_on date NOT NULL
 );
 
 CREATE TABLE wishlist_counts (
@@ -23,7 +24,8 @@ CREATE TABLE launch_budget (
   item text NOT NULL UNIQUE,
   planned_sgd numeric(10, 2) NOT NULL,
   spent_sgd numeric(10, 2) NOT NULL,
-  notes text
+  notes text,
+  updated_on date NOT NULL
 );
 
 CREATE TABLE knowledge_chunks (
@@ -31,6 +33,7 @@ CREATE TABLE knowledge_chunks (
   source text NOT NULL,
   ref text NOT NULL,
   text text NOT NULL,
+  published_at timestamptz NOT NULL,
   embedding vector(1024),
   UNIQUE (source, ref)
 );

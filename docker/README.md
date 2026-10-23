@@ -52,6 +52,26 @@ The repo's dev server uses 3001 and the web app uses 5173, so neither is touched
 - Postgres: pgvector extension, playtest quit stats (level 5 spike), wishlist counts,
   launch budget, and an empty `knowledge_chunks` table with a `vector(1024)` column.
 
+## Company search
+
+The Wingman knowledge module answers open meeting questions from the seeded company
+data. Index the five services into Postgres once the stack is seeded:
+
+```bash
+export KAKI_LLM_BASE_URL=...      # school gateway, OpenAI-compatible
+export KAKI_LLM_API_KEY=...
+export KAKI_LLM_MODEL=x-test-2    # optional, this is the default
+export KAKI_EMBED_MODEL=bge-m3    # optional, this is the default
+npm run index:knowledge
+npm run knowledge:check           # real end-to-end check, needs the stack running
+```
+
+`npm run index:knowledge` is idempotent: it reads Wiki.js, Gitea, Mattermost, Mailpit
+and Postgres through `docker/.env`, then upserts one embedded chunk per record. The
+server's knowledge module also needs `POSTGRES_URL` (from `docker/.env`) plus the two
+gateway variables; without them it logs that company search is disabled and stays idle.
+`docker/.env.example` lists every variable with placeholders only.
+
 ## Admin logins
 
 - Wiki.js: `admin@pixelkampung.example` / `kaki_wiki_dev`
