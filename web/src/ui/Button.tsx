@@ -1,0 +1,10 @@
+import type { ButtonHTMLAttributes } from 'react';
+
+/** Shared button used across the shared screen and phone app. */
+export function Button({
+  variant = 'primary',
+  type = 'button',
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' }) {
+  return <button className={`btn btn-${variant}`} type={type} {...props} />;
+}

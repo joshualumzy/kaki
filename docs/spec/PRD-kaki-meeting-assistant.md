@@ -27,7 +27,7 @@ Meeting participants and hosts need a proactive system that:
 
 2. **`kaki.wingman` (Private Participant Copilot)**:
    - Runs privately on each attendee's screen (mobile or web app, joined via QR code).
-   - Provides role-tailored silent nudges (e.g., reminding the Tech Lead about upcoming topics, feeding private knowledge base facts when questions arise).
+   - Provides role-tailored silent nudges (e.g., reminding the Lead Programmer about upcoming topics, feeding private knowledge base facts when questions arise).
    - Receives tasks dispatched by `kaki.host` and asks the user whether to spawn a background `kaki.action` agent or handle it manually later.
 
 3. **`kaki.action` (Personal Background Execution Worker)**:
@@ -48,7 +48,7 @@ Meeting participants and hosts need a proactive system that:
 6. As a meeting host, I want `kaki.host` to recommend an appropriate assignee for each detected task based on attendee roles, so that tasks can be dispatched with a single click.
 
 ### kaki.wingman (Personal Copilot)
-7. As an attendee joining from my phone, I want to scan a QR code and select my role (e.g. Tech Lead, Finance Lead), so that my `kaki.wingman` loads context relevant only to me.
+7. As an attendee joining from my phone, I want to scan a QR code and select my role (e.g. Lead Programmer, Game Designer), so that my `kaki.wingman` loads context relevant only to me.
 8. As a quiet or introverted attendee, I want my `kaki.wingman` to notify me on my screen 1 minute before my topic begins, so that I can prepare my notes and speak up with confidence.
 9. As an attendee who has been asked a factual question, I want my `kaki.wingman` to instantly search our company knowledge base (Wiki.js, Gitea, Mattermost, Postgres) and display the verified fact privately on my screen, so that I can cite it accurately during the meeting.
 10. As an attendee assigned a task by the meeting host, I want a notification card in my `kaki.wingman` asking whether I want to spawn `kaki.action` or do it myself later, so that I maintain complete control over my work.
@@ -85,17 +85,27 @@ Meeting participants and hosts need a proactive system that:
   - Tool execution modules:
     - `giteaTool`: `POST /api/v1/repos/{owner}/{repo}/issues`
     - `mattermostTool`: `POST /api/v4/posts`
-  - Dispatches WebSocket event `ACTION_COMPLETED` containing external URLs and payload upon completion.
+    - `emailTool`: SMTP to Mailpit (fake company inbox)
+  - Drafts first; writes only after the assignee approves the draft. On completion moves the task to `COMPLETED` with the external URL (published as `TASK_UPDATED`).
 
 ### 2. State & Event Protocol
-WebSocket event types:
+The source of truth is the code in `shared/src` (`events.ts`, `commands.ts`, `task.ts`); this section summarises it. Every event carries an `audience` (`screen`, one `role`, or `all`) and the server alone decides who receives it.
+
+Server → client events:
 - `TRANSCRIPT_CHUNK`: `{ speaker, text, timestamp }`
-- `MEETING_RECORD_UPDATED`: `{ agendaIndex, openQuestions, candidateTasks }`
-- `HOST_SPEECH_TRIGGERED`: `{ type: 'OPENING'|'TIMEOUT'|'CLOSING', text }`
-- `TASK_DISPATCHED`: `{ taskId, title, suggestedAssignee, context }`
-- `TASK_CLAIMED`: `{ taskId, assignee, mode: 'ACTION_AGENT'|'MANUAL' }`
-- `ACTION_STATUS_CHANGED`: `{ taskId, status: 'RUNNING'|'COMPLETED'|'FAILED', artifactUrl }`
-- `TASK_SYNCED_TO_MEETING`: `{ taskId, status: 'COMPLETED', artifactUrl }`
+- `MEETING_RECORD_UPDATED`: `{ agendaIndex, elapsedSeconds, speakerTalkSeconds, openQuestions: { id, text, forRole? }[] }`
+- `HOST_SPEECH_TRIGGERED`: `{ kind: 'OPENING'|'TIMEOUT'|'CLOSING', text }`
+- `NUDGE`: `{ text }` (private, to one role)
+- `FACT_FOUND`: `{ questionId, question, facts: { text, source, date }[] }` (private, to one role)
+- `TASK_UPDATED`: `{ task }` (the whole task, after every change)
+- `COMMAND_REJECTED`: `{ commandType, reason }` (only to the client whose command failed)
+
+Client → server commands:
+- Shared screen only: `DISPATCH_TASK { taskId, assignee }`, `DISMISS_TASK { taskId }`
+- Assignee's phone only: `CLAIM_TASK { taskId, mode: 'ACTION_AGENT'|'MANUAL' }`, `APPROVE_ACTION { taskId, draft }`, `RETRY_ACTION { taskId, draft? }`, `MARK_DONE { taskId }`, `SYNC_TASK { taskId }`
+
+Task lifecycle (enforced by the server's task store):
+`SUGGESTED → DISPATCHED | DISMISSED`; `DISPATCHED → CLAIMED`; `CLAIMED → DRAFT_READY | COMPLETED (manual) | FAILED`; `DRAFT_READY → RUNNING` (assignee approved the draft); `RUNNING → COMPLETED | FAILED`; `FAILED → RUNNING` (retry); `COMPLETED → SYNCED`.
 
 ### 3. Data & Infrastructure
 - Self-hosted Docker Compose stack:
@@ -103,6 +113,8 @@ WebSocket event types:
   - `gitea` for code and issue tracker mock.
   - `mattermost` for team chat mock.
   - `wiki.js` for company documentation mock.
+  - `mailpit` for the company email mock (inbox to search, and outgoing mail from `kaki.action`).
+- Demo scenarios live in `scenarios/<id>/` (people, agenda, seed data, replay script); `SCENARIO=<id>` switches between them.
 - Single `.env` file containing API keys and base URLs.
 
 ---
@@ -117,11 +129,11 @@ WebSocket event types:
 
 ### Seam 3: Task Dispatch & Action Execution Seam (End-to-End Worker)
 - Trigger a synthetic `TASK_DISPATCHED` event for a Gitea issue creation task.
-- Assert that `kaki.action` executes `giteaTool`, verifies HTTP 201 response, emits `ACTION_COMPLETED` with the valid issue URL, and updates the task status in the Shared Action Panel.
+- Assert that `kaki.action` drafts the issue, waits for the assignee's approval, executes `giteaTool`, verifies the HTTP 201 response, moves the task to `COMPLETED` with the valid issue URL, and that the Shared Action Panel shows it.
 
 ### Seam 4: Multi-Client UI Isolation Seam
-- Connect two distinct WebSocket clients (Client A with role `tech_lead`, Client B with role `finance_lead`).
-- Emit a tech-specific task. Assert Client A receives the prompt card while Client B receives zero extraneous notifications.
+- Connect two distinct WebSocket clients (Client A with role `lead_programmer`, Client B with role `game_designer`).
+- Dispatch a task to `lead_programmer`. Assert Client A receives the prompt card while Client B receives zero extraneous notifications.
 
 ---
 
@@ -136,5 +148,5 @@ WebSocket event types:
 
 ## Further Notes
 
-- Demonstration Scenario: 29th NUS SoC Term Project Showcase (STePS) preparation meeting (https://uvents.nus.edu.sg/event/29th-steps at COM3 MPH). Agenda includes booth logistics, demo hardware verification, live Attendee bot checks, and emergency bug triage.
-- Course Presentation Plan: 1 laptop (Zoom + `kaki.host` audio and Shared Action Panel) + 2 mobile phones (`kaki.wingman` for Tech Lead and Finance Lead).
+- Demonstration Scenario: **Pixel Kampung**, a fictional Singapore indie game studio, holds a launch-readiness meeting for its mobile game *Hawker Heroes* (publisher Starfruit Publishing and convention Indie Arcade SG, both fictional). Attendees: Wei Ling (Producer, host), Arjun (Lead Programmer), Mei (Game Designer), Daniel (Marketing Lead). Agenda: build and bugs; level 5 difficulty and playtest feedback; publisher milestone; launch marketing and booth budget. The fake company data is deliberately messy (conflicting dates across wiki and email, stale pages, undecided threads) so cross-source search matters.
+- Course Presentation Plan: recorded demo video of a live, semi-scripted Zoom call (1 laptop with the Shared Action Panel + 2 phones running `kaki.wingman`), with a replay mode as fallback. On demo day, visitors take roles using short cue cards.
