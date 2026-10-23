@@ -6,11 +6,14 @@ import './join-phones.css';
 
 type JoinState =
   | { kind: 'loading' }
-  | { kind: 'ready'; baseUrl: string }
+  | { kind: 'ready'; baseUrl: string; code?: string }
   | { kind: 'error'; message: string };
 
-function phoneUrl(baseUrl: string, roleId: string): string {
-  return `${baseUrl}/phone?role=${encodeURIComponent(roleId)}`;
+function phoneUrl(baseUrl: string, roleId: string, code?: string): string {
+  const query = `role=${encodeURIComponent(roleId)}`;
+  return code === undefined
+    ? `${baseUrl}/phone?${query}`
+    : `${baseUrl}/phone?${query}&code=${encodeURIComponent(code)}`;
 }
 
 /** Shared-screen card with one QR code per scenario role so phones can join. */
@@ -23,7 +26,10 @@ export function JoinPhones() {
 
     async function load(): Promise<void> {
       try {
-        const response = await fetch('/api/join-info', { signal: controller.signal });
+        const [response, codeResponse] = await Promise.all([
+          fetch('/api/join-info', { signal: controller.signal }),
+          fetch('/api/meeting-code', { signal: controller.signal }).catch(() => null),
+        ]);
         const body = (await response.json().catch(() => null)) as
           | { baseUrl?: unknown; error?: unknown }
           | null;
@@ -42,7 +48,21 @@ export function JoinPhones() {
           return;
         }
 
-        setState({ kind: 'ready', baseUrl: body.baseUrl });
+        let code: string | undefined;
+        if (codeResponse?.ok === true) {
+          const codeBody = (await codeResponse.json().catch(() => null)) as
+            | { code?: unknown }
+            | null;
+          if (typeof codeBody?.code === 'string' && codeBody.code.trim() !== '') {
+            code = codeBody.code.trim();
+          }
+        }
+
+        setState(
+          code === undefined
+            ? { kind: 'ready', baseUrl: body.baseUrl }
+            : { kind: 'ready', baseUrl: body.baseUrl, code },
+        );
       } catch (error) {
         if (controller.signal.aborted) return;
         setState({
@@ -75,9 +95,14 @@ export function JoinPhones() {
         <p className="empty-state">Finding this screen&apos;s address…</p>
       ) : (
         <>
+          {state.code === undefined ? null : (
+            <p className="join-code">
+              Meeting code: <strong>{state.code}</strong>
+            </p>
+          )}
           <ul className="join-phones">
             {scenario.roles.map((role) => {
-              const url = phoneUrl(state.baseUrl, role.id);
+              const url = phoneUrl(state.baseUrl, role.id, state.code);
               return (
                 <li className="join-phone" key={role.id}>
                   <RoleQrCode value={url} label={role.label} />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   isRoleIn,
   roleLabel,
@@ -9,8 +9,11 @@ import {
   type Task,
 } from '@kaki/shared';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { joinMeeting } from '../auth/api';
+import { useMe } from '../auth/useMe';
 import { useKaki, useScenario, type KakiRejection } from '../kaki';
 import { Button, Card, ConnectionBanner, RejectionBanner, StatusPill } from '../ui';
+import '../auth/auth.css';
 import './phone.css';
 
 interface StampedEvent {
@@ -88,14 +91,51 @@ function TimeLabel({ at }: { at: number }) {
   );
 }
 
-/** Phone shell: asks for a role when it has none, then shows only that role's events and tasks. */
+/** Phone shell: joins once, remembers the role, then shows only that role's events and tasks. */
 export function PhonePage() {
   const scenario = useScenario();
   const [params] = useSearchParams();
-  const role = params.get('role');
+  const auth = useMe();
+  const [joinedRole, setJoinedRole] = useState<string | null>(null);
 
-  if (!isRoleIn(scenario, role)) return <RolePicker />;
-  return <PhoneFeed role={role} />;
+  if (auth.status === 'loading') {
+    return (
+      <main className="phone">
+        <p className="empty-state">Checking sign-in…</p>
+      </main>
+    );
+  }
+
+  if (auth.status === 'error') {
+    return (
+      <main className="phone">
+        <Card title="Could not check sign-in">
+          <p className="connection-banner" role="alert">
+            {auth.message}
+          </p>
+        </Card>
+      </main>
+    );
+  }
+
+  if (!auth.me.authEnabled) {
+    const role = params.get('role');
+    if (!isRoleIn(scenario, role)) return <RolePicker />;
+    return <PhoneFeed role={role} />;
+  }
+
+  const sessionRole = auth.me.kind === 'participant' ? auth.me.role : undefined;
+  const role = joinedRole ?? (isRoleIn(scenario, sessionRole) ? sessionRole : undefined);
+  if (role !== undefined) return <PhoneFeed role={role} />;
+
+  const requestedRole = params.get('role');
+  return (
+    <JoinForm
+      initialCode={params.get('code') ?? ''}
+      initialRole={isRoleIn(scenario, requestedRole) ? requestedRole : ''}
+      onJoined={setJoinedRole}
+    />
+  );
 }
 
 function RolePicker() {
@@ -117,6 +157,102 @@ function RolePicker() {
             </Button>
           ))}
         </div>
+      </Card>
+    </main>
+  );
+}
+
+function JoinForm({
+  initialCode,
+  initialRole,
+  onJoined,
+}: {
+  initialCode: string;
+  initialRole: string;
+  onJoined: (role: string) => void;
+}) {
+  const scenario = useScenario();
+  const [code, setCode] = useState(initialCode.toUpperCase());
+  const [role, setRole] = useState(initialRole);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const busy = useRef(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (busy.current) return;
+
+    if (code.trim() === '') {
+      setError('Enter the meeting code.');
+      return;
+    }
+    if (role === '') {
+      setError('Choose your role.');
+      return;
+    }
+
+    busy.current = true;
+    setPending(true);
+    setError(null);
+    const result = await joinMeeting(code.trim(), role);
+    busy.current = false;
+    setPending(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    onJoined(result.role);
+  }
+
+  return (
+    <main className="phone">
+      <header className="phone-header">
+        <p className="eyebrow">Kaki · Your phone</p>
+        <h1>Join the meeting</h1>
+      </header>
+      <p className="phone-intro">
+        Enter the code shown on the shared screen, then pick your role.
+      </p>
+      <Card title="Join">
+        <form className="join-form" onSubmit={(event) => void submit(event)} noValidate>
+          <label className="auth-field">
+            <span>Meeting code</span>
+            <input
+              className="auth-input"
+              value={code}
+              onChange={(event) => setCode(event.target.value.toUpperCase())}
+              maxLength={6}
+              autoCapitalize="characters"
+              autoComplete="off"
+              inputMode="text"
+              placeholder="ABC123"
+              autoFocus={code === ''}
+            />
+          </label>
+          <label className="auth-field">
+            <span>Your role</span>
+            <select
+              className="auth-input"
+              value={role}
+              onChange={(event) => setRole(event.target.value)}
+            >
+              <option value="">Choose a role</option>
+              {scenario.roles.map((scenarioRole) => (
+                <option key={scenarioRole.id} value={scenarioRole.id}>
+                  {scenarioRole.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {error === null ? null : (
+            <p className="task-error" role="alert">
+              {error}
+            </p>
+          )}
+          <Button type="submit" disabled={pending}>
+            {pending ? 'Joining…' : 'Join'}
+          </Button>
+        </form>
       </Card>
     </main>
   );
