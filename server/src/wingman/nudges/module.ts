@@ -1,4 +1,4 @@
-import type { KakiEvent, Role, SearchCompanyData, Scenario } from '@kaki/shared';
+import type { KakiEvent, Role, SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from '../knowledge/gateway';
@@ -18,6 +18,8 @@ type NudgeKind = 'coming_up' | 'quiet_owner';
 
 interface NudgeRequest {
   kind: NudgeKind;
+  /** The agenda item the nudge is about; part of the key late phones get it by. */
+  agendaIndex: number;
   role: Role;
   topic: string;
   /** Seconds until the next item starts, or seconds left in the current item. */
@@ -26,15 +28,6 @@ interface NudgeRequest {
 
 function missingSearchEnv(env: NodeJS.ProcessEnv): string[] {
   return [...missingGatewayEnv(env), ...(env.POSTGRES_URL ? [] : ['POSTGRES_URL'])];
-}
-
-/** The elapsed-meeting second at which an agenda item starts. */
-function itemStartSeconds(agenda: Scenario['agenda'], index: number): number {
-  let minutes = 0;
-  for (let i = 0; i < index; i += 1) {
-    minutes += agenda[i]?.minutes ?? 0;
-  }
-  return minutes * 60;
 }
 
 function minutesLabel(seconds: number): string {
@@ -76,11 +69,14 @@ function sendNudge(ctx: KakiContext, search: SearchCompanyData, request: NudgeRe
     }
 
     try {
-      ctx.hub.publish({
-        type: 'NUDGE',
-        audience: { kind: 'role', role: request.role },
-        payload: { text: nudgeText(request, factText) },
-      });
+      ctx.hub.publish(
+        {
+          type: 'NUDGE',
+          audience: { kind: 'role', role: request.role },
+          payload: { text: nudgeText(request, factText) },
+        },
+        { retainKey: `nudge:${request.kind}:${request.agendaIndex}` },
+      );
     } catch (error) {
       console.error(
         `kaki wingman: failed to publish nudge on "${request.topic}" (${request.role}):`,
@@ -103,19 +99,20 @@ function handleEvent(
   const current = agenda[agendaIndex];
   if (current === undefined) return;
 
-  const currentStart = itemStartSeconds(agenda, agendaIndex);
-  const currentRunning = elapsedSeconds - currentStart;
+  // elapsedSeconds counts from the start of the current agenda item, not the meeting.
+  const secondsLeft = current.minutes * 60 - elapsedSeconds;
 
   const quietKey = `quiet_owner:${agendaIndex}`;
-  if (!fired.has(quietKey) && currentRunning >= QUIET_RUNNING_SECONDS) {
+  if (!fired.has(quietKey) && elapsedSeconds >= QUIET_RUNNING_SECONDS) {
     const talked = speakerTalkSeconds[current.ownerRole] ?? 0;
     if (talked < QUIET_TALK_SECONDS) {
       fired.add(quietKey);
       sendNudge(ctx, search, {
         kind: 'quiet_owner',
+        agendaIndex,
         role: current.ownerRole,
         topic: current.title,
-        seconds: currentStart + current.minutes * 60 - elapsedSeconds,
+        seconds: secondsLeft,
       });
     }
   }
@@ -125,14 +122,14 @@ function handleEvent(
   if (next === undefined || next.ownerRole === current.ownerRole) return;
 
   const comingUpKey = `coming_up:${nextIndex}`;
-  const secondsUntilStart = itemStartSeconds(agenda, nextIndex) - elapsedSeconds;
-  if (!fired.has(comingUpKey) && secondsUntilStart <= COMING_UP_WINDOW_SECONDS) {
+  if (!fired.has(comingUpKey) && secondsLeft <= COMING_UP_WINDOW_SECONDS) {
     fired.add(comingUpKey);
     sendNudge(ctx, search, {
       kind: 'coming_up',
+      agendaIndex: nextIndex,
       role: next.ownerRole,
       topic: next.title,
-      seconds: secondsUntilStart,
+      seconds: secondsLeft,
     });
   }
 }

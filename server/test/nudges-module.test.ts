@@ -31,12 +31,20 @@ const fact: Fact = {
 
 const comment = 'Tap the fact card to read the details.';
 
-function fakeHub(): { hub: Hub; published: KakiEvent[]; subscribed: () => number; emit: (event: KakiEvent) => void } {
+function fakeHub(): {
+  hub: Hub;
+  published: KakiEvent[];
+  retainKeys: (string | undefined)[];
+  subscribed: () => number;
+  emit: (event: KakiEvent) => void;
+} {
   const handlers = new Set<(event: KakiEvent) => void>();
   const published: KakiEvent[] = [];
+  const retainKeys: (string | undefined)[] = [];
   const hub: Hub = {
-    publish(event) {
+    publish(event, options) {
       published.push(event);
+      retainKeys.push(options?.retainKey);
     },
     subscribe(handler) {
       handlers.add(handler);
@@ -52,6 +60,7 @@ function fakeHub(): { hub: Hub; published: KakiEvent[]; subscribed: () => number
   return {
     hub,
     published,
+    retainKeys,
     subscribed: () => handlers.size,
     emit: (event) => {
       for (const handler of handlers) handler(event);
@@ -104,6 +113,7 @@ describe('nudge module', () => {
       await settle();
       expect(nudges(fake.published)).toHaveLength(1);
       expect(calls).toEqual(['Level 5 difficulty and playtest feedback:game_designer']);
+      expect(fake.retainKeys).toEqual(['nudge:coming_up:1']);
       expect(nudges(fake.published)[0]).toEqual({
         type: 'NUDGE',
         audience: { kind: 'role', role: 'game_designer' },
@@ -111,6 +121,28 @@ describe('nudge module', () => {
           text: `Level 5 difficulty and playtest feedback starts in 1 min. ${fact.text} ${comment}`,
         },
       });
+    } finally {
+      stop();
+    }
+  });
+
+  it('counts time from the start of the current item, not the meeting', async () => {
+    const fake = fakeHub();
+    const stop = start(async () => [fact], fake.hub);
+
+    try {
+      // Item 1 is 10 minutes long; elapsedSeconds restarts at 0 for each item.
+      fake.emit(recordUpdate(1, 539, { game_designer: 300 }));
+      await settle(20);
+      expect(nudges(fake.published)).toEqual([]);
+
+      fake.emit(recordUpdate(1, 540, { game_designer: 300 }));
+      await waitFor(() => nudges(fake.published).length > 0, 'the coming-up nudge');
+      expect(nudges(fake.published)[0]).toMatchObject({
+        audience: { kind: 'role', role: 'producer' },
+        payload: { text: expect.stringContaining('Publisher milestone starts in 1 min.') },
+      });
+      expect(fake.retainKeys).toEqual(['nudge:coming_up:2']);
     } finally {
       stop();
     }
