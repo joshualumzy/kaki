@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@kaki/shared": "*",
+    "nodemailer": "^7.0.13",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/nodemailer": "^7.0.12",
     "@types/ws": "^8.18.0"
   }
 }
