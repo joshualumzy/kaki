@@ -76,6 +76,13 @@ async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
   }
 }
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/** Dev routes are for this machine only: phones on the same Wi-Fi must not reach them. */
+function devRoutesOpen(request: IncomingMessage, context: { devRoutes: boolean }): boolean {
+  return context.devRoutes && LOOPBACK.has(request.socket.remoteAddress ?? '');
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -104,7 +111,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/emit' && context.devRoutes) {
+    if (request.method === 'POST' && path === '/dev/emit' && devRoutesOpen(request, context)) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -120,7 +127,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/suggest-task' && context.devRoutes) {
+    if (request.method === 'POST' && path === '/dev/suggest-task' && devRoutesOpen(request, context)) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });

@@ -14,7 +14,8 @@ npm test                          # all tests
 ```
 
 `npm run dev` sets `KAKI_DEV_ROUTES=1`, enabling the `/dev/emit` and `/dev/suggest-task` routes that
-`npm run emit-demo` uses; set `KAKI_DEV_ROUTES=0` to turn them off. `KAKI_FAKE_ACTIONS=1` makes fake
+`npm run emit-demo` uses; set `KAKI_DEV_ROUTES=0` to turn them off. They only answer requests from this machine, so phones on the
+Wi-Fi (which the Vite dev server is open to) cannot call them. `KAKI_FAKE_ACTIONS=1` makes fake
 actions stand in for Gitea/Mattermost/email.
 
 The shared screen's "Join on your phone" QR codes use `KAKI_PUBLIC_URL` when set (for example
