@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createApp } from '../src/app';
@@ -102,6 +102,25 @@ describe('app', () => {
     expect(response.status).toBe(200);
     await settle();
     expect(screen.messages).toEqual([opening]);
+  });
+
+  it('does not serve a dev route reached through a dot-segment path', async () => {
+    const screen = await connect('screen');
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(
+        { host: '127.0.0.1', port, method: 'POST', path: '/api/../dev/emit', headers: { 'content-type': 'application/json' } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        },
+      );
+      req.on('error', reject);
+      req.end(JSON.stringify(opening));
+    });
+    expect(status).toBe(404);
+
+    await settle();
+    expect(screen.messages).toEqual([]);
   });
 
   it('rejects an invalid dev event or malformed JSON with 400', async () => {

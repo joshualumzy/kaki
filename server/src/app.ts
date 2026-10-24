@@ -78,9 +78,17 @@ async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
-/** Dev routes are for this machine only: phones on the same Wi-Fi must not reach them. */
+/**
+ * Dev routes are for this machine only: phones on the same Wi-Fi must not reach them. The Vite
+ * proxy makes every request look local, so the raw URL must itself start with /dev/: a path like
+ * /api/../dev/emit would otherwise be normalised into a dev route after it passed the /api proxy.
+ */
 function devRoutesOpen(request: IncomingMessage, context: { devRoutes: boolean }): boolean {
-  return context.devRoutes && LOOPBACK.has(request.socket.remoteAddress ?? '');
+  return (
+    context.devRoutes &&
+    LOOPBACK.has(request.socket.remoteAddress ?? '') &&
+    (request.url ?? '').startsWith('/dev/')
+  );
 }
 
 async function handleRequest(
