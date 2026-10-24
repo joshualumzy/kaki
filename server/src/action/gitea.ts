@@ -1,5 +1,5 @@
 import type { Task, TaskStatus } from '@kaki/shared';
-import type { ChatMessage, LlmClient } from '../llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import type { TaskStore } from '../tasks';
 
@@ -40,7 +40,7 @@ function messageOf(error: unknown): string {
 function parseDraft(reply: string): IssueDraft | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(reply);
+    value = parseJsonReply(reply);
   } catch {
     return undefined;
   }
@@ -169,7 +169,7 @@ export function createGiteaModule({
             fail(
               task,
               timeout.aborted
-                ? `Gitea timed out after ${timeoutMs} ms`
+                ? `Gitea timed out after ${timeoutMs} ms; check Gitea before retrying, the issue may already exist`
                 : `could not reach Gitea: ${messageOf(error)}`,
             );
             return;
@@ -180,9 +180,11 @@ export function createGiteaModule({
             const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
             fail(
               task,
-              response.status === 401 || response.status === 403
-                ? `Gitea rejected the token: bad credentials (HTTP ${response.status})`
-                : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
+              response.status === 401
+                ? 'Gitea rejected the token: bad credentials (HTTP 401)'
+                : response.status === 403
+                  ? `Gitea token lacks permission to create issues in ${gitea.owner}/${gitea.repo} (HTTP 403)`
+                  : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
             );
             return;
           }

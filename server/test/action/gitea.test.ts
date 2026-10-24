@@ -114,6 +114,38 @@ describe('gitea action module', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('accepts a JSON reply wrapped in a code fence', async () => {
+    const llm = createFakeLlm(() => '```json\n' + issueReply + '\n```');
+    const tasks = setup({ llm, gitea: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    const ready = await claim(tasks, task);
+
+    expect(ready.draft?.subject).toBe('Fix the oven');
+  });
+
+  it('drafts again after a failed draft when the task is retried', async () => {
+    const llm = createFakeLlm((_messages, call) => {
+      if (call === 0) throw new LlmError('gateway down');
+      return issueReply;
+    });
+    const tasks = setup({ llm, gitea: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+    expect(failed.draft).toBeUndefined();
+
+    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: failed.id }, 'chef');
+    const ready = await waitForStatus(tasks, failed.id, 'DRAFT_READY');
+    expect(ready.draft?.subject).toBe('Fix the oven');
+
+    tasks.transition(ready.id, 'RUNNING');
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(completed.artifactUrl).toBe(issueUrl);
+    expect(llm.calls).toHaveLength(2);
+  });
+
   it('posts the approved draft on run and records the issue URL', async () => {
     const fetchImpl = okFetch();
     const tasks = setup({ llm: createFakeLlm(() => issueReply), gitea: settings, fetchImpl });
@@ -191,6 +223,19 @@ describe('gitea action module', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it('explains a permission failure on 403', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('forbidden', { status: 403 }));
+    const tasks = setup({ llm: createFakeLlm(() => issueReply), gitea: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toBe(
+      'Gitea token lacks permission to create issues in pixel-kampung/hawker-heroes (HTTP 403)',
+    );
+  });
+
   it('includes the status and a short body for other Gitea errors', async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
@@ -220,6 +265,7 @@ describe('gitea action module', () => {
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
     expect(failed.error).toMatch(/timed out/i);
+    expect(failed.error).toContain('the issue may already exist');
   });
 
   it('fails when Gitea cannot be reached', async () => {
