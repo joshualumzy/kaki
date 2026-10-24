@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
+import { createGiteaModule } from '../src/action/gitea';
 import { fakeActionsModule } from '../src/dev/fakeActions';
+import { createFakeLlm } from '../src/llm';
 import {
   connectClient,
   createTestApp,
@@ -33,7 +35,27 @@ describe('task flows', () => {
   let clients: TestClient[];
 
   beforeEach(async () => {
-    app = await createTestApp({ modules: [fakeActionsModule] });
+    app = await createTestApp({
+      modules: [
+        fakeActionsModule,
+        createGiteaModule({
+          llm: createFakeLlm(() =>
+            JSON.stringify({ title: 'Fix the oven', body: 'The oven trips the fuse after ten minutes.' }),
+          ),
+          gitea: {
+            url: 'http://localhost/gitea',
+            token: 'test-token',
+            owner: 'pixel-kampung',
+            repo: 'hawker-heroes',
+          },
+          fetchImpl: async () =>
+            new Response(JSON.stringify({ html_url: 'http://localhost/gitea/issues/1' }), {
+              status: 201,
+              headers: { 'content-type': 'application/json' },
+            }),
+        }),
+      ],
+    });
     port = portOf(app);
     clients = [];
   });
@@ -81,7 +103,7 @@ describe('task flows', () => {
       'completion',
       5_000,
     );
-    expect(taskOf(completed).artifactUrl).toBe(`http://localhost/fake/gitea_issue/${task.id}`);
+    expect(taskOf(completed).artifactUrl).toBe('http://localhost/gitea/issues/1');
 
     send(chef, { type: 'SYNC_TASK', taskId: task.id });
     await waitForEvent(chef, isStatus(task.id, 'SYNCED'), 'sync');

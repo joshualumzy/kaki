@@ -4,14 +4,10 @@ import type { KakiModule } from '../modules';
 const DRAFT_DELAY_MS = 500;
 const RUN_DELAY_MS = 1_000;
 
-function draftFor(task: Task, actionKind: ActionKind): ActionDraft {
+type FakeActionKind = Exclude<ActionKind, 'gitea_issue'>;
+
+function draftFor(task: Task, actionKind: FakeActionKind): ActionDraft {
   switch (actionKind) {
-    case 'gitea_issue':
-      return {
-        target: 'kaki/demo-repo',
-        subject: `Fix: ${task.title}`,
-        body: `Draft issue for "${task.title}".\n\n${task.context}`,
-      };
     case 'mattermost_post':
       return {
         target: '#launch-room',
@@ -42,6 +38,9 @@ export const fakeActionsModule: KakiModule = {
     }
 
     const unsubscribe = tasks.onChange((task) => {
+      // Gitea issues have a real module; faking one here would race with it.
+      if (task.actionKind === 'gitea_issue') return;
+
       if (task.status === 'CLAIMED' && task.mode === 'ACTION_AGENT' && task.actionKind !== undefined) {
         const actionKind = task.actionKind;
         schedule(DRAFT_DELAY_MS, () => {

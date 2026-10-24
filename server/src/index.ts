@@ -1,5 +1,6 @@
 // Must stay the first import: later modules read process.env as they load.
 import './env';
+import { actionModules } from './action';
 import { createApp } from './app';
 import { devModules } from './dev';
 import { hostModules } from './host';
@@ -16,7 +17,7 @@ const scenario = await loadScenario();
 await createApp({
   port,
   scenario,
-  modules: [...hostModules, ...wingmanModules, ...devModules],
+  modules: [...hostModules, ...wingmanModules, ...actionModules, ...devModules],
   devRoutes: process.env.KAKI_DEV_ROUTES === '1',
 });
 console.log(`kaki server listening on http://localhost:${port} (scenario: ${scenario.id})`);

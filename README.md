@@ -8,14 +8,17 @@ Requires Node 22.
 
 ```bash
 npm install
-KAKI_FAKE_ACTIONS=1 npm run dev   # server on :3001, web app on :5173; fake actions stand in for Gitea/Mattermost/email
+KAKI_FAKE_ACTIONS=1 npm run dev   # server on :3001, web app on :5173; fake actions stand in for Mattermost/email
 npm run emit-demo                 # in a second terminal: sends the scenario's sample events and tasks
 npm test                          # all tests
 ```
 
 `npm run dev` sets `KAKI_DEV_ROUTES=1`, enabling the `/dev/emit` and `/dev/suggest-task` routes that
 `npm run emit-demo` uses; set `KAKI_DEV_ROUTES=0` to turn them off. `KAKI_FAKE_ACTIONS=1` makes fake
-actions stand in for Gitea/Mattermost/email.
+actions stand in for Mattermost/email.
+
+Gitea issues use `GITEA_URL`, `GITEA_TOKEN`, `GITEA_ORG` and `GITEA_REPO` from `.env`;
+without them a Gitea task fails with a clear message.
 
 Open:
 - Shared Action Panel: http://localhost:5173/screen
