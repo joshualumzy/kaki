@@ -1,6 +1,6 @@
-import type { ChatMessage, LlmClient } from '../llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule } from './runner';
+import { ActionError, createActionModule, isObject, messageOf } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -23,14 +23,6 @@ export interface MattermostModuleOptions {
   timeoutMs?: number;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function baseUrl({ url }: MattermostSettings): string {
   return url.replace(/\/+$/, '');
 }
@@ -39,7 +31,7 @@ function baseUrl({ url }: MattermostSettings): string {
 function parseMessage(reply: string): string | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(reply);
+    value = parseJsonReply(reply);
   } catch {
     return undefined;
   }
@@ -91,9 +83,11 @@ export function createMattermostModule({
     if (response.ok) return;
     const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
     throw new ActionError(
-      response.status === 401 || response.status === 403
-        ? `Mattermost rejected the token: bad credentials (HTTP ${response.status})`
-        : `Mattermost returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
+      response.status === 401
+        ? 'Mattermost rejected the token: bad credentials (HTTP 401)'
+        : response.status === 403
+          ? 'Mattermost token lacks permission (is the bot a member of the channel?) (HTTP 403)'
+          : `Mattermost returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
     );
   }
 

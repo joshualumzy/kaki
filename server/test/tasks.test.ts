@@ -93,6 +93,56 @@ describe('task store change handlers', () => {
     expect(completed.error).toBeUndefined();
   });
 
+  describe('RETRY_ACTION', () => {
+    function failedTask() {
+      const task = app.tasks.suggest({
+        title: 'Fix the oven',
+        context: 'The oven trips the fuse.',
+        suggestedAssignee: 'chef',
+        actionKind: 'gitea_issue',
+      });
+      app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+      app.tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+      app.tasks.transition(task.id, 'FAILED', { error: 'boom' });
+      return task;
+    }
+
+    it('claims again to re-draft when there is no draft', () => {
+      const task = failedTask();
+
+      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, 'chef');
+
+      const retried = app.tasks.get(task.id);
+      expect(retried?.status).toBe('CLAIMED');
+      expect(retried?.mode).toBe('ACTION_AGENT');
+      expect(retried?.error).toBeUndefined();
+    });
+
+    it('runs again when the command carries a draft', () => {
+      const task = failedTask();
+      const draft = { target: 'pixel-kampung/hawker-heroes', subject: 'Fix the oven', body: 'The fuse trips.' };
+
+      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id, draft }, 'chef');
+
+      const retried = app.tasks.get(task.id);
+      expect(retried?.status).toBe('RUNNING');
+      expect(retried?.draft).toEqual(draft);
+    });
+
+    it('runs again when the task already has a draft', () => {
+      const task = failedTask();
+      const draft = { target: 'pixel-kampung/hawker-heroes', subject: 'Fix the oven', body: 'The fuse trips.' };
+      app.tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+      app.tasks.transition(task.id, 'DRAFT_READY', { draft });
+      app.tasks.transition(task.id, 'RUNNING');
+      app.tasks.transition(task.id, 'FAILED', { error: 'boom' });
+
+      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, 'chef');
+
+      expect(app.tasks.get(task.id)?.status).toBe('RUNNING');
+    });
+  });
+
   it('rejects an invalid suggestion with a CommandError', () => {
     expect(() =>
       app.tasks.suggest({

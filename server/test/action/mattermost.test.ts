@@ -249,6 +249,48 @@ describe('mattermost action module', () => {
     expect(failed.error).toContain('channel is archived');
   });
 
+  it('explains a 403 as a missing permission, not bad credentials', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('forbidden', { status: 403 }));
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toMatch(/lacks permission/i);
+    expect(failed.error).not.toMatch(/bad credentials/i);
+  });
+
+  it('accepts an LLM reply wrapped in a code fence', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => `\`\`\`json\n${messageReply}\n\`\`\``),
+      mattermost: settings,
+      fetchImpl: okFetch(),
+    });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+    expect(ready.draft?.body).toBeTruthy();
+  });
+
+  it('drafts again when a retry follows a failed draft', async () => {
+    let calls = 0;
+    const llm = createFakeLlm(() => {
+      calls += 1;
+      if (calls === 1) throw new LlmError('gateway down');
+      return messageReply;
+    });
+    const tasks = setup({ llm, mattermost: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    // A retry with no draft claims the task again (see the RETRY_ACTION command).
+    tasks.transition(failed.id, 'CLAIMED');
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    expect(ready.draft).toBeDefined();
+  });
+
   it('fails when Mattermost times out', async () => {
     const fetchImpl = vi.fn<typeof fetch>((_input, init) => {
       return new Promise<Response>((_resolve, reject) => {

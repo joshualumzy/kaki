@@ -12,7 +12,7 @@ import {
   type SuggestInput,
   type Task,
 } from '@kaki/shared';
-import { LlmError, type ChatMessage, type LlmClient } from '../llm';
+import { LlmError, parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { TaskStore } from '../tasks';
 
 /** Rough speaking rate used to turn transcript words into talk time. */
@@ -111,12 +111,6 @@ function estimateTalkSeconds(text: string): number {
   return Math.max(1, words(text).length / WORDS_PER_SECOND);
 }
 
-// Models sometimes wrap JSON in a ```json fence even when asked not to.
-function stripFence(text: string): string {
-  const match = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/.exec(text);
-  return match === null ? text : match[1]!;
-}
-
 /** True when the evidence is (nearly) word for word one of the transcript lines. */
 export function isGrounded(evidence: string, lines: Array<{ text: string }>): boolean {
   const wanted = words(evidence);
@@ -145,7 +139,7 @@ export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): bo
 export function parseNotetakerReply(text: string, scenario: Scenario): NotetakerReply {
   let json: unknown;
   try {
-    json = JSON.parse(stripFence(text));
+    json = parseJsonReply(text);
   } catch (error) {
     throw new LlmError('Notetaker reply is not valid JSON', { cause: error });
   }
