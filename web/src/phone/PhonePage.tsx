@@ -271,6 +271,7 @@ function TaskCard({
   rejection: KakiRejection | null;
 }) {
   const [body, setBody] = useState(task.draft?.body ?? '');
+  const [target, setTarget] = useState(task.draft?.target ?? '');
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
   const draft = task.draft;
@@ -332,7 +333,15 @@ function TaskCard({
 
       {(task.status === 'DRAFT_READY' || task.status === 'FAILED') && draft !== undefined ? (
         <>
-          <p className="task-meta">To: {draft.target}</p>
+          <label className="draft-field">
+            <span>To</span>
+            <input
+              className="draft-target"
+              type="text"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+            />
+          </label>
           <p className="task-meta">Subject: {draft.subject}</p>
           <label className="draft-field">
             <span>Draft body</span>
@@ -351,7 +360,7 @@ function TaskCard({
           <Button
             disabled={pending}
             onClick={() =>
-              submit({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, body } })
+              submit({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, target, body } })
             }
           >
             Approve
@@ -367,7 +376,7 @@ function TaskCard({
               submit(
                 draft === undefined
                   ? { type: 'RETRY_ACTION', taskId: task.id }
-                  : { type: 'RETRY_ACTION', taskId: task.id, draft: { ...draft, body } },
+                  : { type: 'RETRY_ACTION', taskId: task.id, draft: { ...draft, target, body } },
               )
             }
           >
