@@ -88,15 +88,6 @@ function TimeLabel({ at }: { at: number }) {
   );
 }
 
-function latestAgendaItem(stamped: StampedEvent[], scenario: Scenario) {
-  for (const item of [...stamped].reverse()) {
-    if (item.event.type === 'MEETING_RECORD_UPDATED') {
-      return scenario.agenda[item.event.payload.agendaIndex];
-    }
-  }
-  return undefined;
-}
-
 /** Phone shell: asks for a role when it has none, then shows only that role's events and tasks. */
 export function PhonePage() {
   const scenario = useScenario();
@@ -148,7 +139,6 @@ function PhoneFeed({ role }: { role: string }) {
   const nudges = stamped.filter(isStampedNudge);
   const latestNudge = nudges[nudges.length - 1];
   const currentNudge = currentTask === undefined ? latestNudge : undefined;
-  const agendaItem = latestAgendaItem(stamped, scenario);
 
   const historyTasks = allTasks.filter((task) => task.id !== currentTask?.id);
   const historyEvents = stamped.filter(
@@ -207,16 +197,9 @@ function PhoneFeed({ role }: { role: string }) {
         ) : (
           <Card>
             <h2 className="card-title">Nothing needs you right now</h2>
-            {agendaItem === undefined ? (
-              <p className="phone-meta">Waiting for the meeting to start.</p>
-            ) : (
-              <>
-                <p className="phone-current-text">{agendaItem.title}</p>
-                <p className="phone-meta">
-                  Owned by {roleLabel(scenario, agendaItem.ownerRole)}
-                </p>
-              </>
-            )}
+            <p className="phone-meta">
+              Kaki will nudge you here when your agenda item is coming up.
+            </p>
           </Card>
         )}
       </section>
@@ -358,7 +341,7 @@ function TaskCard({
       {task.status === 'DRAFT_READY' && draft !== undefined ? (
         <div className="task-actions" aria-busy={pending}>
           <Button
-            disabled={pending}
+            disabled={pending || target.trim() === ''}
             onClick={() =>
               submit({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, target, body } })
             }
@@ -371,7 +354,7 @@ function TaskCard({
       {task.status === 'FAILED' ? (
         <div className="task-actions" aria-busy={pending}>
           <Button
-            disabled={pending}
+            disabled={pending || (draft !== undefined && target.trim() === '')}
             onClick={() =>
               submit(
                 draft === undefined
