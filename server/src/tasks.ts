@@ -165,7 +165,10 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       case 'RETRY_ACTION': {
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);
-        transition(command.taskId, 'RUNNING', command.draft === undefined ? {} : { draft: command.draft });
+        const patch = command.draft === undefined ? {} : { draft: command.draft };
+        // Without a draft there is nothing to post, so claim again and let the action re-draft.
+        const hasDraft = command.draft !== undefined || task.draft !== undefined;
+        transition(command.taskId, hasDraft ? 'RUNNING' : 'CLAIMED', patch);
         return;
       }
       case 'MARK_DONE': {

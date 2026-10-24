@@ -15,7 +15,13 @@ export interface ActionModuleOptions {
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
 
-function messageOf(error: unknown): string {
+/** True for a plain JSON object. */
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The readable text of anything thrown. */
+export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

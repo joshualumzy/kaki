@@ -105,7 +105,7 @@ Client → server commands:
 - Assignee's phone only: `CLAIM_TASK { taskId, mode: 'ACTION_AGENT'|'MANUAL' }`, `APPROVE_ACTION { taskId, draft }`, `RETRY_ACTION { taskId, draft? }`, `MARK_DONE { taskId }`, `SYNC_TASK { taskId }`
 
 Task lifecycle (enforced by the server's task store):
-`SUGGESTED → DISPATCHED | DISMISSED`; `DISPATCHED → CLAIMED`; `CLAIMED → DRAFT_READY | COMPLETED (manual) | FAILED`; `DRAFT_READY → RUNNING` (assignee approved the draft); `RUNNING → COMPLETED | FAILED`; `FAILED → RUNNING` (retry); `COMPLETED → SYNCED`.
+`SUGGESTED → DISPATCHED | DISMISSED`; `DISPATCHED → CLAIMED`; `CLAIMED → DRAFT_READY | COMPLETED (manual) | FAILED`; `DRAFT_READY → RUNNING` (assignee approved the draft); `RUNNING → COMPLETED | FAILED`; `FAILED → RUNNING | CLAIMED` (retry; back to drafting when there is no draft); `COMPLETED → SYNCED`.
 
 ### 3. Data & Infrastructure
 - Self-hosted Docker Compose stack:

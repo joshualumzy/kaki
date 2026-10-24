@@ -1,6 +1,6 @@
-import type { ChatMessage, LlmClient } from '../llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule } from './runner';
+import { ActionError, createActionModule, isObject, messageOf } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -27,19 +27,11 @@ interface IssueDraft {
 
 const CONFIG_MESSAGE = 'Gitea is not configured: set GITEA_URL, GITEA_TOKEN, GITEA_ORG and GITEA_REPO';
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // Strictly one JSON object with a non-empty title and body; anything else is unusable.
 function parseDraft(reply: string): IssueDraft | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(reply);
+    value = parseJsonReply(reply);
   } catch {
     return undefined;
   }
@@ -114,7 +106,7 @@ export function createGiteaModule({
       } catch (error) {
         throw new ActionError(
           timeout.aborted
-            ? `Gitea timed out after ${timeoutMs} ms`
+            ? `Gitea timed out after ${timeoutMs} ms; check Gitea before retrying, the issue may already exist`
             : `could not reach Gitea: ${messageOf(error)}`,
         );
       }
@@ -122,9 +114,11 @@ export function createGiteaModule({
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
         throw new ActionError(
-          response.status === 401 || response.status === 403
-            ? `Gitea rejected the token: bad credentials (HTTP ${response.status})`
-            : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
+          response.status === 401
+            ? 'Gitea rejected the token: bad credentials (HTTP 401)'
+            : response.status === 403
+              ? `Gitea token lacks permission to create issues in ${gitea.owner}/${gitea.repo} (HTTP 403)`
+              : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
         );
       }
 
