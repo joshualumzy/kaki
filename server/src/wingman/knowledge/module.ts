@@ -23,12 +23,12 @@ function handleEvent(
   if (event.type !== 'MEETING_RECORD_UPDATED') return;
 
   for (const question of event.payload.openQuestions) {
+    if (handled.has(question.id)) continue;
+    handled.add(question.id);
     if (question.forRole === undefined) {
       console.warn(`kaki wingman: open question ${question.id} has no role, skipping company search`);
       continue;
     }
-    if (handled.has(question.id)) continue;
-    handled.add(question.id);
 
     const role = question.forRole;
     void (async () => {
@@ -38,11 +38,14 @@ function handleEvent(
           console.error(`kaki wingman: no company facts found for question ${question.id} (${role})`);
           return;
         }
-        ctx.hub.publish({
-          type: 'FACT_FOUND',
-          audience: { kind: 'role', role },
-          payload: { questionId: question.id, question: question.text, facts },
-        });
+        ctx.hub.publish(
+          {
+            type: 'FACT_FOUND',
+            audience: { kind: 'role', role },
+            payload: { questionId: question.id, question: question.text, facts },
+          },
+          { retainKey: `fact:${question.id}` },
+        );
       } catch (error) {
         console.error(
           `kaki wingman: company search failed for question ${question.id} (${role}):`,

@@ -21,12 +21,20 @@ const scenario: Scenario = {
 
 const fact: Fact = { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' };
 
-function fakeHub(): { hub: Hub; published: KakiEvent[]; subscribed: () => number; emit: (event: KakiEvent) => void } {
+function fakeHub(): {
+  hub: Hub;
+  published: KakiEvent[];
+  retainKeys: (string | undefined)[];
+  subscribed: () => number;
+  emit: (event: KakiEvent) => void;
+} {
   const handlers = new Set<(event: KakiEvent) => void>();
   const published: KakiEvent[] = [];
+  const retainKeys: (string | undefined)[] = [];
   const hub: Hub = {
-    publish(event) {
+    publish(event, options) {
       published.push(event);
+      retainKeys.push(options?.retainKey);
     },
     subscribe(handler) {
       handlers.add(handler);
@@ -42,6 +50,7 @@ function fakeHub(): { hub: Hub; published: KakiEvent[]; subscribed: () => number
   return {
     hub,
     published,
+    retainKeys,
     subscribed: () => handlers.size,
     emit: (event) => {
       for (const handler of handlers) handler(event);
@@ -96,6 +105,7 @@ describe('knowledge module', () => {
           payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact] },
         },
       ]);
+      expect(fake.retainKeys).toEqual(['fact:q-quit']);
     } finally {
       stop();
     }
@@ -109,9 +119,11 @@ describe('knowledge module', () => {
 
     try {
       fake.emit(recordUpdate('q-orphan', null));
+      fake.emit(recordUpdate('q-orphan', null));
       await settle();
       expect(search).not.toHaveBeenCalled();
       expect(fake.published).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('q-orphan'));
     } finally {
       stop();
