@@ -340,6 +340,35 @@ describe('email action module', () => {
     expect(retried.error).toMatch(/Email is not configured/);
   });
 
+  it('accepts an LLM reply wrapped in a code fence', async () => {
+    const llm = createFakeLlm(() => `\`\`\`json\n${draftReply}\n\`\`\``);
+    const tasks = setup({ llm, email: settings, sendMail: okSend(), fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    expect(ready.draft?.subject).toBeTruthy();
+  });
+
+  it('drafts again when a retry follows a failed draft', async () => {
+    let calls = 0;
+    const llm = createFakeLlm(() => {
+      calls += 1;
+      if (calls === 1) throw new LlmError('gateway down');
+      return draftReply;
+    });
+    const tasks = setup({ llm, email: settings, sendMail: okSend(), fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    // A retry with no draft claims the task again (see the RETRY_ACTION command).
+    tasks.transition(failed.id, 'CLAIMED');
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    expect(ready.draft).toBeDefined();
+  });
+
   it('fails loudly when the LLM is not configured', async () => {
     const tasks = setup({ email: settings, sendMail: okSend(), fetchImpl: okFetch() });
     const task = startTask(tasks);

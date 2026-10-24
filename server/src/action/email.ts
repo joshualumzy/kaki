@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
-import type { ChatMessage, LlmClient } from '../llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule } from './runner';
+import { ActionError, createActionModule, isObject, messageOf } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -44,14 +44,6 @@ interface EmailDraft {
   body: string;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // Simple enough for the assignee's typed-in suggestion: one @, no spaces, text on both sides.
 function isAddress(value: string): boolean {
   if (/\s/.test(value)) return false;
@@ -63,7 +55,7 @@ function isAddress(value: string): boolean {
 function parseDraft(reply: string): EmailDraft | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(reply);
+    value = parseJsonReply(reply);
   } catch {
     return undefined;
   }
