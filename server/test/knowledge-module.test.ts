@@ -150,6 +150,53 @@ describe('knowledge module', () => {
     }
   });
 
+  it('retries a failed search on the next record, then gives up after three tries', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let calls = 0;
+    const search: SearchCompanyData = async () => {
+      calls += 1;
+      throw new Error('gateway down');
+    };
+    const fake = fakeHub();
+    const stop = start(search, fake.hub);
+
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        fake.emit(recordUpdate());
+        await settle();
+      }
+      expect(calls).toBe(3);
+      expect(fake.published).toEqual([]);
+    } finally {
+      stop();
+      error.mockRestore();
+    }
+  });
+
+  it('sends the card once when a retry succeeds', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let calls = 0;
+    const search: SearchCompanyData = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('gateway down');
+      return [fact];
+    };
+    const fake = fakeHub();
+    const stop = start(search, fake.hub);
+
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        fake.emit(recordUpdate());
+        await settle();
+      }
+      expect(calls).toBe(2);
+      expect(fake.published).toHaveLength(1);
+    } finally {
+      stop();
+      error.mockRestore();
+    }
+  });
+
   it('logs loudly and sends no card when the search finds no facts', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const fake = fakeHub();
