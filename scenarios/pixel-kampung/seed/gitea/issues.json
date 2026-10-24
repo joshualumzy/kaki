@@ -53,7 +53,7 @@
       "state": "open",
       "labels": ["playtest", "design"],
       "createdAt": "2026-11-10T10:05:00+08:00",
-      "body": "14 of 20 playtesters quit on level 5. Mei says the wall is intentional; Daniel says streamers will bounce. We ran out of time in the playtest review and have not decided whether to tune the boss or move the checkpoint.\n\nSee #playtest-feedback in Mattermost for the thread."
+      "body": "19 of the 29 playtesters who reached level 5 quit there. Mei says the wall is intentional; Daniel says streamers will bounce. We ran out of time in the playtest review and have not decided whether to tune the boss or move the checkpoint.\n\nSee #playtest-feedback in Mattermost for the thread."
     },
     {
       "title": "Frame rate drops below 30fps on low-end Android in the night market",
