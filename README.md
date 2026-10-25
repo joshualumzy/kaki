@@ -28,6 +28,34 @@ Open:
 
 The server keeps state in memory and restarts when server code changes; run `npm run emit-demo` again after a restart.
 
+## Host sign-in (optional)
+
+Auth is off by default, so the in-memory dev flow and the `/phone?role=...` links need no account.
+Start the server with `KAKI_AUTH=1` to require a host sign-in for `/screen` and a meeting code for
+phones:
+
+```bash
+KAKI_AUTH=1 \
+POSTGRES_URL="postgres://kaki:kaki_dev_password@127.0.0.1:5433/kaki" \
+KAKI_HOST_EMAIL=host@example.com \
+KAKI_HOST_PASSWORD=choose-a-dev-password \
+npm run dev
+```
+
+`KAKI_AUTH=1` requires `POSTGRES_URL` (the demo stack's value is in `docker/.env`); the server
+fails at startup without it. On startup, if both `KAKI_HOST_EMAIL` and `KAKI_HOST_PASSWORD` are
+set, the server creates that host account when it is missing and never overwrites an existing one.
+To add a host account yourself, with the password read from the terminal without echo:
+
+```bash
+POSTGRES_URL="..." npm run host:create -- host@example.com
+```
+
+Open http://localhost:5173/login to sign in as the host. The server makes one six-character
+meeting code per run; it appears with the phone QR codes on the shared screen, and phones join
+with the code and a role (no account). Sessions last 12 hours. Set `KAKI_PUBLIC_URL=https://...`
+when the app is served over HTTPS so the session cookie is marked `Secure`.
+
 ## Working on the code
 
 - Folder ownership and the rules for changing shared code: [docs/ownership.md](docs/ownership.md).

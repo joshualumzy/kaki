@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   isKakiCommand,
@@ -18,6 +18,14 @@ export class CommandError extends Error {}
 
 /** A server-owned handler for commands sent by clients. */
 export type CommandHandler = (command: KakiCommand, sender: ClientAudience) => void | Promise<void>;
+
+/** The result of checking whether a socket may connect. */
+export type UpgradeDecision = { ok: true } | { ok: false; message: string };
+
+/** Options for the hub; auth plugs into the WebSocket upgrade through `authorize`. */
+export interface HubOptions {
+  authorize?(request: IncomingMessage, audience: ClientAudience): Promise<UpgradeDecision>;
+}
 
 /** Options for publishing an event to the hub. */
 export interface PublishOptions {
@@ -42,6 +50,11 @@ function rawDataToString(data: RawData): string {
   return data.toString('utf8');
 }
 
+function audienceFor(scenario: Scenario, rawRole: string | null): ClientAudience | undefined {
+  if (rawRole === 'screen') return 'screen';
+  return isRoleIn(scenario, rawRole) ? rawRole : undefined;
+}
+
 function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
   return (
     event.audience.kind === 'all' ||
@@ -59,8 +72,36 @@ function rejectionFor(audience: ClientAudience, commandType: string, reason: str
 }
 
 /** Create the `/ws` hub attached to an existing HTTP server for one scenario. */
-export function createHub(httpServer: Server, scenario: Scenario): Hub {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+export function createHub(httpServer: Server, scenario: Scenario, options: HubOptions = {}): Hub {
+  const authorize = options.authorize;
+  const wss = new WebSocketServer(
+    authorize === undefined
+      ? { server: httpServer, path: '/ws' }
+      : {
+          server: httpServer,
+          path: '/ws',
+          verifyClient: (info, done) => {
+            const url = new URL(info.req.url ?? '/ws', 'http://localhost');
+            const audience = audienceFor(scenario, url.searchParams.get('role'));
+            if (audience === undefined) {
+              done(false, 401, 'Unknown role');
+              return;
+            }
+            void authorize(info.req, audience)
+              .then((decision) => {
+                if (decision.ok) {
+                  done(true);
+                } else {
+                  done(false, 401, decision.message);
+                }
+              })
+              .catch((error: unknown) => {
+                console.error('kaki hub: WebSocket authorization failed', error);
+                done(false, 500, 'Authorization failed');
+              });
+          },
+        },
+  );
   // ws re-emits the HTTP server's errors here; without a listener a port clash crashes the process
   // instead of letting listen() in createApp reject.
   wss.on('error', (error) => console.error('kaki hub: server error', error));
@@ -132,8 +173,7 @@ export function createHub(httpServer: Server, scenario: Scenario): Hub {
   wss.on('connection', (socket, request) => {
     const url = new URL(request.url ?? '/ws', 'http://localhost');
     const rawRole = url.searchParams.get('role');
-    const audience: ClientAudience | undefined =
-      rawRole === 'screen' ? 'screen' : isRoleIn(scenario, rawRole) ? rawRole : undefined;
+    const audience = audienceFor(scenario, rawRole);
 
     if (audience === undefined) {
       const reason = rawRole === null ? 'Missing role' : 'Unknown role';
