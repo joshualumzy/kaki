@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { LoginPage } from './auth/LoginPage';
 import { ScenarioProvider } from './kaki';
 import { PhonePage } from './phone/PhonePage';
 import { ScreenPage } from './screen/ScreenPage';
@@ -9,6 +10,7 @@ export function App() {
     <div className="app-shell">
       <ScenarioProvider>
         <Routes>
+          <Route path="/login" element={<LoginPage />} />
           <Route path="/screen" element={<ScreenPage />} />
           <Route path="/phone" element={<PhonePage />} />
           <Route path="*" element={<Navigate to="/screen" replace />} />

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { roleLabel, type KakiCommand, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import { Navigate } from 'react-router-dom';
+import { useMe } from '../auth/useMe';
 import { useKaki, useScenario } from '../kaki';
 import {
   Button,
@@ -9,9 +11,41 @@ import {
   RejectionBanner,
   StatusPill,
 } from '../ui';
+import { JoinPhones } from './JoinPhones';
 
-/** Shared screen shell: shows every event and task addressed to the meeting screen. */
+/** Shared screen shell: asks the host to sign in when auth is on, then shows the meeting. */
 export function ScreenPage() {
+  const auth = useMe();
+
+  if (auth.status === 'loading') {
+    return (
+      <main className="page">
+        <p className="empty-state">Checking sign-in…</p>
+      </main>
+    );
+  }
+
+  if (auth.status === 'error') {
+    return (
+      <main className="page">
+        <Card title="Could not check sign-in">
+          <p className="connection-banner" role="alert">
+            {auth.message}
+          </p>
+        </Card>
+      </main>
+    );
+  }
+
+  if (auth.me.authEnabled && auth.me.kind !== 'host') {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <ScreenFeed />;
+}
+
+/** The meeting screen itself, only mounted once the host is allowed in. */
+function ScreenFeed() {
   const scenario = useScenario();
   const { events, tasks, rejection, connected, send } = useKaki('screen');
   const taskList = [...tasks.values()];
@@ -35,6 +69,7 @@ export function ScreenPage() {
         </p>
       ) : null}
       {record === undefined ? null : <MeetingRecordCard record={record} scenario={scenario} />}
+      <JoinPhones />
       <Card title="Tasks">
         {taskList.length === 0 ? (
           <p className="empty-state">No tasks yet.</p>

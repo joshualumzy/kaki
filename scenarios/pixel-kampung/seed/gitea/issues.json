@@ -1,0 +1,88 @@
+{
+  "repository": {
+    "name": "hawker-heroes",
+    "description": "Hawker Heroes mobile game - Pixel Kampung",
+    "private": false
+  },
+  "labels": [
+    { "name": "bug", "color": "d73a4a", "description": "Something is broken" },
+    { "name": "regression", "color": "b60205", "description": "Worked before, broken now" },
+    { "name": "playtest", "color": "fbca04", "description": "Came out of a playtest" },
+    { "name": "design", "color": "5319e7", "description": "Game design decision" },
+    { "name": "art", "color": "e99695", "description": "Art and audio" },
+    { "name": "marketing", "color": "0e8a16", "description": "Launch and marketing" },
+    { "name": "ops", "color": "006b75", "description": "Builds, tools and event logistics" },
+    { "name": "localisation", "color": "c2e0c6", "description": "Translations and text layout" },
+    { "name": "noise", "color": "cccccc", "description": "Low-priority studio chores" }
+  ],
+  "issues": [
+    {
+      "title": "Save-file corruption on Android after backgrounding",
+      "date": "2026-10-18",
+      "state": "closed",
+      "labels": ["bug", "regression"],
+      "createdAt": "2026-10-18T10:20:00+08:00",
+      "closedAt": "2026-10-22T17:40:00+08:00",
+      "body": "Playtesters on Android 13+ lost their run after backgrounding the app during a level. The save writer was closing the file before the async flush finished, so the JSON ended up truncated.\n\nFixed in build 0.9.6 by writing to a temp file and renaming it atomically. Arjun verified on a Pixel 6a and a Samsung A14. Closing this one."
+    },
+    {
+      "title": "Update studio splash screen to the new logo",
+      "date": "2026-08-04",
+      "state": "closed",
+      "labels": ["art", "noise"],
+      "createdAt": "2026-08-04T11:00:00+08:00",
+      "closedAt": "2026-08-12T15:10:00+08:00",
+      "body": "The old logo is still on the splash screen. New export from the brand folder is in the shared drive.\n\nDone, shipped in 0.6.1."
+    },
+    {
+      "title": "Remove debug telemetry from the menu scene",
+      "date": "2026-07-21",
+      "state": "closed",
+      "labels": ["ops", "noise"],
+      "createdAt": "2026-07-21T09:35:00+08:00",
+      "closedAt": "2026-07-21T18:05:00+08:00",
+      "body": "The menu is still logging every button press to the console. Strip it before the beta build.\n\nRemoved in 0.5.9."
+    },
+    {
+      "title": "Credits screen misspells the sound designer's name",
+      "date": "2026-09-02",
+      "state": "closed",
+      "labels": ["noise"],
+      "createdAt": "2026-09-02T14:15:00+08:00",
+      "closedAt": "2026-09-03T09:30:00+08:00",
+      "body": "Small typo in the credits. Fixed and rebuilt."
+    },
+    {
+      "title": "Level 5 difficulty needs a decision",
+      "date": "2026-11-10",
+      "state": "open",
+      "labels": ["playtest", "design"],
+      "createdAt": "2026-11-10T10:05:00+08:00",
+      "body": "19 of the 29 playtesters who reached level 5 quit there. Mei says the wall is intentional; Daniel says streamers will bounce. We ran out of time in the playtest review and have not decided whether to tune the boss or move the checkpoint.\n\nSee #playtest-feedback in Mattermost for the thread."
+    },
+    {
+      "title": "Frame rate drops below 30fps on low-end Android in the night market",
+      "date": "2026-11-06",
+      "state": "open",
+      "labels": ["bug"],
+      "createdAt": "2026-11-06T16:45:00+08:00",
+      "body": "On a Redmi 9A the night market level sits around 24-28fps once the lantern particles start. Suspect the particle system is spawning too many quads.\n\nRepro: level 8, low quality preset, walk into the night market."
+    },
+    {
+      "title": "Tamil strings overflow the order button",
+      "date": "2026-11-04",
+      "state": "open",
+      "labels": ["bug", "localisation"],
+      "createdAt": "2026-11-04T13:20:00+08:00",
+      "body": "The Tamil translation for \"Serve now\" is wider than the button and gets clipped on small phones. Need either a shorter string or an auto-shrink rule."
+    },
+    {
+      "title": "Booth demo build checklist",
+      "date": "2026-11-11",
+      "state": "open",
+      "labels": ["ops", "marketing"],
+      "createdAt": "2026-11-11T09:00:00+08:00",
+      "body": "Before Indie Arcade SG:\n\n- Lock a demo build with the save fix.\n- Charge the two demo phones and bring the battery packs.\n- Load the offline build so convention wifi cannot ruin the demo.\n- Print the QR code for the wishlist page.\n- Confirm booth size with the organiser."
+    }
+  ]
+}
