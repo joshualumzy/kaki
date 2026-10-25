@@ -173,6 +173,14 @@ async function postgresData() {
     const embedding = await client.query<{ udt_name: string }>(
       "SELECT udt_name FROM information_schema.columns WHERE table_name = 'knowledge_chunks' AND column_name = 'embedding'",
     );
+    const chunkColumns = await client.query<{ column_name: string; is_nullable: string }>(
+      "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'knowledge_chunks'",
+    );
+    const seedDates = await client.query<{ table_name: string; count: number }>(
+      `SELECT 'playtest_quit_stats' AS table_name, count(*) FILTER (WHERE updated_on IS NOT NULL)::int AS count FROM playtest_quit_stats
+       UNION ALL
+       SELECT 'launch_budget', count(*) FILTER (WHERE updated_on IS NOT NULL)::int FROM launch_budget`,
+    );
     const wishlists = await client.query<{ count: number }>('SELECT count(*)::int AS count FROM wishlist_counts');
     const budget = await client.query<{ count: number }>('SELECT count(*)::int AS count FROM launch_budget');
     return {
@@ -180,6 +188,8 @@ async function postgresData() {
       stats: stats.rows.map((row) => ({ level: row.level, quitRate: Number(row.quit_rate) })),
       chunkCount: chunks.rows[0]?.count ?? -1,
       embeddingType: embedding.rows[0]?.udt_name ?? 'missing',
+      chunkColumns: chunkColumns.rows,
+      seedDates: seedDates.rows,
       wishlistRows: wishlists.rows[0]?.count ?? -1,
       budgetRows: budget.rows[0]?.count ?? -1,
     };
@@ -239,11 +249,22 @@ check('Postgres has the vector extension', async () => {
   return 'SELECT extname ... returned vector';
 });
 
-check('Postgres has the knowledge_chunks table with a vector(1024) column', async () => {
+check('Postgres has the knowledge_chunks table with a vector(1024) column and published_at', async () => {
   const data = await once('postgres', postgresData);
   assert(data.embeddingType === 'vector', `embedding column is ${data.embeddingType}`);
-  assert(data.chunkCount === 0, `knowledge_chunks should be empty until the embedding ticket, found ${data.chunkCount}`);
-  return 'vector column present, 0 rows';
+  const publishedAt = data.chunkColumns.find((column) => column.column_name === 'published_at');
+  assert(publishedAt, 'published_at column is missing');
+  assert(publishedAt.is_nullable === 'NO', 'published_at must be NOT NULL');
+  return `vector column and published_at present, ${data.chunkCount} rows`;
+});
+
+check('Postgres seed rows carry reliable dates', async () => {
+  const data = await once('postgres', postgresData);
+  const stats = data.seedDates.find((row) => row.table_name === 'playtest_quit_stats');
+  const budget = data.seedDates.find((row) => row.table_name === 'launch_budget');
+  assert(stats && stats.count === 10, `playtest_quit_stats has ${stats?.count ?? 0} dated rows`);
+  assert(budget && budget.count === 5, `launch_budget has ${budget?.count ?? 0} dated rows`);
+  return '10 quit rows, 5 budget rows dated';
 });
 
 check('Postgres shows the level 5 quit spike', async () => {

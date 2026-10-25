@@ -31,6 +31,7 @@ interface MmPost {
   id: string;
   message: string;
   root_id?: string;
+  props?: Record<string, string>;
 }
 
 interface MmPostList {
@@ -213,6 +214,15 @@ async function ensurePosts(
     const existing = existingByChannel.get(post.channel)?.get(post.text);
 
     if (existing) {
+      if (existing.props?.sent_at !== post.at) {
+        await mmJson(
+          env,
+          `/posts/${existing.id}/patch`,
+          adminToken,
+          jsonBody('PUT', { props: { sent_at: post.at } }),
+          `Mattermost set sent_at on post in #${post.channel}`,
+        );
+      }
       if (post.key) keyed.set(post.key, existing);
       continue;
     }
@@ -231,6 +241,7 @@ async function ensurePosts(
       jsonBody('POST', {
         channel_id: channel.id,
         message: post.text,
+        props: { sent_at: post.at },
         ...(rootId ? { root_id: rootId } : {}),
       }),
       `Mattermost create post in #${post.channel}`,

@@ -18,7 +18,9 @@
     "stack:up": "docker compose -f docker/docker-compose.yml up -d",
     "stack:down": "docker compose -f docker/docker-compose.yml down",
     "seed": "tsx docker/seed/index.ts",
-    "seed:verify": "tsx docker/verify.ts"
+    "seed:verify": "tsx docker/verify.ts",
+    "index:knowledge": "tsx server/src/wingman/knowledge/cli.ts",
+    "knowledge:check": "tsx server/src/wingman/knowledge/check.ts"
   },
   "dependencies": {
     "@kaki/shared": "*",

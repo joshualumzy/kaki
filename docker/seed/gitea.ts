@@ -207,6 +207,10 @@ async function ensureLabels(env: Env, token: string, repo: string, seed: GiteaSe
   return new Map([...byName.entries()].map(([name, label]) => [name, label.id]));
 }
 
+function issueBody(issue: GiteaIssueSeed): string {
+  return `${issue.body.trimEnd()}\n\nOpened: ${issue.date}`;
+}
+
 function labelIds(names: string[], labels: Map<string, number>, issue: GiteaIssueSeed): number[] {
   return names.map((name) => {
     const id = labels.get(name);
@@ -237,7 +241,7 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
         env,
         `${base}/issues`,
         auth,
-        jsonBody('POST', { title: issue.title, body: issue.body, labels: ids }),
+        jsonBody('POST', { title: issue.title, body: issueBody(issue), labels: ids }),
       );
       if (issue.state === 'closed') {
         await api(env, `${base}/issues/${created.number}`, auth, jsonBody('PATCH', { state: 'closed' }));
@@ -247,9 +251,10 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
     }
 
     const currentIds = current.labels.map((label) => label.id);
+    const body = issueBody(issue);
     const needsUpdate =
       current.state !== issue.state ||
-      current.body.trim() !== issue.body.trim() ||
+      current.body.trim() !== body.trim() ||
       !sameIds(currentIds, ids);
     if (!needsUpdate) continue;
 
@@ -257,7 +262,7 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
       env,
       `${base}/issues/${current.number}`,
       auth,
-      jsonBody('PATCH', { title: issue.title, body: issue.body, labels: ids, state: issue.state }),
+      jsonBody('PATCH', { title: issue.title, body, labels: ids, state: issue.state }),
     );
     console.log(`  updated issue #${current.number}: ${issue.title}`);
   }
