@@ -1,15 +1,92 @@
-import { useState } from 'react';
-import { isRoleIn, roleLabel, type KakiCommand, type Scenario, type Task } from '@kaki/shared';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useKaki, useScenario } from '../kaki';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Button,
-  Card,
-  ConnectionBanner,
-  EventList,
-  RejectionBanner,
-  StatusPill,
-} from '../ui';
+  isRoleIn,
+  roleLabel,
+  type Fact,
+  type KakiCommand,
+  type KakiEvent,
+  type Scenario,
+  type Task,
+} from '@kaki/shared';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useKaki, useScenario, type KakiRejection } from '../kaki';
+import { Button, Card, ConnectionBanner, RejectionBanner, StatusPill } from '../ui';
+import './phone.css';
+
+interface StampedEvent {
+  id: number;
+  event: KakiEvent;
+  receivedAt: number;
+}
+
+type NudgeEvent = Extract<KakiEvent, { type: 'NUDGE' }>;
+type StampedNudge = StampedEvent & { event: NudgeEvent };
+
+function isStampedNudge(item: StampedEvent): item is StampedNudge {
+  return item.event.type === 'NUDGE';
+}
+
+function useStampedEvents(events: KakiEvent[]): StampedEvent[] {
+  const stamps = useRef(new WeakMap<KakiEvent, { id: number; receivedAt: number }>());
+  const nextId = useRef(0);
+  const [stamped, setStamped] = useState<StampedEvent[]>([]);
+
+  useEffect(() => {
+    const now = Date.now();
+    let assigned = false;
+    const next = events.map((event) => {
+      let stamp = stamps.current.get(event);
+      if (stamp === undefined) {
+        stamp = { id: nextId.current, receivedAt: now };
+        nextId.current += 1;
+        stamps.current.set(event, stamp);
+        assigned = true;
+      }
+      return { event, ...stamp };
+    });
+    setStamped((previous) => (assigned || previous.length !== next.length ? next : previous));
+  }, [events]);
+
+  return stamped;
+}
+
+function needsAction(task: Task): boolean {
+  switch (task.status) {
+    case 'DISPATCHED':
+    case 'DRAFT_READY':
+    case 'FAILED':
+    case 'COMPLETED':
+      return true;
+    case 'CLAIMED':
+      return task.mode === 'MANUAL';
+    default:
+      return false;
+  }
+}
+
+function updatedAtMs(task: Task): number {
+  const parsed = Date.parse(task.updatedAt);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function taskKey(task: Task): string {
+  return `${task.id}:${task.status}:${task.updatedAt}`;
+}
+
+function formatTime(at: number): string | undefined {
+  if (!Number.isFinite(at) || at <= 0) return undefined;
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function TimeLabel({ at }: { at: number }) {
+  const label = formatTime(at);
+  if (label === undefined) return null;
+  return (
+    <time className="phone-time" dateTime={new Date(at).toISOString()}>
+      {label}
+    </time>
+  );
+}
 
 /** Phone shell: asks for a role when it has none, then shows only that role's events and tasks. */
 export function PhonePage() {
@@ -26,12 +103,12 @@ function RolePicker() {
   const navigate = useNavigate();
 
   return (
-    <main className="page">
-      <header className="page-header">
+    <main className="phone">
+      <header className="phone-header">
         <p className="eyebrow">Kaki · Your phone</p>
         <h1>Who are you?</h1>
-        <p className="page-subtitle">Pick your meeting role to open your private panel.</p>
       </header>
+      <p className="phone-intro">Pick your meeting role to open your private panel.</p>
       <Card title="Roles">
         <div className="role-picker">
           {scenario.roles.map((role) => (
@@ -45,85 +122,212 @@ function RolePicker() {
   );
 }
 
+type HistoryItem =
+  | { kind: 'task'; at: number; task: Task }
+  | { kind: 'event'; at: number; stamped: StampedEvent };
+
 function PhoneFeed({ role }: { role: string }) {
   const scenario = useScenario();
   const { events, tasks, rejection, connected, send } = useKaki(role);
-  const taskList = [...tasks.values()];
+  const stamped = useStampedEvents(events);
+
+  const allTasks = [...tasks.values()];
+  const currentTask = allTasks
+    .filter(needsAction)
+    .sort((left, right) => updatedAtMs(right) - updatedAtMs(left))[0];
+
+  const nudges = stamped.filter(isStampedNudge);
+  const latestNudge = nudges[nudges.length - 1];
+  const currentNudge = currentTask === undefined ? latestNudge : undefined;
+
+  const historyTasks = allTasks.filter((task) => task.id !== currentTask?.id);
+  const historyEvents = stamped.filter(
+    (item) =>
+      (item.event.type === 'NUDGE' || item.event.type === 'FACT_FOUND') &&
+      (currentNudge === undefined || item.id !== currentNudge.id),
+  );
+
+  const history: HistoryItem[] = [
+    ...historyTasks.map((task) => ({ kind: 'task' as const, at: updatedAtMs(task), task })),
+    ...historyEvents.map((stampedEvent) => ({
+      kind: 'event' as const,
+      at: stampedEvent.receivedAt,
+      stamped: stampedEvent,
+    })),
+  ].sort((left, right) => right.at - left.at);
+
+  const calm = currentTask === undefined && currentNudge === undefined;
 
   return (
-    <main className="page">
-      <header className="page-header">
+    <main className="phone">
+      <header className="phone-header">
         <p className="eyebrow">Kaki · {roleLabel(scenario, role)}</p>
-        <h1>Your panel</h1>
-        <p className="page-subtitle">Only what Kaki sends to you appears here.</p>
+        <h1>{scenario.meetingTitle}</h1>
       </header>
+
       {connected ? null : <ConnectionBanner />}
       {rejection === null ? null : (
         <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />
       )}
-      <Card title="Your tasks">
-        {taskList.length === 0 ? (
-          <p className="empty-state">No tasks yet.</p>
+
+      <section
+        className={calm ? 'phone-current phone-calm' : 'phone-current'}
+        aria-label={calm ? 'Status' : 'Needs you now'}
+      >
+        {currentTask !== undefined ? (
+          <>
+            <p className="eyebrow phone-section-eyebrow">Needs you now</p>
+            <TaskCard
+              key={taskKey(currentTask)}
+              task={currentTask}
+              scenario={scenario}
+              send={send}
+              rejection={rejection}
+            />
+          </>
+        ) : currentNudge !== undefined ? (
+          <>
+            <p className="eyebrow phone-section-eyebrow">Needs you now</p>
+            <NudgeCard
+              text={currentNudge.event.payload.text}
+              at={currentNudge.receivedAt}
+              prominent
+            />
+          </>
         ) : (
-          <ul className="event-list">
-            {taskList.map((task) => (
-              <li key={`${task.id}:${task.status}:${task.updatedAt}`}>
-                <PhoneTask task={task} scenario={scenario} send={send} />
-              </li>
-            ))}
-          </ul>
+          <Card>
+            <h2 className="card-title">Nothing needs you right now</h2>
+            <p className="phone-meta">
+              Kaki will nudge you here when your agenda item is coming up.
+            </p>
+          </Card>
         )}
-      </Card>
-      <EventList events={events} />
+      </section>
+
+      <section className="phone-history" aria-labelledby="phone-history-title">
+        <h2 id="phone-history-title">History</h2>
+        {history.length === 0 ? (
+          <p className="empty-state">Nothing else yet.</p>
+        ) : (
+          <ol className="phone-history-list">
+            {history.map((item) =>
+              item.kind === 'task' ? (
+                <li key={`task-${taskKey(item.task)}`}>
+                  <TaskCard
+                    key={taskKey(item.task)}
+                    task={item.task}
+                    scenario={scenario}
+                    send={send}
+                    rejection={rejection}
+                  />
+                </li>
+              ) : item.stamped.event.type === 'NUDGE' ? (
+                <li key={`event-${item.stamped.id}`}>
+                  <NudgeCard text={item.stamped.event.payload.text} at={item.at} />
+                </li>
+              ) : item.stamped.event.type === 'FACT_FOUND' ? (
+                <li key={`event-${item.stamped.id}`}>
+                  <FactCard
+                    question={item.stamped.event.payload.question}
+                    facts={item.stamped.event.payload.facts}
+                    at={item.at}
+                  />
+                </li>
+              ) : null,
+            )}
+          </ol>
+        )}
+      </section>
     </main>
   );
 }
 
-function PhoneTask({
+function TaskCard({
   task,
   scenario,
   send,
+  rejection,
 }: {
   task: Task;
   scenario: Scenario;
   send: (command: KakiCommand) => void;
+  rejection: KakiRejection | null;
 }) {
   const [body, setBody] = useState(task.draft?.body ?? '');
+  const [target, setTarget] = useState(task.draft?.target ?? '');
+  const [pending, setPending] = useState(false);
+  const busy = useRef(false);
   const draft = task.draft;
+
+  useEffect(() => {
+    if (rejection === null) return;
+    busy.current = false;
+    setPending(false);
+  }, [rejection]);
+
+  function submit(command: KakiCommand): void {
+    if (busy.current) return;
+    busy.current = true;
+    setPending(true);
+    send(command);
+  }
 
   return (
     <Card>
-      <h2 className="card-title">{task.title}</h2>
+      <div className="phone-item-head">
+        <p className="phone-item-kind">Task</p>
+        <TimeLabel at={updatedAtMs(task)} />
+      </div>
+      <h2 className="card-title phone-task-title">{task.title}</h2>
       <p className="task-meta">
-        <StatusPill status={task.status} /> ·{' '}
-        {roleLabel(scenario, task.assignee ?? task.suggestedAssignee)}
+        <StatusPill status={task.status} />
+        <span>{roleLabel(scenario, task.assignee ?? task.suggestedAssignee)}</span>
       </p>
-      {task.error === undefined ? null : <p className="task-error">{task.error}</p>}
+      {task.context.trim() === '' ? null : (
+        <p className="phone-task-context">{task.context}</p>
+      )}
+      {task.error === undefined ? null : (
+        <p className="task-error" role="alert">
+          {task.error}
+        </p>
+      )}
 
       {task.status === 'DISPATCHED' ? (
-        <div className="task-actions">
+        <div className="task-actions" aria-busy={pending}>
           {task.actionKind === undefined ? null : (
             <Button
-              onClick={() => send({ type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' })}
+              disabled={pending}
+              onClick={() =>
+                submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' })
+              }
             >
               Let Kaki do it
             </Button>
           )}
           <Button
             variant="ghost"
-            onClick={() => send({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' })}
+            disabled={pending}
+            onClick={() => submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' })}
           >
-            I'll do it
+            I&apos;ll do it
           </Button>
         </div>
       ) : null}
 
       {(task.status === 'DRAFT_READY' || task.status === 'FAILED') && draft !== undefined ? (
         <>
-          <p className="task-meta">To: {draft.target}</p>
+          <label className="draft-field">
+            <span>To</span>
+            <input
+              className="draft-target"
+              type="text"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+            />
+          </label>
           <p className="task-meta">Subject: {draft.subject}</p>
           <label className="draft-field">
-            Body
+            <span>Draft body</span>
             <textarea
               className="draft-body"
               rows={6}
@@ -135,10 +339,11 @@ function PhoneTask({
       ) : null}
 
       {task.status === 'DRAFT_READY' && draft !== undefined ? (
-        <div className="task-actions">
+        <div className="task-actions" aria-busy={pending}>
           <Button
+            disabled={pending || target.trim() === ''}
             onClick={() =>
-              send({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, body } })
+              submit({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, target, body } })
             }
           >
             Approve
@@ -147,13 +352,14 @@ function PhoneTask({
       ) : null}
 
       {task.status === 'FAILED' ? (
-        <div className="task-actions">
+        <div className="task-actions" aria-busy={pending}>
           <Button
+            disabled={pending || (draft !== undefined && target.trim() === '')}
             onClick={() =>
-              send(
+              submit(
                 draft === undefined
                   ? { type: 'RETRY_ACTION', taskId: task.id }
-                  : { type: 'RETRY_ACTION', taskId: task.id, draft: { ...draft, body } },
+                  : { type: 'RETRY_ACTION', taskId: task.id, draft: { ...draft, target, body } },
               )
             }
           >
@@ -163,21 +369,63 @@ function PhoneTask({
       ) : null}
 
       {task.status === 'CLAIMED' && task.mode === 'MANUAL' ? (
-        <div className="task-actions">
-          <Button onClick={() => send({ type: 'MARK_DONE', taskId: task.id })}>Mark done</Button>
+        <div className="task-actions" aria-busy={pending}>
+          <Button disabled={pending} onClick={() => submit({ type: 'MARK_DONE', taskId: task.id })}>
+            Mark done
+          </Button>
         </div>
       ) : null}
 
       {task.status === 'COMPLETED' ? (
-        <div className="task-actions">
+        <div className="task-actions" aria-busy={pending}>
           {task.artifactUrl === undefined ? null : (
             <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
               Open artifact
             </a>
           )}
-          <Button onClick={() => send({ type: 'SYNC_TASK', taskId: task.id })}>Sync to meeting</Button>
+          <Button disabled={pending} onClick={() => submit({ type: 'SYNC_TASK', taskId: task.id })}>
+            Sync to meeting
+          </Button>
         </div>
       ) : null}
+    </Card>
+  );
+}
+
+function NudgeCard({ text, at, prominent = false }: { text: string; at: number; prominent?: boolean }) {
+  return (
+    <Card>
+      <div className="phone-item-head">
+        <p className="phone-item-kind">Nudge</p>
+        <TimeLabel at={at} />
+      </div>
+      <p className={prominent ? 'phone-current-text' : 'phone-item-text'}>{text}</p>
+    </Card>
+  );
+}
+
+function FactCard({ question, facts, at }: { question: string; facts: Fact[]; at: number }) {
+  return (
+    <Card>
+      <div className="phone-item-head">
+        <p className="phone-item-kind">From the company records</p>
+        <TimeLabel at={at} />
+      </div>
+      <h3 className="card-title phone-fact-question">{question}</h3>
+      {facts.length === 0 ? (
+        <p className="phone-meta">No matching records found.</p>
+      ) : (
+        <ul className="phone-facts">
+          {facts.map((fact, index) => (
+            <li className="phone-fact" key={`${fact.source}-${fact.date}-${index}`}>
+              <p className="phone-fact-text">{fact.text}</p>
+              <p className="phone-fact-source">
+                Source: {fact.source} · {fact.date}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }
