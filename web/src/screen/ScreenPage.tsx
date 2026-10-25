@@ -9,6 +9,7 @@ import {
   RejectionBanner,
   StatusPill,
 } from '../ui';
+import { JoinPhones } from './JoinPhones';
 
 /** Shared screen shell: shows every event and task addressed to the meeting screen. */
 export function ScreenPage() {
@@ -35,6 +36,7 @@ export function ScreenPage() {
         </p>
       ) : null}
       {record === undefined ? null : <MeetingRecordCard record={record} scenario={scenario} />}
+      <JoinPhones />
       <Card title="Tasks">
         {taskList.length === 0 ? (
           <p className="empty-state">No tasks yet.</p>

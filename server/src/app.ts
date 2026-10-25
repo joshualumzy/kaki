@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isKakiEvent, isSuggestInput, type Scenario } from '@kaki/shared';
 import { CommandError, createHub, type Hub } from './hub';
+import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import { createTaskStore, type TaskStore } from './tasks';
 
@@ -75,6 +76,21 @@ async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
   }
 }
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/**
+ * Dev routes are for this machine only: phones on the same Wi-Fi must not reach them. The Vite
+ * proxy makes every request look local, so the raw URL must itself start with /dev/: a path like
+ * /api/../dev/emit would otherwise be normalised into a dev route after it passed the /api proxy.
+ */
+function devRoutesOpen(request: IncomingMessage, context: { devRoutes: boolean }): boolean {
+  return (
+    context.devRoutes &&
+    LOOPBACK.has(request.socket.remoteAddress ?? '') &&
+    (request.url ?? '').startsWith('/dev/')
+  );
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -93,7 +109,17 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/emit' && context.devRoutes) {
+    if (request.method === 'GET' && path === '/api/join-info') {
+      const join = resolveJoinBaseUrl();
+      if (!join.ok) {
+        sendJson(response, 503, { error: join.error });
+        return;
+      }
+      sendJson(response, 200, { baseUrl: join.baseUrl });
+      return;
+    }
+
+    if (request.method === 'POST' && path === '/dev/emit' && devRoutesOpen(request, context)) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -109,7 +135,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/suggest-task' && context.devRoutes) {
+    if (request.method === 'POST' && path === '/dev/suggest-task' && devRoutesOpen(request, context)) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
