@@ -1,0 +1,126 @@
+name: kaki-wingman
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_DB: kaki
+      POSTGRES_USER: kaki
+      POSTGRES_PASSWORD: kaki_dev_password
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaki -d kaki"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  wiki:
+    image: requarks/wiki:2.5.307
+    environment:
+      DB_TYPE: sqlite
+      DB_FILEPATH: /wiki/data/wiki.db
+    ports:
+      - "127.0.0.1:8081:3000"
+    volumes:
+      - wiki-data:/wiki/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  gitea:
+    image: gitea/gitea:1.22.6
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__database__PATH: /data/gitea/gitea.db
+      GITEA__server__DOMAIN: 127.0.0.1
+      GITEA__server__ROOT_URL: http://127.0.0.1:8082/
+      GITEA__server__HTTP_PORT: 3000
+      GITEA__server__SSH_DOMAIN: 127.0.0.1
+      GITEA__server__SSH_PORT: 2222
+      GITEA__server__SSH_LISTEN_PORT: 22
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__openid__ENABLE_OPENID_SIGNIN: "false"
+      GITEA__openid__ENABLE_OPENID_SIGNUP: "false"
+    ports:
+      - "127.0.0.1:8082:3000"
+      - "127.0.0.1:2222:22"
+    volumes:
+      - gitea-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:10.2.0
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mm_dev_password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_SITEURL: http://127.0.0.1:8083
+      MM_SERVICESETTINGS_ENABLEOPENSERVER: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
+      MM_FILESETTINGS_MAXFILESIZE: "52428800"
+      MM_PLUGINSETTINGS_ENABLE: "false"
+      MM_LOGSETTINGS_CONSOLELEVEL: INFO
+    ports:
+      - "127.0.0.1:8083:8065"
+    volumes:
+      - mattermost-data:/mattermost/data
+      - mattermost-config:/mattermost/config
+      - mattermost-logs:/mattermost/logs
+      - mattermost-plugins:/mattermost/plugins
+      - mattermost-client-plugins:/mattermost/client/plugins
+      - mattermost-bleve:/mattermost/bleve-indexes
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8065/api/v4/system/ping >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 120s
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.21.7
+    environment:
+      MP_MAX_MESSAGES: "5000"
+    ports:
+      - "127.0.0.1:8084:8025"
+      - "127.0.0.1:1025:1025"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8025/api/v1/info || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  wiki-data:
+  gitea-data:
+  mattermost-data:
+  mattermost-config:
+  mattermost-logs:
+  mattermost-plugins:
+  mattermost-client-plugins:
+  mattermost-bleve:

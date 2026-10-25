@@ -1,0 +1,28 @@
+{
+  "pages": [
+    {
+      "path": "hawker-heroes/game-design",
+      "title": "Hawker Heroes - Game Design Doc",
+      "description": "Core loop, level structure and the design intent behind level 5.",
+      "file": "game-design.md"
+    },
+    {
+      "path": "hawker-heroes/publisher-contract",
+      "title": "Starfruit Publishing - Contract Summary",
+      "description": "Milestones, payment terms and the late-delivery clause.",
+      "file": "publisher-contract.md"
+    },
+    {
+      "path": "hawker-heroes/booth-rules",
+      "title": "Indie Arcade SG - Booth Rules",
+      "description": "Booth allocation, setup times and what the organisers provide.",
+      "file": "booth-rules.md"
+    },
+    {
+      "path": "random/lunch-spots",
+      "title": "Lunch spots near the studio",
+      "description": "The studio's very serious lunch rotation.",
+      "file": "lunch-spots.md"
+    }
+  ]
+}

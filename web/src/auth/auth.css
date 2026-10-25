@@ -1,0 +1,41 @@
+.auth-page {
+  max-width: 28rem;
+}
+
+.auth-form,
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-weight: 600;
+}
+
+.auth-input {
+  font: inherit;
+  font-weight: 400;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.auth-input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.auth-form .btn,
+.join-form .btn {
+  margin-top: var(--space-1);
+}
+
+.phone .join-form .btn {
+  width: 100%;
+}
