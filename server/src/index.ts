@@ -3,7 +3,6 @@ import './env';
 import { actionModules } from './action';
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
-import { devModules } from './dev';
 import { hostModules } from './host';
 import { loadScenario } from './loadScenario';
 import { wingmanModules } from './wingman';
@@ -24,7 +23,7 @@ try {
   await createApp({
     port,
     scenario,
-    modules: [...hostModules, ...wingmanModules, ...actionModules, ...devModules],
+    modules: [...hostModules, ...wingmanModules, ...actionModules],
     devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
   });

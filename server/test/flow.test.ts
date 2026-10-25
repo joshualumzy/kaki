@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
+import { createEmailModule, type EmailMessage } from '../src/action/email';
 import { createGiteaModule } from '../src/action/gitea';
-import { fakeActionsModule } from '../src/dev/fakeActions';
+import { createMattermostModule } from '../src/action/mattermost';
 import { createFakeLlm } from '../src/llm';
 import {
   connectClient,
@@ -33,11 +34,12 @@ describe('task flows', () => {
   let app: Awaited<ReturnType<typeof createTestApp>>;
   let port: number;
   let clients: TestClient[];
+  let sentEmails: EmailMessage[];
 
   beforeEach(async () => {
+    sentEmails = [];
     app = await createTestApp({
       modules: [
-        fakeActionsModule,
         createGiteaModule({
           llm: createFakeLlm(() =>
             JSON.stringify({ title: 'Fix the oven', body: 'The oven trips the fuse after ten minutes.' }),
@@ -51,6 +53,42 @@ describe('task flows', () => {
           fetchImpl: async () =>
             new Response(JSON.stringify({ html_url: 'http://localhost/gitea/issues/1' }), {
               status: 201,
+              headers: { 'content-type': 'application/json' },
+            }),
+        }),
+        createMattermostModule({
+          llm: createFakeLlm(() => JSON.stringify({ message: 'The oven is fixed.' })),
+          mattermost: {
+            url: 'http://localhost/mattermost',
+            token: 'test-token',
+            team: 'pixel-kampung',
+            channel: 'launch',
+          },
+          fetchImpl: async () => {
+            throw new Error('unexpected Mattermost request in the flow test');
+          },
+        }),
+        createEmailModule({
+          llm: createFakeLlm(() =>
+            JSON.stringify({
+              to: 'supplier@example.com',
+              subject: 'Friday delivery',
+              body: 'Please deliver on Friday.',
+            }),
+          ),
+          email: {
+            smtpHost: '127.0.0.1',
+            smtpPort: 1025,
+            from: 'kaki@pixelkampung.example',
+            mailpitUrl: 'http://localhost/mailpit',
+          },
+          sendMail: async (message) => {
+            if (message.text.includes('FAIL')) throw new Error('mailbox unavailable');
+            sentEmails.push(message);
+          },
+          fetchImpl: async () =>
+            new Response(JSON.stringify({ messages: [{ ID: 'message-1' }] }), {
+              status: 200,
               headers: { 'content-type': 'application/json' },
             }),
         }),
@@ -214,7 +252,7 @@ describe('task flows', () => {
     expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
   });
 
-  it('fails an approved action whose draft contains FAIL, then completes a retry with a fixed draft', async () => {
+  it('fails an approved email whose send fails, then completes a retry with a fixed draft', async () => {
     const screen = await connect('screen');
     const chef = await connect('chef');
 
@@ -239,7 +277,7 @@ describe('task flows', () => {
       draft: { ...draft, body: 'Please FAIL on purpose.' },
     });
     const failed = await waitForEvent(chef, isStatus(task.id, 'FAILED'), 'failure', 5_000);
-    expect(taskOf(failed).error).toBe('fake failure');
+    expect(taskOf(failed).error).toMatch(/could not send the email/i);
 
     send(chef, {
       type: 'RETRY_ACTION',
@@ -252,8 +290,10 @@ describe('task flows', () => {
       'retry completion',
       5_000,
     );
+    expect(taskOf(completed).artifactUrl).toBe('http://localhost/mailpit/view/message-1');
     expect(taskOf(completed).error).toBeUndefined();
     expect(app.tasks.get(task.id)?.status).toBe('COMPLETED');
     expect(app.tasks.get(task.id)?.error).toBeUndefined();
+    expect(sentEmails).toHaveLength(1);
   });
 });
