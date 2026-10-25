@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@kaki/shared": "*",
+    "pg": "^8.23.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.0"
   }
 }

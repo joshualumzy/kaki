@@ -14,13 +14,24 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "emit-demo": "tsx scripts/emit-demo.ts",
-    "eval:notetaker": "tsx server/src/host/evalNotetaker.ts"
+    "eval:notetaker": "tsx server/src/host/evalNotetaker.ts",
+    "stack:up": "docker compose -f docker/docker-compose.yml up -d",
+    "stack:down": "docker compose -f docker/docker-compose.yml down",
+    "seed": "tsx docker/seed/index.ts",
+    "seed:verify": "tsx docker/verify.ts",
+    "index:knowledge": "tsx server/src/wingman/knowledge/cli.ts",
+    "host:create": "tsx server/src/auth/cli.ts",
+    "knowledge:check": "tsx server/src/wingman/knowledge/check.ts"
   },
   "dependencies": {
-    "@kaki/shared": "*"
+    "@kaki/shared": "*",
+    "nodemailer": "^7.0.13",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/nodemailer": "^7.0.12",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^5.0.5"
