@@ -42,7 +42,9 @@ export type KakiEvent =
       {
         agendaIndex: number;
         openQuestions: Question[];
+        /** Seconds since the current agenda item started (not since the meeting started). */
         elapsedSeconds: number;
+        /** Talk time per role during the current agenda item. */
         speakerTalkSeconds: Partial<Record<Role, number>>;
         /** Optional: whether open questions and tasks are up to date. */
         notetakerStatus?: NotetakerStatus;

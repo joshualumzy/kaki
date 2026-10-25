@@ -34,8 +34,8 @@
 
     { "at": 1240, "agendaIndex": 2, "speaker": "Wei Ling", "text": "Starfruit wants a milestone report and the final build. The report is mostly done, I'll send it to them this week." },
     { "at": 1280, "speaker": "Arjun", "text": "When does Starfruit need the final build? That decides whether the crash fix makes it." },
-    { "at": 1300, "speaker": "Wei Ling", "text": "The wiki says the twenty-fifth of November, but I remember an email from them saying earlier. I don't want to guess." },
-    { "at": 1330, "speaker": "Arjun", "text": "If it's earlier than the twentieth, we're tight." },
+    { "at": 1300, "speaker": "Wei Ling", "text": "The wiki says the twentieth of November, but I remember an email from them saying earlier. I don't want to guess." },
+    { "at": 1330, "speaker": "Arjun", "text": "If it's any earlier than that, we're tight." },
     { "at": 1380, "speaker": "Wei Ling", "text": "The milestone payment is tied to the report, not the build, so that part is fine either way." },
     { "at": 1440, "speaker": "Mei", "text": "Do they need the store page text from us too, or do they write it?" },
     { "at": 1460, "speaker": "Wei Ling", "text": "We write it, they review it. I'll draft it with Daniel." },
