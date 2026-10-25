@@ -34,6 +34,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Parse a JSON reply, dropping any Markdown code fence the model wrapped around it. */
+export function parseJsonReply(text: string): unknown {
+  const match = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/.exec(text);
+  return JSON.parse((match === null ? text : match[1]!).trim());
+}
+
 // Pull choices[0].message.content out of a chat completions reply.
 function contentOf(body: unknown): string | undefined {
   if (!isObject(body) || !Array.isArray(body.choices)) return undefined;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv } from '../src/llm';
+import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv, parseJsonReply } from '../src/llm';
 
 function replyWith(body: unknown, status = 200): typeof fetch {
   return async () => new Response(JSON.stringify(body), { status });
@@ -78,6 +78,18 @@ describe('OpenAI-compatible LLM client', () => {
     expect(() =>
       llmFromEnv({ KAKI_LLM_BASE_URL: 'https://x', KAKI_LLM_API_KEY: 'k', KAKI_LLM_MODEL: 'm', KAKI_LLM_TIMEOUT_MS: 'soon' }),
     ).toThrow(/KAKI_LLM_TIMEOUT_MS/);
+  });
+});
+
+describe('parseJsonReply', () => {
+  it('parses plain and fenced JSON', () => {
+    expect(parseJsonReply('{"ok":true}')).toEqual({ ok: true });
+    expect(parseJsonReply('```json\n{"ok":true}\n```')).toEqual({ ok: true });
+    expect(parseJsonReply('```\n{"ok":true}\n```')).toEqual({ ok: true });
+  });
+
+  it('throws on bad JSON', () => {
+    expect(() => parseJsonReply('not json')).toThrow();
   });
 });
 

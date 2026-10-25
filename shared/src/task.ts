@@ -71,7 +71,7 @@ const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   DRAFT_READY: ['RUNNING'],
   RUNNING: ['COMPLETED', 'FAILED'],
   COMPLETED: ['SYNCED'],
-  FAILED: ['RUNNING'],
+  FAILED: ['RUNNING', 'CLAIMED'],
   SYNCED: [],
 };
 

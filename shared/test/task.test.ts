@@ -12,6 +12,7 @@ const LEGAL_MOVES: ReadonlyArray<[TaskStatus, TaskStatus]> = [
   ['RUNNING', 'COMPLETED'],
   ['RUNNING', 'FAILED'],
   ['FAILED', 'RUNNING'],
+  ['FAILED', 'CLAIMED'],
   ['COMPLETED', 'SYNCED'],
 ];
 
