@@ -1,7 +1,6 @@
-import type { Task, TaskStatus } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
-import type { KakiContext, KakiModule } from '../modules';
-import type { TaskStore } from '../tasks';
+import type { KakiModule } from '../modules';
+import { ActionError, createActionModule, isObject, messageOf } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -26,15 +25,7 @@ interface IssueDraft {
   body: string;
 }
 
-type TaskPatch = Parameters<TaskStore['transition']>[2];
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const CONFIG_MESSAGE = 'Gitea is not configured: set GITEA_URL, GITEA_TOKEN, GITEA_ORG and GITEA_REPO';
 
 // Strictly one JSON object with a non-empty title and body; anything else is unusable.
 function parseDraft(reply: string): IssueDraft | undefined {
@@ -62,164 +53,84 @@ export function createGiteaModule({
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: GiteaModuleOptions = {}): KakiModule {
-  return {
+  return createActionModule({
     name: 'action-gitea',
-    start({ tasks }: KakiContext) {
-      const shutdown = new AbortController();
-      let stopped = false;
-
-      // A slow result is only applied when the task has not moved on since it was read.
-      function isCurrent(task: Task): boolean {
-        if (stopped) return false;
-        const current = tasks.get(task.id);
-        return current !== undefined && current.status === task.status && current.updatedAt === task.updatedAt;
+    kind: 'gitea_issue',
+    async draft(task, signal) {
+      if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
+      if (llm === undefined) {
+        throw new ActionError('The LLM is not configured, so the issue cannot be drafted');
       }
 
-      function apply(task: Task, to: TaskStatus, patch: TaskPatch, label: string): void {
-        if (!isCurrent(task)) return;
-        try {
-          tasks.transition(task.id, to, patch);
-        } catch (error) {
-          console.error(`kaki gitea: could not ${label}`, error);
-        }
+      const messages: ChatMessage[] = [
+        {
+          role: 'system',
+          content:
+            'You turn a team task into a Gitea issue. Reply with one JSON object and nothing else: ' +
+            '{"title": "...", "body": "..."}. The body may use Markdown.',
+        },
+        {
+          role: 'user',
+          content: `Task: ${task.title}\n\nContext:\n${task.context}`,
+        },
+      ];
+
+      let reply: string;
+      try {
+        reply = await llm.complete(messages, { json: true, signal });
+      } catch (error) {
+        throw new ActionError(`Could not draft the issue: ${messageOf(error)}`);
       }
 
-      function fail(task: Task, message: string): void {
-        apply(task, 'FAILED', { error: message }, 'record the failure');
+      const draft = parseDraft(reply);
+      if (draft === undefined) {
+        throw new ActionError('The LLM did not return usable JSON with a title and body');
       }
-
-      // Every background run ends here, so a rejection can never escape the change handler.
-      function run(label: string, work: () => Promise<void>): void {
-        work().catch((error: unknown) => {
-          if (!stopped) console.error(`kaki gitea: ${label} failed`, error);
-        });
-      }
-
-      function draftIssue(task: Task): void {
-        run('drafting the issue', async () => {
-          if (gitea === undefined) {
-            fail(task, 'Gitea is not configured: set GITEA_URL, GITEA_TOKEN, GITEA_ORG and GITEA_REPO');
-            return;
-          }
-          if (llm === undefined) {
-            fail(task, 'The LLM is not configured, so the issue cannot be drafted');
-            return;
-          }
-
-          const messages: ChatMessage[] = [
-            {
-              role: 'system',
-              content:
-                'You turn a team task into a Gitea issue. Reply with one JSON object and nothing else: ' +
-                '{"title": "...", "body": "..."}. The body may use Markdown.',
-            },
-            {
-              role: 'user',
-              content: `Task: ${task.title}\n\nContext:\n${task.context}`,
-            },
-          ];
-
-          let reply: string;
-          try {
-            reply = await llm.complete(messages, { json: true, signal: shutdown.signal });
-          } catch (error) {
-            fail(task, `Could not draft the issue: ${messageOf(error)}`);
-            return;
-          }
-          if (!isCurrent(task)) return;
-
-          const draft = parseDraft(reply);
-          if (draft === undefined) {
-            fail(task, 'The LLM did not return usable JSON with a title and body');
-            return;
-          }
-          apply(
-            task,
-            'DRAFT_READY',
-            { draft: { target: `${gitea.owner}/${gitea.repo}`, subject: draft.title, body: draft.body } },
-            'save the draft',
-          );
-        });
-      }
-
-      function postIssue(task: Task): void {
-        run('posting the issue', async () => {
-          if (gitea === undefined) {
-            fail(task, 'Gitea is not configured: set GITEA_URL, GITEA_TOKEN, GITEA_ORG and GITEA_REPO');
-            return;
-          }
-          const draft = task.draft;
-          if (draft === undefined) {
-            fail(task, 'The task has no draft to post');
-            return;
-          }
-
-          const timeout = AbortSignal.timeout(timeoutMs);
-          const signal = AbortSignal.any([timeout, shutdown.signal]);
-          let response: Response;
-          try {
-            response = await fetchImpl(issueEndpoint(gitea), {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', authorization: `token ${gitea.token}` },
-              body: JSON.stringify({ title: draft.subject, body: draft.body }),
-              signal,
-            });
-          } catch (error) {
-            if (stopped) return;
-            fail(
-              task,
-              timeout.aborted
-                ? `Gitea timed out after ${timeoutMs} ms; check Gitea before retrying, the issue may already exist`
-                : `could not reach Gitea: ${messageOf(error)}`,
-            );
-            return;
-          }
-          if (stopped) return;
-
-          if (!response.ok) {
-            const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
-            fail(
-              task,
-              response.status === 401
-                ? 'Gitea rejected the token: bad credentials (HTTP 401)'
-                : response.status === 403
-                  ? `Gitea token lacks permission to create issues in ${gitea.owner}/${gitea.repo} (HTTP 403)`
-                  : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
-            );
-            return;
-          }
-
-          let body: unknown;
-          try {
-            body = await response.json();
-          } catch (error) {
-            if (stopped) return;
-            fail(task, `Gitea reply is not valid JSON: ${messageOf(error)}`);
-            return;
-          }
-          const artifactUrl = isObject(body) && typeof body.html_url === 'string' ? body.html_url.trim() : '';
-          if (artifactUrl === '') {
-            fail(task, 'Gitea replied without an issue URL');
-            return;
-          }
-          apply(task, 'COMPLETED', { artifactUrl }, 'finish the issue');
-        });
-      }
-
-      const unsubscribe = tasks.onChange((task) => {
-        if (task.actionKind !== 'gitea_issue' || task.mode !== 'ACTION_AGENT') return;
-        if (task.status === 'CLAIMED') {
-          draftIssue(task);
-        } else if (task.status === 'RUNNING') {
-          postIssue(task);
-        }
-      });
-
-      return () => {
-        stopped = true;
-        shutdown.abort();
-        unsubscribe();
-      };
+      return { target: `${gitea.owner}/${gitea.repo}`, subject: draft.title, body: draft.body };
     },
-  };
+    async run(task, signal) {
+      if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
+      const draft = task.draft;
+      if (draft === undefined) throw new ActionError('The task has no draft to post');
+
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const requestSignal = AbortSignal.any([timeout, signal]);
+      let response: Response;
+      try {
+        response = await fetchImpl(issueEndpoint(gitea), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `token ${gitea.token}` },
+          body: JSON.stringify({ title: draft.subject, body: draft.body }),
+          signal: requestSignal,
+        });
+      } catch (error) {
+        throw new ActionError(
+          timeout.aborted
+            ? `Gitea timed out after ${timeoutMs} ms; check Gitea before retrying, the issue may already exist`
+            : `could not reach Gitea: ${messageOf(error)}`,
+        );
+      }
+
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
+        throw new ActionError(
+          response.status === 401
+            ? 'Gitea rejected the token: bad credentials (HTTP 401)'
+            : response.status === 403
+              ? `Gitea token lacks permission to create issues in ${gitea.owner}/${gitea.repo} (HTTP 403)`
+              : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
+        );
+      }
+
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch (error) {
+        throw new ActionError(`Gitea reply is not valid JSON: ${messageOf(error)}`);
+      }
+      const artifactUrl = isObject(body) && typeof body.html_url === 'string' ? body.html_url.trim() : '';
+      if (artifactUrl === '') throw new ActionError('Gitea replied without an issue URL');
+      return artifactUrl;
+    },
+  });
 }

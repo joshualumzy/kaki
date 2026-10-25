@@ -1,6 +1,7 @@
 import { llmFromEnv } from '../llm';
 import type { KakiModule } from '../modules';
 import { createGiteaModule, type GiteaSettings } from './gitea';
+import { createMattermostModule, type MattermostSettings } from './mattermost';
 
 function requiredEnv(name: string): string | undefined {
   const value = process.env[name];
@@ -16,10 +17,25 @@ function giteaFromEnv(): GiteaSettings | undefined {
   return { url, token, owner, repo };
 }
 
+function mattermostFromEnv(): MattermostSettings | undefined {
+  const url = requiredEnv('MATTERMOST_URL');
+  const token = requiredEnv('MATTERMOST_TOKEN');
+  const team = requiredEnv('MATTERMOST_TEAM');
+  const channel = requiredEnv('MATTERMOST_CHANNEL');
+  if (url === undefined || token === undefined || team === undefined || channel === undefined) return undefined;
+  return { url, token, team, channel };
+}
+
+const llm = llmFromEnv();
+
 /** Modules that run the team's approved actions in the outside world. */
 export const actionModules: KakiModule[] = [
   createGiteaModule({
-    llm: llmFromEnv(),
+    llm,
     gitea: giteaFromEnv(),
+  }),
+  createMattermostModule({
+    llm,
+    mattermost: mattermostFromEnv(),
   }),
 ];

@@ -1,0 +1,427 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
+import {
+  createMattermostModule,
+  type MattermostModuleOptions,
+  type MattermostSettings,
+} from '../../src/action/mattermost';
+import type { Hub } from '../../src/hub';
+import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
+import { createTaskStore, type TaskStore } from '../../src/tasks';
+import { testScenario } from '../fixtures/scenario';
+import { settle, waitFor } from '../helpers';
+
+const settings: MattermostSettings = {
+  url: 'http://mattermost.test',
+  token: 'secret-token',
+  team: 'pixel-kampung',
+  channel: 'launch',
+};
+
+const channelId = 'channel-123';
+const postId = 'post-456';
+
+const messageReply = JSON.stringify({ message: 'The oven is fixed.' });
+
+const stops: Array<() => void> = [];
+
+afterEach(() => {
+  stopAll();
+  vi.restoreAllMocks();
+});
+
+function stopAll(): void {
+  for (const stop of stops.splice(0)) stop();
+}
+
+function quietHub(): Hub {
+  return {
+    publish: (_event: KakiEvent) => {},
+    subscribe: () => () => {},
+    onCommand: () => {},
+    close: () => {},
+  };
+}
+
+function setup(options: MattermostModuleOptions): TaskStore {
+  const hub = quietHub();
+  const tasks = createTaskStore({ hub, scenario: testScenario });
+  const stop = createMattermostModule(options).start({ hub, tasks, scenario: testScenario });
+  if (stop !== undefined) stops.push(stop);
+  return tasks;
+}
+
+function startTask(tasks: TaskStore, actionKind: ActionKind = 'mattermost_post'): Task {
+  const task = tasks.suggest({
+    title: 'Fix the oven',
+    context: 'The oven trips the fuse after ten minutes.',
+    suggestedAssignee: 'chef',
+    actionKind,
+  });
+  tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+  return task;
+}
+
+function waitForStatus(tasks: TaskStore, id: string, status: Task['status'], timeoutMs = 2_000): Promise<Task> {
+  return waitFor(
+    () => {
+      const task = tasks.get(id);
+      return task?.status === status ? task : undefined;
+    },
+    `task ${id} to be ${status}`,
+    timeoutMs,
+  );
+}
+
+async function claim(tasks: TaskStore, task: Task): Promise<Task> {
+  tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+  return waitForStatus(tasks, task.id, 'DRAFT_READY');
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function okFetch(channel = 'launch') {
+  return vi.fn<typeof fetch>(async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    if (
+      method === 'GET' &&
+      url === `http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/${channel}`
+    ) {
+      return jsonResponse({ id: channelId });
+    }
+    if (method === 'POST' && url === 'http://mattermost.test/api/v4/posts') {
+      return jsonResponse({ id: postId }, 201);
+    }
+    return new Response(`unexpected ${method} ${url}`, { status: 500 });
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settlePromise) => {
+    resolve = settlePromise;
+  });
+  return { promise, resolve };
+}
+
+describe('mattermost action module', () => {
+  it('drafts a message on claim without posting anything', async () => {
+    const llm = createFakeLlm(() => messageReply);
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm, mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+
+    const ready = await claim(tasks, task);
+
+    expect(ready.draft).toEqual({
+      target: '#launch',
+      subject: 'Fix the oven',
+      body: 'The oven is fixed.',
+    });
+    expect(llm.calls).toHaveLength(1);
+    expect(llm.calls[0]?.map((message) => message.content).join('\n')).toContain(
+      'The oven trips the fuse after ten minutes.',
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('posts the approved draft on run and records the post URL', async () => {
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const [lookupCall, postCall] = fetchImpl.mock.calls;
+    if (lookupCall === undefined || postCall === undefined) throw new Error('Expected two Mattermost requests');
+
+    const [lookupUrl, lookupInit] = lookupCall;
+    expect(String(lookupUrl)).toBe(
+      'http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/launch',
+    );
+    expect(lookupInit?.method).toBe('GET');
+    expect(lookupInit?.headers).toMatchObject({ authorization: 'Bearer secret-token' });
+
+    const [postUrl, postInit] = postCall;
+    expect(String(postUrl)).toBe('http://mattermost.test/api/v4/posts');
+    expect(postInit?.method).toBe('POST');
+    expect(postInit?.headers).toMatchObject({
+      authorization: 'Bearer secret-token',
+      'content-type': 'application/json',
+    });
+    expect(JSON.parse(String(postInit?.body))).toEqual({
+      channel_id: channelId,
+      message: 'The oven is fixed.',
+    });
+  });
+
+  it.each([
+    ['with a leading #', '#ops'],
+    ['without a leading #', 'ops'],
+  ])('uses an edited target channel %s', async (_label, target) => {
+    const fetchImpl = okFetch('ops');
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+    if (ready.draft === undefined) throw new Error('Expected a draft');
+
+    tasks.transition(ready.id, 'RUNNING', { draft: { ...ready.draft, target } });
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    const [lookupCall, postCall] = fetchImpl.mock.calls;
+    if (lookupCall === undefined || postCall === undefined) throw new Error('Expected two Mattermost requests');
+    expect(String(lookupCall[0])).toBe(
+      'http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/ops',
+    );
+    expect(JSON.parse(String(postCall[1]?.body))).toEqual({
+      channel_id: channelId,
+      message: 'The oven is fixed.',
+    });
+  });
+
+  it('fails when the edited target channel is empty', async () => {
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+    if (ready.draft === undefined) throw new Error('Expected a draft');
+
+    tasks.transition(ready.id, 'RUNNING', { draft: { ...ready.draft, target: '#' } });
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+
+    expect(failed.error).toMatch(/channel is empty/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails when the channel does not exist', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('team not found', { status: 404 }));
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+
+    expect(failed.error).toMatch(/channel not found/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails on bad credentials, then completes a retry with the same draft', async () => {
+    const fetchImpl = okFetch();
+    fetchImpl.mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toMatch(/bad credentials/i);
+
+    tasks.transition(failed.id, 'RUNNING');
+    const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('includes the status and a short body for other Mattermost errors', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('channel is archived', { status: 400 }));
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toContain('400');
+    expect(failed.error).toContain('channel is archived');
+  });
+
+  it('explains a 403 as a missing permission, not bad credentials', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('forbidden', { status: 403 }));
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toMatch(/lacks permission/i);
+    expect(failed.error).not.toMatch(/bad credentials/i);
+  });
+
+  it('accepts an LLM reply wrapped in a code fence', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => `\`\`\`json\n${messageReply}\n\`\`\``),
+      mattermost: settings,
+      fetchImpl: okFetch(),
+    });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+    expect(ready.draft?.body).toBeTruthy();
+  });
+
+  it('drafts again when a retry follows a failed draft', async () => {
+    let calls = 0;
+    const llm = createFakeLlm(() => {
+      calls += 1;
+      if (calls === 1) throw new LlmError('gateway down');
+      return messageReply;
+    });
+    const tasks = setup({ llm, mattermost: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    // A retry with no draft claims the task again (see the RETRY_ACTION command).
+    tasks.transition(failed.id, 'CLAIMED');
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    expect(ready.draft).toBeDefined();
+  });
+
+  it('fails when Mattermost times out', async () => {
+    const fetchImpl = vi.fn<typeof fetch>((_input, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('This operation was aborted', 'AbortError'));
+        });
+      });
+    });
+    const tasks = setup({
+      llm: createFakeLlm(() => messageReply),
+      mattermost: settings,
+      fetchImpl,
+      timeoutMs: 25,
+    });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toMatch(/timed out/i);
+  });
+
+  it('fails when Mattermost cannot be reached', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error('connect ECONNREFUSED'));
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toMatch(/could not reach Mattermost/i);
+  });
+
+  it('fails when Mattermost replies without a post id', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (init?.method === 'GET') return jsonResponse({ id: channelId });
+      if (url === 'http://mattermost.test/api/v4/posts') return jsonResponse({}, 201);
+      return new Response('unexpected', { status: 500 });
+    });
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toMatch(/without a post id/i);
+  });
+
+  it('fails when the LLM errors', async () => {
+    const fetchImpl = okFetch();
+    const llm = createFakeLlm(() => {
+      throw new LlmError('gateway down');
+    });
+    const tasks = setup({ llm, mattermost: settings, fetchImpl });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+    expect(failed.error).toMatch(/gateway down/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['not JSON', 'not json at all'],
+    ['no message', JSON.stringify({ title: 'Only a title' })],
+  ])('fails when the LLM reply has %s', async (_label, reply) => {
+    const tasks = setup({ llm: createFakeLlm(() => reply), mattermost: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+    expect(failed.error).toMatch(/usable JSON/i);
+  });
+
+  it('fails loudly when Mattermost is not configured on claim or retry', async () => {
+    const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: undefined });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+    expect(failed.error).toMatch(/Mattermost is not configured/);
+
+    tasks.transition(failed.id, 'RUNNING');
+    const retried = await waitForStatus(tasks, task.id, 'FAILED');
+    expect(retried.error).toMatch(/Mattermost is not configured/);
+  });
+
+  it('fails loudly when the LLM is not configured', async () => {
+    const tasks = setup({ mattermost: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+    expect(failed.error).toMatch(/LLM is not configured/);
+  });
+
+  it('drops a draft result when the task changed while the LLM was working', async () => {
+    const pending = deferred<string>();
+    const llm: LlmClient = { complete: () => pending.promise };
+    const tasks = setup({ llm, mattermost: settings, fetchImpl: okFetch() });
+    const task = startTask(tasks);
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    tasks.transition(task.id, 'FAILED', { error: 'changed elsewhere' });
+    pending.resolve(messageReply);
+    await settle(20);
+
+    const current = tasks.get(task.id);
+    expect(current?.status).toBe('FAILED');
+    expect(current?.error).toBe('changed elsewhere');
+    expect(current?.draft).toBeUndefined();
+  });
+
+  it('ignores other action kinds and manual tasks', async () => {
+    const llm = createFakeLlm(() => messageReply);
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm, mattermost: settings, fetchImpl });
+
+    const email = startTask(tasks, 'email');
+    tasks.transition(email.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const gitea = startTask(tasks, 'gitea_issue');
+    tasks.transition(gitea.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const manual = startTask(tasks, 'mattermost_post');
+    tasks.transition(manual.id, 'CLAIMED', { mode: 'MANUAL' });
+    await settle(20);
+
+    expect(tasks.get(email.id)?.status).toBe('CLAIMED');
+    expect(tasks.get(gitea.id)?.status).toBe('CLAIMED');
+    expect(tasks.get(manual.id)?.status).toBe('CLAIMED');
+    expect(llm.calls).toHaveLength(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
