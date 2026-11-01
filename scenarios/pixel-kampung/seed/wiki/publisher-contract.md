@@ -7,7 +7,7 @@ This is an internal summary. The signed agreement lives in the studio drive.
 
 ## Parties
 
-- Developer: Pixel Kampung Pte. Ltd.
+- Developer: Lah Studios Pte. Ltd.
 - Publisher: Starfruit Publishing
 
 ## Milestones

@@ -36,7 +36,7 @@ The server keeps state in memory and restarts when server code changes; run `npm
 ## Live demo meeting with AI attendees
 
 `/demo` is a video-call style meeting where you talk to AI attendees (the scenario's `npcs`; for
-Pixel Kampung, Arjun and Mei). One LLM plays all of them, each with their own personality, aims and
+Lah Studios, Arjun and Mei). One LLM plays all of them, each with their own personality, aims and
 worries, and decides who answers. You can talk over them at any time and they stop.
 
 ```bash

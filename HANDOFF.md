@@ -5,7 +5,7 @@ Branch: `feature/scripted-replay`.
 ## What this is
 
 `/demo` is a video-call style meeting. The person talks to AI attendees (the scenario's `npcs`: for
-Pixel Kampung, Arjun and Mei). One LLM, the Director, plays all of them from their profiles and
+Lah Studios, Arjun and Mei). One LLM, the Director, plays all of them from their profiles and
 decides who answers, one at a time. The person can talk over them and they stop. Every line goes to
 Kaki as a normal transcript line.
 

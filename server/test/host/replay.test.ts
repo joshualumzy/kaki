@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('replay script', () => {
-  it('ships a valid Pixel Kampung replay', async () => {
+  it('ships a valid Lah Studios replay', async () => {
     const scenario = await loadScenario('pixel-kampung');
     const loaded = await loadReplay(scenario, 'pixel-kampung');
     expect(loaded.length).toBeGreaterThan(20);

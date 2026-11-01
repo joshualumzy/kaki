@@ -148,7 +148,7 @@ async function ensureOrg(env: Env, token: string): Promise<void> {
     auth,
     jsonBody('POST', {
       username: env.GITEA_ORG,
-      full_name: 'Pixel Kampung',
+      full_name: 'Lah Studios',
       visibility: 'public',
     }),
   );

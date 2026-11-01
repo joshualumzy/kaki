@@ -46,7 +46,7 @@ describe('seed manifests', () => {
 
   it('rejects Mattermost posts with unknown authors or duplicate keys', () => {
     const base = {
-      team: { name: 'pixel-kampung', display_name: 'Pixel Kampung' },
+      team: { name: 'pixel-kampung', display_name: 'Lah Studios' },
       users: [
         {
           username: 'mei',

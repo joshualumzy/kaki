@@ -54,7 +54,7 @@ function setup(respond: Parameters<typeof createFakeLlm>[0], startIndex = 0) {
   return { tasks, llm, notetaker, feed, onAgendaIndex };
 }
 
-describe('notetaker on canned Pixel Kampung slices', () => {
+describe('notetaker on canned Lah Studios slices', () => {
   it('suggests the scripted tasks and records the scripted questions', async () => {
     const { tasks, llm, notetaker, feed } = setup((messages) => {
       const text = newLines(messages);

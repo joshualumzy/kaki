@@ -1,6 +1,6 @@
 # Kaki demo stack
 
-A local, self-hosted stack with Pixel Kampung's messy company data. Everything is
+A local, self-hosted stack with Lah Studios's messy company data. Everything is
 fictional and every credential is a dev-only dummy.
 
 ## Start, seed, verify

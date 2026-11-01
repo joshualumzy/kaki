@@ -13,7 +13,7 @@ import {
 
 const scenario: Scenario = {
   id: 'pixel-kampung',
-  organisation: 'Pixel Kampung',
+  organisation: 'Lah Studios',
   meetingTitle: 'Hawker Heroes launch readiness',
   roles: [
     { id: 'producer', label: 'Producer' },
