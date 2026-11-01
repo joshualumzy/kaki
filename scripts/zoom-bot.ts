@@ -74,29 +74,39 @@ async function joinZoomMeeting() {
       await page.waitForSelector('.footer__inner', { timeout: 120000 });
       console.log('Main meeting UI detected! We are in.');
       
+      // Wait a few seconds for Zoom to finish rendering its UI elements
+      await new Promise(r => setTimeout(r, 4000));
+      
       try {
         const audioBtn = await page.$('.join-audio-by-voip__join-btn');
         if (audioBtn) {
           await audioBtn.click();
           console.log('Clicked the Join Audio button.');
+          await new Promise(r => setTimeout(r, 2000)); // Wait for audio state to settle
         }
       } catch (err) {}
       
       try {
-        const muteBtn = await page.$('.join-audio-container__btn[aria-label="Mute my microphone"]');
+        // Zoom dynamically changes aria-labels and button classes based on state. 
+        // A safer way is to check the button text or specific icon classes.
+        const muteBtn = await page.$('button[aria-label^="Mute"]');
         if (muteBtn) {
           await muteBtn.click();
           console.log('Microphone muted.');
+        } else {
+          console.log('Could not find mute button (already muted?).');
         }
-      } catch (err) {}
+      } catch (err) { console.log('Error muting mic.'); }
 
       try {
-        const stopVideoBtn = await page.$('.send-video-container__btn[aria-label="Stop Video"]');
+        const stopVideoBtn = await page.$('button[aria-label^="Stop Video"]');
         if (stopVideoBtn) {
           await stopVideoBtn.click();
           console.log('Video stopped.');
+        } else {
+          console.log('Could not find stop video button (already stopped?).');
         }
-      } catch (err) {}
+      } catch (err) { console.log('Error stopping video.'); }
       
     } catch (err) {
       console.log('Failed to detect meeting UI. Taking error screenshot...');
@@ -151,7 +161,6 @@ async function joinZoomMeeting() {
 
     console.log('Bot is now in the meeting! Press Ctrl+C to stop.');
 
-    // Gracefully handle Ctrl+C to close the browser before exiting
     process.on('SIGINT', async () => {
       console.log('\nStopping bot and closing browser...');
       if (browser) await browser.close();
