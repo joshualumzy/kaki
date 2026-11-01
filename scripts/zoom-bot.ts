@@ -15,37 +15,38 @@ async function joinZoomMeeting() {
 
   console.log(`Starting Zoom bot to join meeting ${ZOOM_MEETING_ID}...`);
 
-  const browser = await puppeteer.launch({
-    headless: false,
-    args: [
-      '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-      '--disable-notifications',
-      '--window-size=1280,720',
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-web-security'
-    ],
-    ignoreDefaultArgs: ['--enable-automation']
-  });
-
-  const page = await browser.newPage();
-  
-  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-  
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => false,
-    });
-  });
-
-  await page.setViewport({ width: 1280, height: 720 });
-
-  const joinUrl = `https://app.zoom.us/wc/join/${ZOOM_MEETING_ID}`;
-  console.log(`Navigating to ${joinUrl}...`);
-  await page.goto(joinUrl, { waitUntil: 'networkidle2' });
-
+  let browser;
   try {
+    browser = await puppeteer.launch({
+      headless: false,
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        '--disable-notifications',
+        '--window-size=1280,720',
+        '--disable-blink-features=AutomationControlled',
+        '--no-sandbox',
+        '--disable-web-security'
+      ],
+      ignoreDefaultArgs: ['--enable-automation']
+    });
+
+    const page = await browser.newPage();
+    
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+    
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => false,
+      });
+    });
+
+    await page.setViewport({ width: 1280, height: 720 });
+
+    const joinUrl = `https://app.zoom.us/wc/join/${ZOOM_MEETING_ID}`;
+    console.log(`Navigating to ${joinUrl}...`);
+    await page.goto(joinUrl, { waitUntil: 'networkidle2' });
+
     console.log('Filling out join form...');
     
     try {
@@ -73,7 +74,6 @@ async function joinZoomMeeting() {
       await page.waitForSelector('.footer__inner', { timeout: 120000 });
       console.log('Main meeting UI detected! We are in.');
       
-      // Attempt to find and click the Join Audio button if it exists
       try {
         const audioBtn = await page.$('.join-audio-by-voip__join-btn');
         if (audioBtn) {
@@ -82,7 +82,6 @@ async function joinZoomMeeting() {
         }
       } catch (err) {}
       
-      // Auto-mute the Microphone
       try {
         const muteBtn = await page.$('.join-audio-container__btn[aria-label="Mute my microphone"]');
         if (muteBtn) {
@@ -91,7 +90,6 @@ async function joinZoomMeeting() {
         }
       } catch (err) {}
 
-      // Auto-stop the Video
       try {
         const stopVideoBtn = await page.$('.send-video-container__btn[aria-label="Stop Video"]');
         if (stopVideoBtn) {
@@ -153,9 +151,16 @@ async function joinZoomMeeting() {
 
     console.log('Bot is now in the meeting! Press Ctrl+C to stop.');
 
+    // Gracefully handle Ctrl+C to close the browser before exiting
+    process.on('SIGINT', async () => {
+      console.log('\nStopping bot and closing browser...');
+      if (browser) await browser.close();
+      process.exit(0);
+    });
+
   } catch (err) {
     console.error('Error joining meeting:', err);
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 
