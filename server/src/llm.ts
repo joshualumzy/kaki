@@ -9,12 +9,15 @@ export interface CompleteOptions {
   /** Ask the model for a single JSON object. */
   json?: boolean;
   signal?: AbortSignal;
+  /** Sampling temperature; defaults to 0 so analysis is repeatable. Conversation wants more. */
+  temperature?: number;
 }
 
 /** The shared LLM client every module uses; the fake one stands in for it in tests. */
 export interface LlmClient {
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>;
-  stream?(messages: ChatMessage[], options?: CompleteOptions): AsyncIterableIterator<string>;
+  /** The reply as it is written, piece by piece; absent on clients that cannot stream. */
+  stream?(messages: ChatMessage[], options?: CompleteOptions): AsyncIterable<string>;
 }
 
 /** An LLM call that failed: HTTP error, timeout, or an unusable reply. */
@@ -49,6 +52,42 @@ function contentOf(body: unknown): string | undefined {
   return typeof first.message.content === 'string' ? first.message.content : undefined;
 }
 
+// Pull choices[0].delta.content out of one streamed chunk.
+function deltaOf(chunk: unknown): string | undefined {
+  if (!isObject(chunk) || !Array.isArray(chunk.choices)) return undefined;
+  const [first] = chunk.choices as unknown[];
+  if (!isObject(first) || !isObject(first.delta)) return undefined;
+  return typeof first.delta.content === 'string' ? first.delta.content : undefined;
+}
+
+/**
+ * The `data:` payloads of a server-sent-events body, however the network cuts it up. Handles
+ * both line endings, comment lines, and `data:` with or without a space after the colon.
+ */
+export async function* serverSentData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const dataOf = (line: string): string | undefined =>
+    line.startsWith('data:') ? line.slice(5).replace(/^ /, '') : undefined;
+
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r\n|\n|\r(?!\n)/);
+      buffer = done ? '' : (lines.pop() ?? '');
+      for (const line of done ? lines.concat(buffer) : lines) {
+        const data = dataOf(line);
+        if (data !== undefined && data.length > 0) yield data;
+      }
+      if (done) return;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
 /** Create a client for an OpenAI-compatible `/chat/completions` endpoint. */
 export function createOpenAiLlm({
   baseUrl,
@@ -79,7 +118,7 @@ export function createOpenAiLlm({
     async complete(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
-      const request = { model, messages, temperature: 0 };
+      const request = { model, messages, temperature: options.temperature ?? 0 };
       const askForJson = options.json === true && jsonModeSupported;
 
       let response = await post(
@@ -111,40 +150,35 @@ export function createOpenAiLlm({
     async *stream(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
-      const request = { model, messages, temperature: 0, stream: true };
+      const request = { model, messages, temperature: options.temperature ?? 0, stream: true };
 
       const response = await post(request, signal, timeout);
       if (!response.ok) {
-        throw new LlmError(`LLM request failed with HTTP ${response.status}`);
+        const detail = (await response.text().catch(() => '')).slice(0, 200);
+        throw new LlmError(`LLM request failed with HTTP ${response.status}: ${detail}`);
       }
+      if (response.body === null) throw new LlmError('LLM reply has no body');
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new LlmError('No response body');
-      
-      const decoder = new TextDecoder();
-      let buffer = '';
-      
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-            try {
-              const data = JSON.parse(line.slice(6));
-              const content = data.choices?.[0]?.delta?.content;
-              if (content) yield content;
-            } catch (e) {
-              // Ignore parse errors for partial chunks
-            }
+      try {
+        for await (const data of serverSentData(response.body)) {
+          if (data === '[DONE]') return;
+          let piece: unknown;
+          try {
+            piece = JSON.parse(data);
+          } catch {
+            continue; // a keep-alive or a partial line the gateway garbled: skip it
           }
+          const content = deltaOf(piece);
+          if (content !== undefined && content.length > 0) yield content;
         }
+      } catch (error) {
+        if (error instanceof LlmError) throw error;
+        // The caller stopping the stream is not a failure; anything else is.
+        if (options.signal?.aborted === true) return;
+        const reason = timeout.aborted ? `timed out after ${timeoutMs} ms` : String(error);
+        throw new LlmError(`LLM stream failed: ${reason}`, { cause: error });
       }
-    }
+    },
   };
 }
 

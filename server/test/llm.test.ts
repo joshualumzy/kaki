@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv, parseJsonReply } from '../src/llm';
+import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv, parseJsonReply, serverSentData } from '../src/llm';
 
 function replyWith(body: unknown, status = 200): typeof fetch {
   return async () => new Response(JSON.stringify(body), { status });
@@ -100,5 +100,84 @@ describe('fake LLM', () => {
     expect(await llm.complete([{ role: 'user', content: 'a' }])).toBe('reply 0');
     expect(await llm.complete([{ role: 'user', content: 'b' }])).toBe('reply 1');
     expect(llm.calls.map((messages) => messages[0]!.content)).toEqual(['a', 'b']);
+  });
+});
+
+/** A response whose body arrives in the given pieces, as the network might deliver it. */
+function sseResponse(pieces: string[], status = 200): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const piece of pieces) controller.enqueue(encoder.encode(piece));
+        controller.close();
+      },
+    }),
+    { status },
+  );
+}
+
+const delta = (content: string): string => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
+
+async function collect(source: AsyncIterable<string>): Promise<string[]> {
+  const out: string[] = [];
+  for await (const piece of source) out.push(piece);
+  return out;
+}
+
+describe('serverSentData', () => {
+  it('yields data payloads however the body is cut up and whichever line ending is used', async () => {
+    const body = sseResponse(['da', 'ta: one\r\n\r\nda', 'ta:two\n\n: keep-alive\n\ndata: three\r', '\n\n']).body!;
+    expect(await collect(serverSentData(body))).toEqual(['one', 'two', 'three']);
+  });
+
+  it('delivers a final line that has no trailing newline', async () => {
+    expect(await collect(serverSentData(sseResponse(['data: last']).body!))).toEqual(['last']);
+  });
+});
+
+describe('streaming', () => {
+  const options = { baseUrl: 'https://gateway.example', apiKey: 'k', model: 'm' };
+
+  it('yields the content of each chunk, stops at [DONE], and asks for a stream at the given temperature', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const llm = createOpenAiLlm({
+      ...options,
+      fetchImpl: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return sseResponse([delta('Hel'), delta('lo'), 'data: not json\n\n', delta(''), 'data: [DONE]\n\n', delta('ignored')]);
+      },
+    });
+    expect(await collect(llm.stream!([{ role: 'user', content: 'hi' }], { temperature: 0.8 }))).toEqual(['Hel', 'lo']);
+    expect(bodies[0]).toMatchObject({ stream: true, temperature: 0.8 });
+  });
+
+  it('reports the HTTP status and body of a failed request', async () => {
+    const llm = createOpenAiLlm({ ...options, fetchImpl: async () => new Response('slow down', { status: 429 }) });
+    await expect(collect(llm.stream!([]))).rejects.toThrow(/HTTP 429: slow down/);
+  });
+
+  it('ends quietly when the caller aborts mid-stream', async () => {
+    const controller = new AbortController();
+    const llm = createOpenAiLlm({
+      ...options,
+      fetchImpl: async (_url, init) => {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(stream) {
+              stream.enqueue(encoder.encode(delta('first')));
+              init?.signal?.addEventListener('abort', () => stream.error(new DOMException('aborted', 'AbortError')));
+            },
+          }),
+        );
+      },
+    });
+    const received: string[] = [];
+    for await (const piece of llm.stream!([], { signal: controller.signal })) {
+      received.push(piece);
+      controller.abort();
+    }
+    expect(received).toEqual(['first']);
   });
 });
