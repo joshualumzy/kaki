@@ -53,23 +53,28 @@ async function joinZoomMeeting() {
     await page.click('.preview-join-button');
     console.log('Clicked Join...');
     
-    console.log('Waiting to be admitted into the meeting room (up to 120s)...');
+    console.log('Waiting to be admitted into the meeting room...');
     
-    // Check if there is an audio join button, or a "Got it" for recording popup
+    // Zoom usually auto-joins the computer audio on Chromium when fake-ui flags are active.
+    // Instead of waiting specifically for the audio button, we wait for the main meeting UI to appear.
     try {
-      // Increased timeout to 120s so you have more time to click Admit
-      await page.waitForSelector('.join-audio-by-voip__join-btn', { timeout: 120000 });
+      // The footer bar is a good indicator that we are actually in the meeting
+      await page.waitForSelector('.footer__inner', { timeout: 120000 });
+      console.log('Main meeting UI detected! We are in.');
       
-      // Add a small delay before clicking to let the UI settle
-      await new Promise(r => setTimeout(r, 2000));
-      await page.click('.join-audio-by-voip__join-btn');
-      console.log('Joined audio!');
+      // Sometimes the "Join Audio by Computer" button still pops up even if the footer is there
+      try {
+        const audioBtn = await page.$('.join-audio-by-voip__join-btn');
+        if (audioBtn) {
+          await audioBtn.click();
+          console.log('Clicked the Join Audio button.');
+        }
+      } catch (err) {}
+      
     } catch (err) {
-      console.log('Failed to find audio join button. It might have auto-joined or the UI changed. Taking error screenshot...');
+      console.log('Failed to detect meeting UI. Taking error screenshot...');
       await page.screenshot({ path: 'scratch-zoom-error.png' });
-      
-      // Even if the button click failed, if we are in the meeting, let's just proceed to Azure setup
-      console.log('Proceeding to Azure setup anyway...');
+      throw err;
     }
 
     if (AZURE_SPEECH_KEY && AZURE_SPEECH_REGION) {
