@@ -1,13 +1,15 @@
 import puppeteer from 'puppeteer-core';
+import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 
 const ZOOM_MEETING_ID = process.env.ZOOM_MEETING_ID;
 const ZOOM_PASSCODE = process.env.ZOOM_PASSCODE;
-const GLADIA_API_KEY = process.env.GLADIA_API_KEY;
+const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
+const AZURE_SPEECH_REGION = process.env.AZURE_SPEECH_REGION;
 
 /**
  * SPIKE: Issue #14 - Zoom Attendee Bot
  * This script uses Puppeteer to open the Zoom Web Client in a headless browser,
- * join a meeting, and (eventually) capture audio to send to Gladia.
+ * join a meeting, and captures audio to send to Azure Speech Services.
  */
 async function joinZoomMeeting() {
   if (!ZOOM_MEETING_ID || !ZOOM_PASSCODE) {
@@ -54,15 +56,60 @@ async function joinZoomMeeting() {
     await page.click('.join-audio-by-voip__join-btn');
     console.log('Joined audio!');
 
-    // 3. (TODO) Setup Gladia WebSockets
-    // Once in the meeting, we need to capture the tab's audio using Chrome Extensions API
-    // or by overriding the WebRTC audio context, then stream it to Gladia.
-    if (GLADIA_API_KEY) {
-      console.log('Gladia API Key found. Real-time transcription is ready to be implemented.');
-      const deepgram = createClient(GLADIA_API_KEY);
-      // ... Initialize Gladia Live WebSocket ...
+    // 3. Setup Azure Speech Services
+    // Once in the meeting, we capture the virtual audio output (e.g. via Pulseaudio on Azure VM)
+    // or by evaluating a script in the page context, and push it to Azure via PushAudioInputStream.
+    if (AZURE_SPEECH_KEY && AZURE_SPEECH_REGION) {
+      console.log('Azure Speech credentials found. Initializing real-time transcription...');
+      
+      const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+      speechConfig.speechRecognitionLanguage = 'en-US';
+      
+      // For this spike, we create a PushAudioInputStream.
+      // In full implementation, we will pipe the Zoom WebRTC audio stream into this pushStream.
+      const pushStream = sdk.AudioInputStream.createPushStream();
+      const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
+      
+      const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+      
+      recognizer.recognizing = (s, e) => {
+        // Partial transcription result (useful for instant UI updates, though Kaki processes chunks)
+        // console.log(`[Partial]: ${e.result.text}`);
+      };
+
+      recognizer.recognized = async (s, e) => {
+        if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
+          console.log(`[Final Transcript]: ${e.result.text}`);
+          
+          // Send to Kaki server
+          const port = process.env.PORT ?? '3001';
+          try {
+            await fetch(`http://localhost:${port}/dev/emit`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                type: 'TRANSCRIPT_CHUNK',
+                audience: { kind: 'screen' },
+                payload: {
+                  speaker: 'Unknown Attendee', // TODO: Diarization or Zoom active speaker detection
+                  text: e.result.text,
+                  timestamp: new Date().toISOString()
+                }
+              }),
+            });
+          } catch (err) {
+            console.error('Failed to send transcript to Kaki server:', err);
+          }
+        }
+      };
+
+      recognizer.startContinuousRecognitionAsync(
+        () => console.log('Azure Speech continuous recognition started.'),
+        (err) => console.error('Error starting Azure Speech:', err)
+      );
+      
     } else {
-      console.warn('No GLADIA_API_KEY provided. Skipping transcription setup.');
+      console.warn('No AZURE_SPEECH_KEY or AZURE_SPEECH_REGION provided. Skipping transcription setup.');
     }
 
     console.log('Bot is now in the meeting! Press Ctrl+C to stop.');

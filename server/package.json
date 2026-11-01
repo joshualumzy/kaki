@@ -12,6 +12,7 @@
   "dependencies": {
     "@kaki/shared": "*",
     "dotenv": "^18.0.9",
+    "microsoft-cognitiveservices-speech-sdk": "^1.53.0",
     "nodemailer": "^7.0.13",
     "pg": "^8.23.1",
     "puppeteer-core": "^25.16.0",
