@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as readline from 'node:readline';
 import {
   isKakiEvent,
   isSuggestInput,
@@ -41,6 +42,19 @@ async function post(pathname: string, body: unknown): Promise<Response> {
   });
 }
 
+function promptEnter(message: string): Promise<void> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) => {
+    rl.question(message, () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
+
 if (!folderPattern.test(folder)) {
   throw new Error(`Invalid SCENARIO "${folder}": expected a folder name such as "pixel-kampung"`);
 }
@@ -73,20 +87,33 @@ tasks.forEach((task, index) => {
   validTasks.push(task);
 });
 
-for (const event of validEvents) {
-  const response = await post('/dev/emit', event);
-  if (!response.ok) {
-    throw new Error(`POST /dev/emit failed for ${event.type} (${response.status}): ${await response.text()}`);
+// Create a combined list of actions to step through interactively
+const actions = [
+  ...validEvents.map(e => ({ type: 'event', data: e })),
+  ...validTasks.map(t => ({ type: 'task', data: t }))
+];
+
+console.log(`Loaded ${validEvents.length} events and ${validTasks.length} tasks for scenario "${scenario.id}".`);
+console.log(`Press Enter to step through each action sequentially...\n`);
+
+for (const action of actions) {
+  if (action.type === 'event') {
+    const event = action.data as KakiEvent;
+    await promptEnter(`Press Enter to emit event: ${event.type} -> ${describeAudience(event.audience)} ...`);
+    const response = await post('/dev/emit', event);
+    if (!response.ok) {
+      throw new Error(`POST /dev/emit failed for ${event.type} (${response.status}): ${await response.text()}`);
+    }
+    console.log(`✔ sent ${event.type}\n`);
+  } else {
+    const task = action.data as SuggestInput;
+    await promptEnter(`Press Enter to suggest task: "${task.title}" -> role:${task.suggestedAssignee} ...`);
+    const response = await post('/dev/suggest-task', task);
+    if (!response.ok) {
+      throw new Error(`POST /dev/suggest-task failed for "${task.title}" (${response.status}): ${await response.text()}`);
+    }
+    console.log(`✔ suggested task "${task.title}"\n`);
   }
-  console.log(`sent ${event.type} -> ${describeAudience(event.audience)}`);
 }
 
-for (const task of validTasks) {
-  const response = await post('/dev/suggest-task', task);
-  if (!response.ok) {
-    throw new Error(`POST /dev/suggest-task failed for "${task.title}" (${response.status}): ${await response.text()}`);
-  }
-  console.log(`suggested task "${task.title}" -> role:${task.suggestedAssignee}`);
-}
-
-console.log(`sent ${validEvents.length} events and ${validTasks.length} tasks for scenario "${scenario.id}"`);
+console.log(`Finished sending all scripted moments!`);

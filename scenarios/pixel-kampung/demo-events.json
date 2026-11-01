@@ -9,26 +9,33 @@
       }
     },
     {
-      "type": "MEETING_RECORD_UPDATED",
-      "audience": { "kind": "all" },
-      "payload": {
-        "agendaIndex": 0,
-        "openQuestions": [
-          {
-            "id": "q-starfruit-build",
-            "text": "When does Starfruit need the final build?",
-            "forRole": "producer"
-          }
-        ],
-        "elapsedSeconds": 125,
-        "speakerTalkSeconds": { "lead_programmer": 90, "producer": 35 }
-      }
-    },
-    {
       "type": "NUDGE",
       "audience": { "kind": "role", "role": "game_designer" },
       "payload": {
-        "text": "Level 5 difficulty starts in 1 min. 19 of 29 playtesters quit there; tap to read their comments."
+        "text": "Your topic 'Level 5 difficulty' is next."
+      }
+    },
+    {
+      "type": "FACT_FOUND",
+      "audience": { "kind": "role", "role": "game_designer" },
+      "payload": {
+        "questionId": "q-player-quit",
+        "question": "Where exactly in level 5 do players quit?",
+        "facts": [
+          {
+            "text": "According to the playtest sheet, 12 out of 14 players quit at the start of the second rush.",
+            "source": "Playtest Sheet",
+            "date": "2026-10-25"
+          }
+        ]
+      }
+    },
+    {
+      "type": "HOST_SPEECH_TRIGGERED",
+      "audience": { "kind": "screen" },
+      "payload": {
+        "kind": "TIMEOUT",
+        "text": "Level 5 difficulty is at 10 minutes, please wrap up."
       }
     },
     {
@@ -45,6 +52,21 @@
           }
         ]
       }
+    },
+    {
+      "type": "NUDGE",
+      "audience": { "kind": "role", "role": "marketing_lead" },
+      "payload": {
+        "text": "You haven't spoken in a while. Would you like to add anything?"
+      }
+    },
+    {
+      "type": "HOST_SPEECH_TRIGGERED",
+      "audience": { "kind": "screen" },
+      "payload": {
+        "kind": "CLOSING",
+        "text": "That covers all 4 agenda items. We have 3 action items assigned. See you next week."
+      }
     }
   ],
   "tasks": [
@@ -59,6 +81,12 @@
       "context": "The launch marketing plan has no live stream yet. Find a streamer and propose a launch-day slot.",
       "suggestedAssignee": "marketing_lead",
       "actionKind": "email"
+    },
+    {
+      "title": "Post launch date to team channel",
+      "context": "Post the confirmed launch date to the team channel so everyone works to the same date.",
+      "suggestedAssignee": "producer",
+      "actionKind": "mattermost_post"
     }
   ]
 }
