@@ -113,13 +113,17 @@ export function createMeetingModule({
 
       clock.onOverrun((index, item) => {
         console.log(`kaki host: agenda item ${index} "${item.title}" is over its ${item.minutes} minutes`);
+        hub.publish({
+          type: 'HOST_SPEECH_TRIGGERED',
+          audience: { kind: 'screen' },
+          payload: {
+            kind: 'TIMEOUT',
+            text: `${item.title} is at ${item.minutes} minutes, please wrap up.`,
+          },
+        });
       });
 
-      const unsubscribe = hub.subscribe((event) => {
-        if (event.type !== 'TRANSCRIPT_CHUNK') return;
-        clock.start();
-        notetaker.addChunk(event.payload);
-      });
+      let announcedAgendaIndex = -1;
 
       const ticker = setInterval(() => {
         guarded('the agenda tick', () => {
@@ -127,12 +131,54 @@ export function createMeetingModule({
           publishRecord();
         });
       }, TICK_MS);
+
+      const unsubscribe = hub.subscribe((event) => {
+        if (event.type !== 'TRANSCRIPT_CHUNK') return;
+        
+        if (!clock.snapshot().started) {
+          hub.publish({
+            type: 'HOST_SPEECH_TRIGGERED',
+            audience: { kind: 'screen' },
+            payload: {
+              kind: 'OPENING',
+              text: `Welcome to ${scenario.meetingTitle}. We have ${scenario.agenda.length} items on the agenda today.`,
+            },
+          });
+        }
+        
+        clock.start();
+        notetaker.addChunk(event.payload);
+        
+        const currentAgendaIndex = clock.snapshot().agendaIndex;
+        if (currentAgendaIndex > 0 && currentAgendaIndex !== announcedAgendaIndex) {
+          announcedAgendaIndex = currentAgendaIndex;
+          const item = scenario.agenda[currentAgendaIndex];
+          if (item) {
+             hub.publish({
+               type: 'HOST_SPEECH_TRIGGERED',
+               audience: { kind: 'screen' },
+               payload: {
+                 kind: 'OPENING',
+                 text: `Next up: ${item.title}.`,
+               },
+             });
+          }
+        }
+      });
       const notetakerTimer = setInterval(() => void runNotetaker(), notetakerIntervalMs);
 
       function endMeeting(): void {
         clock.end();
         clearInterval(ticker);
         console.log('kaki host: the replay has finished; the meeting is over');
+        hub.publish({
+          type: 'HOST_SPEECH_TRIGGERED',
+          audience: { kind: 'screen' },
+          payload: {
+            kind: 'CLOSING',
+            text: `That concludes our meeting. Kaki is syncing the final tasks.`,
+          },
+        });
         // One last pass so the final lines still reach the record.
         void runNotetaker();
       }
