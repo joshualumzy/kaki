@@ -5,6 +5,7 @@ import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import { createTaskStore, type TaskStore } from './tasks';
+import { livekitRouter } from './livekit';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
@@ -38,7 +39,7 @@ type JsonBody = { ok: true; value: unknown } | { ok: false; status: number; erro
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   if (response.writableEnded) return;
-  response.writeHead(status, { 'content-type': 'application/json' });
+  response.writeHead(status, { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' });
   response.end(JSON.stringify(body));
 }
 
@@ -103,12 +104,40 @@ async function handleRequest(
   try {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
 
+    if (request.method === 'OPTIONS' && (path === '/api/livekit/token' || path === '/api/scenario')) { sendJson(response, 200, {}); return; } if (request.method === 'POST' && path === '/api/livekit/token') {
+      const body = await readJsonBody(request);
+      if (!body.ok || typeof body.value !== 'object' || !body.value) {
+        sendJson(response, 400, { error: 'Invalid JSON body' });
+        return;
+      }
+      const { roomName, participantName, participantRole } = body.value as Record<string, string>;
+      if (!roomName || !participantName) {
+        sendJson(response, 400, { error: 'roomName and participantName are required' });
+        return;
+      }
+      
+      const { AccessToken } = await import('livekit-server-sdk');
+      const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
+      const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
+      
+      const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+        identity: participantName,
+        name: participantName,
+        metadata: participantRole || 'Producer',
+      });
+      at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
+      
+      const token = await at.toJwt();
+      sendJson(response, 200, { token });
+      return;
+    }
+
     if (request.method === 'GET' && path === '/health') {
       sendJson(response, 200, { ok: true });
       return;
     }
 
-    if (request.method === 'GET' && path === '/api/scenario') {
+    if (request.method === 'GET' && path === '/api/scenario') { response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', '*');
       sendJson(response, 200, context.scenario);
       return;
     }
@@ -134,7 +163,7 @@ async function handleRequest(
         return;
       }
 
-      context.hub.publish(body.value, { retainKey: `dev:${JSON.stringify(body.value)}` });
+      context.hub.publish(body.value);
       sendJson(response, 200, { ok: true });
       return;
     }

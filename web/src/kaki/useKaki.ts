@@ -84,7 +84,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
           return;
         }
 
-        setEvents((previous) => [...previous, parsed]);
+        setEvents((previous) => [...previous, parsed].slice(-50));
       });
 
       current.addEventListener('close', () => {

@@ -14,3 +14,6 @@
 - **`Scenario`**: A swappable demo setting in `scenarios/<id>/`: roles, attendees, agenda, fake company seed data and replay script. Selected with `SCENARIO=<id>`; no code depends on a specific scenario.
 - **`Pixel Kampung`**: The default demo scenario: a fictional Singapore indie game studio preparing to launch its mobile game *Hawker Heroes*.
 - **`Mailpit`**: The self-hosted fake email server; Kaki searches its inbox and `kaki.action` sends approved emails through it.
+
+- **`LiveKit Demo Environment`**: The local WebRTC server (`localhost:7880`) running in Docker. Replaces third-party meeting platforms like Zoom to guarantee a 100% reliable, zero-block live demo environment. Audio is routed natively via the LiveKit API.
+- **`NPC Orchestrator`**: The backend service (`server/src/npc.ts`) that runs the AI attendees (Arjun, Mei, Daniel) using LLMs. It connects to the LiveKit room, listens to the human visitor, and pushes back with constraints to force deep workflow usage.

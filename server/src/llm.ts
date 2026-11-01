@@ -14,6 +14,7 @@ export interface CompleteOptions {
 /** The shared LLM client every module uses; the fake one stands in for it in tests. */
 export interface LlmClient {
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>;
+  stream?(messages: ChatMessage[], options?: CompleteOptions): AsyncIterableIterator<string>;
 }
 
 /** An LLM call that failed: HTTP error, timeout, or an unusable reply. */
@@ -107,6 +108,43 @@ export function createOpenAiLlm({
       if (content === undefined) throw new LlmError('LLM reply has no message content');
       return content;
     },
+    async *stream(messages, options = {}) {
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
+      const request = { model, messages, temperature: 0, stream: true };
+
+      const response = await post(request, signal, timeout);
+      if (!response.ok) {
+        throw new LlmError(`LLM request failed with HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new LlmError('No response body');
+      
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              const content = data.choices?.[0]?.delta?.content;
+              if (content) yield content;
+            } catch (e) {
+              // Ignore parse errors for partial chunks
+            }
+          }
+        }
+      }
+    }
   };
 }
 

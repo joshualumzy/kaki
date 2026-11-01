@@ -262,7 +262,7 @@ type HistoryItem =
   | { kind: 'task'; at: number; task: Task }
   | { kind: 'event'; at: number; stamped: StampedEvent };
 
-function PhoneFeed({ role }: { role: string }) {
+export function PhoneFeed({ role }: { role: string }) {
   const scenario = useScenario();
   const { events, tasks, rejection, connected, send } = useKaki(role);
   const stamped = useStampedEvents(events);
