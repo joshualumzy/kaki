@@ -35,7 +35,6 @@ async function joinZoomMeeting() {
   try {
     console.log('Filling out join form...');
     
-    // Wait for the name input. Sometimes Zoom asks for cookies first.
     try {
       const cookieBtn = await page.$('#onetrust-accept-btn-handler');
       if (cookieBtn) {
@@ -52,23 +51,70 @@ async function joinZoomMeeting() {
     }
 
     await page.click('.preview-join-button');
-    console.log('Clicked Join... waiting 5 seconds then taking a screenshot of the waiting room state.');
+    console.log('Clicked Join...');
     
-    await new Promise(r => setTimeout(r, 5000));
-    await page.screenshot({ path: 'scratch-zoom-waiting.png' });
-    console.log('Screenshot saved to scratch-zoom-waiting.png');
-
-    console.log('Waiting to be admitted into the meeting room (up to 60s)...');
+    console.log('Waiting to be admitted into the meeting room (up to 120s)...');
     
     // Check if there is an audio join button, or a "Got it" for recording popup
     try {
-      await page.waitForSelector('.join-audio-by-voip__join-btn', { timeout: 60000 });
+      // Increased timeout to 120s so you have more time to click Admit
+      await page.waitForSelector('.join-audio-by-voip__join-btn', { timeout: 120000 });
+      
+      // Add a small delay before clicking to let the UI settle
+      await new Promise(r => setTimeout(r, 2000));
       await page.click('.join-audio-by-voip__join-btn');
       console.log('Joined audio!');
     } catch (err) {
-      console.log('Failed to find audio join button. Taking error screenshot...');
+      console.log('Failed to find audio join button. It might have auto-joined or the UI changed. Taking error screenshot...');
       await page.screenshot({ path: 'scratch-zoom-error.png' });
-      throw err;
+      
+      // Even if the button click failed, if we are in the meeting, let's just proceed to Azure setup
+      console.log('Proceeding to Azure setup anyway...');
+    }
+
+    if (AZURE_SPEECH_KEY && AZURE_SPEECH_REGION) {
+      console.log('Azure Speech credentials found. Initializing real-time transcription...');
+      
+      const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_SPEECH_KEY, AZURE_SPEECH_REGION);
+      speechConfig.speechRecognitionLanguage = 'en-US';
+      
+      const pushStream = sdk.AudioInputStream.createPushStream();
+      const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
+      
+      const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+      
+      recognizer.recognized = async (s, e) => {
+        if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
+          console.log(`[Final Transcript]: ${e.result.text}`);
+          
+          const port = process.env.PORT ?? '3001';
+          try {
+            await fetch(`http://localhost:${port}/dev/emit`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                type: 'TRANSCRIPT_CHUNK',
+                audience: { kind: 'screen' },
+                payload: {
+                  speaker: 'Unknown Attendee',
+                  text: e.result.text,
+                  timestamp: new Date().toISOString()
+                }
+              }),
+            });
+          } catch (err) {
+            console.error('Failed to send transcript to Kaki server:', err);
+          }
+        }
+      };
+
+      recognizer.startContinuousRecognitionAsync(
+        () => console.log('Azure Speech continuous recognition started.'),
+        (err) => console.error('Error starting Azure Speech:', err)
+      );
+      
+    } else {
+      console.warn('No AZURE_SPEECH_KEY or AZURE_SPEECH_REGION provided. Skipping transcription setup.');
     }
 
     console.log('Bot is now in the meeting! Press Ctrl+C to stop.');
