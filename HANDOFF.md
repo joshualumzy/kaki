@@ -95,7 +95,17 @@ tune these on a real machine:
 - Shared files (`shared/**`, `app.ts`, `scenario.json`) changed here: the optional `npcs` schema, the
   token route, `/dev/emit` retention. Under `docs/ownership.md` these want a small reviewed PR.
 
-## Next: make the room feel like several people (planned, not started)
+## Done: distinct voices and conflict in the profiles (steps 1 and 2, text side)
+
+`NpcProfile` now takes optional `role` (`host | participant | observer`), `speechStyle`, `hiddenGoal` and
+`tensions` (`{ with, about }`). They go into the Director prompt (`describeNpc`), which also tells the
+model to keep the characters' voices apart and to let one answer another directly where a tension is
+relevant. Arjun and Mei have them in `pixel-kampung`. Not tried with the real model yet: listen for
+whether they now sound different and answer each other. **Still open from step 1:** per-line mood tags and
+Azure `express-as` styles (the spoken voice is still neutral). There is no host NPC in `pixel-kampung`
+(the person is the Producer); a scenario can now declare one with `role: "host"`.
+
+## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one
 model (the Director) writes every character, so they share a writing style; "if somebody is addressed

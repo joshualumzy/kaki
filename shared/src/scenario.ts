@@ -39,6 +39,26 @@ export interface NpcProfile {
   knows?: string[];
   /** Words speech recognition tends to hear instead of their name, for example "Archer" for "Arjun". */
   soundsLike?: string[];
+  /** Part they play in the meeting: the host runs it, observers only speak when addressed or relevant. */
+  role?: NpcRole;
+  /** How they sound: sentence length, verbal habits, how they hedge or push back. */
+  speechStyle?: string;
+  /** What they want but would not say outright. */
+  hiddenGoal?: string;
+  /** Standing disagreements with other characters, which give them a reason to answer each other. */
+  tensions?: NpcTension[];
+}
+
+export type NpcRole = 'host' | 'participant' | 'observer';
+
+export const NPC_ROLES: readonly NpcRole[] = ['host', 'participant', 'observer'];
+
+/** A standing disagreement between this character and another attendee. */
+export interface NpcTension {
+  /** The `name` of the other attendee. */
+  with: string;
+  /** What they disagree about, from this character's point of view. */
+  about: string;
 }
 
 /** The meeting Kaki is set in: organisation, roles, people and agenda. */
@@ -161,6 +181,30 @@ function readNpcs(value: unknown, attendees: unknown, problems: string[]): void 
     }
     for (const field of ['voice', 'personality', 'agenda'] as const) {
       if (!isNonEmptyString(npc[field])) problems.push(`npcs[${index}].${field} must be a non-empty string`);
+    }
+    for (const field of ['speechStyle', 'hiddenGoal'] as const) {
+      if (npc[field] !== undefined && !isNonEmptyString(npc[field])) {
+        problems.push(`npcs[${index}].${field} must be a non-empty string`);
+      }
+    }
+    if (npc.role !== undefined && !NPC_ROLES.includes(npc.role as NpcRole)) {
+      problems.push(`npcs[${index}].role must be one of ${NPC_ROLES.join(', ')}`);
+    }
+    if (npc.tensions !== undefined) {
+      if (!Array.isArray(npc.tensions)) {
+        problems.push(`npcs[${index}].tensions must be an array`);
+      } else {
+        npc.tensions.forEach((tension, tensionIndex) => {
+          const label = `npcs[${index}].tensions[${tensionIndex}]`;
+          if (!isObject(tension) || !isNonEmptyString(tension.with) || !isNonEmptyString(tension.about)) {
+            problems.push(`${label} must have a non-empty "with" and "about"`);
+          } else if (!attendeeNames.has(tension.with)) {
+            problems.push(`${label}.with "${tension.with}" is not one of the attendees`);
+          } else if (tension.with === npc.attendee) {
+            problems.push(`${label}.with cannot be the character themselves`);
+          }
+        });
+      }
     }
     for (const field of ['concerns', 'knows', 'soundsLike'] as const) {
       const list = npc[field];

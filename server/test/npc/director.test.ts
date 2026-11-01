@@ -108,6 +108,21 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Prep (5 min)');
   });
 
+  it('puts each character\'s speech style, hidden goal, part and tensions in the prompt', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const prompt = buildSystemPrompt({
+      ...npcScenario,
+      npcs: [
+        { ...ada!, role: 'host', speechStyle: 'Brisk and dry', hiddenGoal: 'Finish early', tensions: [{ with: 'Bao', about: 'the menu' }] },
+        { ...bao!, role: 'observer' },
+      ],
+    });
+    for (const text of ['Part: the host', 'Sounds like: Brisk and dry', 'Quietly wants (does not say outright): Finish early', 'Disagrees with: Bao about the menu', 'Part: quiet observer', 'answer the other directly']) {
+      expect(prompt).toContain(text);
+    }
+    expect(buildSystemPrompt(npcScenario)).not.toMatch(/Sounds like:|Disagrees with:|Part:/);
+  });
+
   it('addresses the person by name and role once they have joined', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('about to join');
     expect(buildSystemPrompt(npcScenario, { name: 'Josh', role: 'Producer' })).toContain('Josh, the Producer');

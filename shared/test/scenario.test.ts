@@ -46,6 +46,27 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/soundsLike must be an array of non-empty strings/);
   });
 
+  it('accepts a role, speech style, hidden goal and tensions, and rejects bad ones', () => {
+    const scenario = cloneScenario();
+    const npc = { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    scenario.npcs = [
+      { ...npc, role: 'host', speechStyle: 'Brisk', hiddenGoal: 'Finish early', tensions: [{ with: 'Bao', about: 'the menu' }] },
+    ];
+    expect(parseScenario(scenario).npcs?.[0]?.tensions).toEqual([{ with: 'Bao', about: 'the menu' }]);
+
+    scenario.npcs = [
+      {
+        ...npc,
+        role: 'boss',
+        speechStyle: ' ',
+        tensions: [{ with: 'Ada', about: 'x' }, { with: 'Nobody', about: 'x' }, { with: 'Bao', about: '' }],
+      } as never,
+    ];
+    for (const message of [/role must be one of/, /speechStyle must be a non-empty string/, /cannot be the character themselves/, /"Nobody" is not one of the attendees/, /tensions\[2\] must have/]) {
+      expect(() => parseScenario(scenario)).toThrow(message);
+    }
+  });
+
   it('rejects AI attendees that are unknown, duplicated or incomplete', () => {
     const scenario = cloneScenario();
     const npc = { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };

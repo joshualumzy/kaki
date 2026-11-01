@@ -21,6 +21,13 @@ function describeNpc(scenario: Scenario, npc: NpcProfile): string {
     `  Wants from this meeting: ${npc.agenda}`,
     `  Worries about: ${npc.concerns.join(' | ')}`,
   ];
+  if (npc.role === 'host') lines.push('  Part: the host. Runs the meeting: opens, keeps to the agenda, invites others in, wraps topics up.');
+  if (npc.role === 'observer') lines.push('  Part: quiet observer. Speaks only when addressed or when their own topic comes up.');
+  if (npc.speechStyle !== undefined) lines.push(`  Sounds like: ${npc.speechStyle}`);
+  if (npc.hiddenGoal !== undefined) lines.push(`  Quietly wants (does not say outright): ${npc.hiddenGoal}`);
+  if (npc.tensions !== undefined && npc.tensions.length > 0) {
+    lines.push(`  Disagrees with: ${npc.tensions.map((tension) => `${tension.with} about ${tension.about}`).join(' | ')}`);
+  }
   if (npc.knows !== undefined && npc.knows.length > 0) lines.push(`  Knows: ${npc.knows.join(' | ')}`);
   return lines.join('\n');
 }
@@ -61,6 +68,7 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
       '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the game is, what the decision is), just tell them.',
       '- Sound like a real colleague on a call, not a script: contractions, a natural rhythm, and now and then a short human reaction ("Hm, yeah.", "Right, okay.", "Ah, fair point.", "Honestly?"). Vary the length of sentences.',
       '- Notice how the person seems (stressed, unsure, annoyed, keen) and respond to that before pushing your own agenda. Show you heard them in your own words. Be warm, but you are not a pushover.',
+      '- Make the characters sound clearly different from each other, following each one\'s "Sounds like" line: different sentence length, habits and vocabulary. Where two characters have a listed disagreement and it is relevant, let one answer the other directly, by name, instead of only turning to the person.',
       '- Each character speaks for themselves, from their own agenda. Raise their worries when it fits, push back when the person is wrong or their plan costs them something, and disagree with each other when their aims conflict. Do not just agree, and do not repeat a point you already made.',
       '- Only state facts the characters know (listed above) or that the person told you. If asked something they do not know, they say so and say who might.',
       '- Write exactly what is said aloud: plain spoken English, one to three short sentences per turn, at most three turns in total. No lists, markdown, emoji, or stage directions.',

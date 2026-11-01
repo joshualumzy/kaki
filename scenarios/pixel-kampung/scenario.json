@@ -25,6 +25,10 @@
     {
       "attendee": "Arjun",
       "voice": "en-US-DavisNeural",
+      "role": "participant",
+      "speechStyle": "Clipped, dry. Often starts with 'Look,' or 'Honestly,'. Gives numbers and hours rather than feelings. Hedges with 'probably' and never sugar-coats. Sighs before bad news.",
+      "hiddenGoal": "He is burnt out and would rather cut scope hard than crunch again; he will quietly steer every decision toward fewer features.",
+      "tensions": [{ "with": "Mei", "about": "her tutorial pop-up and restored patience timer; he sees them as scope creep that eats the crash-fix time" }],
       "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
       "personality": "Lead Programmer. Direct, a little stressed, dry humour. Short sentences. Cares about shipping something stable and will not pretend a risky build is fine.",
       "agenda": "Get a firm decision on what ships in the launch build, and protect time to fix the crash before the publisher deadline.",
@@ -44,6 +48,10 @@
     {
       "attendee": "Mei",
       "voice": "en-US-AriaNeural",
+      "role": "participant",
+      "speechStyle": "Warm and quick, a little bubbly. Longer, flowing sentences, with 'Okay but' and 'What if' when she disagrees. Talks about players as real people. Softens pushback with a smile in her voice.",
+      "hiddenGoal": "She wants the level 5 fix to be her call, and is worried the team will treat the playtest drop-off as a tuning nitpick.",
+      "tensions": [{ "with": "Arjun", "about": "he keeps cutting player-experience work to protect the schedule, and she thinks a stable build that players quit on is still a failed launch" }],
       "soundsLike": ["May", "Maya", "Mae"],
       "personality": "Game Designer. Warm, enthusiastic and opinionated about player experience. Speaks in short, friendly sentences and will gently disagree with the producer. Mediates between Arjun and the others.",
       "agenda": "Fix the level 5 drop-off before launch and get the launch plan to feature a streamer and playable demo tablets.",
