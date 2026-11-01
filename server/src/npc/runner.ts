@@ -11,10 +11,12 @@ import {
   type RemoteTrack,
 } from '@livekit/rtc-node';
 import {
+  aiCast,
   demoRoomName,
   humanAttendeeForRole,
   NPC_STATE_TOPIC,
   STT_TOPIC,
+  type NpcProfile,
   type NpcStateMessage,
   type Scenario,
 } from '@kaki/shared';
@@ -77,37 +79,46 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const npcs = scenario.npcs ?? [];
   if (npcs.length === 0) throw new Error(`Scenario "${scenario.id}" defines no npcs, so there is nobody to run`);
   const npcNames = new Set(npcs.map((npc) => npc.attendee));
+  // Characters nobody can play stay in the room and listen; the rest join for the person who arrives,
+  // as everyone except the seat that person took.
+  const permanent = aiCast(scenario);
+  if (permanent.length === 0) {
+    throw new Error(`Scenario "${scenario.id}" has no npc that is always AI (every npc is playable), so nobody can listen`);
+  }
   const roomName = options.roomName ?? demoRoomName(scenario);
 
-  // --- Join the room once per character, each publishing its own microphone track. ---
+  // --- Characters join the room one by one, each publishing its own microphone track. ---
   const characters = new Map<string, Character>();
   const leaveAll = (): Promise<unknown> =>
     Promise.all([...characters.values()].map(({ room }) => room.disconnect().catch(() => undefined)));
 
-  try {
-    for (const npc of npcs) {
-      const token = await createRoomToken({ roomName, participantName: npc.attendee, participantRole: 'AI attendee' });
-      const room = new Room();
-      try {
-        await room.connect(livekitUrl, token);
-      } catch (error) {
-        throw new Error(
-          `Could not connect ${npc.attendee} to LiveKit at ${livekitUrl} (${String(error) || 'no reason given'}). ` +
-            'Is it running? Start it with "npm run stack:up", or set LIVEKIT_URL.',
-          { cause: error },
-        );
-      }
-      const source = new AudioSource(SAMPLE_RATE, 1, 400);
-      const track = LocalAudioTrack.createAudioTrack('microphone', source);
-      await room.localParticipant?.publishTrack(track, new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }));
-      characters.set(npc.attendee, { room, source });
-      log(`${npc.attendee} joined ${roomName}`);
+  async function joinCharacter(npc: NpcProfile): Promise<void> {
+    if (characters.has(npc.attendee)) return;
+    const token = await createRoomToken({ roomName, participantName: npc.attendee, participantRole: 'AI attendee' });
+    const room = new Room();
+    try {
+      await room.connect(livekitUrl, token);
+    } catch (error) {
+      throw new Error(
+        `Could not connect ${npc.attendee} to LiveKit at ${livekitUrl} (${String(error) || 'no reason given'}). ` +
+          'Is it running? Start it with "npm run stack:up", or set LIVEKIT_URL.',
+        { cause: error },
+      );
     }
+    const source = new AudioSource(SAMPLE_RATE, 1, 400);
+    const track = LocalAudioTrack.createAudioTrack('microphone', source);
+    await room.localParticipant?.publishTrack(track, new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }));
+    characters.set(npc.attendee, { room, source });
+    log(`${npc.attendee} joined ${roomName}`);
+  }
+
+  try {
+    for (const npc of permanent) await joinCharacter(npc);
   } catch (error) {
     await leaveAll();
     throw error;
   }
-  const listener = characters.values().next().value as Character;
+  const listener = characters.get(permanent[0]!.attendee) as Character;
 
   // --- What the AI attendees send out: state to the browser, transcript lines to Kaki. ---
   function publishState(state: NpcStateMessage): void {
@@ -131,7 +142,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     else guardTimer = setTimeout(apply, GUARD_TAIL_MS);
   }
 
-  function makeConversation(): NpcConversation<Int16Array> {
+  function makeConversation(cast: NpcProfile[]): NpcConversation<Int16Array> {
     return new NpcConversation<Int16Array>(
       {
         stream: options.stream,
@@ -156,23 +167,68 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
         },
       },
-      { scenario, responseDelayMs: options.responseDelayMs },
+      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs },
     );
   }
 
   // --- The person: their voice activity, and the words the browser recognised. ---
-  let conversation = makeConversation();
-  const humans = new Set<string>();
+  let conversation: NpcConversation<Int16Array> | undefined;
+  let castNames = '';
+  interface Person {
+    name: string;
+    role: string;
+    seat: string | undefined;
+  }
+  const humans = new Map<string, Person>();
   let closing = false;
+
+  /** Make the room match the people in it: everyone but their seats, and a conversation for exactly that cast. */
+  let castQueue: Promise<void> = Promise.resolve();
+  function syncCast(): void {
+    castQueue = castQueue
+      .then(async () => {
+        if (closing) return;
+        const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
+        const wanted =
+          humans.size === 0 ? permanent : npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
+        for (const npc of wanted) await joinCharacter(npc);
+        for (const [name, character] of [...characters]) {
+          if (wanted.some((npc) => npc.attendee === name)) continue;
+          characters.delete(name);
+          await character.room.disconnect().catch(() => undefined);
+          log(`${name} left ${roomName}`);
+        }
+
+        const names = wanted.map((npc) => npc.attendee).join(',');
+        if (humans.size === 0) {
+          conversation?.close();
+          conversation = undefined;
+          castNames = '';
+        } else if (conversation === undefined || names !== castNames) {
+          conversation?.close();
+          conversation = makeConversation(wanted);
+          castNames = names;
+          const person = [...humans.values()].at(-1)!;
+          conversation.setHuman({
+            name: person.name,
+            role: person.role,
+            transcriptName: humanAttendeeForRole(scenario, person.role)?.zoomDisplayName,
+          });
+        }
+      })
+      .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
+  }
 
   function registerHuman(participant: RemoteParticipant): void {
     if (npcNames.has(participant.identity)) return;
-    const first = !humans.has(participant.identity);
-    humans.add(participant.identity);
     const role = participant.metadata?.trim() || 'participant';
     const name = participant.name || participant.identity;
-    conversation.setHuman({ name, role, transcriptName: humanAttendeeForRole(scenario, role)?.zoomDisplayName });
-    if (first) log(`${name} joined as ${role}`);
+    const seat = humanAttendeeForRole(scenario, role)?.name;
+    const known = humans.get(participant.identity);
+    if (known !== undefined && known.role === role && known.name === name) return;
+    humans.set(participant.identity, { name, role, seat });
+    if (known === undefined) log(`${name} joined as ${role}`);
+    syncCast();
   }
 
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
@@ -185,7 +241,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             ? `${identity} started talking (mic peak ${vad.peak(300).toFixed(3)}, bar ${vad.threshold.toFixed(3)}${vad.guarded ? `, AI was talking: its level ${vad.referenceLevel.toFixed(3)}, leaks into the mic at ${vad.leakRatio.toFixed(2)}x` : ''})`
             : `${identity} stopped talking`,
         );
-        conversation.humanSpeech(talking.size > 0);
+        conversation?.humanSpeech(talking.size > 0);
       },
       options.vad,
       { reference },
@@ -216,11 +272,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (!humans.delete(participant.identity)) return;
     talking.delete(participant.identity);
     log(`${participant.identity} left`);
-    if (humans.size === 0) {
-      // The next person starts a fresh conversation, not one that remembers the last.
-      conversation.close();
-      conversation = makeConversation();
-    }
+    // With nobody left the conversation is closed, so the next person starts a fresh one.
+    syncCast();
   });
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
     if (npcNames.has(participant.identity) || track.kind !== TrackKind.KIND_AUDIO) return;
@@ -231,7 +284,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (topic !== STT_TOPIC || participant === undefined || npcNames.has(participant.identity)) return;
     try {
       const message = JSON.parse(new TextDecoder().decode(payload)) as { text?: unknown };
-      if (typeof message.text === 'string') conversation.humanText(message.text);
+      if (typeof message.text === 'string') conversation?.humanText(message.text);
     } catch {
       log('ignored a malformed speech message');
     }
@@ -247,7 +300,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     async stop() {
       closing = true;
       if (guardTimer !== undefined) clearTimeout(guardTimer);
-      conversation.close();
+      await castQueue;
+      conversation?.close();
       for (const vad of vads.values()) vad.close();
       await leaveAll();
     },

@@ -105,6 +105,21 @@ whether they now sound different and answer each other. **Still open from step 1
 Azure `express-as` styles (the spoken voice is still neutral). There is no host NPC in `pixel-kampung`
 (the person is the Producer); a scenario can now declare one with `role: "host"`.
 
+## Done: the cast depends on the role the person picks
+
+Five characters in `pixel-kampung`: Wei Ling (Producer), Arjun, Mei, Daniel (marketing) and Sam (the AI
+host, `role: "host"`, never playable). `playable: true` marks the seats a person can take. Sam listens
+from the start; the others join when a person arrives, as everyone except the role they picked, and
+leave when the person leaves (`syncCast` in `runner.ts`). The Director prompt, parser and voices use only
+the cast in the room, and each character has `withRoles` notes on how they treat the person's role.
+Each role has a short fact `card` (facts, no script) shown at the top of the right-hand panel
+(`web/src/demo/RoleCard.tsx`). The `studio_manager` role is a `facilitator`: never offered to join and never
+counted as quiet (a one-line change in the Host's `notetaker.ts`). **Not run:** the LiveKit e2e test was
+updated by hand for four AIs (Sam, Arjun, Mei, Daniel with Josh as Producer) but there is no Docker here to
+run it, and nothing was tried with the real model. The studio is now called Lah Studios (display name only).
+Known data mismatch: Mei's profile says 14 of 20 playtesters quit on level 5, the Mattermost seed says 19 of 29.
+The join QR codes and the phone role picker still list Studio Manager (Wingman's files).
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

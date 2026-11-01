@@ -168,9 +168,10 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
       })();
     });
 
-    // Both AI attendees must be in the room, and the runner must have noticed the person.
+    // The host listens from the start; the others join once the runner has seen the person and their role.
+    // As the Producer, Josh takes Wei Ling's seat, so the AIs are Sam, Arjun, Mei and Daniel.
     startMixer();
-    await waitFor(() => human.remoteParticipants.size >= 2, 10_000, 'the AI attendees to join');
+    await waitFor(() => human.remoteParticipants.size >= 4, 20_000, 'the AI attendees to join');
     await sleep(500);
   }, 60_000);
 

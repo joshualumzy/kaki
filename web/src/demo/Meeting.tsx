@@ -9,6 +9,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
 import { LocalSpeechSTT } from './LocalSpeechSTT';
 import { MeetingGrid } from './MeetingGrid';
+import { RoleCard } from './RoleCard';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
 const ROOM_OPTIONS: RoomOptions = {
@@ -107,6 +108,7 @@ export default function Meeting() {
         </LiveKitRoom>
       </div>
       <div style={{ width: '400px', backgroundColor: '#f9fafb', borderLeft: '1px solid #e5e7eb', overflowY: 'auto' }}>
+        <RoleCard role={scenario.roles.find((candidate) => candidate.id === session.role)} />
         <ErrorBoundary>
           <PhoneFeed role={session.role} />
         </ErrorBoundary>

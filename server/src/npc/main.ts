@@ -1,6 +1,7 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
 import { llmFromEnv } from '../llm';
+import { aiCast } from '@kaki/shared';
 import { loadScenario } from '../loadScenario';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_RESPONSE_DELAY_MS } from './conversation';
@@ -93,7 +94,9 @@ const runner = await startNpcRunner({
   },
 });
 
-log(`ready: ${npcs.map((npc) => npc.attendee).join(' and ')} are in the room. Open /demo and talk.`);
+log(
+  `ready: ${aiCast(scenario).map((npc) => npc.attendee).join(' and ')} are in the room; the other characters join for whoever arrives, as everyone except the role they pick. Open /demo and talk.`,
+);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => void runner.stop().then(() => process.exit(0)));
