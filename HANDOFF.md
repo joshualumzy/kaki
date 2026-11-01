@@ -95,6 +95,33 @@ tune these on a real machine:
 - Shared files (`shared/**`, `app.ts`, `scenario.json`) changed here: the optional `npcs` schema, the
   token route, `/dev/emit` retention. Under `docs/ownership.md` these want a small reviewed PR.
 
+## Next: make the room feel like several people (planned, not started)
+
+Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one
+model (the Director) writes every character, so they share a writing style; "if somebody is addressed
+by name, only they answer" means often one speaks; and the characters only ever speak after the
+person does, so they never answer each other or fill a silence. Proposed order:
+
+1. **Distinct voices.** Add an optional `speechStyle` to `NpcProfile` (sentence length, verbal habits,
+   how they hedge or push back) and put it in the prompt. Pick Azure speaking styles per character
+   (SSML `express-as`; the Director could tag a mood per line, for example `Arjun (worried): ...`,
+   stripped from captions). Check Azure's per-voice style list; plain text is spoken neutrally today.
+2. **Conflict in the profiles.** Standing disagreements and hidden goals between pairs of characters,
+   in `scenario.json`, so they have a reason to answer each other. "Disagree when your aims
+   conflict" is weak without specifics.
+3. **AI-to-AI follow-ups.** After a reply, a character may respond to the other even when the person
+   is silent: at most two extra turns, and an idle nudge after about 8 s of silence ("speak only if
+   you really have something to add, otherwise NONE"). The person talking over them must still win
+   instantly, so reuse the existing turn and abort machinery in `conversation.ts`. Cost: more model
+   calls and latency, and the risk of a chatty room, hence the hard limits.
+4. **Three or more characters.** One Director prompt gets long and favours whoever is listed first.
+   Add a cheap "who speaks next" step by rules first (who was addressed, who owns the current agenda
+   item, whose concerns were triggered), then write only those one or two characters.
+
+Also pending from earlier: an optional server-side speech-to-text path (Azure, fed only while the voice
+detector says the person is talking, to stay within the free hours) as an alternative to Chrome's
+recognition, which hears the speakers and mishears names; it could use `soundsLike` as phrase hints.
+
 ## Later
 
 The AI attendees do not yet read from the company data (Gitea, Mattermost, Postgres, wiki). The
