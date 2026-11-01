@@ -21,6 +21,9 @@ export interface NpcPorts<Clip> {
   log?(message: string): void;
 }
 
+/** Quiet needed after the person stops talking before the AI answers; on top of the voice detector's own hangover. */
+export const DEFAULT_RESPONSE_DELAY_MS = 300;
+
 export interface ConversationOptions {
   scenario: Scenario;
   /** Quiet needed after the person's last words before the AI answers. */
@@ -101,7 +104,7 @@ export class NpcConversation<Clip> {
   ) {
     this.gate = options.gate ?? new SpeechGate();
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
-    this.responseDelayMs = options.responseDelayMs ?? 900;
+    this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
     this.maxHistory = options.maxHistory ?? 30;
     if (this.names.length === 0) throw new Error(`Scenario "${options.scenario.id}" has no npcs`);
   }
@@ -140,6 +143,7 @@ export class NpcConversation<Clip> {
       return;
     }
 
+    this.ports.log?.(`heard "${heard}"`);
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', heard);
     this.pending.push(heard);
     // The voice detector normally got here first; this covers a quiet person it missed.

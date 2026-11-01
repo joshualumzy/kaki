@@ -23,6 +23,7 @@ Chrome or Edge. See the README for settings.
 | Instant-stop playback into LiveKit | `server/src/npc/playback.ts` | yes, fake sink |
 | Azure text-to-speech, LiveKit rooms, wiring | `server/src/npc/azureTts.ts`, `main.ts` | **no**: needs LiveKit, Azure and a microphone |
 | Join form, captions, speech recognition wrapper | `web/src/demo/` | yes (pure parts); the LiveKit components are not rendered in tests |
+| LiveKit wiring: both directions of audio, barge-in, echo gate (`runner.ts`) | `server/test/npc/livekit.e2e.test.ts` | **yes, against a real LiveKit server**, with a fake person, scripted model and tone "speech" |
 | Token endpoint | `server/src/livekit.ts`, `app.ts` | yes, and smoke-tested against the real server |
 
 The browser sends recognised text over a LiveKit data channel (`kaki.stt`), and the AI attendees
@@ -36,15 +37,26 @@ attendee is talking the detector is stricter (`guarded`) so leaked playback does
 Recognised text is only accepted if it is not a near-copy of what the AI just said, and, while the
 AI is talking, if the person's mic carried speech since the AI began.
 
-## NOT verified: needs a live run (a microphone, LiveKit, Azure, the real LLM)
+## Verified over real LiveKit (fake model and voice)
 
-Everything above "tested" was tested with fakes. Nobody has yet run the whole thing end to end after
-the rewrite. Expect to tune these on a real machine:
+`LIVEKIT_E2E=1 npx vitest run server/test/npc/livekit.e2e.test.ts` (needs a LiveKit server, for example
+`npm run stack:up`) joins as a fake person and checks the real runner. Three runs, all green:
+
+- person stops talking -> AI audible: about 950 ms with an instant model and voice (the pipeline's own
+  overhead: voice hangover 500 ms + response delay 300 ms). Add the real model's first token and
+  Azure's first audio on top.
+- person talks over the AI -> AI silent: 330 to 560 ms.
+- the AI's own sentence, and text with no voice behind it, are refused while the AI talks.
+
+## NOT verified: needs a live run (a microphone, Azure, the real LLM, a browser)
+
+The e2e test does not cover Azure, the real model, or a browser's echo cancellation. Expect to tune
+these on a real machine:
 
 - **Voice thresholds** (`NPC_VAD_*` in `.env`). If the AI cuts itself off, raise
   `NPC_VAD_GUARDED_MIN_LEVEL`; if talking over it feels sluggish, lower `NPC_VAD_GUARDED_START_MS`.
   The log prints `<name> started talking` / `stopped talking`, which shows what the detector hears.
-- Latency of LLM + Azure; the `LIVEKIT` compose service (`livekit/livekit-server:latest`, ports
+- Latency of the real LLM + Azure on top of the ~950 ms above; the `LIVEKIT` compose service (`livekit/livekit-server:latest`, ports
   7880, 7881, 7882/udp); whether `--bind 0.0.0.0` is enough for your Docker setup.
 - Headphones remove the echo problem entirely; laptop speakers rely on the browser's echo cancellation.
 

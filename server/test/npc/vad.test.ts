@@ -46,7 +46,7 @@ describe('EnergyVad', () => {
     feed(SPEECH, 130);
     expect(changes).toEqual([true]);
     feed(SPEECH, 500);
-    feed(ROOM, 600);
+    feed(ROOM, 400);
     expect(changes).toEqual([true]);
     feed(ROOM, 200);
     expect(changes).toEqual([true, false]);
@@ -66,7 +66,7 @@ describe('EnergyVad', () => {
   it('ends speech when the audio stops arriving altogether, as with Opus silence suppression', () => {
     feed(SPEECH, 300);
     expect(changes).toEqual([true]);
-    vi.advanceTimersByTime(699);
+    vi.advanceTimersByTime(499);
     expect(changes).toEqual([true]);
     vi.advanceTimersByTime(2);
     expect(changes).toEqual([true, false]);

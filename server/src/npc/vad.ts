@@ -21,7 +21,7 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
   guardedNoiseRatio: 6,
   startMs: 120,
   guardedStartMs: 250,
-  hangoverMs: 700,
+  hangoverMs: 500,
 };
 
 const NOISE_FLOOR_START = 0.005;

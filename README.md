@@ -55,6 +55,10 @@ microphone track for voice activity (that is what interrupts them) and only acce
 that is not their own voice coming back. Every accepted line, yours and theirs, goes to Kaki as an
 ordinary transcript line, so the host, wingman and action agents work from the same conversation.
 
+To check the audio path without a microphone, start LiveKit and run
+`LIVEKIT_E2E=1 npx vitest run server/test/npc/livekit.e2e.test.ts`: a fake person talks to the real
+runner (with a scripted model and fake voice) and talks over it.
+
 ## Host sign-in (optional)
 
 Auth is off by default, so the in-memory dev flow and the `/phone?role=...` links need no account.
