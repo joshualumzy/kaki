@@ -136,11 +136,16 @@ speakers). Changed:
 - `vocabulary` in `scenario.json` is told to the model, so it can map a misheard word to the likely one.
 - The prompt: the host speaks first on greetings, and characters never write the person's name as a speaker.
 
-**Not fixed, and why:** Chrome's recognition hears the speakers, not the echo-cancelled track, so it
-transcribes the AI's own voice (the many `echo` / `no-voice` refusals) and mishears accents. The real fix is
-server-side recognition (Azure, with phrase hints) on the echo-cancelled LiveKit track, fed only while the
-voice detector says the person is talking. It would also be what makes phones work. Until then: headphones,
-and typed input as a fallback.
+**Then, server-side recognition** (`azureStt.ts`, `utterance.ts`; the default, `NPC_STT=browser` goes back
+to Chrome's). Chrome hears the speakers, not the echo-cancelled track, so it transcribed the AI's own voice
+and mishears accents. Now `UtteranceRecorder` gives Azure speech-to-text (same key and region as the
+voice, `NPC_STT_LOCALE`, default `en-SG`) only the audio between the voice detector saying the person started
+and stopped, with 400 ms from just before so the first syllable is kept, a 25 s cap and a 250 ms minimum.
+Phrase hints are the scenario's `vocabulary`, the attendees' names and the organisation. The text then goes through
+the same speech gate as before (echo words cut out), so a detector mistake costs a few seconds of Azure
+time, not a wrong conversation. The browser's text is ignored while this is on. Log line: `recognised "..."`.
+**Not run against Azure** (the Azure part is a thin wrapper, the recorder is unit-tested with a fake). If it
+mishears, the first thing to check is the `recognised` lines. Free tier: about 5 audio hours a month.
 
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 

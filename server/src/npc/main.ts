@@ -3,6 +3,7 @@ import '../env';
 import { llmFromEnv } from '../llm';
 import { aiCast } from '@kaki/shared';
 import { loadScenario } from '../loadScenario';
+import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
@@ -42,6 +43,24 @@ const synthesize = createAzureTts(
   requireEnv('AZURE_SPEECH_REGION', azureHint),
   (speaker) => npcs.find((npc) => npc.attendee === speaker)?.voice,
 );
+
+// Server-side recognition by default: it hears the echo-cancelled microphone track, so it does not pick up the
+// AI's own voice, and it can lean towards the names and words of this meeting. NPC_STT=browser uses Chrome's.
+const sttMode = process.env.NPC_STT || 'azure';
+if (sttMode !== 'azure' && sttMode !== 'browser') throw new Error(`NPC_STT must be "azure" or "browser", got "${sttMode}"`);
+const recognizer =
+  sttMode === 'browser'
+    ? undefined
+    : createAzureStt(requireEnv('AZURE_SPEECH_KEY', azureHint), requireEnv('AZURE_SPEECH_REGION', azureHint), {
+        locale: process.env.NPC_STT_LOCALE || 'en-SG',
+        phrases: [
+          ...new Set([
+            ...(scenario.vocabulary ?? []),
+            ...scenario.attendees.map((attendee) => attendee.name),
+            scenario.organisation,
+          ]),
+        ],
+      });
 
 const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
 let lastTranscriptError = 0;
@@ -86,6 +105,7 @@ const runner = await startNpcRunner({
   synthesize,
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', DEFAULT_RESPONSE_DELAY_MS),
+  recognizer,
   speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
@@ -96,6 +116,7 @@ const runner = await startNpcRunner({
   },
 });
 
+log(`speech recognition: ${sttMode === 'azure' ? `Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})` : "the browser's"}`);
 log(
   `ready: ${aiCast(scenario).map((npc) => npc.attendee).join(' and ')} are in the room; the other characters join for whoever arrives, as everyone except the role they pick. Open /demo and talk.`,
 );

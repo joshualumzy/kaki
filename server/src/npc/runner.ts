@@ -26,6 +26,7 @@ import { NpcConversation } from './conversation';
 import type { Utterance } from './director';
 import { playPcm } from './playback';
 import { PlaybackReference } from './reference';
+import { UtteranceRecorder, type Recognizer } from './utterance';
 import { EnergyVad, type VadOptions } from './vad';
 
 /** Sample rate of everything published to and read from LiveKit. */
@@ -52,6 +53,8 @@ export interface RunnerOptions {
   responseDelayMs?: number;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
+  /** Recognise the person's speech on the server, from their echo-cancelled microphone track; without it, the browser's recognition is used. */
+  recognizer?: Recognizer;
   vad?: Partial<VadOptions>;
   log?(message: string): void;
   /** Log the voice detector's levels twice a second while the AI talks, for tuning. */
@@ -234,8 +237,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
 
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
+    const recorder =
+      options.recognizer === undefined
+        ? undefined
+        : new UtteranceRecorder(options.recognizer, {
+            sampleRate: SAMPLE_RATE,
+            log,
+            onText: (text) => {
+              log(`recognised "${text}"`);
+              conversation?.humanText(text);
+            },
+          });
     const vad: EnergyVad = new EnergyVad(
       (speaking) => {
+        recorder?.speaking(speaking);
         if (speaking) talking.add(identity);
         else talking.delete(identity);
         log(
@@ -253,6 +268,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     try {
       for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
         vad.push(frame.data, frame.sampleRate);
+        recorder?.push(frame.data);
         if (options.traceVad === true && vad.guarded && Date.now() - lastTrace > 500) {
           lastTrace = Date.now();
           log(
@@ -263,6 +279,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     } catch (error) {
       log(`audio from ${identity} ended: ${String(error)}`);
     } finally {
+      recorder?.close();
       vad.close();
       vads.delete(identity);
     }
@@ -284,6 +301,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
     if (topic !== STT_TOPIC || participant === undefined || npcNames.has(participant.identity)) return;
+    // With server-side recognition the browser's text is not used: it hears the speakers, not the echo-cancelled track.
+    if (options.recognizer !== undefined) return;
     try {
       const message = JSON.parse(new TextDecoder().decode(payload)) as { text?: unknown };
       if (typeof message.text === 'string') conversation?.humanText(message.text);
