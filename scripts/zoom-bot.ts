@@ -74,7 +74,6 @@ async function joinZoomMeeting() {
       await page.waitForSelector('.footer__inner', { timeout: 120000 });
       console.log('Main meeting UI detected! We are in.');
       
-      // Wait a few seconds for Zoom to finish rendering its UI elements
       await new Promise(r => setTimeout(r, 4000));
       
       try {
@@ -82,31 +81,25 @@ async function joinZoomMeeting() {
         if (audioBtn) {
           await audioBtn.click();
           console.log('Clicked the Join Audio button.');
-          await new Promise(r => setTimeout(r, 2000)); // Wait for audio state to settle
+          await new Promise(r => setTimeout(r, 2000));
         }
       } catch (err) {}
       
       try {
-        // Zoom dynamically changes aria-labels and button classes based on state. 
-        // A safer way is to check the button text or specific icon classes.
         const muteBtn = await page.$('button[aria-label^="Mute"]');
         if (muteBtn) {
           await muteBtn.click();
           console.log('Microphone muted.');
-        } else {
-          console.log('Could not find mute button (already muted?).');
         }
-      } catch (err) { console.log('Error muting mic.'); }
+      } catch (err) { }
 
       try {
         const stopVideoBtn = await page.$('button[aria-label^="Stop Video"]');
         if (stopVideoBtn) {
           await stopVideoBtn.click();
           console.log('Video stopped.');
-        } else {
-          console.log('Could not find stop video button (already stopped?).');
         }
-      } catch (err) { console.log('Error stopping video.'); }
+      } catch (err) { }
       
     } catch (err) {
       console.log('Failed to detect meeting UI. Taking error screenshot...');
@@ -162,7 +155,21 @@ async function joinZoomMeeting() {
     console.log('Bot is now in the meeting! Press Ctrl+C to stop.');
 
     process.on('SIGINT', async () => {
-      console.log('\nStopping bot and closing browser...');
+      console.log('\nStopping bot, leaving meeting, and closing browser...');
+      try {
+        // Click the red "Leave" button before closing the browser
+        const leaveBtn = await page.$('.footer-button__button[aria-label="Leave"]');
+        if (leaveBtn) {
+          await leaveBtn.click();
+          await new Promise(r => setTimeout(r, 1000));
+          // Click the confirmation "Leave Meeting" button
+          const confirmBtn = await page.$('.leave-meeting-options__inner-btn');
+          if (confirmBtn) await confirmBtn.click();
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      } catch (e) {
+        // Ignore errors, we're closing the browser anyway
+      }
       if (browser) await browser.close();
       process.exit(0);
     });
