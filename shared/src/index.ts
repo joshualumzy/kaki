@@ -4,3 +4,4 @@ export * from './task';
 export * from './events';
 export * from './commands';
 export * from './services';
+export * from './demo';

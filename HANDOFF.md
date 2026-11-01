@@ -1,34 +1,60 @@
-# Handoff Notes: AI Meeting NPC Debugging
+# Handoff: live demo meeting with AI attendees
 
-## Current Branch
-`feature/scripted-replay`
+Branch: `feature/scripted-replay`.
 
-## Context & Goal
-We are building a real-time interactive local LiveKit meeting experience featuring AI NPCs (Arjun and Maya) controlled by a single Director LLM. 
-The user was experiencing severe issues with **acoustic feedback**: the open microphone was picking up the AI's TTS output from the speakers. This caused the AI's voice to be transcribed as the user's voice, leading the AI to interrupt itself and reply to its own echoed text.
+## What this is
 
-## What Was Implemented (The 3-Layer Fix)
-To combat the Azure STT limits and the acoustic feedback loop, the following changes were made:
+`/demo` is a video-call style meeting. The person talks to AI attendees (the scenario's `npcs`: for
+Pixel Kampung, Arjun and Mei). One LLM, the Director, plays all of them from their profiles and
+decides who answers, one at a time. The person can talk over them and they stop. Every line goes to
+Kaki as a normal transcript line.
 
-1. **Replaced Azure STT with Local STT (`web/src/demo/LocalSpeechSTT.tsx`)**
-   - We are now using the browser's native Web Speech API to transcribe user speech and emit it to the backend via `/dev/emit`.
-   - **Frontend Mitigation:** The component tracks the AI's LiveKit `isSpeaking` state and a 4-second timer after the AI emits a transcript. If the AI is speaking, the frontend silently drops the transcribed chunks so they never reach the server.
+Run it: `npm run stack:up`, `npm run dev`, `npm run npc`, then open http://localhost:5173/demo in
+Chrome or Edge. See the README for settings.
 
-2. **Backend Interim Blocker (`scripts/npc-runner.ts`)**
-   - The NPC runner listens to the WebSocket for transcripts.
-   - It maintains a `lastSynthesizedTexts` array. Before accepting a user transcript, it strips punctuation and checks if the text matches recently synthesized AI speech. If it's an echo, it ignores it.
-   - `[INTERIM]` chunks are now strictly validated against this blocker so they don't trigger the "human interrupted" kill-switch prematurely.
+## How it is built
 
-3. **Ghost Transcript Expiration (`web/src/demo/MeetingGrid.tsx`)**
-   - Fixed a bug where old transcripts (like "Good morning everyone") would get stuck on the screen or reappear when opening a new incognito window.
-   - Transcripts now automatically expire and disappear from the UI after 15 seconds.
+| Piece | Where | Tested here? |
+|---|---|---|
+| Prompt from scenario profiles, streaming `Name: sentence` parser | `server/src/npc/director.ts` | yes |
+| Conversation state machine (one abort controller per turn, history = what was heard) | `server/src/npc/conversation.ts` | yes, with fake LLM/TTS/playback |
+| Voice activity detection on the person's mic track | `server/src/npc/vad.ts` | yes, synthetic audio |
+| Echo / "is this the person?" gate for recognised text | `server/src/npc/speechGate.ts` | yes |
+| Instant-stop playback into LiveKit | `server/src/npc/playback.ts` | yes, fake sink |
+| Azure text-to-speech, LiveKit rooms, wiring | `server/src/npc/azureTts.ts`, `main.ts` | **no**: needs LiveKit, Azure and a microphone |
+| Join form, captions, speech recognition wrapper | `web/src/demo/` | yes (pure parts); the LiveKit components are not rendered in tests |
+| Token endpoint | `server/src/livekit.ts`, `app.ts` | yes, and smoke-tested against the real server |
 
-## Next Steps for the Next Agent
-1. **Verify the Fix:** The user was extremely frustrated by the AI constantly interrupting itself. The processes are currently stopped. You will need to start the backend, frontend, and NPC runner to verify if the 3-layer fix completely resolved the acoustic feedback loop.
-   - `npm run dev --workspace=server`
-   - `npm run dev --workspace=web`
-   - `npx tsx scripts/npc-runner.ts`
-2. **Fallback Plan:** If the AI *still* interrupts itself (meaning the Web Speech API is somehow bypassing the frontend time-blocks), you may need to implement a hard pause on the `SpeechRecognition` instance while the AI is speaking, or investigate LiveKit's built-in acoustic echo cancellation (AEC) constraints.
-3. **Remember the Constraints:** 
-   - DO NOT spam macOS TCC permissions (do not kill Chrome, use explicit paths if using Puppeteer).
-   - DO NOT expose raw `.env` secrets in your logs.
+The browser sends recognised text over a LiveKit data channel (`kaki.stt`), and the AI attendees
+send their state back on `kaki.npc-state` (`shared/src/demo.ts`). Nothing but accepted transcript
+lines goes through `/dev/emit`, so the notetaker never sees interim text, status messages or echo.
+
+How interruption works: the browser publishes the microphone with echo cancellation, so that track
+carries the person and little of the AI. `EnergyVad` watches it; when the person starts talking the
+conversation aborts the turn (model, synthesis, sound) and clears LiveKit's buffer. While an AI
+attendee is talking the detector is stricter (`guarded`) so leaked playback does not count.
+Recognised text is only accepted if it is not a near-copy of what the AI just said, and, while the
+AI is talking, if the person's mic carried speech since the AI began.
+
+## NOT verified: needs a live run (a microphone, LiveKit, Azure, the real LLM)
+
+Everything above "tested" was tested with fakes. Nobody has yet run the whole thing end to end after
+the rewrite. Expect to tune these on a real machine:
+
+- **Voice thresholds** (`NPC_VAD_*` in `.env`). If the AI cuts itself off, raise
+  `NPC_VAD_GUARDED_MIN_LEVEL`; if talking over it feels sluggish, lower `NPC_VAD_GUARDED_START_MS`.
+  The log prints `<name> started talking` / `stopped talking`, which shows what the detector hears.
+- Latency of LLM + Azure; the `LIVEKIT` compose service (`livekit/livekit-server:latest`, ports
+  7880, 7881, 7882/udp); whether `--bind 0.0.0.0` is enough for your Docker setup.
+- Headphones remove the echo problem entirely; laptop speakers rely on the browser's echo cancellation.
+
+## Constraints
+
+- Do not kill Chrome. Do not print `.env` secrets.
+- Shared files (`shared/**`, `app.ts`, `scenario.json`) changed here: the optional `npcs` schema, the
+  token route, `/dev/emit` retention. Under `docs/ownership.md` these want a small reviewed PR.
+
+## Later
+
+The AI attendees do not yet read from the company data (Gitea, Mattermost, Postgres, wiki). The
+Wingman's knowledge search is the natural thing to give them as a tool.

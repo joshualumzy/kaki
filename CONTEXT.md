@@ -15,5 +15,7 @@
 - **`Pixel Kampung`**: The default demo scenario: a fictional Singapore indie game studio preparing to launch its mobile game *Hawker Heroes*.
 - **`Mailpit`**: The self-hosted fake email server; Kaki searches its inbox and `kaki.action` sends approved emails through it.
 
-- **`LiveKit Demo Environment`**: The local WebRTC server (`localhost:7880`) running in Docker. Replaces third-party meeting platforms like Zoom to guarantee a 100% reliable, zero-block live demo environment. Audio is routed natively via the LiveKit API.
-- **`NPC Orchestrator`**: The backend service (`server/src/npc.ts`) that runs the AI attendees (Arjun, Mei, Daniel) using LLMs. It connects to the LiveKit room, listens to the human visitor, and pushes back with constraints to force deep workflow usage.
+- **`LiveKit Demo Environment`**: The local WebRTC server (`localhost:7880`) running in Docker, serving the live demo meeting at `/demo`. Replaces third-party meeting platforms like Zoom to guarantee a 100% reliable, zero-block live demo environment.
+- **`AI attendee`** (also **NPC**): A scenario attendee played by the NPC conversation (`server/src/npc/`) instead of a person. Each has a profile in the scenario's `npcs`: voice, personality, agenda, concerns and facts. One LLM, the **Director**, plays all of them and decides who speaks, one at a time. Run with `npm run npc`.
+- **`Barge-in`**: The person talking over an AI attendee. The runner detects it from voice activity on the person's echo-cancelled microphone track, and stops the model, speech synthesis and sound together. The history keeps only what was actually heard.
+- **`Speech gate`**: Decides whether recognised text is the person, or an AI attendee's own voice coming back through the microphone (`server/src/npc/speechGate.ts`).

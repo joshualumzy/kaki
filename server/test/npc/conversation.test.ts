@@ -86,7 +86,9 @@ function harness() {
   );
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
-  const flush = (): Promise<void> => vi.advanceTimersByTimeAsync(0);
+  const flush = async (): Promise<void> => {
+    await vi.advanceTimersByTimeAsync(0);
+  };
   /** The person says something and stops; the AI waits out the response delay and starts. */
   async function say(text: string): Promise<void> {
     conversation.humanSpeech(true);

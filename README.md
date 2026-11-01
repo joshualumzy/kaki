@@ -33,6 +33,28 @@ Open:
 
 The server keeps state in memory and restarts when server code changes; run `npm run emit-demo` again after a restart.
 
+## Live demo meeting with AI attendees
+
+`/demo` is a video-call style meeting where you talk to AI attendees (the scenario's `npcs`; for
+Pixel Kampung, Arjun and Mei). One LLM plays all of them, each with their own personality, aims and
+worries, and decides who answers. You can talk over them at any time and they stop.
+
+```bash
+npm run stack:up          # LiveKit (and the rest of the Docker stack)
+npm run dev               # server on :3001, web app on :5173
+npm run npc               # in a second terminal: the AI attendees join the room
+```
+
+Then open http://localhost:5173/demo in Chrome or Edge, pick a name and role, and talk. Use
+headphones if you can. `npm run npc` needs the LLM settings plus `AZURE_SPEECH_KEY` and
+`AZURE_SPEECH_REGION` in `.env` (see `.env.example`, which also lists the tuning knobs).
+
+How it hangs together: your browser publishes your microphone to LiveKit, with echo cancellation,
+and sends what its speech recognition heard over a LiveKit data channel. `npm run npc` watches your
+microphone track for voice activity (that is what interrupts them) and only accepts recognised text
+that is not their own voice coming back. Every accepted line, yours and theirs, goes to Kaki as an
+ordinary transcript line, so the host, wingman and action agents work from the same conversation.
+
 ## Host sign-in (optional)
 
 Auth is off by default, so the in-memory dev flow and the `/phone?role=...` links need no account.

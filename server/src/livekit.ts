@@ -1,8 +1,5 @@
 import { AccessToken } from 'livekit-server-sdk';
 
-/** The room the live demo meeting happens in. */
-export const DEMO_ROOM = 'HawkerHeroesLaunch';
-
 /** `livekit-server --dev` accepts this key pair; set LIVEKIT_API_KEY / LIVEKIT_API_SECRET to override. */
 function livekitCredentials(): { key: string; secret: string } {
   return {

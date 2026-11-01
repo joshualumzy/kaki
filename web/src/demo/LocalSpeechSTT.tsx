@@ -1,133 +1,81 @@
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
+import { STT_TOPIC, type SttMessage } from '@kaki/shared';
+import { speechRecognitionCtor, startRecognizer } from './speech';
 
-import { useEffect, useState, useRef } from 'react';
-import { useLocalParticipant, useParticipants } from '@livekit/components-react';
-import { useKaki } from '../kaki';
+const chip: CSSProperties = {
+  position: 'absolute',
+  top: '10px',
+  right: '10px',
+  background: 'rgba(0,0,0,0.6)',
+  color: 'white',
+  padding: '4px 8px',
+  borderRadius: '4px',
+  fontSize: '12px',
+  maxWidth: '60%',
+  pointerEvents: 'none',
+};
 
-export function LocalSpeechSTT({ participantName }: { participantName: string }) {
-  const [isListening, setIsListening] = useState(false);
+/**
+ * Turns the person's speech into text with the browser's own recognition and sends each finished
+ * piece to the AI attendees over LiveKit. It sends everything it hears: whether that is the
+ * person or the AI's own voice coming back through the speakers is decided on the server, which
+ * can see the echo-cancelled microphone track and this page cannot.
+ */
+export function LocalSpeechSTT() {
+  const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
-  const participants = useParticipants();
-  const { events } = useKaki('producer');
-  
-  // Track the absolute full transcript length to diff against
-  const lastAiSpeechTime = useRef<number>(0);
-  
-  // Create a ref for participants so the recognition callback can access the latest state without re-rendering the recognition
-  const participantsRef = useRef(participants);
-  useEffect(() => {
-    participantsRef.current = participants;
-  }, [participants]);
-
-  // Update lastAiSpeechTime when Arjun or Maya emits a transcript
-  useEffect(() => {
-    if (events.length === 0) return;
-    const lastEvent = events[events.length - 1];
-    if (lastEvent.type === 'TRANSCRIPT_CHUNK') {
-       const speaker = lastEvent.payload.speaker;
-       if (speaker.startsWith('Arjun') || speaker.startsWith('Maya')) {
-          lastAiSpeechTime.current = Date.now();
-       }
-    }
-  }, [events]);
+  const Recognition = useMemo(() => speechRecognitionCtor(), []);
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState('');
+  const [problem, setProblem] = useState<string | undefined>();
 
   useEffect(() => {
-    if (!isMicrophoneEnabled) return;
-    // @ts-ignore
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => {
-      setIsListening(false);
-      previousFinal = "";
-      previousInterim = "";
-      setTimeout(() => { try { recognition.start(); } catch(e){} }, 100);
-    };
+    if (Recognition === undefined || !isMicrophoneEnabled) return;
+    setProblem(undefined);
+    const encoder = new TextEncoder();
+    return startRecognizer(Recognition, {
+      onFinal: (text) => {
+        const message: SttMessage = { text };
+        room.localParticipant
+          .publishData(encoder.encode(JSON.stringify(message)), { reliable: true, topic: STT_TOPIC })
+          .catch(() => setProblem('Could not send your words to the meeting.'));
+      },
+      onInterim: setInterim,
+      onListening: setListening,
+      onFatal: setProblem,
+    });
+  }, [Recognition, isMicrophoneEnabled, room]);
 
-    let previousInterim = "";
-    let previousFinal = "";
+  if (Recognition === undefined) {
+    return <div style={chip}>Speech recognition needs Chrome or Edge: the AI cannot hear you in this browser.</div>;
+  }
+  if (problem !== undefined) return <div style={{ ...chip, background: 'rgba(153,27,27,0.85)' }}>{problem}</div>;
+  if (!isMicrophoneEnabled) return <div style={chip}>Microphone muted: the AI cannot hear you.</div>;
 
-    recognition.onresult = (event: any) => {
-      // Acoustic Feedback Blocker: 
-      // If AI spoke within the last 4000ms OR is currently speaking according to LiveKit audio levels, 
-      // ignore this transcription entirely to prevent the mic from picking up the AI's speakers.
-      const isAiSpeakingAudio = participantsRef.current.some(p => 
-        (p.identity === 'Arjun' || p.identity === 'Maya') && p.isSpeaking
-      );
-      
-      if (isAiSpeakingAudio || Date.now() - lastAiSpeechTime.current < 4000) {
-        // Drop the transcription but keep previousFinal length in sync
-        let fullStr = "";
-        for (let i = 0; i < event.results.length; ++i) {
-           fullStr += event.results[i][0].transcript;
-        }
-        previousFinal = fullStr.trim();
-        previousInterim = "";
-        return;
-      }
-
-      let currentFinal = "";
-      let currentInterim = "";
-      
-      // Always rebuild the entire string from index 0 to avoid browser inconsistencies
-      for (let i = 0; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          currentFinal += event.results[i][0].transcript;
-        } else {
-          currentInterim += event.results[i][0].transcript;
-        }
-      }
-      
-      const finalStr = currentFinal.trim();
-      const interimStr = currentInterim.trim();
-
-      // Emit interim diff
-      if (interimStr && interimStr !== previousInterim) {
-        previousInterim = interimStr;
-        fetch('/dev/emit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'TRANSCRIPT_CHUNK',
-            payload: { speaker: participantName + ' [INTERIM]', text: interimStr, timestamp: new Date().toISOString() },
-            audience: { kind: 'all' }
-          })
-        }).catch(() => {});
-      }
-
-      // Emit final ONLY if new finalized words were added
-      if (finalStr.length > previousFinal.length) {
-         const newWords = finalStr.substring(previousFinal.length).trim();
-         if (newWords.length > 0) {
-            previousFinal = finalStr;
-            fetch('/dev/emit', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'TRANSCRIPT_CHUNK',
-                payload: { speaker: participantName, text: newWords, timestamp: new Date().toISOString() },
-                audience: { kind: 'all' }
-              })
-            }).catch(() => {});
-         }
-      }
-    };
-    
-    try { recognition.start(); } catch(e){}
-    return () => {
-      recognition.onend = null;
-      recognition.stop();
-    };
-  }, [participantName, isMicrophoneEnabled]);
-
-  if (!isListening) return null;
   return (
-    <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.5)', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', pointerEvents: 'none' }}>
-      🎙️ Local STT Active
-    </div>
+    <>
+      <div style={chip}>{listening ? '🎙️ Listening' : 'Starting speech recognition…'}</div>
+      {interim.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: '80px',
+            transform: 'translateX(-50%)',
+            maxWidth: '70%',
+            background: 'rgba(30,64,175,0.8)',
+            color: 'white',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            fontSize: '15px',
+            fontStyle: 'italic',
+            pointerEvents: 'none',
+          }}
+        >
+          {interim}
+        </div>
+      )}
+    </>
   );
 }

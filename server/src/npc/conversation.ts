@@ -1,14 +1,10 @@
-import type { Scenario } from '@kaki/shared';
+import type { NpcStateMessage, Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { buildSystemPrompt, TurnParser, type HumanInfo, type Utterance } from './director';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
-export type NpcUiState =
-  | { kind: 'idle' }
-  | { kind: 'thinking' }
-  | { kind: 'speaking'; speaker: string }
-  | { kind: 'error'; message: string };
+export type NpcUiState = NpcStateMessage;
 
 /** Everything the conversation needs from the outside world; tests replace all of it. */
 export interface NpcPorts<Clip> {

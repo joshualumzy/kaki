@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import type { KakiEvent, Scenario } from '@kaki/shared';
+import { captionFor, transcriptChunks, transcriptNameFor } from './captions';
+
+const scenario: Scenario = {
+  id: 's',
+  organisation: 'Org',
+  meetingTitle: 'Meeting',
+  roles: [
+    { id: 'producer', label: 'Producer' },
+    { id: 'lead', label: 'Lead Programmer' },
+  ],
+  attendees: [
+    { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling (Producer)' },
+    { name: 'Arjun', role: 'lead', zoomDisplayName: 'Arjun (Lead)' },
+  ],
+  agenda: [{ title: 'Build', minutes: 5, ownerRole: 'lead' }],
+  npcs: [{ attendee: 'Arjun', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] }],
+};
+
+const NOW = Date.parse('2026-01-01T10:00:30Z');
+const chunk = (speaker: string, text: string, secondsAgo: number): KakiEvent => ({
+  type: 'TRANSCRIPT_CHUNK',
+  audience: { kind: 'all' },
+  payload: { speaker, text, timestamp: new Date(NOW - secondsAgo * 1000).toISOString() },
+});
+
+describe('transcriptNameFor', () => {
+  it('uses the attendee display name for an AI attendee and for a visitor by chosen role', () => {
+    expect(transcriptNameFor(scenario, { identity: 'Arjun', metadata: 'AI attendee' })).toBe('Arjun (Lead)');
+    expect(transcriptNameFor(scenario, { identity: 'Josh', metadata: 'Producer' })).toBe('Wei Ling (Producer)');
+  });
+
+  it('falls back to the identity when the role maps to nobody', () => {
+    expect(transcriptNameFor(scenario, { identity: 'Josh', metadata: 'Lead Programmer' })).toBe('Josh');
+    expect(transcriptNameFor(scenario, { identity: 'Josh' })).toBe('Josh');
+  });
+});
+
+describe('captionFor', () => {
+  it("shows the speaker's latest line, and only theirs", () => {
+    const events = transcriptChunks([chunk('Arjun (Lead)', 'First.', 3), chunk('Wei Ling (Producer)', 'Hi.', 2)]);
+    expect(captionFor(events, 'Arjun (Lead)', NOW)).toBe('First.');
+    expect(captionFor(events, 'wei ling (producer)', NOW)).toBe('Hi.');
+    expect(captionFor(events, 'Mei', NOW)).toBeNull();
+  });
+
+  it('joins lines of one stretch of talking, at most three, and leaves out earlier stretches', () => {
+    const events = transcriptChunks([
+      chunk('A', 'Old remark.', 25),
+      chunk('A', 'One.', 7),
+      chunk('A', 'Two.', 5),
+      chunk('A', 'Three.', 3),
+      chunk('A', 'Four.', 1),
+    ]);
+    expect(captionFor(events, 'A', NOW)).toBe('Two. Three. Four.');
+  });
+
+  it('hides a caption once it is older than the window', () => {
+    const events = transcriptChunks([chunk('A', 'Hello.', 9)]);
+    expect(captionFor(events, 'A', NOW)).toBeNull();
+    expect(captionFor(events, 'A', NOW, 10_000)).toBe('Hello.');
+  });
+
+  it('ignores blank text and unreadable timestamps', () => {
+    expect(captionFor(transcriptChunks([chunk('A', '  ', 1)]), 'A', NOW)).toBeNull();
+    const broken = chunk('A', 'x', 1);
+    if (broken.type === 'TRANSCRIPT_CHUNK') broken.payload.timestamp = 'not a date';
+    expect(captionFor(transcriptChunks([broken]), 'A', NOW)).toBeNull();
+  });
+});
+
+describe('transcriptChunks', () => {
+  it('keeps only transcript lines, newest last, capped', () => {
+    const events: KakiEvent[] = [
+      chunk('A', '1', 5),
+      { type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' }, payload: { kind: 'OPENING', text: 'hi' } },
+      chunk('A', '2', 4),
+      chunk('A', '3', 3),
+    ];
+    expect(transcriptChunks(events, 2).map((c) => c.payload.text)).toEqual(['2', '3']);
+  });
+});
