@@ -5,7 +5,7 @@ import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import { createTaskStore, type TaskStore } from './tasks';
-import { livekitRouter } from './livekit';
+import { createRoomToken, JoinError, livekitPublicUrl } from './livekit';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
@@ -39,7 +39,7 @@ type JsonBody = { ok: true; value: unknown } | { ok: false; status: number; erro
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   if (response.writableEnded) return;
-  response.writeHead(status, { 'content-type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' });
+  response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
 }
 
@@ -104,31 +104,37 @@ async function handleRequest(
   try {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
 
-    if (request.method === 'OPTIONS' && (path === '/api/livekit/token' || path === '/api/scenario')) { sendJson(response, 200, {}); return; } if (request.method === 'POST' && path === '/api/livekit/token') {
+    if (request.method === 'POST' && path === '/api/livekit/token') {
       const body = await readJsonBody(request);
-      if (!body.ok || typeof body.value !== 'object' || !body.value) {
-        sendJson(response, 400, { error: 'Invalid JSON body' });
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
         return;
       }
-      const { roomName, participantName, participantRole } = body.value as Record<string, string>;
-      if (!roomName || !participantName) {
+      const join = body.value as Record<string, unknown> | null;
+      if (
+        typeof join !== 'object' ||
+        join === null ||
+        typeof join.roomName !== 'string' ||
+        typeof join.participantName !== 'string' ||
+        (join.participantRole !== undefined && typeof join.participantRole !== 'string')
+      ) {
         sendJson(response, 400, { error: 'roomName and participantName are required' });
         return;
       }
-      
-      const { AccessToken } = await import('livekit-server-sdk');
-      const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
-      const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
-      
-      const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-        identity: participantName,
-        name: participantName,
-        metadata: participantRole || 'Producer',
-      });
-      at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
-      
-      const token = await at.toJwt();
-      sendJson(response, 200, { token });
+      try {
+        const npcNames = (context.scenario.npcs ?? []).map((npc) => npc.attendee);
+        const token = await createRoomToken(
+          { roomName: join.roomName, participantName: join.participantName, participantRole: join.participantRole },
+          npcNames,
+        );
+        sendJson(response, 200, { token, url: livekitPublicUrl() });
+      } catch (error) {
+        if (error instanceof JoinError) {
+          sendJson(response, 400, { error: error.message });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -137,7 +143,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'GET' && path === '/api/scenario') { response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', '*');
+    if (request.method === 'GET' && path === '/api/scenario') {
       sendJson(response, 200, context.scenario);
       return;
     }
@@ -163,7 +169,12 @@ async function handleRequest(
         return;
       }
 
-      context.hub.publish(body.value);
+      // Transcript lines are live-only: replaying them to a page that opens later shows ghost speech.
+      // Everything else a demo emits (nudges, facts, tasks) stays available to phones that join later.
+      context.hub.publish(
+        body.value,
+        body.value.type === 'TRANSCRIPT_CHUNK' ? undefined : { retainKey: `dev:${JSON.stringify(body.value)}` },
+      );
       sendJson(response, 200, { ok: true });
       return;
     }

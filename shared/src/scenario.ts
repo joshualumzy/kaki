@@ -20,6 +20,25 @@ export interface AgendaItem {
   ownerRole: Role;
 }
 
+/**
+ * An AI attendee in the live demo meeting: one of the scenario's attendees played by the NPC
+ * director. The profile is what makes the character a person with their own aims, not a mouthpiece.
+ */
+export interface NpcProfile {
+  /** The `name` of the attendee this character plays. */
+  attendee: string;
+  /** Text-to-speech voice, for example "en-US-DavisNeural". */
+  voice: string;
+  /** How they talk and act, in a sentence or two. */
+  personality: string;
+  /** What they want out of this meeting. */
+  agenda: string;
+  /** Things they worry about and will raise or push back on. */
+  concerns: string[];
+  /** Facts they know and can state; optional. */
+  knows?: string[];
+}
+
 /** The meeting Kaki is set in: organisation, roles, people and agenda. */
 export interface Scenario {
   id: string;
@@ -28,6 +47,8 @@ export interface Scenario {
   roles: ScenarioRole[];
   attendees: Attendee[];
   agenda: AgendaItem[];
+  /** AI attendees for the live demo meeting; absent when the scenario has none. */
+  npcs?: NpcProfile[];
 }
 
 const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
@@ -104,6 +125,49 @@ function readAttendees(value: unknown, roleIds: Set<string>, problems: string[])
   });
 }
 
+function readNpcs(value: unknown, attendees: unknown, problems: string[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    problems.push('npcs must be an array');
+    return;
+  }
+
+  const attendeeNames = new Set<string>(
+    Array.isArray(attendees)
+      ? attendees.flatMap((attendee) =>
+          isObject(attendee) && isNonEmptyString(attendee.name) ? [attendee.name] : [],
+        )
+      : [],
+  );
+  const seen = new Set<string>();
+
+  value.forEach((npc, index) => {
+    if (!isObject(npc)) {
+      problems.push(`npcs[${index}] must be an object`);
+      return;
+    }
+    if (!isNonEmptyString(npc.attendee)) {
+      problems.push(`npcs[${index}].attendee must be a non-empty string`);
+    } else if (!attendeeNames.has(npc.attendee)) {
+      problems.push(`npcs[${index}].attendee "${npc.attendee}" is not one of the attendees`);
+    } else if (seen.has(npc.attendee)) {
+      problems.push(`npcs[${index}].attendee "${npc.attendee}" is duplicated`);
+    } else {
+      seen.add(npc.attendee);
+    }
+    for (const field of ['voice', 'personality', 'agenda'] as const) {
+      if (!isNonEmptyString(npc[field])) problems.push(`npcs[${index}].${field} must be a non-empty string`);
+    }
+    for (const field of ['concerns', 'knows'] as const) {
+      const list = npc[field];
+      if (field === 'knows' && list === undefined) continue;
+      if (!Array.isArray(list) || !list.every(isNonEmptyString)) {
+        problems.push(`npcs[${index}].${field} must be an array of non-empty strings`);
+      }
+    }
+  });
+}
+
 function readAgenda(value: unknown, roleIds: Set<string>, problems: string[]): void {
   if (!Array.isArray(value)) {
     problems.push('agenda must be an array');
@@ -147,6 +211,7 @@ export function parseScenario(value: unknown): Scenario {
   const roleIds = readRoles(value.roles, problems);
   readAttendees(value.attendees, roleIds, problems);
   readAgenda(value.agenda, roleIds, problems);
+  readNpcs(value.npcs, value.attendees, problems);
 
   if (problems.length > 0) {
     throw new Error(`Invalid scenario:\n- ${problems.join('\n- ')}`);

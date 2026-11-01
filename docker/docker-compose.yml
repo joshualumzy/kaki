@@ -114,6 +114,18 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Local WebRTC server for the live demo meeting (`/demo`). `--dev` uses the key pair
+  # devkey/secret, which the Kaki server and the NPC runner default to. The image has no shell,
+  # so there is no healthcheck.
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--dev", "--bind", "0.0.0.0"]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   wiki-data:
@@ -124,18 +136,3 @@ volumes:
   mattermost-plugins:
   mattermost-client-plugins:
   mattermost-bleve:
-
-  livekit:
-    image: livekit/livekit-server:latest
-    command: ["--dev"]
-    ports:
-      - "127.0.0.1:7880:7880"
-      - "127.0.0.1:7881:7881"
-      - "127.0.0.1:7882:7882"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7880/ || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-    restart: unless-stopped

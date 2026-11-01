@@ -24,6 +24,24 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/meetingTitle must be a non-empty string/);
   });
 
+  it('accepts AI attendees that play scenario attendees', () => {
+    const scenario = cloneScenario();
+    scenario.npcs = [
+      { attendee: 'Ada', voice: 'en-US-AriaNeural', personality: 'Calm', agenda: 'Serve lunch', concerns: ['Waste'] },
+    ];
+    expect(parseScenario(scenario).npcs).toHaveLength(1);
+  });
+
+  it('rejects AI attendees that are unknown, duplicated or incomplete', () => {
+    const scenario = cloneScenario();
+    const npc = { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    scenario.npcs = [npc, npc, { ...npc, attendee: 'Nobody' }, { ...npc, attendee: 'Bao', concerns: [''], voice: ' ' }];
+    expect(() => parseScenario(scenario)).toThrow(/npcs\[1\]\.attendee "Ada" is duplicated/);
+    expect(() => parseScenario(scenario)).toThrow(/npcs\[2\]\.attendee "Nobody" is not one of the attendees/);
+    expect(() => parseScenario(scenario)).toThrow(/npcs\[3\]\.voice must be a non-empty string/);
+    expect(() => parseScenario(scenario)).toThrow(/npcs\[3\]\.concerns must be an array of non-empty strings/);
+  });
+
   it('rejects an empty role list', () => {
     const scenario = cloneScenario();
     scenario.roles = [];
