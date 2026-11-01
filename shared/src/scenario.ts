@@ -4,6 +4,8 @@ import type { Role } from './roles';
 export interface ScenarioRole {
   id: Role;
   label: string;
+  /** No person plays this role (for example the AI host), so it is never counted as quiet or offered to join. */
+  facilitator?: boolean;
   /** What a person playing this role is told on their Wingman: facts, not a script. */
   card?: RoleCard;
 }
@@ -137,6 +139,9 @@ function readRoles(value: unknown, problems: string[]): Set<string> {
     }
     if (!isNonEmptyString(role.label)) {
       problems.push(`roles[${index}].label must be a non-empty string`);
+    }
+    if (role.facilitator !== undefined && typeof role.facilitator !== 'boolean') {
+      problems.push(`roles[${index}].facilitator must be true or false`);
     }
     if (role.card !== undefined) {
       const card = role.card;

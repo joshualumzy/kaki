@@ -278,6 +278,7 @@ describe('app', () => {
       'lead_programmer',
       'game_designer',
       'marketing_lead',
+      'studio_manager',
     ]);
     expect(scenario.agenda).toHaveLength(4);
   });

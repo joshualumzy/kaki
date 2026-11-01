@@ -40,7 +40,7 @@ export function aiCast(scenario: Scenario, humanSeat?: string): NpcProfile[] {
 
 /** The roles a person can take in the demo meeting: those whose attendee is not played by an AI. */
 export function humanRoles(scenario: Scenario): ScenarioRole[] {
-  return scenario.roles.filter((role) =>
+  return scenario.roles.filter((role) => role.facilitator !== true &&
     scenario.attendees.some((attendee) => attendee.role === role.id && !isPlayedByAi(scenario, attendee)),
   );
 }

@@ -297,6 +297,7 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
   function quietRoles(): Role[] {
     if (talkTotal < QUIET_MIN_TOTAL_SECONDS) return [];
     return scenario.roles
+      .filter((role) => role.facilitator !== true)
       .map((role) => role.id)
       .filter((role) => attending.has(role) && (talkTotals.get(role) ?? 0) / talkTotal < QUIET_SHARE);
   }
