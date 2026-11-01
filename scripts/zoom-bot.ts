@@ -15,6 +15,7 @@ async function joinZoomMeeting() {
 
   console.log(`Starting Zoom bot to join meeting ${ZOOM_MEETING_ID}...`);
 
+  // Launch stealthier browser
   const browser = await puppeteer.launch({
     headless: false,
     args: [
@@ -22,14 +23,25 @@ async function joinZoomMeeting() {
       '--use-fake-device-for-media-stream',
       '--disable-notifications',
       '--window-size=1280,720',
-      '--disable-blink-features=AutomationControlled' // Helps bypass basic bot detection
+      '--disable-blink-features=AutomationControlled',
+      '--no-sandbox',
+      '--disable-web-security'
     ],
+    ignoreDefaultArgs: ['--enable-automation'] // Strips the main "I am a bot" flag from Chrome
   });
 
   const page = await browser.newPage();
   
-  // Set a normal user agent to avoid looking like a headless bot
-  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  // Set a robust user agent
+  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+  
+  // Inject script to override the webdriver flag entirely before page loads
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => false,
+    });
+  });
+
   await page.setViewport({ width: 1280, height: 720 });
 
   const joinUrl = `https://app.zoom.us/wc/join/${ZOOM_MEETING_ID}`;
@@ -54,19 +66,17 @@ async function joinZoomMeeting() {
       await page.type('input[id="input-for-pwd"]', ZOOM_PASSCODE);
     }
 
+    // Wait a brief moment to simulate human delay
+    await new Promise(r => setTimeout(r, 1000));
     await page.click('.preview-join-button');
     console.log('Clicked Join...');
     
     console.log('Waiting to be admitted into the meeting room...');
     
-    // Zoom usually auto-joins the computer audio on Chromium when fake-ui flags are active.
-    // Instead of waiting specifically for the audio button, we wait for the main meeting UI to appear.
     try {
-      // The footer bar is a good indicator that we are actually in the meeting
       await page.waitForSelector('.footer__inner', { timeout: 120000 });
       console.log('Main meeting UI detected! We are in.');
       
-      // Sometimes the "Join Audio by Computer" button still pops up even if the footer is there
       try {
         const audioBtn = await page.$('.join-audio-by-voip__join-btn');
         if (audioBtn) {
