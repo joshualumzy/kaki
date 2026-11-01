@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { createClient } from '@deepgram/sdk';
 
 const ZOOM_MEETING_ID = process.env.ZOOM_MEETING_ID;
@@ -20,7 +20,7 @@ async function joinZoomMeeting() {
 
   // Launch browser with flags to allow fake media (mic/camera) and bypass permissions
   const browser = await puppeteer.launch({
-    headless: false, // Set to true when deploying to Azure VM
+    headless: false, executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // Set to true when deploying to Azure VM
     args: [
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',

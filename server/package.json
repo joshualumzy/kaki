@@ -15,7 +15,7 @@
     "dotenv": "^18.0.9",
     "nodemailer": "^7.0.13",
     "pg": "^8.23.1",
-    "puppeteer": "^25.16.0",
+    "puppeteer-core": "^25.16.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
