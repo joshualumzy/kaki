@@ -15,7 +15,6 @@ async function joinZoomMeeting() {
 
   console.log(`Starting Zoom bot to join meeting ${ZOOM_MEETING_ID}...`);
 
-  // Launch stealthier browser
   const browser = await puppeteer.launch({
     headless: false,
     args: [
@@ -27,15 +26,13 @@ async function joinZoomMeeting() {
       '--no-sandbox',
       '--disable-web-security'
     ],
-    ignoreDefaultArgs: ['--enable-automation'] // Strips the main "I am a bot" flag from Chrome
+    ignoreDefaultArgs: ['--enable-automation']
   });
 
   const page = await browser.newPage();
   
-  // Set a robust user agent
   await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
   
-  // Inject script to override the webdriver flag entirely before page loads
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, 'webdriver', {
       get: () => false,
@@ -66,7 +63,6 @@ async function joinZoomMeeting() {
       await page.type('input[id="input-for-pwd"]', ZOOM_PASSCODE);
     }
 
-    // Wait a brief moment to simulate human delay
     await new Promise(r => setTimeout(r, 1000));
     await page.click('.preview-join-button');
     console.log('Clicked Join...');
@@ -77,11 +73,30 @@ async function joinZoomMeeting() {
       await page.waitForSelector('.footer__inner', { timeout: 120000 });
       console.log('Main meeting UI detected! We are in.');
       
+      // Attempt to find and click the Join Audio button if it exists
       try {
         const audioBtn = await page.$('.join-audio-by-voip__join-btn');
         if (audioBtn) {
           await audioBtn.click();
           console.log('Clicked the Join Audio button.');
+        }
+      } catch (err) {}
+      
+      // Auto-mute the Microphone
+      try {
+        const muteBtn = await page.$('.join-audio-container__btn[aria-label="Mute my microphone"]');
+        if (muteBtn) {
+          await muteBtn.click();
+          console.log('Microphone muted.');
+        }
+      } catch (err) {}
+
+      // Auto-stop the Video
+      try {
+        const stopVideoBtn = await page.$('.send-video-container__btn[aria-label="Stop Video"]');
+        if (stopVideoBtn) {
+          await stopVideoBtn.click();
+          console.log('Video stopped.');
         }
       } catch (err) {}
       
