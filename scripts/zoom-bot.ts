@@ -1,3 +1,4 @@
+import "dotenv/config";
 import puppeteer from 'puppeteer';
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 
