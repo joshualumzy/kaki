@@ -92,6 +92,8 @@ export interface Scenario {
   agenda: AgendaItem[];
   /** What is going on and what the meeting is for, told to the AI attendees; optional. */
   situation?: string;
+  /** Words and names likely to come up, so the AI attendees can tell what a misheard word was meant to be; optional. */
+  vocabulary?: string[];
   /** AI attendees for the live demo meeting; absent when the scenario has none. */
   npcs?: NpcProfile[];
 }
@@ -310,6 +312,12 @@ export function parseScenario(value: unknown): Scenario {
   readAgenda(value.agenda, roleIds, problems);
   if (value.situation !== undefined && !isNonEmptyString(value.situation)) {
     problems.push('situation must be a non-empty string when present');
+  }
+  if (
+    value.vocabulary !== undefined &&
+    (!Array.isArray(value.vocabulary) || !value.vocabulary.every(isNonEmptyString))
+  ) {
+    problems.push('vocabulary must be an array of non-empty strings when present');
   }
   readNpcs(value.npcs, value.attendees, roleIds, problems);
 

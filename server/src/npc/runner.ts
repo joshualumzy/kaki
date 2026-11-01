@@ -50,6 +50,8 @@ export interface RunnerOptions {
   /** A line spoken in the meeting, under the name Kaki's transcript uses. */
   postTranscript(speaker: string, text: string): void;
   responseDelayMs?: number;
+  /** Pause between one character and the next. */
+  speakerGapMs?: number;
   vad?: Partial<VadOptions>;
   log?(message: string): void;
   /** Log the voice detector's levels twice a second while the AI talks, for tuning. */
@@ -167,7 +169,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
         },
       },
-      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs },
+      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs },
     );
   }
 

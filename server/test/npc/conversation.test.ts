@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../../src/llm';
-import { NpcConversation, type NpcUiState } from '../../src/npc/conversation';
+import { NpcConversation, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
@@ -37,8 +37,7 @@ function harness() {
   const transcript: Array<[string, string]> = [];
   const logs: string[] = [];
 
-  const conversation = new NpcConversation<Utterance>(
-    {
+  const ports: NpcPorts<Utterance> = {
       stream(messages, signal) {
         const items: string[] = [];
         let wake: (() => void) | undefined;
@@ -81,9 +80,8 @@ function harness() {
       emitTranscript: (speaker, text) => transcript.push([speaker, text]),
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
-    },
-    { scenario, responseDelayMs: 900 },
-  );
+  };
+  const conversation = new NpcConversation<Utterance>(ports, { scenario, responseDelayMs: 900, speakerGapMs: 0 });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -96,7 +94,7 @@ function harness() {
     conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(900);
   }
-  return { conversation, calls, playing, states, transcript, logs, flush, say };
+  return { conversation, ports, calls, playing, states, transcript, logs, flush, say };
 }
 
 describe('NpcConversation', () => {
@@ -379,5 +377,30 @@ describe('NpcConversation', () => {
           { scenario: testScenario },
         ),
     ).toThrow(/no npcs/);
+  });
+
+  it('pauses when a different character takes over, and not between one character\'s sentences', async () => {
+    const h = harness();
+    // Rebuild with a gap: the harness default is none.
+    const gapped = new NpcConversation<Utterance>(h.ports, { scenario, responseDelayMs: 900, speakerGapMs: 700 });
+    gapped.setHuman({ name: 'Josh', role: 'Producer' });
+    gapped.humanSpeech(true);
+    gapped.humanText('Hello team.');
+    gapped.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(900);
+    h.calls[0]?.push('Ada: One. Two.\nBao: Three.');
+    h.calls[0]?.end();
+    await h.flush();
+    h.playing[0]?.finish();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['One.', 'Two.']);
+    h.playing[1]?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(h.playing.map((p) => p.text)).toEqual(['One.', 'Two.']);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(h.playing.map((p) => p.text)).toEqual(['One.', 'Two.', 'Three.']);
+    h.playing[2]?.finish();
+    await gapped.settled();
   });
 });

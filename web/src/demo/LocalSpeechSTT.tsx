@@ -16,6 +16,15 @@ const chip: CSSProperties = {
   pointerEvents: 'none',
 };
 
+/** Singapore English by default, which hears local accents better than US English; `/demo?lang=en-US` overrides it. */
+function recognitionLanguage(): string {
+  try {
+    return new URLSearchParams(window.location.search).get('lang') || 'en-SG';
+  } catch {
+    return 'en-SG';
+  }
+}
+
 /**
  * Turns the person's speech into text with the browser's own recognition and sends each finished
  * piece to the AI attendees over LiveKit. It sends everything it hears: whether that is the
@@ -34,7 +43,9 @@ export function LocalSpeechSTT() {
     if (Recognition === undefined || !isMicrophoneEnabled) return;
     setProblem(undefined);
     const encoder = new TextEncoder();
-    return startRecognizer(Recognition, {
+    return startRecognizer(
+      Recognition,
+      {
       onFinal: (text) => {
         const message: SttMessage = { text };
         room.localParticipant
@@ -44,7 +55,9 @@ export function LocalSpeechSTT() {
       onInterim: setInterim,
       onListening: setListening,
       onFatal: setProblem,
-    });
+    },
+      { lang: recognitionLanguage() },
+    );
   }, [Recognition, isMicrophoneEnabled, room]);
 
   if (Recognition === undefined) {

@@ -26,10 +26,15 @@ export interface NpcPorts<Clip> {
 /** Quiet needed after the person stops talking before the AI answers; on top of the voice detector's own hangover. */
 export const DEFAULT_RESPONSE_DELAY_MS = 300;
 
+/** Pause when one character finishes and a different one starts, so it sounds like people taking turns. */
+export const DEFAULT_SPEAKER_GAP_MS = 700;
+
 export interface ConversationOptions {
   scenario: Scenario;
   /** Quiet needed after the person's last words before the AI answers. */
   responseDelayMs?: number;
+  /** Pause between one character and the next (see {@link DEFAULT_SPEAKER_GAP_MS}). */
+  speakerGapMs?: number;
   /** How many past messages the Director sees. */
   maxHistory?: number;
   gate?: SpeechGate;
@@ -93,6 +98,7 @@ export class NpcConversation<Clip> {
   private readonly gate: SpeechGate;
   private readonly names: string[];
   private readonly responseDelayMs: number;
+  private readonly speakerGapMs: number;
   private readonly maxHistory: number;
   private history: ChatMessage[] = [];
   private human: (HumanInfo & { transcriptName: string }) | undefined;
@@ -109,6 +115,7 @@ export class NpcConversation<Clip> {
     this.gate = options.gate ?? new SpeechGate();
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
     this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
+    this.speakerGapMs = options.speakerGapMs ?? DEFAULT_SPEAKER_GAP_MS;
     this.maxHistory = options.maxHistory ?? 30;
     if (this.names.length === 0) throw new Error(`Scenario "${options.scenario.id}" has no npcs`);
   }
@@ -294,10 +301,20 @@ export class NpcConversation<Clip> {
     queue: SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>,
   ): Promise<void> {
     const { signal } = turn.abort;
+    let previousSpeaker: string | undefined;
     for await (const { utterance, clip } of queue) {
       const audio = await clip;
       if (signal.aborted) return;
       if (audio === undefined) continue;
+
+      if (previousSpeaker !== undefined && previousSpeaker !== utterance.speaker && this.speakerGapMs > 0) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, this.speakerGapMs);
+          signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
+        });
+        if (signal.aborted) return;
+      }
+      previousSpeaker = utterance.speaker;
 
       const entry = { utterance, complete: false };
       if (turn.spoken.length === 0) {

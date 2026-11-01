@@ -56,6 +56,9 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
     .map((npc) => `${npc.attendee}: ${(npc.soundsLike ?? []).join(', ')}`)
     .join('; ');
 
+  const vocabulary = scenario.vocabulary ?? [];
+  const host = npcs.find((npc) => npc.role === 'host');
+
   return [
     `You direct the AI attendees of a live video meeting at ${scenario.organisation}: "${scenario.meetingTitle}".`,
     ...(scenario.situation === undefined ? [] : [`The situation: ${scenario.situation}`]),
@@ -67,11 +70,20 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
     [
       'The person\'s words reach you from speech recognition, so they can contain mistakes, especially names and short words. ' +
         `A word that sounds like a character's name is probably that name${misheard ? ` (heard instead of the name: ${misheard})` : ''}. ` +
+        (vocabulary.length === 0
+          ? ''
+          : `Words and names likely to come up in this meeting: ${vocabulary.join(', ')}. Recognition often turns them into everyday words or famous names that make no sense here; when a word does not fit, take the closest one from this list or from the situation, and do not answer the literal word. `) +
         'If a line makes no sense, guess what they most likely meant, or ask them to say it again. Never point out the transcript.',
     ].join(''),
     [
       'How to reply:',
       `- Decide who should speak. Often one of ${names.join(' and ')}; sometimes both, one after the other. If somebody is addressed by name, only they answer. Do not make everybody talk every time, and vary who goes first.`,
+      ...(host === undefined
+        ? []
+        : [
+            `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
+          ]),
+      "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
       '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the game is, what the decision is), just tell them.',
       '- Sound like a real colleague on a call, not a script: contractions, a natural rhythm, and now and then a short human reaction ("Hm, yeah.", "Right, okay.", "Ah, fair point.", "Honestly?"). Vary the length of sentences.',
       '- Notice how the person seems (stressed, unsure, annoyed, keen) and respond to that before pushing your own agenda. Show you heard them in your own words. Be warm, but you are not a pushover.',

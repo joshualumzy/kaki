@@ -23,6 +23,7 @@
     { "title": "Launch marketing and booth budget", "minutes": 8, "ownerRole": "marketing_lead" }
   ],
   "situation": "Hawker Heroes is Lah Studios's cozy mobile game: you run a Singapore hawker stall, cooking and serving customers against the clock. Launch is close and the team is checking it is ready. The build still crashes after ten customers in a row, most playtesters quit on level 5, the publisher (Starfruit) needs the final build soon, and the launch marketing and booth plan are not finished. The Producer has the final say on what ships and when, so the team needs their decisions today.",
+  "vocabulary": ["build", "release candidate", "crash", "level 5", "patience timer", "playtest", "tutorial pop-up", "Starfruit", "publisher", "milestone payment", "certification", "Hawker Heroes", "booth", "streamer", "demo tablets", "stickers", "launch", "Arjun", "Mei", "Daniel", "Wei Ling", "Sam"],
   "npcs": [
     {
       "attendee": "Arjun",

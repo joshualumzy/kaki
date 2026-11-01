@@ -12,6 +12,8 @@ export interface VadOptions {
   guardedStartMs: number;
   /** Quiet needed before speech is declared over; bridges the pauses between words. */
   hangoverMs: number;
+  /** While the AI talks, the person must be this many times louder than the AI's echo in the microphone. Lower: easier to interrupt, more risk of the AI cutting itself off. */
+  leakMargin: number;
 }
 
 export const DEFAULT_VAD_OPTIONS: VadOptions = {
@@ -22,6 +24,7 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
   startMs: 120,
   guardedStartMs: 180,
   hangoverMs: 500,
+  leakMargin: 2,
 };
 
 /** What the detector needs to know about the AI's own sound. */
@@ -58,8 +61,6 @@ const LEAK_START = 0.35;
  */
 const LEAK_PERCENTILE = 0.75;
 const LEAK_MAX = 2;
-/** The person must be this many times louder than the leak the AI is expected to cause. */
-const LEAK_MARGIN = 2.5;
 const LEAK_SAMPLES = 60;
 const LEAK_MIN_SAMPLES = 20;
 /** Each time the AI starts talking, the last estimate counts for this many samples: a hint, not a verdict. */
@@ -161,7 +162,7 @@ export class EnergyVad {
     const { minLevel, guardedMinLevel, noiseRatio, guardedNoiseRatio } = this.options;
     if (!this.guarded) return Math.max(minLevel, this.noiseFloor * noiseRatio);
     if (this.reference === undefined) return Math.max(guardedMinLevel, this.noiseFloor * guardedNoiseRatio);
-    return Math.max(minLevel, this.noiseFloor * guardedNoiseRatio, reference * this.leakRatio * LEAK_MARGIN);
+    return Math.max(minLevel, this.noiseFloor * guardedNoiseRatio, reference * this.leakRatio * this.options.leakMargin);
   }
 
   /** Feed the next block of mono samples, of any length. */

@@ -120,6 +120,28 @@ run it, and nothing was tried with the real model. The studio is now called Lah 
 Known data mismatch: Mei's profile says 14 of 20 playtesters quit on level 5, the Mattermost seed says 19 of 29.
 The join QR codes and the phone role picker still list Studio Manager (Wingman's files).
 
+## First live run of the five-character room, and what changed
+
+Heard in the live run: the characters' voices and their interplay worked well. Problems: a pause was
+wanted between one character and the next; some of what the person said was not heard; interruptions
+sometimes did not go through; and Chrome's recognition misheard a lot ("build" as "Bill", "did you ask
+Arjun" as "dinner you ask Arjun"). The log showed the person's voice peaking at 0.179 to 0.182 while the
+bar to count as talking was 0.185 to 0.197 (the AI's own echo reached 0.10 to 0.15 in the microphone on laptop
+speakers). Changed:
+
+- `NPC_SPEAKER_GAP_MS` (default 700): pause when a different character takes over.
+- `NPC_VAD_LEAK_MARGIN` (default 2, was a fixed 2.5): the person must be this many times louder than the
+  AI's echo while it talks. Lower it to interrupt more easily; raise it if the AI cuts itself off.
+- Browser recognition now defaults to Singapore English (`en-SG`); `/demo?lang=en-US` goes back.
+- `vocabulary` in `scenario.json` is told to the model, so it can map a misheard word to the likely one.
+- The prompt: the host speaks first on greetings, and characters never write the person's name as a speaker.
+
+**Not fixed, and why:** Chrome's recognition hears the speakers, not the echo-cancelled track, so it
+transcribes the AI's own voice (the many `echo` / `no-voice` refusals) and mishears accents. The real fix is
+server-side recognition (Azure, with phrase hints) on the echo-cancelled LiveKit track, fed only while the
+voice detector says the person is talking. It would also be what makes phones work. Until then: headphones,
+and typed input as a fallback.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

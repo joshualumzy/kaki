@@ -4,7 +4,7 @@ import { llmFromEnv } from '../llm';
 import { aiCast } from '@kaki/shared';
 import { loadScenario } from '../loadScenario';
 import { createAzureTts } from './azureTts';
-import { DEFAULT_RESPONSE_DELAY_MS } from './conversation';
+import { DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
@@ -76,6 +76,7 @@ const vad: Partial<VadOptions> = {
   startMs: numberEnv('NPC_VAD_START_MS', DEFAULT_VAD_OPTIONS.startMs),
   guardedStartMs: numberEnv('NPC_VAD_GUARDED_START_MS', DEFAULT_VAD_OPTIONS.guardedStartMs),
   hangoverMs: numberEnv('NPC_VAD_HANGOVER_MS', DEFAULT_VAD_OPTIONS.hangoverMs),
+  leakMargin: numberEnv('NPC_VAD_LEAK_MARGIN', DEFAULT_VAD_OPTIONS.leakMargin),
 };
 
 const runner = await startNpcRunner({
@@ -85,6 +86,7 @@ const runner = await startNpcRunner({
   synthesize,
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', DEFAULT_RESPONSE_DELAY_MS),
+  speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,

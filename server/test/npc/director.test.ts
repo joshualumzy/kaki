@@ -123,6 +123,21 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt(npcScenario)).not.toMatch(/Sounds like:|Disagrees with:|Part:/);
   });
 
+  it('lists the meeting\'s vocabulary, names the host, and keeps the person\'s own name out of the characters\' mouths', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const prompt = buildSystemPrompt({
+      ...npcScenario,
+      vocabulary: ['oven', 'lunch rush'],
+      npcs: [{ ...ada!, role: 'host' }, bao!],
+    });
+    expect(prompt).toContain('likely to come up in this meeting: oven, lunch rush');
+    expect(prompt).toContain('Ada is the host. When the person greets the room');
+    expect(prompt).toContain("Never start a line with the person's name");
+    const plain = buildSystemPrompt(npcScenario);
+    expect(plain).not.toContain('likely to come up');
+    expect(plain).not.toContain('is the host');
+  });
+
   it('addresses the person by name and role once they have joined', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('about to join');
     expect(buildSystemPrompt(npcScenario, { name: 'Josh', role: 'Producer' })).toContain('Josh, the Producer');
