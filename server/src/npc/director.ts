@@ -12,7 +12,7 @@ export interface HumanInfo {
   role: string;
 }
 
-function describeNpc(scenario: Scenario, npc: NpcProfile): string {
+function describeNpc(scenario: Scenario, npc: NpcProfile, human?: HumanInfo): string {
   const attendee = scenario.attendees.find((candidate) => candidate.name === npc.attendee);
   const role = scenario.roles.find((candidate) => candidate.id === attendee?.role)?.label ?? 'Attendee';
   const lines = [
@@ -27,6 +27,13 @@ function describeNpc(scenario: Scenario, npc: NpcProfile): string {
   if (npc.hiddenGoal !== undefined) lines.push(`  Quietly wants (does not say outright): ${npc.hiddenGoal}`);
   if (npc.tensions !== undefined && npc.tensions.length > 0) {
     lines.push(`  Disagrees with: ${npc.tensions.map((tension) => `${tension.with} about ${tension.about}`).join(' | ')}`);
+  }
+  const humanRoleId = scenario.roles.find(
+    (candidate) => candidate.label.toLowerCase() === human?.role.trim().toLowerCase() || candidate.id === human?.role,
+  )?.id;
+  const towardHuman = humanRoleId === undefined ? undefined : npc.withRoles?.[humanRoleId];
+  if (human !== undefined && towardHuman !== undefined) {
+    lines.push(`  Towards ${human.name} (${human.role}): ${towardHuman}`);
   }
   if (npc.knows !== undefined && npc.knows.length > 0) lines.push(`  Knows: ${npc.knows.join(' | ')}`);
   return lines.join('\n');
@@ -54,7 +61,7 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
     ...(scenario.situation === undefined ? [] : [`The situation: ${scenario.situation}`]),
     `Agenda:\n${agenda}`,
     `The AI attendees are real colleagues with their own aims. They are not assistants:\n\n${npcs
-      .map((npc) => describeNpc(scenario, npc))
+      .map((npc) => describeNpc(scenario, npc, human))
       .join('\n\n')}`,
     who,
     [

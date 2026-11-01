@@ -4,6 +4,18 @@ import type { Role } from './roles';
 export interface ScenarioRole {
   id: Role;
   label: string;
+  /** What a person playing this role is told on their Wingman: facts, not a script. */
+  card?: RoleCard;
+}
+
+/** A short, open-ended briefing for the person playing a role in the live demo meeting. */
+export interface RoleCard {
+  /** Who they are and what the meeting is for, in a sentence. */
+  youAre: string;
+  /** Things they know from their side of the company. */
+  facts: string[];
+  /** What they are answerable for. */
+  responsibility: string;
 }
 
 /** A participant joining the meeting, with the name Zoom shows for them. */
@@ -39,6 +51,13 @@ export interface NpcProfile {
   knows?: string[];
   /** Words speech recognition tends to hear instead of their name, for example "Archer" for "Arjun". */
   soundsLike?: string[];
+  /**
+   * A person may take this attendee's seat. The character is played by the AI only when nobody
+   * picks it, so the AI attendees of a session are the profiles minus the person's seat.
+   */
+  playable?: boolean;
+  /** How they treat a person in each role (keyed by role id), for example a boss or a peer. */
+  withRoles?: Record<string, string>;
   /** Part they play in the meeting: the host runs it, observers only speak when addressed or relevant. */
   role?: NpcRole;
   /** How they sound: sentence length, verbal habits, how they hedge or push back. */
@@ -119,6 +138,18 @@ function readRoles(value: unknown, problems: string[]): Set<string> {
     if (!isNonEmptyString(role.label)) {
       problems.push(`roles[${index}].label must be a non-empty string`);
     }
+    if (role.card !== undefined) {
+      const card = role.card;
+      if (
+        !isObject(card) ||
+        !isNonEmptyString(card.youAre) ||
+        !isNonEmptyString(card.responsibility) ||
+        !Array.isArray(card.facts) ||
+        !card.facts.every(isNonEmptyString)
+      ) {
+        problems.push(`roles[${index}].card must have non-empty "youAre", "responsibility" and a "facts" array of strings`);
+      }
+    }
   });
 
   return roleIds;
@@ -149,7 +180,7 @@ function readAttendees(value: unknown, roleIds: Set<string>, problems: string[])
   });
 }
 
-function readNpcs(value: unknown, attendees: unknown, problems: string[]): void {
+function readNpcs(value: unknown, attendees: unknown, roleIds: Set<string>, problems: string[]): void {
   if (value === undefined) return;
   if (!Array.isArray(value)) {
     problems.push('npcs must be an array');
@@ -185,6 +216,19 @@ function readNpcs(value: unknown, attendees: unknown, problems: string[]): void 
     for (const field of ['speechStyle', 'hiddenGoal'] as const) {
       if (npc[field] !== undefined && !isNonEmptyString(npc[field])) {
         problems.push(`npcs[${index}].${field} must be a non-empty string`);
+      }
+    }
+    if (npc.playable !== undefined && typeof npc.playable !== 'boolean') {
+      problems.push(`npcs[${index}].playable must be true or false`);
+    }
+    if (npc.withRoles !== undefined) {
+      if (!isObject(npc.withRoles)) {
+        problems.push(`npcs[${index}].withRoles must be an object keyed by role id`);
+      } else {
+        for (const [roleId, note] of Object.entries(npc.withRoles)) {
+          if (!roleIds.has(roleId)) problems.push(`npcs[${index}].withRoles has unknown role "${roleId}"`);
+          else if (!isNonEmptyString(note)) problems.push(`npcs[${index}].withRoles.${roleId} must be a non-empty string`);
+        }
       }
     }
     if (npc.role !== undefined && !NPC_ROLES.includes(npc.role as NpcRole)) {
@@ -262,7 +306,7 @@ export function parseScenario(value: unknown): Scenario {
   if (value.situation !== undefined && !isNonEmptyString(value.situation)) {
     problems.push('situation must be a non-empty string when present');
   }
-  readNpcs(value.npcs, value.attendees, problems);
+  readNpcs(value.npcs, value.attendees, roleIds, problems);
 
   if (problems.length > 0) {
     throw new Error(`Invalid scenario:\n- ${problems.join('\n- ')}`);

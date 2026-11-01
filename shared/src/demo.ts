@@ -1,4 +1,4 @@
-import type { Attendee, Scenario, ScenarioRole } from './scenario';
+import type { Attendee, NpcProfile, Scenario, ScenarioRole } from './scenario';
 
 /** LiveKit data topic on which the browser sends the words its speech recognition heard. */
 export const STT_TOPIC = 'kaki.stt';
@@ -23,8 +23,19 @@ export function demoRoomName(scenario: Scenario): string {
   return `kaki-demo-${scenario.id}`;
 }
 
+/** True when an AI always plays this attendee: it has a profile and a person cannot take its seat. */
 function isPlayedByAi(scenario: Scenario, attendee: Attendee): boolean {
-  return (scenario.npcs ?? []).some((npc) => npc.attendee === attendee.name);
+  return (scenario.npcs ?? []).some((npc) => npc.attendee === attendee.name && npc.playable !== true);
+}
+
+/**
+ * The AI attendees of a session: every profile except the seat the person took. With no seat
+ * (nobody has joined yet) it is the characters that are always AI.
+ */
+export function aiCast(scenario: Scenario, humanSeat?: string): NpcProfile[] {
+  return (scenario.npcs ?? []).filter((npc) =>
+    humanSeat === undefined ? npc.playable !== true : npc.attendee !== humanSeat,
+  );
 }
 
 /** The roles a person can take in the demo meeting: those whose attendee is not played by an AI. */
