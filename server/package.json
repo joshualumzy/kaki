@@ -10,7 +10,6 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@deepgram/sdk": "^5.17.0",
     "@kaki/shared": "*",
     "dotenv": "^18.0.9",
     "nodemailer": "^7.0.13",

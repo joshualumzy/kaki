@@ -1,14 +1,13 @@
 import puppeteer from 'puppeteer-core';
-import { createClient } from '@deepgram/sdk';
 
 const ZOOM_MEETING_ID = process.env.ZOOM_MEETING_ID;
 const ZOOM_PASSCODE = process.env.ZOOM_PASSCODE;
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+const GLADIA_API_KEY = process.env.GLADIA_API_KEY;
 
 /**
  * SPIKE: Issue #14 - Zoom Attendee Bot
  * This script uses Puppeteer to open the Zoom Web Client in a headless browser,
- * join a meeting, and (eventually) capture audio to send to Deepgram.
+ * join a meeting, and (eventually) capture audio to send to Gladia.
  */
 async function joinZoomMeeting() {
   if (!ZOOM_MEETING_ID || !ZOOM_PASSCODE) {
@@ -55,15 +54,15 @@ async function joinZoomMeeting() {
     await page.click('.join-audio-by-voip__join-btn');
     console.log('Joined audio!');
 
-    // 3. (TODO) Setup Deepgram WebSockets
+    // 3. (TODO) Setup Gladia WebSockets
     // Once in the meeting, we need to capture the tab's audio using Chrome Extensions API
-    // or by overriding the WebRTC audio context, then stream it to Deepgram.
-    if (DEEPGRAM_API_KEY) {
-      console.log('Deepgram API Key found. Real-time transcription is ready to be implemented.');
-      const deepgram = createClient(DEEPGRAM_API_KEY);
-      // ... Initialize Deepgram Live WebSocket ...
+    // or by overriding the WebRTC audio context, then stream it to Gladia.
+    if (GLADIA_API_KEY) {
+      console.log('Gladia API Key found. Real-time transcription is ready to be implemented.');
+      const deepgram = createClient(GLADIA_API_KEY);
+      // ... Initialize Gladia Live WebSocket ...
     } else {
-      console.warn('No DEEPGRAM_API_KEY provided. Skipping transcription setup.');
+      console.warn('No GLADIA_API_KEY provided. Skipping transcription setup.');
     }
 
     console.log('Bot is now in the meeting! Press Ctrl+C to stop.');
