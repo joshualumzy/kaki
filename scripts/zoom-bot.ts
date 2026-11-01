@@ -22,7 +22,7 @@ async function joinZoomMeeting() {
 
   // Launch browser with flags to allow fake media (mic/camera) and bypass permissions
   const browser = await puppeteer.launch({
-    headless: false, // Set to true when deploying to Azure VM
+    headless: true, // Set to true when deploying to Azure VM
     args: [
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
