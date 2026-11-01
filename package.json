@@ -25,7 +25,6 @@
   },
   "dependencies": {
     "@kaki/shared": "*",
-    "@livekit/rtc-node": "^1.2.1",
     "nodemailer": "^7.0.13",
     "pg": "^8.23.1"
   },
