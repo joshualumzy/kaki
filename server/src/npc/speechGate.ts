@@ -1,7 +1,11 @@
 /** Why a piece of recognised speech was refused. */
 export type GateRejection = 'echo' | 'no-voice';
 
-export type GateDecision = { ok: true } | { ok: false; reason: GateRejection };
+/**
+ * `text` is present when the recognised words mixed the AI's voice with the person's: it is only
+ * the person's part, and `removed` is the echo that was cut out.
+ */
+export type GateDecision = { ok: true; text?: string; removed?: string } | { ok: false; reason: GateRejection };
 
 export interface SpeechGateOptions {
   now?: () => number;
@@ -19,19 +23,24 @@ function words(text: string): string[] {
     .filter((word) => word.length > 0);
 }
 
-function trigrams(list: string[]): string[] {
-  const out: string[] = [];
-  for (let index = 0; index + 2 < list.length; index += 1) out.push(list.slice(index, index + 3).join(' '));
-  return out;
-}
+/** Most of the text is the AI's voice when at least this share of its words are covered by what the AI said. */
+const ECHO_SHARE = 0.6;
+/** A run of the person's own words inside echo must be this long, or this long at the very start or end. */
+const MIN_RUN_INSIDE = 3;
+const MIN_RUN_AT_EDGE = 2;
+
+type EchoAnalysis =
+  | { kind: 'none' }
+  | { kind: 'echo' }
+  | { kind: 'mixed'; text: string; removed: string };
 
 /**
  * Decides whether text from the browser's speech recognition is the person talking, or the AI's
  * own voice coming back through the microphone. Two independent checks, each cheap to explain:
  *
  * - Echo: a stretch of four or more words whose word triples mostly appear in what the AI said
- *   a moment ago. Short replies like "ok" are never treated as echo: they cannot be told apart
- *   from the AI's words by text alone.
+ *   a moment ago. If the person's own words are mixed into it, only those are kept. Short replies
+ *   like "ok" are never treated as echo: they cannot be told apart from the AI's words by text alone.
  * - Voice: while the AI is talking, and just after, text is only accepted if the person's own
  *   (echo-cancelled) microphone track carried speech since the AI began its current stretch of
  *   talking. Plain echo leaves that track quiet; the person's previous sentence does not count.
@@ -80,23 +89,65 @@ export class SpeechGate {
 
   check(text: string): GateDecision {
     const at = this.now();
-    if (this.looksLikeEcho(text, at)) return { ok: false, reason: 'echo' };
+    const echo = this.analyseEcho(text, at);
+    if (echo.kind === 'echo') return { ok: false, reason: 'echo' };
 
     const aiRecently = this.aiAudible || at - this.aiLastAudible < this.aiTailMs;
     const voiceBehindIt = this.humanTalking || this.humanLastTalking >= this.aiSince;
     if (aiRecently && !voiceBehindIt) return { ok: false, reason: 'no-voice' };
-    return { ok: true };
+    return echo.kind === 'mixed' ? { ok: true, text: echo.text, removed: echo.removed } : { ok: true };
   }
 
-  private looksLikeEcho(text: string, at: number): boolean {
-    const heard = words(text);
-    if (heard.length < 4) return false;
+  /**
+   * Compare recognised text with what the AI said a moment ago. Mostly the AI's words: echo, unless
+   * a clear run of other words sits inside it, which is the person talking over their own echo.
+   */
+  private analyseEcho(text: string, at: number): EchoAnalysis {
+    const tokens = text.trim().split(/\s+/).filter((token) => token.length > 0);
+    const owners: number[] = [];
+    const heard: string[] = [];
+    tokens.forEach((token, index) => {
+      for (const word of words(token)) {
+        heard.push(word);
+        owners.push(index);
+      }
+    });
+    if (heard.length < 4) return { kind: 'none' };
+
     const recent = ` ${this.spoken
       .filter((entry) => at - entry.at < this.memoryMs)
       .map((entry) => words(entry.text).join(' '))
       .join(' ')} `;
-    const grams = trigrams(heard);
-    const matched = grams.filter((gram) => recent.includes(` ${gram} `)).length;
-    return matched / grams.length >= 0.6;
+    const covered = new Array<boolean>(heard.length).fill(false);
+    for (let start = 0; start + 2 < heard.length; start += 1) {
+      if (recent.includes(` ${heard.slice(start, start + 3).join(' ')} `)) {
+        covered[start] = covered[start + 1] = covered[start + 2] = true;
+      }
+    }
+    const share = covered.filter(Boolean).length / heard.length;
+    if (share < ECHO_SHARE) return { kind: 'none' };
+
+    // A token is the AI's if all of its words are covered; find the longest run of tokens that are not.
+    const isEcho = tokens.map((_, index) => owners.every((owner, word) => owner !== index || covered[word]));
+    let best: { from: number; to: number } | undefined;
+    for (let index = 0; index < tokens.length; ) {
+      if (isEcho[index]) {
+        index += 1;
+        continue;
+      }
+      const from = index;
+      while (index < tokens.length && !isEcho[index]) index += 1;
+      if (best === undefined || index - from > best.to - best.from) best = { from, to: index };
+    }
+    if (best === undefined) return { kind: 'echo' };
+
+    const length = best.to - best.from;
+    const atEdge = best.from === 0 || best.to === tokens.length;
+    if (length < (atEdge ? MIN_RUN_AT_EDGE : MIN_RUN_INSIDE)) return { kind: 'echo' };
+    return {
+      kind: 'mixed',
+      text: tokens.slice(best.from, best.to).join(' '),
+      removed: [...tokens.slice(0, best.from), ...tokens.slice(best.to)].join(' '),
+    };
   }
 }

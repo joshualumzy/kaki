@@ -286,6 +286,35 @@ describe('NpcConversation', () => {
     expect(playing[0]?.signal.aborted).toBe(true);
   });
 
+  it("keeps the person's words when the recognizer mixed them with the AI's own sentence", async () => {
+    const { conversation, calls, playing, flush, say, logs, transcript } = harness();
+    await say('Status?');
+    calls[0]?.push('Ada: The build is red and we have a crash on Android.');
+    calls[0]?.end();
+    await flush();
+    expect(playing[0]?.signal.aborted).toBe(false);
+
+    // The person talks over the AI; recognition returns the AI's sentence and the person's words together.
+    conversation.humanSpeech(true);
+    conversation.humanText('the build is red and we have a crash on Android okay can we end the meeting now');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(900);
+
+    expect(calls[1]?.messages.at(-1)).toEqual({ role: 'user', content: 'okay can we end the meeting now' });
+    expect(transcript.at(-1)?.[1]).toBe('okay can we end the meeting now');
+    expect(logs.some((line) => line.includes("cut the AI's own words"))).toBe(true);
+  });
+
+  it('logs what the AI says, and how long it took to start, so a run can be judged', async () => {
+    const { calls, flush, say, logs } = harness();
+    await say('Hello?');
+    calls[0]?.push('Ada: Morning.');
+    calls[0]?.end();
+    await flush();
+    expect(logs.some((line) => /^speaking \d+ ms after the model was asked$/.test(line))).toBe(true);
+    expect(logs).toContain('Ada: Morning.');
+  });
+
   it('says nothing when the Director answers NONE, and keeps listening', async () => {
     const { conversation, calls, playing, states, flush, say } = harness();
     await say('Um.');

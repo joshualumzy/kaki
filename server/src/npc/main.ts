@@ -85,6 +85,7 @@ const runner = await startNpcRunner({
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', DEFAULT_RESPONSE_DELAY_MS),
   vad,
+  traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
   onDisconnected: () => {
     log('exiting so it can be restarted');

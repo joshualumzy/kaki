@@ -66,4 +66,16 @@ describe('playPcm', () => {
     expect(clears).toBeGreaterThan(0);
     expect(cleared()).toBe(0);
   });
+
+  it('tells the recorder how loud each frame is and when it will be audible', async () => {
+    const { sink } = fakeSink();
+    const recorded: Array<[number, number]> = [];
+    const loud = new Int16Array(640).fill(16384); // half scale
+    await playPcm({ ...sink, queuedDuration: 120 }, loud, 16000, new AbortController().signal, {
+      record: (level, playoutInMs) => void recorded.push([level, playoutInMs]),
+    });
+    expect(recorded).toHaveLength(2);
+    expect(recorded[0]?.[0]).toBeCloseTo(0.5, 2);
+    expect(recorded[0]?.[1]).toBe(120);
+  });
 });

@@ -23,10 +23,18 @@ import { createRoomToken } from '../livekit';
 import { NpcConversation } from './conversation';
 import type { Utterance } from './director';
 import { playPcm } from './playback';
+import { PlaybackReference } from './reference';
 import { EnergyVad, type VadOptions } from './vad';
 
 /** Sample rate of everything published to and read from LiveKit. */
 export const SAMPLE_RATE = 16000;
+
+/**
+ * After the AI stops, its sound keeps arriving at the person's microphone for as long as the
+ * round trip takes (speakers, room, two network hops). The voice detector stays strict that long,
+ * or the tail of the echo would be taken for the person talking.
+ */
+const GUARD_TAIL_MS = 1400;
 
 export interface RunnerOptions {
   scenario: Scenario;
@@ -42,6 +50,8 @@ export interface RunnerOptions {
   responseDelayMs?: number;
   vad?: Partial<VadOptions>;
   log?(message: string): void;
+  /** Log the voice detector's levels twice a second while the AI talks, for tuning. */
+  traceVad?: boolean;
   /** The connection to LiveKit was lost; the runner is no longer usable. */
   onDisconnected?(): void;
 }
@@ -105,18 +115,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     listener.room.localParticipant?.publishData(data, { reliable: true, topic: NPC_STATE_TOPIC }).catch(() => undefined);
   }
 
+  // What the AI plays, so the voice detectors can tell how much of it their microphone hears.
+  const reference = new PlaybackReference();
   const vads = new Map<string, EnergyVad>();
   const talking = new Set<string>();
   let guardTimer: ReturnType<typeof setTimeout> | undefined;
 
-  /** While the AI is audible the detector is stricter, with a short tail for the room's reverb. */
+  /** While the AI is audible, and while its echo can still be arriving, the detector is stricter. */
   function setGuard(on: boolean): void {
     if (guardTimer !== undefined) clearTimeout(guardTimer);
     const apply = (): void => {
       for (const vad of vads.values()) vad.guarded = on;
     };
     if (on) apply();
-    else guardTimer = setTimeout(apply, 300);
+    else guardTimer = setTimeout(apply, GUARD_TAIL_MS);
   }
 
   function makeConversation(): NpcConversation<Int16Array> {
@@ -127,7 +139,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         play: (speaker, clip, signal) => {
           const character = characters.get(speaker);
           if (character === undefined) return Promise.reject(new Error(`${speaker} is not in the room`));
-          return playPcm(character.source, clip, SAMPLE_RATE, signal);
+          return playPcm(character.source, clip, SAMPLE_RATE, signal, reference);
         },
         emitTranscript: (speaker, text) => {
           const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);
@@ -138,6 +150,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           publishState(state);
         },
         log,
+        describeMic: () => {
+          const vad = vads.values().next().value as EnergyVad | undefined;
+          if (vad === undefined) return undefined;
+          return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
+        },
       },
       { scenario, responseDelayMs: options.responseDelayMs },
     );
@@ -150,23 +167,41 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   function registerHuman(participant: RemoteParticipant): void {
     if (npcNames.has(participant.identity)) return;
+    const first = !humans.has(participant.identity);
     humans.add(participant.identity);
     const role = participant.metadata?.trim() || 'participant';
     const name = participant.name || participant.identity;
     conversation.setHuman({ name, role, transcriptName: humanAttendeeForRole(scenario, role)?.zoomDisplayName });
-    log(`${name} joined as ${role}`);
+    if (first) log(`${name} joined as ${role}`);
   }
 
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
-    const vad = new EnergyVad((speaking) => {
-      if (speaking) talking.add(identity);
-      else talking.delete(identity);
-      log(speaking ? `${identity} started talking` : `${identity} stopped talking`);
-      conversation.humanSpeech(talking.size > 0);
-    }, options.vad);
+    const vad: EnergyVad = new EnergyVad(
+      (speaking) => {
+        if (speaking) talking.add(identity);
+        else talking.delete(identity);
+        log(
+          speaking
+            ? `${identity} started talking (mic peak ${vad.peak(300).toFixed(3)}, bar ${vad.threshold.toFixed(3)}${vad.guarded ? `, AI was talking: its level ${vad.referenceLevel.toFixed(3)}, leaks into the mic at ${vad.leakRatio.toFixed(2)}x` : ''})`
+            : `${identity} stopped talking`,
+        );
+        conversation.humanSpeech(talking.size > 0);
+      },
+      options.vad,
+      { reference },
+    );
     vads.set(identity, vad);
+    let lastTrace = 0;
     try {
-      for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) vad.push(frame.data, frame.sampleRate);
+      for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
+        vad.push(frame.data, frame.sampleRate);
+        if (options.traceVad === true && vad.guarded && Date.now() - lastTrace > 500) {
+          lastTrace = Date.now();
+          log(
+            `[vad] mic ${vad.peak(500).toFixed(3)} | AI ${vad.referenceLevel.toFixed(3)} | leak ${vad.leakRatio.toFixed(2)}x | bar ${vad.threshold.toFixed(3)}${vad.isSpeaking ? ' | TALKING' : ''}`,
+          );
+        }
+      }
     } catch (error) {
       log(`audio from ${identity} ended: ${String(error)}`);
     } finally {

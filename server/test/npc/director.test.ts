@@ -5,7 +5,7 @@ import { testScenario } from '../fixtures/scenario';
 const npcScenario = {
   ...testScenario,
   npcs: [
-    { attendee: 'Ada', voice: 'v1', personality: 'Calm chef', agenda: 'Cut waste', concerns: ['Rising costs', 'Late deliveries'], knows: ['Oven is broken'] },
+    { attendee: 'Ada', voice: 'v1', personality: 'Calm chef', agenda: 'Cut waste', concerns: ['Rising costs', 'Late deliveries'], knows: ['Oven is broken'], soundsLike: ['Adah', 'Ayda'] },
     { attendee: 'Bao', voice: 'v2', personality: 'Chatty cashier', agenda: 'Fix queues', concerns: ['Long lines'] },
   ],
 };
@@ -84,6 +84,21 @@ describe('TurnParser', () => {
 });
 
 describe('buildSystemPrompt', () => {
+  it('tells the model what the meeting is about, and which words are probably a mis-heard name', () => {
+    const prompt = buildSystemPrompt({ ...npcScenario, situation: 'The oven broke an hour before lunch.' });
+    expect(prompt).toContain('The situation: The oven broke an hour before lunch.');
+    expect(prompt).toContain('heard instead of the name: Ada: Adah, Ayda');
+    expect(buildSystemPrompt(npcScenario)).not.toContain('The situation:');
+  });
+
+  it('asks for direct answers and a warm, human tone, without naming anything from one scenario', () => {
+    const prompt = buildSystemPrompt(npcScenario);
+    expect(prompt).toContain('answer it directly and concretely first');
+    expect(prompt).toContain('Notice how the person seems');
+    expect(prompt).toContain('Ada: Yeah, I hear you.');
+    expect(prompt).not.toMatch(/crash|Arjun|Hawker/);
+  });
+
   it('describes every character from the scenario, not from code', () => {
     const prompt = buildSystemPrompt(npcScenario);
     for (const text of ['Ada (Chef)', 'Calm chef', 'Cut waste', 'Rising costs | Late deliveries', 'Oven is broken', 'Bao (Cashier)', 'Long lines']) {

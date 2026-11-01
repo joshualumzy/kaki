@@ -40,18 +40,47 @@ AI is talking, if the person's mic carried speech since the AI began.
 ## Verified over real LiveKit (fake model and voice)
 
 `LIVEKIT_E2E=1 npx vitest run server/test/npc/livekit.e2e.test.ts` (needs a LiveKit server, for example
-`npm run stack:up`) joins as a fake person and checks the real runner. Three runs, all green:
+`npm run stack:up`) joins as a fake person and checks the real runner. Six consecutive runs, all green:
 
 - person stops talking -> AI audible: about 950 ms with an instant model and voice (the pipeline's own
   overhead: voice hangover 500 ms + response delay 300 ms). Add the real model's first token and
   Azure's first audio on top.
-- person talks over the AI -> AI silent: 330 to 560 ms.
+- person talks over the AI -> AI silent: about 280 ms.
 - the AI's own sentence, and text with no voice behind it, are refused while the AI talks.
+- **speaker echo**: with a delayed, quieter copy of the AI fed back into the fake microphone (about
+  0.25x, 250 ms late), the AI does not cut itself off, and a person talking over it is still heard
+  within about 250 ms. The test failed before the playback-reference detector existed.
+
+## What the first live run found, and what changed (see the log format below)
+
+From a real run on laptop speakers: the echo gate worked (about a dozen of the AI's own sentences
+refused as `echo` / `no-voice`), but (1) a recognised result that mixed the AI's sentence with the
+person's words was refused whole, (2) quiet interruptions while the AI talked were refused as
+`no-voice` because the voice detector's fixed bar missed them, (3) names were misheard ("Audrey",
+"Archer" for Arjun), and (4) the AI sounded curt. Now:
+
+- `speechGate.ts` cuts the AI's words out of a mixed result and keeps the person's.
+- `vad.ts` learns how loudly the AI leaks into the microphone (`reference.ts` records what is played)
+  and requires the person to be clearly louder than that, so the bar follows the speakers and room
+  instead of a fixed number. The echo tail is covered for 1.4 s after the AI stops. Start-of-speech uses
+  "enough loud time in the last window", so syllable valleys do not stall it.
+- the prompt tells the model about the situation (`situation` in `scenario.json`), that the person's
+  words come from imperfect recognition (`soundsLike` per character), to answer direct questions
+  first, and to sound like a warm colleague (contractions, short reactions).
+
+## Reading the runner's log
+
+- `heard "..."`: accepted as the person. `ignored "..." (echo|no-voice; mic peak X in the last 3 s, bar to
+  count as talking Y)`: refused; if the peak is below the bar, the voice detector missed a real person.
+- `Josh started talking (mic peak X, bar Y[, AI was talking: its level L, leaks into the mic at Rx])`.
+- `Arjun: ...` lines are what the AI said; `speaking N ms after the model was asked` is the latency.
+- `NPC_DEBUG_VAD=1` adds a `[vad]` line twice a second while the AI talks.
 
 ## NOT verified: needs a live run (a microphone, Azure, the real LLM, a browser)
 
-The e2e test does not cover Azure, the real model, or a browser's echo cancellation. Expect to tune
-these on a real machine:
+The e2e test does not cover Azure, the real model, real acoustics (its echo is an idealised delayed,
+scaled copy; a real room adds filtering and reverb), or a browser's echo cancellation. Expect to
+tune these on a real machine:
 
 - **Voice thresholds** (`NPC_VAD_*` in `.env`). If the AI cuts itself off, raise
   `NPC_VAD_GUARDED_MIN_LEVEL`; if talking over it feels sluggish, lower `NPC_VAD_GUARDED_START_MS`.

@@ -36,26 +36,39 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
   const who =
     human === undefined
       ? 'A person is about to join the meeting; their name and role will be given when they do.'
-      : `The person you are talking to is ${human.name}, the ${human.role}. Use their name naturally, and tailor what you say to their role.`;
+      : `The person you are talking to is ${human.name}, the ${human.role}. Use their name naturally, now and then, and tailor what you say to their role.`;
+  const misheard = npcs
+    .filter((npc) => (npc.soundsLike ?? []).length > 0)
+    .map((npc) => `${npc.attendee}: ${(npc.soundsLike ?? []).join(', ')}`)
+    .join('; ');
 
   return [
     `You direct the AI attendees of a live video meeting at ${scenario.organisation}: "${scenario.meetingTitle}".`,
+    ...(scenario.situation === undefined ? [] : [`The situation: ${scenario.situation}`]),
     `Agenda:\n${agenda}`,
     `The AI attendees are real colleagues with their own aims. They are not assistants:\n\n${npcs
       .map((npc) => describeNpc(scenario, npc))
       .join('\n\n')}`,
     who,
     [
+      'The person\'s words reach you from speech recognition, so they can contain mistakes, especially names and short words. ' +
+        `A word that sounds like a character's name is probably that name${misheard ? ` (heard instead of the name: ${misheard})` : ''}. ` +
+        'If a line makes no sense, guess what they most likely meant, or ask them to say it again. Never point out the transcript.',
+    ].join(''),
+    [
       'How to reply:',
       `- Decide who should speak. Often one of ${names.join(' and ')}; sometimes both, one after the other. If somebody is addressed by name, only they answer. Do not make everybody talk every time, and vary who goes first.`,
-      '- Each character speaks for themselves, from their own agenda. Raise their worries when it fits, push back when the person is wrong or their plan costs them something, and disagree with each other when their aims conflict. Do not just agree.',
+      '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the game is, what the decision is), just tell them.',
+      '- Sound like a real colleague on a call, not a script: contractions, a natural rhythm, and now and then a short human reaction ("Hm, yeah.", "Right, okay.", "Ah, fair point.", "Honestly?"). Vary the length of sentences.',
+      '- Notice how the person seems (stressed, unsure, annoyed, keen) and respond to that before pushing your own agenda. Show you heard them in your own words. Be warm, but you are not a pushover.',
+      '- Each character speaks for themselves, from their own agenda. Raise their worries when it fits, push back when the person is wrong or their plan costs them something, and disagree with each other when their aims conflict. Do not just agree, and do not repeat a point you already made.',
       '- Only state facts the characters know (listed above) or that the person told you. If asked something they do not know, they say so and say who might.',
-      '- Write exactly what is said aloud: plain spoken English, one to two short sentences per turn, at most three turns in total. No lists, markdown, emoji, or stage directions.',
+      '- Write exactly what is said aloud: plain spoken English, one to three short sentences per turn, at most three turns in total. No lists, markdown, emoji, or stage directions.',
       `- Put every turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,
       '- If nobody would say anything (the person only coughed or said "um"), reply with exactly: NONE',
       '- If the person cut a character off, the history shows only what was actually said. Carry on naturally; do not repeat what they never heard unless it still matters.',
     ].join('\n'),
-    `Example of the format:\n${names[0] ?? 'Name'}: I hear you, but that is a risky call.\n${names[1] ?? names[0] ?? 'Name'}: Let's hear the options first.`,
+    `Example of the format and the tone:\n${names[0] ?? 'Name'}: Yeah, I hear you. That's a fair worry, honestly.\n${names[1] ?? names[0] ?? 'Name'}: Hm, right. Can I add one thing?`,
   ].join('\n\n');
 }
 

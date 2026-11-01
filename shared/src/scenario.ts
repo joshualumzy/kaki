@@ -37,6 +37,8 @@ export interface NpcProfile {
   concerns: string[];
   /** Facts they know and can state; optional. */
   knows?: string[];
+  /** Words speech recognition tends to hear instead of their name, for example "Archer" for "Arjun". */
+  soundsLike?: string[];
 }
 
 /** The meeting Kaki is set in: organisation, roles, people and agenda. */
@@ -47,6 +49,8 @@ export interface Scenario {
   roles: ScenarioRole[];
   attendees: Attendee[];
   agenda: AgendaItem[];
+  /** What is going on and what the meeting is for, told to the AI attendees; optional. */
+  situation?: string;
   /** AI attendees for the live demo meeting; absent when the scenario has none. */
   npcs?: NpcProfile[];
 }
@@ -158,9 +162,9 @@ function readNpcs(value: unknown, attendees: unknown, problems: string[]): void 
     for (const field of ['voice', 'personality', 'agenda'] as const) {
       if (!isNonEmptyString(npc[field])) problems.push(`npcs[${index}].${field} must be a non-empty string`);
     }
-    for (const field of ['concerns', 'knows'] as const) {
+    for (const field of ['concerns', 'knows', 'soundsLike'] as const) {
       const list = npc[field];
-      if (field === 'knows' && list === undefined) continue;
+      if (field !== 'concerns' && list === undefined) continue;
       if (!Array.isArray(list) || !list.every(isNonEmptyString)) {
         problems.push(`npcs[${index}].${field} must be an array of non-empty strings`);
       }
@@ -211,6 +215,9 @@ export function parseScenario(value: unknown): Scenario {
   const roleIds = readRoles(value.roles, problems);
   readAttendees(value.attendees, roleIds, problems);
   readAgenda(value.agenda, roleIds, problems);
+  if (value.situation !== undefined && !isNonEmptyString(value.situation)) {
+    problems.push('situation must be a non-empty string when present');
+  }
   readNpcs(value.npcs, value.attendees, problems);
 
   if (problems.length > 0) {

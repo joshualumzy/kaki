@@ -80,4 +80,54 @@ describe('SpeechGate', () => {
     advance(30_000);
     expect(gate.check('we need a decision on the launch today please')).toEqual({ ok: true });
   });
+
+  describe('when the recognizer mixes the AI with the person', () => {
+    const said = 'They are quitting because they cannot afford stall upgrades and it feels unfair.';
+
+    it("keeps the person's words and cuts out the AI's", () => {
+      const { gate } = setup();
+      gate.setHumanTalking(true);
+      gate.aiSaid(said);
+      gate.setAiAudible(true);
+      expect(gate.check('they are quitting because they cannot afford stall upgrades and it feels unfair okay can we end the meeting now')).toEqual({
+        ok: true,
+        text: 'okay can we end the meeting now',
+        removed: 'they are quitting because they cannot afford stall upgrades and it feels unfair',
+      });
+    });
+
+    it('also keeps words the person said first', () => {
+      const { gate } = setup();
+      gate.aiSaid(said);
+      expect(gate.check('wait stop they are quitting because they cannot afford stall upgrades')).toMatchObject({
+        ok: true,
+        text: 'wait stop',
+      });
+    });
+
+    it('still needs a voice behind the remainder while the AI talks', () => {
+      const { gate } = setup();
+      gate.aiSaid(said);
+      gate.setAiAudible(true);
+      expect(gate.check('they are quitting because they cannot afford stall upgrades okay can we end the meeting')).toEqual({
+        ok: false,
+        reason: 'no-voice',
+      });
+    });
+
+    it('does not take one or two stray mis-heard words in the middle of the echo for the person', () => {
+      const { gate } = setup();
+      gate.aiSaid(said);
+      expect(gate.check('they are quitting because they cannot afford stall up grades and it feels unfair')).toEqual({
+        ok: false,
+        reason: 'echo',
+      });
+    });
+
+    it('leaves a sentence that merely reuses a few of the AI\'s words alone', () => {
+      const { gate } = setup();
+      gate.aiSaid(said);
+      expect(gate.check('so you are saying players cannot afford the stall upgrades, is that right?')).toEqual({ ok: true });
+    });
+  });
 });

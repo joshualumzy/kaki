@@ -1,4 +1,5 @@
 import {
+  AudioFrame,
   AudioSource,
   AudioStream,
   LocalAudioTrack,
@@ -13,7 +14,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../../src/llm';
 import { createRoomToken } from '../../src/livekit';
 import { loadScenario } from '../../src/loadScenario';
-import { playPcm } from '../../src/npc/playback';
 import { SAMPLE_RATE, startNpcRunner, type NpcRunner } from '../../src/npc/runner';
 
 /**
@@ -72,6 +72,9 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
   let lastAiLoud = 0;
   let firstAiLoud = 0;
   let aiLoudFrames = 0;
+  /** When on, the fake person's microphone also carries a quieter, delayed copy of the AI: speakers leaking into the mic. */
+  let echoCoupling = 0;
+  const ECHO_DELAY_MS = 250;
 
   const resetAiAudio = (): void => {
     lastAiLoud = 0;
@@ -80,8 +83,30 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
   };
   const aiSilentFor = (ms: number): boolean => now() - lastAiLoud > ms;
 
-  /** The fake person talks (loud audio) for `ms`; resolves when the last sample has played. */
-  const talk = (ms: number): Promise<void> => playPcm(humanMic, tone(ms, 8000), SAMPLE_RATE, new AbortController().signal);
+  // The fake microphone adds what the person says and the echo of the AI, as a real one does, and
+  // sends nothing while both are silent.
+  const speechQueue: number[] = [];
+  const echoQueue: number[] = [];
+  let mixer: ReturnType<typeof setInterval> | undefined;
+  const FRAME = SAMPLE_RATE / 100; // 10 ms
+
+  function startMixer(): void {
+    mixer = setInterval(() => {
+      if (speechQueue.length === 0 && echoQueue.length === 0) return;
+      const frame = new Int16Array(FRAME);
+      for (let index = 0; index < FRAME; index += 1) {
+        frame[index] = Math.max(-32768, Math.min(32767, (speechQueue.shift() ?? 0) + (echoQueue.shift() ?? 0)));
+      }
+      void humanMic.captureFrame(new AudioFrame(frame, SAMPLE_RATE, 1, FRAME)).catch(() => undefined);
+    }, 10);
+  }
+
+  /** The fake person talks (loud audio) for `ms`; resolves when it has been sent. */
+  async function talk(ms: number): Promise<void> {
+    speechQueue.push(...tone(ms, 8000));
+    await waitFor(() => speechQueue.length === 0, ms + 3000, 'the speech to be sent');
+    await sleep(80);
+  }
 
   function say(text: string): void {
     const data = new TextEncoder().encode(JSON.stringify({ text }));
@@ -106,6 +131,7 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
       synthesize: async () => tone(1500, 6000, 330),
       postTranscript: (speaker, text) => void transcript.push([speaker, text]),
       log: (message) => void logs.push(message),
+      traceVad: process.env.E2E_DEBUG === '1',
     });
 
     const token = await createRoomToken({
@@ -128,6 +154,10 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
       if (track.kind !== TrackKind.KIND_AUDIO || participant.identity === 'Josh') return;
       void (async () => {
         for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
+          if (echoCoupling > 0) {
+            const leaked = Array.from(frame.data, (sample) => Math.round(sample * echoCoupling));
+            setTimeout(() => echoQueue.push(...leaked), ECHO_DELAY_MS);
+          }
           if (rms(frame.data) > 0.02) {
             const at = now();
             if (firstAiLoud === 0) firstAiLoud = at;
@@ -139,12 +169,14 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     });
 
     // Both AI attendees must be in the room, and the runner must have noticed the person.
+    startMixer();
     await waitFor(() => human.remoteParticipants.size >= 2, 10_000, 'the AI attendees to join');
     await sleep(500);
   }, 60_000);
 
   afterAll(async () => {
     if (process.env.E2E_DEBUG) console.log(logs.join('\n'));
+    if (mixer !== undefined) clearInterval(mixer);
     await runner?.stop();
     await human?.disconnect();
   });
@@ -222,7 +254,37 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
 
     expect(speakingCall.signal.aborted).toBe(false);
     expect(calls.length).toBe(before + 1);
-    expect(logs.some((line) => line.includes('(echo)'))).toBe(true);
-    expect(logs.some((line) => line.includes('(no-voice)'))).toBe(true);
+    expect(logs.some((line) => line.includes('echo'))).toBe(true);
+    expect(logs.some((line) => line.includes('no-voice'))).toBe(true);
+  }, 60_000);
+
+  it('does not cut itself off on its own echo through the speakers, and still hears a person talking over it', async () => {
+    await waitFor(() => states.at(-1)?.kind === 'idle' && aiSilentFor(800), 25_000, 'the AI to finish speaking');
+    await sleep(1500);
+    const before = calls.length;
+    reply = 'Arjun: First long sentence. Second long sentence. Third long sentence. Fourth long sentence.';
+    resetAiAudio();
+    await talk(500);
+    say('Tell me about the build.');
+    await waitFor(() => calls.length === before + 1, 10_000, 'the model to be asked');
+    const call = calls[before]!;
+
+    // From now on the microphone also hears the AI, a quarter as loud, a quarter of a second late:
+    // about 0.03 RMS, above the fixed bar a detector without a playback reference would use.
+    echoCoupling = 0.25;
+    resetAiAudio();
+    await waitFor(() => aiLoudFrames > 10, 10_000, 'the AI to be speaking');
+    await sleep(2500);
+    expect(call.signal.aborted).toBe(false); // it did not mistake its own echo for the person
+    expect(aiLoudFrames).toBeGreaterThan(100);
+
+    // A person speaking clearly over it is still heard.
+    const talkOverStart = now();
+    const talking = talk(500);
+    await waitFor(() => call.signal.aborted, 3000, 'the AI to be interrupted');
+    console.log(`[e2e] with speaker echo: person talks over the AI -> AI interrupted after ${Math.round(now() - talkOverStart)} ms`);
+    echoCoupling = 0;
+    await talking;
+    expect(logs.some((line) => /started talking \(.*AI was talking/.test(line))).toBe(true);
   }, 60_000);
 });

@@ -20,10 +20,12 @@
     { "title": "Publisher milestone", "minutes": 8, "ownerRole": "producer" },
     { "title": "Launch marketing and booth budget", "minutes": 8, "ownerRole": "marketing_lead" }
   ],
+  "situation": "Hawker Heroes is Pixel Kampung's cozy mobile game: you run a Singapore hawker stall, cooking and serving customers against the clock. Launch is close and the team is checking it is ready. The build still crashes after ten customers in a row, most playtesters quit on level 5, the publisher (Starfruit) needs the final build soon, and the launch marketing and booth plan are not finished. The Producer has the final say on what ships and when, so the team needs their decisions today.",
   "npcs": [
     {
       "attendee": "Arjun",
       "voice": "en-US-DavisNeural",
+      "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
       "personality": "Lead Programmer. Direct, a little stressed, dry humour. Short sentences. Cares about shipping something stable and will not pretend a risky build is fine.",
       "agenda": "Get a firm decision on what ships in the launch build, and protect time to fix the crash before the publisher deadline.",
       "concerns": [
@@ -42,6 +44,7 @@
     {
       "attendee": "Mei",
       "voice": "en-US-AriaNeural",
+      "soundsLike": ["May", "Maya", "Mae"],
       "personality": "Game Designer. Warm, enthusiastic and opinionated about player experience. Speaks in short, friendly sentences and will gently disagree with the producer. Mediates between Arjun and the others.",
       "agenda": "Fix the level 5 drop-off before launch and get the launch plan to feature a streamer and playable demo tablets.",
       "concerns": [

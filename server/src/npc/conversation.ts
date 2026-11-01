@@ -19,6 +19,8 @@ export interface NpcPorts<Clip> {
   /** What the AI attendees are doing, for the screen. */
   emitState(state: NpcUiState): void;
   log?(message: string): void;
+  /** What the person's microphone has been hearing, to explain a refused phrase. */
+  describeMic?(): string | undefined;
 }
 
 /** Quiet needed after the person stops talking before the AI answers; on top of the voice detector's own hangover. */
@@ -39,6 +41,8 @@ interface Turn {
   aborted: boolean;
   finalized: boolean;
   done: Promise<void>;
+  startedAt: number;
+  firstSentenceAt?: number;
 }
 
 /** Minimal async queue so playback can start on the first sentence while the rest is written. */
@@ -139,13 +143,19 @@ export class NpcConversation<Clip> {
 
     const decision = this.gate.check(heard);
     if (!decision.ok) {
-      this.ports.log?.(`ignored "${heard}" (${decision.reason})`);
+      const mic = this.ports.describeMic?.();
+      this.ports.log?.(`ignored "${heard}" (${decision.reason}${mic === undefined ? '' : `; ${mic}`})`);
       return;
     }
 
-    this.ports.log?.(`heard "${heard}"`);
-    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', heard);
-    this.pending.push(heard);
+    const accepted = decision.text ?? heard;
+    if (decision.text !== undefined) {
+      this.ports.log?.(`heard "${accepted}" (cut the AI's own words "${decision.removed ?? ''}" out of "${heard}")`);
+    } else {
+      this.ports.log?.(`heard "${accepted}"`);
+    }
+    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
+    this.pending.push(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
     this.scheduleRespond();
@@ -189,6 +199,7 @@ export class NpcConversation<Clip> {
       aborted: false,
       finalized: false,
       done: Promise.resolve(),
+      startedAt: Date.now(),
     };
     this.turn = turn;
     turn.done = this.runTurn(turn).catch((error: unknown) => {
@@ -233,6 +244,10 @@ export class NpcConversation<Clip> {
     const player = this.playAll(turn, queue);
 
     const enqueue = (utterance: Utterance): void => {
+      if (turn.firstSentenceAt === undefined) {
+        turn.firstSentenceAt = Date.now();
+        this.ports.log?.(`first sentence written ${turn.firstSentenceAt - turn.startedAt} ms after the model was asked`);
+      }
       const clip = this.ports.synthesize(utterance, signal).catch((error: unknown) => {
         if (!signal.aborted) {
           this.ports.log?.(`could not synthesize "${utterance.text}": ${error instanceof Error ? error.message : String(error)}`);
@@ -285,6 +300,10 @@ export class NpcConversation<Clip> {
       if (audio === undefined) continue;
 
       const entry = { utterance, complete: false };
+      if (turn.spoken.length === 0) {
+        this.ports.log?.(`speaking ${Date.now() - turn.startedAt} ms after the model was asked`);
+      }
+      this.ports.log?.(`${utterance.speaker}: ${utterance.text}`);
       turn.spoken.push(entry);
       this.gate.setAiAudible(true);
       this.gate.aiSaid(utterance.text);

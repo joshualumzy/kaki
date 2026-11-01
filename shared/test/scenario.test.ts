@@ -32,6 +32,20 @@ describe('parseScenario', () => {
     expect(parseScenario(scenario).npcs).toHaveLength(1);
   });
 
+  it('accepts a situation and mishearing hints, and rejects empty ones', () => {
+    const scenario = cloneScenario();
+    scenario.situation = 'Lunch service starts in an hour.';
+    scenario.npcs = [
+      { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'], soundsLike: ['Adah'] },
+    ];
+    expect(parseScenario(scenario).situation).toBe('Lunch service starts in an hour.');
+
+    scenario.situation = '  ';
+    (scenario.npcs as Array<Record<string, unknown>>)[0]!.soundsLike = [''];
+    expect(() => parseScenario(scenario)).toThrow(/situation must be a non-empty string/);
+    expect(() => parseScenario(scenario)).toThrow(/soundsLike must be an array of non-empty strings/);
+  });
+
   it('rejects AI attendees that are unknown, duplicated or incomplete', () => {
     const scenario = cloneScenario();
     const npc = { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
