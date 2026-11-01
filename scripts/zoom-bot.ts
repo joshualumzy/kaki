@@ -21,11 +21,15 @@ async function joinZoomMeeting() {
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
       '--disable-notifications',
-      '--window-size=1280,720'
+      '--window-size=1280,720',
+      '--disable-blink-features=AutomationControlled' // Helps bypass basic bot detection
     ],
   });
 
   const page = await browser.newPage();
+  
+  // Set a normal user agent to avoid looking like a headless bot
+  await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   await page.setViewport({ width: 1280, height: 720 });
 
   const joinUrl = `https://app.zoom.us/wc/join/${ZOOM_MEETING_ID}`;
