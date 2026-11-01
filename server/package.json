@@ -13,13 +13,10 @@
   "dependencies": {
     "@kaki/shared": "*",
     "@livekit/rtc-node": "^1.2.1",
-    "dotenv": "^18.0.9",
     "livekit-server-sdk": "^2.19.2",
     "microsoft-cognitiveservices-speech-sdk": "^1.53.0",
     "nodemailer": "^7.0.13",
     "pg": "^8.23.1",
-    "puppeteer": "^25.16.0",
-    "puppeteer-core": "^25.16.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
