@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSystemPrompt, cleanSpoken, TurnParser, type Utterance } from '../../src/npc/director';
+import { addressedCharacter, buildSystemPrompt, cleanSpoken, TurnParser, type Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
 const npcScenario = {
@@ -62,6 +62,11 @@ describe('TurnParser', () => {
     expect(parse(['ADA: Morning.'])).toEqual([{ speaker: 'Ada', text: 'Morning.' }]);
   });
 
+  it('gives a reply that forgot its name tag to the fallback speaker, when there is one', () => {
+    const parser = new TurnParser(['Ada', 'Bao'], 'bao');
+    expect([...parser.push('Sure, go ahead. '), ...parser.flush()]).toEqual([{ speaker: 'Bao', text: 'Sure, go ahead.' }]);
+  });
+
   it('lets the first character say a reply that forgot its name tag', () => {
     expect(parse(['Sure, go ahead.'])).toEqual([{ speaker: 'Ada', text: 'Sure, go ahead.' }]);
   });
@@ -80,6 +85,28 @@ describe('TurnParser', () => {
 
   it('drops turns that contain nothing to say', () => {
     expect(parse(['Ada: ...\nBao: Right.'])).toEqual([{ speaker: 'Bao', text: 'Right.' }]);
+  });
+});
+
+describe('addressedCharacter', () => {
+  const cast = [
+    { attendee: 'Sam', voice: 'v', personality: 'p', agenda: 'a', concerns: [], soundsLike: ['Some'] },
+    { attendee: 'Arjun', voice: 'v', personality: 'p', agenda: 'a', concerns: [], soundsLike: ['Archer'] },
+  ];
+
+  it('finds the one character addressed by name at the start, or explicitly', () => {
+    expect(addressedCharacter('Sam. Sam, I have a question.', cast)).toBe('Sam');
+    expect(addressedCharacter('Hey Arjun, how is the build?', cast)).toBe('Arjun');
+    expect(addressedCharacter("I'm addressing this to Sam.", cast)).toBe('Sam');
+    expect(addressedCharacter('I have a question for Arjun', cast)).toBe('Arjun');
+    expect(addressedCharacter('Archer, can you hear me', cast)).toBe('Arjun');
+  });
+
+  it('leaves it to the model when nobody, or several, are addressed, or a name is just mentioned', () => {
+    expect(addressedCharacter('Hello everyone.', cast)).toBeUndefined();
+    expect(addressedCharacter('Sam and Arjun, what do you think?', cast)).toBeUndefined();
+    expect(addressedCharacter('I told Sam about the crash yesterday', cast)).toBeUndefined();
+    expect(addressedCharacter('Samantha went home', cast)).toBeUndefined();
   });
 });
 

@@ -147,6 +147,18 @@ time, not a wrong conversation. The browser's text is ignored while this is on. 
 **Not run against Azure** (the Azure part is a thin wrapper, the recorder is unit-tested with a fake). If it
 mishears, the first thing to check is the `recognised` lines. Free tier: about 5 audio hours a month.
 
+## Second live run (server-side recognition)
+
+Recognition was accurate ("Sam. Sam, I have a question." came through exactly). Two bugs: addressing Sam got an
+answer from Arjun (an untagged reply fell back to the first character in the list), and "I'm addressing this to
+Sam" got no answer at all (a quiet sound counted as the person talking, cancelled the answer, and no words followed).
+Fixed: `addressedCharacter` (a name at the start of what was said, or "I'm addressing this to X"; several names means the
+room) tells the model who answers and is the fallback speaker, then the host; and an answer cancelled before anything was
+said is retried after `DEFAULT_RETRY_MS` (1.5 s) if nothing else arrives. **Interruption is still unverified:** that log showed
+no failed interruption, only a 12 s stretch of Sam talking with no voice detection. Next run: `NPC_DEBUG_VAD=1`, try to talk
+over an AI, and send the `[vad]` lines. With server-side recognition a missed interruption leaves no `ignored` line.
+Idea if acoustics stay unreliable: a Stop button or key that interrupts directly.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

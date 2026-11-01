@@ -99,6 +99,30 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
   ].join('\n\n');
 }
 
+/**
+ * The one character the person is speaking to, when they say so: a name at the start of what they
+ * said ("Sam, I have a question", "Hey Sam"), or "I'm addressing this to Sam". Nothing when no
+ * character, or more than one, is addressed that way: then the model decides who answers.
+ */
+export function addressedCharacter(text: string, cast: readonly NpcProfile[]): string | undefined {
+  const found = new Set<string>();
+  // Several characters named at the start ("Sam and Arjun, ...") is a question to the room.
+  const opening = text.split(/\s+/).slice(0, 6).join(' ');
+  const namedOpening = cast.filter((npc) =>
+    new RegExp(`\\b(?:${[npc.attendee, ...(npc.soundsLike ?? [])].map(escapeRegExp).join('|')})\\b`, 'i').test(opening),
+  );
+  for (const npc of cast) {
+    const names = [npc.attendee, ...(npc.soundsLike ?? [])].map(escapeRegExp).join('|');
+    const lead = new RegExp(`^\\W*(?:(?:hey|hi|hello|okay|ok|so|um|uh|yo)\\W+)?(?:${names})\\b`, 'i');
+    const said = new RegExp(
+      `\\b(?:(?:addressing|talking|speaking|asking)(?:\\s+this)?(?:\\s+(?:to|for))?|question\\s+(?:for|to)|this\\s+is\\s+for)\\s+(?:${names})\\b`,
+      'i',
+    );
+    if ((lead.test(text) && namedOpening.length === 1) || said.test(text)) found.add(npc.attendee);
+  }
+  return found.size === 1 ? [...found][0] : undefined;
+}
+
 /** Strip anything that would be read out loud badly: markdown, emoji, stage directions. */
 export function cleanSpoken(text: string): string {
   return text
@@ -128,7 +152,7 @@ export class TurnParser {
   private readonly lead: RegExp;
   private readonly midReply: RegExp;
 
-  constructor(names: readonly string[]) {
+  constructor(names: readonly string[], private readonly fallbackSpeaker?: string) {
     if (names.length === 0) throw new Error('TurnParser needs at least one speaker name');
     this.names = [...names];
     const alternatives = this.names.map(escapeRegExp).join('|');
@@ -192,8 +216,8 @@ export class TurnParser {
           this.buffer = '';
           return out;
         }
-        // The model forgot the name: let the first character say it rather than lose the reply.
-        this.speaker = this.names[0];
+        // The model forgot the name: let the addressed character or the host say it rather than lose the reply.
+        this.speaker = this.fallbackSpeaker !== undefined ? this.canonical(this.fallbackSpeaker) : this.names[0];
         this.buffer = lead;
         continue;
       }

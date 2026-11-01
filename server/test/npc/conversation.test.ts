@@ -403,4 +403,52 @@ describe('NpcConversation', () => {
     h.playing[2]?.finish();
     await gapped.settled();
   });
+
+  it('tells the model who is being addressed, and routes an untagged reply to them', async () => {
+    const { calls, playing, flush, say } = harness();
+    await say('Bao, I have a question.');
+    expect(calls[0]?.messages.at(-1)?.content).toContain('Josh is speaking directly to Bao');
+    calls[0]?.push('Sure, go ahead.');
+    calls[0]?.end();
+    await flush();
+    expect(playing.map((p) => `${p.speaker}: ${p.text}`)).toEqual(['Bao: Sure, go ahead.']);
+  });
+
+  it('answers again when the answer was cancelled before anything was said and nothing else follows', async () => {
+    const { conversation, calls, say, logs } = harness();
+    await say('I am addressing this to Ada.');
+    expect(calls).toHaveLength(1);
+    // A cough: the voice detector says the person talked, but there are no words.
+    conversation.humanSpeech(true);
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(calls).toHaveLength(2);
+    // The question is in the history once, not twice.
+    const questions = calls[1]?.messages.filter((m) => m.role === 'user') ?? [];
+    expect(questions).toHaveLength(1);
+    expect(logs.some((line) => line.includes('answering again'))).toBe(true);
+  });
+
+  it('does not answer again when the person spoke over a real answer, or when new words arrive', async () => {
+    const h = harness();
+    await h.say('Hello team.');
+    h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
+    h.calls[0]?.end();
+    await h.flush();
+    // Something was said aloud, then the person talks over it and says nothing recognisable.
+    h.conversation.humanSpeech(true);
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(h.calls).toHaveLength(1);
+
+    const second = harness();
+    await second.say('First question.');
+    second.conversation.humanSpeech(true);
+    second.conversation.humanText('Actually, never mind.');
+    second.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(second.calls).toHaveLength(2);
+  });
 });

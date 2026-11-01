@@ -1,6 +1,6 @@
 import type { NpcStateMessage, Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { buildSystemPrompt, TurnParser, type HumanInfo, type Utterance } from './director';
+import { addressedCharacter, buildSystemPrompt, TurnParser, type HumanInfo, type Utterance } from './director';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
@@ -29,12 +29,17 @@ export const DEFAULT_RESPONSE_DELAY_MS = 300;
 /** Pause when one character finishes and a different one starts, so it sounds like people taking turns. */
 export const DEFAULT_SPEAKER_GAP_MS = 700;
 
+/** An answer cancelled before anything was said, with nothing new from the person, is retried after this long. */
+export const DEFAULT_RETRY_MS = 1500;
+
 export interface ConversationOptions {
   scenario: Scenario;
   /** Quiet needed after the person's last words before the AI answers. */
   responseDelayMs?: number;
   /** Pause between one character and the next (see {@link DEFAULT_SPEAKER_GAP_MS}). */
   speakerGapMs?: number;
+  /** See {@link DEFAULT_RETRY_MS}. */
+  retryMs?: number;
   /** How many past messages the Director sees. */
   maxHistory?: number;
   gate?: SpeechGate;
@@ -64,6 +69,7 @@ class SentenceQueue<Item> implements AsyncIterable<Item> {
 
   close(): void {
     this.closed = true;
+    this.unanswered = false;
     this.wake();
   }
 
@@ -99,6 +105,10 @@ export class NpcConversation<Clip> {
   private readonly names: string[];
   private readonly responseDelayMs: number;
   private readonly speakerGapMs: number;
+  private readonly retryMs: number;
+  /** The last thing the person said was cut off before any answer was spoken. */
+  private unanswered = false;
+  private lastText = '';
   private readonly maxHistory: number;
   private history: ChatMessage[] = [];
   private human: (HumanInfo & { transcriptName: string }) | undefined;
@@ -116,6 +126,7 @@ export class NpcConversation<Clip> {
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
     this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
     this.speakerGapMs = options.speakerGapMs ?? DEFAULT_SPEAKER_GAP_MS;
+    this.retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
     this.maxHistory = options.maxHistory ?? 30;
     if (this.names.length === 0) throw new Error(`Scenario "${options.scenario.id}" has no npcs`);
   }
@@ -185,7 +196,18 @@ export class NpcConversation<Clip> {
   }
 
   private scheduleRespond(): void {
-    if (this.humanTalking || this.pending.length === 0) return;
+    if (this.humanTalking) return;
+    if (this.pending.length === 0) {
+      // Something cut the answer off (a cough, a click) and the person said nothing more: answer anyway.
+      if (this.unanswered && !this.closed) {
+        this.clearRespondTimer();
+        this.respondTimer = setTimeout(() => {
+          this.respondTimer = undefined;
+          if (!this.humanTalking && !this.closed && this.unanswered && this.pending.length === 0) this.startTurn(true);
+        }, this.retryMs);
+      }
+      return;
+    }
     this.clearRespondTimer();
     this.respondTimer = setTimeout(() => {
       this.respondTimer = undefined;
@@ -193,13 +215,17 @@ export class NpcConversation<Clip> {
     }, this.responseDelayMs);
   }
 
-  private startTurn(): void {
-    const text = this.pending.join(' ').trim();
+  private startTurn(retry = false): void {
+    const text = retry ? this.lastText : this.pending.join(' ').trim();
     this.pending = [];
     if (text.length === 0) return;
     this.interrupt('a new turn started');
+    this.unanswered = false;
+    this.lastText = text;
 
-    this.history.push({ role: 'user', content: text });
+    // On a retry the question is already in the history.
+    if (retry) this.ports.log?.('answering again: the last answer was cancelled before anything was said');
+    else this.history.push({ role: 'user', content: text });
     const turn: Turn = {
       abort: new AbortController(),
       spoken: [],
@@ -219,6 +245,7 @@ export class NpcConversation<Clip> {
     const turn = this.turn;
     if (turn === undefined || turn.finalized) return;
     this.ports.log?.(`interrupted: ${reason}`);
+    if (turn.spoken.length === 0) this.unanswered = true;
     turn.aborted = true;
     this.finalize(turn);
     this.turn = undefined;
@@ -266,11 +293,22 @@ export class NpcConversation<Clip> {
 
     let failure: unknown;
     try {
-      const parser = new TurnParser(this.names);
+      const cast = this.options.scenario.npcs ?? [];
+      const addressed = addressedCharacter(this.lastText, cast);
+      const host = cast.find((npc) => npc.role === 'host')?.attendee;
+      const parser = new TurnParser(this.names, addressed ?? host);
       const messages: ChatMessage[] = [
         { role: 'system', content: buildSystemPrompt(this.options.scenario, this.human) },
         ...this.history.slice(-this.maxHistory),
       ];
+      const last = messages[messages.length - 1];
+      if (addressed !== undefined && last?.role === 'user') {
+        const who = this.human?.name ?? 'The person';
+        messages[messages.length - 1] = {
+          ...last,
+          content: `${last.content}\n[${who} is speaking directly to ${addressed}: ${addressed} answers, and nobody else unless ${addressed} hands over.]`,
+        };
+      }
       for await (const chunk of this.ports.stream(messages, signal)) {
         if (signal.aborted) break;
         for (const utterance of parser.push(chunk)) enqueue(utterance);
