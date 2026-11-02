@@ -30,20 +30,6 @@ function useStage(): Stage {
   return stage;
 }
 
-const overlay = {
-  position: 'absolute',
-  left: '50%',
-  transform: 'translateX(-50%)',
-  width: '90%',
-  backgroundColor: 'rgba(0, 0, 0, 0.7)',
-  color: 'white',
-  padding: '8px 12px',
-  borderRadius: '8px',
-  textAlign: 'center',
-  pointerEvents: 'none',
-  fontFamily: 'system-ui, -apple-system, sans-serif',
-} as const;
-
 function CaptionedTile() {
   const { scenario, chunks, now, npcState } = useStage();
   const participant = useTrackRefContext().participant;
@@ -54,14 +40,9 @@ function CaptionedTile() {
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <ParticipantTile style={{ width: '100%', height: '100%' }} />
       {caption !== null ? (
-        <div style={{ ...overlay, bottom: '16px', fontSize: '16px', lineHeight: 1.4 }}>{caption}</div>
+        <div className="kd-caption">{caption}</div>
       ) : (
-        isAi &&
-        npcState.kind === 'thinking' && (
-          <div style={{ ...overlay, bottom: '16px', fontSize: '14px', animation: 'kaki-pulse 1.5s infinite ease-in-out' }}>
-            💭 Thinking…
-          </div>
-        )
+        isAi && npcState.kind === 'thinking' && <div className="kd-thinking">thinking…</div>
       )}
     </div>
   );
@@ -107,12 +88,12 @@ export function MeetingGrid({ role }: { role: string }) {
     <StageContext.Provider value={stage}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
         {npcState.kind === 'error' && (
-          <div role="alert" style={{ ...overlay, top: '10px', backgroundColor: 'rgba(153,27,27,0.9)', zIndex: 2 }}>
+          <div role="alert" className="kd-banner" data-tone="error">
             The AI attendees hit a problem: {npcState.message}
           </div>
         )}
         {!aiPresent && (
-          <div style={{ ...overlay, top: '10px', fontSize: '14px', zIndex: 1 }}>
+          <div className="kd-banner">
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.
           </div>
         )}
@@ -124,7 +105,6 @@ export function MeetingGrid({ role }: { role: string }) {
         <ConnectedTypeBar />
         <ControlBar controls={{ screenShare: false, chat: false }} />
         <RoomAudioRenderer />
-        <style>{'@keyframes kaki-pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }'}</style>
       </div>
     </StageContext.Provider>
   );

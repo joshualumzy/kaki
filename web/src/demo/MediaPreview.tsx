@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export interface MediaChoice {
   microphone: boolean;
@@ -99,18 +99,6 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void): numbe
   return level;
 }
 
-const round: CSSProperties = {
-  width: '46px',
-  height: '46px',
-  borderRadius: '50%',
-  cursor: 'pointer',
-  color: 'white',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  transition: 'background-color 120ms, filter 120ms',
-};
-
 function MicIcon({ off }: { off: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -131,8 +119,8 @@ function CameraIcon({ off }: { off: boolean }) {
   );
 }
 
-/** Zoom-style pre-join: a preview of the camera, a loudness bar for the microphone, and a toggle for each. */
-export function MediaPreview({ value, onChange, onProblem }: MediaPreviewProps) {
+/** Zoom-style pre-join: a preview of the camera, a loudness meter for the microphone, and a toggle for each. */
+export function MediaPreview({ value, onChange, onProblem, name = '' }: MediaPreviewProps & { name?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const turnOff = (kind: keyof MediaChoice) => (message: string) => {
     onChange({ ...value, [kind]: false });
@@ -150,80 +138,46 @@ export function MediaPreview({ value, onChange, onProblem }: MediaPreviewProps) 
     onChange({ ...value, [kind]: !value[kind] });
   }
 
+  const initial = (name.trim()[0] ?? '?').toUpperCase();
   return (
     <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-      <div
-        style={{
-          position: 'relative',
-          aspectRatio: '16 / 9',
-          background: 'linear-gradient(160deg, #0b1224, #111a33)',
-          border: '1px solid rgba(148, 163, 184, 0.18)',
-          borderRadius: '16px',
-          boxShadow: 'inset 0 0 60px rgba(34, 211, 238, 0.05)',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#64748b',
-          fontSize: '14px',
-        }}
-      >
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          aria-label="Camera preview"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', display: camera ? 'block' : 'none' }}
-        />
-        {!camera && <span>{value.camera ? 'Starting camera…' : 'Camera is off'}</span>}
+      <div className="kd-preview">
+        <video ref={videoRef} autoPlay muted playsInline aria-label="Camera preview" style={{ display: camera ? 'block' : 'none' }} />
+        {!camera && (
+          <div style={{ display: 'grid', placeItems: 'center', gap: '14px' }}>
+            <div className="kd-avatar">{initial}</div>
+            <span>{value.camera ? 'Starting camera…' : 'Camera is off'}</span>
+          </div>
+        )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+      <div className="kd-controls">
         <button
           type="button"
-          className="join-toggle"
+          className="kd-toggle"
           aria-label="Microphone"
           aria-pressed={value.microphone}
           title={value.microphone ? 'Turn the microphone off' : 'Turn the microphone on'}
           onClick={() => toggle('microphone')}
-          style={{ ...round, backgroundColor: value.microphone ? 'rgba(51, 65, 85, 0.75)' : 'rgba(220, 38, 38, 0.9)', border: value.microphone ? '1px solid rgba(148,163,184,0.3)' : '1px solid transparent' }}
         >
           <MicIcon off={!value.microphone} />
         </button>
         <button
           type="button"
-          className="join-toggle"
+          className="kd-toggle"
           aria-label="Camera"
           aria-pressed={value.camera}
           title={value.camera ? 'Turn the camera off' : 'Turn the camera on'}
           onClick={() => toggle('camera')}
-          style={{ ...round, backgroundColor: value.camera ? 'rgba(51, 65, 85, 0.75)' : 'rgba(220, 38, 38, 0.9)', border: value.camera ? '1px solid rgba(148,163,184,0.3)' : '1px solid transparent' }}
         >
           <CameraIcon off={!value.camera} />
         </button>
-        <div style={{ flex: 1 }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="kd-meter-text">
             {value.microphone ? 'Say something to test your microphone' : 'Microphone off: you will type to the AI attendees'}
           </div>
-          <div
-            role="meter"
-            aria-label="Microphone level"
-            aria-valuemin={0}
-            aria-valuemax={1}
-            aria-valuenow={Number(level.toFixed(2))}
-            style={{ display: 'flex', gap: '3px' }}
-          >
-            {Array.from({ length: 20 }, (_, i) => (
-              <div
-                key={i}
-                style={{
-                  flex: 1,
-                  height: '8px',
-                  borderRadius: '2px',
-                  backgroundColor: level * 20 > i ? (i > 15 ? '#f59e0b' : '#22d3ee') : 'rgba(148, 163, 184, 0.18)',
-                  transition: 'background-color 60ms',
-                }}
-              />
+          <div role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))} className="kd-meter">
+            {Array.from({ length: 24 }, (_, i) => (
+              <i key={i} data-on={level * 24 > i} data-hot={level * 24 > i && i > 18} style={{ height: `${30 + (i / 23) * 70}%` }} />
             ))}
           </div>
         </div>

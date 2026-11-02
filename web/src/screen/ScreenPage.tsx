@@ -88,9 +88,9 @@ function ScreenFeed() {
   );
 }
 
-type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
+export type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
 
-function isRecord(event: KakiEvent): event is RecordEvent {
+export function isRecord(event: KakiEvent): event is RecordEvent {
   return event.type === 'MEETING_RECORD_UPDATED';
 }
 
@@ -117,7 +117,7 @@ function formatMinutes(totalSeconds: number): string {
 }
 
 /** The current agenda item, its time, and who has barely spoken. */
-function MeetingRecordCard({ record, scenario }: { record: RecordEvent; scenario: Scenario }) {
+export function MeetingRecordCard({ record, scenario }: { record: RecordEvent; scenario: Scenario }) {
   const { agendaIndex, openQuestions, quietRoles = [] } = record.payload;
   const elapsedSeconds = useCountUp(record.payload.elapsedSeconds, record);
   const item = scenario.agenda[agendaIndex];

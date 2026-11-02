@@ -4,13 +4,13 @@ import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
 import { demoRoomName, humanAttendeeForRole, humanRoles } from '@kaki/shared';
 import { useScenario } from '../kaki';
-import { PhoneFeed } from '../phone/PhonePage';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
 import { LocalSpeechSTT } from './LocalSpeechSTT';
 import type { MediaChoice } from './MediaPreview';
 import { MeetingGrid } from './MeetingGrid';
-import { RoleCard } from './RoleCard';
+import { Dock } from './Dock';
+import './demo.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
 const ROOM_OPTIONS: RoomOptions = {
@@ -75,8 +75,9 @@ export default function Meeting() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
-      <div style={{ flex: 1, backgroundColor: '#000', position: 'relative', minWidth: 0 }}>
+    <div className="kd-meeting">
+      <div className="kd-aurora" />
+      <div className="kd-stage">
         <LiveKitRoom
           video={session.media.camera}
           audio={session.media.microphone}
@@ -98,12 +99,7 @@ export default function Meeting() {
           <LocalSpeechSTT />
         </LiveKitRoom>
       </div>
-      <div style={{ width: '400px', backgroundColor: '#f9fafb', borderLeft: '1px solid #e5e7eb', overflowY: 'auto' }}>
-        <RoleCard role={scenario.roles.find((candidate) => candidate.id === session.role)} />
-        <ErrorBoundary>
-          <PhoneFeed role={session.role} />
-        </ErrorBoundary>
-      </div>
+      <Dock role={scenario.roles.find((candidate) => candidate.id === session.role)} />
     </div>
   );
 }

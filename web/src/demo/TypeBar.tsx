@@ -1,34 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { CONTROL_TOPIC, MAX_TYPED_LENGTH, type ControlMessage } from '@kaki/shared';
-
-const bar: CSSProperties = {
-  display: 'flex',
-  gap: '8px',
-  padding: '8px 10px',
-  backgroundColor: '#111827',
-  fontFamily: 'system-ui, -apple-system, sans-serif',
-};
-
-const field: CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  padding: '10px 12px',
-  borderRadius: '8px',
-  border: '1px solid #374151',
-  backgroundColor: '#1f2937',
-  color: 'white',
-  fontSize: '16px',
-};
-
-const button: CSSProperties = {
-  padding: '10px 14px',
-  borderRadius: '8px',
-  border: 'none',
-  fontSize: '15px',
-  cursor: 'pointer',
-  color: 'white',
-};
 
 /** Often enough that the server knows keys are being pressed, rarely enough not to flood the connection. */
 const TYPING_SIGNAL_EVERY_MS = 400;
@@ -65,7 +37,7 @@ export function TypeBar({ send }: TypeBarProps) {
 
   return (
     <form
-      style={bar}
+      className="kd-typebar"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -73,7 +45,6 @@ export function TypeBar({ send }: TypeBarProps) {
     >
       <input
         aria-label="Type to the meeting"
-        style={field}
         value={text}
         maxLength={MAX_TYPED_LENGTH}
         placeholder="Type here instead of speaking, then press Enter"
@@ -88,10 +59,10 @@ export function TypeBar({ send }: TypeBarProps) {
           }
         }}
       />
-      <button type="submit" style={{ ...button, backgroundColor: '#2563eb' }} disabled={text.trim().length === 0}>
+      <button type="submit" className="kd-send" disabled={text.trim().length === 0}>
         Send
       </button>
-      <button type="button" style={{ ...button, backgroundColor: '#b91c1c' }} onClick={stop} title="Stop the AI attendees talking (Esc)">
+      <button type="button" className="kd-stop" onClick={stop} title="Stop the AI attendees talking (Esc)">
         Stop
       </button>
     </form>
