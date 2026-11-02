@@ -1,5 +1,9 @@
 import { useState, type CSSProperties } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
+import { MediaPreview, type MediaChoice } from './MediaPreview';
+
+/** What the name box starts with: people can change it to anything. */
+export const DEFAULT_NAME = 'Guest';
 
 const label: CSSProperties = {
   display: 'block',
@@ -30,15 +34,16 @@ export interface JoinFormProps {
   busy?: boolean;
   /** Why the last attempt failed, or why joining is impossible. */
   error?: string;
-  /** `typeOnly`: join without the microphone, typing to the AI attendees instead. */
-  onJoin(name: string, roleLabel: string, typeOnly: boolean): void;
+  /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
+  onJoin(name: string, roleLabel: string, media: MediaChoice): void;
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
 export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: JoinFormProps) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(DEFAULT_NAME);
   const [roleLabel, setRoleLabel] = useState(roles[0]?.label ?? '');
-  const [typeOnly, setTypeOnly] = useState(false);
+  const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
+  const [problem, setProblem] = useState<string | undefined>();
   const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy;
 
   return (
@@ -55,7 +60,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) onJoin(name.trim(), roleLabel, typeOnly);
+          if (ready) onJoin(name.trim(), roleLabel, media);
         }}
         style={{ backgroundColor: '#1e293b', padding: '40px', borderRadius: '16px', width: '450px', maxWidth: '90vw' }}
       >
@@ -71,10 +76,11 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. Josh"
+            placeholder="Your name"
             maxLength={60}
             style={field}
             autoFocus
+            onFocus={(event) => event.currentTarget.select()}
           />
         </div>
 
@@ -96,14 +102,11 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
           </select>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '14px', margin: '0 0 24px 0' }}>
-          <input type="checkbox" checked={typeOnly} onChange={(event) => setTypeOnly(event.target.checked)} />
-          Join without a microphone (I will type)
-        </label>
+        <MediaPreview value={media} onChange={setMedia} onProblem={setProblem} />
 
-        {error !== undefined && (
+        {(problem ?? error) !== undefined && (
           <p role="alert" style={{ color: '#fca5a5', fontSize: '14px', margin: '0 0 16px 0' }}>
-            {error}
+            {problem ?? error}
           </p>
         )}
 
@@ -122,10 +125,10 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
             cursor: ready ? 'pointer' : 'not-allowed',
           }}
         >
-          {busy ? 'Joining…' : typeOnly ? 'Join to type' : 'Join with microphone'}
+          {busy ? 'Joining…' : media.microphone ? 'Join' : 'Join to type'}
         </button>
         <p style={{ color: '#64748b', fontSize: '12px', margin: '16px 0 0 0' }}>
-          Use headphones for the best experience. You can also join without a microphone and type.
+          Use headphones for the best experience. With the microphone off you can type to the AI attendees.
         </p>
       </form>
     </div>

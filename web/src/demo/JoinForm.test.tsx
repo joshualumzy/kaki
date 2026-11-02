@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JoinForm } from './JoinForm';
 
 const roles = [
@@ -10,7 +10,26 @@ const roles = [
   { id: 'marketing_lead', label: 'Marketing Lead' },
 ];
 
-afterEach(cleanup);
+class FakeContext {
+  createAnalyser() {
+    return { fftSize: 0, getFloatTimeDomainData() {} };
+  }
+  createMediaStreamSource() {
+    return { connect() {} };
+  }
+  async close() {}
+}
+
+beforeEach(() => {
+  const stream = { getTracks: () => [{ stop() {} }] };
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => stream } });
+  vi.stubGlobal('AudioContext', FakeContext);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 function setup(props: Partial<Parameters<typeof JoinForm>[0]> = {}) {
   const onJoin = vi.fn();
@@ -19,7 +38,7 @@ function setup(props: Partial<Parameters<typeof JoinForm>[0]> = {}) {
     onJoin,
     name: screen.getByLabelText('Your name') as HTMLInputElement,
     role: screen.getByLabelText('Your role') as HTMLSelectElement,
-    button: screen.getByRole('button') as HTMLButtonElement,
+    button: screen.getByRole('button', { name: /^(Join|Joining)/ }) as HTMLButtonElement,
   };
 }
 
@@ -32,6 +51,7 @@ describe('JoinForm', () => {
 
   it('cannot join without a name', () => {
     const { button, name, onJoin } = setup();
+    fireEvent.change(name, { target: { value: '' } });
     expect(button.disabled).toBe(true);
     fireEvent.change(name, { target: { value: '   ' } });
     expect(button.disabled).toBe(true);
@@ -44,14 +64,14 @@ describe('JoinForm', () => {
     fireEvent.change(name, { target: { value: '  Josh ' } });
     fireEvent.change(role, { target: { value: 'Marketing Lead' } });
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Marketing Lead', false);
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Marketing Lead', { microphone: true, camera: false });
   });
 
   it('joins with the first role when the person does not change it', () => {
     const { button, name, onJoin } = setup();
     fireEvent.change(name, { target: { value: 'Josh' } });
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', false);
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: true, camera: false });
   });
 
   it('cannot be submitted twice while joining, and shows why a join failed', () => {
@@ -70,12 +90,20 @@ describe('JoinForm', () => {
     expect(button.disabled).toBe(true);
   });
 
-  it('lets a person join without a microphone, to type', () => {
-    const { button, name, onJoin } = setup();
-    fireEvent.change(name, { target: { value: 'Josh' } });
-    fireEvent.click(screen.getByLabelText('Join without a microphone (I will type)'));
+  it('starts with a default name the person can change, not a real person\'s', () => {
+    const { name } = setup();
+    expect(name.value).toBe('Guest');
+  });
+
+  it('toggles the microphone and camera like a call, and joins with the choice', () => {
+    const { button, onJoin } = setup();
+    const mic = screen.getByLabelText('Microphone');
+    const camera = screen.getByLabelText('Camera');
+    expect(mic.getAttribute('aria-pressed')).toBe('true');
+    expect(camera.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(mic);
     expect(button.textContent).toBe('Join to type');
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', true);
+    expect(onJoin).toHaveBeenCalledWith('Guest', 'Producer', { microphone: false, camera: false });
   });
 });

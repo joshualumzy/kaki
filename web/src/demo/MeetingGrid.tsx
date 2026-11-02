@@ -122,7 +122,7 @@ export function MeetingGrid({ role }: { role: string }) {
           </GridLayout>
         </div>
         <ConnectedTypeBar />
-        <ControlBar controls={{ camera: false, screenShare: false, chat: false }} />
+        <ControlBar controls={{ screenShare: false, chat: false }} />
         <RoomAudioRenderer />
         <style>{'@keyframes kaki-pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }'}</style>
       </div>
