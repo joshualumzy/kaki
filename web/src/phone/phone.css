@@ -247,3 +247,18 @@
     padding-top: calc(var(--space-5) + env(safe-area-inset-top, 0px));
   }
 }
+
+.chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; background: var(--color-accent-soft); color: var(--color-accent); border: 1px solid rgba(61,245,192,0.22); }
+.chip-date { background: rgba(255,255,255,0.06); color: var(--color-muted); border-color: var(--color-border); font-family: var(--font-mono); font-weight: 500; }
+.phone-fact-source { display: flex; flex-wrap: wrap; gap: 6px; }
+.phone-fact { border-left: 2px solid rgba(61,245,192,0.35); }
+.phone-more { margin-top: var(--space-2); }
+.phone-more > summary { cursor: pointer; list-style: none; padding: 8px 12px; border-radius: 12px; font-size: 0.82rem; font-weight: 600; color: var(--color-muted); background: rgba(255,255,255,0.04); border: 1px solid var(--color-border); }
+.phone-more > summary::-webkit-details-marker { display: none; }
+.phone-more[open] > summary { margin-bottom: var(--space-3); }
+.phone-more > summary:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.phone-header h1 { font-family: var(--font-display); font-size: 1.35rem; letter-spacing: -0.02em; }
+.phone-header .eyebrow { color: var(--color-accent); font-family: var(--font-mono); letter-spacing: 0.14em; }
+.phone-section-eyebrow { font-size: 0.72rem; letter-spacing: 0.16em; font-family: var(--font-mono); }
+.phone-current-text { font-size: 1.05rem; }
+.phone-item-text { color: var(--color-text); }

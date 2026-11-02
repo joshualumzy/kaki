@@ -4,3 +4,4 @@ export { ConnectionBanner } from './ConnectionBanner';
 export { EventList } from './EventList';
 export { RejectionBanner } from './RejectionBanner';
 export { StatusPill } from './StatusPill';
+export { summarizeEvent } from './summarizeEvent';

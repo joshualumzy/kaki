@@ -249,3 +249,9 @@ body {
   background: var(--color-warning-soft);
   color: var(--color-warning);
 }
+
+.kd-host-clock small { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; letter-spacing: 0.06em; color: var(--color-muted); text-shadow: none; }
+.btn-ghost { color: var(--color-text); }
+.btn-ghost:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.pill { border: 1px solid transparent; }
+.pill[data-status="SUGGESTED"] { background: rgba(155,123,255,0.14); color: #c3b2ff; }

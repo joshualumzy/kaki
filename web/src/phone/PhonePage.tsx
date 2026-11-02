@@ -262,6 +262,12 @@ type HistoryItem =
   | { kind: 'task'; at: number; task: Task }
   | { kind: 'event'; at: number; stamped: StampedEvent };
 
+/** How many history items show before the rest fold away. */
+const RECENT_HISTORY = 3;
+
+/** How many facts a card shows before the rest fold away. */
+const FACTS_SHOWN = 2;
+
 export function PhoneFeed({ role }: { role: string }) {
   const scenario = useScenario();
   const { events, tasks, rejection, connected, send } = useKaki(role);
@@ -283,15 +289,43 @@ export function PhoneFeed({ role }: { role: string }) {
       (currentNudge === undefined || item.id !== currentNudge.id),
   );
 
+  // The same question or nudge can arrive more than once: keep only the newest copy of each.
+  const seenKeys = new Set<string>();
+  const dedupedEvents = [...historyEvents].reverse().filter((item) => {
+    const key =
+      item.event.type === 'FACT_FOUND'
+        ? `fact:${item.event.payload.question.trim().toLowerCase()}`
+        : item.event.type === 'NUDGE'
+          ? `nudge:${item.event.payload.text.trim().toLowerCase()}`
+          : `id:${item.id}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+
   const history: HistoryItem[] = [
     ...historyTasks.map((task) => ({ kind: 'task' as const, at: updatedAtMs(task), task })),
-    ...historyEvents.map((stampedEvent) => ({
+    ...dedupedEvents.map((stampedEvent) => ({
       kind: 'event' as const,
       at: stampedEvent.receivedAt,
       stamped: stampedEvent,
     })),
   ].sort((left, right) => right.at - left.at);
 
+  const renderHistoryItem = (item: HistoryItem) =>
+    item.kind === 'task' ? (
+      <li key={`task-${taskKey(item.task)}`}>
+        <TaskCard key={taskKey(item.task)} task={item.task} scenario={scenario} send={send} rejection={rejection} />
+      </li>
+    ) : item.stamped.event.type === 'NUDGE' ? (
+      <li key={`event-${item.stamped.id}`}>
+        <NudgeCard text={item.stamped.event.payload.text} at={item.at} />
+      </li>
+    ) : item.stamped.event.type === 'FACT_FOUND' ? (
+      <li key={`event-${item.stamped.id}`}>
+        <FactCard question={item.stamped.event.payload.question} facts={item.stamped.event.payload.facts} at={item.at} />
+      </li>
+    ) : null;
   const calm = currentTask === undefined && currentNudge === undefined;
 
   return (
@@ -345,33 +379,15 @@ export function PhoneFeed({ role }: { role: string }) {
         {history.length === 0 ? (
           <p className="empty-state">Nothing else yet.</p>
         ) : (
-          <ol className="phone-history-list">
-            {history.map((item) =>
-              item.kind === 'task' ? (
-                <li key={`task-${taskKey(item.task)}`}>
-                  <TaskCard
-                    key={taskKey(item.task)}
-                    task={item.task}
-                    scenario={scenario}
-                    send={send}
-                    rejection={rejection}
-                  />
-                </li>
-              ) : item.stamped.event.type === 'NUDGE' ? (
-                <li key={`event-${item.stamped.id}`}>
-                  <NudgeCard text={item.stamped.event.payload.text} at={item.at} />
-                </li>
-              ) : item.stamped.event.type === 'FACT_FOUND' ? (
-                <li key={`event-${item.stamped.id}`}>
-                  <FactCard
-                    question={item.stamped.event.payload.question}
-                    facts={item.stamped.event.payload.facts}
-                    at={item.at}
-                  />
-                </li>
-              ) : null,
+          <>
+            <ol className="phone-history-list">{history.slice(0, RECENT_HISTORY).map(renderHistoryItem)}</ol>
+            {history.length > RECENT_HISTORY && (
+              <details className="phone-more">
+                <summary>Earlier · {history.length - RECENT_HISTORY} more</summary>
+                <ol className="phone-history-list">{history.slice(RECENT_HISTORY).map(renderHistoryItem)}</ol>
+              </details>
             )}
-          </ol>
+          </>
         )}
       </section>
     </main>
@@ -540,7 +556,20 @@ function NudgeCard({ text, at, prominent = false }: { text: string; at: number; 
   );
 }
 
+function FactItem({ fact }: { fact: Fact }) {
+  return (
+    <li className="phone-fact">
+      <p className="phone-fact-text">{fact.text}</p>
+      <p className="phone-fact-source">
+        <span className="chip">{fact.source}</span>
+        <span className="chip chip-date">{fact.date}</span>
+      </p>
+    </li>
+  );
+}
+
 function FactCard({ question, facts, at }: { question: string; facts: Fact[]; at: number }) {
+  const rest = facts.slice(FACTS_SHOWN);
   return (
     <Card>
       <div className="phone-item-head">
@@ -551,16 +580,23 @@ function FactCard({ question, facts, at }: { question: string; facts: Fact[]; at
       {facts.length === 0 ? (
         <p className="phone-meta">No matching records found.</p>
       ) : (
-        <ul className="phone-facts">
-          {facts.map((fact, index) => (
-            <li className="phone-fact" key={`${fact.source}-${fact.date}-${index}`}>
-              <p className="phone-fact-text">{fact.text}</p>
-              <p className="phone-fact-source">
-                Source: {fact.source} · {fact.date}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="phone-facts">
+            {facts.slice(0, FACTS_SHOWN).map((fact, index) => (
+              <FactItem key={`${fact.source}-${fact.date}-${index}`} fact={fact} />
+            ))}
+          </ul>
+          {rest.length > 0 && (
+            <details className="phone-more">
+              <summary>{rest.length} more</summary>
+              <ul className="phone-facts">
+                {rest.map((fact, index) => (
+                  <FactItem key={`${fact.source}-${fact.date}-${index}`} fact={fact} />
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
       )}
     </Card>
   );
