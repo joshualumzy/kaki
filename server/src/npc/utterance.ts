@@ -111,6 +111,7 @@ export class UtteranceRecorder {
       .then((text) => {
         const heard = text.trim();
         if (heard.length > 0) this.options.onText(heard);
+        else this.options.log?.(`speech recognition heard nothing in ${Math.round(sentMs / 100) / 10} s of audio`);
       })
       .catch((error: unknown) => this.options.log?.(`speech recognition failed: ${String(error)}`));
   }

@@ -159,6 +159,11 @@ no failed interruption, only a 12 s stretch of Sam talking with no voice detecti
 over an AI, and send the `[vad]` lines. With server-side recognition a missed interruption leaves no `ignored` line.
 Idea if acoustics stay unreliable: a Stop button or key that interrupts directly.
 
+**Third live run:** interruption now works (four clean barge-ins, `[vad]` margin 2), recognition accurate, the
+cancelled-answer retry worked. Remaining: addressing "Hey, Sam." / "Sam." was detected but Arjun or Mei still
+answered, because the model treated the hint as optional. The hint now says "Begin your reply with `Sam:`" and what to do
+for a bare name. Also logs `speech recognition heard nothing in N s of audio` when Azure returns nothing.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

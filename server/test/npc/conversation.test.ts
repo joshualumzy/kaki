@@ -408,6 +408,7 @@ describe('NpcConversation', () => {
     const { calls, playing, flush, say } = harness();
     await say('Bao, I have a question.');
     expect(calls[0]?.messages.at(-1)?.content).toContain('Josh is speaking directly to Bao');
+    expect(calls[0]?.messages.at(-1)?.content).toContain('Begin your reply with "Bao:"');
     calls[0]?.push('Sure, go ahead.');
     calls[0]?.end();
     await flush();

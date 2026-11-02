@@ -306,7 +306,7 @@ export class NpcConversation<Clip> {
         const who = this.human?.name ?? 'The person';
         messages[messages.length - 1] = {
           ...last,
-          content: `${last.content}\n[${who} is speaking directly to ${addressed}: ${addressed} answers, and nobody else unless ${addressed} hands over.]`,
+          content: `${last.content}\n[${who} is speaking directly to ${addressed}. Begin your reply with "${addressed}:". ${addressed} answers first, and nobody else speaks unless ${addressed} hands over by name. If ${who} only said ${addressed}'s name, ${addressed} just acknowledges and invites them to go on.]`,
         };
       }
       for await (const chunk of this.ports.stream(messages, signal)) {
