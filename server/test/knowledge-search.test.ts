@@ -103,15 +103,19 @@ describe('company search', () => {
   it('rejects malformed model output instead of guessing', () => {
     expect(() => parseFactsResponse('not json')).toThrow(/invalid JSON/);
     expect(() => parseFactsResponse('{"answer":[]}')).toThrow(/"facts" array/);
-    expect(() => parseFactsResponse('{"facts":[{"text":"x","source":"","date":"2026-11-10"}]}')).toThrow(
-      /source must be a non-empty string/,
-    );
-    expect(() =>
+  });
+
+  it('drops a fact with no source or date but keeps the good ones, and caps at three', () => {
+    const good = { text: 'ok', source: 's', date: '2026-11-10' };
+    expect(
       parseFactsResponse(
         JSON.stringify({
-          facts: [1, 2, 3, 4].map((index) => ({ text: `f${index}`, source: 's', date: '2026-11-10' })),
+          facts: [{ ...good, source: '' }, { ...good, date: undefined }, 7, good],
         }),
       ),
-    ).toThrow(/maximum is 3/);
+    ).toEqual([good]);
+    expect(
+      parseFactsResponse(JSON.stringify({ facts: [1, 2, 3, 4].map((i) => ({ ...good, text: `f${i}` })) })),
+    ).toHaveLength(3);
   });
 });

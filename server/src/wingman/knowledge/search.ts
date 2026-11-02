@@ -27,7 +27,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Parse and strictly validate the JSON facts returned by the chat model. */
+/** Parse the JSON facts returned by the chat model: bad JSON throws, an unusable fact is dropped. */
 export function parseFactsResponse(raw: string): Fact[] {
   let parsed: unknown;
   try {
@@ -39,24 +39,17 @@ export function parseFactsResponse(raw: string): Fact[] {
   if (!isObject(parsed) || !Array.isArray(parsed.facts)) {
     throw new Error('Company search: model JSON must be an object with a "facts" array');
   }
-  if (parsed.facts.length > MAX_FACTS) {
-    throw new Error(`Company search: model returned ${parsed.facts.length} facts, maximum is ${MAX_FACTS}`);
-  }
-
-  return parsed.facts.map((entry, index) => {
-    if (!isObject(entry)) throw new Error(`Company search: facts[${index}] must be an object`);
+  // One sloppy fact (a missing source or date) must not throw away the whole answer: keep the usable ones.
+  const facts: Fact[] = [];
+  for (const entry of parsed.facts) {
+    if (!isObject(entry)) continue;
     const { text, source, date } = entry;
-    if (typeof text !== 'string' || text.trim() === '') {
-      throw new Error(`Company search: facts[${index}].text must be a non-empty string`);
-    }
-    if (typeof source !== 'string' || source.trim() === '') {
-      throw new Error(`Company search: facts[${index}].source must be a non-empty string`);
-    }
-    if (typeof date !== 'string' || date.trim() === '') {
-      throw new Error(`Company search: facts[${index}].date must be a non-empty string`);
-    }
-    return { text: text.trim(), source: source.trim(), date: date.trim() };
-  });
+    if (typeof text !== 'string' || text.trim() === '') continue;
+    if (typeof source !== 'string' || source.trim() === '') continue;
+    if (typeof date !== 'string' || date.trim() === '') continue;
+    facts.push({ text: text.trim(), source: source.trim(), date: date.trim() });
+  }
+  return facts.slice(0, MAX_FACTS);
 }
 
 function buildPrompt(question: string, role: Role, chunks: RetrievedChunk[]): string {
