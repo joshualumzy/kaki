@@ -21,6 +21,8 @@ interface Session {
   serverUrl: string;
   /** The Kaki role id of the attendee this person plays, for their private feed. */
   role: string;
+  /** Joined without the microphone: they type to the AI attendees. */
+  typeOnly: boolean;
 }
 
 /** Ask for the microphone up front, so a refusal is explained before joining, and release it again. */
@@ -30,8 +32,8 @@ async function checkMicrophone(): Promise<void> {
     stream.getTracks().forEach((track) => track.stop());
   } catch (error) {
     const name = error instanceof DOMException ? error.name : '';
-    if (name === 'NotFoundError') throw new Error('No microphone was found.');
-    throw new Error('Microphone permission is required to join the meeting.');
+    if (name === 'NotFoundError') throw new Error('No microphone was found. Tick "Join without a microphone" to type instead.');
+    throw new Error('Microphone permission was not given. Allow it, or tick "Join without a microphone" to type instead.');
   }
 }
 
@@ -45,11 +47,11 @@ export default function Meeting() {
 
   const hasAi = (scenario.npcs ?? []).length > 0;
 
-  async function join(name: string, roleLabel: string): Promise<void> {
+  async function join(name: string, roleLabel: string, typeOnly: boolean): Promise<void> {
     setBusy(true);
     setError(undefined);
     try {
-      await checkMicrophone();
+      if (!typeOnly) await checkMicrophone();
       const response = await fetch('/api/livekit/token', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -63,6 +65,7 @@ export default function Meeting() {
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
         role: humanAttendeeForRole(scenario, roleLabel)?.role ?? roles[0]?.id ?? scenario.roles[0]?.id ?? '',
+        typeOnly,
       });
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : String(joinError));
@@ -78,7 +81,7 @@ export default function Meeting() {
         roles={hasAi ? roles : []}
         busy={busy}
         error={hasAi ? error : `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`}
-        onJoin={(name, roleLabel) => void join(name, roleLabel)}
+        onJoin={(name, roleLabel, typeOnly) => void join(name, roleLabel, typeOnly)}
       />
     );
   }
@@ -88,7 +91,7 @@ export default function Meeting() {
       <div style={{ flex: 1, backgroundColor: '#000', position: 'relative', minWidth: 0 }}>
         <LiveKitRoom
           video={false}
-          audio
+          audio={!session.typeOnly}
           connect
           token={session.token}
           serverUrl={session.serverUrl}

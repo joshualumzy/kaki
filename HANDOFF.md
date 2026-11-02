@@ -2,6 +2,22 @@
 
 Branch: `feature/scripted-replay`.
 
+## Resume here (decisions and plan)
+
+Agreed in conversation with the project owner:
+
+- **One meeting at a time** (concurrency 1). Several rooms need the whole meeting core (screen, notetaker, Wingman) scoped per meeting: not planned.
+- **Cast:** five characters in `pixel-kampung` (Studio name: Lah Studios). The person picks Wei Ling, Arjun, Mei or Daniel; the rest are AI and Sam is always the AI host.
+  Role cards give facts only (no "who you may clash with", no instructions). Up to 4 AIs in the room, so a "who speaks next" step is wanted (step 4 below).
+- **Visitors:** the booth runs `/demo` on a laptop or tablet. Phones as visitors' own devices come later (needs a phone layout and one room per visitor). Join without a
+  microphone is supported (type instead). Headphones at the booth are the biggest fix for echo.
+- **Voice tuning is parked:** several live rounds done; remaining odd short sounds (not the person, not the AI) are handled by carrying on after 0.4 s.
+- **Priorities, in order:** (1) cast and cards: done. (2) live runs: done. (3) typing, Stop, join without a mic: done, not tried live. (4) **Wingman and Host smoke test:** follow
+  `docs/smoke-test.md` on your own machine (needs Docker, the LLM gateway, Azure); the Host and Wingman owners fix what it finds. (5) AI-to-AI follow-ups with the host's cues. (6) "Who speaks next".
+  (7) AIs read company data (Wingman search as a tool). (8) Mood tags and Azure speaking styles. (9) Phones, then multiple rooms.
+- **Open questions:** open the small reviewed PR for the shared files (`shared/**`, `scenario.json`, the one-line `notetaker.ts` change for the facilitator role); the Host's spoken cues
+  (opening, time-out, closing) are text events today: should Sam voice them? Unverified Azure voice names `en-SG-LunaNeural` / `en-SG-WayneNeural`. Mei says 14 of 20 quit on level 5; the Mattermost seed says 19 of 29.
+
 ## What this is
 
 `/demo` is a video-call style meeting. The person talks to AI attendees (the scenario's `npcs`: for

@@ -30,13 +30,15 @@ export interface JoinFormProps {
   busy?: boolean;
   /** Why the last attempt failed, or why joining is impossible. */
   error?: string;
-  onJoin(name: string, roleLabel: string): void;
+  /** `typeOnly`: join without the microphone, typing to the AI attendees instead. */
+  onJoin(name: string, roleLabel: string, typeOnly: boolean): void;
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
 export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: JoinFormProps) {
   const [name, setName] = useState('');
   const [roleLabel, setRoleLabel] = useState(roles[0]?.label ?? '');
+  const [typeOnly, setTypeOnly] = useState(false);
   const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy;
 
   return (
@@ -53,7 +55,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) onJoin(name.trim(), roleLabel);
+          if (ready) onJoin(name.trim(), roleLabel, typeOnly);
         }}
         style={{ backgroundColor: '#1e293b', padding: '40px', borderRadius: '16px', width: '450px', maxWidth: '90vw' }}
       >
@@ -94,6 +96,11 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
           </select>
         </div>
 
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '14px', margin: '0 0 24px 0' }}>
+          <input type="checkbox" checked={typeOnly} onChange={(event) => setTypeOnly(event.target.checked)} />
+          Join without a microphone (I will type)
+        </label>
+
         {error !== undefined && (
           <p role="alert" style={{ color: '#fca5a5', fontSize: '14px', margin: '0 0 16px 0' }}>
             {error}
@@ -115,10 +122,10 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
             cursor: ready ? 'pointer' : 'not-allowed',
           }}
         >
-          {busy ? 'Joining…' : 'Join with microphone'}
+          {busy ? 'Joining…' : typeOnly ? 'Join to type' : 'Join with microphone'}
         </button>
         <p style={{ color: '#64748b', fontSize: '12px', margin: '16px 0 0 0' }}>
-          Use headphones for the best experience, and Chrome or Edge for speech recognition.
+          Use headphones for the best experience. You can also join without a microphone and type.
         </p>
       </form>
     </div>

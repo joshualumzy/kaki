@@ -62,13 +62,13 @@ export function LocalSpeechSTT() {
   }, [Recognition, isMicrophoneEnabled, room]);
 
   if (!wanted) {
-    return <div style={chip}>{isMicrophoneEnabled ? '🎙️ The meeting server is listening' : 'Microphone muted: the AI cannot hear you.'}</div>;
+    return <div style={chip}>{isMicrophoneEnabled ? '🎙️ The meeting server is listening' : 'Microphone off: type your message in the box below.'}</div>;
   }
   if (Recognition === undefined) {
     return <div style={chip}>Speech recognition needs Chrome or Edge: the AI cannot hear you in this browser.</div>;
   }
   if (problem !== undefined) return <div style={{ ...chip, background: 'rgba(153,27,27,0.85)' }}>{problem}</div>;
-  if (!isMicrophoneEnabled) return <div style={chip}>Microphone muted: the AI cannot hear you.</div>;
+  if (!isMicrophoneEnabled) return <div style={chip}>Microphone off: type your message in the box below.</div>;
 
   return (
     <>

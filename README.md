@@ -36,7 +36,7 @@ The server keeps state in memory and restarts when server code changes; run `npm
 ## Live demo meeting with AI attendees
 
 `/demo` is a video-call style meeting where you talk to AI attendees (the scenario's `npcs`; for
-Lah Studios, Arjun and Mei). One LLM plays all of them, each with their own personality, aims and
+Lah Studios, the characters you did not pick: you take one of Wei Ling, Arjun, Mei or Daniel, and Sam hosts). One LLM plays all of them, each with their own personality, aims and
 worries, and decides who answers. You can talk over them at any time and they stop.
 
 ```bash
@@ -49,11 +49,14 @@ Then open http://localhost:5173/demo in Chrome or Edge, pick a name and role, an
 headphones if you can. `npm run npc` needs the LLM settings plus `AZURE_SPEECH_KEY` and
 `AZURE_SPEECH_REGION` in `.env` (see `.env.example`, which also lists the tuning knobs).
 
-How it hangs together: your browser publishes your microphone to LiveKit, with echo cancellation,
-and sends what its speech recognition heard over a LiveKit data channel. `npm run npc` watches your
-microphone track for voice activity (that is what interrupts them) and only accepts recognised text
-that is not their own voice coming back. Every accepted line, yours and theirs, goes to Kaki as an
+How it hangs together: your browser publishes your microphone to LiveKit, with echo cancellation.
+`npm run npc` watches that track for voice activity (that is what interrupts them) and, only while you
+are talking, sends the audio to Azure speech-to-text on the server (`NPC_STT=browser` and
+`/demo?stt=browser` use Chrome's recognition instead). Recognised text is checked so that an AI
+attendee's own voice coming back is not taken for you. You can also join without a microphone and
+type, and the Stop button or Escape silences them. Every accepted line, yours and theirs, goes to Kaki as an
 ordinary transcript line, so the host, wingman and action agents work from the same conversation.
+To check that those agents work end to end, follow [docs/smoke-test.md](docs/smoke-test.md).
 
 To check the audio path without a microphone, start LiveKit and run
 `LIVEKIT_E2E=1 npx vitest run server/test/npc/livekit.e2e.test.ts`: a fake person talks to the real

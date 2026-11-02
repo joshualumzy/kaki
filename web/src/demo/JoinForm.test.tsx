@@ -44,14 +44,14 @@ describe('JoinForm', () => {
     fireEvent.change(name, { target: { value: '  Josh ' } });
     fireEvent.change(role, { target: { value: 'Marketing Lead' } });
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Marketing Lead');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Marketing Lead', false);
   });
 
   it('joins with the first role when the person does not change it', () => {
     const { button, name, onJoin } = setup();
     fireEvent.change(name, { target: { value: 'Josh' } });
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', false);
   });
 
   it('cannot be submitted twice while joining, and shows why a join failed', () => {
@@ -68,5 +68,14 @@ describe('JoinForm', () => {
     const { button, name } = setup({ roles: [], error: 'No roles' });
     fireEvent.change(name, { target: { value: 'Josh' } });
     expect(button.disabled).toBe(true);
+  });
+
+  it('lets a person join without a microphone, to type', () => {
+    const { button, name, onJoin } = setup();
+    fireEvent.change(name, { target: { value: 'Josh' } });
+    fireEvent.click(screen.getByLabelText('Join without a microphone (I will type)'));
+    expect(button.textContent).toBe('Join to type');
+    fireEvent.click(button);
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', true);
   });
 });
