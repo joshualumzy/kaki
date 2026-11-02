@@ -7,6 +7,16 @@ describe('PlaybackReference', () => {
     return { reference: new PlaybackReference(() => time, 60, 800), advance: (ms: number) => void (time += ms), now: () => time };
   }
 
+  it('only counts AI audio as settled once its echo has had time to come back', () => {
+    const { reference, advance, now } = setup();
+    reference.record(0.2, 0);
+    advance(200);
+    expect(reference.levelAt(now())).toBe(0.2); // it could be in the microphone
+    expect(reference.settledLevelAt(now())).toBe(0); // but its echo is not all there yet
+    advance(250);
+    expect(reference.settledLevelAt(now())).toBe(0.2);
+  });
+
   it('reports the loudest AI audio from a moment ago, not what is playing this instant or long ago', () => {
     const { reference, advance, now } = setup();
     reference.record(0.1, 0); // audible now

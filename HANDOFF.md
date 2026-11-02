@@ -173,6 +173,20 @@ stretch sent to Azure is saved as a WAV file named by time like the log lines, s
 server heard, especially for speech that started over an AI. If it is chopped, the fix is headphones or lower speaker
 volume, not code.
 
+**Fifth report, with `NPC_DEBUG_VAD=1` and saved audio:** speaking into a silence works; cutting in "is terrible". The
+`[vad]` lines showed the real echo in the microphone is tiny (0.003 to 0.04 against an AI level of 0.15 to 0.30) while the
+detector's estimate of it was 0.35x, then 1.09x, then 2.00x of the AI's level, so the bar to count as talking was 0.2 to
+0.95 and the person's voice peaks at 0.10 to 0.26. Cause: it only learned the echo when the AI had been audible without any gap
+for over a second (almost never), stayed on its 0.35x starting guess, and when it did learn it counted the person's own
+attempts as echo. Replaced (`vad.ts`): the echo level is now measured directly, as the 90th percentile of the microphone's own level while
+the AI plays, from frames not louder than `NPC_VAD_LEAK_CAP` (0.06, so the person is never counted as echo) and only once the
+echo of what was played has had time to arrive (`PlaybackReference.settledLevelAt`, 400 ms); it is kept between stretches, never below
+0.02, and the bar is that times `NPC_VAD_LEAK_MARGIN` (2). With the numbers in that log the bar is about 0.04 to 0.08.
+Not seen yet with the real room. Unexplained in that log: at 11:02 the detector said "started talking" but there was no
+"interrupted", "stopped talking" or recognition line. The runner now runs recognition last and guarded (a failure there can no
+longer hide a start or stop from the conversation) and logs `ignored the person starting to talk: already marked as talking`
+if a stop was missed.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

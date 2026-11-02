@@ -253,15 +253,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           });
     const vad: EnergyVad = new EnergyVad(
       (speaking) => {
-        recorder?.speaking(speaking);
         if (speaking) talking.add(identity);
         else talking.delete(identity);
         log(
           speaking
-            ? `${identity} started talking (mic peak ${vad.peak(300).toFixed(3)}, bar ${vad.threshold.toFixed(3)}${vad.guarded ? `, AI was talking: its level ${vad.referenceLevel.toFixed(3)}, leaks into the mic at ${vad.leakRatio.toFixed(2)}x` : ''})`
+            ? `${identity} started talking (mic peak ${vad.peak(300).toFixed(3)}, bar ${vad.threshold.toFixed(3)}${vad.guarded ? `, AI was talking: its level ${vad.referenceLevel.toFixed(3)}, its echo in the mic ${vad.leakLevel.toFixed(3)}` : ''})`
             : `${identity} stopped talking`,
         );
         conversation?.humanSpeech(talking.size > 0);
+        // Last, and guarded: a failure in speech recognition must never stop the conversation hearing the person.
+        try {
+          recorder?.speaking(speaking);
+        } catch (error) {
+          log(`speech recognition could not ${speaking ? 'start' : 'finish'}: ${String(error)}`);
+        }
       },
       options.vad,
       { reference },
@@ -271,11 +276,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     try {
       for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
         vad.push(frame.data, frame.sampleRate);
-        recorder?.push(frame.data);
+        try {
+          recorder?.push(frame.data);
+        } catch (error) {
+          log(`speech recognition could not take audio: ${String(error)}`);
+        }
         if (options.traceVad === true && vad.guarded && Date.now() - lastTrace > 500) {
           lastTrace = Date.now();
           log(
-            `[vad] mic ${vad.peak(500).toFixed(3)} | AI ${vad.referenceLevel.toFixed(3)} | leak ${vad.leakRatio.toFixed(2)}x | bar ${vad.threshold.toFixed(3)}${vad.isSpeaking ? ' | TALKING' : ''}`,
+            `[vad] mic ${vad.peak(500).toFixed(3)} | AI ${vad.referenceLevel.toFixed(3)} | echo ${vad.leakLevel.toFixed(3)} | bar ${vad.threshold.toFixed(3)}${vad.isSpeaking ? ' | TALKING' : ''}`,
           );
         }
       }

@@ -143,7 +143,12 @@ export class NpcConversation<Clip> {
 
   /** The person's microphone started or stopped carrying speech. */
   humanSpeech(talking: boolean): void {
-    if (this.closed || talking === this.humanTalking) return;
+    if (this.closed) return;
+    if (talking === this.humanTalking) {
+      // Should not happen: a start while already marked talking, with an answer running, means a stop was missed.
+      if (talking && this.turn !== undefined) this.ports.log?.('ignored the person starting to talk: already marked as talking, a stop was missed');
+      return;
+    }
     this.humanTalking = talking;
     this.gate.setHumanTalking(talking);
     if (talking) {

@@ -15,6 +15,8 @@ export class PlaybackReference {
     private readonly maxLagMs = 1200,
     /** How often a frame is recorded; tells how many frames a fully covered window has. */
     private readonly frameMs = 20,
+    /** By this long after it was played, nearly all of the echo has arrived. */
+    private readonly settledLagMs = 400,
   ) {}
 
   /** A frame of AI audio was queued with this loudness (0..1); it becomes audible `playoutInMs` from now. */
@@ -33,6 +35,16 @@ export class PlaybackReference {
     for (const frame of this.frames) {
       const age = nowMs - frame.at;
       if (age >= this.minLagMs && age <= this.maxLagMs && frame.level > loudest) loudest = frame.level;
+    }
+    return loudest;
+  }
+
+  /** The loudest AI audio that was audible long enough ago for its echo to have reached the microphone by now. */
+  settledLevelAt(nowMs: number = this.now()): number {
+    let loudest = 0;
+    for (const frame of this.frames) {
+      const age = nowMs - frame.at;
+      if (age >= this.settledLagMs && age <= this.maxLagMs && frame.level > loudest) loudest = frame.level;
     }
     return loudest;
   }

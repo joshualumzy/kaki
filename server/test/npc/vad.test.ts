@@ -140,78 +140,91 @@ describe('EnergyVad with a playback reference', () => {
     }
   }
 
-  it('learns how much of the AI the microphone hears, and ignores it however loud the speakers are', () => {
-    // 3000 is about 0.065 RMS: loud speakers, well above the fixed guarded level.
-    feed(3000, 3000);
+  it('measures how loud the AI is in the microphone, and ignores it', () => {
+    // 2000 is about 0.043 RMS: fairly loud speakers, well above the fixed guarded level.
+    feed(2000, 3000);
     expect(changes).toEqual([]);
-    expect(vad.leakRatio).toBeGreaterThan(0.3);
-    expect(vad.leakRatio).toBeLessThan(0.6);
+    expect(vad.leakLevel).toBeGreaterThan(0.03);
+    expect(vad.leakLevel).toBeLessThan(0.06);
   });
 
-  it('hears a person who is clearly louder than the leak, and stops them being cut off by their own echo', () => {
-    feed(3000, 2000); // leak only
+  it('hears a person who is clearly louder than the echo, and stops them being cut off by their own echo', () => {
+    feed(2000, 2000); // echo only
     feed(9000, 100);
     expect(changes).toEqual([]);
     feed(9000, 200);
     expect(changes).toEqual([true]);
   });
 
-  it('hears a quiet person when the speakers are quiet: the bar follows the speakers, not a fixed level', () => {
-    const fixedBarChanges: boolean[] = [];
-    const fixedBar = new EnergyVad((speaking) => fixedBarChanges.push(speaking), {}, { now: () => time });
-    const both = (amplitude: number, ms: number): void => {
-      for (let elapsed = 0; elapsed < ms; elapsed += 10) {
-        const frame = tone(amplitude, elapsed * 16);
-        vad.push(frame, RATE);
-        fixedBar.push(frame, RATE);
-        time += 10;
-      }
-    };
-
-    vad.guarded = fixedBar.guarded = false;
-    both(40, 1500); // a quiet room, so both learn a low noise floor
-    vad.guarded = fixedBar.guarded = true;
-    aiLevel = 0.1;
-    both(150, 2000); // the AI talks; only a tiny leak (about 3%) reaches the microphone
-    both(780, 400); // a quiet voice: about 0.017 RMS
-
-    expect(changes).toEqual([true]); // with a reference the bar is just above the leak
-    expect(fixedBarChanges).toEqual([]); // the fixed bar for "AI talking" (0.02) misses it
-    fixedBar.close();
+  it('does not count a person talking over the AI as echo, so the bar does not rise with their voice', () => {
+    feed(2000, 2000);
+    const before = vad.leakLevel;
+    feed(9000, 100); // the start of a person's speech, before it is declared
+    expect(vad.leakLevel).toBe(before);
   });
 
-  it('does not learn that there is no leak from the quiet gap before the echo arrives', () => {
-    // The AI starts; the microphone only carries room noise until its echo comes back, a moment later.
-    const reference = {
-      levelAt: () => aiLevel,
-      steadyLevelAt: () => 0, // the AI has not been audible for the whole delay window yet
+  it('sets the bar from the speakers: a voice that gets through quiet speakers is lost over loud ones', () => {
+    const hears = (echoAmplitude: number, voiceAmplitude: number): boolean => {
+      const result: boolean[] = [];
+      const own = new EnergyVad((speaking) => result.push(speaking), {}, { reference: { levelAt: () => aiLevel }, now: () => time });
+      own.guarded = true;
+      for (let elapsed = 0; elapsed < 2000; elapsed += 10) {
+        own.push(tone(echoAmplitude, elapsed * 16), RATE);
+        time += 10;
+      }
+      for (let elapsed = 0; elapsed < 400; elapsed += 10) {
+        own.push(tone(voiceAmplitude, elapsed * 16), RATE);
+        time += 10;
+      }
+      own.close();
+      return result.includes(true);
     };
-    const delayed = new EnergyVad((speaking) => changes.push(speaking), {}, { reference, now: () => time });
-    delayed.guarded = true;
-    for (let elapsed = 0; elapsed < 600; elapsed += 10) {
-      delayed.push(tone(40, elapsed * 16), RATE);
-      time += 10;
-    }
-    expect(delayed.leakRatio).toBe(0.35); // still the cautious starting guess, not zero
-    for (let elapsed = 0; elapsed < 1000; elapsed += 10) {
-      delayed.push(tone(3000, elapsed * 16), RATE); // the echo arrives
+    // A voice of about 0.05 RMS (amplitude 2900).
+    expect(hears(150, 2900)).toBe(true); // quiet speakers: the echo is tiny, so the bar is low
+    expect(hears(2000, 2900)).toBe(false); // loud speakers: the echo is about 0.043, so the bar is about 0.09
+  });
+
+  it('is cautious about the echo until it has measured it, but never deaf to a normal voice', () => {
+    const fresh = new EnergyVad((speaking) => changes.push(speaking), {}, { reference: { levelAt: () => aiLevel }, now: () => time });
+    fresh.guarded = true;
+    expect(fresh.leakLevel).toBe(0.04);
+    for (let elapsed = 0; elapsed < 100; elapsed += 10) {
+      fresh.push(tone(2000, elapsed * 16), RATE); // echo from the first moments
       time += 10;
     }
     expect(changes).toEqual([]);
-    delayed.close();
+    for (let elapsed = 0; elapsed < 300; elapsed += 10) {
+      fresh.push(tone(9000, elapsed * 16), RATE);
+      time += 10;
+    }
+    expect(changes).toEqual([true]);
+    fresh.close();
   });
 
-  it('adapts when the leak grows between turns, instead of staying sure there is none', () => {
-    feed(40, 1500); // an earlier turn with a silent microphone: nothing leaks, so the estimate drops to about zero
-    expect(vad.leakRatio).toBeLessThan(0.05);
-
+  it('keeps what it measured between stretches of the AI talking', () => {
+    feed(2000, 2000);
+    const measured = vad.leakLevel;
     vad.guarded = false;
-    vad.guarded = true; // the next turn; meanwhile the person turned the speakers up
-    feed(3000, 3000);
-    expect(changes).toEqual([]); // its own echo does not cut it off
-    expect(vad.leakRatio).toBeGreaterThan(0.3);
-    feed(9000, 300); // and a person talking over it is still heard
-    expect(changes).toEqual([true]);
+    vad.guarded = true;
+    expect(vad.leakLevel).toBe(measured);
+  });
+
+  it('never takes the echo to be quieter than a floor, so a first quiet measurement cannot make the AI cut itself off', () => {
+    feed(40, 2000); // a silent microphone while the AI plays
+    expect(vad.leakLevel).toBe(0.02);
+    expect(vad.threshold).toBeGreaterThanOrEqual(0.04);
+  });
+
+  it('does not measure the echo in the first moments of a sentence, before it can have come back', () => {
+    const reference = { levelAt: () => aiLevel, settledLevelAt: () => 0 }; // the AI only just started
+    const early = new EnergyVad((speaking) => changes.push(speaking), {}, { reference, now: () => time });
+    early.guarded = true;
+    for (let elapsed = 0; elapsed < 600; elapsed += 10) {
+      early.push(tone(40, elapsed * 16), RATE);
+      time += 10;
+    }
+    expect(early.leakLevel).toBe(0.04); // still the cautious starting level
+    early.close();
   });
 
   it('is easy to trigger again once the AI has stopped', () => {

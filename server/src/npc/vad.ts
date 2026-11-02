@@ -14,6 +14,12 @@ export interface VadOptions {
   hangoverMs: number;
   /** While the AI talks, the person must be this many times louder than the AI's echo in the microphone. Lower: easier to interrupt, more risk of the AI cutting itself off. */
   leakMargin: number;
+  /**
+   * Microphone levels above this, while the AI talks, are taken to be the person and not echo, and are
+   * not used to measure the echo. If the speakers are so loud that the echo itself is louder than this,
+   * raise it (or turn the speakers down).
+   */
+  leakCap: number;
 }
 
 export const DEFAULT_VAD_OPTIONS: VadOptions = {
@@ -25,6 +31,7 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
   guardedStartMs: 120,
   hangoverMs: 500,
   leakMargin: 2,
+  leakCap: 0.06,
 };
 
 /** What the detector needs to know about the AI's own sound. */
@@ -36,6 +43,8 @@ export interface LeakReference {
    * leak is only measured then: just after the AI starts, the microphone has not caught up yet.
    */
   steadyLevelAt?(nowMs: number): number;
+  /** How loud the AI was between the time its echo takes to come back and the longest it can take; 0 if it was silent. */
+  settledLevelAt?(nowMs: number): number;
 }
 
 export interface VadDeps {
@@ -52,21 +61,18 @@ const NOISE_FLOOR_RATE = 0.05;
 
 /** The AI is too quiet to say anything about leakage below this. */
 const REFERENCE_MIN = 0.004;
-/** Until it has been measured, assume the microphone hears the AI at this share of its level: cautious, but not deaf. */
-const LEAK_START = 0.35;
-/**
- * The leak is taken as this percentile of what was measured, not the median: samples taken before
- * the echo has come back are too low, and cutting the AI off on its own echo costs more than
- * needing to speak up a little.
- */
-const LEAK_PERCENTILE = 0.75;
-const LEAK_MAX = 2;
-const LEAK_SAMPLES = 60;
+/** Until the echo has been measured, assume the microphone hears the AI at this level: cautious, but below a person's voice. */
+const LEAK_START_LEVEL = 0.04;
+/** The echo is the loudest of the usual levels measured, not the average: an echo burst should not cut the AI off. */
+const LEAK_PERCENTILE = 0.9;
+/** How many recent frames the measurement covers (10 ms each: about two seconds). */
+const LEAK_SAMPLES = 200;
 const LEAK_MIN_SAMPLES = 20;
-/** Each time the AI starts talking, the last estimate counts for this many samples: a hint, not a verdict. */
-const LEAK_SEED_SAMPLES = 10;
-/** Once the leak is known, a frame this many times louder than expected is a person, not leak: do not learn from it. */
-const LEAK_ADMIT = 1.6;
+/**
+ * The echo is never taken to be quieter than this, however quiet the microphone was: if the first
+ * measurement is too low the AI cuts itself off on its own echo, and then never learns better.
+ */
+const LEAK_MIN_LEVEL = 0.02;
 const PEAK_MEMORY_MS = 5000;
 /** Speech needs `startMs` of loud audio within this many times `startMs`: at least half of it, so syllable valleys pass. */
 const START_WINDOW = 2;
@@ -81,7 +87,7 @@ export function rmsLevel(samples: Int16Array): number {
 
 function percentile(values: number[], share: number): number {
   const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))] ?? LEAK_START;
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))] ?? LEAK_START_LEVEL;
 }
 
 /**
@@ -105,7 +111,7 @@ export class EnergyVad {
   private readonly options: VadOptions;
   private readonly reference: LeakReference | undefined;
   private readonly now: () => number;
-  private leakRatios: number[] = [];
+  private leakLevels: number[] = [];
   private lastReference = 0;
   private recent: Array<{ at: number; level: number }> = [];
 
@@ -129,17 +135,15 @@ export class EnergyVad {
   }
 
   set guarded(on: boolean) {
-    if (on && !this.guard) {
-      // A new stretch of AI talking. Speakers, volume or the person's position may have changed
-      // since the last one, so the old estimate only seeds this one; it is soon outvoted.
-      this.leakRatios = this.leakRatios.length >= LEAK_MIN_SAMPLES ? new Array<number>(LEAK_SEED_SAMPLES).fill(this.leakRatio) : [];
-    }
+    // The measured echo level is kept between stretches of AI talking: the speakers and room do not change.
     this.guard = on;
   }
 
-  /** How loud the microphone hears the AI, as a share of how loud the AI is; learned while it talks. */
-  get leakRatio(): number {
-    return this.leakRatios.length >= LEAK_MIN_SAMPLES ? Math.min(LEAK_MAX, percentile(this.leakRatios, LEAK_PERCENTILE)) : LEAK_START;
+  /** How loud the AI's echo is in the microphone, from what the microphone carried while the AI played. */
+  get leakLevel(): number {
+    return this.leakLevels.length >= LEAK_MIN_SAMPLES
+      ? Math.max(LEAK_MIN_LEVEL, percentile(this.leakLevels, LEAK_PERCENTILE))
+      : LEAK_START_LEVEL;
   }
 
   /** How loud the AI was a moment ago, as the detector sees it; 0 when it is quiet or there is no reference. */
@@ -162,7 +166,8 @@ export class EnergyVad {
     const { minLevel, guardedMinLevel, noiseRatio, guardedNoiseRatio } = this.options;
     if (!this.guarded) return Math.max(minLevel, this.noiseFloor * noiseRatio);
     if (this.reference === undefined) return Math.max(guardedMinLevel, this.noiseFloor * guardedNoiseRatio);
-    return Math.max(minLevel, this.noiseFloor * guardedNoiseRatio, reference * this.leakRatio * this.options.leakMargin);
+    const { leakMargin } = this.options;
+    return Math.max(minLevel, this.noiseFloor * guardedNoiseRatio, this.leakLevel * leakMargin);
   }
 
   /** Feed the next block of mono samples, of any length. */
@@ -177,17 +182,13 @@ export class EnergyVad {
 
     const reference = this.guarded && this.reference !== undefined ? this.reference.levelAt(at) : 0;
     this.lastReference = reference;
-    const steady = this.guarded ? (this.reference?.steadyLevelAt?.(at) ?? reference) : 0;
-    if (!this.speaking && steady > REFERENCE_MIN) {
-      // While the AI talks and nobody has been declared talking over it, the microphone is hearing the
-      // leak. A person starting to talk over it is not the leak, so frames far louder than expected
-      // are left out; otherwise the estimate would rise with their voice and talk them out of the room.
-      const ratio = level / steady;
-      const known = this.leakRatios.length >= LEAK_MIN_SAMPLES;
-      if (!known || ratio <= this.leakRatio * LEAK_ADMIT) {
-        this.leakRatios.push(ratio);
-        if (this.leakRatios.length > LEAK_SAMPLES) this.leakRatios.shift();
-      }
+    // Only measure once the echo of what the AI played has had time to come back, not in the first moments of a sentence.
+    const settled = this.guarded ? (this.reference?.settledLevelAt?.(at) ?? reference) : 0;
+    if (this.guarded && !this.speaking && settled > REFERENCE_MIN && level <= this.options.leakCap) {
+      // The AI was playing a moment ago and nobody is declared talking: the microphone is hearing the echo.
+      // Anything louder than the cap is a person starting to talk, not echo, and is left out.
+      this.leakLevels.push(level);
+      if (this.leakLevels.length > LEAK_SAMPLES) this.leakLevels.shift();
     }
     const threshold = this.thresholdFor(reference);
 
