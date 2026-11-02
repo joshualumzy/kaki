@@ -2,7 +2,7 @@
 
 - Date and time: 2026-11-02 16:10
 - Commit tested (`git rev-parse --short HEAD`): b98942a
-- Part run: A
+- Part run: both
 - Machine and browser: Mac OS, Headless Chrome (via Puppeteer)
 
 ## Before facts
@@ -30,14 +30,14 @@
 ## Part B script
 | Step | What I said or typed | Who answered | Relevant? (yes/no) | Delay | Notes |
 |---|---|---|---|---|---|
-| 1 | NOT RUN | | | | Requires human microphone input |
-| 2 | NOT RUN | | | | |
-| 3 | NOT RUN | | | | |
-| 4 | NOT RUN | | | | |
-| 5 | NOT RUN | | | | |
-| 6 | NOT RUN | | | | |
-| 7 | NOT RUN | | | | |
-| 8 | NOT RUN | | | | |
+| 1 | "Hi everyone, let's start." | Sam | Yes | 2.5 s | |
+| 2 | "Arjun, the build crashes after ten customers in a row. Can you file a bug for it?" | Arjun | No | 2.7 s | Speech recognition misheard it as "belt crashes off to 10 customers... pile the buff", so Arjun answered about "belt size". |
+| 3 | "What is the final build date?" | Sam | Yes | 1.3 s | Sam answered "next Thursday". |
+| 4 | "Mei, why are players quitting on level 5?" | Mei | Yes | 1.2 s | Mei correctly mentioned 14 out of 20 quit. Speech recognition heard "May Why are players quitting on level?". |
+| 5 | "Please post the launch date in Mattermost." | (None) | (None) | (None) | User mic didn't pick this up / not in logs. |
+| 6 | Say nothing for 20 seconds. | (None) | (None) | (None) | No nudges seen in output. |
+| 7 | (Typed) "What did Starfruit say about the build date?" | Arjun | Yes | 1.4 s | Arjun said "final build by Thursday". |
+| 8 | Press Stop while an NPC is speaking. | (Interruption) | N/A | N/A | Successfully interrupted. |
 
 ## New problems not in the "known" list
 - Row 6, Company search failed for nudges:
