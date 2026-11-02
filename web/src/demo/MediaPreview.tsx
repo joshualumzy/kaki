@@ -100,13 +100,15 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void): numbe
 }
 
 const round: CSSProperties = {
-  width: '48px',
-  height: '48px',
+  width: '46px',
+  height: '46px',
   borderRadius: '50%',
-  border: 'none',
   cursor: 'pointer',
-  fontSize: '20px',
   color: 'white',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transition: 'background-color 120ms, filter 120ms',
 };
 
 function MicIcon({ off }: { off: boolean }) {
@@ -149,14 +151,15 @@ export function MediaPreview({ value, onChange, onProblem }: MediaPreviewProps) 
   }
 
   return (
-    <div style={{ marginBottom: '24px' }}>
+    <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
       <div
         style={{
           position: 'relative',
           aspectRatio: '16 / 9',
-          backgroundColor: '#0f172a',
-          border: '1px solid #334155',
-          borderRadius: '8px',
+          background: 'linear-gradient(160deg, #0b1224, #111a33)',
+          border: '1px solid rgba(148, 163, 184, 0.18)',
+          borderRadius: '16px',
+          boxShadow: 'inset 0 0 60px rgba(34, 211, 238, 0.05)',
           overflow: 'hidden',
           display: 'flex',
           alignItems: 'center',
@@ -178,27 +181,29 @@ export function MediaPreview({ value, onChange, onProblem }: MediaPreviewProps) 
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
         <button
           type="button"
+          className="join-toggle"
           aria-label="Microphone"
           aria-pressed={value.microphone}
           title={value.microphone ? 'Turn the microphone off' : 'Turn the microphone on'}
           onClick={() => toggle('microphone')}
-          style={{ ...round, backgroundColor: value.microphone ? '#334155' : '#b91c1c' }}
+          style={{ ...round, backgroundColor: value.microphone ? 'rgba(51, 65, 85, 0.75)' : 'rgba(220, 38, 38, 0.9)', border: value.microphone ? '1px solid rgba(148,163,184,0.3)' : '1px solid transparent' }}
         >
           <MicIcon off={!value.microphone} />
         </button>
         <button
           type="button"
+          className="join-toggle"
           aria-label="Camera"
           aria-pressed={value.camera}
           title={value.camera ? 'Turn the camera off' : 'Turn the camera on'}
           onClick={() => toggle('camera')}
-          style={{ ...round, backgroundColor: value.camera ? '#334155' : '#b91c1c' }}
+          style={{ ...round, backgroundColor: value.camera ? 'rgba(51, 65, 85, 0.75)' : 'rgba(220, 38, 38, 0.9)', border: value.camera ? '1px solid rgba(148,163,184,0.3)' : '1px solid transparent' }}
         >
           <CameraIcon off={!value.camera} />
         </button>
         <div style={{ flex: 1 }}>
           <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>
-            {value.microphone ? 'Say something to test your microphone' : 'Microphone is off: you will type to the AI attendees'}
+            {value.microphone ? 'Say something to test your microphone' : 'Microphone off: you will type to the AI attendees'}
           </div>
           <div
             role="meter"
@@ -206,9 +211,20 @@ export function MediaPreview({ value, onChange, onProblem }: MediaPreviewProps) 
             aria-valuemin={0}
             aria-valuemax={1}
             aria-valuenow={Number(level.toFixed(2))}
-            style={{ height: '6px', backgroundColor: '#0f172a', borderRadius: '3px', overflow: 'hidden' }}
+            style={{ display: 'flex', gap: '3px' }}
           >
-            <div style={{ width: `${Math.round(level * 100)}%`, height: '100%', backgroundColor: '#22c55e', transition: 'width 80ms linear' }} />
+            {Array.from({ length: 20 }, (_, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: '8px',
+                  borderRadius: '2px',
+                  backgroundColor: level * 20 > i ? (i > 15 ? '#f59e0b' : '#22d3ee') : 'rgba(148, 163, 184, 0.18)',
+                  transition: 'background-color 60ms',
+                }}
+              />
+            ))}
           </div>
         </div>
       </div>
