@@ -6,3 +6,6 @@ dist/
 !.env.example
 *.log
 .vite/
+
+# Recordings of what the server heard (NPC_DEBUG_AUDIO_DIR), which contain a person's voice
+npc-audio/
