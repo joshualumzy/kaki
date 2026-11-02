@@ -22,7 +22,7 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
   noiseRatio: 4,
   guardedNoiseRatio: 6,
   startMs: 120,
-  guardedStartMs: 180,
+  guardedStartMs: 120,
   hangoverMs: 500,
   leakMargin: 2,
 };

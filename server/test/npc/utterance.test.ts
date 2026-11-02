@@ -102,3 +102,19 @@ describe('UtteranceRecorder', () => {
     expect(sessions[0]!.cancelled).toBe(true);
   });
 });
+
+describe('UtteranceRecorder debug audio', () => {
+  it('hands over everything it sent, pre-roll included, in order', () => {
+    const heard: Int16Array[] = [];
+    const recorder = new UtteranceRecorder({ start: () => ({ push: () => undefined, finish: async () => '', cancel: () => undefined }) }, {
+      sampleRate: RATE, prerollMs: 300, minMs: 200, onText: () => undefined, onAudio: (samples) => heard.push(samples),
+    });
+    recorder.push(block(300, 1));
+    recorder.speaking(true);
+    recorder.push(block(100, 2));
+    recorder.speaking(false);
+    expect(heard).toHaveLength(1);
+    expect(heard[0]?.length).toBe(400);
+    expect([heard[0]?.[0], heard[0]?.[399]]).toEqual([1, 2]);
+  });
+});

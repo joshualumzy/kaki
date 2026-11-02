@@ -55,6 +55,8 @@ export interface RunnerOptions {
   speakerGapMs?: number;
   /** Recognise the person's speech on the server, from their echo-cancelled microphone track; without it, the browser's recognition is used. */
   recognizer?: Recognizer;
+  /** Receives each stretch of audio sent to the recogniser, to save it for listening. */
+  debugAudio?(samples: Int16Array): void;
   vad?: Partial<VadOptions>;
   log?(message: string): void;
   /** Log the voice detector's levels twice a second while the AI talks, for tuning. */
@@ -243,6 +245,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         : new UtteranceRecorder(options.recognizer, {
             sampleRate: SAMPLE_RATE,
             log,
+            onAudio: options.debugAudio,
             onText: (text) => {
               log(`recognised "${text}"`);
               conversation?.humanText(text);

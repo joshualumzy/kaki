@@ -24,6 +24,8 @@ export interface UtteranceRecorderOptions {
   /** Recognised text, in the order the speech happened. */
   onText(text: string): void;
   log?(message: string): void;
+  /** Every stretch of audio sent for recognition, for diagnosing what the server heard. */
+  onAudio?(samples: Int16Array): void;
 }
 
 /**
@@ -41,6 +43,7 @@ export class UtteranceRecorder {
   private prerollSamples = 0;
   private session: SttSession | undefined;
   private sentSamples = 0;
+  private sent: Int16Array[] = [];
   private chain: Promise<void> = Promise.resolve();
 
   constructor(
@@ -77,6 +80,7 @@ export class UtteranceRecorder {
       if (this.session !== undefined) return;
       this.session = this.recognizer.start();
       this.sentSamples = 0;
+      this.sent = [];
       for (const block of this.preroll) this.send(block);
       this.preroll = [];
       this.prerollSamples = 0;
@@ -93,6 +97,7 @@ export class UtteranceRecorder {
 
   private send(samples: Int16Array): void {
     this.sentSamples += samples.length;
+    if (this.options.onAudio !== undefined) this.sent.push(samples);
     this.session?.push(samples);
   }
 
@@ -101,6 +106,13 @@ export class UtteranceRecorder {
     if (session === undefined) return;
     this.session = undefined;
     const sentMs = (this.sentSamples / this.options.sampleRate) * 1000;
+    if (this.options.onAudio !== undefined && this.sent.length > 0) {
+      const all = new Int16Array(this.sentSamples);
+      let at = 0;
+      for (const block of this.sent) (all.set(block, at), (at += block.length));
+      this.options.onAudio(all);
+    }
+    this.sent = [];
     if (sentMs < this.minMs) {
       session.cancel();
       return;

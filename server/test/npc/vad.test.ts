@@ -77,9 +77,9 @@ describe('EnergyVad', () => {
     feed(LEAK, 2000);
     expect(changes).toEqual([]);
 
-    feed(SPEECH, 150);
-    expect(changes).toEqual([]);
     feed(SPEECH, 100);
+    expect(changes).toEqual([]);
+    feed(SPEECH, 50);
     expect(changes).toEqual([true]);
   });
 

@@ -3,6 +3,9 @@ import '../env';
 import { llmFromEnv } from '../llm';
 import { aiCast } from '@kaki/shared';
 import { loadScenario } from '../loadScenario';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
@@ -89,6 +92,17 @@ function postTranscript(speaker: string, text: string): void {
     .catch((error: unknown) => complain(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
 }
 
+// NPC_DEBUG_AUDIO_DIR=some/folder saves every stretch of your speech that was sent to Azure as a WAV file,
+// named by time like the log lines, so you can listen to exactly what the server heard.
+const debugAudioDir = process.env.NPC_DEBUG_AUDIO_DIR || undefined;
+if (debugAudioDir !== undefined) mkdirSync(debugAudioDir, { recursive: true });
+function debugAudio(samples: Int16Array): void {
+  if (debugAudioDir === undefined) return;
+  const file = join(debugAudioDir, `${new Date().toISOString().slice(11, 23).replace(/[:.]/g, '-')}.wav`);
+  writeFileSync(file, encodeWav(samples, 16000));
+  log(`saved ${(samples.length / 16000).toFixed(1)} s of what the server heard: ${file}`);
+}
+
 const vad: Partial<VadOptions> = {
   minLevel: numberEnv('NPC_VAD_MIN_LEVEL', DEFAULT_VAD_OPTIONS.minLevel),
   guardedMinLevel: numberEnv('NPC_VAD_GUARDED_MIN_LEVEL', DEFAULT_VAD_OPTIONS.guardedMinLevel),
@@ -106,6 +120,7 @@ const runner = await startNpcRunner({
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', DEFAULT_RESPONSE_DELAY_MS),
   recognizer,
+  debugAudio: debugAudioDir === undefined ? undefined : debugAudio,
   speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',

@@ -164,6 +164,15 @@ cancelled-answer retry worked. Remaining: addressing "Hey, Sam." / "Sam." was de
 answered, because the model treated the hint as optional. The hint now says "Begin your reply with `Sam:`" and what to do
 for a bare name. Also logs `speech recognition heard nothing in N s of audio` when Azure returns nothing.
 
+**Fourth report:** interruptions sometimes need "a short tick" and what is said right after an interruption is
+sometimes not registered. Not diagnosed. Hypotheses: the start needed 180 ms of loud speech on top of a raised bar
+(now 120 ms, `NPC_VAD_GUARDED_START_MS`); and the browser's echo cancellation can distort or partly suppress the
+person's voice while the AI is playing (double-talk), so Azure gets chopped audio (at 23:58:28, 3 s of speech after
+a barge-in returned nothing). **To find out:** run with `NPC_DEBUG_AUDIO_DIR=npc-audio` and `NPC_DEBUG_VAD=1`; each
+stretch sent to Azure is saved as a WAV file named by time like the log lines, so you can listen to what the
+server heard, especially for speech that started over an AI. If it is chopped, the fix is headphones or lower speaker
+volume, not code.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one
