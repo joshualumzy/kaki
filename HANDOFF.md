@@ -202,6 +202,18 @@ sounds reached the microphone. The page no longer runs it unless opened as `/dem
 Also: when recognition reports a stretch held no words, the AI carries on after 0.4 s (`humanNothing`), not 1.8 s. If the sound is still
 there with the page's recognition off, look at the OS (a notification or system sound) or the microphone's own processing.
 
+## Done: typing, Stop, and a typing guard
+
+`/demo` has a type bar under the video grid (`web/src/demo/TypeBar.tsx`): type and press Enter to talk to the AI attendees
+without speaking (it works in a noisy room and is the fallback when the audio path misbehaves), and a Stop button and the Escape
+key silence them. They go over a new data topic `kaki.control` (`ControlMessage` in `shared/src/demo.ts`). Typed text skips the
+echo and voice checks (`humanTyped`), interrupts an answer like speech does, and shows in the transcript as the person. Stop
+(`stop()`) interrupts and clears everything, so nothing carries on or retries until the next thing said or typed. While keys are
+being pressed (a `typing` signal at most every 400 ms, honoured for 1.5 s), the runner ignores a short sound in the microphone
+instead of treating it as a cut-in (log: `ignored a sound from ... while they were typing`), because the keyboard sits next to the
+microphone. Not tried live. Voice tuning is parked here by agreement: remaining odd cut-ins (a short sound while an AI talks, not the
+person, not the AI) are covered by carrying on after 0.4 s; headphones remove the cause.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

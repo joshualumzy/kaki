@@ -6,6 +6,32 @@ export const STT_TOPIC = 'kaki.stt';
 /** LiveKit data topic on which the AI attendees say what they are doing (thinking, speaking, ...). */
 export const NPC_STATE_TOPIC = 'kaki.npc-state';
 
+/** LiveKit data topic on which the browser sends what the person types, and "typing" and "stop" signals. */
+export const CONTROL_TOPIC = 'kaki.control';
+
+/** Longest typed message the AI attendees accept. */
+export const MAX_TYPED_LENGTH = 500;
+
+/** What the browser sends on {@link CONTROL_TOPIC}. */
+export type ControlMessage =
+  | { kind: 'text'; text: string }
+  /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
+  | { kind: 'typing' }
+  /** The person wants the AI attendees to stop talking now. */
+  | { kind: 'stop' };
+
+/** A control message from the wire, or `undefined` when it is not a valid one. */
+export function parseControlMessage(raw: unknown): ControlMessage | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const message = raw as { kind?: unknown; text?: unknown };
+  if (message.kind === 'typing' || message.kind === 'stop') return { kind: message.kind };
+  if (message.kind === 'text' && typeof message.text === 'string') {
+    const text = message.text.trim().slice(0, MAX_TYPED_LENGTH);
+    return text.length > 0 ? { kind: 'text', text } : undefined;
+  }
+  return undefined;
+}
+
 /** What the browser sends on {@link STT_TOPIC}: one finished piece of recognised speech. */
 export interface SttMessage {
   text: string;

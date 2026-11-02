@@ -154,6 +154,27 @@ export class NpcConversation<Clip> {
     return this.turn !== undefined;
   }
 
+  /** The person typed something: it goes straight in, with no check that it is a voice and not an echo. */
+  humanTyped(text: string): void {
+    const typed = text.trim();
+    if (this.closed || typed.length === 0) return;
+    this.ports.log?.(`typed "${typed}"`);
+    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
+    this.pending.push(typed);
+    this.interrupt('the person typed something');
+    this.scheduleRespond();
+  }
+
+  /** The person pressed Stop: everyone goes quiet and nothing is picked up again until they say or type something. */
+  stop(): void {
+    if (this.closed) return;
+    this.clearRespondTimer();
+    this.pending = [];
+    this.interrupt('the person pressed stop');
+    this.unanswered = false;
+    this.cutOff = false;
+  }
+
   /** Speech recognition heard nothing in the last stretch of the person's microphone: it was not words. */
   humanNothing(): void {
     if (this.closed || this.humanTalking || this.pending.length > 0 || !(this.cutOff || this.unanswered)) return;

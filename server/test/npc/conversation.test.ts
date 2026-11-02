@@ -503,4 +503,45 @@ describe('NpcConversation', () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(h.calls).toHaveLength(2);
   });
+
+  it('answers typed text without any voice behind it, and puts it in the transcript', async () => {
+    const h = harness();
+    h.conversation.humanTyped('  What is the status?  ');
+    await vi.advanceTimersByTimeAsync(900);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0]?.messages.at(-1)).toEqual({ role: 'user', content: 'What is the status?' });
+    expect(h.transcript[0]).toEqual(['Ada (Chef)', 'What is the status?']);
+    h.conversation.humanTyped('   ');
+    await vi.advanceTimersByTimeAsync(900);
+    expect(h.calls).toHaveLength(1);
+  });
+
+  it('typing over an answer stops it, like speaking over it', async () => {
+    const h = harness();
+    await h.say('Hello team.');
+    h.calls[0]?.push('Ada: One. Two.');
+    h.calls[0]?.end();
+    await h.flush();
+    expect(h.playing).toHaveLength(1);
+    h.conversation.humanTyped('Wait.');
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(h.calls).toHaveLength(2);
+  });
+
+  it('goes quiet on Stop and stays quiet: no carrying on, no retry', async () => {
+    const h = harness();
+    await h.say('Hello team.');
+    h.calls[0]?.push('Ada: One. Two.');
+    h.calls[0]?.end();
+    await h.flush();
+    h.conversation.stop();
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(h.calls).toHaveLength(1);
+    expect(h.states.at(-1)).toEqual({ kind: 'idle' });
+    // And it still answers the next thing said.
+    await h.say('Thanks.');
+    expect(h.calls).toHaveLength(2);
+  });
 });

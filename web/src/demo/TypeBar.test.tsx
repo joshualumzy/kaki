@@ -1,0 +1,51 @@
+/**
+ * @vitest-environment jsdom
+ */
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TypeBar } from './TypeBar';
+
+afterEach(cleanup);
+
+function setup() {
+  const send = vi.fn();
+  render(<TypeBar send={send} />);
+  return { send, input: screen.getByLabelText('Type to the meeting') as HTMLInputElement };
+}
+
+describe('TypeBar', () => {
+  it('sends what is typed on Enter, trimmed, and clears the box', () => {
+    const { send, input } = setup();
+    fireEvent.change(input, { target: { value: '  What is the status?  ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(send).toHaveBeenCalledWith({ kind: 'text', text: 'What is the status?' });
+    expect(input.value).toBe('');
+  });
+
+  it('sends nothing for an empty message, and Send is disabled', () => {
+    const { send, input } = setup();
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(send).not.toHaveBeenCalled();
+    expect((screen.getByText('Send') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('tells the server that keys are being pressed, but not on every key', () => {
+    vi.useFakeTimers();
+    const { send, input } = setup();
+    for (let key = 0; key < 5; key += 1) fireEvent.keyDown(input, { key: 'a' });
+    expect(send.mock.calls.filter(([message]) => message.kind === 'typing')).toHaveLength(1);
+    vi.advanceTimersByTime(500);
+    fireEvent.keyDown(input, { key: 'b' });
+    expect(send.mock.calls.filter(([message]) => message.kind === 'typing')).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
+  it('stops the AI attendees from the button and from Escape anywhere on the page', () => {
+    const { send } = setup();
+    fireEvent.click(screen.getByText('Stop'));
+    expect(send).toHaveBeenLastCalledWith({ kind: 'stop' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(send.mock.calls.filter(([message]) => message.kind === 'stop')).toHaveLength(2);
+  });
+});

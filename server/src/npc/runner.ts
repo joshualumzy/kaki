@@ -14,7 +14,9 @@ import {
   aiCast,
   demoRoomName,
   humanAttendeeForRole,
+  CONTROL_TOPIC,
   NPC_STATE_TOPIC,
+  parseControlMessage,
   STT_TOPIC,
   type NpcProfile,
   type NpcStateMessage,
@@ -188,6 +190,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
   const humans = new Map<string, Person>();
   let closing = false;
+  /** While keys are being pressed, a short sound in the microphone is more likely the keyboard than speech. */
+  const TYPING_QUIET_MS = 1500;
+  let typingUntil = 0;
+  const suppressed = new Set<string>();
 
   /** Make the room match the people in it: everyone but their seats, and a conversation for exactly that cast. */
   let castQueue: Promise<void> = Promise.resolve();
@@ -254,6 +260,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           });
     const vad: EnergyVad = new EnergyVad(
       (speaking) => {
+        if (speaking && Date.now() < typingUntil) {
+          // Typing: the sound is probably a key press. Not speech, not a cut-in; its end is ignored too.
+          suppressed.add(identity);
+          log(`ignored a sound from ${identity} while they were typing`);
+          return;
+        }
+        if (!speaking && suppressed.delete(identity)) return;
         if (speaking) talking.add(identity);
         else talking.delete(identity);
         log(
@@ -313,6 +326,26 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     void listenTo(track, participant.identity);
   });
   room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
+    if (topic === CONTROL_TOPIC && participant !== undefined && !npcNames.has(participant.identity)) {
+      let message: ReturnType<typeof parseControlMessage>;
+      try {
+        message = parseControlMessage(JSON.parse(new TextDecoder().decode(payload)));
+      } catch {
+        message = undefined;
+      }
+      if (message === undefined) {
+        log('ignored a malformed control message');
+      } else if (message.kind === 'typing') {
+        typingUntil = Date.now() + TYPING_QUIET_MS;
+      } else if (message.kind === 'stop') {
+        log(`${participant.identity} pressed stop`);
+        conversation?.stop();
+      } else {
+        typingUntil = Date.now() + TYPING_QUIET_MS;
+        conversation?.humanTyped(message.text);
+      }
+      return;
+    }
     if (topic !== STT_TOPIC || participant === undefined || npcNames.has(participant.identity)) return;
     // With server-side recognition the browser's text is not used: it hears the speakers, not the echo-cancelled track.
     if (options.recognizer !== undefined) return;

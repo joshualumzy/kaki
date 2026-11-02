@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiCast, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { aiCast, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -49,5 +49,18 @@ describe('demo meeting helpers', () => {
       roles: testScenario.roles.map((role) => (role.id === 'chef' ? { ...role, facilitator: true } : role)),
     };
     expect(humanRoles(scenario).map((role) => role.id)).toEqual(['cashier']);
+  });
+
+  it('reads control messages from the wire, and refuses anything else', () => {
+    expect(parseControlMessage({ kind: 'stop' })).toEqual({ kind: 'stop' });
+    expect(parseControlMessage({ kind: 'typing', extra: 1 })).toEqual({ kind: 'typing' });
+    expect(parseControlMessage({ kind: 'text', text: '  hello  ' })).toEqual({ kind: 'text', text: 'hello' });
+    expect(parseControlMessage({ kind: 'text', text: 'x'.repeat(MAX_TYPED_LENGTH + 50) })).toEqual({
+      kind: 'text',
+      text: 'x'.repeat(MAX_TYPED_LENGTH),
+    });
+    for (const bad of [null, 'stop', 3, {}, { kind: 'text' }, { kind: 'text', text: '   ' }, { kind: 'text', text: 5 }, { kind: 'jump' }]) {
+      expect(parseControlMessage(bad)).toBeUndefined();
+    }
   });
 });

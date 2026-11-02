@@ -12,6 +12,7 @@ import {
 import { Track } from 'livekit-client';
 import { NPC_STATE_TOPIC, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
+import { ConnectedTypeBar } from './TypeBar';
 import { captionFor, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
 
 interface Stage {
@@ -120,6 +121,7 @@ export function MeetingGrid({ role }: { role: string }) {
             <CaptionedTile />
           </GridLayout>
         </div>
+        <ConnectedTypeBar />
         <ControlBar controls={{ camera: false, screenShare: false, chat: false }} />
         <RoomAudioRenderer />
         <style>{'@keyframes kaki-pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }'}</style>
