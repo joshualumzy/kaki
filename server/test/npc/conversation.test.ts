@@ -432,7 +432,7 @@ describe('NpcConversation', () => {
     expect(logs.some((line) => line.includes('answering again'))).toBe(true);
   });
 
-  it('does not answer again when the person spoke over a real answer, or when new words arrive', async () => {
+  it('answers a cancelled answer once, and not at all when new words arrive instead', async () => {
     const h = harness();
     await h.say('Hello team.');
     h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
@@ -442,7 +442,9 @@ describe('NpcConversation', () => {
     h.conversation.humanSpeech(true);
     h.conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(h.calls).toHaveLength(1);
+    expect(h.calls).toHaveLength(2); // they carry on once, after a pause, and not again
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(h.calls).toHaveLength(2);
 
     const second = harness();
     await second.say('First question.');
@@ -451,5 +453,35 @@ describe('NpcConversation', () => {
     second.conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(3000);
     expect(second.calls).toHaveLength(2);
+  });
+
+  it('carries on when the person cuts in but says nothing, and not when words follow', async () => {
+    const h = harness();
+    await h.say('Hello team.');
+    h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
+    h.calls[0]?.end();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['Morning Josh.']);
+
+    // The person makes a sound over it; nothing is recognised.
+    h.conversation.humanSpeech(true);
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(h.calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1]?.messages.at(-1)?.content).toContain('made a sound but said nothing');
+    expect(h.logs.some((line) => line.includes('carrying on'))).toBe(true);
+
+    // This time they say something: that is answered, with no "carry on" note.
+    h.calls[1]?.push('Ada: Sure.');
+    h.calls[1]?.end();
+    await h.flush();
+    h.conversation.humanSpeech(true);
+    h.conversation.humanText('Actually, wait.');
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(h.calls).toHaveLength(3);
+    expect(h.calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: 'Actually, wait.' });
   });
 });

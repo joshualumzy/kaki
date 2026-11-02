@@ -187,6 +187,14 @@ Not seen yet with the real room. Unexplained in that log: at 11:02 the detector 
 longer hide a start or stop from the conversation) and logs `ignored the person starting to talk: already marked as talking`
 if a stop was missed.
 
+**Sixth report:** cutting in works (five cut-ins at mic peaks of 0.12 to 0.20 against bars of 0.04 to 0.09). Two cut-ins
+ended with `heard nothing in 0.9 s / 1.0 s of audio`, the AI went silent and nobody continued for several seconds ("Arjun keeps
+getting cut off"). Whether those were the person's short sounds or echo is not known: the saved WAVs at
+`npc-audio/00-28-05-924.wav` and `00-28-40-704.wav` would say. Either way, the conversation now carries on: if the person
+cuts in over something being said and nothing recognisable follows within `DEFAULT_RESUME_MS` (1.8 s), the AI resumes from where it was cut off
+(log: `the person cut in but said nothing recognisable: carrying on`). If the WAVs turn out to be echo, raise `NPC_VAD_LEAK_MARGIN` or
+`NPC_VAD_GUARDED_START_MS`.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

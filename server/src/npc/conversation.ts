@@ -29,6 +29,9 @@ export const DEFAULT_RESPONSE_DELAY_MS = 300;
 /** Pause when one character finishes and a different one starts, so it sounds like people taking turns. */
 export const DEFAULT_SPEAKER_GAP_MS = 700;
 
+/** The person cut an AI attendee off but said nothing recognisable; they carry on after this long. */
+export const DEFAULT_RESUME_MS = 1800;
+
 /** An answer cancelled before anything was said, with nothing new from the person, is retried after this long. */
 export const DEFAULT_RETRY_MS = 1500;
 
@@ -40,6 +43,8 @@ export interface ConversationOptions {
   speakerGapMs?: number;
   /** See {@link DEFAULT_RETRY_MS}. */
   retryMs?: number;
+  /** See {@link DEFAULT_RESUME_MS}. */
+  resumeMs?: number;
   /** How many past messages the Director sees. */
   maxHistory?: number;
   gate?: SpeechGate;
@@ -70,6 +75,7 @@ class SentenceQueue<Item> implements AsyncIterable<Item> {
   close(): void {
     this.closed = true;
     this.unanswered = false;
+    this.cutOff = false;
     this.wake();
   }
 
@@ -106,6 +112,9 @@ export class NpcConversation<Clip> {
   private readonly responseDelayMs: number;
   private readonly speakerGapMs: number;
   private readonly retryMs: number;
+  private readonly resumeMs: number;
+  /** The person cut something off that was being said aloud, and nothing recognisable has followed. */
+  private cutOff = false;
   /** The last thing the person said was cut off before any answer was spoken. */
   private unanswered = false;
   private lastText = '';
@@ -127,6 +136,7 @@ export class NpcConversation<Clip> {
     this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
     this.speakerGapMs = options.speakerGapMs ?? DEFAULT_SPEAKER_GAP_MS;
     this.retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
+    this.resumeMs = options.resumeMs ?? DEFAULT_RESUME_MS;
     this.maxHistory = options.maxHistory ?? 30;
     if (this.names.length === 0) throw new Error(`Scenario "${options.scenario.id}" has no npcs`);
   }
@@ -203,6 +213,15 @@ export class NpcConversation<Clip> {
   private scheduleRespond(): void {
     if (this.humanTalking) return;
     if (this.pending.length === 0) {
+      // The person cut in but no words came (a cough, a click, a word the recogniser missed): carry on.
+      if (this.cutOff && !this.closed) {
+        this.clearRespondTimer();
+        this.respondTimer = setTimeout(() => {
+          this.respondTimer = undefined;
+          if (!this.humanTalking && !this.closed && this.cutOff && this.pending.length === 0) this.resume();
+        }, this.resumeMs);
+        return;
+      }
       // Something cut the answer off (a cough, a click) and the person said nothing more: answer anyway.
       if (this.unanswered && !this.closed) {
         this.clearRespondTimer();
@@ -226,6 +245,7 @@ export class NpcConversation<Clip> {
     if (text.length === 0) return;
     this.interrupt('a new turn started');
     this.unanswered = false;
+    this.cutOff = false;
     this.lastText = text;
 
     // On a retry the question is already in the history.
@@ -245,12 +265,23 @@ export class NpcConversation<Clip> {
     });
   }
 
+  /** Carry on from where the person cut in without saying anything. */
+  private resume(): void {
+    this.cutOff = false;
+    const who = this.human?.name ?? 'The person';
+    this.ports.log?.('the person cut in but said nothing recognisable: carrying on');
+    this.lastText = `[${who} made a sound but said nothing. Carry on from where you were cut off, briefly, without mentioning it.]`;
+    this.history.push({ role: 'user', content: this.lastText });
+    this.startTurn(true);
+  }
+
   /** Stop the current turn, if any, and keep in the history only what was heard of it. */
   private interrupt(reason: string): void {
     const turn = this.turn;
     if (turn === undefined || turn.finalized) return;
     this.ports.log?.(`interrupted: ${reason}`);
     if (turn.spoken.length === 0) this.unanswered = true;
+    else if (reason === 'the person started talking') this.cutOff = true;
     turn.aborted = true;
     this.finalize(turn);
     this.turn = undefined;
