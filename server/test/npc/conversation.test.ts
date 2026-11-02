@@ -484,4 +484,23 @@ describe('NpcConversation', () => {
     expect(h.calls).toHaveLength(3);
     expect(h.calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: 'Actually, wait.' });
   });
+
+  it('carries on quickly when recognition says a cut-in held no words', async () => {
+    const h = harness();
+    await h.say('Hello team.');
+    h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
+    h.calls[0]?.end();
+    await h.flush();
+    h.conversation.humanSpeech(true);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.calls).toHaveLength(2);
+    // Nothing to carry on from when no answer was cut off.
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.calls).toHaveLength(2);
+  });
 });

@@ -118,3 +118,19 @@ describe('UtteranceRecorder debug audio', () => {
     expect([heard[0]?.[0], heard[0]?.[399]]).toEqual([1, 2]);
   });
 });
+
+describe('UtteranceRecorder nothing heard', () => {
+  it('says so when recognition returns no words', async () => {
+    let nothing = 0;
+    const texts: string[] = [];
+    const recorder = new UtteranceRecorder(
+      { start: () => ({ push: () => undefined, finish: async () => '  ', cancel: () => undefined }) },
+      { sampleRate: RATE, prerollMs: 300, minMs: 200, onText: (t) => texts.push(t), onNothing: () => void (nothing += 1) },
+    );
+    recorder.push(block(300));
+    recorder.speaking(true);
+    recorder.speaking(false);
+    await vi.waitFor(() => expect(nothing).toBe(1));
+    expect(texts).toEqual([]);
+  });
+});

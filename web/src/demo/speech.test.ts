@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  browserRecognitionWanted,
   speechRecognitionCtor,
   startRecognizer,
   type SpeechEventLike,
@@ -163,5 +164,15 @@ describe('speechRecognitionCtor', () => {
     expect(speechRecognitionCtor({ SpeechRecognition: FakeRecognition })).toBe(FakeRecognition);
     expect(speechRecognitionCtor({ webkitSpeechRecognition: FakeRecognition })).toBe(FakeRecognition);
     expect(speechRecognitionCtor({})).toBeUndefined();
+  });
+});
+
+describe('browserRecognitionWanted', () => {
+  it('is off unless the page asks for the browser\'s recognition', () => {
+    expect(browserRecognitionWanted('')).toBe(false);
+    expect(browserRecognitionWanted('?lang=en-US')).toBe(false);
+    expect(browserRecognitionWanted('?stt=server')).toBe(false);
+    expect(browserRecognitionWanted('?stt=browser')).toBe(true);
+    expect(browserRecognitionWanted('?lang=en-SG&stt=browser')).toBe(true);
   });
 });

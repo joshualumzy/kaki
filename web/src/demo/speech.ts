@@ -24,6 +24,20 @@ export interface SpeechRecognitionLike {
 
 export type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
+/**
+ * Whether this page should run the browser's own speech recognition. By default the server recognises
+ * the person's speech (NPC_STT=azure), so the page does not: running it too is redundant and Chrome's
+ * recognition can make start-up sounds that the microphone picks up. `/demo?stt=browser` turns it on,
+ * for a server started with NPC_STT=browser.
+ */
+export function browserRecognitionWanted(search: string): boolean {
+  try {
+    return new URLSearchParams(search).get('stt') === 'browser';
+  } catch {
+    return false;
+  }
+}
+
 /** The browser's speech recognition, if it has one (Chrome and Edge do; Firefox does not). */
 export function speechRecognitionCtor(win: object = window): SpeechRecognitionCtor | undefined {
   const holder = win as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };

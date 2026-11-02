@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { STT_TOPIC, type SttMessage } from '@kaki/shared';
-import { speechRecognitionCtor, startRecognizer } from './speech';
+import { browserRecognitionWanted, speechRecognitionCtor, startRecognizer } from './speech';
 
 const chip: CSSProperties = {
   position: 'absolute',
@@ -34,7 +34,8 @@ function recognitionLanguage(): string {
 export function LocalSpeechSTT() {
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
-  const Recognition = useMemo(() => speechRecognitionCtor(), []);
+  const wanted = useMemo(() => browserRecognitionWanted(window.location.search), []);
+  const Recognition = useMemo(() => (wanted ? speechRecognitionCtor() : undefined), [wanted]);
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [problem, setProblem] = useState<string | undefined>();
@@ -60,6 +61,9 @@ export function LocalSpeechSTT() {
     );
   }, [Recognition, isMicrophoneEnabled, room]);
 
+  if (!wanted) {
+    return <div style={chip}>{isMicrophoneEnabled ? '🎙️ The meeting server is listening' : 'Microphone muted: the AI cannot hear you.'}</div>;
+  }
   if (Recognition === undefined) {
     return <div style={chip}>Speech recognition needs Chrome or Edge: the AI cannot hear you in this browser.</div>;
   }

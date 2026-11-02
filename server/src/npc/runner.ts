@@ -246,6 +246,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             sampleRate: SAMPLE_RATE,
             log,
             onAudio: options.debugAudio,
+            onNothing: () => conversation?.humanNothing(),
             onText: (text) => {
               log(`recognised "${text}"`);
               conversation?.humanText(text);

@@ -195,6 +195,13 @@ cuts in over something being said and nothing recognisable follows within `DEFAU
 (log: `the person cut in but said nothing recognisable: carrying on`). If the WAVs turn out to be echo, raise `NPC_VAD_LEAK_MARGIN` or
 `NPC_VAD_GUARDED_START_MS`.
 
+**Seventh report:** the two empty cut-ins were listened to: not the person, not noise, not the AI, "a computer sound like a
+button". Joining shows the same pattern (a start about 0.5 s after `joined`, then `heard nothing`). Hypothesis (unconfirmed):
+the page still ran Chrome's speech recognition, redundant once the server recognises speech, and Chrome's start and restart
+sounds reached the microphone. The page no longer runs it unless opened as `/demo?stt=browser` (needed with `NPC_STT=browser`).
+Also: when recognition reports a stretch held no words, the AI carries on after 0.4 s (`humanNothing`), not 1.8 s. If the sound is still
+there with the page's recognition off, look at the OS (a notification or system sound) or the microphone's own processing.
+
 ## Next: make the room feel like several people (steps 3 and 4 not started)
 
 Feedback after the second live run: it can feel like talking to one AI. Why, from the design: one

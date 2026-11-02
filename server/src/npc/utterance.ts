@@ -26,6 +26,8 @@ export interface UtteranceRecorderOptions {
   log?(message: string): void;
   /** Every stretch of audio sent for recognition, for diagnosing what the server heard. */
   onAudio?(samples: Int16Array): void;
+  /** A stretch of speech was recognised as containing nothing. */
+  onNothing?(): void;
 }
 
 /**
@@ -123,7 +125,10 @@ export class UtteranceRecorder {
       .then((text) => {
         const heard = text.trim();
         if (heard.length > 0) this.options.onText(heard);
-        else this.options.log?.(`speech recognition heard nothing in ${Math.round(sentMs / 100) / 10} s of audio`);
+        else {
+          this.options.log?.(`speech recognition heard nothing in ${Math.round(sentMs / 100) / 10} s of audio`);
+          this.options.onNothing?.();
+        }
       })
       .catch((error: unknown) => this.options.log?.(`speech recognition failed: ${String(error)}`));
   }

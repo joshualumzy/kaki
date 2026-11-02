@@ -32,6 +32,9 @@ export const DEFAULT_SPEAKER_GAP_MS = 700;
 /** The person cut an AI attendee off but said nothing recognisable; they carry on after this long. */
 export const DEFAULT_RESUME_MS = 1800;
 
+/** When speech recognition reports that a cut-in held no words, the AI carries on after this long. */
+export const DEFAULT_NOTHING_MS = 400;
+
 /** An answer cancelled before anything was said, with nothing new from the person, is retried after this long. */
 export const DEFAULT_RETRY_MS = 1500;
 
@@ -149,6 +152,18 @@ export class NpcConversation<Clip> {
   /** True while the AI is thinking or speaking. */
   get busy(): boolean {
     return this.turn !== undefined;
+  }
+
+  /** Speech recognition heard nothing in the last stretch of the person's microphone: it was not words. */
+  humanNothing(): void {
+    if (this.closed || this.humanTalking || this.pending.length > 0 || !(this.cutOff || this.unanswered)) return;
+    this.clearRespondTimer();
+    this.respondTimer = setTimeout(() => {
+      this.respondTimer = undefined;
+      if (this.closed || this.humanTalking || this.pending.length > 0) return;
+      if (this.cutOff) this.resume();
+      else if (this.unanswered) this.startTurn(true);
+    }, DEFAULT_NOTHING_MS);
   }
 
   /** The person's microphone started or stopped carrying speech. */
