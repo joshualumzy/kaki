@@ -4,10 +4,9 @@
 
 body {
   margin: 0;
-  background:
-    radial-gradient(900px 520px at 12% -8%, rgba(61, 245, 192, 0.1), transparent 60%),
-    radial-gradient(800px 520px at 100% 100%, rgba(155, 123, 255, 0.12), transparent 60%),
-    var(--color-bg);
+  background: var(--color-bg);
+  background-image: radial-gradient(rgba(27, 26, 23, 0.09) 1px, transparent 1.2px);
+  background-size: 22px 22px;
   background-attachment: fixed;
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -46,6 +45,7 @@ body {
 .page-header h1 {
   margin: 0;
   font-family: var(--font-display);
+  font-weight: 800;
   font-size: 1.75rem;
   line-height: 1.2;
   letter-spacing: -0.01em;
@@ -58,8 +58,7 @@ body {
 
 .card {
   background: var(--color-surface);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-ink);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   padding: var(--space-4);
@@ -72,32 +71,25 @@ body {
 
 .btn {
   font: inherit;
-  font-weight: 600;
+  font-weight: 700;
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid transparent;
+  border: 2px solid var(--color-ink);
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  box-shadow: 2px 2px 0 var(--color-ink);
+  transition: transform 100ms ease, box-shadow 100ms ease, background 120ms ease;
 }
+.btn:not(:disabled):hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--color-ink); }
+.btn:not(:disabled):active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--color-ink); }
 
 .btn-primary {
-  background: var(--gradient-brand);
-  color: var(--on-accent);
-  box-shadow: 0 8px 26px rgba(61, 245, 192, 0.22);
-}
-
-.btn-primary:hover {
-  filter: brightness(1.08);
+  background: var(--color-accent-bright);
+  color: var(--color-ink);
 }
 
 .btn-ghost {
-  background: transparent;
-  color: var(--color-accent);
-  border-color: var(--color-border);
-}
-
-.btn-ghost:hover {
-  border-color: var(--color-accent);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
 }
 
 .btn:disabled {
@@ -106,7 +98,7 @@ body {
 }
 
 .btn:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 3px solid var(--color-violet);
   outline-offset: 2px;
 }
 
@@ -144,7 +136,7 @@ body {
   margin: 0;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 90, 105, 0.3);
+  border: 2px solid var(--color-danger);
   background: var(--color-danger-soft);
   color: var(--color-danger);
   font-size: 0.9rem;
@@ -250,8 +242,9 @@ body {
   color: var(--color-warning);
 }
 
-.kd-host-clock small { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; letter-spacing: 0.06em; color: var(--color-muted); text-shadow: none; }
-.btn-ghost { color: var(--color-text); }
-.btn-ghost:hover { border-color: var(--color-accent); color: var(--color-accent); }
-.pill { border: 1px solid transparent; }
-.pill[data-status="SUGGESTED"] { background: rgba(155,123,255,0.14); color: #c3b2ff; }
+.kd-host-clock small { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; letter-spacing: 0.04em; color: var(--color-muted); }
+.pill { border: 1.5px solid var(--color-ink); background: #fff; color: var(--color-ink); }
+.pill[data-status="SUGGESTED"] { background: #e6e4ff; }
+.pill[data-status="COMPLETED"], .pill[data-status="SYNCED"] { background: var(--color-accent-soft); color: var(--color-accent-strong); }
+.pill[data-status="DRAFT_READY"], .pill[data-status="RUNNING"], .pill[data-status="CLAIMED"] { background: var(--color-host-soft); color: var(--color-warning); }
+.pill[data-status="FAILED"], .pill[data-status="DISMISSED"] { background: var(--color-danger-soft); color: var(--color-danger); }

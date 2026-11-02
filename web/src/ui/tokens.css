@@ -1,30 +1,33 @@
 :root {
-  color-scheme: dark;
-  /* Kaki Aurora: near-black ink, a mint + violet signature, amber for the Host. */
-  --color-bg: #05060a;
-  --color-bg-raised: #0b0d14;
-  --color-surface: rgba(255, 255, 255, 0.045);
-  --color-surface-strong: rgba(255, 255, 255, 0.08);
-  --color-text: #eef2f8;
-  --color-muted: #8b93a8;
-  --color-border: rgba(255, 255, 255, 0.09);
-  --color-border-strong: rgba(255, 255, 255, 0.18);
-  --color-accent: #3df5c0;
-  --color-accent-strong: #8dffdc;
-  --color-accent-soft: rgba(61, 245, 192, 0.12);
-  --color-violet: #9b7bff;
-  --color-host: #ffb84d;
-  --color-host-soft: rgba(255, 184, 77, 0.13);
-  --on-accent: #03140e;
-  --gradient-brand: linear-gradient(135deg, #3df5c0 0%, #7fe3ff 45%, #9b7bff 100%);
-  --color-danger: #ff7a85;
-  --color-danger-soft: rgba(255, 90, 105, 0.13);
-  --color-warning: #ffc35c;
-  --color-warning-soft: rgba(255, 184, 77, 0.13);
-  --color-info: #9bb8ff;
-  --color-info-soft: rgba(155, 184, 255, 0.12);
+  color-scheme: light;
+  /* Kaki Kopitiam: warm paper, ink outlines, flat colour. Green = Wingman, yellow = Host, red = stop. */
+  --color-bg: #f6f0e4;
+  --color-bg-raised: #efe6d3;
+  --color-surface: #fffdf7;
+  --color-surface-strong: #ffffff;
+  --color-text: #1b1a17;
+  --color-muted: #6b665a;
+  --color-border: rgba(27, 26, 23, 0.14);
+  --color-border-strong: #1b1a17;
+  --color-ink: #1b1a17;
+  --color-accent: #0e9f6e;
+  --color-accent-strong: #0a7d56;
+  --color-accent-soft: #d8f3e6;
+  --color-accent-bright: #2be08f;
+  --color-violet: #6d4aff;
+  --color-host: #f2a900;
+  --color-host-text: #8a5a00;
+  --color-host-soft: #fff0c2;
+  --on-accent: #0b1a13;
+  --gradient-brand: #2be08f;
+  --color-danger: #d93a1e;
+  --color-danger-soft: #ffe2da;
+  --color-warning: #8a5a00;
+  --color-warning-soft: #fff0c2;
+  --color-info: #3a3a8c;
+  --color-info-soft: #e6e4ff;
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, monospace;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -36,6 +39,7 @@
   --radius-md: 0.8rem;
   --radius-lg: 1.1rem;
   --radius-pill: 999px;
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 18px 50px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 4px 4px 0 #1b1a17;
+  --shadow-card: 3px 3px 0 #1b1a17;
   --content-width: 44rem;
 }
