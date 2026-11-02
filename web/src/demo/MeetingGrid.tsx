@@ -5,6 +5,7 @@ import {
   ParticipantTile,
   RoomAudioRenderer,
   useDataChannel,
+  useIsSpeaking,
   useParticipants,
   useTrackRefContext,
   useTracks,
@@ -13,6 +14,7 @@ import { Track } from 'livekit-client';
 import { NPC_STATE_TOPIC, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
+import { Orb, orbPalette } from './Orb';
 import { captionFor, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
 
 interface Stage {
@@ -33,17 +35,27 @@ function useStage(): Stage {
 function CaptionedTile() {
   const { scenario, chunks, now, npcState } = useStage();
   const participant = useTrackRefContext().participant;
-  const isAi = (scenario.npcs ?? []).some((npc) => npc.attendee === participant.identity);
+  const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
+  const isAi = aiIndex >= 0;
+  const humanSpeaking = useIsSpeaking(participant);
   const caption = captionFor(chunks, transcriptNameFor(scenario, participant), now);
+  const speaking = isAi ? npcState.kind === 'speaking' && npcState.speaker === participant.identity : humanSpeaking;
+  const thinking = isAi && npcState.kind === 'thinking';
+  const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <ParticipantTile style={{ width: '100%', height: '100%' }} />
-      {caption !== null ? (
-        <div className="kd-caption">{caption}</div>
-      ) : (
-        isAi && npcState.kind === 'thinking' && <div className="kd-thinking">thinking…</div>
+    <div className="kd-tile" data-state={state} data-ai={isAi} style={{ ['--c' as string]: `var(${orbPalette(isAi ? aiIndex : 1)[0]})` }}>
+      {isAi ? <Orb state={state} palette={orbPalette(aiIndex)} /> : <ParticipantTile style={{ width: '100%', height: '100%' }} />}
+      {isAi && (
+        <>
+          <div className="kd-who">
+            <i />
+            {participant.identity}
+          </div>
+          <div className="kd-state">{state}</div>
+        </>
       )}
+      {caption !== null && <div className="kd-caption">{caption}</div>}
     </div>
   );
 }

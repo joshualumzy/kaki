@@ -76,7 +76,6 @@ export default function Meeting() {
 
   return (
     <div className="kd-meeting">
-      <div className="kd-aurora" />
       <div className="kd-stage">
         <LiveKitRoom
           video={session.media.camera}

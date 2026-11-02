@@ -27,8 +27,6 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
 
   return (
     <div className="kd-join">
-      <div className="kd-aurora" />
-      <div className="kd-grid" />
       <form
         className="kd-card"
         onSubmit={(event) => {
@@ -39,9 +37,6 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
         <MediaPreview name={name} value={media} onChange={setMedia} onProblem={setProblem} />
 
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
-          <div className="kd-brand">
-            <span className="kd-logo">K</span>Kaki
-          </div>
           <div className="kd-live">
             <span className="kd-dot" />
             Live meeting

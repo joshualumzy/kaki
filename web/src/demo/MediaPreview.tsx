@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Orb } from './Orb';
 
 export interface MediaChoice {
   microphone: boolean;
@@ -138,17 +139,13 @@ export function MediaPreview({ value, onChange, onProblem, name = '' }: MediaPre
     onChange({ ...value, [kind]: !value[kind] });
   }
 
-  const initial = (name.trim()[0] ?? '?').toUpperCase();
   return (
     <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
       <div className="kd-preview">
+        <Orb state={value.microphone && level > 0.12 ? 'speaking' : 'idle'} level={level} />
         <video ref={videoRef} autoPlay muted playsInline aria-label="Camera preview" style={{ display: camera ? 'block' : 'none' }} />
-        {!camera && (
-          <div style={{ display: 'grid', placeItems: 'center', gap: '14px' }}>
-            <div className="kd-avatar">{initial}</div>
-            <span>{value.camera ? 'Starting camera…' : 'Camera is off'}</span>
-          </div>
-        )}
+        {!camera && <div className="kd-off">{value.camera ? 'Starting camera…' : 'Camera is off'}</div>}
+        <span className="kd-tag">{name.trim() || 'Guest'}</span>
       </div>
       <div className="kd-controls">
         <button

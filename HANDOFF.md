@@ -261,3 +261,14 @@ recognition, which hears the speakers and mishears names; it could use `soundsLi
 
 The AI attendees do not yet read from the company data (Gitea, Mattermost, Postgres, wiki). The
 Wingman's knowledge search is the natural thing to give them as a tool.
+
+## Done: the "Kaki Lumen" look (whole web app)
+
+One light and dark theme for `/demo`, `/screen`, `/phone` and `/login`: cool pearl and glass; teal = Wingman and live, orange = Host and
+action, red = stop. Colours are tokens in `web/src/ui/tokens.css` (light, dark by `prefers-color-scheme`, and `data-theme`); the meeting styles are
+`web/src/demo/demo.css`, the shared screen `web/src/screen/screen.css`. In the meeting each AI attendee is an audio-reactive orb
+(`web/src/demo/Orb.tsx`): it speaks when `NpcStateMessage` says `speaking` for that attendee, and every AI orb shows "thinking" while the state is
+`thinking` (the message does not say which attendee is thinking; naming one needs a change in `shared/src/demo.ts`). The side dock has two tabs:
+Kaki Wingman (private, per role) and Kaki Host (the agenda clock, open questions, who is quiet, read from the shared feed). A person still cannot take
+the Studio Manager seat, so there is no host sign-in inside `/demo`. **Not tried live:** the orbs on real LiveKit tiles, the camera tile, dark mode
+in the meeting. Checked in screenshots with mock data only.
