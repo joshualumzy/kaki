@@ -16,7 +16,7 @@ Agreed in conversation with the project owner:
   `docs/smoke-test.md` on your own machine (needs Docker, the LLM gateway, Azure); the Host and Wingman owners fix what it finds. (5) AI-to-AI follow-ups with the host's cues. (6) "Who speaks next".
   (7) AIs read company data (Wingman search as a tool). (8) Mood tags and Azure speaking styles. (9) Phones, then multiple rooms.
 - **Open questions:** open the small reviewed PR for the shared files (`shared/**`, `scenario.json`, the one-line `notetaker.ts` change for the facilitator role); the Host's spoken cues
-  (opening, time-out, closing) are text events today: should Sam voice them? Unverified Azure voice names `en-SG-LunaNeural` / `en-SG-WayneNeural`. Mei says 14 of 20 quit on level 5; the Mattermost seed says 19 of 29.
+  (opening, time-out, closing) are text events today: should Sam voice them? Unverified Azure voice names `en-SG-LunaNeural` / `en-SG-WayneNeural`. Mei and the replay now say 19 of 29 quit on level 5, matching the Mattermost seed (fixed).
 
 ## What this is
 
@@ -133,7 +133,7 @@ Each role has a short fact `card` (facts, no script) shown at the top of the rig
 counted as quiet (a one-line change in the Host's `notetaker.ts`). **Not run:** the LiveKit e2e test was
 updated by hand for four AIs (Sam, Arjun, Mei, Daniel with Josh as Producer) but there is no Docker here to
 run it, and nothing was tried with the real model. The studio is now called Lah Studios (display name only).
-Known data mismatch: Mei's profile says 14 of 20 playtesters quit on level 5, the Mattermost seed says 19 of 29.
+Mei's profile and the replay now say 19 of 29, matching the seed.
 The join QR codes and the phone role picker still list Studio Manager (Wingman's files).
 
 ## First live run of the five-character room, and what changed

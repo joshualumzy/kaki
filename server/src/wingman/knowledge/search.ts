@@ -54,23 +54,21 @@ export function parseFactsResponse(raw: string): Fact[] {
 
 function buildPrompt(question: string, role: Role, chunks: RetrievedChunk[]): string {
   const records = chunks
-    .map(
-      (chunk, index) =>
-        `[${index + 1}] source=${chunk.source} ref=${chunk.ref} published=${isoDay(chunk.publishedAt)}\n${chunk.text}`,
-    )
+    .map((chunk, index) => `[${index + 1}] published=${isoDay(chunk.publishedAt)}\n${chunk.text}`)
     .join('\n\n');
 
-  return `A participant with the role "${role}" asked: "${question}"
+  return `A participant with the role "${role}" is in a live meeting and needs this answered: "${question}"
 
-Answer with facts from these company records only. Return strict JSON and nothing else:
+Answer with facts from the company records below. Return strict JSON and nothing else:
 {"facts":[{"text":"...","source":"...","date":"YYYY-MM-DD"}]}
 
 Rules:
-- Return at most ${MAX_FACTS} facts. Return {"facts":[]} when nothing in the records answers the question.
-- Use only the records below. Never invent numbers, names or dates.
-- If two records disagree, prefer the newest one and say so in the fact text, naming both sources and their dates. For example: "The Starfruit email (16 Nov) says the 17th; the wiki contract summary (10 Nov) still says the 20th. The newer email wins."
-- Ignore records that are irrelevant to the question.
-- The text must be a complete sentence a meeting participant can read.
+- Include a fact only if it directly helps answer that question. A record about something else, even something nearby, is not a fact: leave it out. Return {"facts":[]} when nothing answers the question.
+- Return the 1 to ${MAX_FACTS} most useful facts, best first. One short, plain sentence each, written for someone listening in a meeting: no ids, no jargon, no repeating the question.
+- Use only the records. Never invent or round numbers, names or dates, and do not take numbers from the question itself.
+- "source" is the short label in the record's first line, in plain words (for example "Wiki: Game Design Doc" or "Email from Starfruit"). Never write ids or "ref".
+- "date" is the record's published date.
+- Only when two records disagree about the same thing, say so in one sentence, naming both sources and dates, and say which is newer and so more likely right.
 
 Records:
 

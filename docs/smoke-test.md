@@ -61,7 +61,7 @@ three tasks: one that becomes a Gitea issue, one a Mattermost post, one an email
 
 Known before you start (from the first run, so do not report them as new unless they changed): the same question was answered twice on a phone;
 the "tutorial skip" answer included unrelated level 5 and milestone facts; the launch-date task went to `marketing_lead`, not `producer`; open
-questions showed 0; the Studio Manager still has a QR code; Mei's profile says 14 of 20 quit while the seed data says 19 of 29.
+questions showed 0; the Studio Manager still has a QR code; (fixed: Mei now says 19 of 29) Mei's profile said 14 of 20 quit while the seed data says 19 of 29.
 
 ## Part B: the live meeting
 
