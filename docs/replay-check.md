@@ -8,6 +8,8 @@ Replay only: no microphone, no `npm run npc`, no `/demo`. Do not kill Chrome. Do
 2. Record "before" facts: Mailpit email count, newest Gitea issue number, newest Mattermost `#launch` post.
 3. `KAKI_REPLAY=1 KAKI_REPLAY_SPEED=10 npm run dev 2>&1 | tee replay.log`
 
+**Wait for the whole replay.** The transcript is 35 minutes of meeting time (52 lines), about 3.5 minutes at 10x. It is finished only when the live feed shows Wei Ling's closing line ("That's everything. Thanks all, good meeting."). Tasks, the build-date question, the closing host speech and the quiet nudge all happen late. Take screenshots at about 60 s, 120 s, 180 s and after the closing line, and say in the report how far the replay got.
+
 ## Capture events (the part screenshots cannot show)
 Write a small script **outside the repo** (for example in a scratch folder) that opens a WebSocket to `ws://localhost:3001/ws?role=<role>` for
 `screen`, `producer`, `lead_programmer`, `game_designer`, `marketing_lead` **before** the replay starts, and appends every message as one JSON line to

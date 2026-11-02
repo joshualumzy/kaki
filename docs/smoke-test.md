@@ -28,7 +28,7 @@ Start the server with the log kept in a file, and restart it for every run so th
 KAKI_REPLAY=1 KAKI_REPLAY_SPEED=10 npm run dev 2>&1 | tee smoke-a.log
 ```
 
-The Host plays `scenarios/pixel-kampung/replay/transcript.json` (52 lines, about 2 minutes at 10x), then stops. Before starting the server, open
+The Host plays `scenarios/pixel-kampung/replay/transcript.json` (52 lines spanning 35 minutes of meeting time, so about 3.5 minutes at 10x), then stops. Before starting the server, open
 all of these and keep them open:
 
 - Shared screen: `http://localhost:5173/screen`
@@ -36,7 +36,7 @@ all of these and keep them open:
 
 If the phone page asks for a name or meeting code, use the code shown on the shared screen under "Join on phone".
 
-Take a screenshot at about 30 s, 60 s and 120 s, and one more after the replay ends. Name them `smoke-a-<seconds>s-<screen|role>.png`.
+Take a screenshot at about 30 s, 60 s, 120 s and 180 s, and one more after the replay ends (the closing line "That's everything. Thanks all" has appeared and the agenda clock has stopped). Do not stop early. Name them `smoke-a-<seconds>s-<screen|role>.png`.
 
 ### What to check (answer key: `scenarios/pixel-kampung/replay/expected.json`)
 
