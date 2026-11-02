@@ -15,6 +15,8 @@ Write a small script **outside the repo** (for example in a scratch folder) that
 `screen`, `producer`, `lead_programmer`, `game_designer`, `marketing_lead` **before** the replay starts, and appends every message as one JSON line to
 `events-<role>.jsonl`. Start the server, then the scripts, then begin the replay (restart the server if the replay already started).
 
+**Pull first** (`git pull origin feature/scripted-replay`) so you test the latest search and the 19-of-29 data, then **re-run `npm run index:knowledge`** (the seed text and prompt changed). Put the commit you tested at the top of the report. Before starting, delete any old `replay.log` and `events-*.jsonl`.
+
 ## Report: `docs/replay-check-results.md`
 Fill each section from the captured events, quoting text exactly. No judging beyond PASS / FAIL / what you saw.
 
@@ -30,5 +32,7 @@ Fill each section from the captured events, quoting text exactly. No judging bey
 ## Then, once, by hand (about 10 minutes, owner or agent with a browser)
 Press "Dispatch to ..." on three Suggested tasks (a Gitea issue, a Mattermost post, an email). On each phone: claim with the action agent, edit one word, approve.
 Record for each: draft text, final status, the artifact link shown, whether the link opens the real issue/post/email, and anything that failed or read confusingly.
+
+Also commit the raw `events-*.jsonl` files to `docs/replay-events/` (they are small) so the reviewer can check your quotes.
 
 Commit the results file and screenshots (`docs/screenshots/replay-*.png`) and push to `feature/scripted-replay`.
