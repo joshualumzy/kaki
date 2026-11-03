@@ -577,6 +577,9 @@ function TaskCardBody({
               Open artifact
             </a>
           )}
+          {task.artifactUrl !== undefined && task.actionKind === 'mattermost_post' ? (
+            <p className="task-meta">Mattermost may ask you to log in the first time.</p>
+          ) : null}
           <Button disabled={pending} onClick={() => submit({ type: 'SYNC_TASK', taskId: task.id })}>
             Sync to meeting
           </Button>

@@ -107,6 +107,21 @@ function keywords(text: string): Set<string> {
   );
 }
 
+const QUESTION_OVERLAP = 0.6;
+
+/** True when a question asks (nearly) the same thing as one already open. */
+export function isLikelyDuplicateQuestion(text: string, openTexts: string[]): boolean {
+  const mine = keywords(text);
+  if (mine.size === 0) return false;
+  return openTexts.some((other) => {
+    if (normalize(other) === normalize(text)) return true;
+    const theirs = keywords(other);
+    if (theirs.size === 0) return false;
+    const shared = [...mine].filter((word) => theirs.has(word)).length;
+    return shared / Math.min(mine.size, theirs.size) >= QUESTION_OVERLAP;
+  });
+}
+
 function estimateTalkSeconds(text: string): number {
   return Math.max(1, words(text).length / WORDS_PER_SECOND);
 }
@@ -229,10 +244,15 @@ function systemPrompt(scenario: Scenario): string {
     '    something that may not happen ("if there is budget"). A commitment that only waits for a step first',
     '    ("once the date is confirmed, I\'ll announce it") is still a task;',
     '  * it is not a fact to look up — a question nobody could answer goes in newQuestions instead.',
-    '  suggestedAssignee is the role that owns it. Omit actionKind when none fits.',
+    '  suggestedAssignee is the role that owns it. Always set actionKind when the deliverable is an issue, a team',
+    '  chat post, an email, a wiki page or a calendar event; omit it only when none of these fits. Put the who, what and',
+    '  when from the transcript into context, using only what was said.',
     '  evidence: copy, word for word, the transcript line where it was asked for or volunteered.',
     '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id.',
-    '- Never repeat a question that is already open. Use empty arrays when there is nothing new.',
+    '- Never repeat a question that is already open, even in different words. Keep newQuestions to at most two per pass.',
+    '- A date, number or decision that someone asks for and nobody gives (for example "when is the final build?") is a',
+    '  question, even if it is asked in passing. Do not ask something the lines already answer.',
+    '  Use empty arrays when there is nothing new.',
     '',
     'Examples of newTasks decisions:',
     '- "Sam, can you email the venue our final headcount?" "Sure." → task (email, Sam\'s role).',
@@ -313,11 +333,8 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
     const answered = new Set(reply.answeredQuestionIds);
     openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
-    const knownQuestions = new Set(openQuestions.map((question) => normalize(question.text)));
     for (const question of reply.newQuestions) {
-      const key = normalize(question.text);
-      if (knownQuestions.has(key)) continue;
-      knownQuestions.add(key);
+      if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) continue;
       questionCount += 1;
       openQuestions.push({ id: `q-${questionCount}`, ...question });
     }

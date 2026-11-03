@@ -1,4 +1,4 @@
-import type { KakiEvent } from '@kaki/shared';
+import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
@@ -141,7 +141,7 @@ export function createMeetingModule({
             audience: { kind: 'screen' },
             payload: {
               kind: 'OPENING',
-              text: `Welcome to ${scenario.meetingTitle}. We have ${scenario.agenda.length} items on the agenda today.`,
+              text: openingLine(scenario),
             },
           });
         }
@@ -212,4 +212,14 @@ export function createMeetingModule({
       };
     },
   };
+}
+
+/** The host's welcome: the title, the agenda in order, and the first item to start on. */
+export function openingLine(scenario: Scenario): string {
+  const titles = scenario.agenda.map((item) => item.title);
+  const first = scenario.agenda[0];
+  const agenda = `${titles.length} items today: ${titles.join(', ')}.`;
+  return first === undefined
+    ? `Welcome to ${scenario.meetingTitle}.`
+    : `Welcome to ${scenario.meetingTitle}. We have ${agenda} Let's start with ${first.title}, ${first.minutes} minutes.`;
 }

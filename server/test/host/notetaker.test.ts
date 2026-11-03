@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { Hub } from '../../src/hub';
-import { createNotetaker, isGrounded, isLikelyDuplicate, parseNotetakerReply } from '../../src/host/notetaker';
+import { createNotetaker, isGrounded, isLikelyDuplicate, isLikelyDuplicateQuestion, parseNotetakerReply } from '../../src/host/notetaker';
 import { loadReplay, type ReplayLine } from '../../src/host/replay';
 import { createFakeLlm, type ChatMessage } from '../../src/llm';
 import { loadScenario } from '../../src/loadScenario';
@@ -428,5 +428,13 @@ describe('notetaker reply parsing', () => {
   it('rejects a reply that is not a JSON object', () => {
     expect(() => parseNotetakerReply('[]', scenario)).toThrow(/object/);
     expect(() => parseNotetakerReply('nope', scenario)).toThrow(/JSON/);
+  });
+});
+
+describe('isLikelyDuplicateQuestion', () => {
+  it('catches the same question worded differently, but not a different one', () => {
+    const open = ['When is the final build date?'];
+    expect(isLikelyDuplicateQuestion('What is the date of the final build?', open)).toBe(true);
+    expect(isLikelyDuplicateQuestion('Where do players quit on level 5?', open)).toBe(false);
   });
 });

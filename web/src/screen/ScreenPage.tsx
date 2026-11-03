@@ -340,6 +340,7 @@ function ScreenTask({
           <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
             Open artifact
           </a>
+          {task.actionKind === 'mattermost_post' ? ' (Mattermost may ask you to log in the first time.)' : ''}
         </p>
       ) : null}
       {task.status === 'SUGGESTED' ? (
