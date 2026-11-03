@@ -334,6 +334,8 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
     openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
     for (const question of reply.newQuestions) {
+      // Something that is not phrased as a question (a note or a fragment) is not worth keeping open.
+      if (!question.text.includes('?')) continue;
       if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) continue;
       questionCount += 1;
       openQuestions.push({ id: `q-${questionCount}`, ...question });
