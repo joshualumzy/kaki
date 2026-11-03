@@ -138,7 +138,9 @@ describe('calendar action module', () => {
     expect(page.contentType).toContain('text/html');
     expect(page.body).toContain('November 2026');
     expect(page.body).toContain('Launch readiness');
-    expect(page.body).toContain('class="chip focus"');
+    expect(page.body).toContain('class="chip focus" data-i="0"');
+    expect(page.body).toContain('data-i="1"');
+    expect(page.body).toContain('var EVENTS=');
     expect(page.body).toContain('2026-11-13, 11:00 to 11:30');
     expect(page.body).not.toContain('<b>x</b>');
     expect(page.body).not.toContain('.ics');

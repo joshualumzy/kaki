@@ -185,18 +185,18 @@ export function renderCalendarPage(events: CalendarEvent[], focus: CalendarEvent
   const first = new Date(Date.UTC(year, mon - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
   const lead = (first.getUTCDay() + 6) % 7; // Monday first
-  const byDay = new Map<string, CalendarEvent[]>();
-  for (const event of events) byDay.set(event.date, [...(byDay.get(event.date) ?? []), event]);
+  const byDay = new Map<string, Array<{ event: CalendarEvent; index: number }>>();
+  events.forEach((event, index) => byDay.set(event.date, [...(byDay.get(event.date) ?? []), { event, index }]));
 
   const cells: string[] = [];
   for (let i = 0; i < lead; i += 1) cells.push('<div class="cell empty"></div>');
   for (let day = 1; day <= daysInMonth; day += 1) {
     const key = `${month}-${pad(day)}`;
     const chips = (byDay.get(key) ?? [])
-      .sort((a, b) => a.time.localeCompare(b.time))
-      .map((e) => `<div class="chip${e === focus || (e.uid !== '' && e.uid === focus.uid) ? ' focus' : ''}"><b>${escapeHtml(e.time)}</b> ${escapeHtml(e.title)}</div>`)
+      .sort((a, b) => a.event.time.localeCompare(b.event.time))
+      .map(({ event: e, index }) => `<button type="button" class="chip${index === 0 ? ' focus' : ''}" data-i="${index}"><b>${escapeHtml(e.time)}</b> ${escapeHtml(e.title)}</button>`)
       .join('');
-    cells.push(`<div class="cell${key === focus.date ? ' today' : ''}"><span class="num">${day}</span>${chips}</div>`);
+    cells.push(`<div class="cell${key === focus.date ? ' marked' : ''}"><span class="num">${day}</span>${chips}</div>`);
   }
 
   const when = focus.endTime === undefined ? focus.time : `${focus.time} to ${focus.endTime}`;
@@ -215,14 +215,24 @@ nav a{color:#2457d6;text-decoration:none;padding:.25rem .6rem;border:1px solid #
 .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:#d6d6dc;border:1px solid #d6d6dc;margin:1rem 0}
 .dow{background:#f3f3f6;padding:.3rem;text-align:center;font-size:.8rem;color:#555}
 .cell{background:#fff;min-height:5.5rem;padding:.25rem;overflow:hidden}.cell.empty{background:#fafafc}.num{font-size:.8rem;color:#666}
-.cell.today{background:#f1f6ff}.chip{margin-top:.2rem;padding:.1rem .3rem;border-radius:5px;background:#e9ebf1;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip.focus{background:#2457d6;color:#fff}.card{border:1px solid #d6d6dc;border-radius:12px;padding:1rem 1.25rem}.card h2{margin:.1rem 0 .5rem;font-size:1.2rem}
+.cell.marked{background:#f1f6ff}.chip{display:block;width:100%;text-align:left;border:0;font:inherit;cursor:pointer;margin-top:.2rem;padding:.1rem .3rem;border-radius:5px;background:#e9ebf1;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip:hover{background:#d5d9e6}.chip.focus,.chip.focus:hover{background:#2457d6;color:#fff}.card{border:1px solid #d6d6dc;border-radius:12px;padding:1rem 1.25rem}.card h2{margin:.1rem 0 .5rem;font-size:1.2rem}
 .kicker{color:#666;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}.when{font-weight:600}
 @media (max-width:640px){.cell{min-height:3.2rem}.chip{font-size:.65rem}}</style></head>
 <body><header><h1>Team calendar &middot; ${MONTH_NAMES[mon - 1]} ${year}</h1>
 <nav><a href="${escapeHtml(baseHref)}?month=${shiftMonth(month, -1)}">&larr; Previous</a><a href="${escapeHtml(baseHref)}?month=${shiftMonth(month, 1)}">Next &rarr;</a></nav></header>
 <div class="grid">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>
-<div class="card"><div class="kicker">Event</div><h2>${escapeHtml(focus.title)}</h2>${detail}</div></body></html>`;
+<div class="card" id="detail"><div class="kicker">Event (click any event in the grid)</div><h2>${escapeHtml(focus.title)}</h2>${detail}</div>
+<script>
+var EVENTS=${JSON.stringify(events.map((e) => ({ title: e.title, date: e.date, time: e.time, endTime: e.endTime ?? '', description: e.description, people: e.people }))).replace(/</g, '\\u003c')};
+document.addEventListener('click',function(ev){var b=ev.target.closest&&ev.target.closest('.chip');if(!b)return;
+var e=EVENTS[+b.getAttribute('data-i')];if(!e)return;
+document.querySelectorAll('.chip.focus').forEach(function(c){c.classList.remove('focus')});b.classList.add('focus');
+var d=document.getElementById('detail');d.textContent='';
+function add(tag,text,cls){var n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;d.appendChild(n);}
+add('div','Event','kicker');add('h2',e.title);add('p',e.date+', '+e.time+(e.endTime?' to '+e.endTime:''),'when');
+if(e.people.length)add('p','With: '+e.people.join(', '));if(e.description)add('p',e.description);});
+</script></body></html>`;
 }
 
 /** What the viewer route needs back: a status, a content type and a body. */
