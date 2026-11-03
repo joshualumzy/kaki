@@ -144,7 +144,8 @@ export function createEmailModule({
           content:
             'You turn a team task into a short, polite email. Reply with one JSON object and nothing else: ' +
             '{"to": "...", "subject": "...", "body": "..."}. Write the body as plain text and keep it short. ' +
-            'Use an empty string for "to" when you do not know the recipient.',
+            'Use an empty string for "to" when you do not know the recipient.' +
+            ' Use only what is in the task and its context. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',

@@ -67,7 +67,8 @@ export function createGiteaModule({
           role: 'system',
           content:
             'You turn a team task into a Gitea issue. Reply with one JSON object and nothing else: ' +
-            '{"title": "...", "body": "..."}. The body may use Markdown.',
+            '{"title": "...", "body": "..."}. The body may use Markdown, in a few plain sentences, not a template.' +
+            ' Use only what is in the task and its context. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',

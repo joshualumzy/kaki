@@ -61,7 +61,9 @@ function needsAction(task: Task): boolean {
     case 'COMPLETED':
       return true;
     case 'CLAIMED':
-      return task.mode === 'MANUAL';
+      return true;
+    case 'RUNNING':
+      return true;
     default:
       return false;
   }
@@ -443,6 +445,12 @@ function TaskCard({
           {task.error}
         </p>
       )}
+
+      {(task.status === 'CLAIMED' && task.mode === 'ACTION_AGENT') || task.status === 'RUNNING' ? (
+        <p className="task-meta" role="status" aria-live="polite">
+          {task.status === 'RUNNING' ? 'Kaki is sending this now…' : 'Kaki is drafting this… it can take up to a minute.'}
+        </p>
+      ) : null}
 
       {task.status === 'DISPATCHED' ? (
         <div className="task-actions" aria-busy={pending}>

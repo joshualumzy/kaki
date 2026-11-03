@@ -119,7 +119,8 @@ export function createMattermostModule({
           role: 'system',
           content:
             'You turn a team task into a short Mattermost message. Reply with one JSON object and ' +
-            'nothing else: {"message": "..."}. Keep it plain and short; Markdown is fine.',
+            'nothing else: {"message": "..."}. Keep it plain and short; Markdown is fine.' +
+            ' Use only what is in the task and its context. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
