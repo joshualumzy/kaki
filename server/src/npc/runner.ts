@@ -68,6 +68,8 @@ export interface RunnerOptions {
 }
 
 export interface NpcRunner {
+  /** The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there). */
+  announce(text: string): void;
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
 }
@@ -363,7 +365,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
 
+  const hostName = npcs.find((npc) => npc.role === 'host')?.attendee;
   return {
+    announce(text) {
+      if (hostName === undefined || conversation === undefined) return;
+      conversation.announce(hostName, text);
+    },
     async stop() {
       closing = true;
       if (guardTimer !== undefined) clearTimeout(guardTimer);

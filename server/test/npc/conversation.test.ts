@@ -544,4 +544,56 @@ describe('NpcConversation', () => {
     await h.say('Thanks.');
     expect(h.calls).toHaveLength(2);
   });
+  describe('the host\'s spoken cues', () => {
+    it('says the cue aloud with no model call and no transcript line, and remembers it', async () => {
+      const h = harness();
+      h.conversation.announce('Ada', 'Welcome, everyone.');
+      await h.flush();
+      expect(h.calls).toHaveLength(0);
+      expect(h.playing.map((p) => `${p.speaker}: ${p.text}`)).toEqual(['Ada: Welcome, everyone.']);
+      h.playing[0]?.finish();
+      await h.conversation.settled();
+      expect(h.transcript).toEqual([]);
+      // The next answer knows the host already said it.
+      await h.say('Hi.');
+      expect(JSON.stringify(h.calls[0]?.messages)).toContain('Ada: Welcome, everyone.');
+    });
+
+    it('waits for the room to be quiet instead of talking over the person or an answer', async () => {
+      const h = harness();
+      await h.say('Hello team.');
+      h.conversation.announce('Ada', 'Time check.');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(h.playing).toHaveLength(0);
+      h.calls[0]?.push('Bao: Hi!');
+      h.calls[0]?.end();
+      await h.flush();
+      h.playing[0]?.finish();
+      await vi.advanceTimersByTimeAsync(600);
+      expect(h.playing.map((p) => p.text)).toEqual(['Hi!', 'Time check.']);
+    });
+
+    it('is stopped by the person talking over it, and an old question is not answered again', async () => {
+      const h = harness();
+      h.conversation.announce('Ada', 'Please wrap up.');
+      await h.flush();
+      h.conversation.humanSpeech(true);
+      expect(h.playing[0]?.signal.aborted).toBe(true);
+      h.conversation.humanSpeech(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(h.calls).toHaveLength(0);
+    });
+
+    it('drops a cue that finds the room busy for too long, and ignores unknown speakers', async () => {
+      const h = harness();
+      h.conversation.humanSpeech(true);
+      h.conversation.announce('Ada', 'Late news.', 2000);
+      h.conversation.announce('Nobody', 'Hello.');
+      await vi.advanceTimersByTimeAsync(3000);
+      h.conversation.humanSpeech(false);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(h.playing).toHaveLength(0);
+      expect(h.logs.join('\n')).toContain('dropped Ada');
+    });
+  });
 });

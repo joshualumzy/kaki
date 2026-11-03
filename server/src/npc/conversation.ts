@@ -38,6 +38,10 @@ export const DEFAULT_NOTHING_MS = 400;
 /** An answer cancelled before anything was said, with nothing new from the person, is retried after this long. */
 export const DEFAULT_RETRY_MS = 1500;
 
+/** How long a Host cue waits for a quiet moment before it is dropped as out of date. */
+export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 20_000;
+
+
 export interface ConversationOptions {
   scenario: Scenario;
   /** Quiet needed after the person's last words before the AI answers. */
@@ -61,6 +65,8 @@ interface Turn {
   done: Promise<void>;
   startedAt: number;
   firstSentenceAt?: number;
+  /** A line the Host was told to say (an opening, a time-out, a closing), not an answer to the person. */
+  scripted?: boolean;
 }
 
 /** Minimal async queue so playback can start on the first sentence while the rest is written. */
@@ -228,6 +234,31 @@ export class NpcConversation<Clip> {
     this.scheduleRespond();
   }
 
+  /**
+   * The Host's spoken cue (opening, time-out, closing): `speaker` says `text` aloud, with no model call.
+   * It waits for a quiet moment, so it never talks over the person or an answer, and is dropped if the
+   * room stays busy for `giveUpMs`. It is not a transcript line (Kaki already has the cue as an event).
+   * The person talking over it stops it, as with any other speech.
+   */
+  announce(speaker: string, text: string, giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS): void {
+    const line = text.trim();
+    if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
+    const deadline = Date.now() + giveUpMs;
+    const attempt = (): void => {
+      if (this.closed) return;
+      const busy =
+        this.humanTalking || this.turn !== undefined || this.pending.length > 0 || this.respondTimer !== undefined;
+      if (!busy) {
+        this.startScripted({ speaker, text: line });
+      } else if (Date.now() >= deadline) {
+        this.ports.log?.(`dropped ${speaker}'s cue "${line}": the room stayed busy`);
+      } else {
+        setTimeout(attempt, 500);
+      }
+    };
+    attempt();
+  }
+
   /** Resolves when no turn is running. */
   async settled(): Promise<void> {
     while (this.turn !== undefined) await this.turn.done;
@@ -299,6 +330,44 @@ export class NpcConversation<Clip> {
     });
   }
 
+  private startScripted(utterance: Utterance): void {
+    const turn: Turn = {
+      abort: new AbortController(),
+      spoken: [],
+      aborted: false,
+      finalized: false,
+      done: Promise.resolve(),
+      startedAt: Date.now(),
+      scripted: true,
+    };
+    this.turn = turn;
+    turn.done = this.runScripted(turn, utterance).catch((error: unknown) => {
+      this.ports.log?.(`cue failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  private async runScripted(turn: Turn, utterance: Utterance): Promise<void> {
+    const { signal } = turn.abort;
+    const queue = new SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>();
+    signal.addEventListener('abort', () => queue.close(), { once: true });
+    this.ports.emitState({ kind: 'thinking' });
+    const player = this.playAll(turn, queue, false);
+    const clip = this.ports.synthesize(utterance, signal).catch((error: unknown) => {
+      if (!signal.aborted) {
+        this.ports.log?.(`could not synthesize "${utterance.text}": ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return undefined;
+    });
+    queue.push({ utterance, clip });
+    queue.close();
+    await player;
+    if (turn.aborted) return;
+    this.finalize(turn);
+    this.turn = undefined;
+    this.gate.setAiAudible(false);
+    this.ports.emitState({ kind: 'idle' });
+  }
+
   /** Carry on from where the person cut in without saying anything. */
   private resume(): void {
     this.cutOff = false;
@@ -314,8 +383,10 @@ export class NpcConversation<Clip> {
     const turn = this.turn;
     if (turn === undefined || turn.finalized) return;
     this.ports.log?.(`interrupted: ${reason}`);
-    if (turn.spoken.length === 0) this.unanswered = true;
-    else if (reason === 'the person started talking') this.cutOff = true;
+    if (turn.scripted !== true) {
+      if (turn.spoken.length === 0) this.unanswered = true;
+      else if (reason === 'the person started talking') this.cutOff = true;
+    }
     turn.aborted = true;
     this.finalize(turn);
     this.turn = undefined;
@@ -407,6 +478,7 @@ export class NpcConversation<Clip> {
   private async playAll(
     turn: Turn,
     queue: SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>,
+    transcribe = true,
   ): Promise<void> {
     const { signal } = turn.abort;
     let previousSpeaker: string | undefined;
@@ -433,7 +505,7 @@ export class NpcConversation<Clip> {
       this.gate.setAiAudible(true);
       this.gate.aiSaid(utterance.text);
       this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker });
-      this.ports.emitTranscript(utterance.speaker, utterance.text);
+      if (transcribe) this.ports.emitTranscript(utterance.speaker, utterance.text);
 
       try {
         await this.ports.play(utterance.speaker, audio, signal);

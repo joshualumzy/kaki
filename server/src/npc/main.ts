@@ -2,6 +2,7 @@
 import '../env';
 import { llmFromEnv } from '../llm';
 import { aiCast } from '@kaki/shared';
+import { WebSocket } from 'ws';
 import { loadScenario } from '../loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -131,6 +132,32 @@ const runner = await startNpcRunner({
     process.exit(1);
   },
 });
+
+// The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
+// What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
+// Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
+function followHostCues(): void {
+  const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
+  const socket = new WebSocket(url);
+  const openedAt = { at: 0 };
+  socket.on('open', () => {
+    openedAt.at = Date.now();
+  });
+  socket.on('message', (data) => {
+    if (Date.now() - openedAt.at < 1000) return;
+    try {
+      const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
+      if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string') {
+        runner.announce(event.payload.text);
+      }
+    } catch {
+      /* not an event we understand */
+    }
+  });
+  socket.on('error', () => undefined);
+  socket.on('close', () => setTimeout(followHostCues, 3000).unref());
+}
+followHostCues();
 
 log(`speech recognition: ${sttMode === 'azure' ? `Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})` : "the browser's"}`);
 log(
