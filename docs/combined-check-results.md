@@ -81,7 +81,31 @@
   - `email`
 
 **Eval Notetaker:**
-- output: NOT VERIFIED
+- output:
+```
+> kaki@0.0.0 eval:notetaker
+> tsx server/src/host/evalNotetaker.ts
+
+kaki notetaker: dropped task "Final build preparation"; its evidence is not in the transcript
+
+30 passes in 132.0 s, notetaker ok
+
+Tasks (5):
+  - File bug ticket for ten-customer crash → lead_programmer gitea_issue
+  - Confirm order queue issue cause → lead_programmer gitea_issue
+  - Send milestone report to Starfruit → producer email
+  - Confirm final build date and post in team channel → marketing_lead mattermost_post
+  - Email a streamer about playing Hawker Heroes on launch day → marketing_lead email
+Open questions (0):
+Quiet roles: marketing_lead
+
+FAIL
+  - duplicate task: crash bug (2×)
+  - missing task: launch-date post
+  - unexpected task: Confirm final build date and post in team channel
+  - missing question: where players quit
+  - missing question: final-build date
+```
 
 ## Grading
 
