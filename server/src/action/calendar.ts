@@ -355,7 +355,7 @@ export function createCalendarModule({
             `You turn a team task into a calendar event. Today is ${upcoming[0]}. The next days are: ${upcoming.slice(1).join('; ')}. Reply with one JSON object and nothing else: ` +
             '{"title": "...", "start": "YYYY-MM-DD HH:MM", "durationMinutes": 30, "description": "..."}. ' +
             'Work out the date from the task by looking it up in the list of days above, never by counting yourself (for a weekday such as "Friday", take the first one in the list after today). If no time is given use 10:00. ' +
-            'The description is one or two plain sentences. Use only what is in the task and its context; do not invent names or details.',
+            'The description is one or two plain sentences. Use only what is in the task and its context; do not invent names, places, attendees or details. Keep the words of the task title in the title.',
         },
         { role: 'user', content: `Task: ${task.title}\n\nContext:\n${task.context}` },
       ];

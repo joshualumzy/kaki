@@ -206,6 +206,8 @@ function systemPrompt(scenario: Scenario): string {
     '- gitea_issue: a bug or engineering task to file in the issue tracker',
     '- mattermost_post: an announcement or update for the team chat',
     '- email: a message to someone outside the team',
+    '- wiki_page: write something up as a page on the team wiki (notes, decisions, a summary)',
+    '- calendar_event: schedule a follow-up meeting or reminder at a date and time',
     '',
     'Reply shape:',
     '{"agendaIndex": number, "newQuestions": [{"text": string, "forRole": role id}],',

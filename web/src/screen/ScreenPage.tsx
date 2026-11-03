@@ -335,6 +335,13 @@ function ScreenTask({
         <span>{roleLabel(scenario, assignee)}</span>
       </p>
       {task.error === undefined ? null : <p className="task-error">{task.error}</p>}
+      {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') ? (
+        <p>
+          <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
+            Open artifact
+          </a>
+        </p>
+      ) : null}
       {task.status === 'SUGGESTED' ? (
         <div className="task-actions">
           <Button onClick={() => send({ type: 'DISPATCH_TASK', taskId: task.id, assignee: task.suggestedAssignee })}>

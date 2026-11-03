@@ -120,7 +120,7 @@ export function createWikiModule({
           content:
             'You turn a team task into a short wiki page for the team. Reply with one JSON object and nothing else: ' +
             '{"title": "...", "body": "..."}. The body is Markdown: a few headings or bullet points, plain and short. ' +
-            'Use only what is in the task and its context. Do not invent decisions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out.',
+            'Use only what is in the task and its context. Do not invent decisions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         { role: 'user', content: `Task: ${task.title}\n\nContext:\n${task.context}` },
       ];

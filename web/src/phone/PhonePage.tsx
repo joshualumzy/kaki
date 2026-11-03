@@ -396,7 +396,36 @@ export function PhoneFeed({ role }: { role: string }) {
   );
 }
 
-function TaskCard({
+const MIN_SENDING_MS = 1200;
+
+/** Keeps a task looking like "RUNNING" for a minimum time so the sending state is readable. */
+function useHeldRunning(status: Task['status']): boolean {
+  const startedAt = useRef<number | null>(null);
+  const [, tick] = useState(0);
+  if (status === 'RUNNING' && startedAt.current === null) startedAt.current = Date.now();
+  const remaining =
+    startedAt.current === null ? 0 : startedAt.current + MIN_SENDING_MS - Date.now();
+  const holding = status !== 'RUNNING' && remaining > 0;
+  useEffect(() => {
+    if (!holding) return;
+    const timer = setTimeout(() => tick((n) => n + 1), remaining);
+    return () => clearTimeout(timer);
+  }, [holding, remaining]);
+  return holding;
+}
+
+function TaskCard(props: {
+  task: Task;
+  scenario: Scenario;
+  send: (command: KakiCommand) => void;
+  rejection: KakiRejection | null;
+}) {
+  const holding = useHeldRunning(props.task.status);
+  const shown: Task = holding ? { ...props.task, status: 'RUNNING' } : props.task;
+  return <TaskCardBody {...props} task={shown} />;
+}
+
+function TaskCardBody({
   task,
   scenario,
   send,
