@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule, isObject, messageOf } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -74,7 +74,7 @@ export function createMattermostModule({
       throw new ActionError(
         timeout.aborted
           ? `Mattermost timed out after ${timeoutMs} ms`
-          : `could not reach Mattermost: ${messageOf(error)}`,
+          : `could not reach Mattermost: ${plainReason(error, 'Mattermost')}`,
       );
     }
   }

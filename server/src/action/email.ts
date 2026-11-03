@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule, isObject, messageOf } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -187,7 +187,7 @@ export function createEmailModule({
           messageId,
         });
       } catch (error) {
-        throw new ActionError(`could not send the email: ${messageOf(error)}`);
+        throw new ActionError(`could not send the email: ${plainReason(error, 'The mail server')}`);
       }
 
       return viewUrl(settings, messageId, signal);

@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule, isObject, messageOf } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -108,7 +108,7 @@ export function createGiteaModule({
         throw new ActionError(
           timeout.aborted
             ? `Gitea timed out after ${timeoutMs} ms; check Gitea before retrying, the issue may already exist`
-            : `could not reach Gitea: ${messageOf(error)}`,
+            : `could not reach Gitea: ${plainReason(error, 'Gitea')}`,
         );
       }
 

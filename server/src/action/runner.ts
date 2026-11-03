@@ -25,6 +25,16 @@ export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The error in plain words for a person: a connection failure says what to do, with the technical detail after it. */
+export function plainReason(error: unknown, service: string): string {
+  const raw = messageOf(error);
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|fetch failed/i.test(`${raw} ${cause}`)) {
+    return `${service} is not answering. Check that it is running, then press Retry. (${cause === '' ? raw : `${raw}: ${cause}`})`;
+  }
+  return raw;
+}
+
 /** Create a module that drafts on claim, runs on approval and records the result or failure. */
 export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
   return {
