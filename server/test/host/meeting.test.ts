@@ -146,6 +146,35 @@ describe('host meeting module', () => {
     await waitFor(() => (screen.messages.filter(isRecord).length === 2 ? true : undefined), 'heartbeat', 3_000);
   });
 
+  it('welcomes the room before the first agenda item is announced', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    app = await createApp({
+      scenario: { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, ownerRole: 'cashier' }] },
+      modules: [
+        createMeetingModule({
+          llm: createFakeLlm(() => reply({ agendaIndex: 0 })),
+          speed: 20,
+          notetakerIntervalMs: 50,
+          replay: [
+            { at: 1, speaker: 'Ada (Chef)', text: 'Prep is done, I think.', agendaIndex: 0 },
+            { at: 2, speaker: 'Bao (Cashier)', text: 'On to the till then.', agendaIndex: 1 },
+          ],
+        }),
+      ],
+    });
+    const screen = await connect('screen');
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.text.startsWith('Next up'),
+      'the next-item announcement',
+    );
+    const spoken = screen.messages.flatMap((event) =>
+      event.type === 'HOST_SPEECH_TRIGGERED' ? [event.payload.text] : [],
+    );
+    expect(spoken[0]).toMatch(/^Welcome to /);
+  });
+
   it('follows the replay agenda markers and ends the meeting after the last line', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});

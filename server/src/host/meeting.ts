@@ -136,14 +136,18 @@ export function createMeetingModule({
         if (event.type !== 'TRANSCRIPT_CHUNK') return;
         
         if (!clock.snapshot().started) {
-          hub.publish({
-            type: 'HOST_SPEECH_TRIGGERED',
-            audience: { kind: 'screen' },
-            payload: {
-              kind: 'OPENING',
-              text: openingLine(scenario),
+          // Retained so a screen that opens a moment after the meeting starts still shows the welcome.
+          hub.publish(
+            {
+              type: 'HOST_SPEECH_TRIGGERED',
+              audience: { kind: 'screen' },
+              payload: {
+                kind: 'OPENING',
+                text: openingLine(scenario),
+              },
             },
-          });
+            { retainKey: 'host:opening' },
+          );
         }
         
         clock.start();
