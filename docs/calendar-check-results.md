@@ -48,7 +48,7 @@ END:VCALENDAR
 2. Open `http://127.0.0.1:5232/user/calendar/followup-1.ics`. Does the browser show text, show a calendar view, or download a file?
 > "that downloads an ics file to my com i cant open it in browser can i"
 3. Is there any page that shows events as a calendar (month or week grid)? yes/no, where.
-> No, as confirmed by Radicale's built-in web UI which only manages collections.
+> "for number 3 i i think the ans is no... this calendar do look v basic tho" (No calendar grid UI exists; it just lists collections).
 
 ## Conclusion
-A person could not open the event link and understand it without extra software.
+A person could not open the event link and understand it without extra software. The Radicale server provides a very basic UI that only manages CalDAV collections, meaning users cannot view calendar grids or read event details natively in the browser.
