@@ -1,8 +1,10 @@
 import { llmFromEnv } from '../llm';
 import type { KakiModule } from '../modules';
+import { createCalendarModule, type CalendarSettings } from './calendar';
 import { createEmailModule, type EmailSettings } from './email';
 import { createGiteaModule, type GiteaSettings } from './gitea';
 import { createMattermostModule, type MattermostSettings } from './mattermost';
+import { createWikiModule, type WikiSettings } from './wiki';
 
 function requiredEnv(name: string): string | undefined {
   const value = process.env[name];
@@ -42,6 +44,22 @@ function emailFromEnv(): EmailSettings | undefined {
   return { smtpHost, smtpPort, from, mailpitUrl };
 }
 
+function wikiFromEnv(): WikiSettings | undefined {
+  const url = requiredEnv('WIKI_URL');
+  const email = requiredEnv('WIKI_ADMIN_EMAIL');
+  const password = requiredEnv('WIKI_ADMIN_PASSWORD');
+  if (url === undefined || email === undefined || password === undefined) return undefined;
+  return { url, email, password };
+}
+
+/** The calendar server and the address people use to open an event; shared with the viewer route. */
+export function calendarFromEnv(): CalendarSettings | undefined {
+  const caldavUrl = requiredEnv('CALDAV_URL');
+  if (caldavUrl === undefined) return undefined;
+  const viewBaseUrl = requiredEnv('KAKI_PUBLIC_URL') ?? `http://127.0.0.1:${process.env.PORT ?? '3001'}`;
+  return { caldavUrl, viewBaseUrl };
+}
+
 const llm = llmFromEnv();
 
 /** Modules that run the team's approved actions in the outside world. */
@@ -57,5 +75,13 @@ export const actionModules: KakiModule[] = [
   createEmailModule({
     llm,
     email: emailFromEnv(),
+  }),
+  createWikiModule({
+    llm,
+    wiki: wikiFromEnv(),
+  }),
+  createCalendarModule({
+    llm,
+    calendar: calendarFromEnv(),
   }),
 ];

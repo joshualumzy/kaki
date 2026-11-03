@@ -12,7 +12,8 @@ Company search drops a bad fact instead of failing; plain, on-topic answers with
 - Done card on `/screen` shows no link (Host's folder: ask the friend).
 - Host problems seen in replay (friend's list): too many and duplicate open questions, missing build-date question, nudge states the wrong build date, no real opening line, `actionKind` and thin task context.
 - Mattermost links need a one-time login in the demo browser.
-- Optional: calendar (`docs/calendar-check.md`, branch `feature/caldav-ingestion`), other new actions (wiki summary).
+- Five integrations: Gitea, Mattermost, email (proven), wiki page (`wiki_page`) and calendar event (`calendar_event`, mock Radicale; link is our own `/api/calendar/<id>` page because Radicale has no viewer, see `docs/calendar-check-results.md`). The last two have unit tests only: NOT VERIFIED against the live stack. Needs `npm run stack:up` (adds the `caldav` service), `CALDAV_URL` and the `WIKI_*` values in `.env`.
+- The notetaker prompt (`server/src/host/notetaker.ts`, Host's file) does not yet describe `wiki_page` and `calendar_event`, so it will not suggest them: ask the friend to add the two lines.
 - Other branches with overlapping work, not merged: `feature/mock-crm-nocodb` (hybrid RAG search), `feature/contextual-timestamps`.
 
 ## Working rules with agents

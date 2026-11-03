@@ -1,6 +1,6 @@
 // Must stay the first import: later modules read process.env as they load.
 import './env';
-import { actionModules } from './action';
+import { actionModules, calendarFromEnv } from './action';
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
 import { hostModules } from './host';
@@ -26,6 +26,7 @@ try {
     modules: [...hostModules, ...wingmanModules, ...actionModules],
     devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
+    calendar: calendarFromEnv(),
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);

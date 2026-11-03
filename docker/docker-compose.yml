@@ -99,6 +99,17 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  caldav:
+    image: tomsquest/docker-radicale:3.2.3.0
+    environment:
+      - TAKE_FILE_OWNERSHIP=false
+      - RADICALE_CONFIG_AUTH_TYPE=none
+    ports:
+      - "127.0.0.1:5232:5232"
+    volumes:
+      - caldav-data:/data
+    restart: unless-stopped
+
   mailpit:
     image: axllent/mailpit:v1.21.7
     environment:
@@ -127,6 +138,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  caldav-data:
   postgres-data:
   wiki-data:
   gitea-data:

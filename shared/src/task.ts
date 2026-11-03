@@ -2,7 +2,7 @@ import type { Role } from './roles';
 import { isRoleIn, type Scenario } from './scenario';
 
 /** The kind of background action a task can run for its assignee. */
-export type ActionKind = 'gitea_issue' | 'mattermost_post' | 'email';
+export type ActionKind = 'gitea_issue' | 'mattermost_post' | 'email' | 'wiki_page' | 'calendar_event';
 
 /** A draft action the assignee must approve before anything is written. */
 export interface ActionDraft {
@@ -61,7 +61,13 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
 ];
 
 /** Every action kind Kaki knows how to draft. */
-export const ACTION_KINDS: readonly ActionKind[] = ['gitea_issue', 'mattermost_post', 'email'];
+export const ACTION_KINDS: readonly ActionKind[] = [
+  'gitea_issue',
+  'mattermost_post',
+  'email',
+  'wiki_page',
+  'calendar_event',
+];
 
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   SUGGESTED: ['DISPATCHED', 'DISMISSED'],

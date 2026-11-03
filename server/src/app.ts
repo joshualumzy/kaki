@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isKakiEvent, isSuggestInput, type Scenario } from '@kaki/shared';
+import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
@@ -15,6 +16,8 @@ export interface CreateAppOptions {
   devRoutes?: boolean;
   /** Optional sign-in, sessions and WebSocket gating; absent means auth is off. */
   auth?: Auth;
+  /** The mock calendar server; when set, `/api/calendar/:id` shows an event a person can read. */
+  calendar?: CalendarSettings;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -31,6 +34,7 @@ interface RequestContext {
   scenario: Scenario;
   devRoutes: boolean;
   auth?: Auth;
+  calendar?: CalendarSettings;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -143,6 +147,18 @@ async function handleRequest(
       return;
     }
 
+    const eventMatch = /^\/api\/calendar\/([^/]+)$/.exec(path);
+    if (request.method === 'GET' && eventMatch !== null && context.calendar !== undefined) {
+      const wantsFile = new URL(request.url ?? '/', 'http://localhost').searchParams.has('download');
+      const view = await viewEvent(context.calendar, decodeURIComponent(eventMatch[1] ?? ''), wantsFile);
+      response.writeHead(view.status, {
+        'content-type': view.contentType,
+        ...(view.filename === undefined ? {} : { 'content-disposition': `attachment; filename="${view.filename}"` }),
+      });
+      response.end(view.body);
+      return;
+    }
+
     if (request.method === 'GET' && path === '/api/scenario') {
       sendJson(response, 200, context.scenario);
       return;
@@ -236,9 +252,10 @@ export async function createApp({
   modules = [],
   devRoutes = false,
   auth,
+  calendar,
 }: CreateAppOptions): Promise<KakiApp> {
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth });
+    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth, calendar });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });
