@@ -513,6 +513,13 @@ function TaskCardBody({
           >
             I&apos;ll do it
           </Button>
+          <Button
+            variant="ghost"
+            disabled={pending}
+            onClick={() => submit({ type: 'DECLINE_TASK', taskId: task.id })}
+          >
+            Decline
+          </Button>
         </div>
       ) : null}
 

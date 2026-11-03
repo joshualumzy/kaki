@@ -30,6 +30,8 @@ export interface Task {
   context: string;
   suggestedAssignee: Role;
   assignee?: Role;
+  /** Roles that were offered this task and turned it down; the task is back to SUGGESTED. */
+  declinedBy?: Role[];
   actionKind?: ActionKind;
   mode?: 'ACTION_AGENT' | 'MANUAL';
   draft?: ActionDraft;
@@ -72,7 +74,7 @@ export const ACTION_KINDS: readonly ActionKind[] = [
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   SUGGESTED: ['DISPATCHED', 'DISMISSED'],
   DISMISSED: [],
-  DISPATCHED: ['CLAIMED'],
+  DISPATCHED: ['CLAIMED', 'SUGGESTED'],
   CLAIMED: ['DRAFT_READY', 'COMPLETED', 'FAILED'],
   DRAFT_READY: ['RUNNING'],
   RUNNING: ['COMPLETED', 'FAILED'],
@@ -124,6 +126,8 @@ export function isTask(value: unknown, scenario: Scenario): value is Task {
     isString(value.context) &&
     isRoleIn(scenario, value.suggestedAssignee) &&
     (value.assignee === undefined || isRoleIn(scenario, value.assignee)) &&
+    (value.declinedBy === undefined ||
+      (Array.isArray(value.declinedBy) && value.declinedBy.every((role) => isRoleIn(scenario, role)))) &&
     (value.actionKind === undefined || isActionKind(value.actionKind)) &&
     (value.mode === undefined || value.mode === 'ACTION_AGENT' || value.mode === 'MANUAL') &&
     (value.draft === undefined || isActionDraft(value.draft)) &&

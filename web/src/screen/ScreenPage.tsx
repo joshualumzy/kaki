@@ -343,6 +343,9 @@ function ScreenTask({
           {task.actionKind === 'mattermost_post' ? ' (Mattermost may ask you to log in the first time.)' : ''}
         </p>
       ) : null}
+      {task.status === 'SUGGESTED' && task.declinedBy !== undefined && task.declinedBy.length > 0 ? (
+        <p className="task-meta">Declined by {task.declinedBy.map((role) => roleLabel(scenario, role)).join(', ')}</p>
+      ) : null}
       {task.status === 'SUGGESTED' ? (
         <div className="task-actions">
           <Button onClick={() => send({ type: 'DISPATCH_TASK', taskId: task.id, assignee: task.suggestedAssignee })}>

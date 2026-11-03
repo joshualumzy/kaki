@@ -2,6 +2,7 @@ import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
+import { installAutoDispatch } from './autoDispatch';
 import { createNotetaker } from './notetaker';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
 
@@ -51,6 +52,9 @@ export function createMeetingModule({
             : undefined,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
+      // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
+      const stopAutoDispatch =
+        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;
@@ -211,6 +215,7 @@ export function createMeetingModule({
         stopped = true;
         stopReplay?.();
         unsubscribe();
+        stopAutoDispatch?.();
         clearInterval(ticker);
         clearInterval(notetakerTimer);
       };

@@ -7,6 +7,7 @@ import {
   type ActionDraft,
   type KakiCommand,
   type KakiEvent,
+  type Role,
   type Scenario,
   type SuggestInput,
   type Task,
@@ -14,7 +15,7 @@ import {
 } from '@kaki/shared';
 import { CommandError, type ClientAudience, type Hub } from './hub';
 
-type TaskPatch = Partial<Pick<Task, 'assignee' | 'mode' | 'draft' | 'artifactUrl' | 'error'>>;
+type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft' | 'artifactUrl' | 'error'>>;
 
 /** The single owner of task state; every other module changes tasks through it. */
 export interface TaskStore {
@@ -68,12 +69,12 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     }
   }
 
-  function publishTask(task: Task): void {
+  function publishTask(task: Task, previousAssignee?: Role): void {
     hub.publish(taskUpdated(task, { kind: 'screen' }), { retainKey: `task:${task.id}` });
-    if (task.assignee !== undefined) {
-      hub.publish(taskUpdated(task, { kind: 'role', role: task.assignee }), {
-        retainKey: `task:${task.id}:${task.assignee}`,
-      });
+    // Whoever had the task until now must hear that it is no longer theirs (declined or reassigned).
+    for (const role of new Set([previousAssignee, task.assignee])) {
+      if (role === undefined) continue;
+      hub.publish(taskUpdated(task, { kind: 'role', role }), { retainKey: `task:${task.id}:${role}` });
     }
   }
 
@@ -105,7 +106,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       delete next.error;
     }
     tasks.set(id, next);
-    publishTask(next);
+    publishTask(next, current.assignee);
     notifyChange(next, current.status);
     return next;
   }
@@ -147,6 +148,16 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
         requireScreen(sender);
         transition(command.taskId, 'DISMISSED');
         return;
+      case 'DECLINE_TASK': {
+        const task = requireTask(command.taskId);
+        requireAssignee(task, sender);
+        // Back to the shared screen's list with nobody assigned, so a person can offer it to someone else.
+        transition(command.taskId, 'SUGGESTED', {
+          assignee: undefined,
+          declinedBy: [...new Set([...(task.declinedBy ?? []), task.assignee as Role])],
+        });
+        return;
+      }
       case 'CLAIM_TASK': {
         const task = requireTask(command.taskId);
         requireAssignee(task, sender);

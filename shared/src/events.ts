@@ -52,7 +52,7 @@ export type KakiEvent =
         quietRoles?: Role[];
       }
     >
-  | KakiEventOf<'HOST_SPEECH_TRIGGERED', { kind: 'OPENING' | 'TIMEOUT' | 'CLOSING'; text: string }>
+  | KakiEventOf<'HOST_SPEECH_TRIGGERED', { kind: 'OPENING' | 'TIMEOUT' | 'CLOSING' | 'DISPATCH'; text: string }>
   | KakiEventOf<'NUDGE', { text: string }>
   | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[] }>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
@@ -131,7 +131,10 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     (payload.quietRoles === undefined ||
       (Array.isArray(payload.quietRoles) && payload.quietRoles.every((role) => isRoleIn(scenario, role)))),
   HOST_SPEECH_TRIGGERED: (payload) =>
-    (payload.kind === 'OPENING' || payload.kind === 'TIMEOUT' || payload.kind === 'CLOSING') &&
+    (payload.kind === 'OPENING' ||
+      payload.kind === 'TIMEOUT' ||
+      payload.kind === 'CLOSING' ||
+      payload.kind === 'DISPATCH') &&
     isString(payload.text),
   NUDGE: (payload) => isString(payload.text),
   FACT_FOUND: (payload) =>

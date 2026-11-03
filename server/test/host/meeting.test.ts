@@ -72,10 +72,18 @@ describe('host meeting module', () => {
 
     const suggested = await waitForEvent(
       screen,
-      (event) => event.type === 'TASK_UPDATED' && event.payload.task.status === 'SUGGESTED',
-      'suggested task',
+      (event) => event.type === 'TASK_UPDATED' && event.payload.task.status === 'DISPATCHED',
+      'suggested task, dispatched by the host',
     );
-    expect(suggested).toMatchObject({ payload: { task: { title: 'Call the oven repair man', suggestedAssignee: 'chef' } } });
+    // Sam hands it straight to the role the notetaker named; the recipient accepts or declines.
+    expect(suggested).toMatchObject({
+      payload: { task: { title: 'Call the oven repair man', suggestedAssignee: 'chef', assignee: 'chef' } },
+    });
+    await waitForEvent(
+      chef,
+      (event) => event.type === 'TASK_UPDATED' && event.payload.task.status === 'DISPATCHED',
+      'the task on the chef\'s phone',
+    );
 
     const record = await waitForEvent(
       screen,
