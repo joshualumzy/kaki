@@ -11,7 +11,7 @@ Branch `feature/scripted-replay`. These are things only the Host side can do, pl
 The allowed values in the JSON shape already come from `ACTION_KINDS`, so that part updates by itself.
 
 ## 2. Done card on `/screen` shows no link
-Every action ends with an `artifactUrl` (Gitea issue, Mattermost post, email in Mailpit, wiki page, calendar event page). The Done card in `web/src/screen/` should show it as a link. The calendar link goes to a small readable page, `/api/calendar/<id>`, because the calendar server has no viewer.
+Every action ends with an `artifactUrl` (Gitea issue, Mattermost post, email in Mailpit, wiki page, calendar event page). The Done card in `web/src/screen/` should show it as a link. The calendar link goes to our own mock team-calendar page (a month grid with the event highlighted), `/api/calendar/<id>`, because the calendar server has no viewer.
 
 ## 3. Host problems seen in replay (from the earlier list)
 Too many and duplicate open questions; the build-date question is missing; the nudge states the wrong build date; no real opening line; `actionKind` is often missing and the task context is thin.

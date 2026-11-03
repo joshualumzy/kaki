@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
-import { buildIcs, createCalendarModule, formatBody, parseBody, parseIcs, renderEventPage, viewEvent, type CalendarModuleOptions, type CalendarSettings } from '../../src/action/calendar';
+import { buildIcs, createCalendarModule, formatBody, parseBody, parseEvents, upcomingDays, viewEvent, type CalendarModuleOptions, type CalendarSettings } from '../../src/action/calendar';
 import type { Hub } from '../../src/hub';
 import { createFakeLlm } from '../../src/llm';
 import { createTaskStore, type TaskStore } from '../../src/tasks';
@@ -112,24 +112,41 @@ describe('calendar action module', () => {
     const body = formatBody({ start: '2026-11-13 10:00', durationMinutes: 45 }, 'Line one, with; punctuation');
     const { times, notes } = parseBody(body);
     const ics = buildIcs('uid@kaki.local', 'Title, here', times, notes, new Date('2026-11-03T00:00:00Z'));
-    expect(parseIcs(ics)).toMatchObject({
+    expect(parseEvents(ics)[0]).toMatchObject({
       title: 'Title, here',
-      start: '2026-11-13 10:00',
-      end: '2026-11-13 10:45',
+      date: '2026-11-13',
+      time: '10:00',
+      endTime: '10:45',
       description: 'Line one, with; punctuation',
     });
   });
 
-  it('renders a readable page, escapes markup and handles missing events', async () => {
-    const ics = buildIcs('u', '<b>x</b>', { start: '2026-11-13 10:00', durationMinutes: 30 }, 'Notes', new Date());
-    const html = renderEventPage(ics, '/api/calendar/abc?download=1');
-    expect(html).toContain('2026-11-13 10:00 to 10:30');
-    expect(html).not.toContain('<b>x</b>');
-    const found = vi.fn<typeof fetch>(async () => new Response(ics, { status: 200 }));
-    expect((await viewEvent(settings, 'abc', false, found)).contentType).toContain('text/html');
-    expect((await viewEvent(settings, 'abc', true, found)).filename).toBe('abc.ics');
-    expect((await viewEvent(settings, '../etc', false, found)).status).toBe(404);
+  it('lists weekdays from a table so the model looks dates up', () => {
+    const days = upcomingDays('2026-11-03');
+    expect(days[0]).toBe('Tuesday 2026-11-03');
+    expect(days).toContain('Friday 2026-11-06');
+    expect(days).toContain('Friday 2026-11-13');
+  });
+
+  it('shows the whole team calendar as a month grid with the event highlighted, and no ics link', async () => {
+    const mine = buildIcs('kaki-abc@kaki.local', '<b>x</b>', { start: '2026-11-13 11:00', durationMinutes: 30 }, 'Notes', new Date());
+    const seeded = buildIcs('seed@kaki.local', 'Launch readiness', { start: '2026-11-01 09:00', durationMinutes: 60 }, '', new Date());
+    const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+      new Response(String(url).endsWith('/abc.ics') ? mine : mine + seeded, { status: 200 }),
+    );
+    const page = await viewEvent(settings, 'abc', {}, fetchImpl);
+    expect(page.contentType).toContain('text/html');
+    expect(page.body).toContain('November 2026');
+    expect(page.body).toContain('Launch readiness');
+    expect(page.body).toContain('class="chip focus"');
+    expect(page.body).toContain('2026-11-13, 11:00 to 11:30');
+    expect(page.body).not.toContain('<b>x</b>');
+    expect(page.body).not.toContain('.ics');
+    const next = await viewEvent(settings, 'abc', { month: '2026-12' }, fetchImpl);
+    expect(next.body).toContain('December 2026');
+    expect((await viewEvent(settings, 'abc', { download: true }, fetchImpl)).filename).toBe('abc.ics');
+    expect((await viewEvent(settings, '../etc', {}, fetchImpl)).status).toBe(404);
     const missing = vi.fn<typeof fetch>(async () => new Response('', { status: 404 }));
-    expect((await viewEvent(settings, 'abc', false, missing)).status).toBe(404);
+    expect((await viewEvent(settings, 'abc', {}, missing)).status).toBe(404);
   });
 });

@@ -447,7 +447,12 @@ function TaskCard({
       )}
 
       {(task.status === 'CLAIMED' && task.mode === 'ACTION_AGENT') || task.status === 'RUNNING' ? (
-        <p className="task-meta" role="status" aria-live="polite">
+        <p className="task-meta task-working" role="status" aria-live="polite">
+          <span className="working-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
           {task.status === 'RUNNING' ? 'Kaki is sending this now…' : 'Kaki is drafting this… it can take up to a minute.'}
         </p>
       ) : null}

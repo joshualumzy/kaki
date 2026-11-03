@@ -149,8 +149,12 @@ async function handleRequest(
 
     const eventMatch = /^\/api\/calendar\/([^/]+)$/.exec(path);
     if (request.method === 'GET' && eventMatch !== null && context.calendar !== undefined) {
-      const wantsFile = new URL(request.url ?? '/', 'http://localhost').searchParams.has('download');
-      const view = await viewEvent(context.calendar, decodeURIComponent(eventMatch[1] ?? ''), wantsFile);
+      const query = new URL(request.url ?? '/', 'http://localhost').searchParams;
+      const month = query.get('month') ?? undefined;
+      const view = await viewEvent(context.calendar, decodeURIComponent(eventMatch[1] ?? ''), {
+        download: query.has('download'),
+        ...(month === undefined ? {} : { month }),
+      });
       response.writeHead(view.status, {
         'content-type': view.contentType,
         ...(view.filename === undefined ? {} : { 'content-disposition': `attachment; filename="${view.filename}"` }),

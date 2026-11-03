@@ -110,61 +110,119 @@ function unescapeText(text: string): string {
   return text.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
 }
 
-/** The fields the viewer page shows, read from a .ics file. */
-export function parseIcs(ics: string): { title: string; start?: string; end?: string; description: string; people: string[] } {
-  const lines = ics.replace(/\r?\n[ \t]/g, '').split(/\r?\n/);
-  const fields = new Map<string, string>();
-  const people: string[] = [];
-  for (const line of lines) {
-    const colon = line.indexOf(':');
-    if (colon < 1) continue;
-    const name = line.slice(0, colon).split(';')[0]!.toUpperCase();
-    const value = line.slice(colon + 1);
-    if (name === 'ATTENDEE' || name === 'ORGANIZER') {
-      const cn = /CN="?([^";:]+)"?/i.exec(line.slice(0, colon));
-      people.push(cn?.[1] ?? value.replace(/^mailto:/i, ''));
-    } else if (!fields.has(name)) {
-      fields.set(name, value);
+/** One event as the calendar page shows it. */
+export interface CalendarEvent {
+  uid: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  endTime?: string;
+  description: string;
+  people: string[];
+}
+
+function readTime(value: string | undefined): { date: string; time: string } | undefined {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(value ?? '');
+  return m === null ? undefined : { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}` };
+}
+
+/** Every event in an iCalendar text (one event file, or a whole calendar). Events without a start time are skipped. */
+export function parseEvents(ics: string): CalendarEvent[] {
+  const unfolded = ics.replace(/\r?\n[ \t]/g, '');
+  const events: CalendarEvent[] = [];
+  for (const block of unfolded.split(/BEGIN:VEVENT/i).slice(1)) {
+    const body = block.split(/END:VEVENT/i)[0] ?? '';
+    const fields = new Map<string, string>();
+    const people: string[] = [];
+    for (const line of body.split(/\r?\n/)) {
+      const colon = line.indexOf(':');
+      if (colon < 1) continue;
+      const name = line.slice(0, colon).split(';')[0]!.toUpperCase();
+      const value = line.slice(colon + 1);
+      if (name === 'ATTENDEE' || name === 'ORGANIZER') {
+        const cn = /CN="?([^";:]+)"?/i.exec(line.slice(0, colon));
+        const person = cn?.[1] ?? value.replace(/^mailto:/i, '');
+        if (!people.includes(person)) people.push(person);
+      } else if (!fields.has(name)) {
+        fields.set(name, value);
+      }
     }
+    const start = readTime(fields.get('DTSTART'));
+    if (start === undefined) continue;
+    const end = readTime(fields.get('DTEND'));
+    events.push({
+      uid: fields.get('UID') ?? '',
+      title: unescapeText(fields.get('SUMMARY') ?? 'Untitled event'),
+      date: start.date,
+      time: start.time,
+      ...(end === undefined || end.date !== start.date ? {} : { endTime: end.time }),
+      description: unescapeText(fields.get('DESCRIPTION') ?? ''),
+      people,
+    });
   }
-  const readTime = (value: string | undefined): string | undefined => {
-    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/.exec(value ?? '');
-    return m === null ? undefined : `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
-  };
-  const start = readTime(fields.get('DTSTART'));
-  const end = readTime(fields.get('DTEND'));
-  return {
-    title: unescapeText(fields.get('SUMMARY') ?? 'Untitled event'),
-    ...(start === undefined ? {} : { start }),
-    ...(end === undefined ? {} : { end }),
-    description: unescapeText(fields.get('DESCRIPTION') ?? ''),
-    people,
-  };
+  return events;
 }
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** A small, readable page for one event, so the link a person gets can be opened and understood. */
-export function renderEventPage(ics: string, downloadHref: string): string {
-  const event = parseIcs(ics);
-  const when = event.start === undefined ? '' : event.end === undefined ? event.start : `${event.start} to ${event.end.slice(11)}`;
-  const rows = [
-    when === '' ? '' : `<p class="when">${escapeHtml(when)}</p>`,
-    event.people.length === 0 ? '' : `<p><strong>With:</strong> ${escapeHtml(event.people.join(', '))}</p>`,
-    event.description === '' ? '' : `<p class="notes">${escapeHtml(event.description).replace(/\n/g, '<br>')}</p>`,
-  ].join('\n');
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_PATTERN = /^(\d{4})-(\d{2})$/;
+
+function shiftMonth(month: string, by: number): string {
+  const [y, m] = month.split('-').map(Number) as [number, number];
+  const d = new Date(Date.UTC(y, m - 1 + by, 1));
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+}
+
+/**
+ * The team calendar as a month grid with the linked event highlighted and described below it.
+ * Server-rendered and read-only: it is the mock calendar people look at, not a file to download.
+ */
+export function renderCalendarPage(events: CalendarEvent[], focus: CalendarEvent, month: string, baseHref: string): string {
+  const [year, mon] = month.split('-').map(Number) as [number, number];
+  const first = new Date(Date.UTC(year, mon - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const lead = (first.getUTCDay() + 6) % 7; // Monday first
+  const byDay = new Map<string, CalendarEvent[]>();
+  for (const event of events) byDay.set(event.date, [...(byDay.get(event.date) ?? []), event]);
+
+  const cells: string[] = [];
+  for (let i = 0; i < lead; i += 1) cells.push('<div class="cell empty"></div>');
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const key = `${month}-${pad(day)}`;
+    const chips = (byDay.get(key) ?? [])
+      .sort((a, b) => a.time.localeCompare(b.time))
+      .map((e) => `<div class="chip${e === focus || (e.uid !== '' && e.uid === focus.uid) ? ' focus' : ''}"><b>${escapeHtml(e.time)}</b> ${escapeHtml(e.title)}</div>`)
+      .join('');
+    cells.push(`<div class="cell${key === focus.date ? ' today' : ''}"><span class="num">${day}</span>${chips}</div>`);
+  }
+
+  const when = focus.endTime === undefined ? focus.time : `${focus.time} to ${focus.endTime}`;
+  const detail = [
+    `<p class="when">${escapeHtml(focus.date)}, ${escapeHtml(when)}</p>`,
+    focus.people.length === 0 ? '' : `<p><strong>With:</strong> ${escapeHtml(focus.people.join(', '))}</p>`,
+    focus.description === '' ? '' : `<p class="notes">${escapeHtml(focus.description).replace(/\n/g, '<br>')}</p>`,
+  ].join('');
+
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(event.title)}</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;color:#1b1b1f;background:#fff}
-.card{border:1px solid #d6d6dc;border-radius:12px;padding:1.25rem}h1{margin:.2rem 0 .6rem;font-size:1.4rem}
-.when{font-size:1.1rem;font-weight:600}.kicker{color:#666;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em}
-a{color:#2457d6}</style></head>
-<body><div class="card"><div class="kicker">Calendar event (Kaki)</div><h1>${escapeHtml(event.title)}</h1>
-${rows}
-<p><a href="${escapeHtml(downloadHref)}">Add to my calendar (.ics file)</a></p></div></body></html>`;
+<html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team calendar: ${escapeHtml(focus.title)}</title>
+<style>body{font:15px/1.45 system-ui,sans-serif;max-width:64rem;margin:1.5rem auto;padding:0 1rem;color:#1b1b1f;background:#fff}
+header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}h1{font-size:1.3rem;margin:0}
+nav a{color:#2457d6;text-decoration:none;padding:.25rem .6rem;border:1px solid #d6d6dc;border-radius:8px;margin-left:.3rem}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:#d6d6dc;border:1px solid #d6d6dc;margin:1rem 0}
+.dow{background:#f3f3f6;padding:.3rem;text-align:center;font-size:.8rem;color:#555}
+.cell{background:#fff;min-height:5.5rem;padding:.25rem;overflow:hidden}.cell.empty{background:#fafafc}.num{font-size:.8rem;color:#666}
+.cell.today{background:#f1f6ff}.chip{margin-top:.2rem;padding:.1rem .3rem;border-radius:5px;background:#e9ebf1;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.focus{background:#2457d6;color:#fff}.card{border:1px solid #d6d6dc;border-radius:12px;padding:1rem 1.25rem}.card h2{margin:.1rem 0 .5rem;font-size:1.2rem}
+.kicker{color:#666;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}.when{font-weight:600}
+@media (max-width:640px){.cell{min-height:3.2rem}.chip{font-size:.65rem}}</style></head>
+<body><header><h1>Team calendar &middot; ${MONTH_NAMES[mon - 1]} ${year}</h1>
+<nav><a href="${escapeHtml(baseHref)}?month=${shiftMonth(month, -1)}">&larr; Previous</a><a href="${escapeHtml(baseHref)}?month=${shiftMonth(month, 1)}">Next &rarr;</a></nav></header>
+<div class="grid">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>
+<div class="card"><div class="kicker">Event</div><h2>${escapeHtml(focus.title)}</h2>${detail}</div></body></html>`;
 }
 
 /** What the viewer route needs back: a status, a content type and a body. */
@@ -175,28 +233,62 @@ export interface EventView {
   filename?: string;
 }
 
-/** Fetch one event from the calendar server and render it, or its raw .ics when `download` is set. */
+/**
+ * The calendar page for one event: the whole team calendar as a month grid, the event highlighted.
+ * `download` returns the raw .ics instead, for anyone who wants it.
+ */
 export async function viewEvent(
   settings: CalendarSettings,
   id: string,
-  download: boolean,
+  options: { download?: boolean; month?: string } = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<EventView> {
   const plain = (status: number, body: string): EventView => ({ status, contentType: 'text/plain; charset=utf-8', body });
   if (!ID_PATTERN.test(id)) return plain(404, 'No such event');
+  const get = async (url: string): Promise<Response> => fetchImpl(url, { signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) });
+
   let response: Response;
   try {
-    response = await fetchImpl(`${collectionUrl(settings)}${id}.ics`, { signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) });
+    response = await get(`${collectionUrl(settings)}${id}.ics`);
   } catch {
     return plain(502, 'The calendar server is not answering. Check that it is running, then reload.');
   }
   if (response.status === 404) return plain(404, 'No such event');
   if (!response.ok) return plain(502, `The calendar server returned HTTP ${response.status}`);
   const ics = await response.text();
-  if (download) {
+  if (options.download === true) {
     return { status: 200, contentType: 'text/calendar; charset=utf-8', body: ics, filename: `${id}.ics` };
   }
-  return { status: 200, contentType: 'text/html; charset=utf-8', body: renderEventPage(ics, `/api/calendar/${id}?download=1`) };
+
+  const focus = parseEvents(ics)[0];
+  if (focus === undefined) return plain(502, 'The event could not be read');
+  // The rest of the calendar is context; if it cannot be read the page still shows this event.
+  let events: CalendarEvent[] = [focus];
+  try {
+    const all = await get(collectionUrl(settings));
+    if (all.ok) {
+      const others = parseEvents(await all.text()).filter((e) => e.uid === '' || e.uid !== focus.uid);
+      events = [focus, ...others];
+    }
+  } catch {
+    // keep just the one event
+  }
+  const month = options.month !== undefined && MONTH_PATTERN.test(options.month) ? options.month : focus.date.slice(0, 7);
+  return {
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    body: renderCalendarPage(events, focus, month, `/api/calendar/${id}`),
+  };
+}
+
+/** Today and the next 21 days, each as "Tuesday 2026-11-03", so the model looks dates up instead of counting. */
+export function upcomingDays(date: string, count = 22): string[] {
+  const base = new Date(`${date}T00:00:00Z`);
+  return Array.from({ length: count }, (_, i) => {
+    const day = new Date(base.getTime() + i * 86_400_000);
+    const weekday = day.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+    return `${weekday} ${day.toISOString().slice(0, 10)}`;
+  });
 }
 
 // Strictly one JSON object with a title and a valid start; anything else is unusable.
@@ -232,7 +324,7 @@ export function createCalendarModule({
       throw new ActionError(
         timeout.aborted
           ? `The calendar timed out after ${timeoutMs} ms; check the calendar before retrying`
-          : `could not reach the calendar: ${plainReason(error, 'The calendar')}`,
+          : plainReason(error, 'The calendar'),
       );
     }
   }
@@ -245,14 +337,14 @@ export function createCalendarModule({
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the event cannot be drafted');
 
       const date = today();
-      const weekday = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      const upcoming = upcomingDays(date);
       const messages: ChatMessage[] = [
         {
           role: 'system',
           content:
-            `You turn a team task into a calendar event. Today is ${weekday} ${date}. Reply with one JSON object and nothing else: ` +
+            `You turn a team task into a calendar event. Today is ${upcoming[0]}. The next days are: ${upcoming.slice(1).join('; ')}. Reply with one JSON object and nothing else: ` +
             '{"title": "...", "start": "YYYY-MM-DD HH:MM", "durationMinutes": 30, "description": "..."}. ' +
-            'Work out the date from the task, for example "next Friday". If no time is given use 10:00. ' +
+            'Work out the date from the task by looking it up in the list of days above, never by counting yourself (for a weekday such as "Friday", take the first one in the list after today). If no time is given use 10:00. ' +
             'The description is one or two plain sentences. Use only what is in the task and its context; do not invent names or details.',
         },
         { role: 'user', content: `Task: ${task.title}\n\nContext:\n${task.context}` },
