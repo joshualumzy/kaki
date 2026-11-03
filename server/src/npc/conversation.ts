@@ -77,8 +77,6 @@ class SentenceQueue<Item> implements AsyncIterable<Item> {
 
   close(): void {
     this.closed = true;
-    this.unanswered = false;
-    this.cutOff = false;
     this.wake();
   }
 

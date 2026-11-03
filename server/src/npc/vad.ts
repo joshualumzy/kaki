@@ -162,7 +162,7 @@ export class EnergyVad {
     return this.recent.reduce((loudest, entry) => (entry.at >= since && entry.level > loudest ? entry.level : loudest), 0);
   }
 
-  private thresholdFor(reference: number): number {
+  private thresholdFor(_reference: number): number {
     const { minLevel, guardedMinLevel, noiseRatio, guardedNoiseRatio } = this.options;
     if (!this.guarded) return Math.max(minLevel, this.noiseFloor * noiseRatio);
     if (this.reference === undefined) return Math.max(guardedMinLevel, this.noiseFloor * guardedNoiseRatio);
