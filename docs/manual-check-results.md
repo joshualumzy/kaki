@@ -38,3 +38,6 @@ For the "Email a streamer" task, the generated draft completely missed the keywo
 
 **5. Mattermost Post - Link Authentication**
 Clicking the final generated link on the task card for the Mattermost post takes the user to a login screen, rather than bypassing it or securely passing credentials into the user's current session. The email link (Mailpit), however, worked fine.
+
+**6. Flow Interruption for Third-Party Logins**
+As a general requirement, external application links generated mid-meeting (such as the Mattermost post link) should not force the user to suddenly stop and authenticate into a separate platform.
