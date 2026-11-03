@@ -161,7 +161,7 @@ export function renderEventPage(ics: string, downloadHref: string): string {
 <style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;color:#1b1b1f;background:#fff}
 .card{border:1px solid #d6d6dc;border-radius:12px;padding:1.25rem}h1{margin:.2rem 0 .6rem;font-size:1.4rem}
 .when{font-size:1.1rem;font-weight:600}.kicker{color:#666;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em}
-a{color:#2457d6}@media (prefers-color-scheme:dark){body{background:#17171b;color:#eee}.card{border-color:#38383f}a{color:#8fb0ff}.kicker{color:#aaa}}</style></head>
+a{color:#2457d6}</style></head>
 <body><div class="card"><div class="kicker">Calendar event (Kaki)</div><h1>${escapeHtml(event.title)}</h1>
 ${rows}
 <p><a href="${escapeHtml(downloadHref)}">Add to my calendar (.ics file)</a></p></div></body></html>`;
