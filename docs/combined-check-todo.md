@@ -13,3 +13,4 @@ First time in the demo browser only: open `http://127.0.0.1:8083`, log in as `we
 8. After the replay: on `/screen`, **write the opening line the host said at the start, and say how many open questions are shown and whether any two of them ask the same thing.** (yes/no)
 9. Did the suggested tasks include a wiki or calendar one at any point? Write what you saw.
 Then tell the agent "done".
+
