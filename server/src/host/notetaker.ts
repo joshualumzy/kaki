@@ -263,6 +263,7 @@ function systemPrompt(scenario: Scenario): string {
     '  ending in a question mark. forRole is the role best placed to answer.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up")',
     '  does not answer the question: it stays a question. Neither does an answer its speaker doubts or contradicts.',
+    '  Read on before listing a question: if a later line, even the very next one, answers it, do not list it.',
     '- answeredQuestions: open questions that a new line answers with the fact asked for, stated without doubt.',
     '  evidence: copy, word for word, the line that states the answer. A line that only mentions the topic, or gives a',
     '  figure the speaker is unsure of, leaves the question open. Never close a question you cannot quote an answer for.',
@@ -322,7 +323,7 @@ function userPrompt(
 ): string {
   return [
     `Current agenda item: ${agendaIndex}`,
-    'Open questions:',
+    'Open questions (check each one against the new lines and close the ones they answer):',
     ...(openQuestions.length === 0 ? ['(none)'] : openQuestions.map((q) => `- ${q.id}: ${q.text}`)),
     'Tasks already suggested:',
     ...(existingTasks.length === 0
