@@ -14,22 +14,25 @@ Reports are in `docs/eval-runs/round-N.md`; each header names the model and comm
 | 11 | `x-test-2` (DeepSeek flash) | 1 of 1 PASS | ~4.9 s per call |
 | 12 | `x-test-2` | invalid | Cancelled (exit 130); the script then pushed a bogus report. Fixed in `6b0b775` |
 | 13 | `x-test-2` | **3 of 3 PASS** (commit `6b0b775`, prompt last changed in `822f00f`) | ~6.5 s per call; same 5 tasks each run |
+| 14 | `x-test-2` | 1 of 3 (commit `60f8167`) | Report header wrongly said `llama3.1:8b`; fixed in `35d4f06`. Runs 1 and 3 added "Take store screenshots from release candidate two" as a task |
+| 15 | `x-test-2` | **3 of 3 PASS** (commit `35d4f06`, after reverting `18062dd` in `3ea05aa`) | 220 / 180 / 176 s per run (avg 192 s) |
+| 16 | `x-test-2` | 2 of 3 (commit `4832b6f`, shorter prompt) | 203 / 188 / 159 s (avg 183 s). Run 3 lost the "where players quit" question; shorter prompt reverted |
 
 Done by the loop's rule for `x-test-2` at round 13. `llama3.1:8b` never passed.
 
-## Changes since round 13 (not yet re-run)
+## Current state
 
-- `3fbdb98` prompt: do not list a question the next lines answer; check every open question each pass (round 13 ended with 6-7 stale open questions).
-- `18062dd` prompt: the scenario's `situation` and `vocabulary` are given to the notetaker as background.
-- `cb85c5c` `KAKI_NOTETAKER_LLM_MODEL` / `KAKI_NOTETAKER_LLM_TIMEOUT_MS` (optional; fall back to `KAKI_LLM_MODEL`). The eval uses the same helper.
-- `ff7182c` the spoken welcome names the visitor and their role (`server/src/host/opening.ts`, used by the NPC runner).
+- Prompt is the long version from round 15 (3 of 3). Round 14's regression came from `18062dd` (scenario situation and vocabulary given to the notetaker, which put "release candidate" and marketing in view); it is reverted in `3ea05aa`. `3fbdb98` (stale questions), `cb85c5c` (notetaker model env vars) and `ff7182c` (spoken welcome) stay.
+- Shorter-prompt experiment (`4832b6f`, rules 5.1k to 2.9k chars, examples 13 to 3): 2 of 3 in round 16, so it is reverted. It was a little faster, but run 3 lost "where players quit": the model re-asked it while the earlier wording was open, the duplicate-question check dropped it, and the older one was closed in the same pass.
 
-**Next step:** run the 3-run check again on `x-test-2` (command below). Keep it only if it is still 3 of 3; if not, revert the prompt commit(s) that caused it (`git revert 18062dd` / `3fbdb98`) and re-run.
+## Simplification plan (next attempt, one cut at a time)
 
-```bash
-git pull --ff-only personal feature/scripted-replay
-KAKI_NOTETAKER_LLM_MODEL=x-test-2 KAKI_LLM_TIMEOUT_MS=60000 REMOTE=personal bash scripts/eval-round.sh
-```
+Cutting everything at once cannot say which cut hurt. Try these in order, 3 runs each; keep a cut only if it stays 3 of 3 and no slower than ~190 s per run, otherwise revert it:
+1. Cut the 10 examples that repeat a rule already stated (keep the volunteer, product-work and doubted-answer ones). This is the cut most likely to be safe.
+2. Merge the two "do not repeat or re-ask" sentences into one.
+3. Compress the product-work bullet.
+4. Do not touch the question rules (stale, closing, duplicate) in the same round as another cut; round 16 suggests they are where the model is most fragile.
+Also consider fixing the code side of round 16's failure: when a new question is dropped as a duplicate of an open one that the same reply closes, keep the new one.
 
 ## What the prompt and code now rely on
 
@@ -44,7 +47,7 @@ KAKI_NOTETAKER_LLM_MODEL=x-test-2 KAKI_LLM_TIMEOUT_MS=60000 REMOTE=personal bash
 - Only `pixel-kampung` has a replay, and the eval keyword for "where players quit" is just `level 5`, so any question mentioning level 5 satisfies it (loose, not strict).
 - The eval does not check for stale open questions at the end.
 - Nothing tests a live visitor's unscripted speech. A set of visitor-style probe lines (messy phrasing, a firm answer, an assignment from the visitor) would.
-- The notetaker prompt is long and was shaped on the 8B model; a trimmed version is an experiment worth running against the 3 of 3 baseline.
+- The notetaker prompt is long and was shaped on the 8B model; trimming it in one go failed (round 16), see the plan above.
 - Latency for the AI attendees (time to the first spoken word) has not been measured; the eval cannot measure it.
 
 ## Environment
