@@ -18,11 +18,14 @@ Reports are in `docs/eval-runs/round-N.md`; each header names the model and comm
 | 15 | `x-test-2` | **3 of 3 PASS** (commit `35d4f06`, after reverting `18062dd` in `3ea05aa`) | 220 / 180 / 176 s per run (avg 192 s) |
 | 16 | `x-test-2` | 2 of 3 (commit `4832b6f`, shorter prompt) | 203 / 188 / 159 s (avg 183 s). Run 3 lost the "where players quit" question; shorter prompt reverted |
 | 17 | `x-test-2` | 2 of 3 (commit `16cd853`, long prompt + question-duplicate fix) | Fix worked (level 5 question kept). Run 3 had the unexpected screenshots task again, so it is model noise, not only `18062dd`. Runs took 205 / 287 / 340 s (one 60 s timeout): gateway slow, not comparable for speed |
+| 18 | `x-test-2` | **3 of 3 PASS** (commit `0b8cf56`, long prompt + question-duplicate fix + how-to-answer rule) | 451 / 249 / 384 s (one 60 s timeout in run 1). Gateway slow: about 2x round 15's 192 s average, so not usable as a speed baseline |
 
 Done by the loop's rule for `x-test-2` at round 13. `llama3.1:8b` never passed.
 
 ## Current state
 
+- Round 18: 3 of 3 with the long prompt, the question-duplicate fix (`16cd853`) and the how-to-answer rule (`0b8cf56`). By the loop's rule this is done; round 17's failures are explained (screenshots task, fixed by `0b8cf56`; gateway timeouts).
+- Timing is unreliable since round 17 (gateway slow, 60 s timeouts). Judge the simplification cuts on pass count first; compare speed only with a back-to-back run of the baseline.
 - Prompt is the long version from round 15 (3 of 3). Round 14's regression came from `18062dd` (scenario situation and vocabulary given to the notetaker, which put "release candidate" and marketing in view); it is reverted in `3ea05aa`. `3fbdb98` (stale questions), `cb85c5c` (notetaker model env vars) and `ff7182c` (spoken welcome) stay.
 - Shorter-prompt experiment (`4832b6f`, rules 5.1k to 2.9k chars, examples 13 to 3): 2 of 3 in round 16, so it is reverted. It was a little faster, but run 3 lost "where players quit": the model re-asked it while the earlier wording was open, the duplicate-question check dropped it, and the older one was closed in the same pass.
 
