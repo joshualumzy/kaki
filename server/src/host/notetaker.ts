@@ -36,6 +36,15 @@ const FILLER_WORDS = new Set(
   ).split(' '),
 );
 
+// Words that start or pad almost any question ("is it", "do we know"), ignored when comparing questions. Without
+// them a short question like "Is it the timer?" looks like a repeat of any long question containing "is it".
+const QUESTION_WORDS = new Set(
+  (
+    'is it are was were be do does did we you they he she i there here what when where which who why how can could ' +
+    'will would should have has had know any if so then than not no yes'
+  ).split(' '),
+);
+
 interface TranscriptLine {
   speaker: string;
   role?: Role;
@@ -101,23 +110,27 @@ function words(text: string): string[] {
 }
 
 // The words that identify a task, roughly singularised so "customers" matches "customer".
-function keywords(text: string): Set<string> {
+function keywords(text: string, ignore: Set<string> = FILLER_WORDS): Set<string> {
   return new Set(
     words(text)
-      .filter((word) => !FILLER_WORDS.has(word))
+      .filter((word) => !ignore.has(word))
       .map((word) => (word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word)),
   );
 }
 
 const QUESTION_OVERLAP = 0.6;
 
+function questionKeywords(text: string): Set<string> {
+  return keywords(text, new Set([...FILLER_WORDS, ...QUESTION_WORDS]));
+}
+
 /** True when a question asks (nearly) the same thing as one already open. */
 export function isLikelyDuplicateQuestion(text: string, openTexts: string[]): boolean {
-  const mine = keywords(text);
+  const mine = questionKeywords(text);
   if (mine.size === 0) return false;
   return openTexts.some((other) => {
     if (normalize(other) === normalize(text)) return true;
-    const theirs = keywords(other);
+    const theirs = questionKeywords(other);
     if (theirs.size === 0) return false;
     const shared = [...mine].filter((word) => theirs.has(word)).length;
     return shared / Math.min(mine.size, theirs.size) >= QUESTION_OVERLAP;

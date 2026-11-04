@@ -437,4 +437,14 @@ describe('isLikelyDuplicateQuestion', () => {
     expect(isLikelyDuplicateQuestion('What is the date of the final build?', open)).toBe(true);
     expect(isLikelyDuplicateQuestion('Where do players quit on level 5?', open)).toBe(false);
   });
+
+  it('does not treat a short question as a repeat just because a long one contains "is it"', () => {
+    const long = 'Do we know exactly where in level 5 players quit — is it the first rush, the second stall, or the end?';
+    expect(isLikelyDuplicateQuestion(long, ['Is it the timer?'])).toBe(false);
+    expect(isLikelyDuplicateQuestion('Is it the timer?', [long])).toBe(false);
+  });
+
+  it('still catches a reworded repeat of a short question', () => {
+    expect(isLikelyDuplicateQuestion('Is the timer the cause?', ['Is it the timer?'])).toBe(true);
+  });
 });
