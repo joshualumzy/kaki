@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
-import { createMeetingModule } from '../../src/host/meeting';
+import { createMeetingModule, openingLine } from '../../src/host/meeting';
 import { createFakeLlm } from '../../src/llm';
 import { testScenario } from '../fixtures/scenario';
 import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
@@ -233,5 +233,26 @@ describe('host meeting module', () => {
       'logged failure',
       2_500,
     );
+  });
+});
+
+describe('openingLine', () => {
+  it('orients a newcomer: organisation, situation, who is in the room, agenda and first item', () => {
+    const scenario = {
+      ...testScenario,
+      situation: 'The team is checking that the product is ready to launch',
+    };
+    const line = openingLine(scenario);
+    expect(line).toContain(`Welcome to ${scenario.meetingTitle} at ${scenario.organisation}.`);
+    expect(line).toContain('The team is checking that the product is ready to launch.');
+    expect(line).toContain('In the room: ');
+    for (const attendee of scenario.attendees) expect(line).toContain(attendee.name);
+    expect(line).toContain(`We have ${scenario.agenda.length} items today:`);
+    expect(line).toContain(`Let's start with ${scenario.agenda[0]!.title}, ${scenario.agenda[0]!.minutes} minutes.`);
+  });
+
+  it('still works without a situation', () => {
+    const { situation: _situation, ...scenario } = { ...testScenario, situation: undefined };
+    expect(openingLine(scenario)).toMatch(/^Welcome to .+ at .+\. In the room: /);
   });
 });

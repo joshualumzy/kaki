@@ -1,4 +1,4 @@
-import type { KakiEvent, Scenario } from '@kaki/shared';
+import { roleLabel, type KakiEvent, type Scenario } from '@kaki/shared';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
@@ -223,12 +223,20 @@ export function createMeetingModule({
   };
 }
 
-/** The host's welcome: the title, the agenda in order, and the first item to start on. */
+/** The host's welcome: who and what the meeting is, who is in the room, the agenda and the first item. */
 export function openingLine(scenario: Scenario): string {
-  const titles = scenario.agenda.map((item) => item.title);
+  const parts = [`Welcome to ${scenario.meetingTitle} at ${scenario.organisation}.`];
+  const situation = scenario.situation?.trim();
+  if (situation) parts.push(/[.!?]$/.test(situation) ? situation : `${situation}.`);
+  if (scenario.attendees.length > 0) {
+    const people = scenario.attendees.map((attendee) => `${attendee.name}, ${roleLabel(scenario, attendee.role)}`);
+    parts.push(`In the room: ${people.join('; ')}.`);
+  }
   const first = scenario.agenda[0];
-  const agenda = `${titles.length} items today: ${titles.join(', ')}.`;
-  return first === undefined
-    ? `Welcome to ${scenario.meetingTitle}.`
-    : `Welcome to ${scenario.meetingTitle}. We have ${agenda} Let's start with ${first.title}, ${first.minutes} minutes.`;
+  if (first !== undefined) {
+    const titles = scenario.agenda.map((item) => item.title);
+    parts.push(`We have ${titles.length} items today: ${titles.join(', ')}.`);
+    parts.push(`Let's start with ${first.title}, ${first.minutes} minutes.`);
+  }
+  return parts.join(' ');
 }
