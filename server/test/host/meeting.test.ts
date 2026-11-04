@@ -251,6 +251,19 @@ describe('openingLine', () => {
     expect(line).toContain(`Let's start with ${scenario.agenda[0]!.title}, ${scenario.agenda[0]!.minutes} minutes.`);
   });
 
+  it('names the visitor and their role instead of the seat they took', () => {
+    const seat = testScenario.attendees[0]!;
+    const line = openingLine(testScenario, { name: 'Priya', seat: seat.name });
+    expect(line).toContain('Priya, you are joining as ');
+    expect(line).toMatch(new RegExp(`In the room: [^.]*Priya, `));
+    expect(line).not.toContain(`${seat.name}, `);
+    for (const other of testScenario.attendees.slice(1)) expect(line).toContain(other.name);
+  });
+
+  it('ignores a seat that is not in the scenario', () => {
+    expect(openingLine(testScenario, { name: 'Priya', seat: 'Nobody' })).not.toContain('Priya');
+  });
+
   it('still works without a situation', () => {
     const { situation: _situation, ...scenario } = { ...testScenario, situation: undefined };
     expect(openingLine(scenario)).toMatch(/^Welcome to .+ at .+\. In the room: /);

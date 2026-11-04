@@ -22,6 +22,7 @@ import {
   type NpcStateMessage,
   type Scenario,
 } from '@kaki/shared';
+import { OPENING_PREFIX, openingLine } from '../host/opening';
 import type { ChatMessage } from '../llm';
 import { createRoomToken } from '../livekit';
 import { NpcConversation } from './conversation';
@@ -369,7 +370,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   return {
     announce(text) {
       if (hostName === undefined || conversation === undefined) return;
-      conversation.announce(hostName, text);
+      // The welcome is rebuilt for the person in the room: their own name and role, not the seat's scripted name.
+      const person = [...humans.values()].at(-1);
+      const spoken =
+        person?.seat !== undefined && text.startsWith(OPENING_PREFIX)
+          ? openingLine(scenario, { name: person.name, seat: person.seat })
+          : text;
+      conversation.announce(hostName, spoken);
     },
     async stop() {
       closing = true;
