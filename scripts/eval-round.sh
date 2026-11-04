@@ -2,13 +2,14 @@
 # One round of notetaker prompt tuning: pull the latest prompt, run the real-LLM eval 3 times,
 # write docs/eval-runs/round-N.md, and commit + push ONLY that file.
 #
-#   bash scripts/eval-round.sh
+#   REMOTE=personal bash scripts/eval-round.sh   (REMOTE defaults to origin)
 #
 # Needs .env with KAKI_LLM_BASE_URL, KAKI_LLM_API_KEY and KAKI_LLM_MODEL. The report never contains
 # the key (it is redacted if it ever appears). DRY_RUN=1 skips pull, commit and push (for trying it out).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+REMOTE="${REMOTE:-origin}"
 RUNS="${RUNS:-3}"
 EVAL_CMD="${EVAL_CMD:-npm run --silent eval:notetaker}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -17,7 +18,7 @@ mkdir -p "$DIR"
 
 if [ "${DRY_RUN:-0}" != "1" ]; then
   echo "Pulling the latest prompt on $BRANCH..."
-  git pull --ff-only origin "$BRANCH"
+  git pull --ff-only "$REMOTE" "$BRANCH"
 fi
 
 N=$(( $(find "$DIR" -maxdepth 1 -name "round-*.md" | wc -l) + 1 ))
@@ -68,5 +69,5 @@ if [ "${DRY_RUN:-0}" = "1" ]; then echo "(dry run: nothing committed or pushed)"
 
 git add -- "$OUT"
 git commit -m "docs: notetaker eval round $N ($PASSES of $RUNS runs passed)" --only -- "$OUT"
-git push origin "$BRANCH"
+git push "$REMOTE" "$BRANCH"
 echo "Pushed. Tell Claude: round $N is up."
