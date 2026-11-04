@@ -17,6 +17,7 @@ Reports are in `docs/eval-runs/round-N.md`; each header names the model and comm
 | 14 | `x-test-2` | 1 of 3 (commit `60f8167`) | Report header wrongly said `llama3.1:8b`; fixed in `35d4f06`. Runs 1 and 3 added "Take store screenshots from release candidate two" as a task |
 | 15 | `x-test-2` | **3 of 3 PASS** (commit `35d4f06`, after reverting `18062dd` in `3ea05aa`) | 220 / 180 / 176 s per run (avg 192 s) |
 | 16 | `x-test-2` | 2 of 3 (commit `4832b6f`, shorter prompt) | 203 / 188 / 159 s (avg 183 s). Run 3 lost the "where players quit" question; shorter prompt reverted |
+| 17 | `x-test-2` | 2 of 3 (commit `16cd853`, long prompt + question-duplicate fix) | Fix worked (level 5 question kept). Run 3 had the unexpected screenshots task again, so it is model noise, not only `18062dd`. Runs took 205 / 287 / 340 s (one 60 s timeout): gateway slow, not comparable for speed |
 
 Done by the loop's rule for `x-test-2` at round 13. `llama3.1:8b` never passed.
 
