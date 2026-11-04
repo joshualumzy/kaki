@@ -337,12 +337,21 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
 
   function apply(reply: NotetakerReply, batch: TranscriptLine[]): void {
     const answered = new Set(reply.answeredQuestionIds);
+    for (const question of openQuestions) {
+      if (answered.has(question.id)) console.warn(`kaki notetaker: closed question "${question.text}" as answered`);
+    }
     openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
     for (const question of reply.newQuestions) {
       // Something that is not phrased as a question (a note or a fragment) is not worth keeping open.
-      if (!question.text.includes('?')) continue;
-      if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) continue;
+      if (!question.text.includes('?')) {
+        console.warn(`kaki notetaker: dropped question "${question.text}"; it is not phrased as a question`);
+        continue;
+      }
+      if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) {
+        console.warn(`kaki notetaker: dropped question "${question.text}"; it repeats one that is already open`);
+        continue;
+      }
       questionCount += 1;
       openQuestions.push({ id: `q-${questionCount}`, ...question });
     }
