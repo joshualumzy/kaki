@@ -83,6 +83,8 @@ interface NotetakerReply {
   agendaIndex?: number;
   newQuestions: Array<{ text: string; forRole?: Role }>;
   answeredQuestionIds: string[];
+  /** Questions the new lines answer, each with the line that states the answer. */
+  answeredQuestions?: Array<{ id: string; evidence: string }>;
   newTasks: TaskCandidate[];
 }
 
@@ -171,6 +173,12 @@ export function parseNotetakerReply(text: string, scenario: Scenario): Notetaker
     (id): id is string => typeof id === 'string',
   );
 
+  const answeredQuestions = list(json.answeredQuestions).flatMap((answer) =>
+    isObject(answer) && typeof answer.id === 'string' && typeof answer.evidence === 'string'
+      ? [{ id: answer.id, evidence: answer.evidence }]
+      : [],
+  );
+
   const newTasks = list(json.newTasks).flatMap((task): TaskCandidate[] => {
     if (!isObject(task) || typeof task.evidence !== 'string' || task.evidence.trim() === '') return [];
     // An unknown action kind still leaves a task the assignee can do by hand.
@@ -195,7 +203,13 @@ export function parseNotetakerReply(text: string, scenario: Scenario): Notetaker
       ? (json.agendaIndex as number)
       : undefined;
 
-  return { agendaIndex, newQuestions, answeredQuestionIds, newTasks };
+  return {
+    agendaIndex,
+    newQuestions,
+    answeredQuestionIds,
+    ...(answeredQuestions.length === 0 ? {} : { answeredQuestions }),
+    newTasks,
+  };
 }
 
 function systemPrompt(scenario: Scenario): string {
@@ -226,17 +240,19 @@ function systemPrompt(scenario: Scenario): string {
     '',
     'Reply shape:',
     '{"agendaIndex": number, "newQuestions": [{"text": string, "forRole": role id}],',
-    ' "answeredQuestionIds": [string], "newTasks": [{"title": string, "context": string,',
+    ' "answeredQuestions": [{"id": question id, "evidence": string}], "newTasks": [{"title": string, "context": string,',
     ` "suggestedAssignee": role id, "actionKind": ${ACTION_KINDS.map((kind) => `"${kind}"`).join(' | ')},`,
     ' "evidence": string, "duplicateOf": task id}]}',
     '',
     'Rules:',
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
-    '- newQuestions: factual questions someone asked that nobody answered in the lines. forRole is the role best placed to answer.',
+    '- newQuestions: factual questions someone asked that nobody answered in the lines. Write each as a full question',
+    '  ending in a question mark. forRole is the role best placed to answer.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up")',
     '  does not answer the question: it stays a question. Neither does an answer its speaker doubts or contradicts.',
-    '- answeredQuestionIds: ids of open questions that a new line answers with the fact asked for, stated without',
-    '  doubt. A line that only mentions the topic, or gives a figure the speaker is unsure of, leaves it open.',
+    '- answeredQuestions: open questions that a new line answers with the fact asked for, stated without doubt.',
+    '  evidence: copy, word for word, the line that states the answer. A line that only mentions the topic, or gives a',
+    '  figure the speaker is unsure of, leaves the question open. Never close a question you cannot quote an answer for.',
     '- newTasks: a short list, usually empty. A task is a follow-up to deliver after the meeting that a person was',
     '  explicitly asked to do ("can you…", "please…") or explicitly volunteered for ("I\'ll…"). Include it only if:',
     '  * one person owns it and it was decided, not just proposed;',
@@ -341,6 +357,10 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
 
   function apply(reply: NotetakerReply, batch: TranscriptLine[]): void {
     const answered = new Set(reply.answeredQuestionIds);
+    for (const { id, evidence } of reply.answeredQuestions ?? []) {
+      if (isGrounded(evidence, batch)) answered.add(id);
+      else console.warn(`kaki notetaker: kept question ${id} open; its answer is not in the transcript`);
+    }
     for (const question of openQuestions) {
       if (answered.has(question.id)) console.warn(`kaki notetaker: closed question "${question.text}" as answered`);
     }
