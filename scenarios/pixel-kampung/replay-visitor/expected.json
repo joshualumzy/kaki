@@ -1,0 +1,66 @@
+{
+  "tasks": [
+    {
+      "name": "crash bug",
+      "assignee": "lead_programmer",
+      "keywords": [
+        "crash"
+      ]
+    },
+    {
+      "name": "launch-date post",
+      "assignee": "producer",
+      "keywords": [
+        "launch",
+        "date"
+      ]
+    },
+    {
+      "name": "streamer email",
+      "assignee": "marketing_lead",
+      "keywords": [
+        "streamer"
+      ]
+    },
+    {
+      "name": "booth budget breakdown (assigned by visitor)",
+      "assignee": "producer",
+      "keywords": [
+        "budget"
+      ]
+    }
+  ],
+  "acceptedTasks": [
+    {
+      "name": "milestone report",
+      "assignee": "producer",
+      "keywords": [
+        "milestone"
+      ]
+    },
+    {
+      "name": "store page text",
+      "assignee": "producer",
+      "keywords": [
+        "store page"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "name": "where players quit",
+      "keywords": [
+        "level 5"
+      ]
+    }
+  ],
+  "quietRoles": [],
+  "answeredQuestions": [
+    {
+      "name": "final-build date (answered firmly by visitor)",
+      "keywords": [
+        "final build"
+      ]
+    }
+  ]
+}
