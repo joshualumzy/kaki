@@ -128,14 +128,27 @@ function estimateTalkSeconds(text: string): number {
   return Math.max(1, words(text).length / WORDS_PER_SECOND);
 }
 
-/** True when the evidence is (nearly) word for word one of the transcript lines. */
-export function isGrounded(evidence: string, lines: Array<{ text: string }>): boolean {
+/** The transcript line the evidence is (nearly) word for word, if there is one. */
+export function groundingLine<T extends { text: string }>(evidence: string, lines: T[]): T | undefined {
   const wanted = words(evidence);
-  if (wanted.length < 3) return false;
-  return lines.some((line) => {
+  if (wanted.length < 3) return undefined;
+  return lines.find((line) => {
     const said = new Set(words(line.text));
     return wanted.filter((word) => said.has(word)).length / wanted.length >= EVIDENCE_MATCH;
   });
+}
+
+/** True when the evidence is (nearly) word for word one of the transcript lines. */
+export function isGrounded(evidence: string, lines: Array<{ text: string }>): boolean {
+  return groundingLine(evidence, lines) !== undefined;
+}
+
+// "I'll ...", "I can ...", "I will ...": the speaker is taking the work on themselves.
+const FIRST_PERSON_COMMITMENT = /\bI(?:'ll|\u2019ll| will| can| am going to|'m going to)\b/i;
+
+/** The role of the person who volunteered, when the evidence is their own "I'll ..." and their role is known. */
+export function volunteerRole(evidence: string, source: { role?: Role }): Role | undefined {
+  return FIRST_PERSON_COMMITMENT.test(evidence) ? source.role : undefined;
 }
 
 /** True when a candidate is the same work, for the same role, as an existing task. */
@@ -385,12 +398,17 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
 
     for (const { evidence, duplicateOf, ...task } of reply.newTasks) {
       if (duplicateOf !== undefined || isLikelyDuplicate(task, tasks.list())) continue;
-      if (!isGrounded(evidence, batch)) {
+      const source = groundingLine(evidence, batch);
+      if (source === undefined) {
         console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence is not in the transcript`);
         continue;
       }
+      // Whoever says "I'll do it" owns it, whatever role the topic seems to belong to.
+      const owner = volunteerRole(evidence, source);
+      const owned = owner === undefined ? task : { ...task, suggestedAssignee: owner };
+      if (owned !== task && isLikelyDuplicate(owned, tasks.list())) continue;
       try {
-        tasks.suggest(task);
+        tasks.suggest(owned);
       } catch (error) {
         console.error('kaki notetaker: could not suggest a task', error);
       }
