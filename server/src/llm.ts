@@ -218,3 +218,16 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
   }
   return createOpenAiLlm({ baseUrl, apiKey, model, timeoutMs });
 }
+
+/**
+ * The notetaker's client. It runs in the background, so it can use a smarter, slower model than the
+ * AI attendees: KAKI_NOTETAKER_LLM_MODEL (and KAKI_NOTETAKER_LLM_TIMEOUT_MS) override the shared
+ * KAKI_LLM_MODEL (and KAKI_LLM_TIMEOUT_MS) for the notetaker only. Same gateway and key.
+ */
+export function notetakerLlmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | undefined {
+  return llmFromEnv({
+    ...env,
+    KAKI_LLM_MODEL: env.KAKI_NOTETAKER_LLM_MODEL || env.KAKI_LLM_MODEL,
+    KAKI_LLM_TIMEOUT_MS: env.KAKI_NOTETAKER_LLM_TIMEOUT_MS || env.KAKI_LLM_TIMEOUT_MS,
+  });
+}

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv, parseJsonReply, serverSentData } from '../src/llm';
+import { describe, expect, it, vi } from 'vitest';
+import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv, notetakerLlmFromEnv, parseJsonReply, serverSentData } from '../src/llm';
 
 function replyWith(body: unknown, status = 200): typeof fetch {
   return async () => new Response(JSON.stringify(body), { status });
@@ -78,6 +78,39 @@ describe('OpenAI-compatible LLM client', () => {
     expect(() =>
       llmFromEnv({ KAKI_LLM_BASE_URL: 'https://x', KAKI_LLM_API_KEY: 'k', KAKI_LLM_MODEL: 'm', KAKI_LLM_TIMEOUT_MS: 'soon' }),
     ).toThrow(/KAKI_LLM_TIMEOUT_MS/);
+  });
+});
+
+describe('notetakerLlmFromEnv', () => {
+  const shared = { KAKI_LLM_BASE_URL: 'https://x', KAKI_LLM_API_KEY: 'k', KAKI_LLM_MODEL: 'chat-model' };
+
+  // The model the client puts in its request.
+  async function modelUsed(env: NodeJS.ProcessEnv): Promise<unknown> {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', async (_url: unknown, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }));
+    });
+    try {
+      await notetakerLlmFromEnv(env)!.complete([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    return bodies[0]!.model;
+  }
+
+  it('uses the shared model unless a notetaker model is set', async () => {
+    expect(await modelUsed(shared)).toBe('chat-model');
+    expect(await modelUsed({ ...shared, KAKI_NOTETAKER_LLM_MODEL: 'notes-model' })).toBe('notes-model');
+  });
+
+  it('still needs the gateway and key, and is off without them', () => {
+    expect(notetakerLlmFromEnv({})).toBeUndefined();
+    expect(notetakerLlmFromEnv({ KAKI_NOTETAKER_LLM_MODEL: 'notes-model' })).toBeUndefined();
+  });
+
+  it('rejects a bad notetaker timeout', () => {
+    expect(() => notetakerLlmFromEnv({ ...shared, KAKI_NOTETAKER_LLM_TIMEOUT_MS: 'soon' })).toThrow(/KAKI_LLM_TIMEOUT_MS/);
   });
 });
 

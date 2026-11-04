@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { KakiEvent, Role, Task } from '@kaki/shared';
 import type { Hub } from '../hub';
-import { llmFromEnv } from '../llm';
+import { notetakerLlmFromEnv } from '../llm';
 import { loadScenario, scenarioDir, scenarioFolder } from '../loadScenario';
 import { createTaskStore } from '../tasks';
 import { createNotetaker } from './notetaker';
@@ -42,7 +42,7 @@ function mentionsAll(text: string, keywords: string[]): boolean {
   return keywords.every((keyword) => haystack.includes(keyword.toLowerCase()));
 }
 
-const llm = llmFromEnv();
+const llm = notetakerLlmFromEnv();
 if (llm === undefined) {
   console.error('Set KAKI_LLM_BASE_URL, KAKI_LLM_API_KEY and KAKI_LLM_MODEL (in .env or the shell) first.');
   process.exit(2);
