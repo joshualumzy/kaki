@@ -47,6 +47,12 @@ for i in $(seq 1 "$RUNS"); do
   $EVAL_CMD > "$LOG" 2>&1
   CODE=$?
   set -e
+  # Ctrl-C (130) or kill (143): stop here, leave no report behind, commit and push nothing.
+  if [ "$CODE" -eq 130 ] || [ "$CODE" -eq 143 ]; then
+    rm -f "$LOG" "$OUT"
+    echo "Interrupted: nothing written, committed or pushed."
+    exit "$CODE"
+  fi
   [ "$CODE" -eq 0 ] && PASSES=$((PASSES + 1))
   {
     echo "## Run $i: $([ "$CODE" -eq 0 ] && echo PASS || echo "FAIL (exit $CODE)")"
