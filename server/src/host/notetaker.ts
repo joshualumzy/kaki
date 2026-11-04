@@ -234,8 +234,9 @@ function systemPrompt(scenario: Scenario): string {
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
     '- newQuestions: factual questions someone asked that nobody answered in the lines. forRole is the role best placed to answer.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up")',
-    '  does not answer the question: it stays a question.',
-    '- answeredQuestionIds: ids of open questions that the new lines actually answer with the fact asked for.',
+    '  does not answer the question: it stays a question. Neither does an answer its speaker doubts or contradicts.',
+    '- answeredQuestionIds: ids of open questions that a new line answers with the fact asked for, stated without',
+    '  doubt. A line that only mentions the topic, or gives a figure the speaker is unsure of, leaves it open.',
     '- newTasks: a short list, usually empty. A task is a follow-up to deliver after the meeting that a person was',
     '  explicitly asked to do ("can you…", "please…") or explicitly volunteered for ("I\'ll…"). Include it only if:',
     '  * one person owns it and it was decided, not just proposed;',
@@ -270,6 +271,9 @@ function systemPrompt(scenario: Scenario): string {
     '- "Let\'s take the pricing question offline." → not a task: postponed.',
     '- "We could print flyers if there is budget left." → not a task: conditional.',
     '- "Do we know when the lease ends? I\'d have to check." → not a task: an open question.',
+    '- "Do we know which suppliers are late?" "I haven\'t looked at the sheet yet." → question: nobody gave the fact.',
+    '- "When is the delivery due?" "The email says Monday, but I think it moved, so don\'t quote me." → question:',
+    '  the only answer was doubted. Keep it open until someone states the date without doubt.',
   ].join('\n');
 }
 
