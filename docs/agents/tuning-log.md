@@ -19,11 +19,13 @@ Reports are in `docs/eval-runs/round-N.md`; each header names the model and comm
 | 16 | `x-test-2` | 2 of 3 (commit `4832b6f`, shorter prompt) | 203 / 188 / 159 s (avg 183 s). Run 3 lost the "where players quit" question; shorter prompt reverted |
 | 17 | `x-test-2` | 2 of 3 (commit `16cd853`, long prompt + question-duplicate fix) | Fix worked (level 5 question kept). Run 3 had the unexpected screenshots task again, so it is model noise, not only `18062dd`. Runs took 205 / 287 / 340 s (one 60 s timeout): gateway slow, not comparable for speed |
 | 18 | `x-test-2` | **3 of 3 PASS** (commit `0b8cf56`, long prompt + question-duplicate fix + how-to-answer rule) | 451 / 249 / 384 s (one 60 s timeout in run 1). Gateway slow: about 2x round 15's 192 s average, so not usable as a speed baseline |
+| 19 | `x-test-2` | **3 of 3 PASS** (commit `e4bcd2c`, examples trimmed 14 to 4, rules unchanged) | 214 / 265 / 223 s (avg 234 s), no timeouts. Kept |
 
 Done by the loop's rule for `x-test-2` at round 13. `llama3.1:8b` never passed.
 
 ## Current state
 
+- Round 19: the example-only trim (`e4bcd2c`) is kept: 3 of 3, no timeouts. Speed is not proven equal: 234 s average is above round 15's 192 s but below round 18's 361 s for the longer prompt, and the gateway varied between them. The shorter prompt sends fewer tokens, so it should not be slower; a back-to-back run of `0b8cf56` and `e4bcd2c` would settle it if it matters.
 - Round 18: 3 of 3 with the long prompt, the question-duplicate fix (`16cd853`) and the how-to-answer rule (`0b8cf56`). By the loop's rule this is done; round 17's failures are explained (screenshots task, fixed by `0b8cf56`; gateway timeouts).
 - Timing is unreliable since round 17 (gateway slow, 60 s timeouts). Judge the simplification cuts on pass count first; compare speed only with a back-to-back run of the baseline.
 - Prompt is the long version from round 15 (3 of 3). Round 14's regression came from `18062dd` (scenario situation and vocabulary given to the notetaker, which put "release candidate" and marketing in view); it is reverted in `3ea05aa`. `3fbdb98` (stale questions), `cb85c5c` (notetaker model env vars) and `ff7182c` (spoken welcome) stay.
@@ -31,8 +33,8 @@ Done by the loop's rule for `x-test-2` at round 13. `llama3.1:8b` never passed.
 
 ## Simplification plan (next attempt, one cut at a time)
 
-Cutting everything at once cannot say which cut hurt. Try these in order, 3 runs each; keep a cut only if it stays 3 of 3 and no slower than ~190 s per run, otherwise revert it:
-1. Cut the 10 examples that repeat a rule already stated (keep the volunteer, product-work and doubted-answer ones). This is the cut most likely to be safe.
+Step 1 is done (`e4bcd2c`, kept). Cutting everything at once cannot say which cut hurt. Try the rest in order, 3 runs each; keep a cut only if it stays 3 of 3 and no slower than ~190 s per run, otherwise revert it:
+1. DONE, kept: cut the examples that repeat a rule already stated (kept the volunteer, product-work, how-to-answer and doubted-answer ones).
 2. Merge the two "do not repeat or re-ask" sentences into one.
 3. Compress the product-work bullet.
 4. Do not touch the question rules (stale, closing, duplicate) in the same round as another cut; round 16 suggests they are where the model is most fragile.
