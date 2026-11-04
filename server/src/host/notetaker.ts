@@ -237,6 +237,20 @@ function systemPrompt(scenario: Scenario): string {
   return [
     `You are the notetaker for "${scenario.meetingTitle}" at ${scenario.organisation}.`,
     'You read new transcript lines and update the meeting record. Reply with one JSON object only.',
+    ...(scenario.situation === undefined
+      ? []
+      : [
+          '',
+          'Background, to help you understand the lines. Tasks and questions come only from the lines, never from this:',
+          scenario.situation,
+        ]),
+    ...(scenario.vocabulary === undefined || scenario.vocabulary.length === 0
+      ? []
+      : [
+          '',
+          `Words and names likely to come up: ${scenario.vocabulary.join(', ')}. Speech recognition sometimes mishears`,
+          'them as everyday words; when a word does not fit, read it as the closest one from this list.',
+        ]),
     '',
     'Roles (use the id on the left):',
     ...roles,

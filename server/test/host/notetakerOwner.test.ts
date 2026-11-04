@@ -60,3 +60,35 @@ describe('who owns a task', () => {
     expect(volunteerRole('Can you file it today?', { role: 'producer' })).toBeUndefined();
   });
 });
+
+describe('what the notetaker is told about the scenario', () => {
+  async function systemPromptFor(withContext: Scenario): Promise<string> {
+    let system = '';
+    const notetaker = createNotetaker({
+      scenario: withContext,
+      tasks: createTaskStore({ hub: quietHub, scenario: withContext }),
+      llm: createFakeLlm((messages) => {
+        system = messages.find((message) => message.role === 'system')?.content ?? '';
+        return JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [] });
+      }),
+      agendaIndex: () => 0,
+    });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Okay, everyone is here.' });
+    await notetaker.run();
+    return system;
+  }
+
+  it('includes the situation and the vocabulary as background', async () => {
+    const system = await systemPromptFor({ ...scenario, situation: 'A small team is preparing a launch.', vocabulary: ['widget', 'rollout plan'] });
+    expect(system).toContain('A small team is preparing a launch.');
+    expect(system).toContain('never from this');
+    expect(system).toContain('widget, rollout plan');
+  });
+
+  it('leaves both out when the scenario has neither', async () => {
+    const { situation: _situation, vocabulary: _vocabulary, ...bare } = scenario;
+    const system = await systemPromptFor(bare);
+    expect(system).not.toContain('Background');
+    expect(system).not.toContain('likely to come up');
+  });
+});
