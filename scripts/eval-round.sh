@@ -23,6 +23,9 @@ fi
 
 N=$(( $(find "$DIR" -maxdepth 1 -name "round-*.md" | wc -l) + 1 ))
 OUT="$DIR/round-$N.md"
+# The model name is configuration, not a secret; the key is never read here except to redact it below.
+MODEL="${KAKI_LLM_MODEL:-}"
+if [ -z "$MODEL" ] && [ -f .env ]; then MODEL="$(grep -E '^KAKI_LLM_MODEL=' .env | head -1 | cut -d= -f2- || true)"; fi
 SECRET=""
 if [ -f .env ]; then SECRET="$(grep -E '^KAKI_LLM_API_KEY=' .env | head -1 | cut -d= -f2- || true)"; fi
 
@@ -30,6 +33,7 @@ if [ -f .env ]; then SECRET="$(grep -E '^KAKI_LLM_API_KEY=' .env | head -1 | cut
   echo "# Notetaker eval, round $N"
   echo
   echo "- branch: \`$BRANCH\`, commit: \`$(git rev-parse --short HEAD)\`, $(date -u +%Y-%m-%dT%H:%MZ)"
+  echo "- model: \`${MODEL:-unknown}\`"
   echo "- prompt file last changed in: \`$(git log -1 --format='%h %s' -- server/src/host/notetaker.ts)\`"
   echo "- uncommitted prompt changes: $(git status --porcelain server/src/host/notetaker.ts | wc -l | tr -d ' ') file(s)"
   echo
