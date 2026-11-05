@@ -24,7 +24,11 @@ Single-context layout (`CONTEXT.md` at root). See `docs/agents/domain.md`.
 
 ## Git safety rules (non-negotiable)
 
-- **Which remote (owner's standing decision, 2026-11-05):** in a Claude cloud/web session the checkout only has `origin`, and the owner has said Claude may always fetch, pull and push the working branch to `origin` there (fast-forward only, rules below still apply). On the owner's own machine the remote is `personal`: pull and push there, and do not use `origin`. The "push only to `personal`" rule below applies to the owner's machine.
+- **Which remote (owner's standing decision, 2026-11-05, remember across clears):** there are two environments with different remote names.
+  - **Claude cloud/web sessions** only have `origin` (`joshualumzy/it5007-project`). The owner has given **standing permission to fetch, pull and push the working branch to `origin` whenever Claude judges it appropriate**, without asking each time. Fast-forward only; every other rule below still applies (never force, check with `git fetch origin <branch>` and `git merge-base --is-ancestor` first, confirm afterwards that no earlier commit was lost).
+  - **The owner's Mac, and the agent running there,** use the remote `personal` (the owner pulls and pushes `personal`, not `origin`; there `origin` is the course repo and must not be pushed to). Instructions written for the local agent must say `personal`; commands Claude runs in the cloud must say `origin`.
+  - These probably point at the same GitHub repository under different names; check with `git remote -v` if it matters. The owner gets Claude's work with `git pull personal feature/scripted-replay`.
+  - The "push only to `personal`" bullet below is for the owner's machine.
 
 - Work only on the branch the owner names. Push only to `personal`. Do not push to any other remote (including `origin`) unless the owner asks for that specific push in this conversation.
 - Never use `git push --force`, `--force-with-lease`, `git reset --hard`, `git checkout -- <path>`, `git clean`, or `git branch -D` without asking the owner first. Say exactly what will be lost, and wait for a yes.
