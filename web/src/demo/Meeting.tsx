@@ -22,6 +22,8 @@ interface Session {
   serverUrl: string;
   /** The Kaki role id of the attendee this person plays, for their private feed. */
   role: string;
+  /** The name they typed to join. */
+  name: string;
   /** The devices they joined with. Without the microphone they type to the AI attendees. */
   media: MediaChoice;
 }
@@ -53,6 +55,7 @@ export default function Meeting() {
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
         role: humanAttendeeForRole(scenario, roleLabel)?.role ?? roles[0]?.id ?? scenario.roles[0]?.id ?? '',
+        name,
         media,
       });
     } catch (joinError) {
@@ -98,7 +101,13 @@ export default function Meeting() {
           <LocalSpeechSTT />
         </LiveKitRoom>
       </div>
-      <Dock role={scenario.roles.find((candidate) => candidate.id === session.role)} />
+      <Dock
+        role={scenario.roles.find((candidate) => candidate.id === session.role)}
+        viewer={{
+          name: session.name,
+          seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName,
+        }}
+      />
     </div>
   );
 }

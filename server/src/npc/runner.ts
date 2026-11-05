@@ -56,6 +56,8 @@ export interface RunnerOptions {
   responseDelayMs?: number;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
+  /** Pause between two sentences of the same speaker. */
+  sentenceGapMs?: number;
   /** Recognise the person's speech on the server, from their echo-cancelled microphone track; without it, the browser's recognition is used. */
   recognizer?: Recognizer;
   /** Receives each stretch of audio sent to the recogniser, to save it for listening. */
@@ -183,7 +185,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
         },
       },
-      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs },
+      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs },
     );
   }
 

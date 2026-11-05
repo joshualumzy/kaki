@@ -56,3 +56,17 @@ export function captionFor(
   const caption = lines.filter((line) => line.length > 0).join(' ');
   return caption.length > 0 ? caption : null;
 }
+
+/** Who the visitor is in the room: the name they typed, and the attendee seat Kaki's transcript files them under. */
+export interface TranscriptViewer {
+  name: string;
+  seatName: string | undefined;
+}
+
+/** How a speaker is shown in the transcript panel: the visitor sees their own name, not the seat's. */
+export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefined): string {
+  if (viewer?.seatName !== undefined && speaker.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()) {
+    return `${viewer.name} (you)`;
+  }
+  return speaker;
+}

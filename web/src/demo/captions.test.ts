@@ -81,3 +81,14 @@ describe('transcriptChunks', () => {
     expect(transcriptChunks(events, 2).map((c) => c.payload.text)).toEqual(['2', '3']);
   });
 });
+
+describe('speakerLabel', () => {
+  it('shows the visitor their own name for the seat they took, and leaves everyone else alone', async () => {
+    const { speakerLabel } = await import('./captions');
+    const viewer = { name: 'Joshua', seatName: 'Wei Ling' };
+    expect(speakerLabel('Wei Ling', viewer)).toBe('Joshua (you)');
+    expect(speakerLabel('wei ling', viewer)).toBe('Joshua (you)');
+    expect(speakerLabel('Arjun', viewer)).toBe('Arjun');
+    expect(speakerLabel('Wei Ling', undefined)).toBe('Wei Ling');
+  });
+});

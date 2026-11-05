@@ -170,3 +170,24 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt(npcScenario, { name: 'Josh', role: 'Producer' })).toContain('Josh, the Producer');
   });
 });
+
+describe('HandoverGuard', () => {
+  it('silences a speaker who has just asked someone by name, until another character speaks', async () => {
+    const { HandoverGuard } = await import('../../src/npc/director');
+    const guard = new HandoverGuard(['Sam', 'Arjun', 'Wei Ling']);
+    expect(guard.allow({ speaker: 'Sam', text: 'Welcome all.' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Arjun, would you like to kick us off?' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Our agenda for today is long.' })).toBe(false);
+    expect(guard.allow({ speaker: 'Arjun', text: 'Sure, the build still crashes.' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Thanks.' })).toBe(true);
+  });
+
+  it('only counts a question aimed at a name at the start, including two-word names', async () => {
+    const { HandoverGuard } = await import('../../src/npc/director');
+    const guard = new HandoverGuard(['Sam', 'Arjun', 'Wei Ling']);
+    expect(guard.allow({ speaker: 'Sam', text: 'Did Arjun fix it?' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Fine.' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Wei Ling, what do you think?' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Anyway.' })).toBe(false);
+  });
+});

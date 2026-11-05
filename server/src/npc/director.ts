@@ -82,6 +82,8 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
         ? []
         : [
             `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
+            `- The welcome (who is here, the situation and the agenda) is spoken aloud by the system when the person arrives. Never recite it again or announce that the meeting is starting; move straight on, for example by handing over to whoever owns the first agenda item.`,
+            '- Whoever hands over to someone by name stops there: they say nothing more in that reply, and the person they named answers next or the reply ends.',
           ]),
       "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
       '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the game is, what the decision is), just tell them.',
@@ -137,6 +139,30 @@ export function cleanSpoken(text: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Keeps a speaker quiet after they hand over to someone by name ("Arjun, would you kick us off?"):
+ * their later lines in the same reply are dropped until another character has spoken.
+ * Without it the model has the host carry on talking over the person they just asked.
+ */
+export class HandoverGuard {
+  private waitingOn: string | undefined;
+
+  constructor(private readonly names: readonly string[]) {}
+
+  /** True when this line should be spoken; false when it comes from a speaker who has just handed over. */
+  allow(utterance: Utterance): boolean {
+    if (this.waitingOn === utterance.speaker) return false;
+    this.waitingOn = undefined;
+    const text = utterance.text.trim().toLowerCase();
+    const asksSomeone = text.includes('?') && this.names.some((name) => {
+      const lower = name.toLowerCase();
+      return name !== utterance.speaker && text.startsWith(lower) && !/[a-z]/.test(text.charAt(lower.length));
+    });
+    if (asksSomeone) this.waitingOn = utterance.speaker;
+    return true;
+  }
 }
 
 /**

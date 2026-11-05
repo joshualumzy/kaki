@@ -1,6 +1,6 @@
 import type { NpcStateMessage, Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { addressedCharacter, buildSystemPrompt, TurnParser, type HumanInfo, type Utterance } from './director';
+import { addressedCharacter, buildSystemPrompt, HandoverGuard, TurnParser, type HumanInfo, type Utterance } from './director';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
@@ -27,7 +27,9 @@ export interface NpcPorts<Clip> {
 export const DEFAULT_RESPONSE_DELAY_MS = 300;
 
 /** Pause when one character finishes and a different one starts, so it sounds like people taking turns. */
-export const DEFAULT_SPEAKER_GAP_MS = 700;
+export const DEFAULT_SPEAKER_GAP_MS = 900;
+/** Pause between two sentences of the same speaker, so they do not run together. */
+export const DEFAULT_SENTENCE_GAP_MS = 400;
 
 /** The person cut an AI attendee off but said nothing recognisable; they carry on after this long. */
 export const DEFAULT_RESUME_MS = 1800;
@@ -48,6 +50,8 @@ export interface ConversationOptions {
   responseDelayMs?: number;
   /** Pause between one character and the next (see {@link DEFAULT_SPEAKER_GAP_MS}). */
   speakerGapMs?: number;
+  /** Pause between two sentences of the same speaker (see {@link DEFAULT_SENTENCE_GAP_MS}). */
+  sentenceGapMs?: number;
   /** See {@link DEFAULT_RETRY_MS}. */
   retryMs?: number;
   /** See {@link DEFAULT_RESUME_MS}. */
@@ -118,6 +122,7 @@ export class NpcConversation<Clip> {
   private readonly names: string[];
   private readonly responseDelayMs: number;
   private readonly speakerGapMs: number;
+  private readonly sentenceGapMs: number;
   private readonly retryMs: number;
   private readonly resumeMs: number;
   /** The person cut something off that was being said aloud, and nothing recognisable has followed. */
@@ -142,6 +147,7 @@ export class NpcConversation<Clip> {
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
     this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
     this.speakerGapMs = options.speakerGapMs ?? DEFAULT_SPEAKER_GAP_MS;
+    this.sentenceGapMs = options.sentenceGapMs ?? DEFAULT_SENTENCE_GAP_MS;
     this.retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
     this.resumeMs = options.resumeMs ?? DEFAULT_RESUME_MS;
     this.maxHistory = options.maxHistory ?? 30;
@@ -425,7 +431,12 @@ export class NpcConversation<Clip> {
     this.ports.emitState({ kind: 'thinking' });
     const player = this.playAll(turn, queue);
 
+    const handover = new HandoverGuard(this.names);
     const enqueue = (utterance: Utterance): void => {
+      if (!handover.allow(utterance)) {
+        this.ports.log?.(`dropped ${utterance.speaker}'s line after the handover: "${utterance.text}"`);
+        return;
+      }
       if (turn.firstSentenceAt === undefined) {
         turn.firstSentenceAt = Date.now();
         this.ports.log?.(`first sentence written ${turn.firstSentenceAt - turn.startedAt} ms after the model was asked`);
@@ -494,9 +505,10 @@ export class NpcConversation<Clip> {
       if (signal.aborted) return;
       if (audio === undefined) continue;
 
-      if (previousSpeaker !== undefined && previousSpeaker !== utterance.speaker && this.speakerGapMs > 0) {
+      const gapMs = previousSpeaker === undefined ? 0 : previousSpeaker === utterance.speaker ? this.sentenceGapMs : this.speakerGapMs;
+      if (gapMs > 0) {
         await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, this.speakerGapMs);
+          const timer = setTimeout(resolve, gapMs);
           signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
         });
         if (signal.aborted) return;

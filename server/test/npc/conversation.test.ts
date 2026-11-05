@@ -81,7 +81,7 @@ function harness() {
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
   };
-  const conversation = new NpcConversation<Utterance>(ports, { scenario, responseDelayMs: 900, speakerGapMs: 0 });
+  const conversation = new NpcConversation<Utterance>(ports, { scenario, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0 });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -379,10 +379,15 @@ describe('NpcConversation', () => {
     ).toThrow(/no npcs/);
   });
 
-  it('pauses when a different character takes over, and not between one character\'s sentences', async () => {
+  it('pauses briefly between one speaker\'s sentences, and longer when a different character takes over', async () => {
     const h = harness();
-    // Rebuild with a gap: the harness default is none.
-    const gapped = new NpcConversation<Utterance>(h.ports, { scenario, responseDelayMs: 900, speakerGapMs: 700 });
+    // Rebuild with gaps: the harness default is none.
+    const gapped = new NpcConversation<Utterance>(h.ports, {
+      scenario,
+      responseDelayMs: 900,
+      speakerGapMs: 700,
+      sentenceGapMs: 300,
+    });
     gapped.setHuman({ name: 'Josh', role: 'Producer' });
     gapped.humanSpeech(true);
     gapped.humanText('Hello team.');
@@ -391,8 +396,12 @@ describe('NpcConversation', () => {
     h.calls[0]?.push('Ada: One. Two.\nBao: Three.');
     h.calls[0]?.end();
     await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['One.']);
     h.playing[0]?.finish();
     await h.flush();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(h.playing.map((p) => p.text)).toEqual(['One.']);
+    await vi.advanceTimersByTimeAsync(100);
     expect(h.playing.map((p) => p.text)).toEqual(['One.', 'Two.']);
     h.playing[1]?.finish();
     await h.flush();
