@@ -19,6 +19,6 @@ if [ -n "$hits" ]; then
   echo "WARNING: these lines look like secrets (file:line). Delete them before committing:"
   echo "$hits"
 else
-  echo "No secret-like lines found."
+  echo "No lines matched key/token/secret/password/bearer. This is a word check, not a guarantee: skim the files before pushing."
 fi
 echo "Next: git add $dest && git commit -m 'Add live test logs' && git push -u personal feature/scripted-replay"
