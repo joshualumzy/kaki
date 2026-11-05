@@ -195,6 +195,22 @@ describe('NpcConversation', () => {
       expect(JSON.stringify(calls.map((call) => call.messages))).not.toContain('do we ship it or hold it?"');
     });
 
+    it('stops handing over after two follow-ups when the person never speaks', async () => {
+      const { conversation, calls, playing, flush } = harness(watched());
+      conversation.agendaMoved(watched().agenda[0]!.title);
+      await vi.advanceTimersByTimeAsync(4000);
+      const handOvers = ['Ada: Bao, what do you make of it?', 'Bao: Ada, over to you. Thoughts?', 'Ada: Bao, your turn again. Agree?', 'Bao: Ada, last word?'];
+      for (const line of handOvers) {
+        calls.at(-1)?.push(line);
+        calls.at(-1)?.end();
+        await flush();
+        playing.at(-1)?.finish();
+        await vi.advanceTimersByTimeAsync(3000);
+      }
+      // The first turn, then two follow-ups; the room does not keep passing the turn between themselves.
+      expect(calls).toHaveLength(3);
+    });
+
     it('leaves it to the person when they speak first', async () => {
       const { conversation, calls, say } = harness(watched());
       conversation.agendaMoved(watched().agenda[0]!.title);

@@ -99,9 +99,6 @@ class SentenceQueue<Item> implements AsyncIterable<Item> {
   private items: Item[] = [];
   private waiting: Array<() => void> = [];
   private closed = false;
-  /** Consecutive follow-up turns the AI started by itself after a hand-over; the person speaking again resets it. */
-  private chain = 0;
-  private forcedSpeaker: { target: string; from: string } | undefined;
 
   push(item: Item): void {
     if (this.closed) return;
@@ -173,6 +170,9 @@ export class NpcConversation<Clip> {
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
   private turn: Turn | undefined;
   private closed = false;
+  /** Consecutive follow-up turns the AI started by itself after a hand-over; the person speaking again resets it. */
+  private chain = 0;
+  private forcedSpeaker: { target: string; from: string } | undefined;
 
   constructor(
     private readonly ports: NpcPorts<Clip>,

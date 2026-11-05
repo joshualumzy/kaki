@@ -53,7 +53,7 @@ describe('POST /api/livekit/token', () => {
     const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
     const scenario = {
       ...testScenario,
-      npcs: testScenario.attendees.map((a) => ({ ...npc, attendee: `AI ${a.name}`, role: 'x', playable: true })),
+      npcs: testScenario.attendees.map((a) => ({ ...npc, attendee: `AI ${a.name}`, role: 'participant' as const, playable: true })),
     };
     let present: Array<{ name: string; role?: string }> = [{ name: 'Visitor', role: role.label }];
     app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });
@@ -71,7 +71,7 @@ describe('POST /api/livekit/token', () => {
     const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
     const scenario = {
       ...testScenario,
-      npcs: ['A', 'B', 'C', 'D'].map((n) => ({ ...npc, attendee: `AI ${n}`, role: 'x', playable: true })),
+      npcs: ['A', 'B', 'C', 'D'].map((n) => ({ ...npc, attendee: `AI ${n}`, role: 'participant' as const, playable: true })),
     };
     let present: Array<{ name: string; role?: string }> = [];
     app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });

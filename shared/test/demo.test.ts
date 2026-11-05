@@ -83,7 +83,7 @@ describe('demo meeting helpers', () => {
 
   it('refuses a taken seat, and a join that would leave no AI or pass the cap', () => {
     const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
-    const cast = Array.from({ length: 5 }, (_, i) => ({ ...npc, attendee: i === 0 ? testScenario.attendees[0]!.name : `AI ${i}`, role: 'x', playable: true }));
+    const cast = Array.from({ length: 5 }, (_, i) => ({ ...npc, attendee: i === 0 ? testScenario.attendees[0]!.name : `AI ${i}`, role: 'participant' as const, playable: true }));
     const scenario: Scenario = { ...testScenario, npcs: cast };
     const role = humanRoles(scenario)[0]!;
     expect(seatProblem(scenario, [], role.label, 3)).toBeUndefined();

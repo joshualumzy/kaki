@@ -132,8 +132,9 @@ async function handleRequest(
       }
       try {
         const npcNames = (context.scenario.npcs ?? []).map((npc) => npc.attendee);
+        const joiningName = join.participantName.trim().toLowerCase();
         const present = ((await context.roomRoster(join.roomName)) ?? []).filter(
-          (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()) && person.name.toLowerCase() !== join.participantName.trim().toLowerCase(),
+          (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()) && person.name.toLowerCase() !== joiningName,
         );
         const maxHumans = Number(process.env.NPC_MAX_HUMANS) || DEFAULT_MAX_HUMANS;
         const problem = seatProblem(context.scenario, present, join.participantRole, maxHumans);
