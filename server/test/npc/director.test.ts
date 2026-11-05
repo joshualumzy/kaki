@@ -177,6 +177,23 @@ describe('buildSystemPrompt', () => {
     expect(plain).not.toContain('is the host');
   });
 
+  it('has an AI host ask the visitor directly for the decision they own', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const role = npcScenario.roles[0]!;
+    const scenario = {
+      ...npcScenario,
+      roles: npcScenario.roles.map((candidate) =>
+        candidate.id === role.id ? { ...candidate, card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } } : candidate,
+      ),
+      npcs: [{ ...ada!, role: 'host' as const }, bao!],
+    };
+    const asked = buildSystemPrompt(scenario, { name: 'Josh', role: role.label });
+    expect(asked).toContain('Josh answers for this: "You decide what ships."');
+    expect(asked).toContain('Ada turns to them by name and asks for it directly');
+    expect(buildSystemPrompt(scenario)).not.toContain('answers for this');
+    expect(buildSystemPrompt(npcScenario, { name: 'Josh', role: role.label })).not.toContain('answers for this');
+  });
+
   it('addresses the person by name and role once they have joined', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('about to join');
     expect(buildSystemPrompt(npcScenario, { name: 'Josh', role: 'Producer' })).toContain('Josh, the Producer');
