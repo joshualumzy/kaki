@@ -1,33 +1,13 @@
 import { useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
 import { PhoneFeed } from '../phone/PhonePage';
-import { useKaki, useScenario } from '../kaki';
-import { MeetingRecordCard, isRecord } from '../screen/ScreenPage';
 import type { TranscriptViewer } from './captions';
-import { TaskList, TranscriptPanel } from './TranscriptPanel';
+import { MeetingPanel } from './MeetingPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { RoleCard } from './RoleCard';
 import './demo.css';
 
-type Tab = 'wingman' | 'transcript' | 'host';
-
-/** The Host's view of the meeting for everyone in the room: the agenda clock, open questions and who is quiet. */
-function HostPanel() {
-  const scenario = useScenario();
-  const { events, connected } = useKaki('screen');
-  const record = events.filter(isRecord).at(-1);
-  return (
-    <div className="page kd-host">
-      {!connected && <p className="connection-banner">Reconnecting to the Host…</p>}
-      {record === undefined ? (
-        <p className="empty-state">The meeting has not started yet. The agenda clock begins with the first thing said.</p>
-      ) : (
-        <MeetingRecordCard record={record} scenario={scenario} />
-      )}
-      <TaskList />
-    </div>
-  );
-}
+type Tab = 'wingman' | 'host';
 
 /**
  * The side dock. Wingman is private to the person's role (tasks, nudges, answers from company records);
@@ -47,19 +27,12 @@ export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer:
       <div className="kd-dock-head">
         <div className="kd-tabs" role="tablist">
           <span className="kd-tab-pill" />
-          {label('wingman', 'Wingman')}
-          {label('transcript', 'Transcript')}
-          {label('host', 'Host')}
+          {label('wingman', 'Kaki Wingman')}
+          {label('host', 'Kaki Host')}
         </div>
         <div className="kd-dock-sub">
           <b>{tab === 'wingman' ? 'Private' : 'Shared'}</b>
-          <span>
-            {tab === 'wingman'
-              ? `Just for you${role === undefined ? '' : ` as ${role.label}`}`
-              : tab === 'transcript'
-                ? 'Everything said in the meeting'
-                : 'What the room is tracking'}
-          </span>
+          <span>{tab === 'wingman' ? `Just for you${role === undefined ? '' : ` as ${role.label}`}` : 'The agenda, what is said and the tasks'}</span>
         </div>
       </div>
       <div className="kd-dock-body">
@@ -67,14 +40,9 @@ export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer:
           <RoleCard role={role} />
           <ErrorBoundary>{role !== undefined && <PhoneFeed role={role.id} />}</ErrorBoundary>
         </div>
-        <div hidden={tab !== 'transcript'}>
-          <ErrorBoundary>
-            <TranscriptPanel viewer={viewer} />
-          </ErrorBoundary>
-        </div>
         <div hidden={tab !== 'host'}>
           <ErrorBoundary>
-            <HostPanel />
+            <MeetingPanel viewer={viewer} />
           </ErrorBoundary>
         </div>
       </div>
