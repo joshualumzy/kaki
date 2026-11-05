@@ -13,14 +13,6 @@ if [ -s "$pids" ] && xargs -a "$pids" ps -p >/dev/null 2>&1; then
 fi
 : > "$pids"
 
-# Keep the last run's logs (one run back) instead of overwriting them, so a failing run can still be saved after a restart:
-# bash scripts/save-live-logs.sh previous
-if ls .live-logs/*.log >/dev/null 2>&1; then
-  rm -rf .live-logs/previous
-  mkdir -p .live-logs/previous
-  mv .live-logs/*.log .live-logs/previous/
-fi
-
 echo "Starting the Docker stack (Gitea, Mattermost, LiveKit, Mailpit...)"
 npm run stack:up >.live-logs/stack.log 2>&1 || { echo "stack:up failed; see .live-logs/stack.log"; exit 1; }
 

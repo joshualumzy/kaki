@@ -28,15 +28,15 @@ else
   bad "AI attendees are not running: start them with  npm run npc"
 fi
 
-# 3. Git: which remote and whether this branch is level with it.
+# 3. Git: whether this branch is level with the owner's remote (skipped when there is no `personal` remote).
 branch="$(git rev-parse --abbrev-ref HEAD)"
-remote="${REMOTE:-personal}"
-git remote | grep -qx "$remote" || remote=origin
-if git fetch -q "$remote" "$branch" 2>/dev/null; then
-  behind="$(git rev-list --count HEAD.."$remote/$branch" 2>/dev/null || echo '?')"
-  [ "$behind" = "0" ] && ok "branch $branch is not behind $remote" || bad "branch $branch is $behind commit(s) behind $remote: run  git pull --ff-only $remote $branch"
-else
-  bad "could not fetch $remote/$branch"
+if git remote | grep -qx personal; then
+  if git fetch -q personal "$branch" 2>/dev/null; then
+    behind="$(git rev-list --count HEAD..personal/"$branch" 2>/dev/null || echo '?')"
+    [ "$behind" = "0" ] && ok "branch $branch is not behind personal" || bad "branch $branch is $behind commit(s) behind personal: run  git pull --ff-only personal $branch"
+  else
+    bad "could not fetch personal/$branch"
+  fi
 fi
 
 # 4. Optional: code health.

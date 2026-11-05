@@ -56,7 +56,8 @@ are talking, sends the audio to Azure speech-to-text on the server (`NPC_STT=bro
 attendee's own voice coming back is not taken for you. You can also join without a microphone and
 type, and the Stop button or Escape silences them. Every accepted line, yours and theirs, goes to Kaki as an
 ordinary transcript line, so the host, wingman and action agents work from the same conversation.
-To check that those agents work end to end, follow [docs/smoke-test.md](docs/smoke-test.md).
+How the meeting is built, how to read the NPC log and what to tune: [docs/live-demo.md](docs/live-demo.md).
+To check that the host, wingman and action agents work end to end, follow [docs/smoke-test.md](docs/smoke-test.md).
 
 To check the audio path without a microphone, start LiveKit and run
 `LIVEKIT_E2E=1 npx vitest run server/test/npc/livekit.e2e.test.ts`: a fake person talks to the real

@@ -1,6 +1,6 @@
 # Notetaker tuning log
 
-State of the notetaker tuning, for whoever picks it up (loop rules: `docs/agents/tuning-loop.md`).
+State of the notetaker tuning, for whoever picks it up.
 Reports are in `docs/eval-runs/round-N.md`; each header names the model and commit.
 
 ## Rounds
@@ -58,5 +58,4 @@ Also consider fixing the code side of round 16's failure: when a new question is
 
 ## Environment
 
-- Eval: `REMOTE=personal bash scripts/eval-round.sh` (the report is committed and pushed by the script; Ctrl-C leaves nothing behind).
-- On the owner's machine `origin` is the classroom repo and `personal` is `joshualumzy/it5007-project`. The tuning session's `origin` is the latter.
+- Eval: `bash scripts/eval-round.sh` writes the next `docs/eval-runs/round-N.md` (it does not touch git; commit the report yourself).

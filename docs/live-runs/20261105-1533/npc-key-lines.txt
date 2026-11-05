@@ -1,9 +1,0 @@
-[npc 07:30:40.584] Arjun accepts "Investigate and fix the second stall upgrade difficulty": "Troubleshooting is fine, but we need hard numbers on player drop-off before I can make any changes."
-[npc 07:30:58.335] dropped Sam's cue "Arjun, can you take Investigate and fix the second stall upgrade difficulty?": the room stayed busy
-npm error Lifecycle script `npc` failed with error:
-npm error code 1
-npm error path /Users/joshualum/Documents/VSCode/it5007-courseproject-group-14/server
-npm error workspace @kaki/server@0.0.0
-npm error location /Users/joshualum/Documents/VSCode/it5007-courseproject-group-14/server
-npm error command failed
-npm error command sh -c tsx src/npc/main.ts

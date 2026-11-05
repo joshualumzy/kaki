@@ -1,14 +1,14 @@
 # Smoke test: do the Host and the Wingman work end to end?
 
 Run this on your own machine (it needs Docker, the school LLM gateway and, for part B, a microphone). Its job is to produce **evidence**:
-what works, what does not, and the exact log lines for each failure, so the Host and Wingman owners can fix them without guessing.
+what works, what does not, and the exact log lines for each failure, so they can be fixed without guessing.
 
 Rules for whoever runs it (a person or an AI agent):
 
 - Do not print or paste `.env` values, tokens or keys anywhere. Paste log lines only after checking they contain none.
 - Do not fix anything while running. Observe and record. Fixing changes the evidence.
 - Every row ends as exactly one of `PASS`, `FAIL` or `NOT RUN` (say why). Never leave a row blank, never write "seems fine".
-- Write the results to `docs/smoke-test-results.md` using the template at the bottom, commit it to `feature/scripted-replay` and push.
+- Write the results to `docs/smoke-test-results.md` using the template at the bottom, commit it.
 
 ## Set up once
 
@@ -136,5 +136,5 @@ Copy this template exactly and fill it in.
 (commands that failed and their error text, with no secrets)
 ```
 
-Finish by listing which rows each owner (Host, Wingman) has to look at. Then commit `docs/smoke-test-results.md` and any screenshots, not the
-`.log` files, and push to `feature/scripted-replay`.
+Finish by listing which rows the Host side and the Wingman side have to look at. Then commit `docs/smoke-test-results.md` and any screenshots, not the
+`.log` files.

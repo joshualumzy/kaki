@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-# One round of notetaker prompt tuning: pull the latest prompt, run the real-LLM eval 3 times,
-# write docs/eval-runs/round-N.md, and commit + push ONLY that file.
+# One round of notetaker prompt tuning: run the real-LLM eval 3 times and write docs/eval-runs/round-N.md.
+# It changes nothing else and does not touch git; commit the report yourself.
 #
-#   REMOTE=personal bash scripts/eval-round.sh   (REMOTE defaults to origin)
+#   bash scripts/eval-round.sh          (RUNS=1 for a single quick run)
 #
 # Needs .env with KAKI_LLM_BASE_URL, KAKI_LLM_API_KEY and KAKI_LLM_MODEL. The report never contains
-# the key (it is redacted if it ever appears). DRY_RUN=1 skips pull, commit and push (for trying it out).
+# the key (it is redacted if it ever appears).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REMOTE="${REMOTE:-origin}"
 RUNS="${RUNS:-3}"
 EVAL_CMD="${EVAL_CMD:-npm run --silent eval:notetaker}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 DIR="docs/eval-runs"
 mkdir -p "$DIR"
-
-if [ "${DRY_RUN:-0}" != "1" ]; then
-  echo "Pulling the latest prompt on $BRANCH..."
-  git pull --ff-only "$REMOTE" "$BRANCH"
-fi
 
 N=$(( $(find "$DIR" -maxdepth 1 -name "round-*.md" | wc -l) + 1 ))
 OUT="$DIR/round-$N.md"
@@ -49,10 +43,10 @@ for i in $(seq 1 "$RUNS"); do
   $EVAL_CMD > "$LOG" 2>&1
   CODE=$?
   set -e
-  # Ctrl-C (130) or kill (143): stop here, leave no report behind, commit and push nothing.
+  # Ctrl-C (130) or kill (143): stop here and leave no half-written report behind.
   if [ "$CODE" -eq 130 ] || [ "$CODE" -eq 143 ]; then
     rm -f "$LOG" "$OUT"
-    echo "Interrupted: nothing written, committed or pushed."
+    echo "Interrupted: nothing written."
     exit "$CODE"
   fi
   [ "$CODE" -eq 0 ] && PASSES=$((PASSES + 1))
@@ -77,9 +71,3 @@ fi
 sed -i.bak "s/^- uncommitted/- result: $PASSES of $RUNS runs passed\n- uncommitted/" "$OUT" && rm -f "$OUT.bak"
 
 echo "Result: $PASSES of $RUNS runs passed. Report: $OUT"
-if [ "${DRY_RUN:-0}" = "1" ]; then echo "(dry run: nothing committed or pushed)"; exit 0; fi
-
-git add -- "$OUT"
-git commit -m "docs: notetaker eval round $N ($PASSES of $RUNS runs passed)" --only -- "$OUT"
-git push "$REMOTE" "$BRANCH"
-echo "Pushed. Tell Claude: round $N is up."
