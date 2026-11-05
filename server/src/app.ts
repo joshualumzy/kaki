@@ -1,12 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { isKakiEvent, isSuggestInput, type Scenario } from '@kaki/shared';
+import { DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, seatProblem, type Scenario } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import { createTaskStore, type TaskStore } from './tasks';
-import { createRoomToken, JoinError, livekitPublicUrl } from './livekit';
+import { createRoomToken, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster } from './livekit';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
@@ -18,6 +18,8 @@ export interface CreateAppOptions {
   auth?: Auth;
   /** The mock calendar server; when set, `/api/calendar/:id` shows an event a person can read. */
   calendar?: CalendarSettings;
+  /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
+  roomRoster?: RoomRoster;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -35,6 +37,7 @@ interface RequestContext {
   devRoutes: boolean;
   auth?: Auth;
   calendar?: CalendarSettings;
+  roomRoster: RoomRoster;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -127,6 +130,15 @@ async function handleRequest(
       }
       try {
         const npcNames = (context.scenario.npcs ?? []).map((npc) => npc.attendee);
+        const present = ((await context.roomRoster(join.roomName)) ?? []).filter(
+          (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()) && person.name.toLowerCase() !== join.participantName.trim().toLowerCase(),
+        );
+        const maxHumans = Number(process.env.NPC_MAX_HUMANS) || DEFAULT_MAX_HUMANS;
+        const problem = seatProblem(context.scenario, present, join.participantRole, maxHumans);
+        if (problem !== undefined) {
+          sendJson(response, 409, { error: problem });
+          return;
+        }
         const token = await createRoomToken(
           { roomName: join.roomName, participantName: join.participantName, participantRole: join.participantRole },
           npcNames,
@@ -257,9 +269,10 @@ export async function createApp({
   devRoutes = false,
   auth,
   calendar,
+  roomRoster = livekitRoster(),
 }: CreateAppOptions): Promise<KakiApp> {
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth, calendar });
+    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth, calendar, roomRoster });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

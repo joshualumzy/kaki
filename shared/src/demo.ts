@@ -93,3 +93,28 @@ export function hostRole(scenario: Scenario): ScenarioRole | undefined {
       (scenario.npcs ?? []).some((npc) => scenario.attendees.some((a) => a.name === npc.attendee && a.role === role.id)),
   );
 }
+
+/** How many people may be in the demo meeting at once (the rest of the cast stays AI). */
+export const DEFAULT_MAX_HUMANS = 3;
+
+/**
+ * Why a person cannot take a seat right now, or `undefined` if they can. `present` are the people already in the room.
+ * Two rules: a seat holds one person, and at least one character must stay AI so the room always has an AI voice.
+ */
+export function seatProblem(
+  scenario: Scenario,
+  present: ReadonlyArray<{ role?: string }>,
+  wantedRole: string | undefined,
+  maxHumans: number = DEFAULT_MAX_HUMANS,
+): string | undefined {
+  const castSize = (scenario.npcs ?? []).length;
+  const cap = Math.max(1, Math.min(maxHumans, castSize > 0 ? castSize - 1 : maxHumans));
+  if (present.length >= cap) {
+    return `The meeting is full (${cap} ${cap === 1 ? 'person' : 'people'} at most). Try again when someone leaves.`;
+  }
+  const seat = wantedRole === undefined ? undefined : humanAttendeeForRole(scenario, wantedRole);
+  if (seat !== undefined && present.some((person) => person.role !== undefined && humanAttendeeForRole(scenario, person.role)?.name === seat.name)) {
+    return `${seat.name}'s seat is taken. Pick another role.`;
+  }
+  return undefined;
+}

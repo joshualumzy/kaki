@@ -48,6 +48,25 @@ describe('POST /api/livekit/token', () => {
     expect((await post('nope')).status).toBe(400);
   });
 
+  it('refuses a join when the meeting is full or the seat is taken', async () => {
+    const role = testScenario.roles[0]!;
+    const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    const scenario = {
+      ...testScenario,
+      npcs: testScenario.attendees.map((a) => ({ ...npc, attendee: `AI ${a.name}`, role: 'x', playable: true })),
+    };
+    let present: Array<{ name: string; role?: string }> = [{ name: 'Visitor', role: role.label }];
+    app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });
+    const taken = await post({ roomName: 'room', participantName: 'Other', participantRole: role.label });
+    expect(taken.status).toBe(409);
+    present = [];
+    expect((await post({ roomName: 'room', participantName: 'Other', participantRole: role.label })).status).toBe(200);
+    // LiveKit cannot be asked: the join is allowed rather than blocked.
+    app.close();
+    app = await createApp({ devRoutes: false, scenario, roomRoster: async () => undefined });
+    expect((await post({ roomName: 'room', participantName: 'Other', participantRole: role.label })).status).toBe(200);
+  });
+
   it('rejects the name of an AI attendee from the scenario', async () => {
     app = await createApp({
       devRoutes: false,

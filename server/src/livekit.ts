@@ -1,4 +1,4 @@
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 
 /** `livekit-server --dev` accepts this key pair; set LIVEKIT_API_KEY / LIVEKIT_API_SECRET to override. */
 function livekitCredentials(): { key: string; secret: string } {
@@ -44,4 +44,21 @@ export async function createRoomToken(join: RoomJoin, reservedNames: readonly st
 /** Where the browser reaches LiveKit; `undefined` lets the page use its own host on port 7880. */
 export function livekitPublicUrl(): string | undefined {
   return process.env.LIVEKIT_PUBLIC_URL || undefined;
+}
+
+/** The people (not AI attendees) in a room right now; `undefined` when LiveKit cannot be asked. */
+export type RoomRoster = (roomName: string) => Promise<Array<{ name: string; role?: string }> | undefined>;
+
+export function livekitRoster(): RoomRoster {
+  const { key, secret } = livekitCredentials();
+  const url = (process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880').replace(/^ws/, 'http');
+  const client = new RoomServiceClient(url, key, secret);
+  return async (roomName) => {
+    try {
+      const participants = await client.listParticipants(roomName);
+      return participants.map((p) => ({ name: p.identity, role: p.metadata || undefined }));
+    } catch {
+      return undefined;
+    }
+  };
 }

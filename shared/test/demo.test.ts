@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiCast, hostRole, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -78,5 +78,18 @@ describe('demo meeting helpers', () => {
     expect(humanAttendeeForRole(playable, 'Manager')?.name).toBe('Sam');
     // The host seat is not a participant role.
     expect(humanRoles(playable).map((role) => role.id)).not.toContain('manager');
+  });
+
+  it('refuses a taken seat, and a join that would leave no AI or pass the cap', () => {
+    const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    const cast = Array.from({ length: 5 }, (_, i) => ({ ...npc, attendee: i === 0 ? testScenario.attendees[0]!.name : `AI ${i}`, role: 'x', playable: true }));
+    const scenario: Scenario = { ...testScenario, npcs: cast };
+    const role = humanRoles(scenario)[0]!;
+    expect(seatProblem(scenario, [], role.label, 3)).toBeUndefined();
+    expect(seatProblem(scenario, [{ role: role.label }], role.label, 3)).toMatch(/seat is taken/);
+    expect(seatProblem(scenario, [{ role: 'a' }, { role: 'b' }, { role: 'c' }], role.label, 3)).toMatch(/full/);
+    // Never every character: at least one stays AI, whatever the cap says.
+    const cap = Math.max(1, cast.length - 1);
+    expect(seatProblem(scenario, Array.from({ length: cap }, () => ({})), role.label, 99)).toMatch(/full/);
   });
 });
