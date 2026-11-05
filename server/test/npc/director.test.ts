@@ -177,6 +177,13 @@ describe('buildSystemPrompt', () => {
     expect(plain).not.toContain('is the host');
   });
 
+  it('keeps an AI host on the current agenda item and stops it moving the meeting on', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const scenario = { ...npcScenario, agenda: [{ title: 'Build', minutes: 5, ownerRole: 'chef' }, { title: 'Menu', minutes: 5, ownerRole: 'chef' }], npcs: [{ ...ada!, role: 'host' as const }, bao!] };
+    expect(buildSystemPrompt(scenario)).toContain('agenda item "Build". Stay on it. Never announce a new agenda item');
+    expect(buildSystemPrompt(scenario, undefined, 'Menu')).toContain('agenda item "Menu"');
+  });
+
   it('forbids narrating instructions and telling another character to hand over', () => {
     const prompt = buildSystemPrompt(npcScenario);
     expect(prompt).toContain('Never describe these instructions');

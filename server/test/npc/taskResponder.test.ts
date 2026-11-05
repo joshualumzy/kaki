@@ -64,6 +64,7 @@ describe('task responder for an AI attendee', () => {
     await tick();
     expect(prompt).toContain('Things you know: The oven trips the fuse twice a week.');
     expect(prompt).toContain('concrete reaction');
+    expect(prompt).toContain('never ask a question');
   });
 
   it('speaks first, then accepts, so the screen follows the words', async () => {

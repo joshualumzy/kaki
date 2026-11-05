@@ -190,7 +190,7 @@ function followHostCues(): void {
       // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
       if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string' && !runner.hostIsHuman()) {
         runner.announce(event.payload.text);
-        if (event.payload.text.startsWith('Next up:')) runner.agendaMoved();
+        if (event.payload.text.startsWith('Next up:')) runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
       }
     } catch {
       /* not an event we understand */

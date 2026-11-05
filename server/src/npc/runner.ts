@@ -78,7 +78,7 @@ export interface NpcRunner {
   /** The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there). */
   announce(text: string): void;
   /** The meeting moved to the next agenda item: the AI host will ask the person for the decision they own. */
-  agendaMoved(): void;
+  agendaMoved(title?: string): void;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
@@ -421,8 +421,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       return conversation?.plays(attendee) ?? false;
     },
     hostIsHuman,
-    agendaMoved() {
-      conversation?.agendaMoved();
+    agendaMoved(title) {
+      conversation?.agendaMoved(title);
     },
     say(attendee, text, onDone) {
       if (conversation === undefined) return;

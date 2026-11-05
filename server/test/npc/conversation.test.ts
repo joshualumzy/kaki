@@ -101,54 +101,56 @@ describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('has an AI host ask the person for their decision when the agenda moves on, once', async () => {
-    const hosted = {
-      ...scenario,
-      roles: [
-        ...scenario.roles,
-        { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
-      ],
-      npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
-    };
-    const { conversation, calls, say, flush } = harness(hosted);
+  const hostedScenario = () => ({
+    ...scenario,
+    roles: [
+      ...scenario.roles,
+      { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
+    ],
+    npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
+  });
+
+  it('has an AI host ask the person for their call when the agenda moves on, in its own words, once', async () => {
+    const { conversation, calls, playing, transcript, say, flush } = harness(hostedScenario());
     for (const line of ['One.', 'Two.', 'Three.', 'Four.', 'Five.']) {
       await say(line);
       calls.at(-1)?.end();
     }
     // Five lines is not a reason to ask: nothing has moved on.
-    expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('what they decide');
-    const before = calls.length;
-    conversation.agendaMoved();
-    await vi.advanceTimersByTimeAsync(3000 + 900);
+    expect(playing.some((entry) => entry.text.includes("what's your call"))).toBe(false);
+    conversation.agendaMoved('Level 5');
+    await vi.advanceTimersByTimeAsync(3000);
     await flush();
-    expect(calls.length).toBe(before + 1);
-    const last = String(calls.at(-1)?.messages.at(-1)?.content);
-    expect(last).toContain('Ada turns to Josh by name');
-    expect(last).toContain('You decide what ships.');
-    calls.at(-1)?.end();
+    expect(playing.at(-1)).toMatchObject({ speaker: 'Ada', text: "Josh, as Producer, what's your call?" });
+    expect(transcript.at(-1)).toEqual(['Ada', "Josh, as Producer, what's your call?"]);
+    // The model is never told to say it: nothing in its messages mentions the question.
+    expect(JSON.stringify(calls.map((call) => call.messages))).not.toContain("what's your call");
     // Asked once: moving on again does not ask again.
-    conversation.agendaMoved();
+    const count = playing.length;
+    conversation.agendaMoved('Publisher milestone');
     await vi.advanceTimersByTimeAsync(5000);
-    expect(calls.length).toBe(before + 1);
+    expect(playing.length).toBe(count);
+  });
+
+  it('tells the model which agenda item the meeting is on', async () => {
+    const { conversation, calls, say } = harness(hostedScenario());
+    conversation.agendaMoved('Level 5 difficulty');
+    await say('Hello.');
+    expect(String(calls.at(-1)?.messages.at(0)?.content)).toContain('agenda item "Level 5 difficulty"');
   });
 
   it('asks as a backstop after many lines even if the agenda never moves', async () => {
-    const hosted = {
-      ...scenario,
-      roles: [
-        ...scenario.roles,
-        { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
-      ],
-      npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
-    };
-    const { calls, say } = harness(hosted);
+    const { calls, playing, say, flush } = harness(hostedScenario());
     for (let n = 1; n <= 7; n += 1) {
       await say(`Line ${n}.`);
       calls.at(-1)?.end();
     }
-    expect(String(calls.at(-1)?.messages.at(-1)?.content)).not.toContain('what they decide');
+    expect(playing.some((entry) => entry.text.includes("what's your call"))).toBe(false);
     await say('Line 8.');
-    expect(String(calls.at(-1)?.messages.at(-1)?.content)).toContain('Ada turns to Josh by name');
+    calls.at(-1)?.end();
+    await flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(playing.some((entry) => entry.text === "Josh, as Producer, what's your call?")).toBe(true);
   });
 
   it('answers once the person has stopped talking, speaking each sentence in order', async () => {

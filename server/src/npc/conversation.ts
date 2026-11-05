@@ -51,6 +51,8 @@ export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 20_000;
 export const ASK_BACKSTOP_LINES = 8;
 /** How long after the host announces the next item before the question (the announcement is spoken first). */
 export const DEFAULT_ASK_DELAY_MS = 3000;
+/** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
+const ASK_GIVE_UP_MS = 45_000;
 
 export interface ConversationOptions {
   /** Pause after an agenda announcement before the host asks the person for their decision. */
@@ -155,6 +157,8 @@ export class NpcConversation<Clip> {
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
   private askDue = false;
+  /** The agenda item the meeting is on now (the first until the host announces another). */
+  private agendaItem: string | undefined;
   private humanTalking = false;
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
   private turn: Turn | undefined;
@@ -345,41 +349,40 @@ export class NpcConversation<Clip> {
   }
 
   /**
-   * The AI host asks a person directly, once, for the decision their role owns. It is not on a fixed count: it comes when
-   * the meeting moves to the next agenda item (`agendaMoved`), or, as a backstop, once they have said many lines and
-   * nobody has asked. Done here, not left to the model, so it is neither forgotten nor narrated.
+   * The AI host asks a person directly, once, for the call their role owns: it comes when the meeting moves to the next
+   * agenda item (`agendaMoved`), or, as a backstop, after many lines from them. It is a fixed line spoken by the host, not an
+   * instruction to the model: a model given the instruction narrated it or put the role's words in another character's mouth.
    */
-  private takeAskCue(): string | undefined {
+  private askLine(): string | undefined {
     const human = this.human;
     if (human === undefined || this.asked.has(human.name)) return undefined;
-    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host');
     const owns = responsibilityFor(this.options.scenario, human);
     if (host === undefined || owns === undefined) return undefined;
     this.asked.add(human.name);
     this.askDue = false;
-    return `[Once the others have answered, ${host} turns to ${human.name} by name and asks, in one short question, what they decide. ${human.name} answers for this: "${owns}". Do not mention this note.]`;
+    return `${human.name}, as ${human.role}, ${/decide/i.test(owns) ? "what's your call?" : "what's your take?"}`;
   }
 
-  /** The person said another line: add the host's question if it is due, or if they have talked a long time without one. */
+  private ask(): void {
+    const line = this.askLine();
+    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    if (line !== undefined && host !== undefined) this.announce(host, line, ASK_GIVE_UP_MS);
+  }
+
+  /** The person said another line: ask if they have talked a long time without being asked. */
   private addAskCue(): void {
     this.humanLines += 1;
-    if (!this.askDue && this.humanLines < ASK_BACKSTOP_LINES) return;
-    const cue = this.takeAskCue();
-    if (cue !== undefined) this.pending.push(cue);
+    if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
   }
 
-  /** The meeting moved to the next agenda item: after the host's announcement, the host asks the person for their decision. */
-  agendaMoved(): void {
+  /** The meeting moved to the next agenda item: after the host's announcement, the host asks the person for their call. */
+  agendaMoved(title?: string): void {
+    if (title !== undefined) this.agendaItem = title;
     if (this.closed || this.human === undefined || this.asked.has(this.human.name)) return;
     this.askDue = true;
     setTimeout(() => {
-      if (this.closed || !this.askDue) return;
-      // Busy or the person is talking: the question is added to their next line instead.
-      if (this.turn !== undefined || this.humanTalking || this.pending.length > 0) return;
-      const cue = this.takeAskCue();
-      if (cue === undefined) return;
-      this.pending.push(cue);
-      this.scheduleRespond();
+      if (!this.closed && this.askDue) this.ask();
     }, this.options.askDelayMs ?? DEFAULT_ASK_DELAY_MS).unref();
   }
 
@@ -541,7 +544,7 @@ export class NpcConversation<Clip> {
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
       const parser = new TurnParser(this.names, addressed ?? host, this.human?.name);
       const messages: ChatMessage[] = [
-        { role: 'system', content: buildSystemPrompt(this.options.scenario, this.human) },
+        { role: 'system', content: buildSystemPrompt(this.options.scenario, this.human, this.agendaItem) },
         ...this.history.slice(-this.maxHistory),
       ];
       const last = messages[messages.length - 1];

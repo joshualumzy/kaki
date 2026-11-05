@@ -49,7 +49,7 @@ function describeNpc(scenario: Scenario, npc: NpcProfile, human?: HumanInfo): st
  * The Director's instructions. One model plays every AI attendee: it decides who speaks, and the
  * reply is read aloud, so the format is strict and the style is spoken, not written.
  */
-export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string {
+export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo, agendaItem?: string): string {
   const npcs = scenario.npcs ?? [];
   const names = npcs.map((npc) => npc.attendee);
   const agenda = scenario.agenda.map((item, index) => `${index + 1}. ${item.title} (${item.minutes} min)`).join('\n');
@@ -102,6 +102,7 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
         : [
             `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
             `- The welcome (who is here, the situation and the agenda) is spoken aloud by the system when the person arrives. Never recite it again or announce that the meeting is starting; move straight on, for example by handing over to whoever owns the first agenda item.`,
+            `- The meeting is on agenda item "${agendaItem ?? scenario.agenda[0]?.title ?? 'the first item'}". Stay on it. Never announce a new agenda item, say which item number we are on, or move the meeting on: the system announces item changes, and the person decides when to leave a topic.`,
             '- Whoever hands over to someone by name stops there: they say nothing more in that reply, and the person they named answers next or the reply ends.',
           ]),
       "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
@@ -113,7 +114,7 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
       '- Each character speaks for themselves, from their own agenda. Raise their worries when it fits, push back when the person is wrong or their plan costs them something, and disagree with each other when their aims conflict. Do not just agree, and do not repeat a point you already made.',
       '- A character never says what another character did, said, found or decided unless it is written in their own facts above or was said aloud earlier in this meeting. Do not invent conversations, results or numbers; speak only for yourself.',
       '- Only state facts the characters know (listed above) or that the person told you. If asked something they do not know, they say so and say who might.',
-      '- Write exactly what is said aloud: plain spoken English, one to three short sentences per turn, at most three turns in total. No lists, markdown, emoji, or stage directions.',
+      '- Write exactly what is said aloud: plain spoken English, one or two short sentences per turn, at most three turns in total, shorter when the answer is simple. No lists, markdown, emoji, or stage directions.',
       `- Put every turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,
       '- If nobody would say anything (the person only coughed or said "um"), reply with exactly: NONE',
       '- If the person cut a character off, the history shows only what was actually said. Carry on naturally; do not repeat what they never heard unless it still matters.',
