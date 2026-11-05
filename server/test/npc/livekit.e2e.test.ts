@@ -9,7 +9,7 @@ import {
   TrackPublishOptions,
   TrackSource,
 } from '@livekit/rtc-node';
-import { NPC_STATE_TOPIC, STT_TOPIC, demoRoomName, type NpcStateMessage } from '@kaki/shared';
+import { CONTROL_TOPIC, NPC_STATE_TOPIC, STT_TOPIC, demoRoomName, type NpcStateMessage } from '@kaki/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../../src/llm';
 import { createRoomToken } from '../../src/livekit';
@@ -173,6 +173,8 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     startMixer();
     await waitFor(() => human.remoteParticipants.size >= 4, 20_000, 'the AI attendees to join');
     await sleep(500);
+    // The AI attendees stay silent until the person presses Start; Sam's welcome follows.
+    await human.localParticipant?.publishData(new TextEncoder().encode(JSON.stringify({ kind: 'start' })), { reliable: true, topic: CONTROL_TOPIC });
   }, 60_000);
 
   afterAll(async () => {
