@@ -1,5 +1,14 @@
 # Priorities beyond the notetaker (ranked, from a docs-only review)
 
+## Update, 2026-11-05 (latest first; the ranked list below is older)
+Branch `feature/scripted-replay` on `personal`, last commit `6a10d43`. Built and unit-tested, none of it heard live yet:
+- AI attendees accept or decline dispatched tasks in their own words (`server/src/npc/taskResponder.ts`), speak first, then send Accept/Decline; accepted drafts are approved after a pause (`NPC_APPROVE_DELAY_MS`, 6 s). Sam says the same dispatch line to everyone.
+- Voice: 400 ms pause between a speaker's sentences, 900 ms between speakers (`NPC_SENTENCE_GAP_MS`, `NPC_SPEAKER_GAP_MS`); a speaker who hands over by name stays quiet (`HandoverGuard`); the model is told the welcome is already spoken.
+- `/demo` dock: Kaki Wingman (private) and Kaki Host (agenda, live feed with Sam's cues and task changes, tasks list). The visitor appears under their own name. No dispatch/dismiss there yet (screen-only commands; idea: show them to a signed-in host or when login is off, only on SUGGESTED tasks).
+- Scripts: `scripts/live-up.sh`, `live-down.sh`, `live-preflight.sh`, `live-timing.sh`. Agent steps: `docs/agents/free-agent-tasks.md`.
+**Next:** (1) pull on the Mac, `live-up.sh`, warm-up in `/demo`, then `live-timing.sh` and push `docs/agents/live-run-results.md`; (2) fix what the run shows; (3) Task A recheck of earlier failures (agent); (4) optional host controls in `/demo`.
+
+
 Written from `HANDOFF.md`, `docs/agents/status-wingman-action.md` and the saved check results. Nothing was run, and many results predate later fixes, so treat this as a ranking by risk, not verified findings. The agent session had no LLM key, Azure access or microphone.
 
 ## Ranked
