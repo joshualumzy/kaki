@@ -15,7 +15,7 @@ type Tab = 'wingman' | 'host';
  * The side dock. Wingman is private to the person's role (tasks, nudges, answers from company records);
  * Host is what the meeting's facilitator tracks for the whole room.
  */
-export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer: TranscriptViewer }) {
+export function Dock({ role, viewer, meetingCode }: { role: ScenarioRole | undefined; viewer: TranscriptViewer; meetingCode?: string }) {
   const scenario = useScenario();
   const [tab, setTab] = useState<Tab>('wingman');
   const label = (name: Tab, text: string) => (
@@ -38,6 +38,14 @@ export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer:
           <span>{tab === 'wingman' ? `Just for you${role === undefined ? '' : ` as ${role.label}`}` : (role?.facilitator === true ? 'Your controls, the agenda and the tasks' : 'The agenda, what is said and the tasks')}</span>
         </div>
       </div>
+      {meetingCode !== undefined && (
+        <p className="kd-code" aria-label="Meeting code">
+          Meeting code <b>{meetingCode}</b>
+          <span>
+            To add someone on another device, open {window.location.origin}/demo?code={meetingCode}
+          </span>
+        </p>
+      )}
       <div className="kd-dock-body">
         <div hidden={tab !== 'wingman'}>
           <SituationCard scenario={scenario} />

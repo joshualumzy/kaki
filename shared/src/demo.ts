@@ -118,3 +118,28 @@ export function seatProblem(
   }
   return undefined;
 }
+
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/** A short meeting code that is easy to read out: four characters, none that look alike (no 0/O, 1/I/L). */
+export function newMeetingCode(random: () => number = Math.random): string {
+  let code = '';
+  for (let index = 0; index < 4; index += 1) code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)];
+  return code;
+}
+
+/** Case, spaces and dashes do not matter when a code is typed. */
+export function normalizeMeetingCode(code: string | undefined): string {
+  return (code ?? '').toUpperCase().replace(/[\s-]/g, '');
+}
+
+/**
+ * Why someone cannot join with this code, or `undefined` if they can. The first person into an empty room needs no
+ * code (they are shown it); anyone joining people who are already there must give it.
+ */
+export function codeProblem(peoplePresent: number, expected: string, given: string | undefined): string | undefined {
+  if (peoplePresent === 0) return undefined;
+  const typed = normalizeMeetingCode(given);
+  if (typed === normalizeMeetingCode(expected)) return undefined;
+  return typed.length === 0 ? 'This meeting needs its code. Ask the person already in the meeting.' : 'That meeting code is not right.';
+}

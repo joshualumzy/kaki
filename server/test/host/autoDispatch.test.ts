@@ -78,3 +78,14 @@ describe('auto-dispatch', () => {
     expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
   });
 });
+
+describe('dispatchLine', () => {
+  it('starts with the usual line and then varies, always naming the person and the task', async () => {
+    const { dispatchLine } = await import('../../src/host/autoDispatch');
+    const lines = [0, 1, 2, 3].map((count) => dispatchLine('Ada', 'Fix the oven', count));
+    expect(lines[0]).toBe("Ada, I've sent you a task: Fix the oven. Accept or decline it on your phone.");
+    expect(new Set(lines.slice(0, 3)).size).toBe(3);
+    expect(lines[3]).toBe(lines[0]);
+    for (const line of lines) expect(line).toContain('Ada');
+  });
+});

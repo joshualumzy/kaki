@@ -128,3 +128,22 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-chip { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); }
 .kd-chip:disabled { opacity: 0.45; cursor: default; }
 .kd-lines li[data-kind='suggest'] { padding: 6px 10px; border-radius: 10px; border: 1px dashed var(--color-border); background: var(--color-accent-soft); font-style: italic; }
+
+/* The meeting code, and the phone layout: one pane at a time with a switch at the bottom. */
+.kd-code { margin: 0; padding: 8px 14px; font-size: 12.5px; color: var(--color-muted); border-bottom: 1px solid var(--color-border); }
+.kd-code b { margin: 0 4px; font-family: var(--font-mono); font-size: 15px; letter-spacing: 0.18em; color: var(--color-text); }
+.kd-code span { display: block; margin-top: 2px; font-size: 11px; overflow-wrap: anywhere; }
+.kd-panes { display: none; }
+@media (max-width: 700px) {
+  .kd-meeting { display: block; padding: 8px 8px 72px; min-height: 100dvh; height: auto; overflow: visible; }
+  .kd-stage { height: calc(100dvh - 88px); }
+  .kd-meeting[data-pane='kaki'] .kd-stage { display: none; }
+  .kd-meeting[data-pane='meeting'] .kd-dock { display: none; }
+  .kd-dock { width: auto; min-height: calc(100dvh - 88px); }
+  .kd-panes { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--color-surface); border-top: 1px solid var(--color-border); }
+  .kd-panes button { flex: 1; min-height: 48px; border-radius: 14px; font-size: 15px; font-weight: 600; color: var(--color-text); background: var(--color-bg-raised); border: 1px solid var(--color-border); }
+  .kd-panes button[aria-pressed='true'] { background: var(--color-accent-soft); border-color: var(--color-accent, var(--color-border)); }
+  .kd-stage .lk-control-bar { flex-wrap: wrap; justify-content: center; }
+  .kd-stage .lk-button { min-height: 44px; }
+  .kd-field, .kd-go { font-size: 16px; }
+}

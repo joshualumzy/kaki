@@ -47,6 +47,25 @@ describe('parseDecision', () => {
 });
 
 describe('task responder for an AI attendee', () => {
+  it('gives the character their own facts to react from, and asks for a reaction before the decision', async () => {
+    let prompt = '';
+    const withFacts = {
+      ...scenario,
+      roles: scenario.roles.map((role) => (role.id === 'chef' ? { ...role, card: { youAre: 'You are the chef.', facts: ['The oven trips the fuse twice a week.'], responsibility: 'The kitchen.' } } : role)),
+    };
+    const responder = createTaskResponder({
+      scenario: withFacts,
+      llm: { complete: async (messages) => { prompt = messages.map((m) => m.content).join('\n'); return '{"accept": true, "line": "ok"}'; } },
+      plays: () => true,
+      say: () => undefined,
+      send: () => undefined,
+    });
+    responder.handle(updated(task({})));
+    await tick();
+    expect(prompt).toContain('Things you know: The oven trips the fuse twice a week.');
+    expect(prompt).toContain('concrete reaction');
+  });
+
   it('speaks first, then accepts, so the screen follows the words', async () => {
     const { responder, said, sent, finish } = setup('{"accept": true, "line": "Yes, I will fix it."}');
     responder.handle(updated(task({ actionKind: 'email' })));

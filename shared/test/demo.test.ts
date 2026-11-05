@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -91,5 +91,18 @@ describe('demo meeting helpers', () => {
     // Never every character: at least one stays AI, whatever the cap says.
     const cap = Math.max(1, cast.length - 1);
     expect(seatProblem(scenario, Array.from({ length: cap }, () => ({})), role.label, 99)).toMatch(/full/);
+  });
+});
+
+describe('meeting code', () => {
+  it('makes four easy-to-read characters', () => {
+    for (let n = 0; n < 50; n += 1) expect(newMeetingCode()).toMatch(/^[A-HJKMNP-Z2-9]{4}$/);
+  });
+  it('lets the first person in without a code, and checks everyone after', () => {
+    expect(codeProblem(0, 'K7QX', undefined)).toBeUndefined();
+    expect(codeProblem(1, 'K7QX', undefined)).toMatch(/needs its code/);
+    expect(codeProblem(1, 'K7QX', 'zzzz')).toMatch(/not right/);
+    expect(codeProblem(2, 'K7QX', ' k7-qx ')).toBeUndefined();
+    expect(normalizeMeetingCode(undefined)).toBe('');
   });
 });

@@ -8,6 +8,16 @@ function addressee(scenario: Scenario, task: Task): string {
   return attendee?.name ?? roleLabel(scenario, task.suggestedAssignee);
 }
 
+/** Sam's dispatch line; it changes a little from one task to the next so it does not sound canned. */
+export function dispatchLine(name: string, title: string, count: number): string {
+  const lines = [
+    `${name}, I've sent you a task: ${title}. Accept or decline it on your phone.`,
+    `${name}, this one is yours: ${title}. Have a look on your phone and accept or decline.`,
+    `${name}, can you take ${title}? It's on your phone.`,
+  ];
+  return lines[count % lines.length]!;
+}
+
 /**
  * Sam (the host) hands each newly suggested task straight to the role the notetaker named, and says so aloud.
  * The recipient is the human step: they accept it (claim) or decline it, which puts it back on the shared screen.
@@ -27,6 +37,7 @@ export function installAutoDispatch({
   /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
   hostIsHuman?: () => boolean;
 }): () => void {
+  let sent = 0;
   return tasks.onChange((task, previous) => {
     if (previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
@@ -40,9 +51,10 @@ export function installAutoDispatch({
       payload: {
         kind: 'DISPATCH',
         // The same words for everyone: nobody in the room can tell which attendees are AI.
-        text: `${addressee(scenario, task)}, I've sent you a task: ${task.title}. Accept or decline it on your phone.`,
+        text: dispatchLine(addressee(scenario, task), task.title, sent),
       },
     };
     hub.publish(cue);
+    sent += 1;
   });
 }

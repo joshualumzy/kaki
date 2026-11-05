@@ -26,6 +26,8 @@ interface Session {
   name: string;
   /** The devices they joined with. Without the microphone they type to the AI attendees. */
   media: MediaChoice;
+  /** The code others need to join this meeting. */
+  meetingCode?: string;
 }
 
 /** The live demo meeting: join with a name and role, then talk to the AI attendees. */
@@ -39,19 +41,23 @@ export default function Meeting() {
   const [session, setSession] = useState<Session | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [needsCode, setNeedsCode] = useState(false);
+  const [pane, setPane] = useState<'meeting' | 'kaki'>('meeting');
+  const linkCode = useMemo(() => new URLSearchParams(window.location.search).get('code') ?? '', []);
 
   const hasAi = (scenario.npcs ?? []).length > 0;
 
-  async function join(name: string, roleLabel: string, media: MediaChoice): Promise<void> {
+  async function join(name: string, roleLabel: string, media: MediaChoice, meetingCode?: string): Promise<void> {
     setBusy(true);
     setError(undefined);
     try {
       const response = await fetch('/api/livekit/token', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ roomName: demoRoomName(scenario), participantName: name, participantRole: roleLabel }),
+        body: JSON.stringify({ roomName: demoRoomName(scenario), participantName: name, participantRole: roleLabel, ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }) }),
       });
-      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown };
+      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown; needsCode?: unknown; meetingCode?: unknown };
+      if (body.needsCode === true) setNeedsCode(true);
       if (!response.ok || typeof body.token !== 'string') {
         throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
       }
@@ -61,7 +67,9 @@ export default function Meeting() {
         role: humanAttendeeForRole(scenario, roleLabel)?.role ?? roles[0]?.id ?? scenario.roles[0]?.id ?? '',
         name,
         media,
+        ...(typeof body.meetingCode === 'string' ? { meetingCode: body.meetingCode } : {}),
       });
+      setPane('meeting');
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : String(joinError));
     } finally {
@@ -76,13 +84,15 @@ export default function Meeting() {
         roles={hasAi ? roles : []}
         busy={busy}
         error={hasAi ? error : `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`}
-        onJoin={(name, roleLabel, media) => void join(name, roleLabel, media)}
+        askCode={needsCode}
+        initialCode={linkCode}
+        onJoin={(name, roleLabel, media, code) => void join(name, roleLabel, media, code)}
       />
     );
   }
 
   return (
-    <div className="kd-meeting">
+    <div className="kd-meeting" data-pane={pane}>
       <div className="kd-stage">
         <LiveKitRoom
           video={session.media.camera}
@@ -106,12 +116,21 @@ export default function Meeting() {
         </LiveKitRoom>
       </div>
       <Dock
+        meetingCode={session.meetingCode}
         role={scenario.roles.find((candidate) => candidate.id === session.role)}
         viewer={{
           name: session.name,
           seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName,
         }}
       />
+      <nav className="kd-panes" aria-label="Meeting or Kaki">
+        <button type="button" aria-pressed={pane === 'meeting'} onClick={() => setPane('meeting')}>
+          Meeting
+        </button>
+        <button type="button" aria-pressed={pane === 'kaki'} onClick={() => setPane('kaki')}>
+          Kaki
+        </button>
+      </nav>
     </div>
   );
 }

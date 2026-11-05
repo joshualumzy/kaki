@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, seatProblem, type Scenario } from '@kaki/shared';
+import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, seatProblem, type Scenario } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -38,6 +38,8 @@ interface RequestContext {
   auth?: Auth;
   calendar?: CalendarSettings;
   roomRoster: RoomRoster;
+  /** The code the second and later people need to join; renewed whenever the room is empty (or fixed by KAKI_MEETING_CODE). */
+  meetingCode: { value: string; fixed: boolean };
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -139,11 +141,22 @@ async function handleRequest(
           sendJson(response, 409, { error: problem });
           return;
         }
+        // The first person into an empty room starts a new meeting with a new code; later people must know it.
+        // If LiveKit cannot be asked, nobody can be told apart from an empty room, so the gate stays open.
+        const roster = await context.roomRoster(join.roomName);
+        if (roster !== undefined) {
+          if (present.length === 0 && !context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
+          const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
+          if (codeError !== undefined) {
+            sendJson(response, 403, { error: codeError, needsCode: true });
+            return;
+          }
+        }
         const token = await createRoomToken(
           { roomName: join.roomName, participantName: join.participantName, participantRole: join.participantRole },
           npcNames,
         );
-        sendJson(response, 200, { token, url: livekitPublicUrl() });
+        sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value });
       } catch (error) {
         if (error instanceof JoinError) {
           sendJson(response, 400, { error: error.message });
@@ -271,8 +284,10 @@ export async function createApp({
   calendar,
   roomRoster = livekitRoster(),
 }: CreateAppOptions): Promise<KakiApp> {
+  const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
+  const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth, calendar, roomRoster });
+    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth, calendar, roomRoster, meetingCode });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

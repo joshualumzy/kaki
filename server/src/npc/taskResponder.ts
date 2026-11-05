@@ -54,15 +54,17 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
   const answered = new Set<string>();
   const approved = new Set<string>();
 
-  async function decide(task: Task, npc: NpcProfile): Promise<Decision> {
+  async function decide(task: Task, npc: NpcProfile, role: Role): Promise<Decision> {
+    const facts = scenario.roles.find((candidate) => candidate.id === role)?.card?.facts ?? [];
     const system = [
       `You are ${npc.attendee} in a work meeting. ${npc.personality}`,
       `What you want: ${npc.agenda}`,
       npc.concerns.length > 0 ? `You worry about: ${npc.concerns.join('; ')}.` : '',
+      facts.length > 0 ? `Things you know: ${facts.join(' | ')}` : '',
       'The meeting host has just handed you a task. Decide, as this character, whether to take it.',
       'Take it unless it clearly is not yours or contradicts what you want or worry about.',
-      'Reply with one JSON object: {"accept": true or false, "line": one short spoken sentence in your own voice}.',
-      'If you accept, the line says you will do it. If you decline, the line says why in a few words.',
+      'Reply with one JSON object: {"accept": true or false, "line": what you say aloud, in your own voice}.',
+      'The line is one or two short sentences. First a concrete reaction from your own side: what it would take, how long, or what worries you, using only the things you know above and the task details (never invent numbers or facts). Then your decision: you will do it, or you cannot and why in a few words.',
     ]
       .filter((part) => part !== '')
       .join('\n');
@@ -85,7 +87,7 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
   }
 
   async function respond(task: Task, role: Role, who: { npc: NpcProfile; attendee: string }): Promise<void> {
-    const decision = await decide(task, who.npc);
+    const decision = await decide(task, who.npc, role);
     log?.(`${who.attendee} ${decision.accept ? 'accepts' : 'declines'} "${task.title}": "${decision.line}"`);
     const command: KakiCommand = decision.accept
       ? { type: 'CLAIM_TASK', taskId: task.id, mode: task.actionKind === undefined ? 'MANUAL' : 'ACTION_AGENT' }

@@ -67,6 +67,32 @@ describe('POST /api/livekit/token', () => {
     expect((await post({ roomName: 'room', participantName: 'Other', participantRole: role.label })).status).toBe(200);
   });
 
+  it('gives the first person a code and makes the second person give it', async () => {
+    const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    const scenario = {
+      ...testScenario,
+      npcs: ['A', 'B', 'C', 'D'].map((n) => ({ ...npc, attendee: `AI ${n}`, role: 'x', playable: true })),
+    };
+    let present: Array<{ name: string; role?: string }> = [];
+    app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });
+    const first = await post({ roomName: 'room', participantName: 'One' });
+    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+    expect(code).toMatch(/^[A-Z2-9]{4}$/);
+
+    present = [{ name: 'One' }];
+    const missing = await post({ roomName: 'room', participantName: 'Two' });
+    expect(missing.status).toBe(403);
+    expect(((await missing.json()) as { needsCode: boolean }).needsCode).toBe(true);
+    expect((await post({ roomName: 'room', participantName: 'Two', meetingCode: 'WRNG' })).status).toBe(403);
+    const ok = await post({ roomName: 'room', participantName: 'Two', meetingCode: ` ${code.toLowerCase()} ` });
+    expect(ok.status).toBe(200);
+
+    // The room empties: the next first person starts a meeting with a new code.
+    present = [];
+    const again = await post({ roomName: 'room', participantName: 'Three' });
+    expect(again.status).toBe(200);
+  });
+
   it('rejects the name of an AI attendee from the scenario', async () => {
     app = await createApp({
       devRoutes: false,

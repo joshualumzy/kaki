@@ -13,17 +13,23 @@ export interface JoinFormProps {
   busy?: boolean;
   /** Why the last attempt failed, or why joining is impossible. */
   error?: string;
+  /** Show the meeting code box: someone is already in the meeting, or the page was opened with a code. */
+  askCode?: boolean;
+  /** A code from the page's link, to fill the box with. */
+  initialCode?: string;
   /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
-  onJoin(name: string, roleLabel: string, media: MediaChoice): void;
+  onJoin(name: string, roleLabel: string, media: MediaChoice, meetingCode?: string): void;
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
-export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: JoinFormProps) {
+export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = false, initialCode = '', onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [roleLabel, setRoleLabel] = useState(roles[0]?.label ?? '');
   const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
+  const [code, setCode] = useState(initialCode);
+  const showCode = askCode || initialCode.length > 0;
   const [problem, setProblem] = useState<string | undefined>();
-  const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy;
+  const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy && (!askCode || code.trim().length > 0);
 
   return (
     <div className="kd-join">
@@ -31,7 +37,10 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
         className="kd-card"
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) onJoin(name.trim(), roleLabel, media);
+          if (ready) {
+            if (showCode && code.trim().length > 0) onJoin(name.trim(), roleLabel, media, code.trim());
+            else onJoin(name.trim(), roleLabel, media);
+          }
         }}
       >
         <MediaPreview name={name} value={media} onChange={setMedia} onProblem={setProblem} />
@@ -73,6 +82,25 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
               ))}
             </select>
           </div>
+
+          {showCode && (
+            <div style={{ marginBottom: '24px' }}>
+              <label htmlFor="join-code" className="kd-label">
+                Meeting code
+              </label>
+              <input
+                id="join-code"
+                className="kd-field"
+                type="text"
+                value={code}
+                onChange={(event) => setCode(event.target.value.toUpperCase())}
+                placeholder="From the person in the meeting"
+                maxLength={8}
+                autoCapitalize="characters"
+                autoComplete="off"
+              />
+            </div>
+          )}
 
           {(problem ?? error) !== undefined && (
             <p role="alert" className="kd-alert">
