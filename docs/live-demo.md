@@ -20,7 +20,8 @@ Settings are in `.env.example`. Terms are in `CONTEXT.md`.
    If it is, Sam asks them for their call. If it is contested, two characters argue and Sam asks the visitor to decide (`itemMode` in
    `shared/src/demo.ts`).
 5. **Tasks.** The notetaker spots action items; Sam dispatches them on the Host tab, the AI colleague accepts or declines in their own words,
-   and accepted drafts are approved after a short pause (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`).
+   and accepted drafts are approved after a short pause (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`). The colleague's spoken answer waits
+   until Sam's question has been said or dropped (`cueOrder.ts`).
 
 ## How it is built
 
