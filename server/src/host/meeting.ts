@@ -1,4 +1,4 @@
-import type { KakiEvent, Scenario } from '@kaki/shared';
+import type { KakiEvent } from '@kaki/shared';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';

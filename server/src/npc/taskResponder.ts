@@ -12,7 +12,12 @@ export interface TaskResponderPorts {
   /** Send a command as the phone of `role` would. */
   send(role: Role, command: KakiCommand): void;
   log?(message: string): void;
+  /** How long they "read" a draft before approving it; a person would not approve in the same instant. */
+  approveDelayMs?: number;
 }
+
+/** Default pause before an AI attendee approves a draft. */
+export const DEFAULT_APPROVE_DELAY_MS = 6000;
 
 interface Decision {
   accept: boolean;
@@ -104,8 +109,8 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
       } else if (task.status === 'DRAFT_READY' && task.draft !== undefined && !approved.has(task.id)) {
         approved.add(task.id);
         const draft: ActionDraft = task.draft;
-        log?.(`${who.attendee} approves the draft for "${task.title}"`);
-        ports.send(role, { type: 'APPROVE_ACTION', taskId: task.id, draft });
+        log?.(`${who.attendee} is reading the draft for "${task.title}"`);
+        setTimeout(() => ports.send(role, { type: 'APPROVE_ACTION', taskId: task.id, draft }), ports.approveDelayMs ?? DEFAULT_APPROVE_DELAY_MS).unref();
       }
     },
   };

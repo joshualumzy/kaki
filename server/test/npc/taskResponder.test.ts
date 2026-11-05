@@ -32,6 +32,7 @@ function setup(reply: string | Error, plays = true) {
     plays: () => plays,
     say: (_who, text, onDone) => { said.push(text); finish = onDone; },
     send: (role, command) => sent.push([role, command]),
+    approveDelayMs: 20,
   });
   return { responder, said, sent, finish: () => finish?.() };
 }
@@ -93,11 +94,13 @@ describe('task responder for an AI attendee', () => {
     expect(said).toHaveLength(2);
   });
 
-  it('approves the draft once it is ready', () => {
+  it('approves the draft once it is ready, after a pause like a person reading it', async () => {
     const { responder, sent } = setup('{}');
     const draft = { target: 'a@b.c', subject: 's', body: 'b' };
     responder.handle(updated(task({ status: 'DRAFT_READY', draft })));
     responder.handle(updated(task({ status: 'DRAFT_READY', draft })));
+    expect(sent).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 60));
     expect(sent).toEqual([['chef', { type: 'APPROVE_ACTION', taskId: 't-1', draft }]]);
   });
 

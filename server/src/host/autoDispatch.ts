@@ -30,18 +30,14 @@ export function installAutoDispatch({
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
     if (role === undefined || role.facilitator === true || !present) return;
 
-    const attendee = scenario.attendees.find((candidate) => candidate.role === task.suggestedAssignee);
-    const isAi = attendee !== undefined && (scenario.npcs ?? []).some((npc) => npc.attendee === attendee.name);
-
     tasks.transition(task.id, 'DISPATCHED', { assignee: task.suggestedAssignee });
     const cue: KakiEvent = {
       type: 'HOST_SPEECH_TRIGGERED',
       audience: { kind: 'screen' },
       payload: {
         kind: 'DISPATCH',
-        text: isAi
-          ? `${addressee(scenario, task)}, I've sent you a task: ${task.title}.`
-          : `${addressee(scenario, task)}, I've sent you a task: ${task.title}. Accept or decline it on your phone.`,
+        // The same words for everyone: nobody in the room can tell which attendees are AI.
+        text: `${addressee(scenario, task)}, I've sent you a task: ${task.title}. Accept or decline it on your phone.`,
       },
     };
     hub.publish(cue);

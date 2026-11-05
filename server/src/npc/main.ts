@@ -11,7 +11,7 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
-import { createTaskResponder } from './taskResponder';
+import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
 /** `npm run npc`: the AI attendees of the live demo meeting, wired to the real model, Azure speech and Kaki. */
@@ -160,6 +160,7 @@ const taskResponder = createTaskResponder({
   say: (attendee, text, onDone) => runner.say(attendee, text, onDone),
   send: sendAs,
   log,
+  approveDelayMs: numberEnv('NPC_APPROVE_DELAY_MS', DEFAULT_APPROVE_DELAY_MS),
 });
 
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.

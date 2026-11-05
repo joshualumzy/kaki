@@ -51,6 +51,17 @@ describe('auto-dispatch', () => {
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
   });
 
+  it('says the same words whoever the recipient is, so nobody can tell who is AI', () => {
+    const published: KakiEvent[] = [];
+    app.hub.subscribe((event) => published.push(event));
+    const chef = testScenario.attendees.find((a) => a.role === 'chef')!;
+    const asAi = { ...testScenario, npcs: [{ attendee: chef.name, voice: 'v', personality: 'p', agenda: 'a', concerns: [] }] };
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: asAi });
+    app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
+    const cue = published.find((event) => event.type === 'HOST_SPEECH_TRIGGERED') as { payload: { text: string } };
+    expect(cue.payload.text).toBe(`${chef.name}, I've sent you a task: Fix the oven. Accept or decline it on your phone.`);
+  });
+
   it('leaves a human recipient to accept it themselves', () => {
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
