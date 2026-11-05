@@ -39,5 +39,27 @@ The agent's part, step by step:
 ## Task C: notetaker eval rounds (token heavy, optional)
 Only if the owner asks. Follow `docs/agents/tuning-loop.md` and the plan in `docs/agents/tuning-log.md`. One prompt cut per round, 3 runs each. Run: `REMOTE=personal bash scripts/eval-round.sh` (it commits and pushes the report). Keep a cut only if 3 of 3 and no slower than about 190 s per run.
 
+## Task D: multi-person live test with the owner (2026-11-05 build)
+Goal: check, with 2 to 4 people in one meeting, everything built since the third live run. The owner and friends do the speaking; the agent sets up, watches logs and writes the results. Never print `.env` values; names only.
+
+Setup (agent):
+1. `git pull personal feature/scripted-replay` (on the owner's machine the remote is `personal`). Run `npm install` if `package-lock.json` changed.
+2. For 4 people add `NPC_MAX_HUMANS=4` to `.env` (default is 3; one character always stays AI). Optional: `KAKI_MEETING_CODE=TEST` for a fixed code. Then `bash scripts/live-down.sh --stack`, `bash scripts/live-up.sh`; fix every FAIL (names only) until it says "Ready for the live run."
+3. The phones must reach the laptop: find its LAN address (for example `ipconfig getifaddr en0`), and check it from the phone browser (`http://<address>:5173/demo`). If LiveKit is not reachable from the phone, note it and ask the owner (it may need `LIVEKIT_PUBLIC_URL` pointing at the LAN address).
+4. `tail -f .live-logs/npc.log` in a terminal and keep it open for the whole test.
+
+Test (owner and friends; the agent reads out each step and records pass/fail with a note):
+1. Person A on the laptop opens `/demo`, joins as Producer. Check: the dock shows the situation card, the role card, and a 4-character meeting code with a link. The welcome is short and includes "You decide what ships and when." Spoken once only.
+2. Person B on a phone opens the link from the dock (or `/demo` and types the code). Check: a wrong code is refused with "That meeting code is not right"; the right code lets them in; the phone shows the Meeting/Kaki switch at the bottom, the controls are reachable, and the Kaki pane shows their own Wingman and role card. Join as Lead Programmer.
+3. Person C (second phone or laptop) joins as Marketing Lead; Person D (optional, needs `NPC_MAX_HUMANS=4`) joins as Game Designer. Check: a taken role is refused ("seat is taken"); a fifth person is refused ("meeting is full").
+4. Everyone talks for a few minutes. Check: the AI characters answer the right person, do not tell each other to "hand over the floor", do not read out instructions, do not start a line with a person's name and a colon. After a person's 4th line the AI host asks them directly for the decision they own (once per person who joined as the only human; note what happens with several people).
+5. Noise: stay silent for 30 s with normal room noise. Check no invented lines such as "You know." appear in the Host tab feed. Copy every `dropped "..." as noise` log line; note any real sentence that was dropped.
+6. Task flow: Person A says "Arjun, can you fix the crash before Friday?". Check: Arjun gives a concrete reaction from his own facts and then accepts or declines; Sam's dispatch line is announced; no duplicate task appears. Person A then says "Where are we on the build?" and the agent records whether a task was made from it (write the exact wording).
+7. A task for a role a person plays (for example Lead Programmer on a phone): it appears on that phone's Wingman; Accept/Decline works.
+8. Person B tries to take Sam's seat in a fresh join (leave and rejoin as Studio Manager): host controls appear for them only, and Sam stops speaking his cues.
+9. End meeting from `/screen`, then rejoin: the clock, questions and tasks are reset and a new meeting code is shown to the first person in.
+
+Report (agent): save `docs/agents/multi-person-results.md` with the pass/fail list, the exact wording for step 6, the npc log lines (no keys) for every failure, and which devices and browsers were used. Commit `docs: multi-person test results`, `git fetch personal`, confirm fast-forward, `git push personal HEAD`. Never force.
+
 ## When done
 Tell the owner which files were pushed and the commit hash. The cloud agent reads the results from `personal` and updates `docs/agents/priorities.md`.
