@@ -32,7 +32,9 @@ export function entryForEvent(
     case 'HOST_SPEECH_TRIGGERED': {
       const { kind, text } = event.payload;
       if (hostIsViewer) return { key: `host|${kind}|${text}`, kind: 'suggest', who: 'You could say', text };
-      return { key: `host|${kind}|${text}`, kind: 'host', who: hostName(scenario), text };
+      // The AI host says the cue later, when the room is quiet, and that spoken line arrives as a transcript line.
+      // Showing the cue as well would list it before it is heard, and twice.
+      return undefined;
     }
     case 'NUDGE':
       return { key: `nudge|${event.payload.text}`, kind: 'nudge', text: event.payload.text };

@@ -284,3 +284,27 @@ export class TurnParser {
     }
   }
 }
+
+/**
+ * Who a reply handed the floor to, if anyone: the last speaker's final lines name another character at the start of a
+ * sentence and ask something ("Mei, you own this one. What do you propose?"). Nothing when that character has already spoken
+ * after, or when nobody is asked.
+ */
+export function findHandover(
+  utterances: readonly Utterance[],
+  names: readonly string[],
+): { from: string; target: string } | undefined {
+  const last = utterances.at(-1);
+  if (last === undefined) return undefined;
+  const mine = utterances.filter((utterance) => utterance.speaker === last.speaker).slice(-2);
+  if (!mine.some((utterance) => utterance.text.includes('?'))) return undefined;
+  for (const utterance of mine) {
+    const text = utterance.text.trim().toLowerCase();
+    const target = names.find((name) => {
+      const lower = name.toLowerCase();
+      return name !== last.speaker && text.startsWith(lower) && !/[a-z]/.test(text.charAt(lower.length));
+    });
+    if (target !== undefined) return { from: last.speaker, target };
+  }
+  return undefined;
+}

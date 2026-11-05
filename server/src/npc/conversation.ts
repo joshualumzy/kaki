@@ -1,6 +1,6 @@
 import type { NpcStateMessage, Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { addressedCharacter, buildSystemPrompt, HandoverGuard, TurnParser, type HumanInfo, type Utterance } from './director';
+import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, TurnParser, type HumanInfo, type Utterance } from './director';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
@@ -40,6 +40,9 @@ export const DEFAULT_NOTHING_MS = 400;
 /** An answer cancelled before anything was said, with nothing new from the person, is retried after this long. */
 export const DEFAULT_RETRY_MS = 1500;
 
+/** How many times in a row the AI may pass the turn to another character without the person saying anything. */
+export const MAX_FOLLOW_UPS = 2;
+
 /** How long a Host cue waits for a quiet moment before it is dropped as out of date. */
 export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 20_000;
 
@@ -71,6 +74,8 @@ interface Turn {
   firstSentenceAt?: number;
   /** A line the Host was told to say (an opening, a time-out, a closing), not an answer to the person. */
   scripted?: boolean;
+  /** A follow-up after a hand-over: this character answers first. */
+  forced?: { target: string; from: string };
 }
 
 /** Minimal async queue so playback can start on the first sentence while the rest is written. */
@@ -78,6 +83,9 @@ class SentenceQueue<Item> implements AsyncIterable<Item> {
   private items: Item[] = [];
   private waiting: Array<() => void> = [];
   private closed = false;
+  /** Consecutive follow-up turns the AI started by itself after a hand-over; the person speaking again resets it. */
+  private chain = 0;
+  private forcedSpeaker: { target: string; from: string } | undefined;
 
   push(item: Item): void {
     if (this.closed) return;
@@ -169,6 +177,7 @@ export class NpcConversation<Clip> {
     const typed = text.trim();
     if (this.closed || typed.length === 0) return;
     this.ports.log?.(`typed "${typed}"`);
+    this.chain = 0;
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
     this.interrupt('the person typed something');
@@ -234,6 +243,7 @@ export class NpcConversation<Clip> {
       this.ports.log?.(`heard "${accepted}"`);
     }
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
+    this.chain = 0;
     this.pending.push(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
@@ -243,7 +253,8 @@ export class NpcConversation<Clip> {
   /**
    * The Host's spoken cue (opening, time-out, closing): `speaker` says `text` aloud, with no model call.
    * It waits for a quiet moment, so it never talks over the person or an answer, and is dropped if the
-   * room stays busy for `giveUpMs`. It is not a transcript line (Kaki already has the cue as an event).
+   * room stays busy for `giveUpMs`. It becomes a transcript line when it starts to play, like anything else a character says,
+   * so the feed shows it in the order it is heard.
    * The person talking over it stops it, as with any other speech.
    */
   announce(speaker: string, text: string, giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS, onDone?: () => void): void {
@@ -317,11 +328,28 @@ export class NpcConversation<Clip> {
     }, this.responseDelayMs);
   }
 
+  /** A character handed over to another by name and nobody has answered yet: the named one answers, after a short pause. */
+  private scheduleFollowUp(from: string, target: string): void {
+    if (this.closed || this.chain >= MAX_FOLLOW_UPS) return;
+    this.clearRespondTimer();
+    this.respondTimer = setTimeout(() => {
+      this.respondTimer = undefined;
+      if (this.closed || this.humanTalking || this.pending.length > 0 || this.turn !== undefined) return;
+      this.chain += 1;
+      this.ports.log?.(`${from} handed over to ${target}: ${target} answers`);
+      this.forcedSpeaker = { target, from };
+      this.pending = [`[${from} handed over to ${target}. Begin your reply with "${target}:". ${target} answers now for their own side, briefly, and nobody else speaks.]`];
+      this.startTurn();
+    }, this.speakerGapMs);
+  }
+
   private startTurn(retry = false): void {
     const text = retry ? this.lastText : this.pending.join(' ').trim();
     this.pending = [];
     if (text.length === 0) return;
     this.interrupt('a new turn started');
+    const forced = this.forcedSpeaker;
+    this.forcedSpeaker = undefined;
     this.unanswered = false;
     this.cutOff = false;
     this.lastText = text;
@@ -336,6 +364,7 @@ export class NpcConversation<Clip> {
       finalized: false,
       done: Promise.resolve(),
       startedAt: Date.now(),
+      forced,
     };
     this.turn = turn;
     turn.done = this.runTurn(turn).catch((error: unknown) => {
@@ -364,7 +393,7 @@ export class NpcConversation<Clip> {
     const queue = new SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>();
     signal.addEventListener('abort', () => queue.close(), { once: true });
     this.ports.emitState({ kind: 'thinking' });
-    const player = this.playAll(turn, queue, false);
+    const player = this.playAll(turn, queue);
     const clip = this.ports.synthesize(utterance, signal).catch((error: unknown) => {
       if (!signal.aborted) {
         this.ports.log?.(`could not synthesize "${utterance.text}": ${error instanceof Error ? error.message : String(error)}`);
@@ -453,7 +482,7 @@ export class NpcConversation<Clip> {
     let failure: unknown;
     try {
       const cast = this.options.scenario.npcs ?? [];
-      const addressed = addressedCharacter(this.lastText, cast);
+      const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
       const parser = new TurnParser(this.names, addressed ?? host);
       const messages: ChatMessage[] = [
@@ -461,7 +490,7 @@ export class NpcConversation<Clip> {
         ...this.history.slice(-this.maxHistory),
       ];
       const last = messages[messages.length - 1];
-      if (addressed !== undefined && last?.role === 'user') {
+      if (addressed !== undefined && last?.role === 'user' && turn.forced === undefined) {
         const who = this.human?.name ?? 'The person';
         messages[messages.length - 1] = {
           ...last,
@@ -484,6 +513,8 @@ export class NpcConversation<Clip> {
     this.finalize(turn);
     this.turn = undefined;
     this.gate.setAiAudible(false);
+    const handedTo = failure === undefined ? findHandover(turn.spoken.map((entry) => entry.utterance), this.names) : undefined;
+    if (handedTo !== undefined) this.scheduleFollowUp(handedTo.from, handedTo.target);
     if (failure !== undefined && turn.spoken.length === 0) {
       const message = failure instanceof Error ? failure.message : String(failure);
       this.ports.log?.(`the model failed: ${message}`);

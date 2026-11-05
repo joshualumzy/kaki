@@ -553,8 +553,41 @@ describe('NpcConversation', () => {
     await h.say('Thanks.');
     expect(h.calls).toHaveLength(2);
   });
+  describe('a hand-over to another character', () => {
+    it('makes the named character answer, once, without the person saying anything', async () => {
+      const h = harness();
+      await h.say('What is next?');
+      h.calls[0]?.push('Ada: Bao, you own this one. What do you propose?');
+      h.calls[0]?.end();
+      await h.flush();
+      h.playing[0]?.finish();
+      await vi.advanceTimersByTimeAsync(1000);
+      h.playing[1]?.finish();
+      await vi.advanceTimersByTimeAsync(1500);
+      await h.flush();
+      expect(h.calls).toHaveLength(2);
+      expect(JSON.stringify(h.calls[1]?.messages)).toContain('Ada handed over to Bao');
+      h.calls[1]?.push('Bao: Make the early coins cheaper.');
+      h.calls[1]?.end();
+      await h.flush();
+      expect(h.playing.map((p) => p.speaker)).toContain('Bao');
+    });
+
+    it('does not chain forever, and the person talking cancels it', async () => {
+      const h = harness();
+      await h.say('What is next?');
+      h.calls[0]?.push('Ada: Bao, you go. What do you think?');
+      h.calls[0]?.end();
+      await h.flush();
+      h.playing[0]?.finish();
+      h.conversation.humanSpeech(true);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(h.calls).toHaveLength(1);
+    });
+  });
+
   describe('the host\'s spoken cues', () => {
-    it('says the cue aloud with no model call and no transcript line, and remembers it', async () => {
+    it('says the cue aloud with no model call, as a transcript line, and remembers it', async () => {
       const h = harness();
       h.conversation.announce('Ada', 'Welcome, everyone.');
       await h.flush();
@@ -562,7 +595,7 @@ describe('NpcConversation', () => {
       expect(h.playing.map((p) => `${p.speaker}: ${p.text}`)).toEqual(['Ada: Welcome, everyone.']);
       h.playing[0]?.finish();
       await h.conversation.settled();
-      expect(h.transcript).toEqual([]);
+      expect(h.transcript).toEqual([['Ada', 'Welcome, everyone.']]);
       // The next answer knows the host already said it.
       await h.say('Hi.');
       expect(JSON.stringify(h.calls[0]?.messages)).toContain('Ada: Welcome, everyone.');

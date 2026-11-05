@@ -23,13 +23,13 @@ describe('timeline entries', () => {
     expect(entryForEvent(said('Arjun'), scenario, viewer)).toMatchObject({ who: 'Arjun' });
   });
 
-  it('lists the host cues, opening included, as the host character', () => {
+  it('does not list the AI host\'s cues when they are published: the spoken line arrives as a transcript line', () => {
     const cue: KakiEvent = {
       type: 'HOST_SPEECH_TRIGGERED',
       audience: { kind: 'screen' },
       payload: { kind: 'OPENING', text: 'Welcome.' },
     };
-    expect(entryForEvent(cue, scenario, viewer)).toMatchObject({ kind: 'host', who: 'Sam', text: 'Welcome.' });
+    expect(entryForEvent(cue, scenario, viewer)).toBeUndefined();
     expect(hostName({ ...scenario, npcs: [] } as Scenario)).toBe('Host');
   });
 
@@ -60,6 +60,6 @@ describe('task entries', () => {
       payload: { kind: 'TIMEOUT', text: 'Build is at 10 minutes, please wrap up.' },
     };
     expect(entryForEvent(cue, scenario, viewer, true)).toMatchObject({ kind: 'suggest', who: 'You could say' });
-    expect(entryForEvent(cue, scenario, viewer)).toMatchObject({ kind: 'host', who: 'Sam' });
+    expect(entryForEvent(cue, scenario, viewer)).toBeUndefined();
   });
 });

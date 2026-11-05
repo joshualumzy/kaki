@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressedCharacter, buildSystemPrompt, cleanSpoken, TurnParser, type Utterance } from '../../src/npc/director';
+import { addressedCharacter, buildSystemPrompt, cleanSpoken, findHandover, TurnParser, type Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
 const npcScenario = {
@@ -207,5 +207,18 @@ describe('HandoverGuard', () => {
 describe('the director prompt', () => {
   it('forbids a character from inventing what another character did or said', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('never says what another character did');
+  });
+});
+
+describe('findHandover', () => {
+  const names = ['Ada', 'Bao'];
+  it('finds a named character asked something by the last speaker', () => {
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }, { speaker: 'Ada', text: 'What do you propose?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, what do you think?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+  });
+  it('finds nothing when nobody is asked, or the one named already spoke', () => {
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }], names)).toBeUndefined();
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, what next?' }, { speaker: 'Bao', text: 'Fix the queue.' }], names)).toBeUndefined();
+    expect(findHandover([], names)).toBeUndefined();
   });
 });
