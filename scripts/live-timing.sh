@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Timed live run, no agent needed. It asks you to press Enter at each moment, then writes the results to
 # docs/agents/live-run-results.md. Run the demo yourself; this only keeps the stopwatch and your notes.
-#   bash scripts/live-timing.sh            (then:  git add docs/agents/live-run-results.md && git commit && git push)
+#   bash scripts/live-timing.sh
 cd "$(dirname "$0")/.." || exit 1
 out=docs/agents/live-run-results.md
 now() { date +%s.%N; }
