@@ -16,11 +16,13 @@ done
 check_url() { # name url
   if curl -fsS -m 3 -o /dev/null "$2" 2>/dev/null; then ok "$1 answers ($2)"; else bad "$1 does not answer ($2)"; fi
 }
-check_url "Gitea" "http://127.0.0.1:8081/"
-check_url "Mattermost" "http://127.0.0.1:8082/api/v4/system/ping"
+check_url "Wiki" "http://127.0.0.1:8081/"
+check_url "Gitea" "http://127.0.0.1:8082/api/healthz"
+check_url "Mattermost" "http://127.0.0.1:8083/api/v4/system/ping"
+check_url "Mailpit" "http://127.0.0.1:8084/api/v1/info"
 check_url "LiveKit" "http://127.0.0.1:7880/"
 check_url "Kaki web (npm run dev)" "http://localhost:5173/"
-if pgrep -f "server/src/npc/main" >/dev/null 2>&1 || pgrep -f "npm run npc" >/dev/null 2>&1; then
+if pgrep -f "src/npc/main" >/dev/null 2>&1; then
   ok "AI attendees are running (npm run npc)"
 else
   bad "AI attendees are not running: start them with  npm run npc"
