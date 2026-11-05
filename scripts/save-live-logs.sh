@@ -14,7 +14,7 @@ done
 [ -f .live-logs/npc.log ] && grep -E 'dropped|ignored|failed|accepts|declines|handed over|cue|error' .live-logs/npc.log > "$dest/npc-key-lines.txt" || true
 
 echo "Saved to $dest"
-hits=$(grep -nEi 'key|token|secret|password|bearer' "$dest"/*.txt | cut -d: -f1,2 || true)
+hits=$(grep -naEi 'key|token|secret|password|bearer' "$dest"/*.txt | cut -d: -f1,2 || true)
 if [ -n "$hits" ]; then
   echo "WARNING: these lines look like secrets (file:line). Delete them before committing:"
   echo "$hits"
