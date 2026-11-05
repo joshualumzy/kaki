@@ -104,6 +104,12 @@ export function MeetingGrid({ role }: { role: string }) {
             The AI attendees hit a problem: {npcState.message}
           </div>
         )}
+        {npcState.kind === 'idle' && npcState.yourTurn !== undefined && (
+          <div role="status" className="kd-turn">
+            <b>Your turn</b>
+            <span>{npcState.yourTurn}</span>
+          </div>
+        )}
         {!aiPresent && (
           <div className="kd-banner">
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.

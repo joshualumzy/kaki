@@ -35,6 +35,8 @@ export interface AgendaItem {
   title: string;
   minutes: number;
   ownerRole: Role;
+  /** The call this item exists to get, as a question to the person who decides ("Do we ship as is, or hold the date?"); optional. */
+  decision?: string;
 }
 
 /**
@@ -300,6 +302,9 @@ function readAgenda(value: unknown, roleIds: Set<string>, problems: string[]): v
     }
     if (typeof item.minutes !== 'number' || !Number.isFinite(item.minutes) || item.minutes <= 0) {
       problems.push(`agenda[${index}].minutes must be a number greater than zero`);
+    }
+    if (item.decision !== undefined && !isNonEmptyString(item.decision)) {
+      problems.push(`agenda[${index}].decision must be a non-empty string when present`);
     }
     if (!isNonEmptyString(item.ownerRole)) {
       problems.push(`agenda[${index}].ownerRole must be a non-empty string`);

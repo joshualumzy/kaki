@@ -17,10 +17,10 @@
     { "name": "Sam", "role": "studio_manager", "zoomDisplayName": "Sam" }
   ],
   "agenda": [
-    { "title": "Build and bugs", "minutes": 10, "ownerRole": "lead_programmer" },
-    { "title": "Level 5 difficulty and playtest feedback", "minutes": 10, "ownerRole": "game_designer" },
-    { "title": "Publisher milestone", "minutes": 8, "ownerRole": "producer" },
-    { "title": "Launch marketing and booth budget", "minutes": 8, "ownerRole": "marketing_lead" }
+    { "title": "Build and bugs", "minutes": 10, "ownerRole": "lead_programmer", "decision": "the build still crashes after ten customers in a row. Do we hold the build until it is fixed, or ship it as it is?" },
+    { "title": "Level 5 difficulty and playtest feedback", "minutes": 10, "ownerRole": "game_designer", "decision": "most playtesters quit on level 5. Do we restore the patience timer and add the tutorial pop-up for launch, or leave level 5 alone?" },
+    { "title": "Publisher milestone", "minutes": 8, "ownerRole": "producer", "decision": "Starfruit wants the final build by Tuesday 17 November, 6pm. Do we commit to that date, or ask them for more time?" },
+    { "title": "Launch marketing and booth budget", "minutes": 8, "ownerRole": "marketing_lead", "decision": "the booth is smaller than planned and there is no streamer yet. What do we fund first: the streamer, the demo tablets, or the stickers?" }
   ],
   "situation": "Hawker Heroes is Lah Studios's cozy mobile game: you run a Singapore hawker stall, cooking and serving customers against the clock. Launch is close and the team is checking it is ready. The build still crashes after ten customers in a row, most playtesters quit on level 5, the publisher (Starfruit) needs the final build soon, and the launch marketing and booth plan are not finished. The Producer has the final say on what ships and when, so the team needs their decisions today.",
   "vocabulary": ["build", "release candidate", "crash", "level 5", "patience timer", "playtest", "tutorial pop-up", "Starfruit", "publisher", "milestone payment", "certification", "Hawker Heroes", "booth", "streamer", "demo tablets", "stickers", "launch", "Arjun", "Mei", "Daniel", "Wei Ling", "Sam"],

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
-import { DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
+import { DEFAULT_BARGE_IN_MS, DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
@@ -128,6 +128,7 @@ const runner = await startNpcRunner({
   debugAudio: debugAudioDir === undefined ? undefined : debugAudio,
   speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
   sentenceGapMs: numberEnv('NPC_SENTENCE_GAP_MS', DEFAULT_SENTENCE_GAP_MS),
+  bargeInMs: numberEnv('NPC_BARGE_IN_MS', DEFAULT_BARGE_IN_MS),
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,

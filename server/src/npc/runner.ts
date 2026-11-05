@@ -47,6 +47,8 @@ export interface RunnerOptions {
   livekitUrl: string;
   /** Defaults to the scenario's demo room. */
   roomName?: string;
+  /** How long the person must keep talking over the AI before it stops (default 900 ms). */
+  bargeInMs?: number;
   /** The Director's reply as it is written. */
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** A sentence as 16 kHz mono samples. */
@@ -196,7 +198,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
         },
       },
-      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs },
+      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs, bargeInMs: options.bargeInMs },
     );
   }
 

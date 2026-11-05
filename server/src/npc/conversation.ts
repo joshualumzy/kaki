@@ -54,7 +54,11 @@ export const DEFAULT_ASK_DELAY_MS = 3000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
+/** How long the person must keep talking over the room before it stops; a shorter burst is probably noise or an echo. */
+export const DEFAULT_BARGE_IN_MS = 900;
+
 export interface ConversationOptions {
+  bargeInMs?: number;
   /** Pause after an agenda announcement before the host asks the person for their decision. */
   askDelayMs?: number;
   scenario: Scenario;
@@ -185,6 +189,14 @@ export class NpcConversation<Clip> {
     this.human = { ...human, transcriptName: human.transcriptName ?? human.name };
   }
 
+  /** The last sentence the room said, if it was a question: then it is the person's turn, and the screen says so. */
+  private lastSpoken = '';
+
+  private idleState(): NpcUiState {
+    const line = this.lastSpoken.trim();
+    return line.endsWith('?') ? { kind: 'idle', yourTurn: line } : { kind: 'idle' };
+  }
+
   /** True while the AI is thinking or speaking. */
   get busy(): boolean {
     return this.turn !== undefined;
@@ -196,6 +208,7 @@ export class NpcConversation<Clip> {
     if (this.closed || typed.length === 0) return;
     this.ports.log?.(`typed "${typed}"`);
     this.chain = 0;
+    this.lastSpoken = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
     this.addAskCue();
@@ -237,8 +250,22 @@ export class NpcConversation<Clip> {
     this.gate.setHumanTalking(talking);
     if (talking) {
       this.clearRespondTimer();
-      this.interrupt('the person started talking');
+      if (this.turn === undefined) return;
+      // The microphone can pick up the room's own voice or a noise for a moment. Stopping the speaker for that makes it
+      // stutter and start again, so it is only cut off once the person has kept talking a while; a shorter burst waits for
+      // recognised words (`humanText` interrupts then), and carries on if there were none.
+      this.clearBargeTimer();
+      const waitMs = this.options.bargeInMs ?? DEFAULT_BARGE_IN_MS;
+      if (waitMs <= 0) {
+        this.interrupt('the person started talking');
+        return;
+      }
+      this.bargeTimer = setTimeout(() => {
+        this.bargeTimer = undefined;
+        if (this.humanTalking && !this.closed) this.interrupt('the person kept talking');
+      }, waitMs);
     } else {
+      this.clearBargeTimer();
       this.scheduleRespond();
     }
   }
@@ -261,6 +288,7 @@ export class NpcConversation<Clip> {
     } else {
       this.ports.log?.(`heard "${accepted}"`);
     }
+    this.lastSpoken = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
     this.chain = 0;
     this.pending.push(accepted);
@@ -311,7 +339,15 @@ export class NpcConversation<Clip> {
   close(): void {
     this.closed = true;
     this.clearRespondTimer();
+    this.clearBargeTimer();
     this.interrupt('the meeting ended');
+  }
+
+  private bargeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  private clearBargeTimer(): void {
+    if (this.bargeTimer !== undefined) clearTimeout(this.bargeTimer);
+    this.bargeTimer = undefined;
   }
 
   private clearRespondTimer(): void {
@@ -361,7 +397,9 @@ export class NpcConversation<Clip> {
     if (host === undefined || owns === undefined) return undefined;
     this.asked.add(human.name);
     this.askDue = false;
-    return `${human.name}, as ${human.role}, ${/decide/i.test(owns) ? "what's your call?" : "what's your take?"}`;
+    const decision = this.options.scenario.agenda.find((item) => item.title === (this.agendaItem ?? this.options.scenario.agenda[0]?.title))?.decision;
+    if (/decide/i.test(owns) && decision !== undefined) return `${human.name}, ${decision}`;
+    return `${human.name}, as ${human.role}, what's your take?`;
   }
 
   private ask(): void {
@@ -465,7 +503,7 @@ export class NpcConversation<Clip> {
     this.finalize(turn);
     this.turn = undefined;
     this.gate.setAiAudible(false);
-    this.ports.emitState({ kind: 'idle' });
+    this.ports.emitState(this.idleState());
   }
 
   /** Carry on from where the person cut in without saying anything. */
@@ -492,7 +530,7 @@ export class NpcConversation<Clip> {
     this.turn = undefined;
     turn.abort.abort();
     this.gate.setAiAudible(false);
-    this.ports.emitState({ kind: 'idle' });
+    this.ports.emitState(this.idleState());
   }
 
   private finalize(turn: Turn): void {
@@ -578,7 +616,7 @@ export class NpcConversation<Clip> {
       this.ports.log?.(`the model failed: ${message}`);
       this.ports.emitState({ kind: 'error', message });
     } else {
-      this.ports.emitState({ kind: 'idle' });
+      this.ports.emitState(this.idleState());
     }
   }
 
@@ -612,6 +650,7 @@ export class NpcConversation<Clip> {
       turn.spoken.push(entry);
       this.gate.setAiAudible(true);
       this.gate.aiSaid(utterance.text);
+      this.lastSpoken = utterance.text;
       this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker });
       if (transcribe) this.ports.emitTranscript(utterance.speaker, utterance.text);
 

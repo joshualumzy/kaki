@@ -39,7 +39,8 @@ export interface SttMessage {
 
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
-  | { kind: 'idle' }
+  /** `yourTurn`: the last thing the room said was a question for the person; it is the question. */
+  | { kind: 'idle'; yourTurn?: string }
   | { kind: 'thinking' }
   | { kind: 'speaking'; speaker: string }
   | { kind: 'error'; message: string };

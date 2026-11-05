@@ -30,7 +30,7 @@ interface Playing {
   finished: boolean;
 }
 
-function harness(scenarioUsed: typeof scenario = scenario) {
+function harness(scenarioUsed: typeof scenario = scenario, bargeInMs = 0) {
   const calls: LlmCall[] = [];
   const playing: Playing[] = [];
   const states: NpcUiState[] = [];
@@ -81,7 +81,7 @@ function harness(scenarioUsed: typeof scenario = scenario) {
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
   };
-  const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0 });
+  const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, bargeInMs, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0 });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -101,12 +101,50 @@ describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('does not cut the room off for a short burst of noise, but does for a person who keeps talking', async () => {
+    const { conversation, calls, playing, flush, say } = harness(scenario, 900);
+    await say('Hello.');
+    calls.at(-1)?.push('Ada: Morning. We should talk about the build today.');
+    calls.at(-1)?.end();
+    await flush();
+    expect(playing).toHaveLength(1);
+
+    // A burst well under the threshold, and recognition hears nothing: the room carries on.
+    conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(500);
+    conversation.humanSpeech(false);
+    conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(playing[0]?.signal.aborted).toBe(false);
+    expect(calls).toHaveLength(1);
+
+    // The person keeps talking: now it stops.
+    conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(playing[0]?.signal.aborted).toBe(true);
+  });
+
+  it('stops for a short burst once words are recognised in it', async () => {
+    const { conversation, calls, playing, flush, say } = harness(scenario, 900);
+    await say('Hello.');
+    calls.at(-1)?.push('Ada: Morning. We should talk about the build today.');
+    calls.at(-1)?.end();
+    await flush();
+    conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(400);
+    conversation.humanSpeech(false);
+    conversation.humanText('Wait, hold on.');
+    await flush();
+    expect(playing[0]?.signal.aborted).toBe(true);
+  });
+
   const hostedScenario = () => ({
     ...scenario,
     roles: [
       ...scenario.roles,
       { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
     ],
+    agenda: scenario.agenda.map((item, index) => (index === 0 ? { ...item, decision: 'do we ship it or hold it?' } : item)),
     npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
   });
 
@@ -117,14 +155,14 @@ describe('NpcConversation', () => {
       calls.at(-1)?.end();
     }
     // Five lines is not a reason to ask: nothing has moved on.
-    expect(playing.some((entry) => entry.text.includes("what's your call"))).toBe(false);
-    conversation.agendaMoved('Level 5');
+    expect(playing.some((entry) => entry.text.includes('do we ship it or hold it'))).toBe(false);
+    conversation.agendaMoved(scenario.agenda[0]!.title);
     await vi.advanceTimersByTimeAsync(3000);
     await flush();
-    expect(playing.at(-1)).toMatchObject({ speaker: 'Ada', text: "Josh, as Producer, what's your call?" });
-    expect(transcript.at(-1)).toEqual(['Ada', "Josh, as Producer, what's your call?"]);
+    expect(playing.at(-1)).toMatchObject({ speaker: 'Ada', text: 'Josh, do we ship it or hold it?' });
+    expect(transcript.at(-1)).toEqual(['Ada', 'Josh, do we ship it or hold it?']);
     // The model is never told to say it: nothing in its messages mentions the question.
-    expect(JSON.stringify(calls.map((call) => call.messages))).not.toContain("what's your call");
+    expect(JSON.stringify(calls.map((call) => call.messages))).not.toContain('Josh, do we ship it or hold it?');
     // Asked once: moving on again does not ask again.
     const count = playing.length;
     conversation.agendaMoved('Publisher milestone');
@@ -145,12 +183,12 @@ describe('NpcConversation', () => {
       await say(`Line ${n}.`);
       calls.at(-1)?.end();
     }
-    expect(playing.some((entry) => entry.text.includes("what's your call"))).toBe(false);
+    expect(playing.some((entry) => entry.text.includes('do we ship it or hold it'))).toBe(false);
     await say('Line 8.');
     calls.at(-1)?.end();
     await flush();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(playing.some((entry) => entry.text === "Josh, as Producer, what's your call?")).toBe(true);
+    expect(playing.some((entry) => entry.text === 'Josh, do we ship it or hold it?')).toBe(true);
   });
 
   it('answers once the person has stopped talking, speaking each sentence in order', async () => {

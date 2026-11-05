@@ -110,6 +110,14 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/not a known role/);
   });
 
+  it('accepts an optional decision on an agenda item and rejects an empty one', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', decision: 'do we hold the menu?' }];
+    expect(parseScenario(scenario).agenda[0]?.decision).toBe('do we hold the menu?');
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', decision: ' ' }];
+    expect(() => parseScenario(scenario)).toThrow(/decision must be a non-empty string/);
+  });
+
   it('rejects an agenda item with an unknown owner role', () => {
     const scenario = cloneScenario();
     scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'waiter' }];

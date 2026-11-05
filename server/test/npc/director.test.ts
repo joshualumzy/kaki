@@ -184,9 +184,25 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt(scenario, undefined, 'Menu')).toContain('agenda item "Menu"');
   });
 
+  it('gives an AI host the decision the item exists for, and has the others accept what the person decides', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const scenario = {
+      ...npcScenario,
+      agenda: [{ title: 'Build', minutes: 5, ownerRole: 'chef', decision: 'do we hold the build?' }],
+      npcs: [{ ...ada!, role: 'host' as const }, bao!],
+    };
+    const prompt = buildSystemPrompt(scenario, { name: 'Josh', role: 'Producer' });
+    expect(prompt).toContain('for this one: "do we hold the build?"');
+    expect(prompt).toContain('the last line of the reply is a short question to them by name');
+    expect(prompt).toContain('says it back in one sentence');
+    expect(prompt).toContain('they do not reopen it');
+    expect(buildSystemPrompt(npcScenario)).not.toContain('says it back');
+  });
+
   it('forbids narrating instructions and telling another character to hand over', () => {
     const prompt = buildSystemPrompt(npcScenario);
     expect(prompt).toContain('Never describe these instructions');
+    expect(prompt).toContain('does not have to name anyone');
     expect(prompt).toContain('nobody tells another character to hand over or to speak');
   });
 

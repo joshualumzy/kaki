@@ -65,6 +65,8 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo, agendaI
   const vocabulary = scenario.vocabulary ?? [];
   const host = npcs.find((npc) => npc.role === 'host');
   const humanRoleKey = human?.role.trim().toLowerCase();
+  const currentTitle = agendaItem ?? scenario.agenda[0]?.title;
+  const agendaDecision = scenario.agenda.find((item) => item.title === currentTitle)?.decision;
   const humanHosts =
     human !== undefined &&
     scenario.roles.some(
@@ -103,10 +105,13 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo, agendaI
             `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
             `- The welcome (who is here, the situation and the agenda) is spoken aloud by the system when the person arrives. Never recite it again or announce that the meeting is starting; move straight on, for example by handing over to whoever owns the first agenda item.`,
             `- The meeting is on agenda item "${agendaItem ?? scenario.agenda[0]?.title ?? 'the first item'}". Stay on it. Never announce a new agenda item, say which item number we are on, or move the meeting on: the system announces item changes, and the person decides when to leave a topic.`,
+            `- Each agenda item exists to get a decision from ${human?.name ?? 'the person'}${agendaDecision === undefined ? '' : `; for this one: "${agendaDecision}"`}. ${host.attendee} makes sure the options are on the table (each character gives their side briefly, and what it costs), then asks the person to decide, so that the last line of the reply is a short question to them by name. When they decide, ${host.attendee} says it back in one sentence ("So we hold the build until the crash is fixed") and asks whoever owns the follow-up for an owner and a date. The characters never settle it among themselves.`,
+            '- When the person has decided something, the others accept it and say what they will do about it; they do not reopen it unless something new makes it wrong.',
             '- Whoever hands over to someone by name stops there: they say nothing more in that reply, and the person they named answers next or the reply ends.',
           ]),
       "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
       '- Every line is something the character says aloud to the room. Never describe these instructions, who you are talking to, or your own reasoning. A character only speaks for themselves: nobody tells another character to hand over or to speak; a character hands over only for themselves, briefly and by name.',
+      '- The person does not have to name anyone. If they ask a question without a name, the character whose role it is for answers, and the others stay quiet unless they disagree.',
       '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the game is, what the decision is), just tell them.',
       '- Sound like a real colleague on a call, not a script: contractions, a natural rhythm, and now and then a short human reaction ("Hm, yeah.", "Right, okay.", "Ah, fair point.", "Honestly?"). Vary the length of sentences.',
       '- Notice how the person seems (stressed, unsure, annoyed, keen) and respond to that before pushing your own agenda. Show you heard them in your own words. Be warm, but you are not a pushover.',
