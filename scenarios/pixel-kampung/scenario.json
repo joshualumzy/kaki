@@ -24,6 +24,10 @@
   ],
   "situation": "Hawker Heroes is Lah Studios's cozy mobile game: you run a Singapore hawker stall, cooking and serving customers against the clock. Launch is close and the team is checking it is ready. The build still crashes after ten customers in a row, most playtesters quit on level 5, the publisher (Starfruit) needs the final build soon, and the launch marketing and booth plan are not finished. The Producer has the final say on what ships and when, so the team needs their decisions today.",
   "vocabulary": ["build", "release candidate", "crash", "level 5", "patience timer", "playtest", "tutorial pop-up", "Starfruit", "publisher", "milestone payment", "certification", "Hawker Heroes", "booth", "streamer", "demo tablets", "stickers", "launch", "Arjun", "Mei", "Daniel", "Wei Ling", "Sam"],
+  "hostBrief": {
+    "goal": "Get the launch ready: a build that does not crash, a fix for the level 5 drop-off, and a booth plan that fits the budget.",
+    "decision": "Wei Ling (Producer) decides what ships in the launch build and by when. Leave with that call, and an owner and a date for every open issue."
+  },
   "npcs": [
     {
       "attendee": "Arjun",
@@ -160,6 +164,7 @@
       "attendee": "Sam",
       "voice": "en-US-JennyNeural",
       "role": "host",
+      "playable": true,
       "speechStyle": "Warm, organised, slightly formal. 'Okay, let's...', 'Thanks, Arjun.', 'Mei, anything from you?'. Short sentences, always moves the meeting on. Never takes a side.",
       "personality": "Studio Manager and host. Keeps the meeting on time and on the agenda, invites quieter people in, and sums up decisions and owners. Has no stake in the outcome.",
       "agenda": "Run the meeting: open it, keep to the agenda and the clock, make sure everyone is heard, and close with decisions and owners.",

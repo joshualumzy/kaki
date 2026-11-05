@@ -32,7 +32,7 @@ export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer:
         </div>
         <div className="kd-dock-sub">
           <b>{tab === 'wingman' ? 'Private' : 'Shared'}</b>
-          <span>{tab === 'wingman' ? `Just for you${role === undefined ? '' : ` as ${role.label}`}` : 'The agenda, what is said and the tasks'}</span>
+          <span>{tab === 'wingman' ? `Just for you${role === undefined ? '' : ` as ${role.label}`}` : (role?.facilitator === true ? 'Your controls, the agenda and the tasks' : 'The agenda, what is said and the tasks')}</span>
         </div>
       </div>
       <div className="kd-dock-body">
@@ -42,7 +42,7 @@ export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer:
         </div>
         <div hidden={tab !== 'host'}>
           <ErrorBoundary>
-            <MeetingPanel viewer={viewer} />
+            <MeetingPanel viewer={viewer} isHost={role?.facilitator === true} />
           </ErrorBoundary>
         </div>
       </div>

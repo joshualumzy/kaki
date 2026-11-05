@@ -287,6 +287,33 @@ describe('host meeting module', () => {
       expect(screen.messages.some((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.kind === 'CLOSING')).toBe(false);
     });
 
+    it('moves to the next agenda item when the screen asks, and refuses a phone or a meeting that has not started', async () => {
+      const scenario = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, ownerRole: 'cashier' }] };
+      app = await createApp({ scenario, modules: [createMeetingModule()] });
+      const screen = await connect('screen');
+      const phone = await connect(testScenario.roles[0]!.id);
+
+      screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+      await waitFor(() => screen.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'not running yet');
+
+      app.hub.publish({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'screen' },
+        payload: { speaker: 'Ada (Chef)', text: 'Hello.', timestamp: new Date().toISOString() },
+      });
+      await waitFor(() => (screen.messages.some(isRecord) ? true : undefined), 'first record');
+      phone.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+      await waitFor(() => phone.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'phone refused');
+
+      screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+      const next = await waitFor(() => screen.messages.filter(isRecord).find((e) => e.payload.agendaIndex === 1), 'second item');
+      expect(next.payload.agendaIndex).toBe(1);
+      await waitFor(
+        () => screen.messages.find((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.text === 'Next up: Till.'),
+        'next-up cue',
+      );
+    });
+
     it('ignores END_MEETING when no meeting is running', async () => {
       app = await createTestApp({ modules: [createMeetingModule()] });
       const screen = await connect('screen');

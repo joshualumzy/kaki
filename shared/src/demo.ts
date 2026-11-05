@@ -80,3 +80,16 @@ export function humanAttendeeForRole(scenario: Scenario, roleIdOrLabel: string):
   if (role === undefined) return undefined;
   return scenario.attendees.find((attendee) => attendee.role === role.id && !isPlayedByAi(scenario, attendee));
 }
+
+/**
+ * The role a person can take to run the meeting: the facilitator role, when its attendee's character is `playable`.
+ * Taking it sends the AI host out of the cast, so the person hosts and the AI attendees follow their lead.
+ */
+export function hostRole(scenario: Scenario): ScenarioRole | undefined {
+  return scenario.roles.find(
+    (role) =>
+      role.facilitator === true &&
+      scenario.attendees.some((attendee) => attendee.role === role.id && !isPlayedByAi(scenario, attendee)) &&
+      (scenario.npcs ?? []).some((npc) => scenario.attendees.some((a) => a.name === npc.attendee && a.role === role.id)),
+  );
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { roleLabel, type KakiEvent, type Task } from '@kaki/shared';
+import { roleLabel, type KakiEvent, type Role, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { MeetingRecordCard, isRecord, type RecordEvent } from '../screen/ScreenPage';
 import type { TranscriptViewer } from './captions';
@@ -10,9 +10,11 @@ import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
  * then one timeline of what is said, the host's spoken cues and task changes, then the tasks.
  * The socket only keeps its last 50 events, so the timeline keeps its own history.
  */
-export function MeetingPanel({ viewer }: { viewer: TranscriptViewer }) {
+export function MeetingPanel({ viewer, isHost = false }: { viewer: TranscriptViewer; isHost?: boolean }) {
   const scenario = useScenario();
-  const { events, tasks, connected } = useKaki('screen');
+  // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
+  // needs auth off or a signed-in host (the page cannot connect otherwise).
+  const { events, tasks, connected, rejection, send } = useKaki('screen');
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const seenKeys = useRef(new Set<string>());
@@ -29,14 +31,14 @@ export function MeetingPanel({ viewer }: { viewer: TranscriptViewer }) {
         setRecord(event);
         continue;
       }
-      const entry = entryForEvent(event, scenario, viewer);
+      const entry = entryForEvent(event, scenario, viewer, isHost);
       if (entry !== undefined && !seenKeys.current.has(entry.key)) {
         seenKeys.current.add(entry.key);
         added.push(entry);
       }
     }
     if (added.length > 0) setEntries((previous) => [...previous, ...added]);
-  }, [events, scenario, viewer]);
+  }, [events, scenario, viewer, isHost]);
 
   useEffect(() => {
     const added: TimelineEntry[] = [];
@@ -60,6 +62,22 @@ export function MeetingPanel({ viewer }: { viewer: TranscriptViewer }) {
   return (
     <div className="page kd-host kd-meeting-panel">
       {!connected && <p className="connection-banner">Reconnecting…</p>}
+      {isHost && <HostBrief scenario={scenario} />}
+      {isHost && rejection !== null && (
+        <p className="connection-banner" role="alert">
+          {rejection.commandType}: {rejection.reason}
+        </p>
+      )}
+      {isHost && (
+        <div className="kd-host-controls">
+          <button type="button" className="kd-chip" disabled={record === undefined} onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}>
+            Next agenda item
+          </button>
+          <button type="button" className="kd-chip" disabled={record === undefined} onClick={() => send({ type: 'END_MEETING' })}>
+            End meeting
+          </button>
+        </div>
+      )}
       {record === undefined ? (
         <p className="empty-state">The meeting has not started yet. The agenda clock begins with the first thing said.</p>
       ) : (
@@ -91,11 +109,78 @@ export function MeetingPanel({ viewer }: { viewer: TranscriptViewer }) {
                 <span>
                   {roleLabel(scenario, task.assignee ?? task.suggestedAssignee)} · {task.status.replace('_', ' ').toLowerCase()}
                 </span>
+                {isHost && task.status === 'SUGGESTED' && (
+                  <TaskControls
+                    task={task}
+                    scenario={scenario}
+                    onDispatch={(assignee) => send({ type: 'DISPATCH_TASK', taskId: task.id, assignee })}
+                    onDismiss={() => send({ type: 'DISMISS_TASK', taskId: task.id })}
+                  />
+                )}
               </li>
             ))}
           </ul>
         </div>
       )}
     </div>
+  );
+}
+
+/** What the person hosting is told before they start: the goal, the decision to land and the agenda. */
+function HostBrief({ scenario }: { scenario: Scenario }) {
+  const brief = scenario.hostBrief;
+  const host = (scenario.npcs ?? []).find((npc) => npc.role === 'host');
+  const goal = brief?.goal ?? host?.agenda;
+  if (goal === undefined) return null;
+  return (
+    <section className="kd-role" aria-label="Your briefing as host">
+      <p className="kd-role-eyebrow">You are hosting · {scenario.meetingTitle}</p>
+      <p>{goal}</p>
+      {brief !== undefined && (
+        <p>
+          <strong>The decision to land: </strong>
+          {brief.decision}
+        </p>
+      )}
+      <ol style={{ margin: 0, paddingLeft: 18 }}>
+        {scenario.agenda.map((item) => (
+          <li key={item.title}>
+            {item.title} · {item.minutes} min · {roleLabel(scenario, item.ownerRole)}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** Dispatch a suggested task to a role, or dismiss it. Starts on the role the notetaker suggested. */
+function TaskControls({
+  task,
+  scenario,
+  onDispatch,
+  onDismiss,
+}: {
+  task: Task;
+  scenario: Scenario;
+  onDispatch(assignee: Role): void;
+  onDismiss(): void;
+}) {
+  const [assignee, setAssignee] = useState<Role>(task.suggestedAssignee);
+  return (
+    <span className="kd-host-controls">
+      <select aria-label={`Who should do "${task.title}"`} value={assignee} onChange={(event) => setAssignee(event.target.value as Role)}>
+        {scenario.roles.map((role) => (
+          <option key={role.id} value={role.id}>
+            {role.label}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="kd-chip" onClick={() => onDispatch(assignee)}>
+        Dispatch
+      </button>
+      <button type="button" className="kd-chip" onClick={onDismiss}>
+        Dismiss
+      </button>
+    </span>
   );
 }

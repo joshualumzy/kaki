@@ -58,6 +58,12 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
 
   const vocabulary = scenario.vocabulary ?? [];
   const host = npcs.find((npc) => npc.role === 'host');
+  const humanRoleKey = human?.role.trim().toLowerCase();
+  const humanHosts =
+    human !== undefined &&
+    scenario.roles.some(
+      (role) => role.facilitator === true && (role.id.toLowerCase() === humanRoleKey || role.label.toLowerCase() === humanRoleKey),
+    );
 
   return [
     `You direct the AI attendees of a live video meeting at ${scenario.organisation}: "${scenario.meetingTitle}".`,
@@ -78,6 +84,13 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
     [
       'How to reply:',
       `- Decide who should speak. Often one of ${names.join(' and ')}; sometimes both, one after the other. If somebody is addressed by name, only they answer. Do not make everybody talk every time, and vary who goes first.`,
+      ...(humanHosts
+        ? [
+            `- ${human?.name} is the host and runs this meeting: they open it, keep to the agenda and the clock, hand over by name and wrap up. Take your lead from them. Do not open the meeting, move to the next agenda item, hand over to each other, or summarise the decisions yourselves; wait to be asked.`,
+            '- When the host hands over to you or asks you something, answer it for your own side, briefly, and stop. If they have not said anything yet, or say only a greeting, a short greeting back from one of you is enough.',
+            '- If the host asks the room a question, one or two of you answer from your own aims, and disagree with each other where your aims conflict. Do not all answer every time.',
+          ]
+        : []),
       ...(host === undefined
         ? []
         : [

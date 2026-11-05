@@ -13,7 +13,9 @@ export type KakiCommand =
   | { type: 'MARK_DONE'; taskId: string }
   | { type: 'SYNC_TASK'; taskId: string }
   /** Screen only. Ends the meeting; `silent` skips the spoken closing line (nobody is left to hear it). */
-  | { type: 'END_MEETING'; silent?: boolean };
+  | { type: 'END_MEETING'; silent?: boolean }
+  /** Screen only. The host moves the meeting on to the next agenda item. */
+  | { type: 'NEXT_AGENDA_ITEM' };
 
 const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'DISPATCH_TASK',
@@ -25,6 +27,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'MARK_DONE',
   'SYNC_TASK',
   'END_MEETING',
+  'NEXT_AGENDA_ITEM',
 ];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -42,6 +45,7 @@ function isCommandType(value: unknown): value is KakiCommand['type'] {
 /** Validate unknown data (such as JSON from a socket) as a command for the scenario. */
 export function isKakiCommand(value: unknown, scenario: Scenario): value is KakiCommand {
   if (!isObject(value) || !isCommandType(value.type)) return false;
+  if (value.type === 'NEXT_AGENDA_ITEM') return true;
   if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';
   if (!isString(value.taskId)) return false;
 

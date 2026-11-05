@@ -52,4 +52,14 @@ describe('task entries', () => {
   it('says nothing when the status did not change', () => {
     expect(entryForTask(task, 'CLAIMED', scenario)).toBeUndefined();
   });
+
+  it('shows the host cues as lines to say when a person hosts', () => {
+    const cue: KakiEvent = {
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'TIMEOUT', text: 'Build is at 10 minutes, please wrap up.' },
+    };
+    expect(entryForEvent(cue, scenario, viewer, true)).toMatchObject({ kind: 'suggest', who: 'You could say' });
+    expect(entryForEvent(cue, scenario, viewer)).toMatchObject({ kind: 'host', who: 'Sam' });
+  });
 });

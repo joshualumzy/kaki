@@ -184,7 +184,8 @@ function followHostCues(): void {
     try {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
       if (event.type === 'TASK_UPDATED') taskResponder.handle(event as unknown as KakiEvent);
-      if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string') {
+      // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
+      if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string' && !runner.hostIsHuman()) {
         runner.announce(event.payload.text);
       }
     } catch {

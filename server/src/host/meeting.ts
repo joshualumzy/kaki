@@ -161,6 +161,22 @@ export function createMeetingModule({
         console.log('kaki host: a new meeting starts; the old record, questions and tasks are cleared');
       }
 
+      /** Tell the room when the meeting has moved on to a new agenda item. */
+      function announceAgendaItem(): void {
+        const currentAgendaIndex = clock.snapshot().agendaIndex;
+        if (currentAgendaIndex > 0 && currentAgendaIndex !== announcedAgendaIndex) {
+          announcedAgendaIndex = currentAgendaIndex;
+          const item = scenario.agenda[currentAgendaIndex];
+          if (item) {
+            hub.publish({
+              type: 'HOST_SPEECH_TRIGGERED',
+              audience: { kind: 'screen' },
+              payload: { kind: 'OPENING', text: `Next up: ${item.title}.` },
+            });
+          }
+        }
+      }
+
       const unsubscribe = hub.subscribe((event) => {
         if (event.type !== 'TRANSCRIPT_CHUNK') return;
 
@@ -183,21 +199,7 @@ export function createMeetingModule({
         clock.start();
         notetaker.addChunk(event.payload);
         
-        const currentAgendaIndex = clock.snapshot().agendaIndex;
-        if (currentAgendaIndex > 0 && currentAgendaIndex !== announcedAgendaIndex) {
-          announcedAgendaIndex = currentAgendaIndex;
-          const item = scenario.agenda[currentAgendaIndex];
-          if (item) {
-             hub.publish({
-               type: 'HOST_SPEECH_TRIGGERED',
-               audience: { kind: 'screen' },
-               payload: {
-                 kind: 'OPENING',
-                 text: `Next up: ${item.title}.`,
-               },
-             });
-          }
-        }
+        announceAgendaItem();
       });
       const notetakerTimer = setInterval(() => void runNotetaker(), notetakerIntervalMs);
 
@@ -225,9 +227,18 @@ export function createMeetingModule({
       }
 
       hub.onCommand((command, sender) => {
-        if (command.type !== 'END_MEETING') return;
+        if (command.type !== 'END_MEETING' && command.type !== 'NEXT_AGENDA_ITEM') return;
         if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
-        endMeeting({ silent: command.silent === true });
+        if (command.type === 'END_MEETING') {
+          endMeeting({ silent: command.silent === true });
+          return;
+        }
+        const now = clock.snapshot();
+        if (!now.started || now.ended) throw new CommandError('The meeting is not running');
+        if (now.agendaIndex + 1 >= scenario.agenda.length) throw new CommandError('That was the last agenda item');
+        clock.advanceTo(now.agendaIndex + 1);
+        publishRecord();
+        announceAgendaItem();
       });
 
       let stopReplay: (() => void) | undefined;

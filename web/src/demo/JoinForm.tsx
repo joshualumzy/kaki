@@ -68,7 +68,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, onJoin }: J
             <select id="join-role" className="kd-field" value={roleLabel} onChange={(event) => setRoleLabel(event.target.value)}>
               {roles.map((role) => (
                 <option key={role.id} value={role.label}>
-                  {role.label}
+                  {role.facilitator === true ? `${role.label} · run the meeting` : role.label}
                 </option>
               ))}
             </select>

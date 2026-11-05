@@ -77,6 +77,8 @@ export interface NpcRunner {
   announce(text: string): void;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
+  /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
+  hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
   say(attendee: string, text: string, onDone?: () => void): void;
   /** Leave the room and stop everything. */
@@ -101,10 +103,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const npcNames = new Set(npcs.map((npc) => npc.attendee));
   // Characters nobody can play stay in the room and listen; the rest join for the person who arrives,
   // as everyone except the seat that person took.
-  const permanent = aiCast(scenario);
-  if (permanent.length === 0) {
-    throw new Error(`Scenario "${scenario.id}" has no npc that is always AI (every npc is playable), so nobody can listen`);
-  }
+  // When every character is playable (the host's seat too), the host stays connected as a silent listener
+  // while a person plays their seat: the AI Sam steps out of the conversation, not out of the room.
+  const hostProfile = npcs.find((npc) => npc.role === 'host');
+  const alwaysAi = aiCast(scenario);
+  const listenerProfile = alwaysAi[0] ?? hostProfile ?? npcs[0]!;
+  const permanent = alwaysAi.length > 0 ? alwaysAi : [listenerProfile];
   const roomName = options.roomName ?? demoRoomName(scenario);
 
   // --- Characters join the room one by one, each publishing its own microphone track. ---
@@ -138,7 +142,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     await leaveAll();
     throw error;
   }
-  const listener = characters.get(permanent[0]!.attendee) as Character;
+  const listener = characters.get(listenerProfile.attendee) as Character;
 
   // --- What the AI attendees send out: state to the browser, transcript lines to Kaki. ---
   function publishState(state: NpcStateMessage): void {
@@ -217,7 +221,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           humans.size === 0 ? permanent : npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
         for (const npc of wanted) await joinCharacter(npc);
         for (const [name, character] of [...characters]) {
-          if (wanted.some((npc) => npc.attendee === name)) continue;
+          if (name === listenerProfile.attendee || wanted.some((npc) => npc.attendee === name)) continue;
           characters.delete(name);
           await character.room.disconnect().catch(() => undefined);
           log(`${name} left ${roomName}`);
@@ -389,6 +393,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
+    },
+    hostIsHuman() {
+      return hostProfile !== undefined && [...humans.values()].some((person) => person.seat === hostProfile.attendee);
     },
     say(attendee, text, onDone) {
       if (conversation === undefined) return;

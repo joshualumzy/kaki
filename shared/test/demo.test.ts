@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiCast, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { aiCast, hostRole, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -62,5 +62,21 @@ describe('demo meeting helpers', () => {
     for (const bad of [null, 'stop', 3, {}, { kind: 'text' }, { kind: 'text', text: '   ' }, { kind: 'text', text: 5 }, { kind: 'jump' }]) {
       expect(parseControlMessage(bad)).toBeUndefined();
     }
+  });
+
+  it('offers the host seat only when the facilitator role has a playable character', () => {
+    const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    const base: Scenario = {
+      ...testScenario,
+      roles: [...testScenario.roles, { id: 'manager', label: 'Manager', facilitator: true }],
+      attendees: [...testScenario.attendees, { name: 'Sam', role: 'manager', zoomDisplayName: 'Sam' }],
+    };
+    expect(hostRole(base)).toBeUndefined();
+    expect(hostRole({ ...base, npcs: [{ ...npc, attendee: 'Sam', role: 'host' }] })).toBeUndefined();
+    const playable: Scenario = { ...base, npcs: [{ ...npc, attendee: 'Sam', role: 'host', playable: true }] };
+    expect(hostRole(playable)?.id).toBe('manager');
+    expect(humanAttendeeForRole(playable, 'Manager')?.name).toBe('Sam');
+    // The host seat is not a participant role.
+    expect(humanRoles(playable).map((role) => role.id)).not.toContain('manager');
   });
 });

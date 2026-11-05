@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { LiveKitRoom } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
-import { demoRoomName, humanAttendeeForRole, humanRoles } from '@kaki/shared';
+import { demoRoomName, hostRole, humanAttendeeForRole, humanRoles } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
@@ -31,7 +31,11 @@ interface Session {
 /** The live demo meeting: join with a name and role, then talk to the AI attendees. */
 export default function Meeting() {
   const scenario = useScenario();
-  const roles = useMemo(() => humanRoles(scenario), [scenario]);
+  // Participants first; the host's seat last, when the scenario lets a person run the meeting.
+  const roles = useMemo(() => {
+    const host = hostRole(scenario);
+    return host === undefined ? humanRoles(scenario) : [...humanRoles(scenario), host];
+  }, [scenario]);
   const [session, setSession] = useState<Session | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();

@@ -111,6 +111,18 @@ describe('addressedCharacter', () => {
 });
 
 describe('buildSystemPrompt', () => {
+  it('has the characters follow the person when that person is the host', () => {
+    const scenario = {
+      ...npcScenario,
+      roles: [...npcScenario.roles, { id: 'manager', label: 'Manager', facilitator: true }],
+    };
+    const hosting = buildSystemPrompt(scenario, { name: 'Joshua', role: 'Manager' });
+    expect(hosting).toContain('Joshua is the host and runs this meeting');
+    expect(hosting).toContain('Take your lead from them');
+    expect(buildSystemPrompt(scenario, { name: 'Joshua', role: 'Chef' })).not.toContain('is the host and runs this meeting');
+    expect(buildSystemPrompt(scenario)).not.toContain('is the host and runs this meeting');
+  });
+
   it('tells the model what the meeting is about, and which words are probably a mis-heard name', () => {
     const prompt = buildSystemPrompt({ ...npcScenario, situation: 'The oven broke an hour before lunch.' });
     expect(prompt).toContain('The situation: The oven broke an hour before lunch.');

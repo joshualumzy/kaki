@@ -4,7 +4,10 @@ import type { Role } from './roles';
 export interface ScenarioRole {
   id: Role;
   label: string;
-  /** No person plays this role (for example the AI host), so it is never counted as quiet or offered to join. */
+  /**
+   * The role that runs the meeting (for example Sam, the studio manager). It is never counted as quiet or offered to a
+   * participant. An AI plays it unless its attendee's npc is `playable`, which makes it the host mode seat.
+   */
   facilitator?: boolean;
   /** What a person playing this role is told on their Wingman: facts, not a script. */
   card?: RoleCard;
@@ -96,6 +99,16 @@ export interface Scenario {
   vocabulary?: string[];
   /** AI attendees for the live demo meeting; absent when the scenario has none. */
   npcs?: NpcProfile[];
+  /** What a person hosting the meeting is told before they start; optional. */
+  hostBrief?: HostBrief;
+}
+
+/** A short briefing for a person who runs the meeting. */
+export interface HostBrief {
+  /** What the meeting is for, in a sentence. */
+  goal: string;
+  /** The decision the meeting has to land by the end. */
+  decision: string;
 }
 
 const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
@@ -310,6 +323,11 @@ export function parseScenario(value: unknown): Scenario {
   const roleIds = readRoles(value.roles, problems);
   readAttendees(value.attendees, roleIds, problems);
   readAgenda(value.agenda, roleIds, problems);
+  if (value.hostBrief !== undefined) {
+    if (!isObject(value.hostBrief) || !isNonEmptyString(value.hostBrief.goal) || !isNonEmptyString(value.hostBrief.decision)) {
+      problems.push('hostBrief must have a non-empty "goal" and "decision" when present');
+    }
+  }
   if (value.situation !== undefined && !isNonEmptyString(value.situation)) {
     problems.push('situation must be a non-empty string when present');
   }

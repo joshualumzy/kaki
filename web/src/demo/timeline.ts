@@ -5,7 +5,7 @@ import { speakerLabel, type TranscriptViewer } from './captions';
 export interface TimelineEntry {
   /** Stable across reconnects, so a replayed event is not listed twice. */
   key: string;
-  kind: 'said' | 'host' | 'nudge' | 'fact' | 'task';
+  kind: 'said' | 'host' | 'suggest' | 'nudge' | 'fact' | 'task';
   /** Who said it, when someone did. */
   who?: string;
   text: string;
@@ -21,6 +21,8 @@ export function entryForEvent(
   event: KakiEvent,
   scenario: Scenario,
   viewer: TranscriptViewer | undefined,
+  /** True when a person hosts: the host's cues are not spoken, they are lines for that person to say. */
+  hostIsViewer = false,
 ): TimelineEntry | undefined {
   switch (event.type) {
     case 'TRANSCRIPT_CHUNK': {
@@ -29,6 +31,7 @@ export function entryForEvent(
     }
     case 'HOST_SPEECH_TRIGGERED': {
       const { kind, text } = event.payload;
+      if (hostIsViewer) return { key: `host|${kind}|${text}`, kind: 'suggest', who: 'You could say', text };
       return { key: `host|${kind}|${text}`, kind: 'host', who: hostName(scenario), text };
     }
     case 'NUDGE':
