@@ -33,7 +33,7 @@ Goal: run the full path once and time it. Chain: visitor speaks -> AI attendees 
    - Say a messy sentence: "the build crashes after ten customers". Note what the transcript shows (heard correctly or not).
    - Say an assignment: "Sam, can you post the launch date in the team channel?" (adjust to the scenario). Note: task appears, Sam announces it, who it goes to.
    - Accept on the phone. Note: Wingman draft appears (T2), Kaki runs it (T3), done card shows the link (T4).
-4. For a task aimed at a role an AI plays, note whether anyone can accept it. This is the open gap; record what actually happened.
+4. Test an AI-played recipient. Say "Priya, can you post the launch date in the team channel?" (use an AI role from the scenario). Note, in order: does the AI answer aloud, does the screen show Accepted only after her words, does the draft appear and get approved by itself, does Kaki run it (T2..T4). Then repeat with a task the character should refuse (something clearly not her job, or against her stated worries) and note whether she says no and the task returns to the screen as SUGGESTED. Record what actually happened.
 5. Repeat the three speech lines once with an accent or faster pace.
 6. Write `docs/agents/live-run-results.md`: a table of T0..T4 with seconds, the transcript lines as heard, every PASS/FAIL, anything that broke, plus the server console errors (copy the lines, no keys). Commit, fetch, confirm fast-forward, `git push personal HEAD`.
 

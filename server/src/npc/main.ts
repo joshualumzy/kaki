@@ -1,7 +1,7 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
 import { llmFromEnv } from '../llm';
-import { aiCast } from '@kaki/shared';
+import { aiCast, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
 import { loadScenario } from '../loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -11,6 +11,7 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
+import { createTaskResponder } from './taskResponder';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
 /** `npm run npc`: the AI attendees of the live demo meeting, wired to the real model, Azure speech and Kaki. */
@@ -133,6 +134,34 @@ const runner = await startNpcRunner({
   },
 });
 
+// An AI attendee has no phone. When a task is dispatched to their role they answer aloud and this sends their
+// Accept or Decline (and approves the draft), over a socket opened as that role like a phone would.
+const roleSockets = new Map<Role, { socket: WebSocket; queue: string[] }>();
+function sendAs(role: Role, command: KakiCommand): void {
+  let entry = roleSockets.get(role);
+  if (entry === undefined || entry.socket.readyState > WebSocket.OPEN) {
+    const socket = new WebSocket(`${kakiUrl.replace(/^http/, 'ws')}/ws?role=${encodeURIComponent(role)}`);
+    entry = { socket, queue: [] };
+    const current = entry;
+    socket.on('open', () => {
+      for (const message of current.queue.splice(0)) socket.send(message);
+    });
+    socket.on('error', (error) => log(`could not send as ${role}: ${error.message}`));
+    roleSockets.set(role, entry);
+  }
+  const message = JSON.stringify(command);
+  if (entry.socket.readyState === WebSocket.OPEN) entry.socket.send(message);
+  else entry.queue.push(message);
+}
+const taskResponder = createTaskResponder({
+  scenario,
+  llm,
+  plays: (attendee) => runner.plays(attendee),
+  say: (attendee, text, onDone) => runner.say(attendee, text, onDone),
+  send: sendAs,
+  log,
+});
+
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
 // What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
 // Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
@@ -147,6 +176,7 @@ function followHostCues(): void {
     if (Date.now() - openedAt.at < 1000) return;
     try {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
+      if (event.type === 'TASK_UPDATED') taskResponder.handle(event as unknown as KakiEvent);
       if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string') {
         runner.announce(event.payload.text);
       }

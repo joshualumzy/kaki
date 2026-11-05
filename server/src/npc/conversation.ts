@@ -240,7 +240,7 @@ export class NpcConversation<Clip> {
    * room stays busy for `giveUpMs`. It is not a transcript line (Kaki already has the cue as an event).
    * The person talking over it stops it, as with any other speech.
    */
-  announce(speaker: string, text: string, giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS): void {
+  announce(speaker: string, text: string, giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS, onDone?: () => void): void {
     const line = text.trim();
     if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
     const deadline = Date.now() + giveUpMs;
@@ -250,13 +250,20 @@ export class NpcConversation<Clip> {
         this.humanTalking || this.turn !== undefined || this.pending.length > 0 || this.respondTimer !== undefined;
       if (!busy) {
         this.startScripted({ speaker, text: line });
+        if (onDone !== undefined) void this.turn?.done.then(onDone);
       } else if (Date.now() >= deadline) {
         this.ports.log?.(`dropped ${speaker}'s cue "${line}": the room stayed busy`);
+        onDone?.();
       } else {
         setTimeout(attempt, 500);
       }
     };
     attempt();
+  }
+
+  /** True while `speaker` is a character this conversation voices. */
+  plays(speaker: string): boolean {
+    return !this.closed && this.names.includes(speaker);
   }
 
   /** Resolves when no turn is running. */

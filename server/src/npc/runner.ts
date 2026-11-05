@@ -71,6 +71,10 @@ export interface RunnerOptions {
 export interface NpcRunner {
   /** The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there). */
   announce(text: string): void;
+  /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
+  plays(attendee: string): boolean;
+  /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
+  say(attendee: string, text: string, onDone?: () => void): void;
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
 }
@@ -377,6 +381,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           ? openingLine(scenario, { name: person.name, seat: person.seat })
           : text;
       conversation.announce(hostName, spoken);
+    },
+    plays(attendee) {
+      return conversation?.plays(attendee) ?? false;
+    },
+    say(attendee, text, onDone) {
+      if (conversation === undefined) return;
+      conversation.announce(attendee, text, undefined, onDone);
     },
     async stop() {
       closing = true;
