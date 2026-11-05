@@ -2,7 +2,7 @@
 
 Who this is for: the agent that runs on the owner's machine at no cost to the Claude Code cloud session. It works on `personal` (= `joshualumzy/it5007-project`) and walks the owner through the steps one at a time. The cloud agent writes these instructions; this agent runs them and pushes the results back.
 
-Use this file for work that is token-heavy or needs the owner (clicks, microphone, keys). Source of the task list: `docs/agents/priorities.md`.
+Use this file for work that is token-heavy or needs the owner (clicks, microphone, keys). Anything that is only a fixed set of commands is a script under `scripts/` that the owner runs alone; this file covers what needs judgment or help. Source of the task list: `docs/agents/priorities.md`.
 
 ## Rules (from `AGENTS.md`, non-negotiable)
 - Push only to `personal`. Never `origin` (the classroom repo) unless the owner asks for that push.
@@ -24,18 +24,17 @@ Goal: confirm five fixes against the saved events. Read only; write one report.
 4. If a result predates the fix commit (`git log` the file vs the fix), mark it STALE: it needs a re-run (put it in Task B).
 5. Save the report as `docs/agents/recheck-results.md`. Commit: `docs: recheck of earlier failures`. Fetch, confirm fast-forward, `git push personal HEAD`.
 
-## Task B: timed live run (needs the owner)
-Goal: run the full path once and time it. Chain: visitor speaks -> AI attendees answer -> notetaker finds a task -> Sam announces it -> phone accepts -> Wingman drafts -> Kaki runs.
-1. Ask the owner to confirm: LLM key set, Azure speech key set, microphone works. Check key NAMES only.
-2. Start the services (see `HANDOFF.md` and `docs/agents/status-wingman-action.md` for the commands; `npm run npc` plus a person in `/demo`). Ask the owner to open `/demo` and `/screen`, and a phone on the Wingman page.
-3. Give the owner this script to say, one line at a time, and note a timestamp at each marker:
-   - T0: owner finishes the first sentence. T1: first spoken word from an AI attendee. Latency = T1 - T0.
-   - Say a messy sentence: "the build crashes after ten customers". Note what the transcript shows (heard correctly or not).
-   - Say an assignment: "Sam, can you post the launch date in the team channel?" (adjust to the scenario). Note: task appears, Sam announces it, who it goes to.
-   - Accept on the phone. Note: Wingman draft appears (T2), Kaki runs it (T3), done card shows the link (T4).
-4. Test an AI-played recipient. Say "Priya, can you post the launch date in the team channel?" (use an AI role from the scenario). Note, in order: does the AI answer aloud, does the screen show Accepted only after her words, does the draft appear and get approved by itself, does Kaki run it (T2..T4). Then repeat with a task the character should refuse (something clearly not her job, or against her stated worries) and note whether she says no and the task returns to the screen as SUGGESTED. Record what actually happened.
-5. Repeat the three speech lines once with an accent or faster pace.
-6. Write `docs/agents/live-run-results.md`: a table of T0..T4 with seconds, the transcript lines as heard, every PASS/FAIL, anything that broke, plus the server console errors (copy the lines, no keys). Commit, fetch, confirm fast-forward, `git push personal HEAD`.
+## Task B: timed live run (needs the owner; mostly scripts)
+Goal: run the full path once and time it: visitor speaks -> AI attendees answer -> notetaker finds a task -> Sam announces it -> the AI accepts or declines aloud -> draft -> Kaki runs.
+
+Scripts the owner can run alone, no agent: `bash scripts/live-preflight.sh` (keys by name, services, git level; add `--full` for typecheck and tests) and `bash scripts/live-timing.sh` (stopwatch and notes, writes `docs/agents/live-run-results.md`).
+
+The agent's part, step by step:
+1. Run `bash scripts/live-preflight.sh`. For each FAIL, help the owner fix it: missing key names in `.env` (names only, never print values), `npm run stack:up`, `npm run dev`, `npm run npc` (each in its own terminal). Repeat until it says "Ready for the live run."
+2. Ask the owner to open `/demo`, `/screen`, and a phone on the Wingman page.
+3. Tell the owner to run `bash scripts/live-timing.sh` and speak the four lines it prints, pressing Enter at each moment. Help only if something fails. While they do it, watch the npc terminal for lines starting `[npc` such as "accepts", "declines", "is reading the draft", and copy any error lines (no keys) for the owner to paste when asked.
+4. Check what the run should show. Accept case: the AI answers aloud, the screen shows Accepted only after her words, the draft appears, the AI approves it about 6 s later (`NPC_APPROVE_DELAY_MS`), Kaki runs it and the output exists in Mattermost, Mailpit or Gitea. Refuse case: she says no and the task returns to the screen as SUGGESTED. Sam's dispatch line is identical for every role.
+5. Commit and push the results: `git add docs/agents/live-run-results.md`, commit `docs: live run results`, `git fetch personal`, confirm fast-forward, `git push personal HEAD`. Never force.
 
 ## Task C: notetaker eval rounds (token heavy, optional)
 Only if the owner asks. Follow `docs/agents/tuning-loop.md` and the plan in `docs/agents/tuning-log.md`. One prompt cut per round, 3 runs each. Run: `REMOTE=personal bash scripts/eval-round.sh` (it commits and pushes the report). Keep a cut only if 3 of 3 and no slower than about 190 s per run.
