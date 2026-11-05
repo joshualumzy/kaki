@@ -25,9 +25,26 @@ run_case() { # name what-to-say
   rows+="| $1 | $(diff "$t0" "$t1") | $(diff "$t0" "$t2") | $(diff "$t2" "$t3") | $(diff "$t3" "$t4") | $heard | $result | $notes |"$'\n'
 }
 
+# Lines for the Pixel Kampung cast. The first two characters who are not your seat are the AI ones used below.
+accept_line() { case "$1" in
+  Arjun) echo "Arjun, can you fix the crash on level five?";;
+  Mei) echo "Mei, can you rebalance the difficulty of level five?";;
+  Daniel) echo "Daniel, can you post the launch date in the team channel?";;
+  *) echo "Wei Ling, can you email the publisher about the build date?";; esac; }
+refuse_line() { case "$1" in
+  Arjun) echo "Arjun, can you design the launch poster?";;
+  Mei) echo "Mei, can you fix the server crash tonight?";;
+  Daniel) echo "Daniel, can you rewrite the save game code?";;
+  *) echo "Wei Ling, can you draw the new character art?";; esac; }
+
 echo "Open /demo, /screen and the phone page first. Run  bash scripts/live-preflight.sh  if unsure."
-run_case "Accept: assignment to an AI role" "Priya, can you post the launch date in the team channel?"
-run_case "Refuse: a task clearly not hers" "Priya, can you fix the oven fuse tonight?"
+seat=$(ask "Which character did you pick as your seat (Wei Ling, Arjun, Mei or Daniel)?")
+ai=()
+for name in "Arjun" "Mei" "Daniel" "Wei Ling"; do
+  [ "$name" != "$seat" ] && ai+=("$name")
+done
+run_case "Accept: assignment to ${ai[0]} (AI)" "$(accept_line "${ai[0]}")"
+run_case "Refuse: a task clearly not ${ai[1]}'s (AI)" "$(refuse_line "${ai[1]}")"
 run_case "Messy phrasing" "the build crashes after ten customers, someone should file that"
 run_case "Fast or accented" "$(ask 'Pick any request and say it fast or in your usual accent; type here what you will say:')"
 
