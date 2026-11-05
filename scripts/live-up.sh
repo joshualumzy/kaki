@@ -18,9 +18,12 @@ npm run stack:up >.live-logs/stack.log 2>&1 || { echo "stack:up failed; see .liv
 
 start() { # name command...
   local name="$1"; shift
-  setsid nohup "$@" >".live-logs/$name.log" 2>&1 &
-  echo $! >> "$pids"
-  echo "Started $name (pid $!, log .live-logs/$name.log)"
+  # Job control (set -m) gives the process its own process group, so live-down.sh can stop it and its children.
+  # (setsid does not exist on macOS.)
+  local pid
+  pid=$(set -m; nohup "$@" >".live-logs/$name.log" 2>&1 </dev/null & echo $!)
+  echo "$pid" >> "$pids"
+  echo "Started $name (pid $pid, log .live-logs/$name.log)"
 }
 
 start dev npm run dev
