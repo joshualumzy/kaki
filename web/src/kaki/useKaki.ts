@@ -79,6 +79,12 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
           return;
         }
 
+        if (parsed.type === 'MEETING_RESET') {
+          setEvents([]);
+          setTasks(new Map());
+          return;
+        }
+
         if (parsed.type === 'COMMAND_REJECTED') {
           setRejections((previous) => [...previous, parsed.payload].slice(-5));
           return;

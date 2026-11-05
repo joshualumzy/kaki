@@ -53,6 +53,7 @@ function fakeHub(): {
     onCommand() {
       throw new Error('not used');
     },
+    clearRetained() {},
     close() {
       handlers.clear();
     },

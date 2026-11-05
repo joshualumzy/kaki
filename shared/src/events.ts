@@ -30,6 +30,7 @@ export type KakiEventType =
   | 'NUDGE'
   | 'FACT_FOUND'
   | 'TASK_UPDATED'
+  | 'MEETING_RESET'
   | 'COMMAND_REJECTED';
 
 type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: Audience };
@@ -56,6 +57,8 @@ export type KakiEvent =
   | KakiEventOf<'NUDGE', { text: string }>
   | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[] }>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
+  /** A new meeting is starting: pages drop the old record, feed and tasks. */
+  | KakiEventOf<'MEETING_RESET', Record<string, never>>
   | KakiEventOf<'COMMAND_REJECTED', { commandType: string; reason: string }>;
 
 const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
@@ -65,6 +68,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'NUDGE',
   'FACT_FOUND',
   'TASK_UPDATED',
+  'MEETING_RESET',
   'COMMAND_REJECTED',
 ];
 
@@ -143,6 +147,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     Array.isArray(payload.facts) &&
     payload.facts.every(isFact),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
+  MEETING_RESET: () => true,
   COMMAND_REJECTED: (payload) => isString(payload.commandType) && isString(payload.reason),
 };
 

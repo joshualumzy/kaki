@@ -12,6 +12,7 @@ function recordingHub(): Hub & { published: KakiEvent[] } {
     publish: (event) => published.push(event),
     subscribe: () => () => {},
     onCommand: () => {},
+    clearRetained: () => {},
     close: () => {},
   };
 }

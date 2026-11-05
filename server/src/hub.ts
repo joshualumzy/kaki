@@ -38,8 +38,10 @@ export interface Hub {
   publish(event: KakiEvent, options?: PublishOptions): void;
   /** Listen to every published event; returns an unsubscribe function. */
   subscribe(handler: (event: KakiEvent) => void): () => void;
-  /** Set the single handler that receives validated client commands. */
+  /** Add a handler for validated client commands; every handler sees every command and ignores the ones it does not own. */
   onCommand(handler: CommandHandler): void;
+  /** Forget retained events whose key starts with `prefix`, so clients that connect later do not get them. */
+  clearRetained(prefix: string): void;
   /** Close the WebSocket server and drop every client. */
   close(): void;
 }
@@ -108,7 +110,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const clients = new Map<WebSocket, ClientAudience>();
   const subscribers = new Set<(event: KakiEvent) => void>();
   const retained = new Map<string, KakiEvent>();
-  let commandHandler: CommandHandler | undefined;
+  const commandHandlers: CommandHandler[] = [];
 
   function sendTo(socket: WebSocket, audience: ClientAudience, message: string): void {
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -149,7 +151,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       return;
     }
 
-    if (commandHandler === undefined) {
+    if (commandHandlers.length === 0) {
       sendTo(
         socket,
         audience,
@@ -159,7 +161,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     }
 
     try {
-      await commandHandler(parsed, audience);
+      for (const handler of commandHandlers) await handler(parsed, audience);
     } catch (error) {
       if (error instanceof CommandError) {
         sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, error.message)));
@@ -224,7 +226,10 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       };
     },
     onCommand(handler) {
-      commandHandler = handler;
+      commandHandlers.push(handler);
+    },
+    clearRetained(prefix) {
+      for (const key of [...retained.keys()]) if (key.startsWith(prefix)) retained.delete(key);
     },
     close() {
       for (const socket of clients.keys()) socket.terminate();

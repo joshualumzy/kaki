@@ -17,6 +17,8 @@ export interface ClockSnapshot {
 /** The agenda clock: knows the current item and its elapsed time, and signals overrun once per item. */
 export interface AgendaClock {
   start(): void;
+  /** Back to a meeting that has not started: item 0, no time spent, overruns armed again. */
+  reset(): void;
   /** Stop the meeting: time freezes and no more overruns fire. */
   end(): void;
   snapshot(): ClockSnapshot;
@@ -67,6 +69,13 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
   return {
     start() {
       startedAt ??= now();
+    },
+    reset() {
+      startedAt = undefined;
+      endedAtSeconds = undefined;
+      agendaIndex = 0;
+      itemStartSeconds = 0;
+      overrunFired.clear();
     },
     end() {
       if (startedAt !== undefined) endedAtSeconds ??= meetingSeconds();

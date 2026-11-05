@@ -39,6 +39,7 @@ function quietHub(): Hub {
     publish: (_event: KakiEvent) => {},
     subscribe: () => () => {},
     onCommand: () => {},
+    clearRetained: () => {},
     close: () => {},
   };
 }

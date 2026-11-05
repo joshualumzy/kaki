@@ -1,4 +1,5 @@
 import type { KakiEvent } from '@kaki/shared';
+import { CommandError } from '../hub';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
@@ -130,16 +131,40 @@ export function createMeetingModule({
 
       let announcedAgendaIndex = -1;
 
-      const ticker = setInterval(() => {
-        guarded('the agenda tick', () => {
-          clock.tick();
-          publishRecord();
-        });
-      }, TICK_MS);
+      let ticker: ReturnType<typeof setInterval> | undefined;
+      function startTicker(): void {
+        ticker ??= setInterval(() => {
+          guarded('the agenda tick', () => {
+            clock.tick();
+            publishRecord();
+          });
+        }, TICK_MS);
+      }
+      function stopTicker(): void {
+        if (ticker !== undefined) clearInterval(ticker);
+        ticker = undefined;
+      }
+      startTicker();
+
+      // The next line said after the meeting ended belongs to a new meeting: nothing carries over.
+      function resetMeeting(): void {
+        clock.reset();
+        notetaker.reset();
+        tasks.reset();
+        hub.clearRetained('record');
+        hub.clearRetained('host:opening');
+        lastSignature = undefined;
+        lastPublishedAt = 0;
+        announcedAgendaIndex = -1;
+        startTicker();
+        hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+        console.log('kaki host: a new meeting starts; the old record, questions and tasks are cleared');
+      }
 
       const unsubscribe = hub.subscribe((event) => {
         if (event.type !== 'TRANSCRIPT_CHUNK') return;
-        
+
+        if (clock.snapshot().ended) resetMeeting();
         if (!clock.snapshot().started) {
           // Retained so a screen that opens a moment after the meeting starts still shows the welcome.
           hub.publish(
@@ -176,21 +201,34 @@ export function createMeetingModule({
       });
       const notetakerTimer = setInterval(() => void runNotetaker(), notetakerIntervalMs);
 
-      function endMeeting(): void {
+      /** Freeze the clock and stop the heartbeat. Does nothing if no meeting is running. */
+      function endMeeting({ silent = false }: { silent?: boolean } = {}): void {
+        const now = clock.snapshot();
+        if (!now.started || now.ended) return;
         clock.end();
-        clearInterval(ticker);
-        console.log('kaki host: the replay has finished; the meeting is over');
-        hub.publish({
-          type: 'HOST_SPEECH_TRIGGERED',
-          audience: { kind: 'screen' },
-          payload: {
-            kind: 'CLOSING',
-            text: `That concludes our meeting. Kaki is syncing the final tasks.`,
-          },
-        });
-        // One last pass so the final lines still reach the record.
+        stopTicker();
+        console.log('kaki host: the meeting is over');
+        // One last record so screens show the frozen clock, then a final notetaker pass for the last lines.
+        lastSignature = undefined;
+        guarded('publishing the record', publishRecord);
+        if (!silent) {
+          hub.publish({
+            type: 'HOST_SPEECH_TRIGGERED',
+            audience: { kind: 'screen' },
+            payload: {
+              kind: 'CLOSING',
+              text: `That concludes our meeting. Kaki is syncing the final tasks.`,
+            },
+          });
+        }
         void runNotetaker();
       }
+
+      hub.onCommand((command, sender) => {
+        if (command.type !== 'END_MEETING') return;
+        if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
+        endMeeting({ silent: command.silent === true });
+      });
 
       let stopReplay: (() => void) | undefined;
       let stopped = false;
@@ -205,7 +243,7 @@ export function createMeetingModule({
               hub,
               speed,
               onAgenda: (index) => clock.advanceTo(index),
-              onEnd: endMeeting,
+              onEnd: () => endMeeting(),
             });
           },
           (error: unknown) => console.error('kaki host: could not start the replay', error),
@@ -217,7 +255,7 @@ export function createMeetingModule({
         stopReplay?.();
         unsubscribe();
         stopAutoDispatch?.();
-        clearInterval(ticker);
+        stopTicker();
         clearInterval(notetakerTimer);
       };
     },

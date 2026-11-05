@@ -69,6 +69,8 @@ export interface Notetaker {
   /** Send transcript added since the last pass to the LLM; does nothing if a pass is running. */
   run(): Promise<void>;
   state(): NotetakerState;
+  /** Forget the meeting so far (transcript, questions, talk time); a pass still running is discarded. */
+  reset(): void;
 }
 
 /** What the notetaker needs; without `llm` it only keeps talk time. */
@@ -348,6 +350,7 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
   let pending: TranscriptLine[] = [];
   let droppedLines = 0;
   let running = false;
+  let generation = 0;
   let openQuestions: Question[] = [];
   let questionCount = 0;
   let status: NotetakerStatus = llm === undefined ? 'off' : 'waiting';
@@ -444,16 +447,20 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       running = true;
       const batch = pending;
       pending = [];
+      const startedIn = generation;
 
       try {
         const messages: ChatMessage[] = [
           { role: 'system', content: systemPrompt(scenario) },
           { role: 'user', content: userPrompt(scenario, agendaIndex(), openQuestions, tasks.list(), batch) },
         ];
-        apply(parseNotetakerReply(await llm.complete(messages, { json: true }), scenario), batch);
+        const reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario);
+        if (startedIn !== generation) return; // the meeting was reset while the model was thinking
+        apply(reply, batch);
         status = 'ok';
         lastError = undefined;
       } catch (error) {
+        if (startedIn !== generation) return;
         // Keep the last good record and try these lines again on the next pass.
         keepPending([...batch, ...pending]);
         status = 'stale';
@@ -462,6 +469,19 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       } finally {
         running = false;
       }
+    },
+
+    reset() {
+      generation += 1;
+      pending = [];
+      droppedLines = 0;
+      openQuestions = [];
+      questionCount = 0;
+      status = llm === undefined ? 'off' : 'waiting';
+      lastError = undefined;
+      talkByItem.clear();
+      talkTotals.clear();
+      talkTotal = 0;
     },
 
     state() {

@@ -86,6 +86,7 @@ function inMemoryHub(audiences: ClientAudience[]): InMemoryHub {
     onCommand() {
       throw new Error('The check hub does not accept commands');
     },
+    clearRetained() {},
     close() {
       handlers.clear();
       delivered.clear();

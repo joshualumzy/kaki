@@ -129,6 +129,11 @@ const runner = await startNpcRunner({
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
+  // The visitor left: end the meeting so its clock stops and the next visitor starts clean (silent: nobody to hear a closing line).
+  onRoomEmpty: () => {
+    log('the room is empty; ending the meeting');
+    sendAs('screen', { type: 'END_MEETING', silent: true });
+  },
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);
@@ -137,8 +142,8 @@ const runner = await startNpcRunner({
 
 // An AI attendee has no phone. When a task is dispatched to their role they answer aloud and this sends their
 // Accept or Decline (and approves the draft), over a socket opened as that role like a phone would.
-const roleSockets = new Map<Role, { socket: WebSocket; queue: string[] }>();
-function sendAs(role: Role, command: KakiCommand): void {
+const roleSockets = new Map<Role | 'screen', { socket: WebSocket; queue: string[] }>();
+function sendAs(role: Role | 'screen', command: KakiCommand): void {
   let entry = roleSockets.get(role);
   if (entry === undefined || entry.socket.readyState > WebSocket.OPEN) {
     const socket = new WebSocket(`${kakiUrl.replace(/^http/, 'ws')}/ws?role=${encodeURIComponent(role)}`);

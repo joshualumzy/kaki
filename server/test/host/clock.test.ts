@@ -103,4 +103,26 @@ describe('agenda clock', () => {
     expect(clock.snapshot()).toMatchObject({ itemElapsedSeconds: 300, overrun: true });
     expect(() => createAgendaClock({ agenda, speed: 0 })).toThrow(/positive/);
   });
+
+  it('reset returns to an unstarted meeting on item 0 with overruns armed again', () => {
+    const time = fakeTime();
+    const clock = createAgendaClock({ agenda, now: time.now });
+    let overruns = 0;
+    clock.onOverrun(() => (overruns += 1));
+    clock.start();
+    clock.advanceTo(1);
+    time.advance(200);
+    clock.tick();
+    clock.end();
+    expect(overruns).toBe(1);
+
+    clock.reset();
+    expect(clock.snapshot()).toMatchObject({ started: false, ended: false, agendaIndex: 0, meetingElapsedSeconds: 0 });
+
+    clock.start();
+    clock.advanceTo(1);
+    time.advance(200);
+    clock.tick();
+    expect(overruns).toBe(2);
+  });
 });

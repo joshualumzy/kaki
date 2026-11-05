@@ -11,7 +11,9 @@ export type KakiCommand =
   | { type: 'APPROVE_ACTION'; taskId: string; draft: ActionDraft }
   | { type: 'RETRY_ACTION'; taskId: string; draft?: ActionDraft }
   | { type: 'MARK_DONE'; taskId: string }
-  | { type: 'SYNC_TASK'; taskId: string };
+  | { type: 'SYNC_TASK'; taskId: string }
+  /** Screen only. Ends the meeting; `silent` skips the spoken closing line (nobody is left to hear it). */
+  | { type: 'END_MEETING'; silent?: boolean };
 
 const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'DISPATCH_TASK',
@@ -22,6 +24,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'RETRY_ACTION',
   'MARK_DONE',
   'SYNC_TASK',
+  'END_MEETING',
 ];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -38,7 +41,9 @@ function isCommandType(value: unknown): value is KakiCommand['type'] {
 
 /** Validate unknown data (such as JSON from a socket) as a command for the scenario. */
 export function isKakiCommand(value: unknown, scenario: Scenario): value is KakiCommand {
-  if (!isObject(value) || !isCommandType(value.type) || !isString(value.taskId)) return false;
+  if (!isObject(value) || !isCommandType(value.type)) return false;
+  if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';
+  if (!isString(value.taskId)) return false;
 
   switch (value.type) {
     case 'DISPATCH_TASK':

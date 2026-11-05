@@ -24,6 +24,8 @@ export interface TaskStore {
   list(): Task[];
   transition(id: string, to: TaskStatus, patch?: TaskPatch): Task;
   handleCommand(command: KakiCommand, sender: ClientAudience): void;
+  /** Forget every task (a new meeting starts); pages are told by the MEETING_RESET event. */
+  reset(): void;
   /**
    * React to task changes here, never via hub TASK_UPDATED: each change goes out once
    * for the screen and again for the assignee. Called once per change, after the hub
@@ -195,6 +197,8 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
         transition(command.taskId, 'SYNCED');
         return;
       }
+      case 'END_MEETING':
+        return; // the meeting module owns this one
     }
   }
 
@@ -204,6 +208,10 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     list: () => [...tasks.values()],
     transition,
     handleCommand,
+    reset() {
+      tasks.clear();
+      hub.clearRetained('task:');
+    },
     onChange: (handler) => {
       changeHandlers.add(handler);
       return () => {

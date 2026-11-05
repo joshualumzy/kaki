@@ -54,6 +54,8 @@ export interface RunnerOptions {
   /** A line spoken in the meeting, under the name Kaki's transcript uses. */
   postTranscript(speaker: string, text: string): void;
   responseDelayMs?: number;
+  /** Called when the last person has left the room (not when the room was empty to begin with). */
+  onRoomEmpty?: () => void;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -328,6 +330,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     log(`${participant.identity} left`);
     // With nobody left the conversation is closed, so the next person starts a fresh one.
     syncCast();
+    if (humans.size === 0) options.onRoomEmpty?.();
   });
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
     if (npcNames.has(participant.identity) || track.kind !== TrackKind.KIND_AUDIO) return;

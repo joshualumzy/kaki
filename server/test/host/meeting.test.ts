@@ -234,6 +234,67 @@ describe('host meeting module', () => {
       2_500,
     );
   });
+
+  describe('ending a meeting', () => {
+    it('freezes the record on END_MEETING and starts a clean meeting on the next line', async () => {
+      app = await createTestApp({ modules: [createMeetingModule({ speed: 50 })] });
+      app.tasks.suggest({ title: 'Old task', context: 'From the last visitor', suggestedAssignee: 'chef' });
+      const screen = await connect('screen');
+      say('Hello everyone.');
+      await waitFor(() => (screen.messages.some(isRecord) ? true : undefined), 'first record');
+
+      screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+      await waitFor(
+        () =>
+          screen.messages.some((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.kind === 'CLOSING')
+            ? true
+            : undefined,
+        'closing line',
+      );
+      const frozen = screen.messages.filter(isRecord).at(-1)!.payload.elapsedSeconds;
+      await settle(1_300);
+      const after = screen.messages.filter(isRecord);
+      expect(after.at(-1)!.payload.elapsedSeconds).toBe(frozen);
+
+      const before = screen.messages.length;
+      say('Hello again, new visitor.');
+      await waitFor(() => (screen.messages.slice(before).some((e) => e.type === 'MEETING_RESET') ? true : undefined), 'reset');
+      expect(app.tasks.list()).toHaveLength(0);
+      const opening = await waitFor(
+        () => screen.messages.slice(before).find((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.kind === 'OPENING'),
+        'a fresh opening',
+      );
+      expect(opening).toBeDefined();
+      const fresh = await waitFor(() => screen.messages.slice(before).filter(isRecord).at(0), 'fresh record');
+      expect(fresh.payload.agendaIndex).toBe(0);
+    });
+
+    it('skips the spoken closing when silent, and only the screen may end a meeting', async () => {
+      app = await createTestApp({ modules: [createMeetingModule()] });
+      const screen = await connect('screen');
+      const phone = await connect(testScenario.roles[0]!.id);
+      say('Hello.');
+      await waitFor(() => (screen.messages.some(isRecord) ? true : undefined), 'first record');
+
+      phone.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+      await waitFor(
+        () => phone.messages.find((e) => e.type === 'COMMAND_REJECTED'),
+        'a rejection for the phone',
+      );
+
+      screen.ws.send(JSON.stringify({ type: 'END_MEETING', silent: true }));
+      await settle(300);
+      expect(screen.messages.some((e) => e.type === 'HOST_SPEECH_TRIGGERED' && e.payload.kind === 'CLOSING')).toBe(false);
+    });
+
+    it('ignores END_MEETING when no meeting is running', async () => {
+      app = await createTestApp({ modules: [createMeetingModule()] });
+      const screen = await connect('screen');
+      screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+      await settle(300);
+      expect(screen.messages.filter((e) => e.type === 'COMMAND_REJECTED' || e.type === 'HOST_SPEECH_TRIGGERED')).toHaveLength(0);
+    });
+  });
 });
 
 describe('openingLine', () => {

@@ -52,6 +52,8 @@ function ScreenFeed() {
   const [showJoin, setShowJoin] = useState(false);
   const taskList = [...tasks.values()];
   const record = events.filter(isRecord).at(-1);
+  // After an end the closing line is the last host cue; a new meeting clears the feed.
+  const meetingEnded = events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING');
   const activity = events.filter((event) => !isRecord(event)).slice(-40).reverse();
 
   return (
@@ -72,6 +74,11 @@ function ScreenFeed() {
           <Button variant="ghost" onClick={() => setShowJoin((open) => !open)}>
             {showJoin ? 'Close' : 'Join on phone'}
           </Button>
+          {record !== undefined && !meetingEnded ? (
+            <Button variant="ghost" onClick={() => send({ type: 'END_MEETING' })}>
+              End meeting
+            </Button>
+          ) : null}
         </div>
       </header>
 
