@@ -19,8 +19,8 @@ const said = (speaker: string): KakiEvent => ({
 
 describe('timeline entries', () => {
   it('shows the visitor under their own name', () => {
-    expect(entryForEvent(said('Wei Ling'), scenario, viewer)).toMatchObject({ kind: 'said', who: 'Joshua (you)' });
-    expect(entryForEvent(said('Arjun'), scenario, viewer)).toMatchObject({ who: 'Arjun' });
+    expect(entryForEvent(said('Wei Ling'), viewer)).toMatchObject({ kind: 'said', who: 'Joshua (you)' });
+    expect(entryForEvent(said('Arjun'), viewer)).toMatchObject({ who: 'Arjun' });
   });
 
   it('does not list the AI host\'s cues when they are published: the spoken line arrives as a transcript line', () => {
@@ -29,29 +29,29 @@ describe('timeline entries', () => {
       audience: { kind: 'screen' },
       payload: { kind: 'OPENING', text: 'Welcome.' },
     };
-    expect(entryForEvent(cue, scenario, viewer)).toBeUndefined();
+    expect(entryForEvent(cue, viewer)).toBeUndefined();
     expect(hostName({ ...scenario, npcs: [] } as Scenario)).toBe('Host');
   });
 
   it('gives the same line the same key, so a replay after reconnecting is not listed twice', () => {
-    expect(entryForEvent(said('Arjun'), scenario, viewer)?.key).toBe(entryForEvent(said('Arjun'), scenario, viewer)?.key);
+    expect(entryForEvent(said('Arjun'), viewer)?.key).toBe(entryForEvent(said('Arjun'), viewer)?.key);
   });
 
   it('leaves the agenda record out; it has its own card', () => {
     const record = { type: 'MEETING_RECORD_UPDATED', audience: { kind: 'screen' }, payload: {} } as unknown as KakiEvent;
-    expect(entryForEvent(record, scenario, viewer)).toBeUndefined();
+    expect(entryForEvent(record, viewer)).toBeUndefined();
   });
 });
 
 describe('task entries', () => {
   const task = { id: 't1', title: 'Fix the oven', suggestedAssignee: 'chef', assignee: 'chef', status: 'SUGGESTED' } as Task;
   it('says only that Kaki noticed a task, once', () => {
-    expect(entryForTask(task, undefined, scenario)?.text).toBe('Kaki noticed a task: Fix the oven');
-    expect(entryForTask(task, 'SUGGESTED', scenario)).toBeUndefined();
+    expect(entryForTask(task, undefined)?.text).toBe('Kaki noticed a task: Fix the oven');
+    expect(entryForTask(task, 'SUGGESTED')).toBeUndefined();
   });
   it('leaves every later status to the task list', () => {
     for (const status of ['DISPATCHED', 'CLAIMED', 'DRAFT_READY', 'RUNNING', 'COMPLETED', 'FAILED', 'DISMISSED'] as const) {
-      expect(entryForTask({ ...task, status }, 'SUGGESTED', scenario)).toBeUndefined();
+      expect(entryForTask({ ...task, status }, 'SUGGESTED')).toBeUndefined();
     }
   });
 });

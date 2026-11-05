@@ -31,19 +31,19 @@ export function MeetingPanel({ viewer, isHost = false }: { viewer: TranscriptVie
         setRecord(event);
         continue;
       }
-      const entry = entryForEvent(event, scenario, viewer, isHost);
+      const entry = entryForEvent(event, viewer, isHost);
       if (entry !== undefined && !seenKeys.current.has(entry.key)) {
         seenKeys.current.add(entry.key);
         added.push(entry);
       }
     }
     if (added.length > 0) setEntries((previous) => [...previous, ...added]);
-  }, [events, scenario, viewer, isHost]);
+  }, [events, viewer, isHost]);
 
   useEffect(() => {
     const added: TimelineEntry[] = [];
     for (const task of tasks.values()) {
-      const entry = entryForTask(task, taskStatus.current.get(task.id), scenario);
+      const entry = entryForTask(task, taskStatus.current.get(task.id));
       taskStatus.current.set(task.id, task.status);
       if (entry !== undefined && !seenKeys.current.has(entry.key)) {
         seenKeys.current.add(entry.key);
@@ -51,7 +51,7 @@ export function MeetingPanel({ viewer, isHost = false }: { viewer: TranscriptVie
       }
     }
     if (added.length > 0) setEntries((previous) => [...previous, ...added]);
-  }, [tasks, scenario]);
+  }, [tasks]);
 
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' });

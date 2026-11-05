@@ -1,4 +1,4 @@
-import { roleLabel, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 import { speakerLabel, type TranscriptViewer } from './captions';
 
 /** One line of the meeting timeline: something said, a host cue, a nudge, a fact or a change to a task. */
@@ -19,7 +19,6 @@ export function hostName(scenario: Scenario): string {
 /** The timeline line for an event, or undefined for the ones that belong elsewhere (the record, tasks). */
 export function entryForEvent(
   event: KakiEvent,
-  scenario: Scenario,
   viewer: TranscriptViewer | undefined,
   /** True when a person hosts: the host's cues are not spoken, they are lines for that person to say. */
   hostIsViewer = false,
@@ -55,7 +54,6 @@ export function entryForEvent(
 export function entryForTask(
   task: Task,
   previousStatus: Task['status'] | undefined,
-  _scenario: Scenario,
 ): TimelineEntry | undefined {
   if (task.status === previousStatus || task.status !== 'SUGGESTED') return undefined;
   return { key: `task|${task.id}|${task.status}`, kind: 'task', text: `Kaki noticed a task: ${task.title}` };
