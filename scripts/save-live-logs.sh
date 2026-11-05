@@ -11,7 +11,7 @@ mkdir -p "$dest"
 for f in npc dev stack; do
   [ -f ".live-logs/$f.log" ] && cp ".live-logs/$f.log" "$dest/$f.txt"
 done
-[ -f .live-logs/npc.log ] && grep -E 'dropped|ignored|failed|accepts|declines|handed over|cue|error' .live-logs/npc.log > "$dest/npc-key-lines.txt" || true
+[ -f .live-logs/npc.log ] && grep -aE 'dropped|ignored|failed|accepts|declines|handed over|cue|error' .live-logs/npc.log > "$dest/npc-key-lines.txt" || true
 
 echo "Saved to $dest"
 hits=$(grep -naEi 'key|token|secret|password|bearer' "$dest"/*.txt | cut -d: -f1,2 || true)
