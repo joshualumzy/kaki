@@ -109,6 +109,7 @@ export function MeetingPanel({ viewer, isHost = false }: { viewer: TranscriptVie
                 <span>
                   {roleLabel(scenario, task.assignee ?? task.suggestedAssignee)} · {task.status.replace('_', ' ').toLowerCase()}
                 </span>
+                {task.status === 'FAILED' && task.error !== undefined && <small role="alert">{task.error}</small>}
                 {isHost && task.status === 'SUGGESTED' && (
                   <TaskControls
                     task={task}

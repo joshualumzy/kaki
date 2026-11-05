@@ -60,6 +60,7 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
       }
 
       function fail(task: Task, message: string): void {
+        console.warn(`kaki ${name}: "${task.title}" failed: ${message}`);
         apply(task, 'FAILED', { error: message }, 'record the failure');
       }
 
