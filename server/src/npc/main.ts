@@ -12,6 +12,7 @@ import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
 import { colleagueLine } from '../host/autoDispatch';
+import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
@@ -164,11 +165,13 @@ function sendAs(role: Role | 'screen', command: KakiCommand): void {
   if (entry.socket.readyState === WebSocket.OPEN) entry.socket.send(message);
   else entry.queue.push(message);
 }
+// Sam asks an AI colleague aloud, then the colleague answers: the answer waits for the question (see cueOrder.ts).
+const cueOrder = createCueOrder();
 const taskResponder = createTaskResponder({
   scenario,
   llm,
   plays: (attendee) => runner.plays(attendee),
-  say: (attendee, text, onDone) => runner.say(attendee, text, onDone),
+  say: (attendee, text, onDone) => cueOrder.after(() => runner.say(attendee, text, onDone)),
   send: sendAs,
   log,
   approveDelayMs: numberEnv('NPC_APPROVE_DELAY_MS', DEFAULT_APPROVE_DELAY_MS),
@@ -195,7 +198,8 @@ function followHostCues(): void {
         const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
         // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
         const colleague = payload.kind === 'DISPATCH' && payload.assignee !== undefined && payload.title !== undefined && runner.plays(payload.assignee);
-        runner.announce(colleague ? colleagueLine(payload.assignee!, payload.title!, dispatchCount++) : payload.text);
+        if (colleague) cueOrder.cue((done) => runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done));
+        else runner.announce(payload.text);
         if (event.payload.text.startsWith('Next up:')) runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
       }
     } catch {

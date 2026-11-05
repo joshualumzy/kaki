@@ -77,8 +77,12 @@ export interface RunnerOptions {
 }
 
 export interface NpcRunner {
-  /** The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there). */
-  announce(text: string): void;
+  /**
+   * The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there).
+   * `onDone` runs when it has been said or given up on; it is not called when the cue is ignored outright (no conversation, or the
+   * welcome before Start).
+   */
+  announce(text: string, onDone?: () => void): void;
   /** The meeting moved to the next agenda item: the AI host will ask the person for the decision they own. */
   agendaMoved(title?: string): void;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
@@ -420,7 +424,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
 
-  function announce(text: string): void {
+  function announce(text: string, onDone?: () => void): void {
     if (hostName === undefined || conversation === undefined) return;
     const isWelcome = text.startsWith(OPENING_PREFIX);
     // The welcome was already spoken when the person arrived; the host cue that follows the first line is not said again.
@@ -433,7 +437,17 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       isWelcome && person?.seat !== undefined ? openingLine(scenario, { name: person.name, seat: person.seat }) : text;
     if (isWelcome) welcomed = true;
     // After the welcome, the first agenda item begins: the person is asked, or the characters start talking it through.
-    conversation.announce(hostName, spoken, undefined, isWelcome ? () => conversation?.agendaMoved(scenario.agenda[0]?.title) : undefined);
+    conversation.announce(
+      hostName,
+      spoken,
+      undefined,
+      isWelcome
+        ? () => {
+            conversation?.agendaMoved(scenario.agenda[0]?.title);
+            onDone?.();
+          }
+        : onDone,
+    );
   }
   function hostIsHuman(): boolean {
     return hostProfile !== undefined && [...humans.values()].some((person) => person.seat === hostProfile.attendee);

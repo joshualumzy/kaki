@@ -1,9 +1,6 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import type { Utterance } from './director';
 
-/** Sample rate of the audio the synthesizer returns, and so of everything published to LiveKit. */
-export const TTS_SAMPLE_RATE = 16000;
-
 /** Azure text-to-speech returning raw 16 kHz mono samples, one voice per speaker. */
 export function createAzureTts(key: string, region: string, voiceFor: (speaker: string) => string | undefined) {
   const configs = new Map<string, sdk.SpeechConfig>();
