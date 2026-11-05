@@ -190,6 +190,22 @@ describe('notetaker record keeping', () => {
     expect(notetaker.state().openQuestions).toEqual([]);
   });
 
+  it('keeps a re-asked question when the same reply closes the older wording', async () => {
+    const { notetaker, feed } = setup((_messages, call) =>
+      [
+        reply({ newQuestions: [{ text: 'Where do players quit?' }] }),
+        reply({ answeredQuestionIds: ['q-1'], newQuestions: [{ text: 'Where do players quit in the game?' }] }),
+      ][call]!,
+    );
+
+    for (let pass = 0; pass < 2; pass += 1) {
+      feed(slice(0, 30));
+      await notetaker.run();
+    }
+
+    expect(notetaker.state().openQuestions.map((question) => question.text)).toEqual(['Where do players quit in the game?']);
+  });
+
   it('only moves the agenda forward', async () => {
     const { notetaker, feed, onAgendaIndex } = setup(
       (_messages, call) => reply({ agendaIndex: [0, 2, 1][call] }),
