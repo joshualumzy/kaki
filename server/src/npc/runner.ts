@@ -108,6 +108,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   // When every character is playable (the host's seat too), the host stays connected as a silent listener
   // while a person plays their seat: the AI Sam steps out of the conversation, not out of the room.
   const hostProfile = npcs.find((npc) => npc.role === 'host');
+  const hostName = hostProfile?.attendee;
   const alwaysAi = aiCast(scenario);
   const listenerProfile = alwaysAi[0] ?? hostProfile ?? npcs[0]!;
   const permanent = alwaysAi.length > 0 ? alwaysAi : [listenerProfile];
@@ -214,6 +215,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   /** Make the room match the people in it: everyone but their seats, and a conversation for exactly that cast. */
   let castQueue: Promise<void> = Promise.resolve();
+  /** The welcome is spoken once per visit: when the person arrives, not when they first speak. */
+  let welcomed = false;
   function syncCast(): void {
     castQueue = castQueue
       .then(async () => {
@@ -234,6 +237,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           conversation?.close();
           conversation = undefined;
           castNames = '';
+          welcomed = false;
         } else if (conversation === undefined || names !== castNames) {
           conversation?.close();
           conversation = makeConversation(wanted);
@@ -245,13 +249,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             transcriptName: humanAttendeeForRole(scenario, person.role)?.zoomDisplayName,
           });
         }
+        // Sam welcomes the person as soon as they are in, before anyone else speaks (nothing when a person hosts).
+        if (humans.size > 0 && !welcomed && !hostIsHuman()) announce(openingLine(scenario));
       })
       .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
   }
 
   let lastHostHuman = false;
   function reportHost(): void {
-    const now = hostProfile !== undefined && [...humans.values()].some((person) => person.seat === hostProfile.attendee);
+    const now = hostIsHuman();
     if (now === lastHostHuman) return;
     lastHostHuman = now;
     options.onHostChange?.(now);
@@ -391,24 +397,28 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
 
-  const hostName = npcs.find((npc) => npc.role === 'host')?.attendee;
+  function announce(text: string): void {
+    if (hostName === undefined || conversation === undefined) return;
+    const isWelcome = text.startsWith(OPENING_PREFIX);
+    // The welcome was already spoken when the person arrived; the host cue that follows the first line is not said again.
+    if (isWelcome && welcomed) return;
+    // The welcome is rebuilt for the person in the room: their own name and role, not the seat's scripted name.
+    const person = [...humans.values()].at(-1);
+    const spoken =
+      isWelcome && person?.seat !== undefined ? openingLine(scenario, { name: person.name, seat: person.seat }) : text;
+    if (isWelcome) welcomed = true;
+    conversation.announce(hostName, spoken);
+  }
+  function hostIsHuman(): boolean {
+    return hostProfile !== undefined && [...humans.values()].some((person) => person.seat === hostProfile.attendee);
+  }
+
   return {
-    announce(text) {
-      if (hostName === undefined || conversation === undefined) return;
-      // The welcome is rebuilt for the person in the room: their own name and role, not the seat's scripted name.
-      const person = [...humans.values()].at(-1);
-      const spoken =
-        person?.seat !== undefined && text.startsWith(OPENING_PREFIX)
-          ? openingLine(scenario, { name: person.name, seat: person.seat })
-          : text;
-      conversation.announce(hostName, spoken);
-    },
+    announce,
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
     },
-    hostIsHuman() {
-      return hostProfile !== undefined && [...humans.values()].some((person) => person.seat === hostProfile.attendee);
-    },
+    hostIsHuman,
     say(attendee, text, onDone) {
       if (conversation === undefined) return;
       conversation.announce(attendee, text, undefined, onDone);

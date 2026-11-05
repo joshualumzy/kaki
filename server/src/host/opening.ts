@@ -11,8 +11,9 @@ export interface Visitor {
 }
 
 /**
- * The host's welcome: who and what the meeting is, who is in the room, the agenda and the first item.
- * With a visitor it names them instead of the seat's scripted attendee and tells them which role they have.
+ * The host's welcome, kept short because it is spoken aloud: the meeting, the visitor's role if there is a visitor,
+ * and the agenda's first item. The screen already shows who is in the room and the situation.
+ * With a visitor it names them instead of the seat's scripted attendee.
  */
 export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
@@ -20,20 +21,9 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   if (visitor !== undefined && seat !== undefined) {
     parts.push(`${visitor.name}, you are joining as ${roleLabel(scenario, seat.role)}.`);
   }
-  const situation = scenario.situation?.trim();
-  if (situation) parts.push(/[.!?]$/.test(situation) ? situation : `${situation}.`);
-  if (scenario.attendees.length > 0) {
-    const people = scenario.attendees.map((attendee) => {
-      const name = visitor !== undefined && attendee.name === visitor.seat ? visitor.name : attendee.name;
-      return `${name}, ${roleLabel(scenario, attendee.role)}`;
-    });
-    parts.push(`In the room: ${people.join('; ')}.`);
-  }
   const first = scenario.agenda[0];
   if (first !== undefined) {
-    const titles = scenario.agenda.map((item) => item.title);
-    parts.push(`We have ${titles.length} items today: ${titles.join(', ')}.`);
-    parts.push(`Let's start with ${first.title}, ${first.minutes} minutes.`);
+    parts.push(`We have ${scenario.agenda.length} items today. Let's start with ${first.title}, ${first.minutes} minutes.`);
   }
   return parts.join(' ');
 }

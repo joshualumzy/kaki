@@ -344,35 +344,27 @@ describe('host meeting module', () => {
 });
 
 describe('openingLine', () => {
-  it('orients a newcomer: organisation, situation, who is in the room, agenda and first item', () => {
+  it('is short: the meeting, the agenda size and the first item, and not the situation or the whole room', () => {
     const scenario = {
       ...testScenario,
       situation: 'The team is checking that the product is ready to launch',
     };
     const line = openingLine(scenario);
     expect(line).toContain(`Welcome to ${scenario.meetingTitle} at ${scenario.organisation}.`);
-    expect(line).toContain('The team is checking that the product is ready to launch.');
-    expect(line).toContain('In the room: ');
-    for (const attendee of scenario.attendees) expect(line).toContain(attendee.name);
-    expect(line).toContain(`We have ${scenario.agenda.length} items today:`);
+    expect(line).toContain(`We have ${scenario.agenda.length} items today.`);
     expect(line).toContain(`Let's start with ${scenario.agenda[0]!.title}, ${scenario.agenda[0]!.minutes} minutes.`);
+    expect(line).not.toContain('The team is checking');
+    expect(line).not.toContain('In the room');
+    expect(line.length).toBeLessThan(260);
   });
 
   it('names the visitor and their role instead of the seat they took', () => {
     const seat = testScenario.attendees[0]!;
     const line = openingLine(testScenario, { name: 'Priya', seat: seat.name });
     expect(line).toContain('Priya, you are joining as ');
-    expect(line).toMatch(new RegExp(`In the room: [^.]*Priya, `));
-    expect(line).not.toContain(`${seat.name}, `);
-    for (const other of testScenario.attendees.slice(1)) expect(line).toContain(other.name);
   });
 
   it('ignores a seat that is not in the scenario', () => {
     expect(openingLine(testScenario, { name: 'Priya', seat: 'Nobody' })).not.toContain('Priya');
-  });
-
-  it('still works without a situation', () => {
-    const { situation: _situation, ...scenario } = { ...testScenario, situation: undefined };
-    expect(openingLine(scenario)).toMatch(/^Welcome to .+ at .+\. In the room: /);
   });
 });

@@ -203,3 +203,9 @@ describe('HandoverGuard', () => {
     expect(guard.allow({ speaker: 'Sam', text: 'Anyway.' })).toBe(false);
   });
 });
+
+describe('the director prompt', () => {
+  it('forbids a character from inventing what another character did or said', () => {
+    expect(buildSystemPrompt(npcScenario)).toContain('never says what another character did');
+  });
+});
