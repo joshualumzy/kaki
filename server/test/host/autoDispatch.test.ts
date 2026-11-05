@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch } from '../../src/host/autoDispatch';
 import { createTestApp } from '../helpers';
@@ -49,5 +49,40 @@ describe('auto-dispatch', () => {
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario });
     const task = app.tasks.suggest({ title: 'Plan', context: 'x', suggestedAssignee: 'chef' });
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
+  });
+
+  it('accepts for an AI attendee after a short pause, and does not tell them to use a phone', () => {
+    vi.useFakeTimers();
+    try {
+      const chef = testScenario.attendees.find((a) => a.role === 'chef')!;
+      const scenario = {
+        ...testScenario,
+        npcs: [{ attendee: chef.name, persona: 'p', voice: 'v', speaking: 's' }] as unknown as typeof testScenario.npcs,
+      };
+      const published: KakiEvent[] = [];
+      app.hub.subscribe((event) => published.push(event));
+      installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario, npcAcceptDelayMs: 3000 });
+      const task = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
+
+      expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
+      const cue = published.find((event) => event.type === 'HOST_SPEECH_TRIGGERED') as { payload: { text: string } };
+      expect(cue.payload.text).not.toContain('phone');
+      vi.advanceTimersByTime(3000);
+      expect(app.tasks.get(task.id)).toMatchObject({ status: 'CLAIMED', assignee: 'chef', mode: 'MANUAL' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not accept for a person: the human recipient still decides', () => {
+    vi.useFakeTimers();
+    try {
+      installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, npcAcceptDelayMs: 1000 });
+      const task = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
+      vi.advanceTimersByTime(5000);
+      expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
