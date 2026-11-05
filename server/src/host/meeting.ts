@@ -54,9 +54,10 @@ export function createMeetingModule({
             : undefined,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
+      let humanHost = false;
       // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
       const stopAutoDispatch =
-        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario });
+        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario, hostIsHuman: () => humanHost });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;
@@ -227,8 +228,12 @@ export function createMeetingModule({
       }
 
       hub.onCommand((command, sender) => {
-        if (command.type !== 'END_MEETING' && command.type !== 'NEXT_AGENDA_ITEM') return;
+        if (command.type !== 'END_MEETING' && command.type !== 'NEXT_AGENDA_ITEM' && command.type !== 'SET_HOST_MODE') return;
         if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
+        if (command.type === 'SET_HOST_MODE') {
+          humanHost = command.human;
+          return;
+        }
         if (command.type === 'END_MEETING') {
           endMeeting({ silent: command.silent === true });
           return;

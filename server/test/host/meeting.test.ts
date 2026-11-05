@@ -269,6 +269,25 @@ describe('host meeting module', () => {
       expect(fresh.payload.agendaIndex).toBe(0);
     });
 
+    it('stops dispatching tasks by itself while the screen says a person hosts, and refuses a phone saying so', async () => {
+      app = await createTestApp({ modules: [createMeetingModule()] });
+      const screen = await connect('screen');
+      const phone = await connect(testScenario.roles[0]!.id);
+
+      phone.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
+      await waitFor(() => phone.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'a rejection for the phone');
+
+      screen.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
+      await settle(100);
+      const held = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
+      expect(app.tasks.get(held.id)?.status).toBe('SUGGESTED');
+
+      screen.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: false }));
+      await settle(100);
+      const sent = app.tasks.suggest({ title: 'Clean the grill', context: 'x', suggestedAssignee: 'chef' });
+      expect(app.tasks.get(sent.id)?.status).toBe('DISPATCHED');
+    });
+
     it('skips the spoken closing when silent, and only the screen may end a meeting', async () => {
       app = await createTestApp({ modules: [createMeetingModule()] });
       const screen = await connect('screen');

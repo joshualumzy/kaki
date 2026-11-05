@@ -19,13 +19,16 @@ export function installAutoDispatch({
   hub,
   tasks,
   scenario,
+  hostIsHuman = () => false,
 }: {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
+  /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
+  hostIsHuman?: () => boolean;
 }): () => void {
   return tasks.onChange((task, previous) => {
-    if (previous !== undefined || task.status !== 'SUGGESTED') return;
+    if (previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
     if (role === undefined || role.facilitator === true || !present) return;

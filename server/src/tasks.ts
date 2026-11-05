@@ -199,6 +199,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       }
       case 'END_MEETING':
       case 'NEXT_AGENDA_ITEM':
+      case 'SET_HOST_MODE':
         return; // the meeting module owns these
     }
   }

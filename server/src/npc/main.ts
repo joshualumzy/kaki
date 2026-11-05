@@ -134,6 +134,7 @@ const runner = await startNpcRunner({
     log('the room is empty; ending the meeting');
     sendAs('screen', { type: 'END_MEETING', silent: true });
   },
+  onHostChange: (human) => sendAs('screen', { type: 'SET_HOST_MODE', human }),
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);

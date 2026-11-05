@@ -33,6 +33,16 @@ describe('auto-dispatch', () => {
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
   });
 
+  it('leaves every task for the host while a person plays the host, and resumes when they leave', () => {
+    let human = true;
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, hostIsHuman: () => human });
+    const first = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
+    expect(app.tasks.get(first.id)?.status).toBe('SUGGESTED');
+    human = false;
+    const second = app.tasks.suggest({ title: 'Clean the grill', context: 'x', suggestedAssignee: 'chef' });
+    expect(app.tasks.get(second.id)?.status).toBe('DISPATCHED');
+  });
+
   it('leaves the task for a person when the role is the facilitator', () => {
     const scenario = {
       ...testScenario,

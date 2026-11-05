@@ -56,6 +56,8 @@ export interface RunnerOptions {
   responseDelayMs?: number;
   /** Called when the last person has left the room (not when the room was empty to begin with). */
   onRoomEmpty?: () => void;
+  /** Called when a person takes the host's seat or leaves it (also false when the room empties). */
+  onHostChange?: (human: boolean) => void;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -247,6 +249,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
   }
 
+  let lastHostHuman = false;
+  function reportHost(): void {
+    const now = hostProfile !== undefined && [...humans.values()].some((person) => person.seat === hostProfile.attendee);
+    if (now === lastHostHuman) return;
+    lastHostHuman = now;
+    options.onHostChange?.(now);
+  }
+
   function registerHuman(participant: RemoteParticipant): void {
     if (npcNames.has(participant.identity)) return;
     const role = participant.metadata?.trim() || 'participant';
@@ -255,6 +265,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
     humans.set(participant.identity, { name, role, seat });
+    reportHost();
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
   }
@@ -332,6 +343,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (!humans.delete(participant.identity)) return;
     talking.delete(participant.identity);
     log(`${participant.identity} left`);
+    reportHost();
     // With nobody left the conversation is closed, so the next person starts a fresh one.
     syncCast();
     if (humans.size === 0) options.onRoomEmpty?.();
