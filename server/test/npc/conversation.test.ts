@@ -144,7 +144,7 @@ describe('NpcConversation', () => {
       ...scenario.roles,
       { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
     ],
-    agenda: scenario.agenda.map((item, index) => (index === 0 ? { ...item, decision: 'do we ship it or hold it?' } : item)),
+    agenda: scenario.agenda.map((item, index) => (index === 0 ? { ...item, decision: 'do we ship it or hold it?', contested: true } : item)),
     npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
   });
 
@@ -168,6 +168,43 @@ describe('NpcConversation', () => {
     conversation.agendaMoved('Publisher milestone');
     await vi.advanceTimersByTimeAsync(5000);
     expect(playing.length).toBe(count);
+  });
+
+  describe('an item the person only watches', () => {
+    const watched = () => {
+      const base = hostedScenario();
+      return { ...base, agenda: base.agenda.map((item, index) => (index === 0 ? { ...item, contested: false, ownerRole: 'chef' } : item)) };
+    };
+
+    it('has the characters start talking it through, and never asks the person', async () => {
+      const { conversation, calls, say } = harness(watched());
+      conversation.agendaMoved(watched().agenda[0]!.title);
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(calls).toHaveLength(1);
+      expect(String(calls[0]?.messages.at(-1)?.content)).toContain('Josh is just listening for now');
+      expect(String(calls[0]?.messages.at(-1)?.content)).toContain('Do not ask Josh anything');
+      calls[0]?.end();
+      // Said once for the item, however often it is announced again, and no question to the person follows.
+      conversation.agendaMoved(watched().agenda[0]!.title);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(calls).toHaveLength(1);
+      for (const line of ['One.', 'Two.', 'Three.', 'Four.', 'Five.', 'Six.', 'Seven.', 'Eight.']) {
+        await say(line);
+        calls.at(-1)?.end();
+      }
+      expect(JSON.stringify(calls.map((call) => call.messages))).not.toContain('do we ship it or hold it?"');
+    });
+
+    it('leaves it to the person when they speak first', async () => {
+      const { conversation, calls, say } = harness(watched());
+      conversation.agendaMoved(watched().agenda[0]!.title);
+      await say('Hold on, before you start.');
+      calls.at(-1)?.end();
+      const count = calls.length;
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(calls.length).toBe(count);
+      expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('just listening');
+    });
   });
 
   it('tells the model which agenda item the meeting is on', async () => {

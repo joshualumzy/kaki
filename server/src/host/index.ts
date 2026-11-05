@@ -18,8 +18,8 @@ export const hostModules: KakiModule[] = [
   createMeetingModule({
     llm: notetakerLlmFromEnv(),
     replay: replay ? scenarioFolder() : undefined,
-    // A live meeting always runs in real time.
-    speed: replay ? positiveNumber('KAKI_REPLAY_SPEED', 1) : 1,
+    // A live meeting runs in real time unless KAKI_CLOCK_SPEED shortens the agenda (3 turns a 10 minute item into about 3 minutes).
+    speed: replay ? positiveNumber('KAKI_REPLAY_SPEED', 1) : positiveNumber('KAKI_CLOCK_SPEED', 1),
     notetakerIntervalMs: positiveNumber('KAKI_NOTETAKER_INTERVAL_MS', 7_000),
   }),
 ];

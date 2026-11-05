@@ -37,6 +37,8 @@ export interface AgendaItem {
   ownerRole: Role;
   /** The call this item exists to get, as a question to the person who decides ("Do we ship as is, or hold the date?"); optional. */
   decision?: string;
+  /** The characters disagree on this item, so the person is asked to settle it; optional. */
+  contested?: boolean;
 }
 
 /**
@@ -99,6 +101,8 @@ export interface Scenario {
   situation?: string;
   /** Words and names likely to come up, so the AI attendees can tell what a misheard word was meant to be; optional. */
   vocabulary?: string[];
+  /** Plain meanings of the team's own terms, so the characters can explain them to someone new; optional. */
+  glossary?: Record<string, string>;
   /** AI attendees for the live demo meeting; absent when the scenario has none. */
   npcs?: NpcProfile[];
   /** What a person hosting the meeting is told before they start; optional. */
@@ -303,6 +307,9 @@ function readAgenda(value: unknown, roleIds: Set<string>, problems: string[]): v
     if (typeof item.minutes !== 'number' || !Number.isFinite(item.minutes) || item.minutes <= 0) {
       problems.push(`agenda[${index}].minutes must be a number greater than zero`);
     }
+    if (item.contested !== undefined && typeof item.contested !== 'boolean') {
+      problems.push(`agenda[${index}].contested must be true or false when present`);
+    }
     if (item.decision !== undefined && !isNonEmptyString(item.decision)) {
       problems.push(`agenda[${index}].decision must be a non-empty string when present`);
     }
@@ -332,6 +339,12 @@ export function parseScenario(value: unknown): Scenario {
     if (!isObject(value.hostBrief) || !isNonEmptyString(value.hostBrief.goal) || !isNonEmptyString(value.hostBrief.decision)) {
       problems.push('hostBrief must have a non-empty "goal" and "decision" when present');
     }
+  }
+  if (
+    value.glossary !== undefined &&
+    (!isObject(value.glossary) || !Object.values(value.glossary).every(isNonEmptyString))
+  ) {
+    problems.push('glossary must map each term to a non-empty plain-language meaning when present');
   }
   if (value.situation !== undefined && !isNonEmptyString(value.situation)) {
     problems.push('situation must be a non-empty string when present');

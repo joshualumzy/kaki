@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { itemMode, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -104,5 +104,27 @@ describe('meeting code', () => {
     expect(codeProblem(1, 'K7QX', 'zzzz')).toMatch(/not right/);
     expect(codeProblem(2, 'K7QX', ' k7-qx ')).toBeUndefined();
     expect(normalizeMeetingCode(undefined)).toBe('');
+  });
+});
+
+describe('itemMode', () => {
+  const scenario = parseScenarioForTest();
+  function parseScenarioForTest() {
+    return {
+      roles: [
+        { id: 'producer', label: 'Producer' },
+        { id: 'lead', label: 'Lead Programmer' },
+      ],
+    } as never;
+  }
+  const item = (extra: object) => ({ title: 'T', minutes: 5, ownerRole: 'lead', ...extra }) as never;
+
+  it('depends on who the person is: their own item involves them, others are watched, a contested one is theirs to settle', () => {
+    expect(itemMode(scenario, item({}), 'Lead Programmer')).toBe('involve');
+    expect(itemMode(scenario, item({}), 'lead')).toBe('involve');
+    expect(itemMode(scenario, item({}), 'Producer')).toBe('observe');
+    expect(itemMode(scenario, item({ contested: true }), 'Producer')).toBe('decide');
+    expect(itemMode(scenario, undefined, 'Producer')).toBe('observe');
+    expect(itemMode(scenario, item({}), undefined)).toBe('observe');
   });
 });

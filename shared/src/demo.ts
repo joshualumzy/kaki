@@ -1,4 +1,4 @@
-import type { Attendee, NpcProfile, Scenario, ScenarioRole } from './scenario';
+import type { AgendaItem, Attendee, NpcProfile, Scenario, ScenarioRole } from './scenario';
 
 /** LiveKit data topic on which the browser sends the words its speech recognition heard. */
 export const STT_TOPIC = 'kaki.stt';
@@ -143,4 +143,20 @@ export function codeProblem(peoplePresent: number, expected: string, given: stri
   const typed = normalizeMeetingCode(given);
   if (typed === normalizeMeetingCode(expected)) return undefined;
   return typed.length === 0 ? 'This meeting needs its code. Ask the person already in the meeting.' : 'That meeting code is not right.';
+}
+
+/** How the person takes part in an agenda item: they watch, it is theirs, or they are asked to settle a disagreement. */
+export type ItemMode = 'observe' | 'involve' | 'decide';
+
+/**
+ * Worked out from who the person is, not fixed in the scenario: a contested item is `decide`, an item owned by the
+ * person's own role is `involve`, and any other item is `observe`. A person who picks another role gets different items to take part in.
+ * `visitorRole` is the role's label or id.
+ */
+export function itemMode(scenario: Scenario, item: AgendaItem | undefined, visitorRole: string | undefined): ItemMode {
+  if (item === undefined) return 'observe';
+  if (item.contested === true) return 'decide';
+  const key = visitorRole?.trim().toLowerCase();
+  const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id === visitorRole || candidate.label.toLowerCase() === key);
+  return role !== undefined && role.id === item.ownerRole ? 'involve' : 'observe';
 }

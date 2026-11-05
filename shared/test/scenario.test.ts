@@ -118,6 +118,18 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/decision must be a non-empty string/);
   });
 
+  it('accepts contested items and a glossary, and rejects bad ones', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', contested: true }];
+    scenario.glossary = { oven: 'the big hot box' };
+    expect(parseScenario(scenario).glossary?.oven).toBe('the big hot box');
+    scenario.glossary = { oven: ' ' };
+    expect(() => parseScenario(scenario)).toThrow(/glossary must map/);
+    scenario.glossary = undefined;
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', contested: 'yes' as never }];
+    expect(() => parseScenario(scenario)).toThrow(/contested must be true or false/);
+  });
+
   it('rejects an agenda item with an unknown owner role', () => {
     const scenario = cloneScenario();
     scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'waiter' }];

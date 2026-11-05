@@ -64,7 +64,7 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
       'The meeting host has just handed you a task. Decide, as this character, whether to take it.',
       'Take it unless it clearly is not yours or contradicts what you want or worry about.',
       'Reply with one JSON object: {"accept": true or false, "line": what you say aloud, in your own voice}.',
-      'The line is one or two short sentences. First a concrete reaction from your own side: what it would take, how long, or what worries you, using only the things you know above and the task details (never invent numbers or facts). Then your decision: you will do it, or you cannot and why in a few words. Statements only: never ask a question.',
+      'The line is one or two short sentences. First a concrete reaction from your own side: what it would take, how long, or what worries you, using only the things you know above and the task details (never invent numbers or facts). Then your decision: you will do it, or you cannot and why in a few words. Statements only: never ask a question. Plain everyday words, as you would say it to a colleague, no jargon or office-speak.',
     ]
       .filter((part) => part !== '')
       .join('\n');

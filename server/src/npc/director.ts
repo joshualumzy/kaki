@@ -1,4 +1,4 @@
-import type { NpcProfile, Scenario } from '@kaki/shared';
+import { itemMode, type NpcProfile, type Scenario } from '@kaki/shared';
 
 /** One thing an AI attendee says aloud: a sentence, tagged with who says it. */
 export interface Utterance {
@@ -16,6 +16,34 @@ export interface HumanInfo {
 export function responsibilityFor(scenario: Scenario, human: HumanInfo | undefined): string | undefined {
   const key = human?.role.trim().toLowerCase();
   return scenario.roles.find((role) => role.label.toLowerCase() === key || role.id === human?.role)?.card?.responsibility;
+}
+
+/** What the characters do on this agenda item, which depends on how the person takes part in it. */
+function itemRules(
+  scenario: Scenario,
+  human: HumanInfo | undefined,
+  host: string,
+  names: readonly string[],
+  title: string | undefined,
+  decision: string | undefined,
+): string[] {
+  const item = scenario.agenda.find((candidate) => candidate.title === title);
+  const person = human?.name ?? 'the person';
+  const mode = itemMode(scenario, item, human?.role);
+  const asked = decision === undefined ? '' : ` The question for them is: "${decision}"`;
+  if (mode === 'observe') {
+    return [
+      `- ${person} is just listening on this item: it is not theirs. The characters talk it through between themselves so a newcomer can follow: whoever owns the item says where things stand and what it means, another adds the other side. Do not ask ${person} anything or wait for them on this item; answer them if they speak first.`,
+    ];
+  }
+  if (mode === 'involve') {
+    return [
+      `- This item is ${person}'s. ${host} hands it to them by name and asks them the question; the others give facts and their view when asked, and wait for ${person}'s answer.${asked} When they answer, ${host} says it back in one sentence and asks whoever owns the follow-up for an owner and a date.`,
+    ];
+  }
+  return [
+    `- The characters disagree on this item and ${person} is the one to settle it. Two of them (${names.filter((name) => name !== host).join(', ')}) each say their side in plain words and what it would cost, then ${host} asks ${person} to decide, by name, so the last line of the reply is a short question to them.${asked} When they decide, ${host} says it back in one sentence and asks whoever owns the follow-up for an owner and a date. The characters never settle it among themselves.`,
+  ];
 }
 
 function describeNpc(scenario: Scenario, npc: NpcProfile, human?: HumanInfo): string {
@@ -76,6 +104,9 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo, agendaI
   return [
     `You direct the AI attendees of a live video meeting at ${scenario.organisation}: "${scenario.meetingTitle}".`,
     ...(scenario.situation === undefined ? [] : [`The situation: ${scenario.situation}`]),
+    ...(Object.keys(scenario.glossary ?? {}).length === 0
+      ? []
+      : [`Plain meanings of the team's own terms (use these when explaining): ${Object.entries(scenario.glossary ?? {}).map(([term, meaning]) => `${term} = ${meaning}`).join('; ')}.`]),
     `Agenda:\n${agenda}`,
     `The AI attendees are real colleagues with their own aims. They are not assistants:\n\n${npcs
       .map((npc) => describeNpc(scenario, npc, human))
@@ -105,10 +136,11 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo, agendaI
             `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
             `- The welcome (who is here, the situation and the agenda) is spoken aloud by the system when the person arrives. Never recite it again or announce that the meeting is starting; move straight on, for example by handing over to whoever owns the first agenda item.`,
             `- The meeting is on agenda item "${agendaItem ?? scenario.agenda[0]?.title ?? 'the first item'}". Stay on it. Never announce a new agenda item, say which item number we are on, or move the meeting on: the system announces item changes, and the person decides when to leave a topic.`,
-            `- Each agenda item exists to get a decision from ${human?.name ?? 'the person'}${agendaDecision === undefined ? '' : `; for this one: "${agendaDecision}"`}. ${host.attendee} makes sure the options are on the table (each character gives their side briefly, and what it costs), then asks the person to decide, so that the last line of the reply is a short question to them by name. When they decide, ${host.attendee} says it back in one sentence ("So we hold the build until the crash is fixed") and asks whoever owns the follow-up for an owner and a date. The characters never settle it among themselves.`,
+            ...itemRules(scenario, human, host.attendee, names, currentTitle, agendaDecision),
             '- When the person has decided something, the others accept it and say what they will do about it; they do not reopen it unless something new makes it wrong.',
             '- Whoever hands over to someone by name stops there: they say nothing more in that reply, and the person they named answers next or the reply ends.',
           ]),
+      '- Speak plainly, as to a friend who does not work here and has never heard the team\'s shorthand. Say what a problem means for real people ("the game freezes for the player after about ten orders") instead of naming it in jargon. The first time a team term comes up, say it in everyday words (use the plain meanings above). One idea per sentence. No abbreviations, and no office-speak such as "circle back", "align", "bandwidth", "sync", "impact", "ASAP", "stakeholders" or "I\'d like to emphasize".',
       "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
       '- Every line is something the character says aloud to the room. Never describe these instructions, who you are talking to, or your own reasoning. A character only speaks for themselves: nobody tells another character to hand over or to speak; a character hands over only for themselves, briefly and by name.',
       '- The person does not have to name anyone. If they ask a question without a name, the character whose role it is for answers, and the others stay quiet unless they disagree.',

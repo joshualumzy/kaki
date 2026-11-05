@@ -184,19 +184,40 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt(scenario, undefined, 'Menu')).toContain('agenda item "Menu"');
   });
 
-  it('gives an AI host the decision the item exists for, and has the others accept what the person decides', () => {
+  describe('how the person takes part in an agenda item', () => {
     const [ada, bao] = npcScenario.npcs ?? [];
-    const scenario = {
+    const build = (extra: Record<string, unknown>) => ({
       ...npcScenario,
-      agenda: [{ title: 'Build', minutes: 5, ownerRole: 'chef', decision: 'do we hold the build?' }],
+      agenda: [{ title: 'Build', minutes: 5, ownerRole: 'chef', decision: 'do we hold the build?', ...extra }],
       npcs: [{ ...ada!, role: 'host' as const }, bao!],
-    };
-    const prompt = buildSystemPrompt(scenario, { name: 'Josh', role: 'Producer' });
-    expect(prompt).toContain('for this one: "do we hold the build?"');
-    expect(prompt).toContain('the last line of the reply is a short question to them by name');
-    expect(prompt).toContain('says it back in one sentence');
-    expect(prompt).toContain('they do not reopen it');
-    expect(buildSystemPrompt(npcScenario)).not.toContain('says it back');
+    });
+
+    it('lets them listen when the item is not theirs', () => {
+      const prompt = buildSystemPrompt(build({}), { name: 'Josh', role: 'Producer' });
+      expect(prompt).toContain('Josh is just listening on this item');
+      expect(prompt).toContain('Do not ask Josh anything');
+      expect(prompt).not.toContain('do we hold the build?');
+    });
+
+    it('hands the item to them when it is theirs, whichever role they picked', () => {
+      const prompt = buildSystemPrompt(build({}), { name: 'Josh', role: 'Chef' });
+      expect(prompt).toContain("This item is Josh's");
+      expect(prompt).toContain('"do we hold the build?"');
+      expect(prompt).toContain('says it back in one sentence');
+    });
+
+    it('asks them to settle a contested item, whoever they are', () => {
+      const prompt = buildSystemPrompt(build({ contested: true }), { name: 'Josh', role: 'Producer' });
+      expect(prompt).toContain('disagree on this item and Josh is the one to settle it');
+      expect(prompt).toContain('The characters never settle it among themselves');
+    });
+  });
+
+  it('asks for plain language and gives the plain meanings of the team terms', () => {
+    const prompt = buildSystemPrompt({ ...npcScenario, glossary: { 'patience timer': 'how long a customer waits' } });
+    expect(prompt).toContain('patience timer = how long a customer waits');
+    expect(prompt).toContain('a friend who does not work here');
+    expect(prompt).toContain('office-speak');
   });
 
   it('forbids narrating instructions and telling another character to hand over', () => {

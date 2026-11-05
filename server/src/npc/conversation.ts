@@ -1,4 +1,4 @@
-import type { NpcStateMessage, Scenario } from '@kaki/shared';
+import { itemMode, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { SpeechGate } from './speechGate';
@@ -51,6 +51,8 @@ export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 20_000;
 export const ASK_BACKSTOP_LINES = 8;
 /** How long after the host announces the next item before the question (the announcement is spoken first). */
 export const DEFAULT_ASK_DELAY_MS = 3000;
+/** How long after an item opens, with the person silent, before the characters start talking it through. */
+export const DEFAULT_OBSERVE_DELAY_MS = 4000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
@@ -58,6 +60,7 @@ const ASK_GIVE_UP_MS = 45_000;
 export const DEFAULT_BARGE_IN_MS = 900;
 
 export interface ConversationOptions {
+  observeDelayMs?: number;
   bargeInMs?: number;
   /** Pause after an agenda announcement before the host asks the person for their decision. */
   askDelayMs?: number;
@@ -161,6 +164,9 @@ export class NpcConversation<Clip> {
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
   private askDue = false;
+  /** Items the characters have already talked through on their own, and how many lines the person had said when this item began. */
+  private readonly observed = new Set<string>();
+  private linesAtMove = 0;
   /** The agenda item the meeting is on now (the first until the host announces another). */
   private agendaItem: string | undefined;
   private humanTalking = false;
@@ -391,7 +397,7 @@ export class NpcConversation<Clip> {
    */
   private askLine(): string | undefined {
     const human = this.human;
-    if (human === undefined || this.asked.has(human.name)) return undefined;
+    if (human === undefined || this.asked.has(human.name) || this.mode() === 'observe') return undefined;
     const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host');
     const owns = responsibilityFor(this.options.scenario, human);
     if (host === undefined || owns === undefined) return undefined;
@@ -414,14 +420,67 @@ export class NpcConversation<Clip> {
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
   }
 
-  /** The meeting moved to the next agenda item: after the host's announcement, the host asks the person for their call. */
+  /** The agenda item the meeting is on, and how this person takes part in it. */
+  private currentItem() {
+    const title = this.agendaItem ?? this.options.scenario.agenda[0]?.title;
+    return this.options.scenario.agenda.find((item) => item.title === title);
+  }
+
+  private mode() {
+    return itemMode(this.options.scenario, this.currentItem(), this.human?.role);
+  }
+
+  /**
+   * The meeting is on a new agenda item (also called for the first one, once the welcome is spoken). If the person takes part in
+   * it, the host asks them for their call after the announcement. If they only watch, the characters start talking it through
+   * between themselves, unless the person speaks first: a newcomer sees how the team works before being asked anything.
+   */
   agendaMoved(title?: string): void {
     if (title !== undefined) this.agendaItem = title;
-    if (this.closed || this.human === undefined || this.asked.has(this.human.name)) return;
+    if (this.closed || this.human === undefined) return;
+    this.linesAtMove = this.humanLines;
+    const item = this.currentItem();
+    if (this.mode() === 'observe') {
+      this.askDue = false;
+      if (item !== undefined && !this.observed.has(item.title)) this.observeLater(item.title, 0);
+      return;
+    }
+    if (this.asked.has(this.human.name)) return;
     this.askDue = true;
     setTimeout(() => {
       if (!this.closed && this.askDue) this.ask();
     }, this.options.askDelayMs ?? DEFAULT_ASK_DELAY_MS).unref();
+  }
+
+  private observeLater(title: string, attempt: number): void {
+    setTimeout(() => {
+      if (this.closed || this.observed.has(title) || this.currentItem()?.title !== title) return;
+      // The person spoke on this item, or the room is busy: leave it to them, or try again in a moment.
+      if (this.humanLines > this.linesAtMove) return;
+      if (this.turn !== undefined || this.humanTalking || this.pending.length > 0 || this.respondTimer !== undefined) {
+        if (attempt < 12) this.observeLater(title, attempt + 1);
+        return;
+      }
+      const cue = this.observeCue(title);
+      if (cue === undefined) return;
+      this.observed.add(title);
+      this.pending.push(cue);
+      this.startTurn();
+    }, attempt === 0 ? (this.options.observeDelayMs ?? DEFAULT_OBSERVE_DELAY_MS) : 1500).unref();
+  }
+
+  /** Tells the characters to talk the item through between themselves. */
+  private observeCue(title: string): string | undefined {
+    const scenario = this.options.scenario;
+    const npcs = scenario.npcs ?? [];
+    const item = scenario.agenda.find((candidate) => candidate.title === title);
+    const hostName = npcs.find((npc) => npc.role === 'host')?.attendee;
+    const others = this.names.filter((name) => name !== hostName);
+    const owner =
+      others.find((name) => scenario.attendees.find((attendee) => attendee.name === name)?.role === item?.ownerRole) ?? others[0] ?? this.names[0];
+    const other = others.find((name) => name !== owner) ?? this.names.find((name) => name !== owner);
+    if (owner === undefined || other === undefined || this.human === undefined) return undefined;
+    return `[${this.human.name} is just listening for now. Without waiting for them, ${owner} says in plain words where things stand on "${title}" and what it means for people, then ${other} adds the other side. Two or three short turns, then stop. Do not ask ${this.human.name} anything, and do not mention this note.]`;
   }
 
   /** A character handed over to another by name and nobody has answered yet: the named one answers, after a short pause. */
