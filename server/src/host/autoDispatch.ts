@@ -18,6 +18,16 @@ export function dispatchLine(name: string, title: string, count: number): string
   return lines[count % lines.length]!;
 }
 
+/** How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention). */
+export function colleagueLine(name: string, title: string, count: number): string {
+  const lines = [
+    `${name}, can you take ${title}?`,
+    `${name}, that one is yours: ${title}.`,
+    `${name}, can you pick up ${title}?`,
+  ];
+  return lines[count % lines.length]!;
+}
+
 /**
  * Sam (the host) hands each newly suggested task straight to the role the notetaker named, and says so aloud.
  * The recipient is the human step: they accept it (claim) or decline it, which puts it back on the shared screen.
@@ -52,6 +62,8 @@ export function installAutoDispatch({
         kind: 'DISPATCH',
         // The same words for everyone: nobody in the room can tell which attendees are AI.
         text: dispatchLine(addressee(scenario, task), task.title, sent),
+        assignee: addressee(scenario, task),
+        title: task.title,
       },
     };
     hub.publish(cue);

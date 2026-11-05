@@ -11,6 +11,7 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
+import { colleagueLine } from '../host/autoDispatch';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
@@ -176,6 +177,7 @@ const taskResponder = createTaskResponder({
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
 // What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
 // Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
+let dispatchCount = 0;
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
   const socket = new WebSocket(url);
@@ -190,7 +192,10 @@ function followHostCues(): void {
       if (event.type === 'TASK_UPDATED') taskResponder.handle(event as unknown as KakiEvent);
       // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
       if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string' && !runner.hostIsHuman()) {
-        runner.announce(event.payload.text);
+        const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
+        // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
+        const colleague = payload.kind === 'DISPATCH' && payload.assignee !== undefined && payload.title !== undefined && runner.plays(payload.assignee);
+        runner.announce(colleague ? colleagueLine(payload.assignee!, payload.title!, dispatchCount++) : payload.text);
         if (event.payload.text.startsWith('Next up:')) runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
       }
     } catch {

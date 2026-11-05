@@ -24,6 +24,7 @@ describe('auto-dispatch', () => {
     const cue = published.find((event) => event.type === 'HOST_SPEECH_TRIGGERED');
     expect(cue).toMatchObject({ payload: { kind: 'DISPATCH' } });
     expect((cue as { payload: { text: string } }).payload.text).toContain('Ada, I\'ve sent you a task: Fix the oven');
+    expect((cue as { payload: { assignee?: string; title?: string } }).payload).toMatchObject({ assignee: 'Ada', title: 'Fix the oven' });
   });
 
   it('leaves a declined task for a person; it is not sent out again', () => {
@@ -76,6 +77,19 @@ describe('auto-dispatch', () => {
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
     expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
+  });
+});
+
+describe('colleagueLine', () => {
+  it('asks a colleague in the room in plain words, with no phone', async () => {
+    const { colleagueLine } = await import('../../src/host/autoDispatch');
+    const lines = [0, 1, 2].map((count) => colleagueLine('Arjun', 'the crash fix', count));
+    expect(new Set(lines).size).toBe(3);
+    for (const line of lines) {
+      expect(line).toContain('Arjun');
+      expect(line).toContain('the crash fix');
+      expect(line).not.toMatch(/phone|accept|decline/i);
+    }
   });
 });
 

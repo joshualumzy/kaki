@@ -48,30 +48,15 @@ export function entryForEvent(
   }
 }
 
-const STATUS_WORDS: Record<Task['status'], string> = {
-  SUGGESTED: 'suggested',
-  DISMISSED: 'dismissed',
-  DISPATCHED: 'sent to',
-  CLAIMED: 'accepted by',
-  DRAFT_READY: 'draft ready for',
-  RUNNING: 'running for',
-  COMPLETED: 'done for',
-  FAILED: 'failed for',
-  SYNCED: 'synced for',
-};
-
-/** The timeline line for a task that is new or changed status, or undefined when nothing changed. */
+/**
+ * The one timeline line a task gets: when Kaki first notices it. The feed is for what people said; the task list shows where
+ * a task is and why it failed, and five status lines per task (sent, accepted, draft ready, running, done) buried the talk.
+ */
 export function entryForTask(
   task: Task,
   previousStatus: Task['status'] | undefined,
-  scenario: Scenario,
+  _scenario: Scenario,
 ): TimelineEntry | undefined {
-  if (task.status === previousStatus) return undefined;
-  const owner = task.assignee ?? task.suggestedAssignee;
-  const word = STATUS_WORDS[task.status];
-  const text =
-    task.status === 'SUGGESTED' || task.status === 'DISMISSED'
-      ? `Task ${word}: ${task.title}`
-      : `Task ${word} ${roleLabel(scenario, owner)}: ${task.title}`;
-  return { key: `task|${task.id}|${task.status}`, kind: 'task', text };
+  if (task.status === previousStatus || task.status !== 'SUGGESTED') return undefined;
+  return { key: `task|${task.id}|${task.status}`, kind: 'task', text: `Kaki noticed a task: ${task.title}` };
 }

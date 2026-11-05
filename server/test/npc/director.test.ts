@@ -204,6 +204,7 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain("This item is Josh's");
       expect(prompt).toContain('"do we hold the build?"');
       expect(prompt).toContain('says it back in one sentence');
+      expect(prompt).toContain('asks Josh what they will do next and by when');
     });
 
     it('asks them to settle a contested item, whoever they are', () => {

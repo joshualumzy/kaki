@@ -44,22 +44,14 @@ describe('timeline entries', () => {
 });
 
 describe('task entries', () => {
-  const task = { id: 't1', title: 'Fix the oven', suggestedAssignee: 'chef', assignee: 'chef', status: 'CLAIMED' } as Task;
-  it('says who a task went to and when they accepted it', () => {
-    expect(entryForTask({ ...task, status: 'DISPATCHED' }, 'SUGGESTED', scenario)?.text).toBe('Task sent to Chef: Fix the oven');
-    expect(entryForTask(task, 'DISPATCHED', scenario)?.text).toBe('Task accepted by Chef: Fix the oven');
+  const task = { id: 't1', title: 'Fix the oven', suggestedAssignee: 'chef', assignee: 'chef', status: 'SUGGESTED' } as Task;
+  it('says only that Kaki noticed a task, once', () => {
+    expect(entryForTask(task, undefined, scenario)?.text).toBe('Kaki noticed a task: Fix the oven');
+    expect(entryForTask(task, 'SUGGESTED', scenario)).toBeUndefined();
   });
-  it('says nothing when the status did not change', () => {
-    expect(entryForTask(task, 'CLAIMED', scenario)).toBeUndefined();
-  });
-
-  it('shows the host cues as lines to say when a person hosts', () => {
-    const cue: KakiEvent = {
-      type: 'HOST_SPEECH_TRIGGERED',
-      audience: { kind: 'screen' },
-      payload: { kind: 'TIMEOUT', text: 'Build is at 10 minutes, please wrap up.' },
-    };
-    expect(entryForEvent(cue, scenario, viewer, true)).toMatchObject({ kind: 'suggest', who: 'You could say' });
-    expect(entryForEvent(cue, scenario, viewer)).toBeUndefined();
+  it('leaves every later status to the task list', () => {
+    for (const status of ['DISPATCHED', 'CLAIMED', 'DRAFT_READY', 'RUNNING', 'COMPLETED', 'FAILED', 'DISMISSED'] as const) {
+      expect(entryForTask({ ...task, status }, 'SUGGESTED', scenario)).toBeUndefined();
+    }
   });
 });

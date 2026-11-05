@@ -53,7 +53,16 @@ export type KakiEvent =
         quietRoles?: Role[];
       }
     >
-  | KakiEventOf<'HOST_SPEECH_TRIGGERED', { kind: 'OPENING' | 'TIMEOUT' | 'CLOSING' | 'DISPATCH'; text: string }>
+  | KakiEventOf<
+      'HOST_SPEECH_TRIGGERED',
+      {
+        kind: 'OPENING' | 'TIMEOUT' | 'CLOSING' | 'DISPATCH';
+        text: string;
+        /** DISPATCH only: who the task went to and what it is, so the voice can say it differently to an AI colleague. */
+        assignee?: string;
+        title?: string;
+      }
+    >
   | KakiEventOf<'NUDGE', { text: string }>
   | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[] }>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>

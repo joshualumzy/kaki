@@ -38,7 +38,7 @@ function itemRules(
   }
   if (mode === 'involve') {
     return [
-      `- This item is ${person}'s. ${host} hands it to them by name and asks them the question; the others give facts and their view when asked, and wait for ${person}'s answer.${asked} When they answer, ${host} says it back in one sentence and asks whoever owns the follow-up for an owner and a date.`,
+      `- This item is ${person}'s. ${host} hands it to them by name and asks them the question; the others give facts and their view when asked, and wait for ${person}'s answer.${asked} When they answer, ${host} says it back in one sentence, then asks ${person} what they will do next and by when, so that they commit to one next step themselves.`,
     ];
   }
   return [
