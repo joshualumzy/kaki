@@ -30,7 +30,7 @@ interface Playing {
   finished: boolean;
 }
 
-function harness() {
+function harness(scenarioUsed: typeof scenario = scenario) {
   const calls: LlmCall[] = [];
   const playing: Playing[] = [];
   const states: NpcUiState[] = [];
@@ -81,7 +81,7 @@ function harness() {
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
   };
-  const conversation = new NpcConversation<Utterance>(ports, { scenario, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0 });
+  const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0 });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -100,6 +100,30 @@ function harness() {
 describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it('has an AI host ask the person for their decision once, after their first few lines', async () => {
+    const hosted = {
+      ...scenario,
+      roles: [
+        ...scenario.roles,
+        { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
+      ],
+      npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
+    };
+    const { calls, say } = harness(hosted);
+    for (const line of ['One.', 'Two.', 'Three.']) {
+      await say(line);
+      calls.at(-1)?.end();
+    }
+    expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('what they decide');
+    await say('Four.');
+    const last = String(calls.at(-1)?.messages.at(-1)?.content);
+    expect(last).toContain('Ada turns to Josh by name');
+    expect(last).toContain('You decide what ships.');
+    calls.at(-1)?.end();
+    await say('Five.');
+    expect(String(calls.at(-1)?.messages.at(-1)?.content)).not.toContain('what they decide');
+  });
 
   it('answers once the person has stopped talking, speaking each sentence in order', async () => {
     const { conversation, calls, playing, states, transcript, flush, say } = harness();

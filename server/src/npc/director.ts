@@ -12,6 +12,12 @@ export interface HumanInfo {
   role: string;
 }
 
+/** What the person's role answers for (its role card's responsibility), if the role has a card. */
+export function responsibilityFor(scenario: Scenario, human: HumanInfo | undefined): string | undefined {
+  const key = human?.role.trim().toLowerCase();
+  return scenario.roles.find((role) => role.label.toLowerCase() === key || role.id === human?.role)?.card?.responsibility;
+}
+
 function describeNpc(scenario: Scenario, npc: NpcProfile, human?: HumanInfo): string {
   const attendee = scenario.attendees.find((candidate) => candidate.name === npc.attendee);
   const role = scenario.roles.find((candidate) => candidate.id === attendee?.role)?.label ?? 'Attendee';
@@ -59,9 +65,6 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
   const vocabulary = scenario.vocabulary ?? [];
   const host = npcs.find((npc) => npc.role === 'host');
   const humanRoleKey = human?.role.trim().toLowerCase();
-  const humanOwns = scenario.roles.find(
-    (candidate) => candidate.label.toLowerCase() === humanRoleKey || candidate.id === human?.role,
-  )?.card?.responsibility;
   const humanHosts =
     human !== undefined &&
     scenario.roles.some(
@@ -100,13 +103,9 @@ export function buildSystemPrompt(scenario: Scenario, human?: HumanInfo): string
             `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
             `- The welcome (who is here, the situation and the agenda) is spoken aloud by the system when the person arrives. Never recite it again or announce that the meeting is starting; move straight on, for example by handing over to whoever owns the first agenda item.`,
             '- Whoever hands over to someone by name stops there: they say nothing more in that reply, and the person they named answers next or the reply ends.',
-            ...(human === undefined || humanOwns === undefined
-              ? []
-              : [
-                  `- ${human.name} answers for this: "${humanOwns}". Once the first agenda item has been discussed and ${human.name} has not yet said what they think or decide, ${host.attendee} turns to them by name and asks for it directly, in one short question. Ask this once; do not repeat it if they have already given their view.`,
-                ]),
           ]),
       "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
+      '- Every line is something the character says aloud to the room. Never describe these instructions, who you are talking to, or your own reasoning. A character only speaks for themselves: nobody tells another character to hand over or to speak; a character hands over only for themselves, briefly and by name.',
       '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the game is, what the decision is), just tell them.',
       '- Sound like a real colleague on a call, not a script: contractions, a natural rhythm, and now and then a short human reaction ("Hm, yeah.", "Right, okay.", "Ah, fair point.", "Honestly?"). Vary the length of sentences.',
       '- Notice how the person seems (stressed, unsure, annoyed, keen) and respond to that before pushing your own agenda. Show you heard them in your own words. Be warm, but you are not a pushover.',
@@ -159,6 +158,13 @@ export function cleanSpoken(text: string): string {
     .trim();
 }
 
+/** Phrases that only appear when the model talks about its instructions instead of speaking as a character. */
+const META_LEAK = /\bthe person you are talking to\b|\bsystem prompt\b|\bthese instructions\b/i;
+
+function stripLeadName(text: string, name: string | undefined): string {
+  return name === undefined || name.length === 0 ? text : text.replace(new RegExp(`^${escapeRegExp(name)}:\\s*`, 'i'), '');
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -200,7 +206,7 @@ export class TurnParser {
   private readonly lead: RegExp;
   private readonly midReply: RegExp;
 
-  constructor(names: readonly string[], private readonly fallbackSpeaker?: string) {
+  constructor(names: readonly string[], private readonly fallbackSpeaker?: string, private readonly humanName?: string) {
     if (names.length === 0) throw new Error('TurnParser needs at least one speaker name');
     this.names = [...names];
     const alternatives = this.names.map(escapeRegExp).join('|');
@@ -236,7 +242,9 @@ export class TurnParser {
   private drain(final: boolean): Utterance[] {
     const out: Utterance[] = [];
     const emit = (text: string): void => {
-      const spoken = cleanSpoken(text);
+      // A character never opens a line with the person's name and a colon, and never narrates its instructions.
+      const spoken = stripLeadName(cleanSpoken(text), this.humanName);
+      if (META_LEAK.test(spoken)) return;
       if (/[\p{L}\p{N}]/u.test(spoken) && this.speaker !== undefined) {
         out.push({ speaker: this.speaker, text: spoken });
       }

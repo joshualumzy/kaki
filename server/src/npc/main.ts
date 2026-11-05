@@ -58,6 +58,8 @@ const recognizer =
     ? undefined
     : createAzureStt(requireEnv('AZURE_SPEECH_KEY', azureHint), requireEnv('AZURE_SPEECH_REGION', azureHint), {
         locale: process.env.NPC_STT_LOCALE || 'en-SG',
+        minConfidence: numberEnv('NPC_STT_MIN_CONFIDENCE', 0.6),
+        log,
         phrases: [
           ...new Set([
             ...(scenario.vocabulary ?? []),

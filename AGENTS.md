@@ -24,6 +24,8 @@ Single-context layout (`CONTEXT.md` at root). See `docs/agents/domain.md`.
 
 ## Git safety rules (non-negotiable)
 
+- **Which remote (owner's standing decision, 2026-11-05):** in a Claude cloud/web session the checkout only has `origin`, and the owner has said Claude may always fetch, pull and push the working branch to `origin` there (fast-forward only, rules below still apply). On the owner's own machine the remote is `personal`: pull and push there, and do not use `origin`. The "push only to `personal`" rule below applies to the owner's machine.
+
 - Work only on the branch the owner names. Push only to `personal`. Do not push to any other remote (including `origin`) unless the owner asks for that specific push in this conversation.
 - Never use `git push --force`, `--force-with-lease`, `git reset --hard`, `git checkout -- <path>`, `git clean`, or `git branch -D` without asking the owner first. Say exactly what will be lost, and wait for a yes.
 - If a push is rejected or branches have diverged, STOP. Do not force. Run `git fetch`, show the owner `git log --oneline --graph --all -15`, explain the cause in plain words, and propose a fix that keeps every commit, such as `git pull --rebase`. Wait for approval.

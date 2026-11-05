@@ -1,6 +1,6 @@
 import type { NpcStateMessage, Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, TurnParser, type HumanInfo, type Utterance } from './director';
+import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
@@ -46,6 +46,9 @@ export const MAX_FOLLOW_UPS = 2;
 /** How long a Host cue waits for a quiet moment before it is dropped as out of date. */
 export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 20_000;
 
+
+/** How many lines the person says before the host asks them for their decision. */
+export const ASK_AFTER_LINES = 4;
 
 export interface ConversationOptions {
   scenario: Scenario;
@@ -142,6 +145,9 @@ export class NpcConversation<Clip> {
   private history: ChatMessage[] = [];
   private human: (HumanInfo & { transcriptName: string }) | undefined;
   private pending: string[] = [];
+  /** Lines the person has said (heard or typed) since they joined; the host asks them for their decision after a few. */
+  private humanLines = 0;
+  private asked = false;
   private humanTalking = false;
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
   private turn: Turn | undefined;
@@ -180,6 +186,7 @@ export class NpcConversation<Clip> {
     this.chain = 0;
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
+    this.addAskCue();
     this.interrupt('the person typed something');
     this.scheduleRespond();
   }
@@ -245,6 +252,7 @@ export class NpcConversation<Clip> {
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
     this.chain = 0;
     this.pending.push(accepted);
+    this.addAskCue();
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
     this.scheduleRespond();
@@ -326,6 +334,22 @@ export class NpcConversation<Clip> {
       this.respondTimer = undefined;
       if (!this.humanTalking && !this.closed) this.startTurn();
     }, this.responseDelayMs);
+  }
+
+  /**
+   * After the person's few first lines, an AI host asks them directly, once, for the decision their role owns.
+   * Done here, not left to the model, so it is neither too early nor forgotten.
+   */
+  private addAskCue(): void {
+    this.humanLines += 1;
+    if (this.asked || this.humanLines < ASK_AFTER_LINES || this.human === undefined) return;
+    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    const owns = responsibilityFor(this.options.scenario, this.human);
+    if (host === undefined || owns === undefined) return;
+    this.asked = true;
+    this.pending.push(
+      `[Once the others have answered, ${host} turns to ${this.human.name} by name and asks, in one short question, what they decide. ${this.human.name} answers for this: "${owns}". Do not mention this note.]`,
+    );
   }
 
   /** A character handed over to another by name and nobody has answered yet: the named one answers, after a short pause. */
@@ -484,7 +508,7 @@ export class NpcConversation<Clip> {
       const cast = this.options.scenario.npcs ?? [];
       const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
-      const parser = new TurnParser(this.names, addressed ?? host);
+      const parser = new TurnParser(this.names, addressed ?? host, this.human?.name);
       const messages: ChatMessage[] = [
         { role: 'system', content: buildSystemPrompt(this.options.scenario, this.human) },
         ...this.history.slice(-this.maxHistory),

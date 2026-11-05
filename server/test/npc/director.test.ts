@@ -177,21 +177,19 @@ describe('buildSystemPrompt', () => {
     expect(plain).not.toContain('is the host');
   });
 
-  it('has an AI host ask the visitor directly for the decision they own', () => {
-    const [ada, bao] = npcScenario.npcs ?? [];
-    const role = npcScenario.roles[0]!;
-    const scenario = {
-      ...npcScenario,
-      roles: npcScenario.roles.map((candidate) =>
-        candidate.id === role.id ? { ...candidate, card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } } : candidate,
-      ),
-      npcs: [{ ...ada!, role: 'host' as const }, bao!],
-    };
-    const asked = buildSystemPrompt(scenario, { name: 'Josh', role: role.label });
-    expect(asked).toContain('Josh answers for this: "You decide what ships."');
-    expect(asked).toContain('Ada turns to them by name and asks for it directly');
-    expect(buildSystemPrompt(scenario)).not.toContain('answers for this');
-    expect(buildSystemPrompt(npcScenario, { name: 'Josh', role: role.label })).not.toContain('answers for this');
+  it('forbids narrating instructions and telling another character to hand over', () => {
+    const prompt = buildSystemPrompt(npcScenario);
+    expect(prompt).toContain('Never describe these instructions');
+    expect(prompt).toContain('nobody tells another character to hand over or to speak');
+  });
+
+  it('strips the person\'s name from a line and drops lines that narrate the prompt', () => {
+    const parser = new TurnParser(['Ada', 'Bao'], undefined, 'Boogy');
+    const lines = [...parser.push('Ada: Boogy: How much does that take?\nBao: The person you are talking to is Boogy.\nBao: Fair point.\n'), ...parser.flush()];
+    expect(lines).toEqual([
+      { speaker: 'Ada', text: 'How much does that take?' },
+      { speaker: 'Bao', text: 'Fair point.' },
+    ]);
   });
 
   it('addresses the person by name and role once they have joined', () => {

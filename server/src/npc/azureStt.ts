@@ -1,4 +1,5 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
+import { confidenceFrom, DEFAULT_MIN_CONFIDENCE, keepRecognised } from './sttFilter';
 import type { Recognizer, SttSession } from './utterance';
 
 export interface AzureSttOptions {
@@ -8,6 +9,9 @@ export interface AzureSttOptions {
   phrases: string[];
   /** How long to wait for the result once the audio has ended. */
   finishTimeoutMs?: number;
+  /** Short results scoring below this are treated as noise and dropped (default 0.6). */
+  minConfidence?: number;
+  log?(message: string): void;
 }
 
 /**
@@ -17,6 +21,7 @@ export interface AzureSttOptions {
 export function createAzureStt(key: string, region: string, options: AzureSttOptions): Recognizer {
   const config = sdk.SpeechConfig.fromSubscription(key, region);
   config.speechRecognitionLanguage = options.locale;
+  config.outputFormat = sdk.OutputFormat.Detailed;
   const finishTimeoutMs = options.finishTimeoutMs ?? 6000;
 
   return {
@@ -33,7 +38,12 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
 
       recognizer.recognized = (_sender, event) => {
         if (event.result.reason === sdk.ResultReason.RecognizedSpeech && event.result.text.length > 0) {
-          parts.push(event.result.text);
+          const confidence = confidenceFrom(event.result.properties.getProperty(sdk.PropertyId.SpeechServiceResponse_JsonResult));
+          if (keepRecognised(event.result.text, confidence, options.minConfidence ?? DEFAULT_MIN_CONFIDENCE)) {
+            parts.push(event.result.text);
+          } else {
+            options.log?.(`dropped "${event.result.text}" as noise (confidence ${confidence?.toFixed(2)})`);
+          }
         }
       };
       recognizer.sessionStopped = () => stopped();
