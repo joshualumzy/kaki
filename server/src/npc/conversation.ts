@@ -52,7 +52,7 @@ export const ASK_BACKSTOP_LINES = 8;
 /** How long after the host announces the next item before the question (the announcement is spoken first). */
 export const DEFAULT_ASK_DELAY_MS = 3000;
 /** How long after an item opens, with the person silent, before the characters start talking it through. */
-export const DEFAULT_OBSERVE_DELAY_MS = 4000;
+export const DEFAULT_OBSERVE_DELAY_MS = 1500;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 

@@ -10,6 +10,7 @@ import { LocalSpeechSTT } from './LocalSpeechSTT';
 import type { MediaChoice } from './MediaPreview';
 import { MeetingGrid } from './MeetingGrid';
 import { Dock } from './Dock';
+import { ConnectedStartPrompt } from './StartPrompt';
 import './demo.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
@@ -43,6 +44,8 @@ export default function Meeting() {
   const [error, setError] = useState<string | undefined>();
   const [needsCode, setNeedsCode] = useState(false);
   const [pane, setPane] = useState<'meeting' | 'kaki'>('meeting');
+  // The AI attendees stay silent until the person has read their briefing and pressed Start.
+  const [started, setStarted] = useState(false);
   const linkCode = useMemo(() => new URLSearchParams(window.location.search).get('code') ?? '', []);
 
   const hasAi = (scenario.npcs ?? []).length > 0;
@@ -70,6 +73,7 @@ export default function Meeting() {
         ...(typeof body.meetingCode === 'string' ? { meetingCode: body.meetingCode } : {}),
       });
       setPane('meeting');
+      setStarted(false);
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : String(joinError));
     } finally {
@@ -90,6 +94,10 @@ export default function Meeting() {
       />
     );
   }
+
+  const seatRole = scenario.roles.find((candidate) => candidate.id === session.role);
+  // Whoever runs the meeting opens it themselves, so only the other roles get the Start button.
+  const needsStart = !started && seatRole?.facilitator !== true;
 
   return (
     <div className="kd-meeting" data-pane={pane}>
@@ -113,11 +121,12 @@ export default function Meeting() {
             <MeetingGrid role={session.role} />
           </ErrorBoundary>
           <LocalSpeechSTT />
+          {needsStart && <ConnectedStartPrompt onStarted={() => setStarted(true)} />}
         </LiveKitRoom>
       </div>
       <Dock
         meetingCode={session.meetingCode}
-        role={scenario.roles.find((candidate) => candidate.id === session.role)}
+        role={seatRole}
         viewer={{
           name: session.name,
           seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName,

@@ -18,13 +18,15 @@ export type ControlMessage =
   /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
   | { kind: 'typing' }
   /** The person wants the AI attendees to stop talking now. */
-  | { kind: 'stop' };
+  | { kind: 'stop' }
+  /** The person has read their briefing and starts the meeting: until then the AI attendees stay silent. */
+  | { kind: 'start' };
 
 /** A control message from the wire, or `undefined` when it is not a valid one. */
 export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const message = raw as { kind?: unknown; text?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop') return { kind: message.kind };
+  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'start') return { kind: message.kind };
   if (message.kind === 'text' && typeof message.text === 'string') {
     const text = message.text.trim().slice(0, MAX_TYPED_LENGTH);
     return text.length > 0 ? { kind: 'text', text } : undefined;

@@ -54,6 +54,7 @@ describe('demo meeting helpers', () => {
   it('reads control messages from the wire, and refuses anything else', () => {
     expect(parseControlMessage({ kind: 'stop' })).toEqual({ kind: 'stop' });
     expect(parseControlMessage({ kind: 'typing', extra: 1 })).toEqual({ kind: 'typing' });
+    expect(parseControlMessage({ kind: 'start' })).toEqual({ kind: 'start' });
     expect(parseControlMessage({ kind: 'text', text: '  hello  ' })).toEqual({ kind: 'text', text: 'hello' });
     expect(parseControlMessage({ kind: 'text', text: 'x'.repeat(MAX_TYPED_LENGTH + 50) })).toEqual({
       kind: 'text',

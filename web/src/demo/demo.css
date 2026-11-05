@@ -26,6 +26,13 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-go:not(:disabled):hover::after { transform: translateX(120%); transition: transform 700ms ease; }
 .kd-go:disabled { background: var(--color-border); color: var(--color-faint); box-shadow: none; cursor: not-allowed; }
 .kd-hint { color: var(--color-faint); font-size: 12.5px; margin: 12px 0 0; }
+
+/* Over the stage until the person has read their briefing and starts the meeting. */
+.kd-start { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: color-mix(in srgb, var(--color-bg) 82%, transparent); backdrop-filter: blur(6px); }
+.kd-start-card { width: min(440px, 100%); padding: 26px; border-radius: 20px; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: 0 24px 60px -24px var(--color-ink); }
+.kd-start-card h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -0.03em; color: var(--color-text); }
+.kd-start-card p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--color-muted); }
+.kd-start-card .kd-go { margin-top: 8px; }
 .kd-alert { color: var(--color-danger); font-size: 13px; font-weight: 600; margin: 0 0 14px; }
 
 .kd-preview { position: relative; aspect-ratio: 16 / 10; border-radius: 18px; overflow: hidden; background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--orb-a) 16%, var(--stage)), var(--stage) 70%); border: 1px solid var(--color-border); }

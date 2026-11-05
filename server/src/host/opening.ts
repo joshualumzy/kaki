@@ -12,7 +12,8 @@ export interface Visitor {
 
 /**
  * The host's welcome, kept short because it is spoken aloud: the meeting, the visitor's role if there is a visitor,
- * the one thing they answer for (their role card's responsibility) and the agenda's first item. The screen already shows who is in the room and the situation.
+ * the one thing they answer for (their role card's responsibility), the agenda's first item and a hand-over to whoever owns it.
+ * The screen already shows who is in the room and the situation.
  * With a visitor it names them instead of the seat's scripted attendee.
  */
 export function openingLine(scenario: Scenario, visitor?: Visitor): string {
@@ -25,6 +26,12 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   const first = scenario.agenda[0];
   if (first !== undefined) {
     parts.push(`We have ${scenario.agenda.length} items today. Let's start with ${first.title}, ${first.minutes} minutes.`);
+    // Hand over by name, so the first voice a newcomer hears is one they were just told to expect.
+    const owner = scenario.attendees.find((attendee) => attendee.role === first.ownerRole);
+    const ownerIsHost = scenario.roles.find((role) => role.id === first.ownerRole)?.facilitator === true;
+    if (owner !== undefined && !ownerIsHost) {
+      parts.push(`${visitor?.seat === owner.name ? visitor.name : owner.name}, over to you.`);
+    }
   }
   return parts.join(' ');
 }

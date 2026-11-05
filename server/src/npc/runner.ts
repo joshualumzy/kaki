@@ -221,6 +221,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let castQueue: Promise<void> = Promise.resolve();
   /** The welcome is spoken once per visit: when the person arrives, not when they first speak. */
   let welcomed = false;
+  /**
+   * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
+   * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
+   */
+  let started = false;
+  const meetingOpen = (): boolean => started || hostIsHuman();
   function syncCast(): void {
     castQueue = castQueue
       .then(async () => {
@@ -242,6 +248,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           conversation = undefined;
           castNames = '';
           welcomed = false;
+          started = false;
         } else if (conversation === undefined || names !== castNames) {
           conversation?.close();
           conversation = makeConversation(wanted);
@@ -253,8 +260,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             transcriptName: humanAttendeeForRole(scenario, person.role)?.zoomDisplayName,
           });
         }
-        // Sam welcomes the person as soon as they are in, before anyone else speaks (nothing when a person hosts).
-        if (humans.size > 0 && !welcomed && !hostIsHuman()) announce(openingLine(scenario));
+        // Sam welcomes the person once they press Start, before anyone else speaks (nothing when a person hosts).
+        if (humans.size > 0 && started && !welcomed && !hostIsHuman()) announce(openingLine(scenario));
       })
       .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
   }
@@ -290,6 +297,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             onAudio: options.debugAudio,
             onNothing: () => conversation?.humanNothing(),
             onText: (text) => {
+              if (!meetingOpen()) {
+                log(`ignored "${text}": the meeting has not started`);
+                return;
+              }
               log(`recognised "${text}"`);
               conversation?.humanText(text);
             },
@@ -310,7 +321,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             ? `${identity} started talking (mic peak ${vad.peak(300).toFixed(3)}, bar ${vad.threshold.toFixed(3)}${vad.guarded ? `, AI was talking: its level ${vad.referenceLevel.toFixed(3)}, its echo in the mic ${vad.leakLevel.toFixed(3)}` : ''})`
             : `${identity} stopped talking`,
         );
-        conversation?.humanSpeech(talking.size > 0);
+        if (meetingOpen()) conversation?.humanSpeech(talking.size > 0);
         // Last, and guarded: a failure in speech recognition must never stop the conversation hearing the person.
         try {
           recorder?.speaking(speaking);
@@ -375,9 +386,17 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         log('ignored a malformed control message');
       } else if (message.kind === 'typing') {
         typingUntil = Date.now() + TYPING_QUIET_MS;
+      } else if (message.kind === 'start') {
+        if (!started) {
+          started = true;
+          log(`${participant.identity} started the meeting`);
+          syncCast();
+        }
       } else if (message.kind === 'stop') {
         log(`${participant.identity} pressed stop`);
         conversation?.stop();
+      } else if (!meetingOpen()) {
+        log('ignored typed text: the meeting has not started');
       } else {
         typingUntil = Date.now() + TYPING_QUIET_MS;
         conversation?.humanTyped(message.text);
@@ -389,7 +408,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (options.recognizer !== undefined) return;
     try {
       const message = JSON.parse(new TextDecoder().decode(payload)) as { text?: unknown };
-      if (typeof message.text === 'string') conversation?.humanText(message.text);
+      if (typeof message.text === 'string' && meetingOpen()) conversation?.humanText(message.text);
     } catch {
       log('ignored a malformed speech message');
     }
@@ -406,6 +425,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const isWelcome = text.startsWith(OPENING_PREFIX);
     // The welcome was already spoken when the person arrived; the host cue that follows the first line is not said again.
     if (isWelcome && welcomed) return;
+    // The welcome waits for Start: a host cue that arrives earlier (for example from words said before it) must not open the meeting.
+    if (isWelcome && !meetingOpen()) return;
     // The welcome is rebuilt for the person in the room: their own name and role, not the seat's scripted name.
     const person = [...humans.values()].at(-1);
     const spoken =

@@ -377,6 +377,23 @@ describe('openingLine', () => {
     expect(line).toContain('You decide what ships and when.');
   });
 
+  it('hands over by name to whoever owns the first agenda item', () => {
+    const first = testScenario.agenda[0]!;
+    const owner = testScenario.attendees.find((attendee) => attendee.role === first.ownerRole)!;
+    const other = testScenario.attendees.find((attendee) => attendee.role !== first.ownerRole)!;
+    expect(openingLine(testScenario)).toMatch(new RegExp(`${owner.name}, over to you\\.$`));
+    // A visitor who sits in the owner's seat is handed to by the name they typed.
+    expect(openingLine(testScenario, { name: 'Priya', seat: owner.name })).toMatch(/Priya, over to you\.$/);
+    expect(openingLine(testScenario, { name: 'Priya', seat: other.name })).toMatch(new RegExp(`${owner.name}, over to you\\.$`));
+  });
+
+  it('does not hand over to the facilitator when they own the first item', () => {
+    const host = testScenario.roles.find((role) => role.facilitator === true);
+    if (host === undefined) return;
+    const scenario = { ...testScenario, agenda: testScenario.agenda.map((item, index) => (index === 0 ? { ...item, ownerRole: host.id } : item)) };
+    expect(openingLine(scenario)).not.toContain('over to you');
+  });
+
   it('ignores a seat that is not in the scenario', () => {
     expect(openingLine(testScenario, { name: 'Priya', seat: 'Nobody' })).not.toContain('Priya');
   });
