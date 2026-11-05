@@ -101,7 +101,38 @@ describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('has an AI host ask the person for their decision once, after their first few lines', async () => {
+  it('has an AI host ask the person for their decision when the agenda moves on, once', async () => {
+    const hosted = {
+      ...scenario,
+      roles: [
+        ...scenario.roles,
+        { id: 'producer', label: 'Producer', card: { youAre: 'You are Josh.', facts: ['A fact.'], responsibility: 'You decide what ships.' } },
+      ],
+      npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
+    };
+    const { conversation, calls, say, flush } = harness(hosted);
+    for (const line of ['One.', 'Two.', 'Three.', 'Four.', 'Five.']) {
+      await say(line);
+      calls.at(-1)?.end();
+    }
+    // Five lines is not a reason to ask: nothing has moved on.
+    expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('what they decide');
+    const before = calls.length;
+    conversation.agendaMoved();
+    await vi.advanceTimersByTimeAsync(3000 + 900);
+    await flush();
+    expect(calls.length).toBe(before + 1);
+    const last = String(calls.at(-1)?.messages.at(-1)?.content);
+    expect(last).toContain('Ada turns to Josh by name');
+    expect(last).toContain('You decide what ships.');
+    calls.at(-1)?.end();
+    // Asked once: moving on again does not ask again.
+    conversation.agendaMoved();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls.length).toBe(before + 1);
+  });
+
+  it('asks as a backstop after many lines even if the agenda never moves', async () => {
     const hosted = {
       ...scenario,
       roles: [
@@ -111,18 +142,13 @@ describe('NpcConversation', () => {
       npcs: [{ ...scenario.npcs[0]!, role: 'host' as const }, scenario.npcs[1]!],
     };
     const { calls, say } = harness(hosted);
-    for (const line of ['One.', 'Two.', 'Three.']) {
-      await say(line);
+    for (let n = 1; n <= 7; n += 1) {
+      await say(`Line ${n}.`);
       calls.at(-1)?.end();
     }
-    expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('what they decide');
-    await say('Four.');
-    const last = String(calls.at(-1)?.messages.at(-1)?.content);
-    expect(last).toContain('Ada turns to Josh by name');
-    expect(last).toContain('You decide what ships.');
-    calls.at(-1)?.end();
-    await say('Five.');
     expect(String(calls.at(-1)?.messages.at(-1)?.content)).not.toContain('what they decide');
+    await say('Line 8.');
+    expect(String(calls.at(-1)?.messages.at(-1)?.content)).toContain('Ada turns to Josh by name');
   });
 
   it('answers once the person has stopped talking, speaking each sentence in order', async () => {

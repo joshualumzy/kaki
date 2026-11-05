@@ -47,10 +47,14 @@ export const MAX_FOLLOW_UPS = 2;
 export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 20_000;
 
 
-/** How many lines the person says before the host asks them for their decision. */
-export const ASK_AFTER_LINES = 4;
+/** The host asks when the agenda moves on; if that never happens, after this many lines from the person. */
+export const ASK_BACKSTOP_LINES = 8;
+/** How long after the host announces the next item before the question (the announcement is spoken first). */
+export const DEFAULT_ASK_DELAY_MS = 3000;
 
 export interface ConversationOptions {
+  /** Pause after an agenda announcement before the host asks the person for their decision. */
+  askDelayMs?: number;
   scenario: Scenario;
   /** Quiet needed after the person's last words before the AI answers. */
   responseDelayMs?: number;
@@ -147,7 +151,10 @@ export class NpcConversation<Clip> {
   private pending: string[] = [];
   /** Lines the person has said (heard or typed) since they joined; the host asks them for their decision after a few. */
   private humanLines = 0;
-  private asked = false;
+  /** People the host has already asked, by name. */
+  private readonly asked = new Set<string>();
+  /** The agenda has moved on and the host has not asked this person yet. */
+  private askDue = false;
   private humanTalking = false;
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
   private turn: Turn | undefined;
@@ -170,6 +177,7 @@ export class NpcConversation<Clip> {
 
   /** Who the AI attendees are talking to; `transcriptName` is how Kaki's transcript labels them. */
   setHuman(human: HumanInfo & { transcriptName?: string }): void {
+    if (this.human?.name !== human.name) this.humanLines = 0;
     this.human = { ...human, transcriptName: human.transcriptName ?? human.name };
   }
 
@@ -337,19 +345,42 @@ export class NpcConversation<Clip> {
   }
 
   /**
-   * After the person's few first lines, an AI host asks them directly, once, for the decision their role owns.
-   * Done here, not left to the model, so it is neither too early nor forgotten.
+   * The AI host asks a person directly, once, for the decision their role owns. It is not on a fixed count: it comes when
+   * the meeting moves to the next agenda item (`agendaMoved`), or, as a backstop, once they have said many lines and
+   * nobody has asked. Done here, not left to the model, so it is neither forgotten nor narrated.
    */
+  private takeAskCue(): string | undefined {
+    const human = this.human;
+    if (human === undefined || this.asked.has(human.name)) return undefined;
+    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    const owns = responsibilityFor(this.options.scenario, human);
+    if (host === undefined || owns === undefined) return undefined;
+    this.asked.add(human.name);
+    this.askDue = false;
+    return `[Once the others have answered, ${host} turns to ${human.name} by name and asks, in one short question, what they decide. ${human.name} answers for this: "${owns}". Do not mention this note.]`;
+  }
+
+  /** The person said another line: add the host's question if it is due, or if they have talked a long time without one. */
   private addAskCue(): void {
     this.humanLines += 1;
-    if (this.asked || this.humanLines < ASK_AFTER_LINES || this.human === undefined) return;
-    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
-    const owns = responsibilityFor(this.options.scenario, this.human);
-    if (host === undefined || owns === undefined) return;
-    this.asked = true;
-    this.pending.push(
-      `[Once the others have answered, ${host} turns to ${this.human.name} by name and asks, in one short question, what they decide. ${this.human.name} answers for this: "${owns}". Do not mention this note.]`,
-    );
+    if (!this.askDue && this.humanLines < ASK_BACKSTOP_LINES) return;
+    const cue = this.takeAskCue();
+    if (cue !== undefined) this.pending.push(cue);
+  }
+
+  /** The meeting moved to the next agenda item: after the host's announcement, the host asks the person for their decision. */
+  agendaMoved(): void {
+    if (this.closed || this.human === undefined || this.asked.has(this.human.name)) return;
+    this.askDue = true;
+    setTimeout(() => {
+      if (this.closed || !this.askDue) return;
+      // Busy or the person is talking: the question is added to their next line instead.
+      if (this.turn !== undefined || this.humanTalking || this.pending.length > 0) return;
+      const cue = this.takeAskCue();
+      if (cue === undefined) return;
+      this.pending.push(cue);
+      this.scheduleRespond();
+    }, this.options.askDelayMs ?? DEFAULT_ASK_DELAY_MS).unref();
   }
 
   /** A character handed over to another by name and nobody has answered yet: the named one answers, after a short pause. */
