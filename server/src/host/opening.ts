@@ -12,14 +12,15 @@ export interface Visitor {
 
 /**
  * The host's welcome, kept short because it is spoken aloud: the meeting, the visitor's role if there is a visitor,
- * and the agenda's first item. The screen already shows who is in the room and the situation.
+ * the one thing they answer for (their role card's responsibility) and the agenda's first item. The screen already shows who is in the room and the situation.
  * With a visitor it names them instead of the seat's scripted attendee.
  */
 export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
   const parts = [`${OPENING_PREFIX}${scenario.meetingTitle} at ${scenario.organisation}.`];
   if (visitor !== undefined && seat !== undefined) {
-    parts.push(`${visitor.name}, you are joining as ${roleLabel(scenario, seat.role)}.`);
+    const responsibility = scenario.roles.find((role) => role.id === seat.role)?.card?.responsibility;
+    parts.push(`${visitor.name}, you are joining as ${roleLabel(scenario, seat.role)}.${responsibility === undefined ? '' : ` ${responsibility}`}`);
   }
   const first = scenario.agenda[0];
   if (first !== undefined) {

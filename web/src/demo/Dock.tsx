@@ -5,6 +5,8 @@ import type { TranscriptViewer } from './captions';
 import { MeetingPanel } from './MeetingPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { RoleCard } from './RoleCard';
+import { SituationCard } from './SituationCard';
+import { useScenario } from '../kaki';
 import './demo.css';
 
 type Tab = 'wingman' | 'host';
@@ -14,6 +16,7 @@ type Tab = 'wingman' | 'host';
  * Host is what the meeting's facilitator tracks for the whole room.
  */
 export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer: TranscriptViewer }) {
+  const scenario = useScenario();
   const [tab, setTab] = useState<Tab>('wingman');
   const label = (name: Tab, text: string) => (
     <button type="button" role="tab" className="kd-tab" aria-selected={tab === name} onClick={() => setTab(name)}>
@@ -37,6 +40,7 @@ export function Dock({ role, viewer }: { role: ScenarioRole | undefined; viewer:
       </div>
       <div className="kd-dock-body">
         <div hidden={tab !== 'wingman'}>
+          <SituationCard scenario={scenario} />
           <RoleCard role={role} />
           <ErrorBoundary>{role !== undefined && <PhoneFeed role={role.id} />}</ErrorBoundary>
         </div>

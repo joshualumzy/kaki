@@ -364,6 +364,19 @@ describe('openingLine', () => {
     expect(line).toContain('Priya, you are joining as ');
   });
 
+  it('adds the one thing the visitor answers for, when their role has a card', () => {
+    const seat = testScenario.attendees[0]!;
+    const scenario = {
+      ...testScenario,
+      roles: testScenario.roles.map((role) =>
+        role.id === seat.role ? { ...role, card: { youAre: 'You are Wei Ling.', facts: ['A fact.'], responsibility: 'You decide what ships and when.' } } : role,
+      ),
+    };
+    const line = openingLine(scenario, { name: 'Priya', seat: seat.name });
+    expect(line).toContain('Priya, you are joining as ');
+    expect(line).toContain('You decide what ships and when.');
+  });
+
   it('ignores a seat that is not in the scenario', () => {
     expect(openingLine(testScenario, { name: 'Priya', seat: 'Nobody' })).not.toContain('Priya');
   });
