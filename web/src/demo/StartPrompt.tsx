@@ -18,7 +18,7 @@ export function StartPrompt({ onStart }: StartPromptProps) {
       <div className="kd-start-card">
         <h2>Read your briefing first</h2>
         <p>
-          Your role card and the situation are in the <b>Kaki Wingman</b> panel (on a phone, tap the <b>Kaki</b> tab). Take as long as you need.
+          Your role card and the meeting situation are open in the <b>Kaki</b> panel on the right. Take as long as you need to review your key facts before starting.
         </p>
         <p>Your colleagues are in the room, but they stay quiet until you start the meeting.</p>
         <button type="button" className="kd-go" onClick={onStart} autoFocus>

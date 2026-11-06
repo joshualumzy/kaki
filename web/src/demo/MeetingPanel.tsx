@@ -119,6 +119,12 @@ export function MeetingPanel({
       ),
     [visibleTasks],
   );
+  const meetingEnded = useMemo(
+    () =>
+      minutesTask !== undefined ||
+      events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
+    [events, minutesTask],
+  );
 
   return (
     <div className="page kd-host kd-meeting-panel">
@@ -131,36 +137,55 @@ export function MeetingPanel({
       )}
       {isHost && (
         <div className="kd-host-controls">
-          <button type="button" className="kd-chip" disabled={record === undefined} onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}>
+          <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}>
             Next agenda item
           </button>
-          <button type="button" className="kd-chip" disabled={record === undefined} onClick={() => send({ type: 'END_MEETING' })}>
+          <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'END_MEETING' })}>
             End meeting
           </button>
         </div>
       )}
-      {minutesTask?.artifactUrl !== undefined && (
+      {meetingEnded && (
         <section className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
-          <p className="kd-role-eyebrow">Kaki Host · Meeting Minutes Published</p>
-          <p style={{ marginBottom: 8 }}>
-            Full meeting notes (agenda items, action items, open questions, and transcript) are live on the team wiki.
+          <p className="kd-role-eyebrow">
+            {minutesTask?.artifactUrl !== undefined
+              ? 'Kaki Host · Meeting Minutes Published'
+              : 'Kaki Host · Meeting Concluded'}
           </p>
-          <a className="artifact-link" href={minutesTask.artifactUrl} target="_blank" rel="noreferrer">
-            Open meeting minutes in Wiki ↗
-          </a>
+          <p style={{ marginBottom: 10 }}>
+            {minutesTask?.artifactUrl !== undefined
+              ? 'Full meeting notes (agenda items, action items, open questions, and transcript) are live on the team wiki.'
+              : 'Syncing final action items and publishing meeting minutes to the team wiki…'}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {minutesTask?.artifactUrl !== undefined && (
+              <a className="artifact-link" href={minutesTask.artifactUrl} target="_blank" rel="noreferrer">
+                Open meeting minutes in Wiki ↗
+              </a>
+            )}
+            <button
+              type="button"
+              className="kd-chip"
+              onClick={() => window.location.reload()}
+            >
+              Start new meeting / Switch role
+            </button>
+          </div>
         </section>
       )}
       {record === undefined ? (
         <p className="empty-state">The meeting has not started yet. The agenda clock begins with the first thing said.</p>
       ) : (
         <>
-          <MeetingRecordCard record={record} scenario={scenario} />
-          <CurrentTopicCard
-            item={scenario.agenda[record.payload.agendaIndex]}
-            scenario={scenario}
-            role={role}
-            viewer={viewer}
-          />
+          <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} />
+          {!meetingEnded && (
+            <CurrentTopicCard
+              item={scenario.agenda[record.payload.agendaIndex]}
+              scenario={scenario}
+              role={role}
+              viewer={viewer}
+            />
+          )}
           {latestFact !== undefined && (
             <section className="kd-role kd-topic-card" aria-label="From the company records">
               <p className="kd-role-eyebrow">Kaki Wingman · From the company records</p>

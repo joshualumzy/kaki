@@ -119,7 +119,7 @@ function ScreenFeed() {
           {record === undefined ? (
             <p className="empty-state">The meeting has not started. The clock begins with the first thing said.</p>
           ) : (
-            <AgendaPanel record={record} scenario={scenario} />
+            <AgendaPanel record={record} scenario={scenario} ended={meetingEnded} />
           )}
         </section>
 
@@ -195,14 +195,16 @@ export function isRecord(event: KakiEvent): event is RecordEvent {
  */
 const MAX_COUNT_UP_SECONDS = 35;
 
-function useCountUp(elapsedSeconds: number, record: RecordEvent): number {
+function useCountUp(elapsedSeconds: number, record: RecordEvent, ended = false): number {
   // Each record is a new object, so this restarts the count whenever one arrives.
   const receivedAt = useMemo(() => Date.now(), [record]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (ended) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [ended]);
+  if (ended) return elapsedSeconds;
   return elapsedSeconds + Math.min(MAX_COUNT_UP_SECONDS, Math.max(0, (now - receivedAt) / 1000));
 }
 
@@ -216,9 +218,9 @@ function ringColour(over: boolean): string {
 }
 
 /** The big agenda view: a clock ring, the four items as a timeline, open questions, talk time and who is quiet. */
-function AgendaPanel({ record, scenario }: { record: RecordEvent; scenario: Scenario }) {
+function AgendaPanel({ record, scenario, ended = false }: { record: RecordEvent; scenario: Scenario; ended?: boolean }) {
   const { agendaIndex, openQuestions, quietRoles = [], speakerTalkSeconds } = record.payload;
-  const elapsed = useCountUp(record.payload.elapsedSeconds, record);
+  const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
   const over = limit > 0 && elapsed >= limit;
@@ -246,16 +248,20 @@ function AgendaPanel({ record, scenario }: { record: RecordEvent; scenario: Scen
           </svg>
           <div className="sc-ring-text">
             <b>{formatMinutes(elapsed)}</b>
-            <span>{over ? 'over time' : `of ${formatMinutes(limit)}`}</span>
+            <span>{ended ? 'ended' : over ? 'over time' : `of ${formatMinutes(limit)}`}</span>
           </div>
         </div>
         <div className="sc-now">
-          <p className="sc-eyebrow">Now · item {agendaIndex + 1} of {scenario.agenda.length}</p>
+          <p className="sc-eyebrow">
+            {ended
+              ? `Meeting ended · ${scenario.agenda.length} of ${scenario.agenda.length} items completed`
+              : `Now · item ${agendaIndex + 1} of ${scenario.agenda.length}`}
+          </p>
           <h2>{item?.title ?? 'Meeting'}</h2>
           {item === undefined ? null : <p className="sc-owner">Owner · {roleLabel(scenario, item.ownerRole)}</p>}
           <ol className="sc-steps">
             {scenario.agenda.map((step, index) => (
-              <li key={step.title} data-state={index < agendaIndex ? 'done' : index === agendaIndex ? 'now' : 'next'}>
+              <li key={step.title} data-state={ended || index < agendaIndex ? 'done' : index === agendaIndex ? 'now' : 'next'}>
                 <i />
                 <span>{step.title}</span>
                 <em>{step.minutes}m</em>
@@ -306,24 +312,60 @@ function AgendaPanel({ record, scenario }: { record: RecordEvent; scenario: Scen
   );
 }
 
-/** The compact Host card: the clock and progress bar for the current agenda item. */
-export function MeetingRecordCard({ record, scenario }: { record: RecordEvent; scenario: Scenario }) {
-  const { agendaIndex } = record.payload;
-  const elapsed = useCountUp(record.payload.elapsedSeconds, record);
+/** The compact Host card: the clock, agenda steps, and open questions for the current agenda item. */
+export function MeetingRecordCard({
+  record,
+  scenario,
+  ended = false,
+}: {
+  record: RecordEvent;
+  scenario: Scenario;
+  ended?: boolean;
+}) {
+  const { agendaIndex, openQuestions } = record.payload;
+  const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
   const over = limit > 0 && elapsed >= limit;
 
   return (
     <Card>
-      <p className="eyebrow">Now · item {agendaIndex + 1} of {scenario.agenda.length}</p>
+      <p className="eyebrow">
+        {ended
+          ? `Meeting ended · ${scenario.agenda.length} of ${scenario.agenda.length} items completed`
+          : `Now · item ${agendaIndex + 1} of ${scenario.agenda.length}`}
+      </p>
       <h2 className="card-title">{item?.title ?? 'Meeting'}</h2>
       <div className="kd-host-clock">
-        {formatMinutes(elapsed)} <small>{over ? 'over time' : `of ${formatMinutes(limit)}`}</small>
+        {formatMinutes(elapsed)} <small>{ended ? 'concluded' : over ? 'over time' : `of ${formatMinutes(limit)}`}</small>
       </div>
       <div className="kd-host-bar">
-        <i style={{ width: `${limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%` }} />
+        <i style={{ width: `${ended ? 100 : limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%` }} />
       </div>
+      {scenario.agenda.length > 1 && (
+        <ol className="sc-steps" style={{ marginTop: 10, marginBottom: openQuestions.length > 0 ? 10 : 0 }}>
+          {scenario.agenda.map((step, index) => (
+            <li key={step.title} data-state={ended || index < agendaIndex ? 'done' : index === agendaIndex ? 'now' : 'next'}>
+              <i />
+              <span>{step.title}</span>
+              <em>{step.minutes}m</em>
+            </li>
+          ))}
+        </ol>
+      )}
+      {openQuestions.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <p className="eyebrow" style={{ marginBottom: 4 }}>Open questions · {openQuestions.length}</p>
+          <ul className="sc-questions" style={{ margin: 0, paddingLeft: 18 }}>
+            {openQuestions.map((question) => (
+              <li key={question.id}>
+                {question.text}
+                {question.forRole === undefined ? null : <em> · {roleLabel(scenario, question.forRole)}</em>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }
