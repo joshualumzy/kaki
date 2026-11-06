@@ -24,12 +24,12 @@ Single-context layout (`CONTEXT.md` at root). See `docs/agents/domain.md`.
 
 ## Git safety rules (non-negotiable)
 
-- **Remotes:** `personal` is the owner's repository (`joshualumzy/it5007-project`); `origin` is the course repo. Push to `personal` only.
+- **Remote:** `origin` is the course repository (`IT5007-2610/it5007-courseproject-group-14`).
 
-- Work only on the branch the owner names. Push only to `personal`. Do not push to any other remote (including `origin`) unless the owner asks for that specific push in this conversation.
+- Work only on the branch the owner names. Push only to `origin` when the owner asks.
 - Never use `git push --force`, `--force-with-lease`, `git reset --hard`, `git checkout -- <path>`, `git clean`, or `git branch -D` without asking the owner first. Say exactly what will be lost, and wait for a yes.
 - If a push is rejected or branches have diverged, STOP. Do not force. Run `git fetch`, show the owner `git log --oneline --graph --all -15`, explain the cause in plain words, and propose a fix that keeps every commit, such as `git pull --rebase`. Wait for approval.
 - Before discarding any uncommitted change, show `git status` and `git diff --stat` and say what the changes are. Prefer `git stash` over deleting.
-- Before every push, run `git fetch personal` and check that the push would be a fast-forward. If it would not, treat it as the case above.
+- Before every push, run `git fetch origin` and check that the push would be a fast-forward. If it would not, treat it as the case above.
 - Other people and other agents push to this repo while you work. Their commits are not yours to remove. After any push, confirm that the remote branch still contains every commit that was there before.
 - When you report a git problem, say which commands you ran and what you lost or overwrote, if anything. Do not describe a force push as "aligning" or "syncing".

@@ -17,9 +17,11 @@ Single-context repo:
 /
 ├── CONTEXT.md
 ├── docs/
-│   ├── adr/
 │   └── spec/
-└── src/
+├── shared/
+├── server/
+├── web/
+└── scenarios/
 ```
 
 ## Use the glossary's vocabulary
