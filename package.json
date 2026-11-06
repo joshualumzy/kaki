@@ -9,6 +9,8 @@
     "web"
   ],
   "scripts": {
+    "live:up": "bash scripts/live-up.sh",
+    "live:down": "bash scripts/live-down.sh",
     "dev": "node scripts/dev.mjs",
     "npc": "npm run npc -w @kaki/server",
     "test": "vitest run",

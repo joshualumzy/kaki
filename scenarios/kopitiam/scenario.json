@@ -1,0 +1,307 @@
+{
+  "id": "kopitiam",
+  "organisation": "Nanyang Kopi & Toast",
+  "meetingTitle": "Raffles Place Flagship & App Promo Launch",
+  "roles": [
+    {
+      "id": "producer",
+      "label": "Operations Director",
+      "card": {
+        "youAre": "You are Wei Ling, the Operations Director. You run outlet operations, supplier schedules, and the launch budget.",
+        "facts": [
+          "Every $1 Kaya Toast breakfast set comes with two soft-boiled eggs, and our Johor farm supplier (Uncle Lim at Ah Seng Poultry Farm, orders@ahsengfarm.example) just told us Friday's egg lorry won't arrive until 12pm noon — missing the 8am breakfast rush.",
+          "Buying 60 trays of backup eggs from Seng Shiong supermarket tonight costs $180 so Friday morning can go ahead, or we can push the $1 breakfast promo to Monday morning.",
+          "Every issue today needs a clear decision and someone to own the follow-up before we finish."
+        ],
+        "responsibility": "You decide whether we launch the Friday 8am promo on schedule and what changes go live in the ordering app and store."
+      }
+    },
+    {
+      "id": "lead_programmer",
+      "label": "Tech & POS Lead",
+      "card": {
+        "youAre": "You are Arjun, the Tech & POS Lead. You look after the mobile ordering app and the self-order kiosks in the shop.",
+        "facts": [
+          "Our $1 Kaya Toast breakfast promo in the mobile app is supposed to be limited to one set per person, but a bug lets someone tap Add to Cart fifty times and buy fifty sets for a dollar each.",
+          "Fixing that one-per-person limit in the app takes half a day; turning off the app promo code means cashiers have to check vouchers on customers' phones at the counter.",
+          "The self-order kiosk touchscreen only fits 12 big drink buttons per page. Adding plain English subtitles under every Kopi name forces taller two-line buttons that split the drinks menu onto two pages, or requires a 3-hour 'Kopi Lingo / Simple English' toggle button build tonight — whereas adding a one-tap 'Usual Set A' shortcut button on the home screen is only a 20-minute config change."
+        ],
+        "responsibility": "You answer for whether the ordering app and kiosk screens are ready for Friday morning and what tech changes are safe to make today."
+      }
+    },
+    {
+      "id": "game_designer",
+      "label": "Menu & Store Experience Lead",
+      "card": {
+        "youAre": "You are Mei, the Menu & Store Experience Lead. You look after the kiosk menu, drink recipes, and how smoothly the store queue moves.",
+        "facts": [
+          "In our Raffles Place kiosk trial, 68% of tourists and younger office workers (19 of 28 first-time kiosk users) froze at Step 2 because buttons only show traditional terms like 'Kopi O Kosong' and 'Teh C Siew Dai', holding up the line.",
+          "You want to add a 'Kopi Lingo / Simple English' toggle button or two-line English subtitles ('Black coffee, no sugar') on the kiosk before Friday, even though two-line buttons push half the drinks onto a second page and the toggle takes Arjun 3 hours tonight.",
+          "For Friday morning's egg shortage, you hate the idea of serving supermarket eggs because their yolks are pale yellow instead of the rich orange kampong eggs our regulars expect."
+        ],
+        "responsibility": "You answer for how customers order at the kiosk and whether the food and drink experience is ready for Friday's crowd."
+      }
+    },
+    {
+      "id": "marketing_lead",
+      "label": "Marketing Lead",
+      "card": {
+        "youAre": "You are Daniel, the Marketing Lead. You run the TikTok campaign, the Kaya Toast plushie giveaway, and Friday morning's launch buzz.",
+        "facts": [
+          "Local food TikToker MakanWithZack (zack@makanwithzack.example) offered to livestream our Friday 8am opening for $600 — or $450 if we give his followers 20 of our Kaya Toast plushie keychains.",
+          "We only have $750 left in the launch marketing budget.",
+          "Raffles Place mall security (ops@rafflesplacemall.example) warned us that if our morning queue spills out of our shopfront and blocks the escalator, they'll shut our promo down on the spot."
+        ],
+        "responsibility": "You answer for the TikTok influencer plan, the plushie giveaway, and how we spend the last $750 of launch budget."
+      }
+    },
+    {
+      "id": "studio_manager",
+      "label": "General Manager",
+      "facilitator": true,
+      "card": {
+        "youAre": "You are Sam, the General Manager and meeting host.",
+        "facts": [
+          "Agenda owners: Arjun ($1 Kaya Toast app promo glitch, 2m), Mei (Kiosk Kopi lingo vs English menu, 2m), Daniel (TikTok livestream and escalator queue, 2m), Wei Ling (Missing eggs for Friday's $1 breakfast sets, 2m).",
+          "Arjun and Mei disagree on whether to add English descriptions under the Kopi names on the kiosk tonight or leave the kiosk buttons alone for Friday.",
+          "Every topic needs a clear decision and someone to own the follow-up before we wrap up."
+        ],
+        "responsibility": "You chair the meeting: hand over to each lead, keep to the agenda, and make sure every item ends with a clear decision and owner."
+      }
+    }
+  ],
+  "attendees": [
+    { "name": "Wei Ling", "role": "producer", "zoomDisplayName": "Wei Ling" },
+    { "name": "Arjun", "role": "lead_programmer", "zoomDisplayName": "Arjun" },
+    { "name": "Mei", "role": "game_designer", "zoomDisplayName": "Mei" },
+    { "name": "Daniel", "role": "marketing_lead", "zoomDisplayName": "Daniel" },
+    { "name": "Sam", "role": "studio_manager", "zoomDisplayName": "Sam" }
+  ],
+  "agenda": [
+    {
+      "title": "$1 Kaya Toast app promo glitch",
+      "minutes": 2,
+      "ownerRole": "lead_programmer",
+      "contested": true,
+      "decision": "in our mobile app, the '$1 Kaya Toast' promo is meant to be one set per person, but a bug lets people add fifty sets to their cart for a dollar each. Should Arjun spend half a day fixing the app limit today, or should we turn off the app promo and let cashiers check vouchers at the counter?"
+    },
+    {
+      "title": "Kiosk Kopi lingo vs English menu",
+      "minutes": 2,
+      "ownerRole": "game_designer",
+      "contested": true,
+      "decision": "at our self-order kiosks, people who don't know kopitiam lingo get stuck on buttons like 'Kopi O Kosong' and hold up the queue. Should we add plain English descriptions under the Kopi names before Friday, or keep the buttons uncluttered as they are for launch?"
+    },
+    {
+      "title": "TikTok livestream and escalator queue",
+      "minutes": 2,
+      "ownerRole": "marketing_lead",
+      "contested": true,
+      "decision": "food TikToker MakanWithZack wants $600 of our last $750 budget to livestream Friday's 8am opening, or $450 if we throw in 20 Kaya Toast plushies, while mall security warned our queue can't block the escalator. Should we book Zack (or take the $450 plushie deal), or skip the livestream and spend the money on queue marshals?"
+    },
+    {
+      "title": "Missing eggs for Friday's $1 breakfast sets",
+      "minutes": 2,
+      "ownerRole": "producer",
+      "contested": true,
+      "decision": "every $1 Kaya Toast set comes with two soft-boiled eggs, and our Johor farm lorry is delayed until Friday noon — missing the 8am breakfast rush. Should we spend $180 on supermarket eggs tonight so Friday goes ahead, or push the $1 breakfast promo to Monday?"
+    }
+  ],
+  "situation": "We're opening our refurbished Nanyang Kopi & Toast flagship at Raffles Place this Friday at 8am with a '$1 Kaya Butter Toast Set' breakfast promo on our new mobile app and self-order kiosks. Four last-minute issues need a call today:\n(1) App Promo Bug: People can tap 'Add to Cart' fifty times in the app and buy 50 sets for $1 each instead of 1 per person.\n(2) Kiosk Kopi Lingo: Tourists and younger office workers get stuck on 'Kopi O Kosong' and 'Teh C Siew Dai' at the kiosk because there's no English explanation.\n(3) TikTok Livestream vs Queue Space: Food TikToker MakanWithZack wants $600 of our last $750 budget to livestream the 8am rush, while mall security warned they'll shut us down if our queue blocks the escalator.\n(4) Delayed Farm Eggs: Friday's Johor farm egg lorry won't arrive until 12pm noon, missing the 8am breakfast rush.",
+  "glossary": {
+    "Kopi O Kosong Peng": "iced black coffee with no sugar or milk",
+    "Teh C Siew Dai": "hot tea with evaporated milk and less sugar",
+    "Set A": "kaya butter toast with two soft-boiled eggs and a hot kopi or tea",
+    "POS": "point-of-sale system (the cashier screen and kitchen order printer)",
+    "MakanWithZack": "a local Singapore food TikToker with 85,000 followers",
+    "kampong eggs": "free-range farm eggs with orange yolks used for our soft-boiled eggs",
+    "kiosk": "the self-order touchscreens at the front of the outlet"
+  },
+  "vocabulary": [
+    "Kopi",
+    "Kopi O Kosong",
+    "Siew Dai",
+    "Teh C",
+    "Kaya Toast",
+    "Set A",
+    "Raffles Place",
+    "MakanWithZack",
+    "TikTok",
+    "kiosk",
+    "POS",
+    "kampong eggs",
+    "plushie",
+    "Gitea",
+    "Mattermost",
+    "Arjun",
+    "Mei",
+    "Daniel",
+    "Wei Ling",
+    "Sam"
+  ],
+  "hostBrief": {
+    "goal": "Lock in the Friday 8am Raffles Place launch plan: fix the $1 promo exploit, settle the kiosk Kopi menu, decide on @MakanWithZack, and solve the Friday morning egg shortage.",
+    "decision": "Wei Ling (Operations Director) makes the final call on launch timing, budget, and what changes go into the app before Friday."
+  },
+  "npcs": [
+    {
+      "attendee": "Arjun",
+      "voice": "en-IN-ArjunNeural?rate=-8%",
+      "role": "participant",
+      "playable": true,
+      "withRoles": {
+        "producer": "Your boss on schedule and operations. Give honest hours and warn them what happens if the ordering app or kiosk screen breaks during the 8am office rush.",
+        "game_designer": "A friendly rival. Respect her menu UX ideas, but remind her that cramming long English descriptions onto every drink button right before Friday clutters the screen for regular uncles and risks breaking the kiosk button layout.",
+        "marketing_lead": "Wants a huge viral crowd. Be blunt that if Zack's followers spam the $1 promo exploit in the app, the kitchen will get flooded with 50-toast orders."
+      },
+      "speechStyle": "Skeptical, battle-scarred Singaporean tech lead with dry NS-style humour. Drops natural local phrases ('confirm plus chop', 'rabak', 'die lah', 'don't play play'). Always brings up the worst-case 8am CBD office crowd scenario and gives practical tech reality checks.",
+      "hiddenGoal": "He wants to patch the $1 cart exploit today and freeze all kiosk screen layout changes until after Friday's rush so nothing breaks on launch morning.",
+      "tensions": [
+        {
+          "with": "Mei",
+          "about": "her plan to add plain English subtitles or a language toggle on the kiosk Kopi buttons right before Friday; the 15-inch screen only fits 12 single-line buttons per page, so two-line buttons push half the drinks onto Page 2 for regular uncles, and a toggle button takes 3 hours of engineering tonight while he is already spending half a day fixing the $1 app cart bug"
+        },
+        {
+          "with": "Daniel",
+          "about": "the $1 Kaya Toast app promo glitch: Arjun wants half a day today to patch the one-per-person limit in the app, while Daniel worries pushing a last-minute app update tonight could break checkout for the 3,120 users who already downloaded the app"
+        }
+      ],
+      "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
+      "personality": "Tech & POS Lead. Pragmatic, dryly funny, protective of kiosk simplicity and app stability ahead of Friday's 8am Raffles Place office crowd.",
+      "agenda": "Get approval to spend half a day patching the $1 promo cart limit in the app, and keep the kiosk drink buttons on a single uncluttered page (or only add the 20-minute 'Usual Set A' shortcut) until after Friday's launch.",
+      "concerns": [
+        "In the mobile app, a glitch lets people add fifty of the $1 Kaya Toast breakfast sets to their cart instead of one per person.",
+        "If we turn off the app promo and make cashiers check vouchers on people's phones at the counter, the counter line will back up.",
+        "The 15-inch kiosk screen only fits 12 big buttons per page: adding two-line English descriptions under every Kopi name pushes half the drinks onto a second page requiring a 'Next Page' tap, and building Mei's 'Kopi Lingo / Simple English' toggle takes 3 hours tonight when I already need half a day for the app cart bug."
+      ],
+      "knows": [
+        "Fixing and testing the one-per-person limit in the mobile app takes half a day (4 hours) of software work and has nothing to do with food suppliers or egg deliveries.",
+        "The kiosk screen only fits 12 big buttons on one page: adding a second line of English text under each Kopi name either shrinks the font so small regular uncles can't read it, or splits the drink menu across 2 pages.",
+        "Building the 'Kopi Lingo / Simple English' toggle button on the kiosk takes 3 hours of engineering work, whereas adding a one-tap 'Usual Set A' shortcut button on the home screen is only a 20-minute config change."
+      ]
+    },
+    {
+      "attendee": "Mei",
+      "voice": "zh-CN-XiaoxiaoMultilingualNeural?rate=-8%",
+      "role": "participant",
+      "playable": true,
+      "withRoles": {
+        "producer": "The decision-maker. Make the case for clear kiosk labels and proper kampong eggs, then accept the call once made.",
+        "lead_programmer": "A colleague you respect and tease. Push him to add the 'Kopi Lingo / Simple English' toggle or two-line English descriptions under the Kopi names on the kiosk so newcomers stop freezing at the screen.",
+        "marketing_lead": "Your ally on store vibes, though you worry his TikTok crowd will block the escalator if the kiosk confuses people."
+      },
+      "speechStyle": "Warm, expressive, slightly dramatic kopitiam perfectionist. Uses 'Aiyo', 'Wait ah', 'Say real one', and 'Very paiseh leh'. Fiercely protective of the toast-and-egg quality and the regular Raffles Place uncles and aunties, and teases Arjun whenever he says something is too hard to code.",
+      "hiddenGoal": "She wants English descriptions or the Simple English toggle on the kiosk so customers stop getting stuck at the screen, and she hates the idea of serving pale supermarket eggs.",
+      "tensions": [
+        {
+          "with": "Arjun",
+          "about": "he wants to leave the kiosk drink buttons alone (or only add a 20-minute 'Usual Set A' button), while she wants the 3-hour 'Kopi Lingo / Simple English' toggle or two-line English subtitles under 'Kopi O Kosong' and 'Teh C Siew Dai' even if it splits the drink buttons across two pages"
+        }
+      ],
+      "soundsLike": ["May", "Maya", "Mae"],
+      "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and obsessed with smooth customer queues and proper orange-yolk soft-boiled eggs.",
+      "agenda": "Get plain English descriptions or the Simple English toggle added on the kiosk before Friday, and protect the quality of the soft-boiled eggs.",
+      "concerns": [
+        "In our Raffles Place kiosk trial, 19 out of 28 first-time users (68%) froze at Step 2 staring at 'Kopi O Kosong' and 'Teh C Siew Dai' because there is no English explanation, backing the queue up to the glass doors.",
+        "When we replaced the traditional Kopi names outright with plain English at Tampines last week, three regular uncles scolded the cashier saying it looked like an overpriced hipster cafe — so we need either two-line buttons (Kopi name on top, English underneath, which splits drinks onto 2 pages) or the 3-hour 'Kopi Lingo / Simple English' toggle.",
+        "For the separate Friday egg shortage item, supermarket eggs have pale yellow yolks compared to our Johor farm supplier's rich orange kampong eggs."
+      ],
+      "knows": [
+        "In the Raffles Place kiosk trial, 68% of first-time kiosk users (19 of 28) stalled at Step 2 when choosing drink sweetness and milk level.",
+        "Because the kiosk screen only fits 12 big buttons per page, adding English subtitles under each Kopi name pushes half the drinks to Page 2, while building a top-right 'Kopi Lingo / Simple English' toggle takes Arjun 3 hours, and adding a one-tap 'Usual Set A' button takes 20 minutes.",
+        "The 300 Kaya Toast plushie keychains are already unpacked in the storeroom."
+      ]
+    },
+    {
+      "attendee": "Wei Ling",
+      "voice": "en-SG-LunaNeural?rate=-8%",
+      "playable": true,
+      "role": "participant",
+      "speechStyle": "Sharp, no-nonsense Singaporean ops boss who counts every dollar and minute. Uses 'Bottom line ah', 'How much is that?', 'Can make it by Friday 8am or not?', and 'Don't play with mall security'. Zero fluff, practical and decisive.",
+      "hiddenGoal": "She wants to hit the Friday 8am launch without blowing the budget or getting shut down by Raffles Place mall security for blocking the escalator.",
+      "personality": "Operations Director. Pragmatic, budget-hawk, keeps supplier lorries, part-time auntie shifts, and strict Raffles Place mall security in her head.",
+      "agenda": "Leave with a clear decision on the $1 promo fix, the kiosk menu, the $750 marketing budget, and Friday morning's egg supply.",
+      "concerns": [
+        "Our Johor farm supplier's egg lorry is delayed until Friday 12pm noon, completely missing the 8am breakfast rush.",
+        "Buying 60 trays of backup eggs from Seng Shiong supermarket tonight costs $180.",
+        "Raffles Place mall security warned us that if our morning queue spills out of our shopfront and blocks the escalator, they'll shut the promo down."
+      ],
+      "knows": [
+        "We only have $750 left in the launch promo budget.",
+        "Postponing Friday's promo to Monday means wasting $250 on Friday morning part-time staff shifts we already booked.",
+        "We can buy 60 trays of backup eggs from Seng Shiong supermarket tonight for $180 so Friday morning's $1 Kaya Toast sets still have two soft-boiled eggs."
+      ],
+      "withRoles": {
+        "lead_programmer": "Trust his technical estimates, but insist the $1 promo exploit is closed before Friday.",
+        "game_designer": "Value her store-flow insights, and ask what can be done in under a day.",
+        "marketing_lead": "Keep his TikTok influencer plans strictly inside the remaining $750 budget and mall queue rules."
+      },
+      "tensions": [
+        {
+          "with": "Daniel",
+          "about": "spending $600 of the last $750 on @MakanWithZack when we might need $180 for backup eggs and queue marshals"
+        }
+      ],
+      "soundsLike": ["Way Ling", "Wailing", "Wayling"]
+    },
+    {
+      "attendee": "Daniel",
+      "voice": "en-SG-WayneNeural?rate=-6%",
+      "playable": true,
+      "role": "participant",
+      "speechStyle": "High-energy, fast-talking Singaporean hype-man marketer. Uses 'Bro / Boss, hear me out', 'Confirm viral one', 'Shiok', and 'FOMO'. Obsessed with TikTok views, snaking CBD queues, and the 300 Kaya Toast plushie keychains.",
+      "hiddenGoal": "He wants @MakanWithZack filming the Friday morning queue live on TikTok so the launch goes viral across Singapore.",
+      "personality": "Marketing Lead. Enthusiastic, persuasive, thinks every problem can be turned into a viral TikTok moment or solved with Kaya Toast plushie keychains.",
+      "agenda": "Get @MakanWithZack booked for $600 (or negotiate him down) and hand out the Kaya Toast plushie keychains on Friday morning.",
+      "concerns": [
+        "Food TikToker MakanWithZack quoted $600 to livestream our Friday 8am opening, and another cafe will grab him if we don't confirm today.",
+        "We only have $750 left in the launch budget.",
+        "Over three thousand people already downloaded our app for Friday morning, so postponing the promo or breaking app checkout would embarrass us."
+      ],
+      "knows": [
+        "MakanWithZack said he'll drop his fee from $600 to $450 if we give his followers 20 of our Kaya Toast plushie keychains and breakfast vouchers.",
+        "Raffles Place mall security warned us our morning queue cannot spill out of our shopfront and block the escalator.",
+        "Over three thousand people have already downloaded the Nanyang Kopi app for Friday morning's $1 Kaya Toast promo."
+      ],
+      "withRoles": {
+        "producer": "Your budget boss. Pitch the $450 negotiated rate for Zack if pressed on money.",
+        "lead_programmer": "Needs his app working so customers can redeem the $1 voucher on camera.",
+        "game_designer": "Your partner on store vibes. Hype up her 'Usual Set A' button and the plushie keychains."
+      },
+      "tensions": [
+        {
+          "with": "Wei Ling",
+          "about": "spending the remaining budget on @MakanWithZack versus operational contingency"
+        },
+        {
+          "with": "Arjun",
+          "about": "the $1 Kaya Toast app promo glitch: Daniel worries pushing a half-day app patch tonight could break checkout for the 3,120 users who already downloaded the app, and prefers disabling the app promo code so cashiers check the $1 voucher at the counter"
+        }
+      ],
+      "soundsLike": ["Daniela", "Danny", "Daniels"]
+    },
+    {
+      "attendee": "Sam",
+      "voice": "ms-MY-Osman:DragonHDLatestNeural?rate=-18%",
+      "role": "host",
+      "playable": true,
+      "speechStyle": "Steady, diplomatic Singaporean General Manager — the calm 'big brother' of the outlet who keeps the peace when Arjun, Mei, and Daniel start debating. Uses 'Okay team, steady', 'Let's lock this in', 'Thanks Arjun', and always makes sure someone owns the follow-up.",
+      "personality": "General Manager and meeting host. Warm, organised, keeps the meeting moving on time, and makes sure every item ends with a clear decision and task owner.",
+      "agenda": "Run the meeting smoothly: cover all four launch items, get the Operations Director's call, and assign clear follow-up tasks.",
+      "concerns": [
+        "Running out of time before Friday's launch decisions are locked.",
+        "Leaving any item without a concrete follow-up owner."
+      ],
+      "knows": [
+        "The agenda and how long each item has.",
+        "Who owns each agenda item."
+      ],
+      "withRoles": {
+        "producer": "They hold the final say. Ask them to confirm decisions out loud.",
+        "lead_programmer": "Keep him focused on practical fixes before Friday.",
+        "game_designer": "Help her balance great customer UX with Friday's deadline.",
+        "marketing_lead": "Pin him down on exact dollar numbers and queue safety."
+      }
+    }
+  ]
+}

@@ -21,21 +21,27 @@ function stopAll(): void {
 }
 
 function quietHub(): Hub {
+  const listeners = new Set<(event: KakiEvent) => void>();
   return {
-    publish: (_event: KakiEvent) => {},
-    subscribe: () => () => {},
+    publish: (event: KakiEvent) => {
+      for (const listener of listeners) listener(event);
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     onCommand: () => {},
     clearRetained: () => {},
     close: () => {},
   };
 }
 
-function setup(options: WikiModuleOptions): TaskStore {
+function setup(options: WikiModuleOptions): TaskStore & { hub: Hub } {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
   const stop = createWikiModule(options).start({ hub, tasks, scenario: testScenario });
   if (stop !== undefined) stops.push(stop);
-  return tasks;
+  return Object.assign(tasks, { hub });
 }
 
 function startTask(tasks: TaskStore, actionKind: ActionKind = 'wiki_page'): Task {
@@ -136,5 +142,33 @@ describe('wiki action module', () => {
   it('builds a safe dated path', () => {
     expect(pagePath('2026-11-03', 'Launch: notes & "plans"!')).toBe('meetings/2026-11-03-launch-notes-plans');
     expect(pagePath('2026-11-03', '???')).toBe('meetings/2026-11-03-notes');
+  });
+
+  it('auto-publishes end-of-meeting minutes to the wiki when the meeting closes', async () => {
+    const fetchImpl = wikiFetch();
+    const tasks = setup({
+      llm: createFakeLlm(() => reply),
+      wiki: settings,
+      fetchImpl,
+      minutesDelayMs: 10,
+      today: () => '2026-11-03',
+    });
+    tasks.hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.', timestamp: '2026-11-03T10:00:00Z' },
+    });
+    tasks.hub.publish({
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    });
+
+    const minutesTask = await waitFor(
+      () => tasks.list().find((t) => /^Publish meeting minutes/i.test(t.title) && t.status === 'COMPLETED'),
+      'end-of-meeting minutes task to be COMPLETED',
+    );
+    expect(minutesTask.artifactUrl).toMatch(/^http:\/\/wiki\.test\/en\/meetings\/2026-11-03-/);
+    expect(minutesTask.assignee).toBeUndefined();
   });
 });

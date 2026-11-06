@@ -3,7 +3,7 @@ import { LiveKitRoom } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
 import { demoRoomName, hostRole, humanAttendeeForRole, humanRoles } from '@kaki/shared';
-import { useScenario } from '../kaki';
+import { useRefreshScenario, useScenario } from '../kaki';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
 import { LocalSpeechSTT } from './LocalSpeechSTT';
@@ -34,6 +34,7 @@ interface Session {
 /** The live demo meeting: join with a name and role, then talk to the AI attendees. */
 export default function Meeting() {
   const scenario = useScenario();
+  const refreshScenario = useRefreshScenario();
   // Participants first; the host's seat last, when the scenario lets a person run the meeting.
   const roles = useMemo(() => {
     const host = hostRole(scenario);
@@ -64,6 +65,7 @@ export default function Meeting() {
       if (!response.ok || typeof body.token !== 'string') {
         throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
       }
+      await refreshScenario().catch(() => undefined);
       setSession({
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
@@ -127,6 +129,7 @@ export default function Meeting() {
       <Dock
         meetingCode={session.meetingCode}
         role={seatRole}
+        started={!needsStart}
         viewer={{
           name: session.name,
           seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName,

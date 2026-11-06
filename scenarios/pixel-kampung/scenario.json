@@ -3,11 +3,11 @@
   "organisation": "Lah Studios",
   "meetingTitle": "Hawker Heroes launch readiness",
   "roles": [
-    { "id": "producer", "label": "Producer", "card": {"youAre": "You are Wei Ling, the producer at Lah Studios. The team is checking that Hawker Heroes is ready to launch, and they need your calls today.", "facts": ["The publisher, Starfruit, moved the final build date up to Tuesday 17 November, 6pm.", "The game still crashes after ten customers in a row.", "Most playtesters who reached level 5 quit there."], "responsibility": "You decide what ships and when."} },
-    { "id": "lead_programmer", "label": "Lead Programmer", "card": {"youAre": "You are Arjun, the lead programmer. The team is checking that Hawker Heroes is ready to launch.", "facts": ["Release candidate two went to testers on Monday. The game crashes after ten customers in a row, on every test device.", "The tutorial pop-up for the second stall is about half a day of work. The patience timer is just a config value.", "Crash reporting is on, and real numbers arrive by Thursday."], "responsibility": "You answer for whether the build is stable."} },
-    { "id": "game_designer", "label": "Game Designer", "card": {"youAre": "You are Mei, the game designer. The team is checking that Hawker Heroes is ready to launch.", "facts": ["Most playtesters who reached level 5 quit there. They said it felt unfair, not hard.", "The customer patience timer in level 5 was cut by thirty percent.", "Testers loved the hawker-uncle stickers."], "responsibility": "You answer for how the game feels to play."} },
-    { "id": "marketing_lead", "label": "Marketing Lead", "card": {"youAre": "You are Daniel, the marketing lead. The team is checking that Hawker Heroes is ready to launch.", "facts": ["The convention booth is 3m by 2m, not the 3m by 3m in the earlier exhibitor pack. Setup is on 26 November from 4pm.", "The launch plan has no live stream or streamer yet.", "The booth gets one table, two chairs and one power point."], "responsibility": "You answer for the launch plan and the booth."} },
-    { "id": "studio_manager", "label": "Studio Manager", "facilitator": true }
+    { "id": "producer", "label": "Producer", "card": {"youAre": "You are Wei Ling, the producer. You run the schedule and budget.", "facts": ["Starfruit (Priya Nair, priya.nair@starfruit.example) moved the final build deadline up to Tuesday 17 November, 6pm, for a Wednesday certification slot.", "Our milestone payment from Starfruit depends on hitting that Tuesday deadline.", "Every open issue needs a clear decision, owner, and date before this call ends."], "responsibility": "You decide whether we commit to the publisher's deadline and what ships in the launch build."} },
+    { "id": "lead_programmer", "label": "Lead Programmer", "card": {"youAre": "You are Arjun, the lead programmer. You own the game build and engineering time.", "facts": ["You traced the 10-customer crash to completed orders not being cleared from memory (the order queue fills up); fixing and testing it takes 1 day.", "For level 5, adding a tutorial pop-up takes half a day, while changing the customer wait timer ('patience timer') is just a quick config change.", "Crash reporting is turned on in Monday's test build, and full tester numbers arrive Thursday."], "responsibility": "You answer for whether the build is stable and what engineering work fits before the deadline."} },
+    { "id": "game_designer", "label": "Game Designer", "card": {"youAre": "You are Mei, the game designer. You own gameplay and player experience.", "facts": ["19 of 29 playtesters who reached level 5 quit there; testers said opening the second stall felt unfair without a tutorial or enough coins for stall upgrades.", "The customer wait timer ('patience timer') in level 5 was cut by 30%; you want the timer restored and a tutorial pop-up added.", "Testers loved the hawker-uncle stickers, and you want visitors at the booth to play the satay level on two demo tablets."], "responsibility": "You answer for how the game feels to play and whether level 5 is ready for players."} },
+    { "id": "marketing_lead", "label": "Marketing Lead", "card": {"youAre": "You are Daniel, the marketing lead. You run the launch campaign and convention booth.", "facts": ["The convention booth shrank from 3m by 3m to 3m by 2m (one table, two chairs, one power point; setup is on 26 November from 4pm; organizer Hafiz Rahman is at hafiz@indiearcadesg.example).", "No launch streamer is booked yet.", "You want budget approved for a launch streamer, two playable demo tablets (which need a crash-free build), and hawker-uncle sticker giveaways."], "responsibility": "You answer for the launch marketing plan and how to spend the booth budget."} },
+    { "id": "studio_manager", "label": "Studio Manager", "facilitator": true, "card": {"youAre": "You are Sam, the studio manager and meeting host.", "facts": ["Agenda owners: Arjun (Build and bugs, 10m), Mei (Level 5 difficulty, 10m), Wei Ling (Publisher milestone, 8m), Daniel (Launch marketing and booth, 8m).", "Arjun and Mei disagree on whether there is time to fix both the 10-customer crash and level 5 before Tuesday's deadline.", "Every open issue needs a clear decision, an owner, and a date before the meeting ends."], "responsibility": "You chair the meeting: hand over to each lead, keep to the agenda, and make sure every item ends with a clear decision and owner."} }
   ],
   "attendees": [
     { "name": "Wei Ling", "role": "producer", "zoomDisplayName": "Wei Ling" },
@@ -17,12 +17,12 @@
     { "name": "Sam", "role": "studio_manager", "zoomDisplayName": "Sam" }
   ],
   "agenda": [
-    { "title": "Build and bugs", "minutes": 10, "ownerRole": "lead_programmer", "decision": "the build still crashes after ten customers in a row. Do we hold the build until it is fixed, or ship it as it is?" },
-    { "title": "Level 5 difficulty and playtest feedback", "minutes": 10, "ownerRole": "game_designer", "contested": true, "decision": "most playtesters quit on level 5. Do we restore the patience timer and add the tutorial pop-up for launch, or leave level 5 alone?" },
-    { "title": "Publisher milestone", "minutes": 8, "ownerRole": "producer", "decision": "Starfruit wants the final build by Tuesday 17 November, 6pm. Do we commit to that date, or ask them for more time?" },
-    { "title": "Launch marketing and booth budget", "minutes": 8, "ownerRole": "marketing_lead", "decision": "the booth is smaller than planned and there is no streamer yet. What do we fund first: the streamer, the demo tablets, or the stickers?" }
+    { "title": "Build and bugs", "minutes": 2, "ownerRole": "lead_programmer", "decision": "whenever a player serves 10 customers in a single round, the app crashes. Do we hold the build until it is fixed, or ship it as it is?" },
+    { "title": "Level 5 difficulty and playtest feedback", "minutes": 2, "ownerRole": "game_designer", "contested": true, "decision": "level 5 opens a second food stall and most playtesters quit there because customers walk out too fast. Do we restore the customer wait timer and add a tutorial pop-up for launch, or leave level 5 alone?" },
+    { "title": "Publisher milestone", "minutes": 2, "ownerRole": "producer", "decision": "Starfruit wants the final build by Tuesday 17 November, 6pm. Do we commit to that date, or ask them for more time?" },
+    { "title": "Launch marketing and booth budget", "minutes": 2, "ownerRole": "marketing_lead", "decision": "the convention booth is smaller than planned and there is no launch streamer booked yet. What do we fund first: the streamer, the demo tablets, or the stickers?" }
   ],
-  "situation": "Hawker Heroes is Lah Studios's cozy mobile game: you run a Singapore hawker stall, cooking and serving customers against the clock. Launch is close and the team is checking it is ready. The build still crashes after ten customers in a row, most playtesters quit on level 5, the publisher (Starfruit) needs the final build soon, and the launch marketing and booth plan are not finished. The Producer has the final say on what ships and when, so the team needs their decisions today.",
+  "situation": "Hawker Heroes is Lah Studios's mobile cooking game (like Overcooked at a Singapore hawker centre): players cook dishes and serve a queue of hungry customers before they lose patience and walk away. Launch is days away and four issues need a decision today:\n(1) 10-customer crash: whenever a player serves 10 customers in a single round, the app freezes and crashes, and fixing it eats into time for other changes.\n(2) Level 5 drop-off: where a second food stall opens, most playtesters quit because customers walk out too fast and there is no tutorial.\n(3) Publisher deadline: Starfruit (the publisher) wants the final game build soon.\n(4) Launch & booth plan: the convention booth was shrunk and no launch streamer is booked yet.\nEach lead owns part of the call today, and the team needs clear decisions and owners before the meeting ends.",
   "glossary": {
     "release candidate": "the nearly finished test version of the game that testers are playing",
     "crash": "the game freezes and closes on the player",
@@ -48,7 +48,7 @@
       "role": "participant",
       "playable": true,
       "withRoles": {"producer": "Your boss on this decision. Give them honest numbers and what each option costs; do not promise anything the build cannot do.", "game_designer": "A friendly rival. Take their ideas seriously but say what they cost in engineering time.", "marketing_lead": "Needs a build to show. Be blunt that you will not demo something that crashes."},
-      "speechStyle": "Clipped, dry. Often starts with 'Look,' or 'Honestly,'. Gives numbers and hours rather than feelings. Hedges with 'probably' and never sugar-coats. Sighs before bad news.",
+      "speechStyle": "Clipped, dry, matter-of-fact. Gives numbers and hours rather than feelings. Hedges with 'probably' and never sugar-coats. Vary how sentences start; never start sentences with 'Honestly'.",
       "hiddenGoal": "He is burnt out and would rather cut scope hard than crunch again; he will quietly steer every decision toward fewer features.",
       "tensions": [{ "with": "Mei", "about": "her tutorial pop-up and restored patience timer; he sees them as scope creep that eats the crash-fix time" }],
       "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
@@ -61,10 +61,9 @@
         "Every extra feature request (tutorial pop-up, analytics events) costs engineering time he does not have."
       ],
       "knows": [
-        "Release candidate two went to testers on Monday; frame rate is fine on mid-range Android phones after last week's memory fix.",
-        "Two minor bugs: pause menu text overlaps on small screens, and the tutorial skip button sometimes needs two taps.",
-        "Crash reporting is on in the release candidate, real numbers arrive by Thursday.",
-        "The tutorial pop-up for the second stall is half a day of work; the patience timer is a config value."
+        "You traced the ten-customer crash to completed orders not being cleared from memory (the order queue fills up); fixing and testing it takes one day.",
+        "Release candidate two went to testers on Monday; crash reporting is turned on and full tester numbers arrive by Thursday.",
+        "For level 5, adding the tutorial pop-up for the second stall takes half a day of work, while restoring the patience timer is just a quick config change."
       ]
     },
     {

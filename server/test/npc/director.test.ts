@@ -76,11 +76,14 @@ describe('TurnParser', () => {
     expect(parse(['NONE\n'])).toEqual([]);
   });
 
-  it('removes markdown, emoji and stage directions before they reach the voice', () => {
+  it('removes markdown, emoji and stage directions before they reach the voice, and turns spaced dashes into comma pauses', () => {
     expect(parse(['Ada: *smiles* **Great** idea 🎉 (laughs) team!'])).toEqual([
       { speaker: 'Ada', text: 'Great idea team!' },
     ]);
     expect(cleanSpoken('  a   b  ')).toBe('a b');
+    expect(cleanSpoken('Sounds good to me - I will work on it — right away.')).toBe(
+      'Sounds good to me, I will work on it, right away.',
+    );
   });
 
   it('drops turns that contain nothing to say', () => {
@@ -202,15 +205,18 @@ describe('buildSystemPrompt', () => {
     it('hands the item to them when it is theirs, whichever role they picked', () => {
       const prompt = buildSystemPrompt(build({}), { name: 'Josh', role: 'Chef' });
       expect(prompt).toContain("This item is Josh's");
-      expect(prompt).toContain('"do we hold the build?"');
+      expect(prompt).toContain('do we hold the build?');
       expect(prompt).toContain('says it back in one sentence');
-      expect(prompt).toContain('asks Josh what they will do next and by when');
+      expect(prompt).toContain('addressed directly to Josh by name');
     });
 
-    it('asks them to settle a contested item, whoever they are', () => {
+    it('asks them to settle a contested item, whoever they are, and stops repeating the opening question once asked', () => {
       const prompt = buildSystemPrompt(build({ contested: true }), { name: 'Josh', role: 'Producer' });
       expect(prompt).toContain('disagree on this item and Josh is the one to settle it');
       expect(prompt).toContain('The characters never settle it among themselves');
+      const afterAsked = buildSystemPrompt(build({ contested: true }), { name: 'Josh', role: 'Producer' }, undefined, true);
+      expect(afterAsked).toContain('never repeat the opening summary word-for-word');
+      expect(afterAsked).not.toContain('do we hold the build?');
     });
   });
 
@@ -254,13 +260,16 @@ describe('HandoverGuard', () => {
     expect(guard.allow({ speaker: 'Sam', text: 'Thanks.' })).toBe(true);
   });
 
-  it('only counts a question aimed at a name at the start, including two-word names', async () => {
+  it('counts a question aimed at a name at the start or end, and blocks a third character from cutting in', async () => {
     const { HandoverGuard } = await import('../../src/npc/director');
-    const guard = new HandoverGuard(['Sam', 'Arjun', 'Wei Ling']);
+    const guard = new HandoverGuard(['Sam', 'Arjun', 'Wei Ling', 'Mei']);
     expect(guard.allow({ speaker: 'Sam', text: 'Did Arjun fix it?' })).toBe(true);
     expect(guard.allow({ speaker: 'Sam', text: 'Fine.' })).toBe(true);
     expect(guard.allow({ speaker: 'Sam', text: 'Wei Ling, what do you think?' })).toBe(true);
     expect(guard.allow({ speaker: 'Sam', text: 'Anyway.' })).toBe(false);
+    expect(guard.allow({ speaker: 'Wei Ling', text: 'Can I get this by tomorrow morning at the latest, Mei?' })).toBe(true);
+    expect(guard.allow({ speaker: 'Sam', text: 'Guest, what do you think?' })).toBe(false);
+    expect(guard.allow({ speaker: 'Mei', text: 'Yes, I can have it ready by tomorrow morning.' })).toBe(true);
   });
 });
 
@@ -272,9 +281,10 @@ describe('the director prompt', () => {
 
 describe('findHandover', () => {
   const names = ['Ada', 'Bao'];
-  it('finds a named character asked something by the last speaker', () => {
+  it('finds a named character asked something by the last speaker, at the start or end of the question', () => {
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }, { speaker: 'Ada', text: 'What do you propose?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, what do you think?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+    expect(findHandover([{ speaker: 'Ada', text: 'Can I get this by tomorrow morning, Bao?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
   });
   it('finds nothing when nobody is asked, or the one named already spoke', () => {
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }], names)).toBeUndefined();

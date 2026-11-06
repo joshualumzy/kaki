@@ -29,4 +29,17 @@ describe('SituationCard', () => {
     const { container } = render(<SituationCard scenario={{ ...scenario, situation: undefined }} />);
     expect(container.textContent).toBe('');
   });
+
+  it('splits multi-line situation text into separate paragraphs', () => {
+    render(<SituationCard scenario={{ ...scenario, situation: 'Intro line.\n(1) First issue.\n(2) Second issue.' }} />);
+    expect(screen.getByText('Intro line.')).toBeTruthy();
+    expect(screen.getByText('(1) First issue.')).toBeTruthy();
+    expect(screen.getByText('(2) Second issue.')).toBeTruthy();
+  });
+
+  it('replaces the scripted attendee name with the visitor name for their role', () => {
+    render(<SituationCard scenario={scenario} viewerName="Yoo" viewerRoleId="producer" />);
+    expect(screen.getByText('Yoo (you), Producer')).toBeTruthy();
+    expect(screen.queryByText('Wei Ling, Producer')).toBeNull();
+  });
 });

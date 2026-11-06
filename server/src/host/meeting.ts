@@ -9,7 +9,7 @@ import { openingLine } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
 
 const TICK_MS = 1_000;
-const DEFAULT_NOTETAKER_INTERVAL_MS = 7_000;
+const DEFAULT_NOTETAKER_INTERVAL_MS = 4_500;
 /** Republish an unchanged record after this much meeting time so clients can resync their clocks. */
 const HEARTBEAT_MEETING_SECONDS = 30;
 /** Talk time is compared at this granularity, so every transcript line does not cause a publish. */
@@ -50,6 +50,7 @@ export function createMeetingModule({
             ? (index) => {
                 clock.advanceTo(index);
                 publishRecord();
+                announceAgendaItem();
               }
             : undefined,
       });
@@ -196,34 +197,36 @@ export function createMeetingModule({
             { retainKey: 'host:opening' },
           );
         }
-        
+
         clock.start();
         notetaker.addChunk(event.payload);
-        
+
         announceAgendaItem();
       });
       const notetakerTimer = setInterval(() => void runNotetaker(), notetakerIntervalMs);
 
-      /** Freeze the clock and stop the heartbeat. Does nothing if no meeting is running. */
+      /** Freeze the clock and stop the heartbeat, and clear old events so the next visitor starts clean. */
       function endMeeting({ silent = false }: { silent?: boolean } = {}): void {
         const now = clock.snapshot();
         if (!now.started || now.ended) return;
         clock.end();
         stopTicker();
         console.log('kaki host: the meeting is over');
+        if (silent) {
+          resetMeeting();
+          return;
+        }
         // One last record so screens show the frozen clock, then a final notetaker pass for the last lines.
         lastSignature = undefined;
         guarded('publishing the record', publishRecord);
-        if (!silent) {
-          hub.publish({
-            type: 'HOST_SPEECH_TRIGGERED',
-            audience: { kind: 'screen' },
-            payload: {
-              kind: 'CLOSING',
-              text: `That concludes our meeting. Kaki is syncing the final tasks.`,
-            },
-          });
-        }
+        hub.publish({
+          type: 'HOST_SPEECH_TRIGGERED',
+          audience: { kind: 'screen' },
+          payload: {
+            kind: 'CLOSING',
+            text: `That concludes our meeting. Kaki is syncing the final tasks.`,
+          },
+        });
         void runNotetaker();
       }
 

@@ -378,6 +378,27 @@ export function roleLabel(scenario: Scenario, role: Role): string {
   return found.label;
 }
 
+/**
+ * The person and role label for a role in the scenario (for example "Arjun (Lead Programmer)"),
+ * or the visitor's own name when `viewer` holds that seat (for example "Boo (you · Producer)").
+ */
+export function assigneeLabel(
+  scenario: Scenario,
+  role: Role,
+  viewer?: { name: string; seatName?: string },
+): string {
+  const label = roleLabel(scenario, role);
+  const attendee = scenario.attendees.find((candidate) => candidate.role === role);
+  if (attendee === undefined) return label;
+  if (
+    viewer?.seatName !== undefined &&
+    attendee.name.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()
+  ) {
+    return `${viewer.name} (you · ${label})`;
+  }
+  return `${attendee.name} (${label})`;
+}
+
 /** Map a Zoom display name to that attendee's role, if they are in this scenario. */
 export function roleForZoomName(scenario: Scenario, name: string): Role | undefined {
   const wanted = name.trim().toLowerCase();

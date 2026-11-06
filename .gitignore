@@ -12,3 +12,7 @@ npc-audio/
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Local live-stack logs and local archive backup
+.live-logs/
+.local-backup/

@@ -221,6 +221,51 @@ describe('NpcConversation', () => {
       expect(calls.length).toBe(count);
       expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('just listening');
     });
+
+    it('advances the agenda once the characters finish talking an observe item through and the person stays silent', async () => {
+      const { conversation, ports, calls, playing, flush } = harness(watched());
+      let advanced = 0;
+      ports.advanceAgenda = () => {
+        advanced += 1;
+      };
+      conversation.agendaMoved(watched().agenda[0]!.title);
+      await vi.advanceTimersByTimeAsync(2000);
+      calls[0]?.push('Ada: I will patch the memory leak today.\nBao: Sounds good.');
+      calls[0]?.end();
+      await flush();
+      playing[0]?.finish();
+      await flush();
+      playing[1]?.finish();
+      await conversation.settled();
+      expect(advanced).toBe(0);
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(advanced).toBe(1);
+    });
+
+    it('advances the agenda once the person settles a contested item and the room wraps up with a follow-up commitment', async () => {
+      const { conversation, ports, calls, playing, say, flush } = harness(hostedScenario());
+      let advanced = 0;
+      ports.advanceAgenda = () => {
+        advanced += 1;
+      };
+      conversation.agendaMoved(hostedScenario().agenda[0]!.title);
+      await say('Let us go ahead with the changes.');
+      calls.at(-1)?.push("Ada: Alright, so we're restoring the timer.\nBao: Sounds good, I'll file a Gitea ticket for that.");
+      calls.at(-1)?.end();
+      await flush();
+      // Finish the AI's two sentences, then finish the host's queued ask announcement if any.
+      while (playing.some((entry) => !entry.finished)) {
+        for (const entry of playing) {
+          if (!entry.finished) entry.finish();
+        }
+        await flush();
+        await vi.advanceTimersByTimeAsync(600);
+      }
+      await conversation.settled();
+      expect(advanced).toBe(0);
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(advanced).toBe(1);
+    });
   });
 
   it('tells the model which agenda item the meeting is on', async () => {
@@ -681,20 +726,81 @@ describe('NpcConversation', () => {
     expect(h.calls).toHaveLength(2);
   });
 
-  it('goes quiet on Stop and stays quiet: no carrying on, no retry', async () => {
+  it('goes quiet on Stop and stays quiet: no carrying on, no retry, and resumes when asked', async () => {
     const h = harness();
     await h.say('Hello team.');
-    h.calls[0]?.push('Ada: One. Two.');
+    h.calls[0]?.push('Ada: One.\nBao: Two.');
     h.calls[0]?.end();
     await h.flush();
+    // Ada finishes her sentence; Bao starts speaking and gets cut off by Stop.
+    h.playing[0]?.finish();
+    await vi.advanceTimersByTimeAsync(1500);
+    await h.flush();
+    expect(h.playing.map((p) => `${p.speaker}: ${p.text}`)).toEqual(['Ada: One.', 'Bao: Two.']);
     h.conversation.stop();
-    expect(h.playing[0]?.signal.aborted).toBe(true);
+    expect(h.playing[1]?.signal.aborted).toBe(true);
+    // While paused, any speech from the microphone is completely ignored until Resume is pressed.
+    h.conversation.humanSpeech(true);
+    h.conversation.humanText('Talking to someone at the booth while paused.');
+    h.conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(h.calls).toHaveLength(1);
     expect(h.states.at(-1)).toEqual({ kind: 'idle' });
+    // Resuming replays the exact unfinished sentence from the interrupted speaker (Bao) without jumping speakers.
+    h.conversation.resumeFromPause();
+    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.map((p) => `${p.speaker}: ${p.text}`)).toEqual(['Ada: One.', 'Bao: Two.', 'Bao: Two.']);
+    h.playing[2]?.finish();
+    await h.conversation.settled();
     // And it still answers the next thing said.
     await h.say('Thanks.');
     expect(h.calls).toHaveLength(2);
+  });
+
+  it('carries on when bargeInMs cuts off a speaker and recognition hears no words, without letting an announcement jump in first', async () => {
+    const h = harness(scenario, 900);
+    await h.say('Hello team.');
+    h.calls[0]?.push('Ada: The build has a crash issue when serving 10 customers.');
+    h.calls[0]?.end();
+    await h.flush();
+    expect(h.playing).toHaveLength(1);
+
+    // A noise lasts past bargeInMs, then stops with no recognised words; meanwhile a host announcement is queued.
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    h.conversation.announce('Ada', 'Can you take that ticket?');
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(500);
+    // The interrupted speaker resumes first; the announcement waits until the resumed turn finishes.
+    expect(h.calls).toHaveLength(2);
+    expect(h.playing.map((p) => p.text)).toEqual(['The build has a crash issue when serving 10 customers.']);
+  });
+
+  it('resumes the remaining sentences of a scripted cue after Stop and Resume', async () => {
+    const h = harness();
+    let finished = false;
+    h.conversation.announce('Ada', 'First sentence. Second sentence.', undefined, () => {
+      finished = true;
+    });
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['First sentence.']);
+    h.playing[0]?.finish();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['First sentence.', 'Second sentence.']);
+    // Stop while the second sentence is playing.
+    h.conversation.stop();
+    expect(h.playing[1]?.signal.aborted).toBe(true);
+    expect(finished).toBe(false);
+    // Resume replays the unfinished second sentence and then calls onDone.
+    h.conversation.resumeFromPause();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['First sentence.', 'Second sentence.', 'Second sentence.']);
+    h.playing[2]?.finish();
+    await h.conversation.settled();
+    expect(finished).toBe(true);
   });
   describe('a hand-over to another character', () => {
     it('makes the named character answer, once, without the person saying anything', async () => {

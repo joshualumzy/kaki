@@ -44,6 +44,16 @@ describe('auto-dispatch', () => {
     expect(app.tasks.get(second.id)?.status).toBe('DISPATCHED');
   });
 
+  it('silently dismisses a duplicate task for the same role and action kind within the cooldown window', () => {
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+    const first = app.tasks.suggest({ title: 'File crash ticket', context: 'x', suggestedAssignee: 'chef', actionKind: 'gitea_issue' });
+    const second = app.tasks.suggest({ title: 'Fix order queue issue', context: 'x', suggestedAssignee: 'chef', actionKind: 'gitea_issue' });
+    const differentKind = app.tasks.suggest({ title: 'Post update', context: 'x', suggestedAssignee: 'chef', actionKind: 'mattermost_post' });
+    expect(app.tasks.get(first.id)?.status).toBe('DISPATCHED');
+    expect(app.tasks.get(second.id)?.status).toBe('DISMISSED');
+    expect(app.tasks.get(differentKind.id)?.status).toBe('DISPATCHED');
+  });
+
   it('leaves the task for a person when the role is the facilitator', () => {
     const scenario = {
       ...testScenario,

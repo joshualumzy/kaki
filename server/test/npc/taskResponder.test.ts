@@ -63,7 +63,7 @@ describe('task responder for an AI attendee', () => {
     responder.handle(updated(task({})));
     await tick();
     expect(prompt).toContain('Things you know: The oven trips the fuse twice a week.');
-    expect(prompt).toContain('concrete reaction');
+    expect(prompt).toContain('concrete detail');
     expect(prompt).toContain('never ask a question');
   });
 

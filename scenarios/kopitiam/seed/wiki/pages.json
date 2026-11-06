@@ -1,0 +1,22 @@
+{
+  "pages": [
+    {
+      "path": "kopitiam/kiosk-menu-sop",
+      "title": "Nanyang Kopi & Toast - Kiosk & Menu SOP",
+      "description": "Self-order kiosk flow, Kopi lingo guide and the Set A standard.",
+      "file": "kiosk-menu-sop.md"
+    },
+    {
+      "path": "kopitiam/supplier-contingency",
+      "title": "Supplier & Egg Quality Contingency Guide",
+      "description": "Ah Seng Farm delivery schedule, backup egg sourcing and shift costs.",
+      "file": "supplier-contingency.md"
+    },
+    {
+      "path": "kopitiam/mall-promo-rules",
+      "title": "Raffles Place Flagship - Queue & Promo Rules",
+      "description": "Storefront queue limits, TikTok filming rules and plushie giveaway plan.",
+      "file": "mall-promo-rules.md"
+    }
+  ]
+}

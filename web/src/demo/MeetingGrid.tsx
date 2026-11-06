@@ -38,23 +38,24 @@ function CaptionedTile() {
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
   const humanSpeaking = useIsSpeaking(participant);
-  const caption = captionFor(chunks, transcriptNameFor(scenario, participant), now);
   const speaking = isAi ? npcState.kind === 'speaking' && npcState.speaker === participant.identity : humanSpeaking;
+  const caption = captionFor(chunks, transcriptNameFor(scenario, participant), now, 8000, speaking);
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
+  const attendee = isAi ? scenario.attendees.find((candidate) => candidate.name === participant.identity) : undefined;
+  const roleTitle = isAi
+    ? scenario.roles.find((role) => role.id === attendee?.role)?.label
+    : participant.metadata?.trim() || undefined;
 
   return (
     <div className="kd-tile" data-state={state} data-ai={isAi} style={{ ['--c' as string]: `var(${orbPalette(isAi ? aiIndex : 1)[0]})` }}>
       {isAi ? <Orb state={state} palette={orbPalette(aiIndex)} /> : <ParticipantTile style={{ width: '100%', height: '100%' }} />}
-      {isAi && (
-        <>
-          <div className="kd-who">
-            <i />
-            {participant.identity}
-          </div>
-          <div className="kd-state">{state}</div>
-        </>
-      )}
+      <div className="kd-who">
+        <i />
+        <span>{isAi ? participant.identity : `${participant.name || participant.identity} (You)`}</span>
+        {roleTitle !== undefined && <small className="kd-who-role">· {roleTitle}</small>}
+      </div>
+      {isAi && <div className="kd-state">{state}</div>}
       {caption !== null && <div className="kd-caption">{caption}</div>}
     </div>
   );
@@ -102,12 +103,6 @@ export function MeetingGrid({ role }: { role: string }) {
         {npcState.kind === 'error' && (
           <div role="alert" className="kd-banner" data-tone="error">
             The AI attendees hit a problem: {npcState.message}
-          </div>
-        )}
-        {npcState.kind === 'idle' && npcState.yourTurn !== undefined && (
-          <div role="status" className="kd-turn">
-            <b>Your turn</b>
-            <span>{npcState.yourTurn}</span>
           </div>
         )}
         {!aiPresent && (

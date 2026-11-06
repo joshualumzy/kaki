@@ -1,0 +1,34 @@
+{
+  "emails": [
+    {
+      "from": { "name": "Ah Seng Poultry Farm", "address": "orders@ahsengfarm.example" },
+      "to": [{ "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" }],
+      "subject": "URGENT: Friday kampong egg delivery delayed to 12pm noon",
+      "date": "2026-11-16T09:12:00+08:00",
+      "messageId": "<ahseng-egg-delay-20261116@ahsengfarm.example>",
+      "text": "Hi Wei Ling,\n\nPaiseh, our main chilled lorry broke down at the Tuas checkpoint inspection. For Friday 17 November, we can only deliver your 80 trays of Grade A kampong eggs to Raffles Place by 12:00pm noon instead of 6:30am.\n\nIf you need eggs for the 8:00am breakfast rush, you will need to source backup trays for the morning wave, or move your $1 Set A launch promo to Monday morning.\n\nRegards,\nUncle Lim\nAh Seng Poultry Farm"
+    },
+    {
+      "from": { "name": "Zack Tan (@MakanWithZack)", "address": "zack@makanwithzack.example" },
+      "to": [
+        { "name": "Daniel", "address": "daniel@pixelkampung.example" },
+        { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" }
+      ],
+      "subject": "Re: Friday 8am TikTok Livestream at Nanyang Kopi Raffles Place",
+      "date": "2026-11-12T14:05:00+08:00",
+      "messageId": "<zack-tiktok-quote-20261112@makanwithzack.example>",
+      "text": "Hey Daniel!\n\nSuper hyped for the Nanyang Kopi & Toast flagship launch! My standard rate for a 1-hour TikTok Live + Reel (85k followers) is SGD 600.\n\nSince I love your kaya butter toast, I can do a special buddy rate of SGD 450 if you throw in 20 of those cute Kaya Toast plushie keychains and 20 Set A vouchers for my comment-section giveaway. Let me know today so I can lock my Friday morning schedule!\n\nCheers,\nZack (@MakanWithZack)"
+    },
+    {
+      "from": { "name": "Raffles Place Mall Management", "address": "ops@rafflesplacemall.example" },
+      "to": [
+        { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" },
+        { "name": "Daniel", "address": "daniel@pixelkampung.example" }
+      ],
+      "subject": "Storefront queue lane restriction - Unit #B1-14",
+      "date": "2026-11-11T10:00:00+08:00",
+      "messageId": "<mall-queue-rules-20261111@rafflesplacemall.example>",
+      "text": "Dear Tenant (Nanyang Kopi & Toast),\n\nPlease note that for your Friday morning promotion, your queue stanchions must stay strictly within the 3m x 2m boundary directly in front of Unit #B1-14.\n\nUnder fire safety rules, queues may not spill past the B1 central escalator landing. Please station a staff marshal or use mobile pre-ordering so the corridor stays clear.\n\nCentre Management"
+    }
+  ]
+}

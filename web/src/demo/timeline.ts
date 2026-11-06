@@ -22,11 +22,17 @@ export function entryForEvent(
   viewer: TranscriptViewer | undefined,
   /** True when a person hosts: the host's cues are not spoken, they are lines for that person to say. */
   hostIsViewer = false,
+  scenario?: Scenario,
 ): TimelineEntry | undefined {
   switch (event.type) {
     case 'TRANSCRIPT_CHUNK': {
       const { speaker, text, timestamp } = event.payload;
-      return { key: `said|${timestamp}|${speaker}|${text}`, kind: 'said', who: speakerLabel(speaker, viewer), text };
+      return {
+        key: `said|${timestamp}|${speaker}|${text}`,
+        kind: 'said',
+        who: speakerLabel(speaker, viewer, scenario),
+        text,
+      };
     }
     case 'HOST_SPEECH_TRIGGERED': {
       const { kind, text } = event.payload;

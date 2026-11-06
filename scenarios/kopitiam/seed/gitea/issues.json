@@ -1,0 +1,50 @@
+{
+  "repository": {
+    "name": "kopitiam-pos",
+    "description": "Nanyang Kopi & Toast - Mobile Ordering App & Kiosk POS",
+    "private": false
+  },
+  "labels": [
+    { "name": "bug", "color": "d73a4a", "description": "App or kiosk bug" },
+    { "name": "pos", "color": "b60205", "description": "Cashier POS and kitchen printer" },
+    { "name": "kiosk", "color": "fbca04", "description": "Self-order kiosk menu UX" },
+    { "name": "promo", "color": "5319e7", "description": "Vouchers and launch promotions" },
+    { "name": "marketing", "color": "0e8a16", "description": "Storefront and campaign logistics" },
+    { "name": "ops", "color": "006b75", "description": "Supplier and outlet operations" }
+  ],
+  "issues": [
+    {
+      "title": "PayNow QR receipt not printing on kitchen thermal printer",
+      "date": "2026-10-18",
+      "state": "closed",
+      "labels": ["bug", "pos"],
+      "createdAt": "2026-10-18T10:20:00+08:00",
+      "closedAt": "2026-10-22T17:40:00+08:00",
+      "body": "During the Tampines outlet trial, PayNow orders showed as paid on the phone but the kitchen printer dropped the docket when two orders arrived in the same second.\n\nFixed in POS v1.4.2 by queuing print jobs sequentially. Arjun verified at Raffles Place on Monday."
+    },
+    {
+      "title": "$1 Kaya Butter Set promo code allows 50 sets on double-tap",
+      "date": "2026-11-11",
+      "state": "open",
+      "labels": ["bug", "promo"],
+      "createdAt": "2026-11-11T09:15:00+08:00",
+      "body": "The KAYADOLLAR launch voucher is supposed to be capped at 1 set per customer. However, if a user double-taps 'Add to Cart' before the voucher check finishes, the cart allows up to 50 sets at $1 each.\n\nRoot cause: CartButton does not lock while validateVoucher() is in flight. Patching and testing takes half a day."
+    },
+    {
+      "title": "Kiosk Step 2 'Kopi O Kosong Peng' drink customization drop-off",
+      "date": "2026-11-10",
+      "state": "open",
+      "labels": ["kiosk"],
+      "createdAt": "2026-11-10T10:05:00+08:00",
+      "body": "In the Raffles Place kiosk trial, 19 of 28 first-time kiosk users froze on Step 2 (drink sweetness & milk level) because buttons only show traditional Kopi terms ('Kopi O Kosong', 'Kopi C Siew Dai').\n\nMei proposed adding a 'Kopi Lingo / Simple English' toggle (3 hours dev work) plus a 'Usual Set A' shortcut button (20 mins config)."
+    },
+    {
+      "title": "Raffles Place Friday 8am launch checklist",
+      "date": "2026-11-11",
+      "state": "open",
+      "labels": ["ops", "marketing"],
+      "createdAt": "2026-11-11T09:00:00+08:00",
+      "body": "Before Friday 8am doors open:\n\n- Lock POS and mobile app build with the $1 voucher cap fix.\n- Set up the 3m x 2m queue stanchions away from the mall escalator.\n- Unpack the 300 Kaya Toast plushie keychains at the collection counter.\n- Confirm Friday morning egg stock (Ah Seng Farm delivery vs Seng Shiong backup)."
+    }
+  ]
+}

@@ -2,14 +2,27 @@ import type { ScenarioRole } from '@kaki/shared';
 import './demo.css';
 
 /** The short briefing for the role a person plays: who they are, what they know, what they answer for. Facts, not a script. */
-export function RoleCard({ role }: { role: ScenarioRole | undefined }) {
+export function RoleCard({
+  role,
+  viewerName,
+  seatName,
+}: {
+  role: ScenarioRole | undefined;
+  viewerName?: string;
+  seatName?: string;
+}) {
   const card = role?.card;
   if (role === undefined || card === undefined) return null;
+  const trimmedName = viewerName?.trim();
+  const youAre =
+    trimmedName !== undefined && trimmedName.length > 0 && seatName !== undefined && seatName.length > 0
+      ? card.youAre.replace(seatName, trimmedName)
+      : card.youAre;
 
   return (
     <section className="kd-role" aria-label={`Your role: ${role.label}`}>
       <p className="kd-role-eyebrow">Your role · {role.label}</p>
-      <p>{card.youAre}</p>
+      <p>{youAre}</p>
       <p style={{ fontWeight: 600, marginBottom: 4 }}>What you know</p>
       <ul>
         {card.facts.map((fact) => (

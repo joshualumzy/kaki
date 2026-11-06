@@ -25,19 +25,16 @@ export function transcriptNameFor(
   return attendee?.zoomDisplayName ?? participant.identity;
 }
 
-/** Lines closer together than this belong to one caption. */
-const SAME_BREATH_MS = 6000;
-const MAX_LINES = 3;
-
 /**
- * The caption to show under a speaker's tile: their latest line, and the one or two lines just
- * before it if they were part of the same stretch of talking. Nothing once it is `windowMs` old.
+ * The caption to show under a speaker's tile: their latest spoken sentence. Stays visible while they
+ * are still speaking, and fades `windowMs` after their line started once they finish.
  */
 export function captionFor(
   chunks: readonly TranscriptChunk[],
   speaker: string,
   now: number,
   windowMs = 8000,
+  stillSpeaking = false,
 ): string | null {
   const wanted = speaker.trim().toLowerCase();
   const mine = chunks.filter((chunk) => chunk.payload.speaker.trim().toLowerCase() === wanted);
@@ -45,15 +42,9 @@ export function captionFor(
   if (latest === undefined) return null;
 
   const latestAt = Date.parse(latest.payload.timestamp);
-  if (!Number.isFinite(latestAt) || now - latestAt > windowMs) return null;
+  if (!Number.isFinite(latestAt) || (!stillSpeaking && now - latestAt > windowMs)) return null;
 
-  const lines: string[] = [];
-  for (let index = mine.length - 1; index >= 0 && lines.length < MAX_LINES; index -= 1) {
-    const chunk = mine[index];
-    if (chunk === undefined || latestAt - Date.parse(chunk.payload.timestamp) > SAME_BREATH_MS) break;
-    lines.unshift(chunk.payload.text.trim());
-  }
-  const caption = lines.filter((line) => line.length > 0).join(' ');
+  const caption = latest.payload.text.trim();
   return caption.length > 0 ? caption : null;
 }
 
@@ -63,10 +54,18 @@ export interface TranscriptViewer {
   seatName: string | undefined;
 }
 
-/** How a speaker is shown in the transcript panel: the visitor sees their own name, not the seat's. */
-export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefined): string {
-  if (viewer?.seatName !== undefined && speaker.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()) {
-    return `${viewer.name} (you)`;
-  }
-  return speaker;
+/** How a speaker is shown in the transcript panel: the visitor sees their own name and role, and AI colleagues show their name and role. */
+export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefined, scenario?: Scenario): string {
+  const isViewer =
+    viewer?.seatName !== undefined && speaker.trim().toLowerCase() === viewer.seatName.trim().toLowerCase();
+  const baseName = isViewer ? `${viewer.name} (you)` : speaker;
+  if (scenario === undefined) return baseName;
+  const wanted = speaker.trim().toLowerCase();
+  const attendee = scenario.attendees.find(
+    (candidate) =>
+      candidate.name.trim().toLowerCase() === wanted ||
+      candidate.zoomDisplayName.trim().toLowerCase() === wanted,
+  );
+  const roleObj = attendee === undefined ? undefined : scenario.roles.find((role) => role.id === attendee.role);
+  return roleObj === undefined ? baseName : `${baseName} · ${roleObj.label}`;
 }

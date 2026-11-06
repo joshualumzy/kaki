@@ -80,7 +80,15 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
         }
 
         if (parsed.type === 'MEETING_RESET') {
-          setEvents([]);
+          setEvents((previous) => {
+            const last = previous.at(-1);
+            // When a new meeting starts on its first transcript line, the hub sends that line just before
+            // the host module publishes MEETING_RESET; keep it so the opening caption is not wiped.
+            if (last?.type === 'TRANSCRIPT_CHUNK' && Date.now() - Date.parse(last.payload.timestamp) < 2000) {
+              return [last];
+            }
+            return [];
+          });
           setTasks(new Map());
           return;
         }

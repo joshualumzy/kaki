@@ -81,6 +81,16 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
                 </option>
               ))}
             </select>
+            {(() => {
+              const selectedRole = roles.find((role) => role.label === roleLabel);
+              const responsibility = selectedRole?.card?.responsibility;
+              if (responsibility === undefined) return null;
+              return (
+                <p className="kd-hint" style={{ marginTop: '8px' }}>
+                  {responsibility}
+                </p>
+              );
+            })()}
           </div>
 
           {showCode && (

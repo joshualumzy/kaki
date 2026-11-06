@@ -28,4 +28,19 @@ describe('RoleCard', () => {
     const { container } = render(<RoleCard role={{ id: 'chef', label: 'Chef' }} />);
     expect(container.textContent).toBe('');
   });
+
+  it('replaces the seat character name in youAre with the visitor name', () => {
+    render(
+      <RoleCard
+        role={{
+          id: 'producer',
+          label: 'Producer',
+          card: { youAre: 'You are Wei Ling, the producer.', facts: ['Fact.'], responsibility: 'You decide.' },
+        }}
+        viewerName="Yoo"
+        seatName="Wei Ling"
+      />,
+    );
+    expect(screen.getByText('You are Yoo, the producer.')).toBeTruthy();
+  });
 });

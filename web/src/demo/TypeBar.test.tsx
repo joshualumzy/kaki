@@ -41,11 +41,13 @@ describe('TypeBar', () => {
     vi.useRealTimers();
   });
 
-  it('stops the AI attendees from the button and from Escape anywhere on the page', () => {
+  it('pauses the AI attendees from the button and from Escape anywhere on the page, and plays when clicked again', () => {
     const { send } = setup();
-    fireEvent.click(screen.getByText('Stop'));
+    fireEvent.click(screen.getByText(/Pause/));
     expect(send).toHaveBeenLastCalledWith({ kind: 'stop' });
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(send.mock.calls.filter(([message]) => message.kind === 'stop')).toHaveLength(2);
+    fireEvent.click(screen.getByText(/Play/));
+    expect(send).toHaveBeenLastCalledWith({ kind: 'resume' });
   });
 });

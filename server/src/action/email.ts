@@ -132,11 +132,23 @@ export function createEmailModule({
   const actionModule = createActionModule({
     name: 'action-email',
     kind: 'email',
-    async draft(task, signal) {
+    async draft(task, signal, scenario) {
       requireSettings();
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the email cannot be drafted');
       }
+
+      const roleId = task.assignee ?? task.suggestedAssignee;
+      const role = scenario.roles.find((candidate) => candidate.id === roleId);
+      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
+      const knownFacts = [
+        ...(role?.card?.facts ?? []),
+        ...scenario.roles.flatMap((r) => (r.id === roleId ? [] : r.card?.facts ?? [])),
+      ];
+      const senderLine =
+        attendee !== undefined && role !== undefined ? `\nSender: ${attendee.name} (${role.label})` : '';
+      const factsBlock =
+        knownFacts.length > 0 ? `\n\nKnown facts from the team:\n- ${knownFacts.join('\n- ')}` : '';
 
       const messages: ChatMessage[] = [
         {
@@ -144,12 +156,12 @@ export function createEmailModule({
           content:
             'You turn a team task into a short, polite email. Reply with one JSON object and nothing else: ' +
             '{"to": "...", "subject": "...", "body": "..."}. Write the body as plain text and keep it short. ' +
-            'Use an empty string for "to" when you do not know the recipient.' +
-            ' Use only what is in the task and its context. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            'For "to", look up the matching recipient email address in the Known facts below when one is listed for the person or partner mentioned in the task or context; if the email is to an internal team or colleague with no listed address, use a sensible address at @example.com (such as team@example.com or dev@example.com).' +
+            ' Use only what is in the task, its context, and any relevant known facts below. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
-          content: `Task: ${task.title}\n\nContext:\n${task.context}`,
+          content: `Task: ${task.title}${senderLine}\n\nContext:\n${task.context}${factsBlock}`,
         },
       ];
 

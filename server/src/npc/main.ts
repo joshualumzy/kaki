@@ -1,7 +1,7 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
 import { llmFromEnv } from '../llm';
-import { aiCast, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
+import { aiCast, parseScenario, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
 import { loadScenario } from '../loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -140,9 +140,20 @@ const runner = await startNpcRunner({
     sendAs('screen', { type: 'END_MEETING', silent: true });
   },
   onHostChange: (human) => sendAs('screen', { type: 'SET_HOST_MODE', human }),
+  onAdvanceAgenda: () => {
+    if (!runner.hostIsHuman()) sendAs('screen', { type: 'NEXT_AGENDA_ITEM' });
+  },
+  onEndMeeting: () => {
+    if (!runner.hostIsHuman()) sendAs('screen', { type: 'END_MEETING' });
+  },
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);
+  },
+  fetchScenario: async () => {
+    const response = await fetch(`${kakiUrl}/api/scenario`);
+    if (!response.ok) return undefined;
+    return parseScenario(await response.json());
   },
 });
 
@@ -171,7 +182,11 @@ const taskResponder = createTaskResponder({
   scenario,
   llm,
   plays: (attendee) => runner.plays(attendee),
-  say: (attendee, text, onDone) => cueOrder.after(() => runner.say(attendee, text, onDone)),
+  say: (attendee, text, onDone) =>
+    cueOrder.after((spoken) => {
+      if (spoken) runner.say(attendee, text, onDone);
+      else onDone();
+    }),
   send: sendAs,
   log,
   approveDelayMs: numberEnv('NPC_APPROVE_DELAY_MS', DEFAULT_APPROVE_DELAY_MS),
@@ -192,10 +207,24 @@ function followHostCues(): void {
     if (Date.now() - openedAt.at < 1000) return;
     try {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
-      if (event.type === 'TASK_UPDATED') taskResponder.handle(event as unknown as KakiEvent);
+      if (event.type === 'TASK_UPDATED') {
+        const updatedTask = (event.payload as { task?: { id?: string; status?: string } } | undefined)?.task;
+        if (updatedTask?.status === 'DISPATCHED' && !runner.canDispatchTask()) {
+          log(`dismissed premature task ${updatedTask.id ?? ''} before visitor spoke on this item`);
+          if (updatedTask.id !== undefined) sendAs('screen', { type: 'DISMISS_TASK', taskId: updatedTask.id });
+          return;
+        }
+        taskResponder.handle(event as unknown as KakiEvent);
+        if (updatedTask?.status === 'CLAIMED') runner.taskAccepted();
+      }
       // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
       if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string' && !runner.hostIsHuman()) {
         const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
+        if (payload.kind === 'DISPATCH' && !runner.canDispatchTask()) return;
+        if (payload.kind === 'CLOSING') {
+          runner.announceClosing(payload.text);
+          return;
+        }
         // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
         const colleague = payload.kind === 'DISPATCH' && payload.assignee !== undefined && payload.title !== undefined && runner.plays(payload.assignee);
         if (colleague) cueOrder.cue((done) => runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done));

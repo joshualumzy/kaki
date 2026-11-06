@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, seatProblem, type Scenario } from '@kaki/shared';
+import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, seatProblem, shuffleAgendaForRole, type Scenario } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -34,6 +34,7 @@ interface RequestContext {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
+  fullAgenda: Scenario['agenda'];
   devRoutes: boolean;
   auth?: Auth;
   calendar?: CalendarSettings;
@@ -146,7 +147,19 @@ async function handleRequest(
         // If LiveKit cannot be asked, nobody can be told apart from an empty room, so the gate stays open.
         const roster = await context.roomRoster(join.roomName);
         if (roster !== undefined) {
-          if (present.length === 0 && !context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
+          if (present.length === 0) {
+            if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
+            if (npcNames.length > 0 && context.fullAgenda.length > 1) {
+              const maxAgendaItems = Number(process.env.KAKI_AGENDA_ITEMS) || 2;
+              const reordered = shuffleAgendaForRole(
+                { ...context.scenario, agenda: context.fullAgenda },
+                join.participantRole,
+                Math.random,
+                maxAgendaItems,
+              );
+              context.scenario.agenda.splice(0, context.scenario.agenda.length, ...reordered);
+            }
+          }
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
             sendJson(response, 403, { error: codeError, needsCode: true });
@@ -287,8 +300,9 @@ export async function createApp({
 }: CreateAppOptions): Promise<KakiApp> {
   const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
+  const fullAgenda = [...scenario.agenda];
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, devRoutes, auth, calendar, roomRoster, meetingCode });
+    void handleRequest(request, response, { hub, tasks, scenario, fullAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

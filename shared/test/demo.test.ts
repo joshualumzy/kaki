@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { itemMode, shuffleAgendaForRole, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -127,5 +127,33 @@ describe('itemMode', () => {
     expect(itemMode(scenario, item({ contested: true }), 'Producer')).toBe('decide');
     expect(itemMode(scenario, undefined, 'Producer')).toBe('observe');
     expect(itemMode(scenario, item({}), undefined)).toBe('observe');
+  });
+
+  it('shuffles the agenda and puts an item the visitor participates in first', () => {
+    const fullScenario: Scenario = {
+      ...testScenario,
+      roles: [
+        { id: 'producer', label: 'Producer' },
+        { id: 'lead', label: 'Lead Programmer' },
+        { id: 'marketing', label: 'Marketing Lead' },
+      ],
+      agenda: [
+        { title: 'Item A', minutes: 5, ownerRole: 'lead', contested: true },
+        { title: 'Item B', minutes: 5, ownerRole: 'lead', contested: true },
+        { title: 'Item C', minutes: 5, ownerRole: 'marketing' },
+      ],
+    };
+    const forMarketing = shuffleAgendaForRole(fullScenario, 'Marketing Lead', () => 0.1);
+    expect(forMarketing[0]?.title).toBe('Item B');
+    expect(forMarketing).toHaveLength(3);
+
+    const forProducer = shuffleAgendaForRole(fullScenario, 'Producer', () => 0.99);
+    expect(forProducer[0]?.title).not.toBe('Item A');
+    expect(itemMode(fullScenario, forProducer[0], 'Producer')).toBe('decide');
+
+    const capped = shuffleAgendaForRole(fullScenario, 'Marketing Lead', () => 0.1, 2);
+    expect(capped).toHaveLength(2);
+    expect(capped[0]?.title).toBe('Item B');
+    expect(capped[1]?.title).toBe('Item C');
   });
 });

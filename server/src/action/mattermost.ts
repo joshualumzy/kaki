@@ -108,11 +108,20 @@ export function createMattermostModule({
   return createActionModule({
     name: 'action-mattermost',
     kind: 'mattermost_post',
-    async draft(task, signal) {
+    async draft(task, signal, scenario) {
       const settings = requireSettings();
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the message cannot be drafted');
       }
+
+      const roleId = task.assignee ?? task.suggestedAssignee;
+      const role = scenario.roles.find((candidate) => candidate.id === roleId);
+      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
+      const knownFacts = role?.card?.facts ?? [];
+      const ownerLine =
+        attendee !== undefined && role !== undefined ? `\nSender: ${attendee.name} (${role.label})` : '';
+      const factsBlock =
+        knownFacts.length > 0 ? `\n\nKnown facts from ${attendee?.name ?? 'the sender'}:\n- ${knownFacts.join('\n- ')}` : '';
 
       const messages: ChatMessage[] = [
         {
@@ -120,11 +129,11 @@ export function createMattermostModule({
           content:
             'You turn a team task into a short Mattermost message. Reply with one JSON object and ' +
             'nothing else: {"message": "..."}. Keep it plain and short; Markdown is fine.' +
-            ' Use only what is in the task and its context. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            ' Use only what is in the task, its context, and any relevant known facts below. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
-          content: `Task: ${task.title}\n\nContext:\n${task.context}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}`,
         },
       ];
 

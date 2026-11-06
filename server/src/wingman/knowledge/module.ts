@@ -22,6 +22,7 @@ interface QuestionLog {
   settled: Set<string>;
   running: Set<string>;
   attempts: Map<string, number>;
+  stopped?: boolean;
 }
 
 function handleEvent(
@@ -30,7 +31,7 @@ function handleEvent(
   log: QuestionLog,
   event: KakiEvent,
 ): void {
-  if (event.type !== 'MEETING_RECORD_UPDATED') return;
+  if (log.stopped || event.type !== 'MEETING_RECORD_UPDATED') return;
 
   for (const question of event.payload.openQuestions) {
     if (log.settled.has(question.id) || log.running.has(question.id)) continue;
@@ -49,6 +50,7 @@ function handleEvent(
     void (async () => {
       try {
         const facts = await search(question.text, role);
+        if (log.stopped) return;
         if (facts.length === 0) {
           console.error(
             `kaki wingman: no company facts found for question ${question.id} (${role}), attempt ${attempt}`,
@@ -65,6 +67,7 @@ function handleEvent(
         );
         log.settled.add(question.id);
       } catch (error) {
+        if (log.stopped) return;
         console.error(
           `kaki wingman: company search failed for question ${question.id} (${role}), attempt ${attempt}:`,
           error,
@@ -102,6 +105,7 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
       const log: QuestionLog = { settled: new Set(), running: new Set(), attempts: new Map() };
       const unsubscribe = ctx.hub.subscribe((event) => handleEvent(ctx, search, log, event));
       return () => {
+        log.stopped = true;
         unsubscribe();
         if (pool) void pool.end();
       };

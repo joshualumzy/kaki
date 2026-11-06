@@ -17,8 +17,10 @@ export type ControlMessage =
   | { kind: 'text'; text: string }
   /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
   | { kind: 'typing' }
-  /** The person wants the AI attendees to stop talking now. */
+  /** The person wants the AI attendees to pause or stop talking now. */
   | { kind: 'stop' }
+  /** The person wants the AI attendees to resume after being paused. */
+  | { kind: 'resume' }
   /** The person has read their briefing and starts the meeting: until then the AI attendees stay silent. */
   | { kind: 'start' };
 
@@ -26,7 +28,9 @@ export type ControlMessage =
 export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const message = raw as { kind?: unknown; text?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'start') return { kind: message.kind };
+  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume' || message.kind === 'start') {
+    return { kind: message.kind };
+  }
   if (message.kind === 'text' && typeof message.text === 'string') {
     const text = message.text.trim().slice(0, MAX_TYPED_LENGTH);
     return text.length > 0 ? { kind: 'text', text } : undefined;
@@ -161,4 +165,78 @@ export function itemMode(scenario: Scenario, item: AgendaItem | undefined, visit
   const key = visitorRole?.trim().toLowerCase();
   const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id === visitorRole || candidate.label.toLowerCase() === key);
   return role !== undefined && role.id === item.ownerRole ? 'involve' : 'observe';
+}
+
+/**
+ * Reorder a scenario's agenda for a new visitor so every visitor gets a fresh opening topic
+ * and an item they actively participate in (`involve` or `decide`) comes first.
+ * When `maxItems` is given, trims the returned agenda to a crisp subset (for example 2 items:
+ * 1 AI-colleague-led item + 1 item owned by the visitor's role).
+ */
+export function shuffleAgendaForRole(
+  scenario: Scenario,
+  visitorRole?: string,
+  random: () => number = Math.random,
+  maxItems?: number,
+): AgendaItem[] {
+  const cap = (list: AgendaItem[]): AgendaItem[] =>
+    maxItems !== undefined && maxItems > 0 ? list.slice(0, maxItems) : list;
+  const items = [...scenario.agenda];
+  if (items.length <= 1) return cap(items);
+
+  const previousFirstTitle = items[0]?.title;
+  const shuffle = (list: AgendaItem[]): AgendaItem[] => {
+    const copy = [...list];
+    for (let i = copy.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j]!, copy[i]!];
+    }
+    return copy;
+  };
+
+  let shuffled = shuffle(items);
+  // Prefer a fresh opening item compared to the previous order when possible.
+  if (shuffled.length > 1 && shuffled[0]?.title === previousFirstTitle) {
+    shuffled = [...shuffled.slice(1), shuffled[0]!];
+  }
+
+  const key = visitorRole?.trim().toLowerCase();
+  const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id === visitorRole || candidate.label.toLowerCase() === key);
+
+  // Always prefer starting the meeting with an item led by one of the AI colleagues on stage (not the visitor's own seat)
+  // so an AI colleague kicks off the discussion and gives background first instead of putting the visitor on the spot cold!
+  const aiLedIdx = shuffled.findIndex(
+    (item) => (role === undefined || item.ownerRole !== role.id) && itemMode(scenario, item, visitorRole) !== 'observe',
+  );
+  if (aiLedIdx > 0) {
+    const [picked] = shuffled.splice(aiLedIdx, 1);
+    shuffled.unshift(picked!);
+  }
+  if (aiLedIdx >= 0) {
+    // Place the item owned by the visitor's own role right into slot 1 (the 2nd agenda item) so they get their own
+    // topic and task early in the meeting without waiting until the end.
+    const visitorOwnedIdx =
+      role === undefined ? -1 : shuffled.findIndex((item, index) => index > 0 && item.ownerRole === role.id);
+    if (visitorOwnedIdx > 1) {
+      const [visitorItem] = shuffled.splice(visitorOwnedIdx, 1);
+      shuffled.splice(1, 0, visitorItem!);
+    }
+    return cap(shuffled);
+  }
+
+  // Fallback: pull an item the visitor owns ('involve') or decides on ('decide') into the opening slot.
+  const involveIdx = shuffled.findIndex((item) => itemMode(scenario, item, visitorRole) === 'involve');
+  if (involveIdx > 0) {
+    const [picked] = shuffled.splice(involveIdx, 1);
+    shuffled.unshift(picked!);
+    return cap(shuffled);
+  }
+  if (involveIdx === 0) return cap(shuffled);
+
+  const decideIdx = shuffled.findIndex((item) => itemMode(scenario, item, visitorRole) === 'decide');
+  if (decideIdx > 0) {
+    const [picked] = shuffled.splice(decideIdx, 1);
+    shuffled.unshift(picked!);
+  }
+  return cap(shuffled);
 }

@@ -74,7 +74,7 @@ export const ACTION_KINDS: readonly ActionKind[] = [
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   SUGGESTED: ['DISPATCHED', 'DISMISSED'],
   DISMISSED: [],
-  DISPATCHED: ['CLAIMED', 'SUGGESTED'],
+  DISPATCHED: ['CLAIMED', 'SUGGESTED', 'DISMISSED'],
   CLAIMED: ['DRAFT_READY', 'COMPLETED', 'FAILED'],
   DRAFT_READY: ['RUNNING'],
   RUNNING: ['COMPLETED', 'FAILED'],

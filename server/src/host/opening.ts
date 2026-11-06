@@ -35,3 +35,55 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   }
   return parts.join(' ');
 }
+
+/**
+ * A warm, natural spoken welcome for the live AI host (`runner.ts`), combining clauses so TTS
+ * flows like a real human colleague kicking off a quick team huddle rather than reading bullet points.
+ * Pulls the first sentence of `scenario.situation` when available so any scenario is introduced in plain words.
+ */
+export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
+  const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
+  const first = scenario.agenda[0];
+  const owner = first === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === first.ownerRole);
+  const ownerIsHost = first === undefined ? false : scenario.roles.find((role) => role.id === first.ownerRole)?.facilitator === true;
+  const speakerName = owner !== undefined && !ownerIsHost ? (visitor?.seat === owner.name ? visitor.name : owner.name) : undefined;
+  const who =
+    visitor !== undefined && seat !== undefined
+      ? `, glad you're here as ${roleLabel(scenario, seat.role)}, ${visitor.name}`
+      : '';
+
+  const situationLead = scenario.situation
+    ?.split(/\n/)[0]
+    ?.split(/(?<=[.!?])\s+/)[0]
+    ?.trim()
+    .replace(/\.$/, '');
+
+  const handoff =
+    speakerName !== undefined && first !== undefined
+      ? ` ${speakerName}, let's start with you on ${first.title.toLowerCase()}. What's happening there?`
+      : first !== undefined
+        ? ` Let's start with ${first.title.toLowerCase()}.`
+        : '';
+
+  if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
+    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}. ${situationLead}, and we've got ${scenario.agenda.length} quick issues to settle today.${handoff}`;
+  }
+
+  if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.`;
+  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}. We've got ${scenario.agenda.length} quick things to sort out today.${handoff}`;
+}
+
+/**
+ * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`).
+ */
+export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Visitor): string {
+  const item = scenario.agenda.find((candidate) => candidate.title === title);
+  const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
+  const ownerIsHost = item === undefined ? false : scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
+  const speakerName =
+    owner !== undefined && !ownerIsHost && visitor?.seat !== owner.name ? owner.name : undefined;
+  if (speakerName !== undefined) {
+    return `Alright team, let's move on to ${title.toLowerCase()}. ${speakerName}, walk us through it.`;
+  }
+  return `Alright team, let's move on to ${title.toLowerCase()}.`;
+}

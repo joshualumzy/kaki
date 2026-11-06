@@ -6,6 +6,7 @@ const LEGAL_MOVES: ReadonlyArray<[TaskStatus, TaskStatus]> = [
   ['SUGGESTED', 'DISMISSED'],
   ['DISPATCHED', 'CLAIMED'],
   ['DISPATCHED', 'SUGGESTED'],
+  ['DISPATCHED', 'DISMISSED'],
   ['CLAIMED', 'DRAFT_READY'],
   ['CLAIMED', 'COMPLETED'],
   ['CLAIMED', 'FAILED'],

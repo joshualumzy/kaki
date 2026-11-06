@@ -16,9 +16,19 @@ export interface TypeBarProps {
  */
 export function TypeBar({ send }: TypeBarProps) {
   const [text, setText] = useState('');
+  const [paused, setPaused] = useState(false);
   const lastSignal = useRef(0);
 
-  const stop = useCallback(() => send({ kind: 'stop' }), [send]);
+  const stop = useCallback(() => {
+    setPaused(true);
+    send({ kind: 'stop' });
+  }, [send]);
+
+  const togglePause = () => {
+    const next = !paused;
+    setPaused(next);
+    send({ kind: next ? 'stop' : 'resume' });
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -31,6 +41,7 @@ export function TypeBar({ send }: TypeBarProps) {
   function submit(): void {
     const typed = text.trim();
     if (typed.length === 0) return;
+    setPaused(false);
     send({ kind: 'text', text: typed });
     setText('');
   }
@@ -62,8 +73,15 @@ export function TypeBar({ send }: TypeBarProps) {
       <button type="submit" className="kd-send" disabled={text.trim().length === 0}>
         Send
       </button>
-      <button type="button" className="kd-stop" onClick={stop} title="Stop the AI attendees talking (Esc)">
-        Stop
+      <button
+        type="button"
+        className="kd-stop"
+        data-paused={paused}
+        aria-pressed={paused}
+        onClick={togglePause}
+        title={paused ? 'Play / resume the meeting' : 'Pause the meeting (Esc)'}
+      >
+        {paused ? '▶ Play' : '⏸ Pause'}
       </button>
     </form>
   );

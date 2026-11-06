@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { roleLabel, type KakiCommand, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import { assigneeLabel, roleLabel, type KakiCommand, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
 import { Navigate } from 'react-router-dom';
 import './screen.css';
 import { useMe } from '../auth/useMe';
@@ -51,6 +51,12 @@ function ScreenFeed() {
   const { events, tasks, rejection, connected, send } = useKaki('screen');
   const [showJoin, setShowJoin] = useState(false);
   const taskList = [...tasks.values()];
+  const minutesTask = taskList.find(
+    (task) =>
+      task.actionKind === 'wiki_page' &&
+      /^Publish meeting minutes/i.test(task.title) &&
+      task.artifactUrl !== undefined,
+  );
   const record = events.filter(isRecord).at(-1);
   // After an end the closing line is the last host cue; a new meeting clears the feed.
   const meetingEnded = events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING');
@@ -88,6 +94,18 @@ function ScreenFeed() {
         <p className="connection-banner" role="status">
           Kaki's notes are paused — questions and tasks may be out of date. The agenda clock is still running.
         </p>
+      ) : null}
+
+      {minutesTask?.artifactUrl !== undefined ? (
+        <section className="sc-panel" aria-label="End-of-meeting minutes" style={{ marginBottom: 16 }}>
+          <p className="sc-eyebrow">Kaki Host · Meeting Minutes Published</p>
+          <p style={{ margin: '4px 0 8px' }}>
+            Full meeting notes (agenda items, action items, open questions, and transcript) are live on the team wiki.
+          </p>
+          <a className="artifact-link" href={minutesTask.artifactUrl} target="_blank" rel="noreferrer">
+            Open meeting minutes in Wiki ↗
+          </a>
+        </section>
       ) : null}
 
       {showJoin ? (
@@ -288,9 +306,9 @@ function AgendaPanel({ record, scenario }: { record: RecordEvent; scenario: Scen
   );
 }
 
-/** The compact Host card: the clock, a progress bar, open questions and who is quiet. */
+/** The compact Host card: the clock and progress bar for the current agenda item. */
 export function MeetingRecordCard({ record, scenario }: { record: RecordEvent; scenario: Scenario }) {
-  const { agendaIndex, openQuestions, quietRoles = [] } = record.payload;
+  const { agendaIndex } = record.payload;
   const elapsed = useCountUp(record.payload.elapsedSeconds, record);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
@@ -306,19 +324,6 @@ export function MeetingRecordCard({ record, scenario }: { record: RecordEvent; s
       <div className="kd-host-bar">
         <i style={{ width: `${limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%` }} />
       </div>
-      <p className="task-meta">
-        {openQuestions.length} open question{openQuestions.length === 1 ? '' : 's'}
-      </p>
-      {openQuestions.length === 0 ? null : (
-        <ul className="sc-questions">
-          {openQuestions.map((question) => (
-            <li key={question.id}>{question.text}</li>
-          ))}
-        </ul>
-      )}
-      {quietRoles.length === 0 ? null : (
-        <p className="task-meta">Quiet so far: {quietRoles.map((role) => roleLabel(scenario, role)).join(', ')}</p>
-      )}
     </Card>
   );
 }
@@ -339,7 +344,7 @@ function ScreenTask({
       <h3>{task.title}</h3>
       <p className="task-meta">
         <StatusPill status={task.status} />
-        <span>{roleLabel(scenario, assignee)}</span>
+        <span>{assigneeLabel(scenario, assignee)}</span>
       </p>
       {task.error === undefined ? null : <p className="task-error">{task.error}</p>}
       {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') ? (
@@ -351,12 +356,12 @@ function ScreenTask({
         </p>
       ) : null}
       {task.status === 'SUGGESTED' && task.declinedBy !== undefined && task.declinedBy.length > 0 ? (
-        <p className="task-meta">Declined by {task.declinedBy.map((role) => roleLabel(scenario, role)).join(', ')}</p>
+        <p className="task-meta">Declined by {task.declinedBy.map((role) => assigneeLabel(scenario, role)).join(', ')}</p>
       ) : null}
       {task.status === 'SUGGESTED' ? (
         <div className="task-actions">
           <Button onClick={() => send({ type: 'DISPATCH_TASK', taskId: task.id, assignee: task.suggestedAssignee })}>
-            Dispatch to {roleLabel(scenario, task.suggestedAssignee)}
+            Dispatch to {assigneeLabel(scenario, task.suggestedAssignee)}
           </Button>
           <Button variant="ghost" onClick={() => send({ type: 'DISMISS_TASK', taskId: task.id })}>
             Dismiss

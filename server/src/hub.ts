@@ -61,7 +61,7 @@ function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
   return (
     event.audience.kind === 'all' ||
     (event.audience.kind === 'screen' && audience === 'screen') ||
-    (event.audience.kind === 'role' && audience === event.audience.role)
+    (event.audience.kind === 'role' && (audience === event.audience.role || (audience === 'screen' && event.type === 'FACT_FOUND')))
   );
 }
 

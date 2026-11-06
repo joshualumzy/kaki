@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
-import { PhoneFeed } from '../phone/PhonePage';
+import { ActiveRoleCards } from '../phone/PhonePage';
 import type { TranscriptViewer } from './captions';
 import { MeetingPanel } from './MeetingPanel';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -9,33 +9,39 @@ import { SituationCard } from './SituationCard';
 import { useScenario } from '../kaki';
 import './demo.css';
 
-type Tab = 'wingman' | 'host';
-
 /**
- * The side dock. Wingman is private to the person's role (tasks, nudges, answers from company records);
- * Host is what the meeting's facilitator tracks for the whole room.
+ * The unified side dock: shows the visitor's collapsible briefing, any active task or company-record lookup
+ * for their role, the current agenda clock + topic cheat-sheet, the live transcript, and all meeting tasks
+ * in one place without requiring tab switching.
  */
-export function Dock({ role, viewer, meetingCode }: { role: ScenarioRole | undefined; viewer: TranscriptViewer; meetingCode?: string }) {
+export function Dock({
+  role,
+  viewer,
+  meetingCode,
+  started = false,
+}: {
+  role: ScenarioRole | undefined;
+  viewer: TranscriptViewer;
+  meetingCode?: string;
+  started?: boolean;
+}) {
   const scenario = useScenario();
-  const [tab, setTab] = useState<Tab>('wingman');
-  const label = (name: Tab, text: string) => (
-    <button type="button" role="tab" className="kd-tab" aria-selected={tab === name} onClick={() => setTab(name)}>
-      <i />
-      {text}
-    </button>
-  );
+  const [briefingOpen, setBriefingOpen] = useState(!started);
+
+  useEffect(() => {
+    setBriefingOpen(!started);
+  }, [started]);
 
   return (
-    <aside className="kd-dock" data-tab={tab} aria-label="Kaki assistants">
+    <aside className="kd-dock" aria-label="Kaki assistant">
       <div className="kd-dock-head">
-        <div className="kd-tabs" role="tablist">
-          <span className="kd-tab-pill" />
-          {label('wingman', 'Kaki Wingman')}
-          {label('host', 'Kaki Host')}
-        </div>
         <div className="kd-dock-sub">
-          <b>{tab === 'wingman' ? 'Private' : 'Shared'}</b>
-          <span>{tab === 'wingman' ? `Just for you${role === undefined ? '' : ` as ${role.label}`}` : (role?.facilitator === true ? 'Your controls, the agenda and the tasks' : 'The agenda, what is said and the tasks')}</span>
+          <b>Kaki</b>
+          <span>
+            {role === undefined
+              ? scenario.meetingTitle
+              : `${viewer.name} (${role.label}) · Live transcript, tasks & context`}
+          </span>
         </div>
       </div>
       {meetingCode !== undefined && (
@@ -47,16 +53,22 @@ export function Dock({ role, viewer, meetingCode }: { role: ScenarioRole | undef
         </p>
       )}
       <div className="kd-dock-body">
-        <div hidden={tab !== 'wingman'}>
-          <SituationCard scenario={scenario} />
-          <RoleCard role={role} />
-          <ErrorBoundary>{role !== undefined && <PhoneFeed role={role.id} />}</ErrorBoundary>
-        </div>
-        <div hidden={tab !== 'host'}>
-          <ErrorBoundary>
-            <MeetingPanel viewer={viewer} isHost={role?.facilitator === true} />
-          </ErrorBoundary>
-        </div>
+        <details
+          className="kd-briefing"
+          open={briefingOpen}
+          onToggle={(event) => setBriefingOpen(event.currentTarget.open)}
+        >
+          <summary className="kd-briefing-summary">
+            <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
+            <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
+          </summary>
+          <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
+          <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
+        </details>
+        <ErrorBoundary>{role !== undefined && <ActiveRoleCards role={role.id} />}</ErrorBoundary>
+        <ErrorBoundary>
+          <MeetingPanel viewer={viewer} role={role} isHost={role?.facilitator === true} />
+        </ErrorBoundary>
       </div>
     </aside>
   );

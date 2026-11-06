@@ -31,7 +31,7 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
   guardedStartMs: 120,
   hangoverMs: 500,
   leakMargin: 2,
-  leakCap: 0.06,
+  leakCap: 0.14,
 };
 
 /** What the detector needs to know about the AI's own sound. */

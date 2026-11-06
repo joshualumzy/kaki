@@ -143,9 +143,18 @@ function estimateTalkSeconds(text: string): number {
   return Math.max(1, words(text).length / WORDS_PER_SECOND);
 }
 
+function speakerLabel(line: TranscriptLine, scenario: Scenario): string {
+  return line.role === undefined ? line.speaker : `${line.speaker} (${roleLabel(scenario, line.role)})`;
+}
+
 /** The transcript line the evidence is (nearly) word for word, if there is one. */
-export function groundingLine<T extends { text: string }>(evidence: string, lines: T[]): T | undefined {
-  const wanted = words(evidence);
+export function groundingLine<T extends { text: string; speaker?: string; role?: Role }>(
+  evidence: string,
+  lines: T[],
+): T | undefined {
+  // Strip any leading "[Speaker (Role)]" prefix the LLM may have included in `evidence`.
+  const stripped = evidence.replace(/^\s*\[[^\]]+\]\s*/, '');
+  const wanted = words(stripped.length > 0 ? stripped : evidence);
   if (wanted.length < 3) return undefined;
   return lines.find((line) => {
     const said = new Set(words(line.text));
@@ -160,17 +169,74 @@ export function isGrounded(evidence: string, lines: Array<{ text: string }>): bo
 
 // "I'll ...", "I can ...", "I will ...": the speaker is taking the work on themselves.
 const FIRST_PERSON_COMMITMENT = /\bI(?:'ll|\u2019ll| will| can| am going to|'m going to)\b/i;
+// "what if we ...", "if we ...", "should we ...", "we could ...": pitching an option or asking for a decision, never a task commitment.
+const HYPOTHETICAL_PROPOSAL =
+  /\b(?:what if we|if we\b|how about we|should we|we could\b|could we\b|proposing we\b|i think we should\b|i suggest we\b|we need to decide\b|do you want to|are you happy to|would you rather|which option|do you think it's worth|could I get your approval)\b/i;
+
+/** True when a transcript line is pitching a hypothetical option or asking for a decision rather than assigning a post-meeting task. */
+export function isHypotheticalProposal(text: string): boolean {
+  return HYPOTHETICAL_PROPOSAL.test(text) && !FIRST_PERSON_COMMITMENT.test(text);
+}
 
 /** The role of the person who volunteered, when the evidence is their own "I'll ..." and their role is known. */
 export function volunteerRole(evidence: string, source: { role?: Role }): Role | undefined {
   return FIRST_PERSON_COMMITMENT.test(evidence) ? source.role : undefined;
 }
 
+/** The role explicitly addressed in a task request ("as Operations Director, can you..." or "Mei, can you..."). */
+export function addressedRole(
+  evidence: string,
+  scenario: Scenario,
+  lines: ReadonlyArray<{ speaker?: string; role?: Role; text?: string }>,
+): Role | undefined {
+  // Check the evidence line itself first so earlier lines in the batch don't hijack the assignee.
+  const evidenceLower = evidence.toLowerCase();
+  for (const role of scenario.roles) {
+    if (evidenceLower.includes(`as ${role.label.toLowerCase()}`)) return role.id;
+  }
+  const checkText = [evidence, ...lines.slice(-4).map((l) => l.text ?? '')].join(' ');
+  const lower = checkText.toLowerCase();
+  // If someone says "can you...", "could you...", or "would you..." in the evidence line, and a human visitor has spoken in the transcript
+  // (identified by their "<SeatName> (<RoleLabel>)" speaker tag), route second-person requests to the visitor first unless an NPC's name opens the line.
+  if (/\b(?:can you|could you|would you|will you)\b/i.test(evidence)) {
+    const startsWithNpc = scenario.attendees.some((attendee) => {
+      const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^\\W*${escaped}\\b`, 'i').test(evidence);
+    });
+    if (!startsWithNpc) {
+      for (const line of lines) {
+        if (line.role !== undefined && line.speaker !== undefined && line.speaker.includes('(')) {
+          return line.role;
+        }
+      }
+    }
+  }
+  for (const role of scenario.roles) {
+    if (lower.includes(`as ${role.label.toLowerCase()}`)) return role.id;
+  }
+  if (FIRST_PERSON_COMMITMENT.test(evidence)) return undefined;
+  for (const attendee of scenario.attendees) {
+    const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`^\\W*${escaped}\\b|,\\s*${escaped}\\b`, 'i').test(evidence)) {
+      return attendee.role;
+    }
+  }
+  if (/\b(?:can you|get\s+[a-z]+\s+to|ask\s+[a-z]+\s+to)\b/i.test(checkText)) {
+    for (const line of lines) {
+      if (line.role !== undefined && line.speaker !== undefined && line.speaker.includes('(')) {
+        return line.role;
+      }
+    }
+  }
+  return undefined;
+}
+
 /** True when a candidate is the same work, for the same role, as an existing task. */
 export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): boolean {
+  const active = existing.filter((task) => task.status !== 'DISMISSED');
   const title = normalize(candidate.title);
   const mine = keywords(candidate.title);
-  return existing.some((task) => {
+  return active.some((task) => {
     if (normalize(task.title) === title) return true;
     if (task.suggestedAssignee !== candidate.suggestedAssignee || mine.size < 2) return false;
     const theirs = keywords(task.title);
@@ -259,12 +325,12 @@ function systemPrompt(scenario: Scenario): string {
     'Agenda (use the number on the left):',
     ...agenda,
     '',
-    'Action kinds:',
-    '- gitea_issue: a bug or engineering task to file in the issue tracker',
-    '- mattermost_post: an announcement or update for the team chat',
-    '- email: a message to someone outside the team',
-    '- wiki_page: write something up as a page on the team wiki (notes, decisions, a summary)',
-    '- calendar_event: schedule a follow-up meeting or reminder at a date and time',
+    'Action kinds (pick the one that matches the nature of the follow-up deliverable):',
+    '- gitea_issue: a software bug or engineering ticket in the code/issue tracker ONLY (never use gitea_issue for marketing, budgets, external partners, procurement, or non-software operations)',
+    '- mattermost_post: an internal announcement, decision update, or operational note for the team ("so everyone\'s on the same page", team updates, budget/schedule decisions, internal coordination)',
+    '- email: a message to a specific external person or partner outside the team ONLY (an external creator/streamer, vendor, supplier, publisher, or venue/building management — never use email for "to the team" or "so everyone\'s on the same page"; use mattermost_post for internal team updates)',
+    '- wiki_page: a longer written document or reference page on the team wiki (meeting notes, decision logs, specs, checklists, or runbooks)',
+    '- calendar_event: schedule a follow-up meeting, review session, playtest, or reminder at a specific date and time',
     '',
     'Reply shape:',
     '{"agendaIndex": number, "newQuestions": [{"text": string, "forRole": role id}],',
@@ -275,7 +341,9 @@ function systemPrompt(scenario: Scenario): string {
     'Rules:',
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
     '- newQuestions: factual questions someone asked that nobody answered in the lines. Write each as a full question',
-    '  ending in a question mark. forRole is the role best placed to answer.',
+    '  ending in a question mark. forRole is the role best placed to answer (always set forRole to one of the role ids',
+    '  listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of',
+    '  the current agenda item so Kaki can search company records for them; never omit forRole).',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up")',
     '  does not answer the question: it stays a question. Neither does an answer its speaker doubts or contradicts.',
     '  Read on before listing a question: if a later line, even the very next one, answers it, do not list it.',
@@ -283,7 +351,11 @@ function systemPrompt(scenario: Scenario): string {
     '  evidence: copy, word for word, the line that states the answer. A line that only mentions the topic, or gives a',
     '  figure the speaker is unsure of, leaves the question open. Never close a question you cannot quote an answer for.',
     '- newTasks: a short list, usually empty. A task is a follow-up to deliver after the meeting that a person was',
-    '  explicitly asked to do ("can you…", "please…") or explicitly volunteered for ("I\'ll…"). Include it only if:',
+    '  explicitly asked to do ("can you…", "please…") or explicitly volunteered for ("I\'ll…", "I will…"). Include it only if:',
+    '  * the evidence line itself explicitly contains a direct commitment ("I\'ll…", "I will…") or a direct request',
+    '    ("can you…", "please…") for a post-meeting deliverable. NEVER create a task from a line where someone is only',
+    '    explaining a problem, pitching an option ("I think we should take the $450 deal"), or debating a trade-off',
+    '    before the decision has been made;',
     '  * one person owns it and it was decided, not just proposed;',
     '  * it is a discrete deliverable, not routine work already planned for the sprint or backlog;',
     '  * it is not the product work itself (fixing a bug, changing a feature, tuning, redesigning, investigating or',
@@ -303,8 +375,11 @@ function systemPrompt(scenario: Scenario): string {
     '  suggestedAssignee is the role of the person who will do it, not the role the topic belongs to: the speaker\'s',
     '  role when they volunteered ("I\'ll…"), the role of the person addressed when they were asked ("Alex, can you…").',
     '  The role is shown in brackets before each line. Always set actionKind when the deliverable is an issue, a team',
-    '  chat post, an email, a wiki page or a calendar event; omit it only when none of these fits. Put the who, what and',
-    '  when from the transcript into context, using only what was said.',
+    '  chat post, an email, a wiki page or a calendar event; omit it only when none of these fits. Both title and context',
+    '  MUST include the specific topic and decision from the preceding lines (for example, title: "Post kiosk English',
+    '  subtitles decision in team channel", context: "Announce in the team channel today that we decided to add English',
+    '  subtitles under each Kopi name on the kiosk before Friday") — never use a generic placeholder like "Update team',
+    '  channel" or "Send email" without the subject matter.',
     '  evidence: copy, word for word, the transcript line where it was asked for or volunteered.',
     '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id.',
     '- Never repeat a question that is already open, even in different words. Keep newQuestions to at most two per pass.',
@@ -322,10 +397,6 @@ function systemPrompt(scenario: Scenario): string {
   ].join('\n');
 }
 
-function speakerLabel(line: TranscriptLine, scenario: Scenario): string {
-  return line.role === undefined ? line.speaker : `${line.speaker} (${roleLabel(scenario, line.role)})`;
-}
-
 function userPrompt(
   scenario: Scenario,
   agendaIndex: number,
@@ -333,14 +404,15 @@ function userPrompt(
   existingTasks: Task[],
   lines: TranscriptLine[],
 ): string {
+  const activeTasks = existingTasks.filter((task) => task.status !== 'DISMISSED');
   return [
     `Current agenda item: ${agendaIndex}`,
     'Open questions (check each one against the new lines and close the ones they answer):',
     ...(openQuestions.length === 0 ? ['(none)'] : openQuestions.map((q) => `- ${q.id}: ${q.text}`)),
     'Tasks already suggested:',
-    ...(existingTasks.length === 0
+    ...(activeTasks.length === 0
       ? ['(none)']
-      : existingTasks.map(
+      : activeTasks.map(
           (task) => `- ${task.id}: ${task.title} (owner: ${task.suggestedAssignee}) — ${task.context.slice(0, 160)}`,
         )),
     '',
@@ -352,6 +424,7 @@ function userPrompt(
 /** Create the notetaker; call `run` every 5–10 s while the meeting is on. */
 export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaIndex }: NotetakerOptions): Notetaker {
   let pending: TranscriptLine[] = [];
+  let recentGrounded: TranscriptLine[] = [];
   let droppedLines = 0;
   let running = false;
   let generation = 0;
@@ -386,9 +459,11 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
   }
 
   function apply(reply: NotetakerReply, batch: TranscriptLine[]): void {
+    const groundingPool = [...recentGrounded, ...batch];
+    recentGrounded = groundingPool.slice(-MAX_PENDING_LINES);
     const answered = new Set(reply.answeredQuestionIds);
     for (const { id, evidence } of reply.answeredQuestions ?? []) {
-      if (isGrounded(evidence, batch)) answered.add(id);
+      if (isGrounded(evidence, groundingPool)) answered.add(id);
       else console.warn(`kaki notetaker: kept question ${id} open; its answer is not in the transcript`);
     }
     for (const question of openQuestions) {
@@ -411,14 +486,21 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
     }
 
     for (const { evidence, duplicateOf, ...task } of reply.newTasks) {
-      if (duplicateOf !== undefined || isLikelyDuplicate(task, tasks.list())) continue;
-      const source = groundingLine(evidence, batch);
+      const activeDuplicateOf =
+        duplicateOf !== undefined && tasks.get(duplicateOf)?.status !== 'DISMISSED' ? duplicateOf : undefined;
+      if (activeDuplicateOf !== undefined || isLikelyDuplicate(task, tasks.list())) continue;
+      const source = groundingLine(evidence, groundingPool);
       if (source === undefined) {
         console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence is not in the transcript`);
         continue;
       }
-      // Whoever says "I'll do it" owns it, whatever role the topic seems to belong to.
-      const owner = volunteerRole(evidence, source);
+      if (isHypotheticalProposal(source.text)) {
+        console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence line is a hypothetical proposal`);
+        continue;
+      }
+      // Whoever is explicitly asked by role ("as Operations Director, can you...") or by name ("Mei, can you...") owns it;
+      // otherwise whoever says "I'll do it" owns it.
+      const owner = addressedRole(source.text, scenario, groundingPool) ?? volunteerRole(evidence, source);
       const owned = owner === undefined ? task : { ...task, suggestedAssignee: owner };
       if (owned !== task && isLikelyDuplicate(owned, tasks.list())) continue;
       try {
@@ -436,6 +518,12 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       const role = roleForZoomName(scenario, speaker);
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
+      const isFacilitator = role !== undefined && scenario.roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
+      if (isFacilitator) {
+        // The facilitator's job is to open the meeting, introduce agenda items, ask questions, and dispatch tasks;
+        // none of those lines are new task commitments, and feeding them to the notetaker causes premature tasks.
+        return;
+      }
       keepPending([...pending, role === undefined ? { speaker, text } : { speaker, role, text }]);
     },
 
@@ -478,6 +566,7 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
     reset() {
       generation += 1;
       pending = [];
+      recentGrounded = [];
       droppedLines = 0;
       openQuestions = [];
       questionCount = 0;

@@ -45,7 +45,7 @@ describe('captionFor', () => {
     expect(captionFor(events, 'Mei', NOW)).toBeNull();
   });
 
-  it('joins lines of one stretch of talking, at most three, and leaves out earlier stretches', () => {
+  it('shows only the latest sentence one at a time, replacing earlier sentences', () => {
     const events = transcriptChunks([
       chunk('A', 'Old remark.', 25),
       chunk('A', 'One.', 7),
@@ -53,13 +53,14 @@ describe('captionFor', () => {
       chunk('A', 'Three.', 3),
       chunk('A', 'Four.', 1),
     ]);
-    expect(captionFor(events, 'A', NOW)).toBe('Two. Three. Four.');
+    expect(captionFor(events, 'A', NOW)).toBe('Four.');
   });
 
-  it('hides a caption once it is older than the window', () => {
+  it('hides a caption once it is older than the window unless the speaker is still talking', () => {
     const events = transcriptChunks([chunk('A', 'Hello.', 9)]);
     expect(captionFor(events, 'A', NOW)).toBeNull();
     expect(captionFor(events, 'A', NOW, 10_000)).toBe('Hello.');
+    expect(captionFor(events, 'A', NOW, 8_000, true)).toBe('Hello.');
   });
 
   it('ignores blank text and unreadable timestamps', () => {
@@ -90,5 +91,7 @@ describe('speakerLabel', () => {
     expect(speakerLabel('wei ling', viewer)).toBe('Joshua (you)');
     expect(speakerLabel('Arjun', viewer)).toBe('Arjun');
     expect(speakerLabel('Wei Ling', undefined)).toBe('Wei Ling');
+    expect(speakerLabel('Arjun', viewer, scenario)).toBe('Arjun · Lead Programmer');
+    expect(speakerLabel('Wei Ling', viewer, scenario)).toBe('Joshua (you) · Producer');
   });
 });

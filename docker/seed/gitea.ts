@@ -48,8 +48,7 @@ async function checkAdmin(env: Env, auth: string): Promise<number> {
   return response.status;
 }
 
-function createAdmin(env: Env): void {
-  console.log('  creating the Gitea admin user');
+function createUser(env: Env, username: string, email: string, admin = false): void {
   try {
     execFileSync(
       'docker',
@@ -67,21 +66,38 @@ function createAdmin(env: Env): void {
         'user',
         'create',
         '--username',
-        env.GITEA_ADMIN_USER,
+        username,
         '--password',
         env.GITEA_ADMIN_PASSWORD,
         '--email',
-        env.GITEA_ADMIN_EMAIL,
-        '--admin',
+        email,
+        ...(admin ? ['--admin'] : []),
         '--must-change-password=false',
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
   } catch (error) {
     const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr) : '';
-    throw new Error(`Could not create the Gitea admin user: ${stderr || (error instanceof Error ? error.message : String(error))}`, {
+    if (/already exists|email is already used/i.test(stderr)) return;
+    throw new Error(`Could not create Gitea user "${username}": ${stderr || (error instanceof Error ? error.message : String(error))}`, {
       cause: error,
     });
+  }
+}
+
+function createAdmin(env: Env): void {
+  console.log('  creating the Gitea admin user');
+  createUser(env, env.GITEA_ADMIN_USER, env.GITEA_ADMIN_EMAIL, true);
+}
+
+function ensureTeamUsers(env: Env): void {
+  for (const [username, email] of [
+    ['arjun', 'arjun@team.example'],
+    ['mei', 'mei@team.example'],
+    ['daniel', 'daniel@team.example'],
+    ['sam', 'sam@team.example'],
+  ] as const) {
+    createUser(env, username, email, true);
   }
 }
 
@@ -270,6 +286,7 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
 
 export async function seedGitea(env: Env, seed: GiteaSeed): Promise<{ repo: string; token: string }> {
   const basic = await ensureAdmin(env);
+  ensureTeamUsers(env);
   const token = await ensureToken(env, basic);
   await ensureOrg(env, token);
   const repo = await ensureRepo(env, token, seed);

@@ -53,6 +53,7 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
   const { scenario, llm, log } = ports;
   const answered = new Set<string>();
   const approved = new Set<string>();
+  const retried = new Set<string>();
 
   async function decide(task: Task, npc: NpcProfile, role: Role): Promise<Decision> {
     const facts = scenario.roles.find((candidate) => candidate.id === role)?.card?.facts ?? [];
@@ -62,9 +63,9 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
       npc.concerns.length > 0 ? `You worry about: ${npc.concerns.join('; ')}.` : '',
       facts.length > 0 ? `Things you know: ${facts.join(' | ')}` : '',
       'The meeting host has just handed you a task. Decide, as this character, whether to take it.',
-      'Take it unless it clearly is not yours or contradicts what you want or worry about.',
+      'Accept it (`"accept": true`) if it is a follow-up ticket, post, email or note for your role or something your role talked about. Only decline (`"accept": false`) if the task clearly belongs to a completely different role.',
       'Reply with one JSON object: {"accept": true or false, "line": what you say aloud, in your own voice}.',
-      'The line is one or two short sentences. First a concrete reaction from your own side: what it would take, how long, or what worries you, using only the things you know above and the task details (never invent numbers or facts). Then your decision: you will do it, or you cannot and why in a few words. Statements only: never ask a question. Plain everyday words, as you would say it to a colleague, no jargon or office-speak.',
+      'When accepting (`"accept": true`), the line MUST clearly say you will take or do the task (for example "Sure, I\'ll get that filed today — it\'s the order queue filling up." or "On it, I\'ll post that right after the call."), plus one brief concrete detail from the things you know above (never invent numbers, facts, drafts, or prerequisites, and never sound like you are arguing with or refusing a task you are accepting). Statements only: never ask a question. Plain everyday words, as you would say it to a colleague, no jargon or office-speak.',
     ]
       .filter((part) => part !== '')
       .join('\n');
@@ -113,6 +114,19 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
         const draft: ActionDraft = task.draft;
         log?.(`${who.attendee} is reading the draft for "${task.title}"`);
         setTimeout(() => ports.send(role, { type: 'APPROVE_ACTION', taskId: task.id, draft }), ports.approveDelayMs ?? DEFAULT_APPROVE_DELAY_MS).unref();
+      } else if (task.status === 'FAILED' && !retried.has(task.id)) {
+        retried.add(task.id);
+        log?.(`${who.attendee} is retrying failed task "${task.title}"`);
+        setTimeout(
+          () =>
+            ports.send(
+              role,
+              task.draft === undefined
+                ? { type: 'RETRY_ACTION', taskId: task.id }
+                : { type: 'RETRY_ACTION', taskId: task.id, draft: task.draft },
+            ),
+          3000,
+        ).unref();
       }
     },
   };

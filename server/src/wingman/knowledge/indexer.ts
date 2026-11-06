@@ -315,6 +315,7 @@ async function wikiLogin(env: Env): Promise<string> {
 }
 
 async function fetchWikiPages(env: Env): Promise<WikiPageInput[]> {
+  const seededPaths = new Set(loadScenarioSeed(env.SCENARIO).pages.map((page) => page.path));
   const jwt = await wikiLogin(env);
 
   const list = await wikiGraphQl<{ pages: { list: Array<{ path: string; title: string }> } }>(
@@ -326,6 +327,7 @@ async function fetchWikiPages(env: Env): Promise<WikiPageInput[]> {
 
   const pages: WikiPageInput[] = [];
   for (const page of list.pages.list) {
+    if (!seededPaths.has(page.path)) continue;
     const detail = await wikiGraphQl<{ pages: { singleByPath: { content: string } | null } }>(
       env,
       `query Page($path: String!, $locale: String!) {

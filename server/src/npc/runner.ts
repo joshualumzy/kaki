@@ -22,7 +22,7 @@ import {
   type NpcStateMessage,
   type Scenario,
 } from '@kaki/shared';
-import { OPENING_PREFIX, openingLine } from '../host/opening';
+import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine } from '../host/opening';
 import type { ChatMessage } from '../llm';
 import { createRoomToken } from '../livekit';
 import { NpcConversation } from './conversation';
@@ -60,6 +60,10 @@ export interface RunnerOptions {
   onRoomEmpty?: () => void;
   /** Called when a person takes the host's seat or leaves it (also false when the room empties). */
   onHostChange?: (human: boolean) => void;
+  /** Called when an observe-only agenda item has been talked through and the meeting should move on. */
+  onAdvanceAgenda?: () => void;
+  /** Called when the final agenda item has wrapped up and the meeting should conclude. */
+  onEndMeeting?: () => void;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -74,23 +78,32 @@ export interface RunnerOptions {
   traceVad?: boolean;
   /** The connection to LiveKit was lost; the runner is no longer usable. */
   onDisconnected?(): void;
+  /** Fetch the latest scenario agenda order from the Kaki server when a new visitor session starts. */
+  fetchScenario?(): Promise<Scenario | undefined>;
 }
 
 export interface NpcRunner {
   /**
    * The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there).
-   * `onDone` runs when it has been said or given up on; it is not called when the cue is ignored outright (no conversation, or the
-   * welcome before Start).
+   * `onDone` runs when it has been said (`true`) or given up on (`false`); it is not called when the cue is ignored outright.
    */
-  announce(text: string, onDone?: () => void): void;
+  announce(text: string, onDone?: (spoken: boolean) => void): void;
   /** The meeting moved to the next agenda item: the AI host will ask the person for the decision they own. */
   agendaMoved(title?: string): void;
+  /** A follow-up task on the current agenda item was accepted: if the person already weighed in, move the meeting on. */
+  taskAccepted(): void;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
+  /** True when the visitor has already spoken on the current agenda item (or the item is observe-only). */
+  canDispatchTask(): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
   hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
   say(attendee: string, text: string, onDone?: () => void): void;
+  /** Pause the current conversation (for example when the meeting ends). */
+  pause(): void;
+  /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
+  announceClosing(text: string): void;
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
 }
@@ -201,6 +214,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           if (vad === undefined) return undefined;
           return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
         },
+        advanceAgenda: options.onAdvanceAgenda,
+        endMeeting: options.onEndMeeting,
       },
       { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs, bargeInMs: options.bargeInMs },
     );
@@ -230,7 +245,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
    */
   let started = false;
-  const meetingOpen = (): boolean => started || hostIsHuman();
+  let paused = false;
+  const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
   function syncCast(): void {
     castQueue = castQueue
       .then(async () => {
@@ -253,7 +269,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           castNames = '';
           welcomed = false;
           started = false;
+          paused = false;
         } else if (conversation === undefined || names !== castNames) {
+          if (options.fetchScenario !== undefined) {
+            const latest = await options.fetchScenario().catch(() => undefined);
+            if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
+              scenario.agenda.splice(0, scenario.agenda.length, ...latest.agenda);
+            }
+          }
           conversation?.close();
           conversation = makeConversation(wanted);
           castNames = names;
@@ -311,6 +334,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           });
     const vad: EnergyVad = new EnergyVad(
       (speaking) => {
+        if (!meetingOpen()) return;
         if (speaking && Date.now() < typingUntil) {
           // Typing: the sound is probably a key press. Not speech, not a cut-in; its end is ignored too.
           suppressed.add(identity);
@@ -325,7 +349,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             ? `${identity} started talking (mic peak ${vad.peak(300).toFixed(3)}, bar ${vad.threshold.toFixed(3)}${vad.guarded ? `, AI was talking: its level ${vad.referenceLevel.toFixed(3)}, its echo in the mic ${vad.leakLevel.toFixed(3)}` : ''})`
             : `${identity} stopped talking`,
         );
-        if (meetingOpen()) conversation?.humanSpeech(talking.size > 0);
+        conversation?.humanSpeech(talking.size > 0);
         // Last, and guarded: a failure in speech recognition must never stop the conversation hearing the person.
         try {
           recorder?.speaking(speaking);
@@ -340,6 +364,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     let lastTrace = 0;
     try {
       for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
+        if (!meetingOpen()) continue;
         vad.push(frame.data, frame.sampleRate);
         try {
           recorder?.push(frame.data);
@@ -397,11 +422,19 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           syncCast();
         }
       } else if (message.kind === 'stop') {
+        paused = true;
+        talking.clear();
+        for (const vad of vads.values()) vad.close();
         log(`${participant.identity} pressed stop`);
         conversation?.stop();
-      } else if (!meetingOpen()) {
+      } else if (message.kind === 'resume') {
+        paused = false;
+        log(`${participant.identity} pressed resume`);
+        conversation?.resumeFromPause();
+      } else if (!started && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {
+        paused = false;
         typingUntil = Date.now() + TYPING_QUIET_MS;
         conversation?.humanTyped(message.text);
       }
@@ -424,7 +457,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
 
-  function announce(text: string, onDone?: () => void): void {
+  function announce(text: string, onDone?: (spoken: boolean) => void): void {
     if (hostName === undefined || conversation === undefined) return;
     const isWelcome = text.startsWith(OPENING_PREFIX);
     // The welcome was already spoken when the person arrived; the host cue that follows the first line is not said again.
@@ -433,8 +466,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (isWelcome && !meetingOpen()) return;
     // The welcome is rebuilt for the person in the room: their own name and role, not the seat's scripted name.
     const person = [...humans.values()].at(-1);
+    const visitor = person?.seat !== undefined ? { name: person.name, seat: person.seat } : undefined;
+    const isNextUp = text.startsWith('Next up:');
+    const nextTitle = isNextUp ? text.replace(/^Next up:\s*/, '').replace(/\.$/, '') : undefined;
     const spoken =
-      isWelcome && person?.seat !== undefined ? openingLine(scenario, { name: person.name, seat: person.seat }) : text;
+      isWelcome && visitor !== undefined
+        ? liveOpeningLine(scenario, visitor)
+        : isNextUp && nextTitle !== undefined
+          ? liveNextItemLine(scenario, nextTitle, visitor)
+          : text;
     if (isWelcome) welcomed = true;
     // After the welcome, the first agenda item begins: the person is asked, or the characters start talking it through.
     conversation.announce(
@@ -442,9 +482,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       spoken,
       undefined,
       isWelcome
-        ? () => {
+        ? (wasSpoken) => {
             conversation?.agendaMoved(scenario.agenda[0]?.title);
-            onDone?.();
+            onDone?.(wasSpoken);
           }
         : onDone,
     );
@@ -458,13 +498,35 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
     },
+    canDispatchTask() {
+      return conversation?.canDispatchTask() ?? true;
+    },
     hostIsHuman,
     agendaMoved(title) {
       conversation?.agendaMoved(title);
     },
+    taskAccepted() {
+      conversation?.taskAccepted();
+    },
     say(attendee, text, onDone) {
-      if (conversation === undefined) return;
-      conversation.announce(attendee, text, undefined, onDone);
+      if (conversation === undefined) {
+        onDone?.();
+        return;
+      }
+      conversation.announce(attendee, text, undefined, () => onDone?.());
+    },
+    pause() {
+      paused = true;
+      talking.clear();
+      for (const vad of vads.values()) vad.close();
+      conversation?.stop();
+    },
+    announceClosing(text) {
+      if (hostName === undefined || conversation === undefined) return;
+      paused = true;
+      talking.clear();
+      for (const vad of vads.values()) vad.close();
+      conversation.announceClosing(hostName, text);
     },
     async stop() {
       closing = true;

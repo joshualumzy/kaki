@@ -9,8 +9,8 @@ export class ActionError extends Error {}
 export interface ActionModuleOptions {
   name: string;
   kind: ActionKind;
-  draft(task: Task, signal: AbortSignal): Promise<ActionDraft>;
-  run(task: Task, signal: AbortSignal): Promise<string>;
+  draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario']): Promise<ActionDraft>;
+  run(task: Task, signal: AbortSignal, scenario: KakiContext['scenario']): Promise<string>;
 }
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
@@ -39,7 +39,7 @@ export function plainReason(error: unknown, service: string): string {
 export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
-    start({ tasks }: KakiContext) {
+    start({ tasks, scenario }: KakiContext) {
       const shutdown = new AbortController();
       let stopped = false;
 
@@ -75,7 +75,7 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
         background('drafting the action', async () => {
           let result: ActionDraft;
           try {
-            result = await draft(task, shutdown.signal);
+            result = await draft(task, shutdown.signal, scenario);
           } catch (error) {
             fail(task, messageOf(error));
             return;
@@ -89,7 +89,7 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
         background('running the action', async () => {
           let artifactUrl: string;
           try {
-            artifactUrl = await run(task, shutdown.signal);
+            artifactUrl = await run(task, shutdown.signal, scenario);
           } catch (error) {
             fail(task, messageOf(error));
             return;

@@ -8,6 +8,7 @@ type ScenarioState =
   | { status: 'error'; message: string };
 
 const ScenarioContext = createContext<Scenario | null>(null);
+const RefreshScenarioContext = createContext<(() => Promise<Scenario>) | null>(null);
 
 let scenarioPromise: Promise<Scenario> | undefined;
 
@@ -83,7 +84,18 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  return <ScenarioContext.Provider value={state.scenario}>{children}</ScenarioContext.Provider>;
+  async function refresh(): Promise<Scenario> {
+    const fresh = await fetchScenario();
+    scenarioPromise = Promise.resolve(fresh);
+    setState({ status: 'ready', scenario: fresh });
+    return fresh;
+  }
+
+  return (
+    <RefreshScenarioContext.Provider value={refresh}>
+      <ScenarioContext.Provider value={state.scenario}>{children}</ScenarioContext.Provider>
+    </RefreshScenarioContext.Provider>
+  );
 }
 
 /** The active scenario; only valid inside ScenarioProvider. */
@@ -91,4 +103,10 @@ export function useScenario(): Scenario {
   const scenario = useContext(ScenarioContext);
   if (scenario === null) throw new Error('useScenario must be used inside ScenarioProvider');
   return scenario;
+}
+
+/** Re-fetch `/api/scenario` when a new meeting starts so the browser gets the shuffled agenda order. */
+export function useRefreshScenario(): () => Promise<Scenario> {
+  const refresh = useContext(RefreshScenarioContext);
+  return refresh ?? fetchScenario;
 }

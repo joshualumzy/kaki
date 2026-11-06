@@ -1,0 +1,111 @@
+{
+  "team": {
+    "name": "pixel-kampung",
+    "display_name": "Nanyang Kopi & Toast"
+  },
+  "users": [
+    {
+      "username": "weiling",
+      "email": "wei.ling@pixelkampung.example",
+      "first_name": "Wei Ling",
+      "last_name": "",
+      "admin": true
+    },
+    {
+      "username": "arjun",
+      "email": "arjun@pixelkampung.example",
+      "first_name": "Arjun",
+      "last_name": ""
+    },
+    {
+      "username": "mei",
+      "email": "mei@pixelkampung.example",
+      "first_name": "Mei",
+      "last_name": ""
+    },
+    {
+      "username": "daniel",
+      "email": "daniel@pixelkampung.example",
+      "first_name": "Daniel",
+      "last_name": ""
+    }
+  ],
+  "channels": [
+    {
+      "name": "kiosk-trials",
+      "display_name": "Kiosk & App Trials",
+      "purpose": "What customers and uncles actually did at the Raffles Place self-order kiosks."
+    },
+    {
+      "name": "storefront",
+      "display_name": "Menu & Storefront",
+      "purpose": "Kiosk screens, Kaya Toast plushies and outlet signage."
+    },
+    {
+      "name": "kopitiam-launch",
+      "display_name": "Friday Launch",
+      "purpose": "Raffles Place Friday 8am promo launch, TikTok influencer and supplier schedule."
+    }
+  ],
+  "posts": [
+    {
+      "key": "kiosk1",
+      "channel": "kiosk-trials",
+      "author": "mei",
+      "at": "2026-11-10T09:05:00+08:00",
+      "text": "Raffles Place morning kiosk trial (40 customers): 19 out of 28 first-time kiosk users got stuck on Step 2 when choosing Kopi O Kosong vs Kopi C Siew Dai. The line backed up all the way to the glass doors."
+    },
+    {
+      "channel": "kiosk-trials",
+      "author": "arjun",
+      "replyToKey": "kiosk1",
+      "at": "2026-11-10T09:12:00+08:00",
+      "text": "Wait, didn't we try switching the buttons to plain English ('Black Coffee No Sugar') last week at Tampines?"
+    },
+    {
+      "channel": "kiosk-trials",
+      "author": "mei",
+      "replyToKey": "kiosk1",
+      "at": "2026-11-10T09:15:00+08:00",
+      "text": "We did, and three regular uncles scolded the cashier saying it looked like an overpriced hipster cafe and they couldn't find their Kopi Gao! That's why we need a 'Kopi Lingo / Simple English' toggle button plus a one-tap 'Usual Set A' button."
+    },
+    {
+      "channel": "kiosk-trials",
+      "author": "arjun",
+      "replyToKey": "kiosk1",
+      "at": "2026-11-10T09:24:00+08:00",
+      "text": "The 'Usual Set A' shortcut is a 20-minute config change. The full language toggle with cup icons is about 3 hours of work — and I still need half a day to fix the $1 Kaya Toast cart exploit where double-tapping lets people order 50 sets."
+    },
+    {
+      "channel": "kiosk-trials",
+      "author": "daniel",
+      "replyToKey": "kiosk1",
+      "at": "2026-11-10T09:31:00+08:00",
+      "text": "Confirm need to fix that 50-set exploit before Friday ah! If one CBD office pools an order for 50 $1 sets on launch morning, our toaster will catch fire while @MakanWithZack is filming live."
+    },
+    {
+      "channel": "kopitiam-launch",
+      "author": "daniel",
+      "at": "2026-11-11T11:00:00+08:00",
+      "text": "3,120 people have already downloaded the Nanyang Kopi app to claim the Friday $1 Kaya Butter Set voucher!"
+    },
+    {
+      "channel": "kopitiam-launch",
+      "author": "weiling",
+      "at": "2026-11-11T11:04:00+08:00",
+      "text": "Reminder on budget: total launch promo budget is SGD 1,800. We already spent SGD 1,050 on the storefront bunting and 300 Kaya Toast plushie keychains. That leaves SGD 750 total."
+    },
+    {
+      "channel": "kopitiam-launch",
+      "author": "daniel",
+      "at": "2026-11-11T11:08:00+08:00",
+      "text": "@MakanWithZack (85k followers on TikTok) quoted SGD 600 to do a Friday 8am breakfast livestream at Raffles Place. However, he just emailed saying he can drop to SGD 450 if we give him 20 Kaya Toast plushie keychains and VIP vouchers for his giveaway!"
+    },
+    {
+      "channel": "kopitiam-launch",
+      "author": "weiling",
+      "at": "2026-11-11T11:16:00+08:00",
+      "text": "Bigger problem: Ah Seng Farm just emailed that Friday's kampong egg lorry is delayed until 12pm noon. If we launch at 8am Friday, we need 60 trays of backup eggs from Seng Shiong for SGD 180, or we postpone the promo to Monday."
+    }
+  ]
+}

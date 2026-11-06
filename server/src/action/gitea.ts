@@ -46,6 +46,13 @@ function issueEndpoint({ url, owner, repo }: GiteaSettings): string {
   return `${url.replace(/\/+$/, '')}/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`;
 }
 
+function giteaUsernameFor(scenario: Parameters<Parameters<typeof createActionModule>[0]['run']>[2], roleId: string | undefined): string | undefined {
+  if (roleId === undefined) return undefined;
+  const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
+  if (attendee === undefined || !scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) return undefined;
+  return attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 /** Create the module that drafts Gitea issues and posts them once the assignee approves. */
 export function createGiteaModule({
   llm,
@@ -56,11 +63,20 @@ export function createGiteaModule({
   return createActionModule({
     name: 'action-gitea',
     kind: 'gitea_issue',
-    async draft(task, signal) {
+    async draft(task, signal, scenario) {
       if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the issue cannot be drafted');
       }
+
+      const roleId = task.assignee ?? task.suggestedAssignee;
+      const role = scenario.roles.find((candidate) => candidate.id === roleId);
+      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
+      const knownFacts = role?.card?.facts ?? [];
+      const ownerLine =
+        attendee !== undefined && role !== undefined ? `\nOwner: ${attendee.name} (${role.label})` : '';
+      const factsBlock =
+        knownFacts.length > 0 ? `\n\nKnown facts from ${attendee?.name ?? 'the owner'}:\n- ${knownFacts.join('\n- ')}` : '';
 
       const messages: ChatMessage[] = [
         {
@@ -68,11 +84,11 @@ export function createGiteaModule({
           content:
             'You turn a team task into a Gitea issue. Reply with one JSON object and nothing else: ' +
             '{"title": "...", "body": "..."}. The body may use Markdown, in a few plain sentences, not a template.' +
-            ' Use only what is in the task and its context. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
-          content: `Task: ${task.title}\n\nContext:\n${task.context}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}`,
         },
       ];
 
@@ -89,10 +105,17 @@ export function createGiteaModule({
       }
       return { target: `${gitea.owner}/${gitea.repo}`, subject: draft.title, body: draft.body };
     },
-    async run(task, signal) {
+    async run(task, signal, scenario) {
       if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
+
+      const sudoUser = giteaUsernameFor(scenario, task.assignee ?? task.suggestedAssignee);
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+        authorization: `token ${gitea.token}`,
+        ...(sudoUser === undefined ? {} : { Sudo: sudoUser }),
+      };
 
       const timeout = AbortSignal.timeout(timeoutMs);
       const requestSignal = AbortSignal.any([timeout, signal]);
@@ -100,7 +123,7 @@ export function createGiteaModule({
       try {
         response = await fetchImpl(issueEndpoint(gitea), {
           method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `token ${gitea.token}` },
+          headers,
           body: JSON.stringify({ title: draft.subject, body: draft.body }),
           signal: requestSignal,
         });

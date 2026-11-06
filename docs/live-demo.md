@@ -4,24 +4,25 @@ A video-call style meeting where one person talks to AI attendees. One LLM (the 
 scenario profiles and decides who speaks, one at a time. The person can talk over them and they stop. Every accepted line goes
 to Kaki as an ordinary transcript line, so the host, wingman and action agents work from the same conversation.
 
-Run it: `npm run stack:up`, `npm run dev`, `npm run npc`, then open http://localhost:5173/demo in Chrome or Edge.
+Run it in one command: `SCENARIO=kopitiam npm run live:up`, then open http://localhost:5173/demo?mode=live in Chrome or Edge.
+(Or run `npm run stack:up`, `npm run dev`, and `npm run npc` separately.)
 Settings are in `.env.example`. Terms are in `CONTEXT.md`.
 
 ## A visit, start to finish
 
-1. **Join.** The visitor picks a name and a role (any role no AI plays) and whether to use the microphone.
+1. **Join.** The visitor picks a name and a role (any role no AI plays) and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, 2 minutes per item) tailored to that role.
 2. **Briefing.** The stage shows "Read your briefing first" (`web/src/demo/StartPrompt.tsx`). The AI attendees are in the room but
-   silent, and anything the visitor says or types is ignored. The role card and situation are in the Kaki Wingman panel.
+   silent, and anything the visitor says or types is ignored. The role card and situation are in the unified Kaki Wingman dock on the right.
    A visitor in the facilitator's seat skips this: they open the meeting themselves.
-3. **Start.** Pressing the button sends `{ kind: 'start' }` on the `kaki.control` data topic. Only then does Sam speak the welcome, which
+3. **Start.** Pressing the button sends `{ kind: 'start' }` on the `kaki.control` data topic. Only then does the host speak the welcome, which
    names the visitor's role and responsibility, the first agenda item, and hands over by name to that item's owner
    (`server/src/host/opening.ts`).
 4. **The item.** If the item is not the visitor's, the characters talk it through for a newcomer unless the visitor speaks first.
-   If it is, Sam asks them for their call. If it is contested, two characters argue and Sam asks the visitor to decide (`itemMode` in
+   If it is, the host asks them for their call. If it is contested, two characters argue and the host asks the visitor to decide (`itemMode` in
    `shared/src/demo.ts`).
-5. **Tasks.** The notetaker spots action items; Sam dispatches them on the Host tab, the AI colleague accepts or declines in their own words,
-   and accepted drafts are approved after a short pause (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`). The colleague's spoken answer waits
-   until Sam's question has been said or dropped (`cueOrder.ts`).
+5. **Tasks.** The notetaker spots action items; the host dispatches them, an AI colleague accepts or declines in their own words (or the visitor accepts/approves their own task in the Wingman dock),
+   and accepted drafts are executed against Gitea, Mattermost, Mailpit, Wiki.js, or Radicale CalDAV (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`).
+6. **Automatic wrap-up & Wiki minutes.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` automatically publishes the full Markdown meeting minutes to Wiki.js, surfacing a direct **Open meeting minutes in Wiki ↗** link in the dock and on `/screen`.
 
 ## How it is built
 

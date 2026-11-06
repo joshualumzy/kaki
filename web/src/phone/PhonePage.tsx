@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
+  assigneeLabel,
   isRoleIn,
   roleLabel,
   type Fact,
@@ -399,6 +400,73 @@ export function PhoneFeed({ role }: { role: string }) {
 const MIN_SENDING_MS = 1200;
 
 /**
+ * Shows only the visitor's active task card (when a task assigned to `role` needs action or review)
+ * and any latest company-record lookup, without the full PhonePage header, empty state, or history list.
+ */
+export function ActiveRoleCards({ role }: { role: string }) {
+  const scenario = useScenario();
+  const { events, tasks, rejection, send } = useKaki(role);
+  const stamped = useStampedEvents(events);
+  const activeRef = useRef<HTMLDivElement>(null);
+  const lastScrolledKey = useRef<string>('');
+
+  const allTasks = [...tasks.values()];
+  const currentTask = allTasks
+    .filter(needsAction)
+    .sort((left, right) => updatedAtMs(right) - updatedAtMs(left))[0];
+
+  const factEvents = stamped.filter(
+    (item): item is StampedEvent & { event: Extract<KakiEvent, { type: 'FACT_FOUND' }> } =>
+      item.event.type === 'FACT_FOUND' && item.event.payload.facts.length > 0,
+  );
+  const latestFact = factEvents.at(-1);
+
+  const actionableTaskKey =
+    currentTask !== undefined &&
+    (currentTask.status === 'DISPATCHED' || currentTask.status === 'DRAFT_READY' || currentTask.status === 'FAILED')
+      ? `${currentTask.id}:${currentTask.status}`
+      : '';
+  const scrollTriggerKey = `${actionableTaskKey}|${latestFact?.id ?? ''}`;
+
+  useEffect(() => {
+    if (scrollTriggerKey === '|' || scrollTriggerKey === lastScrolledKey.current) return;
+    lastScrolledKey.current = scrollTriggerKey;
+    activeRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [scrollTriggerKey]);
+
+  if (currentTask === undefined && latestFact === undefined && rejection === null) {
+    return null;
+  }
+
+  return (
+    <div ref={activeRef} className="phone kd-role-active">
+      {rejection === null ? null : (
+        <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />
+      )}
+      {currentTask !== undefined && (
+        <section className="phone-current" aria-label="Needs you now">
+          <p className="eyebrow phone-section-eyebrow">Needs you now</p>
+          <TaskCard
+            key={taskKey(currentTask)}
+            task={currentTask}
+            scenario={scenario}
+            send={send}
+            rejection={rejection}
+          />
+        </section>
+      )}
+      {latestFact !== undefined && (
+        <FactCard
+          question={latestFact.event.payload.question}
+          facts={latestFact.event.payload.facts}
+          at={latestFact.receivedAt}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
  * The server can finish sending in well under a second, so the phone would never show it.
  * From the moment the person approves, show "sending" for at least MIN_SENDING_MS.
  */
@@ -472,7 +540,7 @@ function TaskCardBody({
       <h2 className="card-title phone-task-title">{task.title}</h2>
       <p className="task-meta">
         <StatusPill status={task.status} />
-        <span>{roleLabel(scenario, task.assignee ?? task.suggestedAssignee)}</span>
+        <span>{assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee)}</span>
       </p>
       {task.context.trim() === '' ? null : (
         <p className="phone-task-context">{task.context}</p>

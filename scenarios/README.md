@@ -1,10 +1,20 @@
 # Scenarios
 
-Each scenario lives in its own folder.
+Kaki is scenario-agnostic: every role, attendee, NPC personality, agenda item, and company dataset is loaded from `scenarios/<id>/`.
 
-- `scenario.json` (required) — roles, attendees and agenda. Validated at startup. Optional `npcs` makes some attendees AI attendees for the live demo meeting (`/demo`): each has `attendee` (an attendee's `name`), `voice` (an Azure text-to-speech voice), `personality`, `agenda`, `concerns` and optionally `knows`.
-- `demo-events.json` — sample events and tasks for `npm run emit-demo`.
-- `seed/` — fake company data for Wingman: Gitea issues, Mattermost posts, emails, Postgres rows and wiki pages (`npm run seed` loads it).
-- `replay/transcript.json` and `replay/expected.json` — scripted, speaker-tagged transcript (`at` = seconds from the start, `speaker` = an attendee's Zoom name). Play it with `KAKI_REPLAY=1` (and `KAKI_REPLAY_SPEED=10` to speed it up).
+Switch scenarios via the `SCENARIO` environment variable:
+- **`SCENARIO=kopitiam`** (`scenarios/kopitiam/`) — **Nanyang Kopitiam Co.** (Flagship Changi Jewel outlet launch sync: Operations Lead, Lead Programmer, Brand & Marketing Lead, Master Roaster & Chef, Finance & Procurement Lead).
+- **`SCENARIO=pixel-kampung`** (`scenarios/pixel-kampung/`, default) — **Lah Studios** (*Hawker Heroes* pre-launch sync: Studio Manager, Producer, Lead Programmer, Game Designer, Marketing Lead).
 
-Switch scenarios by setting `SCENARIO=<folder>` (default: `pixel-kampung`).
+## Scenario Folder Layout
+
+- `scenario.json` (required) — Roles (with private `card` briefings), attendees, AI `npcs` (Azure TTS voice, personality, agenda, concerns), and the pool of agenda items.
+  - In live `/demo` booth meetings, Kaki selects a crisp **2-item agenda** (`KAKI_AGENDA_ITEMS`, default `2`, 2 minutes per item) tailored to the visitor's chosen role so every session completes in ~3–4 minutes.
+- `seed/` — Company records loaded by `npm run seed` and indexed by `npm run index:knowledge`:
+  - `seed/gitea/issues.json` — Open and closed Gitea issues
+  - `seed/mattermost/seed.json` — Channels and team threads
+  - `seed/mail/emails.json` — Inbox messages in Mailpit
+  - `seed/postgres/schema.sql` & `data.sql` — Structured SQL metrics
+  - `seed/wiki/pages.json` & `*.md` — Team wiki pages
+- `demo-events.json` — Sample events and tasks for `npm run emit-demo`.
+- `replay/` — Scripted transcript (`transcript.json`) and expected extraction benchmark (`expected.json`).
