@@ -46,10 +46,10 @@ All backing services run locally via [`docker/docker-compose.yml`](docker/docker
 
 | Integration | Purpose | Local Endpoint | Module |
 | --- | --- | --- | --- |
-| **Gitea** | Creates engineering / ops issues from approved drafts | `http://127.0.0.1:3100` | `server/src/action/gitea.ts` |
-| **Mattermost** | Posts announcements & updates to team channels | `http://127.0.0.1:8065` | `server/src/action/mattermost.ts` |
-| **Mailpit (SMTP / REST)** | Sends drafted external/internal emails & links to web viewer | `http://127.0.0.1:8025` | `server/src/action/email.ts` |
-| **Wiki.js (GraphQL)** | Publishes team wiki pages + automatic end-of-meeting minutes | `http://127.0.0.1:3200` | `server/src/action/wiki.ts` |
+| **Gitea** | Creates engineering / ops issues from approved drafts | `http://127.0.0.1:8082` | `server/src/action/gitea.ts` |
+| **Mattermost** | Posts announcements & updates to team channels | `http://127.0.0.1:8083` | `server/src/action/mattermost.ts` |
+| **Mailpit (SMTP / REST)** | Sends drafted external/internal emails & links to web viewer | `http://127.0.0.1:8084` | `server/src/action/email.ts` |
+| **Wiki.js (GraphQL)** | Publishes team wiki pages + automatic end-of-meeting minutes | `http://127.0.0.1:8081` | `server/src/action/wiki.ts` |
 | **Radicale (CalDAV)** | Books `.ics` calendar events & serves human-readable viewer | `http://127.0.0.1:5232` | `server/src/action/calendar.ts` |
 | **PostgreSQL + `pgvector`** | Stores company records & 1024-dim `bge-m3` RAG embeddings | `127.0.0.1:5433` | `server/src/wingman/knowledge/` |
 | **LiveKit + Azure Speech** | Real-time WebRTC audio room, server VAD, STT & multi-voice TTS | `ws://127.0.0.1:7880` | `server/src/npc/` |

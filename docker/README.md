@@ -25,10 +25,10 @@ npm run index:knowledge   # embeds and indexes all 5 data sources into pgvector
 
 | Service | Local URL | Port | Purpose |
 | --- | --- | --- | --- |
-| **Wiki.js** | `http://127.0.0.1:3200` | `3200` | Team wiki (RAG source + `wiki_page` action + auto meeting minutes) |
-| **Gitea** | `http://127.0.0.1:3100` | `3100` (SSH `2222`) | Issue tracker (RAG source + `gitea_issue` action) |
-| **Mattermost** | `http://127.0.0.1:8065` | `8065` | Team chat (RAG source + `mattermost_post` action) |
-| **Mailpit** | `http://127.0.0.1:8025` | `8025` (SMTP `1025`) | Email server & web inbox (RAG source + `email` action) |
+| **Wiki.js** | `http://127.0.0.1:8081` | `8081` | Team wiki (RAG source + `wiki_page` action + auto meeting minutes) |
+| **Gitea** | `http://127.0.0.1:8082` | `8082` (SSH `2222`) | Issue tracker (RAG source + `gitea_issue` action) |
+| **Mattermost** | `http://127.0.0.1:8083` | `8083` | Team chat (RAG source + `mattermost_post` action) |
+| **Mailpit** | `http://127.0.0.1:8084` | `8084` (SMTP `1025`) | Email server & web inbox (RAG source + `email` action) |
 | **Radicale CalDAV** | `http://127.0.0.1:5232` | `5232` | CalDAV calendar server (`calendar_event` action) |
 | **PostgreSQL (`pgvector`)** | `postgres://kaki:kaki_dev_password@127.0.0.1:5433/kaki` | `5433` | Structured company tables + `knowledge_chunks` vector store |
 | **LiveKit** | `ws://127.0.0.1:7880` | `7880` | WebRTC audio room for `/demo` |
