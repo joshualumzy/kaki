@@ -226,7 +226,7 @@ export function volunteerRole(evidence: string, source: { role?: Role }): Role |
   return FIRST_PERSON_COMMITMENT.test(evidence) ? source.role : undefined;
 }
 
-/** The role explicitly addressed in a task request ("as Operations Director, can you..." or "Mei, can you..."). */
+/** The role explicitly addressed in a task request ("as Operations Director, can you..." or "<colleague name>, can you..."). */
 export function addressedRole(
   evidence: string,
   scenario: Scenario,
@@ -404,7 +404,7 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '  listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of',
     '  the current agenda item so Kaki can search company records for them; never omit forRole).',
     '  NEVER list a host opening handoff ("What\'s happening there?", "Can you walk us through...?") or the open-ended agenda decision question',
-    '  addressed to a colleague ("How do we help newcomers order Kopi...?", "How should we handle...?", "What do you want to do?") in newQuestions —',
+    '  addressed to a colleague ("How do we fix this for our customers...?", "How should we handle...?", "What do you want to do?") in newQuestions —',
     '  those are discussion prompts, not factual lookups.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up")',
     '  does not answer the question: it stays a question. Neither does an answer its speaker doubts or contradicts.',
@@ -438,9 +438,9 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '  role when they volunteered ("I\'ll…"), the role of the person addressed when they were asked ("Alex, can you…").',
     '  The role is shown in brackets before each line. Always use the speaker names as they appear in the transcript lines (never append a scenario default name in parentheses after a speaker\'s name). Always set actionKind when the deliverable is an issue, a team',
     '  chat post, an email, a wiki page or a calendar event; omit it only when none of these fits. Both title and context',
-    '  MUST include the specific topic and decision from the preceding lines (for example, title: "Post kiosk English',
-    '  subtitles decision in team channel", context: "Announce in the team channel today that we decided to add English',
-    '  subtitles under each Kopi name on the kiosk before Friday") — never use a generic placeholder like "Update team',
+    '  MUST include the specific topic and decision from the preceding lines (for example, title: "Post menu label',
+    '  decision in team channel", context: "Announce in the team channel today that we decided to add plain-language',
+    '  labels under each menu item before Friday") — never use a generic placeholder like "Update team',
     '  channel" or "Send email" without the subject matter.',
     '  evidence: copy, word for word, the transcript line where it was asked for or volunteered.',
     '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id.',
@@ -452,7 +452,7 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     'Examples:',
     '- "[Priya (Manager)] I\'ll post the new opening hours in the team channel tonight." → task (mattermost_post, Manager: the speaker owns it, not whoever the topic concerns).',
     '- "Can the payment fix go in before Friday morning?" "Should be fine." → not a task: product work itself.',
-    '- "[Sam (General Manager)] Arjun, can you walk us through the current state of the ordering app?" → not a task: asking someone to speak in the meeting.',
+    '- "[Alex (Manager)] Priya, can you walk us through the current state of the ordering app?" → not a task: asking someone to speak in the meeting.',
     '- "Should the flyers use the new logo?" "Yes, use the new one." → not a task: an answer, nobody asked or volunteered.',
     '- "When is the delivery due?" "The email says Monday, but I think it moved, so don\'t quote me." → question:',
     '  the only answer was doubted. Keep it open until someone states the date without doubt.',
@@ -498,6 +498,15 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
   const talkTotals = new Map<Role, number>();
   let talkTotal = 0;
   const attending = new Set(scenario.attendees.map((attendee) => attendee.role));
+  const facilitatorName =
+    (scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee ??
+    scenario.attendees.find((attendee) => scenario.roles.some((role) => role.id === attendee.role && role.facilitator === true))?.name;
+  const attendeeNamePattern = new RegExp(
+    `\\s*\\((?:${scenario.attendees
+      .map((attendee) => attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|')})\\)`,
+    'g',
+  );
 
   function addTalk(index: number, role: Role, seconds: number): void {
     const item = talkByItem.get(index) ?? {};
@@ -584,10 +593,10 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence line is a hypothetical proposal`);
         continue;
       }
-      // Whoever is explicitly asked by role ("as Operations Director, can you...") or by name ("Mei, can you...") owns it;
+      // Whoever is explicitly asked by role ("as Operations Director, can you...") or by name ("<colleague name>, can you...") owns it;
       // otherwise whoever says "I'll do it" owns it.
       const owner = addressedRole(source.text, scenario, groundingPool, source.role) ?? volunteerRole(evidence, source);
-      let cleanedContext = task.context.replace(/\s*\((?:Wei Ling|Arjun|Mei|Daniel|Sam)\)/g, '');
+      let cleanedContext = task.context.replace(attendeeNamePattern, '');
       for (const attendee of scenario.attendees) {
         const visitorLine = groundingPool.find(
           (l) => l.role === attendee.role && l.speaker !== undefined && !l.speaker.startsWith(attendee.name),
@@ -617,9 +626,10 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
       const isFacilitator = role !== undefined && scenario.roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
-      if (isFacilitator && speaker === 'Sam') {
-        // When AI Sam explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
-        // keep that line so the notetaker extracts the task even if the LLM put the task request on a "Sam:" line.
+      const speakerName = speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+      if (isFacilitator && facilitatorName !== undefined && speakerName === facilitatorName) {
+        // When the AI facilitator explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
+        // keep that line so the notetaker extracts the task even if the LLM put the task request on the facilitator's line.
         const isTaskRequestFromSam =
           /\b(?:can|could|would|will) you (?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|put|share|confirm)\b/i.test(
             text,

@@ -47,8 +47,8 @@ describe('task flows', () => {
           gitea: {
             url: 'http://localhost/gitea',
             token: 'test-token',
-            owner: 'pixel-kampung',
-            repo: 'hawker-heroes',
+            owner: 'kopitiam',
+            repo: 'kopitiam-pos',
           },
           fetchImpl: async () =>
             new Response(JSON.stringify({ html_url: 'http://localhost/gitea/issues/1' }), {
@@ -61,7 +61,7 @@ describe('task flows', () => {
           mattermost: {
             url: 'http://localhost/mattermost',
             token: 'test-token',
-            team: 'pixel-kampung',
+            team: 'kopitiam',
             channel: 'launch',
           },
           fetchImpl: async () => {
@@ -79,7 +79,7 @@ describe('task flows', () => {
           email: {
             smtpHost: '127.0.0.1',
             smtpPort: 1025,
-            from: 'kaki@pixelkampung.example',
+            from: 'kaki@nanyangkopitiam.example',
             mailpitUrl: 'http://localhost/mailpit',
           },
           sendMail: async (message) => {

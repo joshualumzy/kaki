@@ -10,18 +10,18 @@ afterEach(cleanup);
 
 const scenario = {
   id: 's',
-  organisation: 'Lah Studios',
-  meetingTitle: 'Launch readiness',
+  organisation: 'Nanyang Kopi & Toast',
+  meetingTitle: 'Raffles Place launch readiness',
   roles: [{ id: 'producer', label: 'Producer' }],
   attendees: [{ name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' }],
   agenda: [],
-  situation: 'The game still crashes.',
+  situation: 'The launch is tomorrow morning.',
 } as unknown as Scenario;
 
 describe('SituationCard', () => {
   it('shows the situation and who is in the room', () => {
     render(<SituationCard scenario={scenario} />);
-    expect(screen.getByText('The game still crashes.')).toBeTruthy();
+    expect(screen.getByText('The launch is tomorrow morning.')).toBeTruthy();
     expect(screen.getByText('Wei Ling, Producer')).toBeTruthy();
   });
 

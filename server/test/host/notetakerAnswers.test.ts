@@ -16,7 +16,7 @@ const quietHub: Hub = {
 
 let scenario: Scenario;
 beforeAll(async () => {
-  scenario = await loadScenario('pixel-kampung');
+  scenario = await loadScenario('kopitiam');
 });
 
 function reply(body: Record<string, unknown>): string {

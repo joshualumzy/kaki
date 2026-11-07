@@ -35,7 +35,7 @@ npm run index:knowledge   # embeds and indexes all 5 data sources into pgvector
 
 ## Dev Logins
 
-- **Wiki.js:** `admin@pixelkampung.example` / `kaki_wiki_dev`
+- **Wiki.js:** `admin@nanyangkopitiam.example` / `kaki_wiki_dev`
 - **Gitea:** `wei-ling` / `kaki_gitea_dev`
 - **Mattermost:** `weiling` / `kaki_mattermost_dev`
 

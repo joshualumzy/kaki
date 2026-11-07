@@ -39,6 +39,40 @@ export interface AgendaItem {
   decision?: string;
   /** The characters disagree on this item, so the person is asked to settle it; optional. */
   contested?: boolean;
+  /** Structured opening views and trade-offs the AI colleagues can draw on; optional. */
+  discussion?: AgendaDiscussion;
+}
+
+/**
+ * What the AI colleagues bring to one agenda item: each speaker's opening view and the distinct
+ * trade-offs that keep the decision open. It is data, not a script: it names what is at stake and
+ * the question still to answer, never the solution or a required number of turns.
+ */
+export interface AgendaDiscussion {
+  /** What each colleague says at the start of the item, in their own words. */
+  openingViews: AgendaOpeningView[];
+  /** The distinct tensions the person deciding must weigh. */
+  tradeOffs: AgendaTradeOff[];
+}
+
+/** One colleague's opening view on an agenda item. */
+export interface AgendaOpeningView {
+  /** The `name` of the attendee whose view this is. */
+  attendee: string;
+  /** Their opening position, with no prescribed answer. */
+  view: string;
+}
+
+/** One distinct trade-off the room wants the person deciding to weigh. */
+export interface AgendaTradeOff {
+  /** The `name` of the attendee who raises this trade-off. */
+  attendee: string;
+  /** The role whose work or obligation makes this trade-off matter. */
+  role: Role;
+  /** What is at stake, grounded in the company records. */
+  tradeOff: string;
+  /** The open question the colleague should ask next. */
+  question: string;
 }
 
 /**
@@ -286,7 +320,12 @@ function readNpcs(value: unknown, attendees: unknown, roleIds: Set<string>, prob
   });
 }
 
-function readAgenda(value: unknown, roleIds: Set<string>, problems: string[]): void {
+function readAgenda(
+  value: unknown,
+  roleIds: Set<string>,
+  attendeeNames: Set<string>,
+  problems: string[],
+): void {
   if (!Array.isArray(value)) {
     problems.push('agenda must be an array');
     return;
@@ -318,7 +357,68 @@ function readAgenda(value: unknown, roleIds: Set<string>, problems: string[]): v
     } else if (!roleIds.has(item.ownerRole)) {
       problems.push(`agenda[${index}].ownerRole "${item.ownerRole}" is not a known role`);
     }
+    if (item.discussion !== undefined) {
+      readAgendaDiscussion(item.discussion, `agenda[${index}].discussion`, roleIds, attendeeNames, problems);
+    }
   });
+}
+
+function readAgendaDiscussion(
+  value: unknown,
+  label: string,
+  roleIds: Set<string>,
+  attendeeNames: Set<string>,
+  problems: string[],
+): void {
+  if (!isObject(value)) {
+    problems.push(`${label} must be an object`);
+    return;
+  }
+  if (!Array.isArray(value.openingViews) || value.openingViews.length === 0) {
+    problems.push(`${label}.openingViews must be a non-empty array`);
+  } else {
+    const seen = new Set<string>();
+    value.openingViews.forEach((view, index) => {
+      const where = `${label}.openingViews[${index}]`;
+      if (!isObject(view) || !isNonEmptyString(view.attendee) || !isNonEmptyString(view.view)) {
+        problems.push(`${where} must have a non-empty "attendee" and "view"`);
+        return;
+      }
+      if (!attendeeNames.has(view.attendee)) {
+        problems.push(`${where}.attendee "${view.attendee}" is not one of the attendees`);
+      } else if (seen.has(view.attendee)) {
+        problems.push(`${where}.attendee "${view.attendee}" is duplicated`);
+      } else {
+        seen.add(view.attendee);
+      }
+    });
+  }
+  if (!Array.isArray(value.tradeOffs) || value.tradeOffs.length === 0) {
+    problems.push(`${label}.tradeOffs must be a non-empty array`);
+  } else {
+    value.tradeOffs.forEach((tradeOff, index) => {
+      const where = `${label}.tradeOffs[${index}]`;
+      if (!isObject(tradeOff)) {
+        problems.push(`${where} must be an object`);
+        return;
+      }
+      if (
+        !isNonEmptyString(tradeOff.attendee) ||
+        !isNonEmptyString(tradeOff.tradeOff) ||
+        !isNonEmptyString(tradeOff.question)
+      ) {
+        problems.push(`${where} must have a non-empty "attendee", "tradeOff" and "question"`);
+      }
+      if (isNonEmptyString(tradeOff.attendee) && !attendeeNames.has(tradeOff.attendee)) {
+        problems.push(`${where}.attendee "${tradeOff.attendee}" is not one of the attendees`);
+      }
+      if (!isNonEmptyString(tradeOff.role)) {
+        problems.push(`${where}.role must be a non-empty string`);
+      } else if (!roleIds.has(tradeOff.role)) {
+        problems.push(`${where}.role "${tradeOff.role}" is not a known role`);
+      }
+    });
+  }
 }
 
 /** Validate unknown JSON as a scenario, throwing once with every problem found. */
@@ -334,7 +434,14 @@ export function parseScenario(value: unknown): Scenario {
 
   const roleIds = readRoles(value.roles, problems);
   readAttendees(value.attendees, roleIds, problems);
-  readAgenda(value.agenda, roleIds, problems);
+  const attendeeNames = new Set<string>(
+    Array.isArray(value.attendees)
+      ? value.attendees.flatMap((attendee) =>
+          isObject(attendee) && isNonEmptyString(attendee.name) ? [attendee.name] : [],
+        )
+      : [],
+  );
+  readAgenda(value.agenda, roleIds, attendeeNames, problems);
   if (value.hostBrief !== undefined) {
     if (!isObject(value.hostBrief) || !isNonEmptyString(value.hostBrief.goal) || !isNonEmptyString(value.hostBrief.decision)) {
       problems.push('hostBrief must have a non-empty "goal" and "decision" when present');

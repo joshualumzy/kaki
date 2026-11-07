@@ -14,7 +14,7 @@ import { settle, waitFor } from '../helpers';
 const settings: MattermostSettings = {
   url: 'http://mattermost.test',
   token: 'secret-token',
-  team: 'pixel-kampung',
+  team: 'kopitiam',
   channel: 'launch',
 };
 
@@ -92,7 +92,7 @@ function okFetch(channel = 'launch') {
     const method = init?.method ?? 'GET';
     if (
       method === 'GET' &&
-      url === `http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/${channel}`
+      url === `http://mattermost.test/api/v4/teams/name/kopitiam/channels/name/${channel}`
     ) {
       return jsonResponse({ id: channelId });
     }
@@ -141,7 +141,7 @@ describe('mattermost action module', () => {
     tasks.transition(ready.id, 'RUNNING');
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
 
-    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/kopitiam/pl/post-456');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
 
     const [lookupCall, postCall] = fetchImpl.mock.calls;
@@ -149,7 +149,7 @@ describe('mattermost action module', () => {
 
     const [lookupUrl, lookupInit] = lookupCall;
     expect(String(lookupUrl)).toBe(
-      'http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/launch',
+      'http://mattermost.test/api/v4/teams/name/kopitiam/channels/name/launch',
     );
     expect(lookupInit?.method).toBe('GET');
     expect(lookupInit?.headers).toMatchObject({ authorization: 'Bearer secret-token' });
@@ -180,11 +180,11 @@ describe('mattermost action module', () => {
     tasks.transition(ready.id, 'RUNNING', { draft: { ...ready.draft, target } });
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
 
-    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/kopitiam/pl/post-456');
     const [lookupCall, postCall] = fetchImpl.mock.calls;
     if (lookupCall === undefined || postCall === undefined) throw new Error('Expected two Mattermost requests');
     expect(String(lookupCall[0])).toBe(
-      'http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/ops',
+      'http://mattermost.test/api/v4/teams/name/kopitiam/channels/name/ops',
     );
     expect(JSON.parse(String(postCall[1]?.body))).toEqual({
       channel_id: channelId,
@@ -232,7 +232,7 @@ describe('mattermost action module', () => {
 
     tasks.transition(failed.id, 'RUNNING');
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
-    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/kopitiam/pl/post-456');
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 

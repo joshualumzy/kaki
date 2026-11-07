@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    { "name": "kiosk label experiment ticket", "assignee": "game_designer", "keywords": ["kiosk", "label"] },
+    { "name": "Zack re-taste email", "assignee": "marketing_lead", "keywords": ["zack", "re-taste"] },
+    { "name": "final plan post", "assignee": "producer", "keywords": ["plan", "channel"] }
+  ],
+  "acceptedTasks": [],
+  "questions": [
+    { "name": "tourist vs local split", "keywords": ["tourists", "locals"] },
+    { "name": "per-hour solo diners", "keywords": ["solo", "diners"] },
+    { "name": "cash owner and float", "keywords": ["cash", "float"] }
+  ],
+  "quietRoles": []
+}

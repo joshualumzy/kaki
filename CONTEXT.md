@@ -12,7 +12,7 @@
 - **`Dispatch`**: The host's confirmation on the Shared Action Panel that sends a suggested task to a specific attendee (`SUGGESTED → DISPATCHED`).
 - **`Draft approval`**: Before `kaki.action` writes anything to an external system, the assignee reviews (and can edit) the drafted issue, post or email in `kaki.wingman` and approves it (`DRAFT_READY → RUNNING`).
 - **`Scenario`**: A swappable demo setting in `scenarios/<id>/`: roles, attendees, agenda, fake company seed data and replay script. Selected with `SCENARIO=<id>`; no code depends on a specific scenario.
-- **`Lah Studios`**: The default demo scenario: a fictional Singapore indie game studio preparing to launch its mobile game *Hawker Heroes*.
+- **`Nanyang Kopi & Toast`**: The shipped demo scenario: a fictional Singapore kopitiam reopening its Raffles Place flagship tomorrow morning.
 - **`Mailpit`**: The self-hosted fake email server; Kaki searches its inbox and `kaki.action` sends approved emails through it.
 
 - **`LiveKit Demo Environment`**: The local WebRTC server (`localhost:7880`) running in Docker, serving the live demo meeting at `/demo`. Replaces third-party meeting platforms like Zoom to guarantee a 100% reliable, zero-block live demo environment.

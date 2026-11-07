@@ -11,7 +11,7 @@ import {
 } from '@kaki/shared';
 
 const port = process.env.PORT ?? '3001';
-const folder = process.env.SCENARIO ?? 'pixel-kampung';
+const folder = process.env.SCENARIO ?? 'kopitiam';
 const scenariosDir = fileURLToPath(new URL('../scenarios/', import.meta.url));
 const folderPattern = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -56,7 +56,7 @@ function promptEnter(message: string): Promise<void> {
 }
 
 if (!folderPattern.test(folder)) {
-  throw new Error(`Invalid SCENARIO "${folder}": expected a folder name such as "pixel-kampung"`);
+  throw new Error(`Invalid SCENARIO "${folder}": expected a folder name such as "kopitiam"`);
 }
 
 const scenarioDir = path.join(scenariosDir, folder);

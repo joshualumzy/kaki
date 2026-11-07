@@ -80,6 +80,7 @@ export interface MailMessageSeed {
 
 export interface ScenarioSeed {
   name: string;
+  organisation: string;
   pages: WikiPageSeed[];
   gitea: GiteaSeed;
   mattermost: MattermostSeed;
@@ -316,10 +317,13 @@ function readText(file: string): string {
   }
 }
 
-export function loadScenarioSeed(name = process.env.SCENARIO ?? 'pixel-kampung'): ScenarioSeed {
+export function loadScenarioSeed(name = process.env.SCENARIO ?? 'kopitiam'): ScenarioSeed {
   if (!SCENARIO_PATTERN.test(name)) {
-    throw new Error(`Invalid SCENARIO "${name}": expected a folder name such as "pixel-kampung"`);
+    throw new Error(`Invalid SCENARIO "${name}": expected a folder name such as "kopitiam"`);
   }
+  const scenarioFile = path.join(REPO_ROOT, 'scenarios', name, 'scenario.json');
+  const scenario = objectAt(readJson(scenarioFile), scenarioFile, 'scenario');
+  const organisation = stringAt(scenario.organisation, scenarioFile, 'organisation');
   const seedDir = path.join(REPO_ROOT, 'scenarios', name, 'seed');
   const wikiFile = path.join(seedDir, 'wiki', 'pages.json');
   const wikiManifest = parseWikiManifest(readJson(wikiFile), wikiFile);
@@ -330,6 +334,7 @@ export function loadScenarioSeed(name = process.env.SCENARIO ?? 'pixel-kampung')
 
   return {
     name,
+    organisation,
     pages,
     gitea: parseGiteaSeed(readJson(path.join(seedDir, 'gitea', 'issues.json'))),
     mattermost: parseMattermostSeed(readJson(path.join(seedDir, 'mattermost', 'seed.json'))),

@@ -120,7 +120,7 @@ describe('task store change handlers', () => {
 
     it('runs again when the command carries a draft', () => {
       const task = failedTask();
-      const draft = { target: 'pixel-kampung/hawker-heroes', subject: 'Fix the oven', body: 'The fuse trips.' };
+      const draft = { target: 'kopitiam/kopitiam-pos', subject: 'Fix the oven', body: 'The fuse trips.' };
 
       app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id, draft }, 'chef');
 
@@ -131,7 +131,7 @@ describe('task store change handlers', () => {
 
     it('runs again when the task already has a draft', () => {
       const task = failedTask();
-      const draft = { target: 'pixel-kampung/hawker-heroes', subject: 'Fix the oven', body: 'The fuse trips.' };
+      const draft = { target: 'kopitiam/kopitiam-pos', subject: 'Fix the oven', body: 'The fuse trips.' };
       app.tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
       app.tasks.transition(task.id, 'DRAFT_READY', { draft });
       app.tasks.transition(task.id, 'RUNNING');

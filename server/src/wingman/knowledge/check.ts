@@ -12,13 +12,13 @@ import {
 } from './search';
 
 const scenario: Scenario = {
-  id: 'pixel-kampung',
-  organisation: 'Lah Studios',
-  meetingTitle: 'Hawker Heroes launch readiness',
+  id: 'kopitiam',
+  organisation: 'Nanyang Kopi & Toast',
+  meetingTitle: 'Raffles Place Flagship & App Promo Launch',
   roles: [
-    { id: 'producer', label: 'Producer' },
-    { id: 'lead_programmer', label: 'Lead Programmer' },
-    { id: 'game_designer', label: 'Game Designer' },
+    { id: 'producer', label: 'Operations Director' },
+    { id: 'lead_programmer', label: 'Tech & POS Lead' },
+    { id: 'game_designer', label: 'Menu & Store Experience Lead' },
     { id: 'marketing_lead', label: 'Marketing Lead' },
   ],
   attendees: [
@@ -27,7 +27,7 @@ const scenario: Scenario = {
     { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
     { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
   ],
-  agenda: [{ title: 'Launch', minutes: 10, ownerRole: 'producer' }],
+  agenda: [{ title: 'Kiosk menu language', minutes: 10, ownerRole: 'game_designer' }],
 };
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -170,30 +170,22 @@ async function main(): Promise<void> {
     }> = [
       {
         role: 'game_designer',
-        text: 'Where do players quit?',
-        expectedRef: /^playtest_quit_stats\/level-5$/,
+        text: 'What did the kiosk trial show about first-time users?',
+        expectedRef: /kiosk_trial_stats\/|kiosk-menu-sop|kiosk-trials/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/level\s*5/i.test(text), `designer facts do not mention level 5: ${text}`);
-          assert(
-            /(65\.5|65\.52|19\s*(of|\/)\s*29|14\s*(of|\/)\s*20)/i.test(text),
-            `designer facts do not mention the quit rate: ${text}`,
-          );
+          assert(/kiosk|kopi o kosong/i.test(text), `designer facts do not mention the kiosk: ${text}`);
+          assert(/19\s*(of|\/)\s*28|72%|first-time/i.test(text), `designer facts do not mention the trial numbers: ${text}`);
         },
       },
       {
         role: 'producer',
-        text: 'When does Starfruit need the final build?',
-        expectedRef: /starfruit-build-date-20261116/,
+        text: 'What is our remaining launch budget and butter margin risk?',
+        expectedRef: /launch_budget|butter_costing|mall-promo-rules/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/\b17\b/.test(text), `producer facts do not mention the 17th: ${text}`);
-          assert(/starfruit/i.test(text), `producer facts do not name Starfruit: ${text}`);
-          assert(/wiki|contract/i.test(text), `producer facts do not name the wiki contract: ${text}`);
-          assert(
-            /newer|newest|supersed|latest|wins/i.test(text),
-            `producer facts do not say the email is newer: ${text}`,
-          );
+          assert(/\$?750|launch budget/i.test(text), `producer facts do not mention the remaining budget: ${text}`);
+          assert(/35%|1,?100|anchor/i.test(text), `producer facts do not mention the butter cost: ${text}`);
         },
       },
     ];

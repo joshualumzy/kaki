@@ -152,7 +152,7 @@ async function ensureToken(env: Env, basic: string): Promise<string> {
   return token;
 }
 
-async function ensureOrg(env: Env, token: string): Promise<void> {
+async function ensureOrg(env: Env, token: string, organisation: string): Promise<void> {
   const auth = tokenAuth(token);
   const existing = await request(`${env.GITEA_URL}/api/v1/orgs/${env.GITEA_ORG}`, { headers: headers(auth) }, 'Gitea org');
   if (existing.ok) return;
@@ -164,7 +164,7 @@ async function ensureOrg(env: Env, token: string): Promise<void> {
     auth,
     jsonBody('POST', {
       username: env.GITEA_ORG,
-      full_name: 'Lah Studios',
+      full_name: organisation,
       visibility: 'public',
     }),
   );
@@ -284,11 +284,11 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
   }
 }
 
-export async function seedGitea(env: Env, seed: GiteaSeed): Promise<{ repo: string; token: string }> {
+export async function seedGitea(env: Env, seed: GiteaSeed, organisation: string): Promise<{ repo: string; token: string }> {
   const basic = await ensureAdmin(env);
   ensureTeamUsers(env);
   const token = await ensureToken(env, basic);
-  await ensureOrg(env, token);
+  await ensureOrg(env, token, organisation);
   const repo = await ensureRepo(env, token, seed);
   const labels = await ensureLabels(env, token, repo, seed);
   await ensureIssues(env, token, repo, seed, labels);

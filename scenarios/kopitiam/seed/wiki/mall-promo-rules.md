@@ -7,8 +7,10 @@ Last updated: 11 November 2026
 
 - Food TikToker `@MakanWithZack` (85k followers) posted a reel claiming our Kaya Butter Toast has "half as much cold butter as Ya Kun".
 - Wholesale Anchor Golden Salted Butter rose 35% this month. Doubling the butter slab from 12g to 20g across all sets adds SGD 0.42 per set (wiping out SGD 1,100/month in gross margin).
-- Our 12g butter portion did not shrink: it stays thick on dine-in open plates, but melts flat when packed inside a closed takeaway box with hot toast.
-- Kitchen & POS options on hand: serving dine-in sets open-faced, packing takeaway butter in a separate chilled cup on the side (SGD 0.05/box) or steam-vented takeaway box, and adding an optional `+$0.60 Double Butter` upsell button on the kiosk.
+- Our 12g butter portion did not shrink: it stays thick on dine-in open plates, but melts flat when packed inside a closed takeaway box with hot toast. A separate chilled side cup costs SGD 0.05 a box; a steam-vented box is also available.
+- Regular customers queue right behind Zack, so an influencer-only portion or a secret double-butter button will be seen.
+
+Still open: what we show on camera tomorrow, what we change permanently, and how the kitchen proves every customer gets the same portion.
 
 ## 2. Launch promo budget (SGD 750 remaining)
 

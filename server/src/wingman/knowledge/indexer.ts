@@ -51,26 +51,9 @@ export interface MailMessageInput {
   text: string;
 }
 
-export interface QuitStatRow {
-  level: number;
-  players_started: number;
-  players_quit: number;
-  quit_rate: string | number;
-  notes: string | null;
-  updated_on: string | Date;
-}
-
-export interface WishlistRow {
-  captured_on: string | Date;
-  wishlists: number;
-}
-
-export interface BudgetRow {
-  item: string;
-  planned_sgd: string | number;
-  spent_sgd: string | number;
-  notes: string | null;
-  updated_on: string | Date;
+/** One row from any seeded Postgres company table. */
+export interface PostgresRow {
+  [column: string]: unknown;
 }
 
 interface WikiSection {
@@ -217,42 +200,19 @@ export function mailChunk(email: MailMessageInput): KnowledgeChunk {
   };
 }
 
-/** Make one chunk per playtest level. */
-export function quitStatChunk(row: QuitStatRow): KnowledgeChunk {
-  const updatedAt = isoDay(row.updated_on);
-  const notes = row.notes === null ? '' : `\nNotes: ${row.notes}`;
+/** Make one chunk for a row from a seeded Postgres company table. */
+export function postgresRowChunk(table: string, row: PostgresRow, dateColumn: string): KnowledgeChunk {
+  const updatedAt = isoDay(row[dateColumn] as string | Date);
+  const id = row.id;
+  const fallback = Object.values(row).find((value) => typeof value === 'string') ?? table;
+  const ref = `${table}/${id === undefined ? slug(String(fallback)) : String(id)}`;
+  const lines = Object.entries(row)
+    .filter(([column]) => column !== 'embedding')
+    .map(([column, value]) => `${column}: ${String(value)}`);
   return {
     source: 'postgres',
-    ref: `playtest_quit_stats/level-${row.level}`,
-    text: `[Postgres: playtest quit stats, level ${row.level}, updated ${shortDay(updatedAt)}]\n\nLevel ${row.level} quit rate: ${row.quit_rate}% (${row.players_quit} of ${row.players_started} players quit).${notes}`,
-    publishedAt: updatedAt,
-  };
-}
-
-/** Make one chunk for all wishlist counts. */
-export function wishlistChunk(rows: WishlistRow[]): KnowledgeChunk {
-  if (rows.length === 0) throw new Error('Postgres wishlist_counts is empty');
-  const latest = rows.reduce((newest, row) =>
-    isoDay(row.captured_on) > isoDay(newest.captured_on) ? row : newest,
-  );
-  const latestDate = isoDay(latest.captured_on);
-  const lines = rows.map((row) => `- ${isoDay(row.captured_on)}: ${row.wishlists} wishlists`);
-  return {
-    source: 'postgres',
-    ref: 'wishlist_counts',
-    text: `[Postgres: wishlist counts, updated ${shortDay(latestDate)}]\n\n${lines.join('\n')}`,
-    publishedAt: latestDate,
-  };
-}
-
-/** Make one chunk per launch budget line. */
-export function budgetChunk(row: BudgetRow): KnowledgeChunk {
-  const updatedAt = isoDay(row.updated_on);
-  const notes = row.notes === null ? '' : `\nNotes: ${row.notes}`;
-  return {
-    source: 'postgres',
-    ref: `launch_budget/${slug(row.item)}`,
-    text: `[Postgres: launch budget - ${row.item}, updated ${shortDay(updatedAt)}]\n\nItem: ${row.item}\nPlanned: SGD ${row.planned_sgd}\nSpent: SGD ${row.spent_sgd}${notes}`,
+    ref,
+    text: `[Postgres: ${table}, updated ${shortDay(updatedAt)}]\n\n${lines.join('\n')}`,
     publishedAt: updatedAt,
   };
 }
@@ -492,23 +452,34 @@ async function fetchPostgresChunks(env: Env): Promise<KnowledgeChunk[]> {
   const client = new Client({ connectionString: env.POSTGRES_URL, connectionTimeoutMillis: 5_000 });
   await client.connect();
   try {
-    const quitStats = await client.query<QuitStatRow>(
-      'SELECT level, players_started, players_quit, quit_rate, notes, updated_on FROM playtest_quit_stats ORDER BY level',
+    const tables = await client.query<{ table_name: string }>(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'knowledge_chunks' ORDER BY table_name",
     );
-    const wishlists = await client.query<WishlistRow>(
-      'SELECT captured_on, wishlists FROM wishlist_counts ORDER BY captured_on',
-    );
-    const budget = await client.query<BudgetRow>(
-      'SELECT item, planned_sgd, spent_sgd, notes, updated_on FROM launch_budget ORDER BY item',
-    );
-    return [
-      ...quitStats.rows.map(quitStatChunk),
-      wishlistChunk(wishlists.rows),
-      ...budget.rows.map(budgetChunk),
-    ];
+    const chunks: KnowledgeChunk[] = [];
+    for (const { table_name: table } of tables.rows) {
+      const columns = await client.query<{ column_name: string }>(
+        'SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2',
+        ['public', table],
+      );
+      const names = columns.rows.map((column) => column.column_name);
+      const dateColumn = ['updated_on', 'captured_on', 'trial_date', 'published_at', 'date'].find((column) =>
+        names.includes(column),
+      );
+      if (dateColumn === undefined) {
+        console.warn(`kaki indexer: skipping Postgres table "${table}" because it has no company date column`);
+        continue;
+      }
+      const rows = await client.query<PostgresRow>(`SELECT * FROM ${quoteIdentifier(table)}`);
+      for (const row of rows.rows) chunks.push(postgresRowChunk(table, row, dateColumn));
+    }
+    return chunks;
   } finally {
     await client.end();
   }
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
 }
 
 async function writeChunks(env: Env, chunks: KnowledgeChunk[], embeddings: number[][]): Promise<void> {

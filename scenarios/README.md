@@ -2,9 +2,7 @@
 
 Kaki is scenario-agnostic: every role, attendee, NPC personality, agenda item, and company dataset is loaded from `scenarios/<id>/`.
 
-Switch scenarios via the `SCENARIO` environment variable:
-- **`SCENARIO=kopitiam`** (`scenarios/kopitiam/`) — **Nanyang Kopitiam Co.** (Flagship Changi Jewel outlet launch sync: Operations Lead, Lead Programmer, Brand & Marketing Lead, Master Roaster & Chef, Finance & Procurement Lead).
-- **`SCENARIO=pixel-kampung`** (`scenarios/pixel-kampung/`, default) — **Lah Studios** (*Hawker Heroes* pre-launch sync: Studio Manager, Producer, Lead Programmer, Game Designer, Marketing Lead).
+The shipped scenario is `SCENARIO=kopitiam` (`scenarios/kopitiam/`): **Nanyang Kopi & Toast** reopening its Raffles Place flagship tomorrow morning (Operations Director, Tech & POS Lead, Menu & Store Experience Lead, Marketing Lead, General Manager).
 
 ## Scenario Folder Layout
 

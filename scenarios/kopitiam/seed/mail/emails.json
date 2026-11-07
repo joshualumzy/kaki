@@ -3,8 +3,8 @@
     {
       "from": { "name": "Zack Tan (@MakanWithZack)", "address": "zack@makanwithzack.example" },
       "to": [
-        { "name": "Daniel", "address": "daniel@pixelkampung.example" },
-        { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" }
+        { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" },
+        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
       ],
       "subject": "Re: Kaya Butter Toast Review - Tomorrow 8:30am Live Re-Taste",
       "date": "2026-11-11T14:05:00+08:00",
@@ -14,23 +14,23 @@
     {
       "from": { "name": "Fonterra Dairy Wholesale SG", "address": "orders@fonterradairy.example" },
       "to": [
-        { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" },
-        { "name": "Mei", "address": "mei@pixelkampung.example" }
+        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
+        { "name": "Mei", "address": "mei@nanyangkopitiam.example" }
       ],
       "subject": "Price Notice: Anchor Golden Salted Butter 25kg Block (+35% Q4 Surcharge)",
       "date": "2026-11-10T11:20:00+08:00",
       "messageId": "<anchor-butter-price-20261110@fonterradairy.example>",
-      "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nPlease note that wholesale pricing for Anchor Golden Salted Butter (New Zealand grass-fed) has increased by 35% effective this month.\n\nAt your current Set A price ($4.80), increasing portion weight from 12g to 20g per toast set adds SGD 0.42 in raw dairy cost per set (approx. SGD 1,100/month across 90 daily sets). For takeaway orders, packing the 12g chilled slab in a separate side butter cup ($0.05/unit) or steam-vented box prevents melting without increasing butter weight.\n\nRegards,\nAccount Team\nFonterra Foodservice Singapore"
+      "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nPlease note that wholesale pricing for Anchor Golden Salted Butter (New Zealand grass-fed) has increased by 35% effective this month.\n\nAt your current Set A price ($4.80), increasing portion weight from 12g to 20g per toast set adds SGD 0.42 in raw dairy cost per set (approx. SGD 1,100/month across 90 daily sets).\n\nFor takeaway orders, a separate chilled side cup costs SGD 0.05 per unit; a steam-vented box is also available. Both keep the same 12g slab; neither changes the butter weight.\n\nRegards,\nAccount Team\nFonterra Foodservice Singapore"
     },
     {
-      "from": { "name": "Hafiz Rahman (Outlet Hygiene Lead)", "address": "hafiz@pixelkampung.example" },
+      "from": { "name": "Hafiz Rahman (Outlet Hygiene Lead)", "address": "hafiz@nanyangkopitiam.example" },
       "to": [
-        { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" },
-        { "name": "Arjun", "address": "arjun@pixelkampung.example" }
+        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
+        { "name": "Arjun", "address": "arjun@nanyangkopitiam.example" }
       ],
       "subject": "Internal counter hygiene SOP - cash handling vs ready-to-eat toast",
       "date": "2026-11-09T16:00:00+08:00",
-      "messageId": "<counter-hygiene-sop-20261109@pixelkampung.example>",
+      "messageId": "<counter-hygiene-sop-20261109@nanyangkopitiam.example>",
       "text": "Hi Wei Ling and Arjun,\n\nAfter this week's morning observation, a reminder of our internal counter hygiene SOP. Money handling and ready-to-eat food prep must stay separate at the toast station: any staff member who handles coins or notes has to remove gloves and wash hands before slicing kaya butter toast or cracking soft-boiled eggs (+40s per order).\n\nAt the 8am rush both toast staff are on the line, so there is no spare pair of hands to take cash and make change without slowing toast orders. Please keep the SOP in mind when we discuss the cash-paying regulars.\n\nThanks,\nHafiz\nOutlet Hygiene & Safety Lead"
     }
   ]

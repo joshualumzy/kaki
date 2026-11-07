@@ -29,9 +29,9 @@ afterEach(() => {
 });
 
 describe('replay script', () => {
-  it('ships a valid Lah Studios replay', async () => {
-    const scenario = await loadScenario('pixel-kampung');
-    const loaded = await loadReplay(scenario, 'pixel-kampung');
+  it('ships a valid Kopitiam replay', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const loaded = await loadReplay(scenario, 'kopitiam');
     expect(loaded.length).toBeGreaterThan(20);
     expect(loaded.flatMap((line) => line.agendaIndex ?? [])).toEqual([1, 2, 3]);
   });

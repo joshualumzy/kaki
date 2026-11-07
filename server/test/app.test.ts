@@ -270,9 +270,9 @@ describe('app', () => {
     ).rejects.toThrow(/broken-module/);
   });
 
-  it('loads the shipped pixel-kampung scenario', async () => {
-    const scenario = await loadScenario('pixel-kampung');
-    expect(scenario.id).toBe('pixel-kampung');
+  it('loads the shipped Kopitiam scenario', async () => {
+    const scenario = await loadScenario('kopitiam');
+    expect(scenario.id).toBe('kopitiam');
     expect(scenario.roles.map((role) => role.id)).toEqual([
       'producer',
       'lead_programmer',

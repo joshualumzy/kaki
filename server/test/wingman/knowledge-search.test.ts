@@ -9,14 +9,14 @@ import {
 const chunks: RetrievedChunk[] = [
   {
     source: 'mail',
-    ref: '<starfruit-build-date@example>',
-    text: '[Mail: Final build date moved up, 16 Nov 2026]\n\nDeliver by 17 November 2026.',
+    ref: '<anchor-butter-price@example>',
+    text: '[Mail: Anchor butter price notice, 16 Nov 2026]\n\nWholesale Anchor salted butter rose 35% this month.',
     publishedAt: '2026-11-16',
   },
   {
     source: 'wiki',
-    ref: 'hawker-heroes/publisher-contract#2-milestones',
-    text: '[Wiki: Starfruit Publishing - Contract Summary, updated 10 Nov 2026]\n\nFinal build 20 November 2026.',
+    ref: 'kopitiam/mall-promo-rules#1-butter-costing',
+    text: '[Wiki: Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget, updated 10 Nov 2026]\n\nDoubling butter to 20g costs SGD 1,100/month in margin.',
     publishedAt: '2026-11-10',
   },
 ];
@@ -28,8 +28,8 @@ function deps(overrides: Partial<SearchDeps> = {}): SearchDeps {
       JSON.stringify({
         facts: [
           {
-            text: 'The Starfruit email (16 Nov) says the 17th; the wiki contract summary (10 Nov) still says the 20th. The newer email wins.',
-            source: 'Starfruit email and wiki contract summary',
+            text: 'The Anchor butter email (16 Nov) says 35%; the wiki costing page (10 Nov) says doubling costs SGD 1,100/month. Both matter.',
+            source: 'Anchor butter email and wiki costing page',
             date: '2026-11-16',
           },
         ],
@@ -59,8 +59,8 @@ describe('company search', () => {
           return JSON.stringify({
             facts: [
               {
-                text: 'Starfruit email (16 Nov) says the 17th; the wiki contract summary (10 Nov) still says the 20th. The newer email wins.',
-                source: 'Starfruit email; wiki contract summary',
+                text: 'Anchor butter email (16 Nov) says 35%; the wiki costing page (10 Nov) says doubling costs SGD 1,100/month. Both matter.',
+                source: 'Anchor butter email; wiki costing page',
                 date: '2026-11-16',
               },
             ],
@@ -69,15 +69,15 @@ describe('company search', () => {
       }),
     );
 
-    const facts = await search('When does Starfruit need the final build?', 'producer');
+    const facts = await search('How much margin does doubling the butter cost?', 'producer');
 
-    expect(embedded).toBe('When does Starfruit need the final build?');
+    expect(embedded).toBe('How much margin does doubling the butter cost?');
     expect(retrievedLimit).toBe(8);
     expect(requests[0]).toContain('producer');
-    expect(requests[0]).toContain('Final build date moved up');
+    expect(requests[0]).toContain('Anchor butter price notice');
     expect(requests[0]).toContain('published=2026-11-10');
     expect(facts).toHaveLength(1);
-    expect(facts[0]?.source).toContain('Starfruit');
+    expect(facts[0]?.source).toContain('Anchor');
   });
 
   it('allows an empty fact list when nothing is relevant', async () => {

@@ -29,7 +29,7 @@ SCENARIO=kopitiam npm run live:up
 npm run live:down
 ```
 
-Switch between the two built-in scenarios using `SCENARIO=kopitiam` (**Nanyang Kopitiam Co.**) or `SCENARIO=pixel-kampung` (**Lah Studios**, default). See [scenarios/README.md](scenarios/README.md).
+The shipped scenario is `SCENARIO=kopitiam` (**Nanyang Kopi & Toast**). See [scenarios/README.md](scenarios/README.md).
 
 ### Application Views
 
@@ -86,7 +86,7 @@ npm test                  # Run the full Vitest unit & integration suite
 │   ├── src/demo/         # /demo interactive booth stage + unified Kaki Wingman dock
 │   ├── src/screen/       # /screen shared meeting-room board
 │   └── src/phone/        # /phone personal role companion
-├── scenarios/            # Pluggable scenarios (kopitiam, pixel-kampung) with seeds & replays
+├── scenarios/            # The shipped Kopitiam scenario with seeds & replays
 ├── docker/               # Docker Compose stack & idempotent multi-service seed scripts
 ├── scripts/              # One-command stack launchers (live-up.sh, live-down.sh, live-preflight.sh)
 └── docs/                 # PRD specification and live demo architecture guide

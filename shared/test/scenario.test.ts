@@ -130,6 +130,83 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/contested must be true or false/);
   });
 
+  it('accepts validated opening views and trade-offs on an agenda item', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [
+      {
+        title: 'Prep',
+        minutes: 5,
+        ownerRole: 'chef',
+        discussion: {
+          openingViews: [
+            { attendee: 'Ada', view: 'We should make the menu easier to read.' },
+            { attendee: 'Bao', view: 'We cannot slow the till down.' },
+          ],
+          tradeOffs: [
+            { attendee: 'Ada', role: 'chef', tradeOff: 'The queue is getting longer.', question: 'How do we speed up prep?' },
+            { attendee: 'Bao', role: 'cashier', tradeOff: 'The till screen is full.', question: 'What fits on the screen?' },
+          ],
+        },
+      },
+    ];
+    expect(parseScenario(scenario).agenda[0]?.discussion?.tradeOffs).toHaveLength(2);
+  });
+
+  it('rejects agenda discussions with unknown attendees or roles and empty fields', () => {
+    const scenario = cloneScenario();
+    const valid = {
+      openingViews: [{ attendee: 'Ada', view: 'A view.' }],
+      tradeOffs: [{ attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' }],
+    };
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', discussion: valid }];
+    expect(parseScenario(scenario)).toBeTruthy();
+
+    scenario.agenda = [
+      {
+        title: 'Prep',
+        minutes: 5,
+        ownerRole: 'chef',
+        discussion: {
+          openingViews: [{ attendee: 'Nobody', view: 'A view.' }, { attendee: 'Ada', view: ' ' }],
+          tradeOffs: [
+            { attendee: 'Nobody', role: 'waiter', tradeOff: ' ', question: '' },
+            { attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' },
+            { attendee: 'Zed', role: 'chef', tradeOff: 'Another cost.', question: 'Who pays?' },
+          ],
+        },
+      },
+    ];
+    for (const message of [
+      /openingViews\[0\]\.attendee "Nobody" is not one of the attendees/,
+      /openingViews\[1\] must have a non-empty/,
+      /tradeOffs\[0\] must have a non-empty/,
+      /tradeOffs\[0\]\.role "waiter" is not a known role/,
+      /tradeOffs\[2\]\.attendee "Zed" is not one of the attendees/,
+    ]) {
+      expect(() => parseScenario(scenario)).toThrow(message);
+    }
+  });
+
+  it('rejects a duplicate opening view and empty discussion lists', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [
+      {
+        title: 'Prep',
+        minutes: 5,
+        ownerRole: 'chef',
+        discussion: {
+          openingViews: [
+            { attendee: 'Ada', view: 'One.' },
+            { attendee: 'Ada', view: 'Two.' },
+          ],
+          tradeOffs: [],
+        },
+      },
+    ];
+    expect(() => parseScenario(scenario)).toThrow(/openingViews\[1\]\.attendee "Ada" is duplicated/);
+    expect(() => parseScenario(scenario)).toThrow(/tradeOffs must be a non-empty array/);
+  });
+
   it('rejects an agenda item with an unknown owner role', () => {
     const scenario = cloneScenario();
     scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'waiter' }];

@@ -1,6 +1,7 @@
 import { itemMode, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
+import { assessProposal, isSubstantiveProposal, type ProposalAssessment } from './proposal';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
@@ -180,8 +181,12 @@ export class NpcConversation<Clip> {
   private pending: string[] = [];
   /**Lines the person has said (heard or typed) since they joined; the host asks them for their decision after a few. */
   private humanLines = 0;
-  private humanProposalsOnCurrentItem = 0;
-  private humanDecidedOnCurrentItem = false;
+  /** The current item is settled: the visitor made a complete proposal the readiness check accepted. */
+  private humanSettledOnCurrentItem = false;
+  /** The readiness check for the latest visitor proposal, if it ran. */
+  private proposalAssessment: ProposalAssessment | undefined;
+  /** The exact visitor line the current assessment belongs to, so a retry does not assess twice. */
+  private assessedText: string | undefined;
   private hadDecisionBeforeMove = false;
   private movedAt = 0;
   /** People the host has already asked, by name. */
@@ -266,7 +271,7 @@ export class NpcConversation<Clip> {
     this.lastTranscriptEmit = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
-    this.addAskCue(typed);
+    this.noteHumanLine(typed);
     this.interrupt('the person typed something');
     this.unanswered = false;
     this.cutOff = false;
@@ -436,7 +441,7 @@ export class NpcConversation<Clip> {
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
     this.chain = 0;
     this.pending.push(accepted);
-    this.addAskCue(accepted);
+    this.noteHumanLine(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
     this.unanswered = false;
@@ -568,7 +573,7 @@ export class NpcConversation<Clip> {
       this.hadDecisionBeforeMove && Date.now() - this.movedAt < 3_500;
     return (
       !this.closed &&
-      (this.mode() === 'observe' || this.humanDecidedOnCurrentItem || withinPreviousDecisionGrace)
+      (this.mode() === 'observe' || this.humanSettledOnCurrentItem || withinPreviousDecisionGrace)
     );
   }
 
@@ -689,44 +694,61 @@ export class NpcConversation<Clip> {
   }
 
   /** The person said another line: ask if they have talked a long time without being asked. */
-  private addAskCue(text = ''): void {
+  private noteHumanLine(_text = ''): void {
     this.humanLines += 1;
-    const trimmed = text.trim();
-    const hasDecisionVerb =
-      /\b(?:let's|let us|we should|we could|how about we|why don't we|why not|what if we|go with|go ahead|take the|book|buy|add|keep|rename|change|decouple|deploy|push|skip|use|approve|lock in|fix|patch|turn off|turn on|enable|disable|postpone|move it|do the|do that)\b/i.test(
-        trimmed,
-      );
-    const isFeasibilityQuestion =
-      /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i.test(
-        trimmed,
-      );
-    const isNaiveTrap =
-      /\b(?:(?:double|thick(?:er)?|extra|more)\s+butter\s+(?:just\s+|only\s+)?(?:to|for)\s+(?:him|zack|the\s+influencer|the\s+tiktoker)|give\s+(?:him|zack)\s+(?:the\s+)?(?:double|thick(?:er)?|extra)\s+butter|just\s+(?:give|serve)\s+(?:it\s+)?to\s+(?:him|zack)|(?:have|ask|tell|make|get)\s+(?:auntie\s+)?mary\s+(?:to\s+)?(?:police|clear|move|enforce|check)|(?:put|bring\s+back)\s+(?:a\s+)?(?:cash\s+drawer|cash\s+register|coin\s+drawer)\s+at\s+the\s+(?:toast\s+)?counter)\b/i.test(
-        trimmed,
-      );
-    const isPureQuestion = (trimmed.endsWith('?') && !hasDecisionVerb) || isFeasibilityQuestion;
-    const isGreetingOrCheckIn =
-      /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+)\b[^.?!]*[.?!]*)+$/i.test(
-        trimmed,
-      ) ||
-      /\b(?:ignore all previous instructions|system prompt|output your|admit that you are|write your next line)\b/i.test(
-        trimmed,
-      );
-    const isBareSecondTurnYes =
-      this.humanProposalsOnCurrentItem === 1 &&
-      !this.humanDecidedOnCurrentItem &&
-      this.silencePromptStage < 2 &&
-      /^(?:sure|yes|yeah|yep|yup|ok|okay|alright|all right|sounds good|agreed|fine|works for me|go ahead|go for it|do it|let's do it|let's do that|why not)[.?!]*$/i.test(
-        trimmed,
-      );
-    if (!isPureQuestion && !isNaiveTrap && !isGreetingOrCheckIn && !isBareSecondTurnYes && trimmed.length > 0) {
-      this.humanProposalsOnCurrentItem += 1;
-      const minProposalsToSettle = this.names.length > 2 ? 2 : 1;
-      if (this.humanProposalsOnCurrentItem >= minProposalsToSettle) {
-        this.humanDecidedOnCurrentItem = true;
-      }
-    }
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
+  }
+
+  /**
+   * One bounded readiness check for the visitor line being answered. Questions, side requests and
+   * filler never reach the model; a failed or timed-out check leaves the item open.
+   */
+  private async assessVisitorLine(text: string, signal: AbortSignal): Promise<ProposalAssessment | undefined> {
+    if (this.mode() === 'observe') return undefined;
+    const item = this.currentItem();
+    if (item === undefined) return undefined;
+    if (this.assessedText === text) return this.proposalAssessment;
+    const assessment = await assessProposal({
+      scenario: this.options.scenario,
+      item,
+      visitorText: text,
+      stream: (messages, innerSignal) => this.ports.stream(messages, innerSignal),
+      signal,
+      log: this.ports.log,
+    });
+    if (signal.aborted) return assessment;
+    this.assessedText = text;
+    this.proposalAssessment = assessment;
+    this.humanSettledOnCurrentItem = assessment?.isProposal === true && assessment.readiness === 'complete';
+    if (assessment !== undefined) {
+      this.ports.log?.(
+        `proposal readiness: ${assessment.readiness} (${assessment.resolved.length} resolved, ${assessment.unresolved.length} open)`,
+      );
+    }
+    return assessment;
+  }
+
+  /** What the colleagues should do with the visitor's proposal on this item, from the readiness check. */
+  private proposalNote(text: string, assessment: ProposalAssessment | undefined): string {
+    const who = this.human?.name ?? 'The person';
+    const item = this.currentItem();
+    const title = this.agendaItem ?? item?.title ?? 'this item';
+    const decideWords = item?.decision ?? 'the decision is still open';
+    if (assessment === undefined) {
+      const stillOpen =
+        item?.discussion?.tradeOffs.map((tradeOff) => `${tradeOff.tradeOff} (ask: ${tradeOff.question})`).join('; ') ||
+        decideWords;
+      return `[${who} just made a proposal on "${title}". The readiness check could not run, so keep the item open. Still to settle: ${stillOpen}. Acknowledge what works in ${who}'s idea, then have the colleague whose trade-off is unresolved raise it from their own facts and ask ${who} the open question by name. Do not propose a workaround, do not say "I'll", and do not ask for a follow-up task yet.]`;
+    }
+    if (!assessment.isProposal) {
+      return `[${who}'s last line was a question, side request or filler, not a proposal on "${title}". Answer it directly and keep the item open. Do not say "I'll" and do not ask for a follow-up task yet.]`;
+    }
+    if (assessment.readiness === 'complete') {
+      return `[${who} has made a complete proposal on "${title}". The decision in ${who}'s own words was: "${text}". Confirm ONLY that decision, using the words ${who} actually said: do not add new terms, numbers, equipment or promises. Then ask ${who} by name for the matching follow-up deliverable (team channel post, email, wiki page, calendar invite or issue tracker ticket) unless ${who} already volunteered. Nobody should reopen the trade-offs or raise a new catch.]`;
+    }
+    const stillOpen =
+      assessment.unresolved.map((entry) => `${entry.tradeOff} (ask: ${entry.question})`).join('; ') || decideWords;
+    return `[${who} has not settled "${title}" yet. Still to settle: ${stillOpen}. Acknowledge what works in ${who}'s idea, then have the colleague whose trade-off is unresolved raise that specific trade-off from their own facts and ask ${who} the open question by name. Do not repeat a fact already said aloud, do not propose a workaround, do not say "I'll", and do not ask for a follow-up task yet.]`;
   }
 
   /** The agenda item the meeting is on, and how this person takes part in it. */
@@ -858,10 +880,11 @@ export class NpcConversation<Clip> {
     }
     if (this.closed || this.human === undefined) return;
     this.linesAtMove = this.humanLines;
-    this.hadDecisionBeforeMove = this.humanDecidedOnCurrentItem;
+    this.hadDecisionBeforeMove = this.humanSettledOnCurrentItem;
     this.movedAt = Date.now();
-    this.humanProposalsOnCurrentItem = 0;
-    this.humanDecidedOnCurrentItem = false;
+    this.humanSettledOnCurrentItem = false;
+    this.proposalAssessment = undefined;
+    this.assessedText = undefined;
     this.decisionWrappedUpOnItem = false;
     const item = this.currentItem();
     if (this.mode() === 'observe') {
@@ -954,7 +977,17 @@ export class NpcConversation<Clip> {
     const otherIntro = !this.introduced.has(other)
       ? ` (since this is ${other}'s first time speaking in the meeting, ${other} MUST open by briefly introducing their name and role — e.g. "And I'm ${other}, ${roleTitleFor(other)} —")`
       : '';
-    return `[We just started agenda item "${title}". Sound like two real colleagues in a normal conversation explaining the situation to ${this.human.name}: First, ${owner}${ownerIntro} explains in 2 short, conversational sentences what is happening on the shop floor for "${title}" AND what ${owner}'s initial instinct is (keep sentences concise and punchy; never jump abruptly between disconnected bullet points). Next, ${other}${otherIntro} responds directly to ${owner} in 1–2 short, natural sentences raising why that clashes with ${other}'s operational, technical, or contractual constraint (staying strictly on "${title}" without mixing in other agenda items), and finishes by asking ${this.human.name} by name an open-ended question on how we should tackle this (${item?.decision ?? 'how should we handle this?'}). Frame it as an open-ended real-world problem rather than a binary Option A vs Option B quiz, and hold back at least one second-order catch so ${this.human.name} cannot one-shot it. Do NOT say "I'll" or volunteer for any follow-up task yet — wait for ${this.human.name}'s call first. Keep it to 2 turns total and do not mention this note.]`;
+    const discussion = item?.discussion;
+    const ownerView = discussion?.openingViews.find((view) => view.attendee === owner)?.view;
+    const otherView = discussion?.openingViews.find((view) => view.attendee === other)?.view;
+    const ownerTradeOff = discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === owner);
+    const otherTradeOff =
+      discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === other) ?? ownerTradeOff;
+    const discussionHint =
+      discussion === undefined
+        ? ''
+        : ` Use these as the colleagues' own starting points, in their own words, not a script and not a list: ${owner}'s view is "${ownerView ?? ownerTradeOff?.tradeOff ?? 'the item is still open'}"; ${other}'s view is "${otherView ?? otherTradeOff?.tradeOff ?? 'the item is still open'}", and the trade-off ${other} raises is "${otherTradeOff?.tradeOff ?? 'the unresolved constraint'}" with the open question "${otherTradeOff?.question ?? item?.decision ?? 'how should we handle this?'}". Never read this note aloud or prescribe an answer.`;
+    return `[We just started agenda item "${title}". Sound like two real colleagues in a normal conversation explaining the situation to ${this.human.name}: First, ${owner}${ownerIntro} explains in 2 short, conversational sentences what is happening on the shop floor for "${title}" AND what ${owner}'s initial instinct is (keep sentences concise and punchy; never jump abruptly between disconnected bullet points). Next, ${other}${otherIntro} responds directly to ${owner} in 1–2 short, natural sentences raising why that clashes with ${other}'s operational, technical, or contractual constraint (staying strictly on "${title}" without mixing in other agenda items), and finishes by asking ${this.human.name} by name an open-ended question on how we should tackle this (${item?.decision ?? 'how should we handle this?'}).${discussionHint} Frame it as an open-ended real-world problem rather than a binary Option A vs Option B quiz, and hold back at least one second-order catch so ${this.human.name} cannot one-shot it. Do NOT say "I'll" or volunteer for any follow-up task yet — wait for ${this.human.name}'s call first. Keep it to 2 turns total and do not mention this note.]`;
   }
 
   private observeLater(title: string, attempt: number): void {
@@ -1502,34 +1535,18 @@ export class NpcConversation<Clip> {
         },
         ...this.history.slice(-this.maxHistory),
       ];
-      const last = messages[messages.length - 1];
-      if (!this.humanDecidedOnCurrentItem && this.mode() !== 'observe' && last?.role === 'user' && !last.content.startsWith('[')) {
-        const who = this.human?.name ?? 'The person';
-        const note =
-          this.humanProposalsOnCurrentItem === 1 && this.names.length > 2
-            ? `[${who} just offered their initial proposal on "${this.agendaItem ?? 'this item'}". Do NOT let ${who} one-shot this topic or wrap up with "I'll ..." yet! First, acknowledge what works in ${who}'s idea in one conversational sentence, then have the colleague whose operational, technical, or budget constraint isn't fully solved yet raise the concrete second-order catch from their facts (for example: if ${who} proposed a cash point away from the food, a staffed cashier, or any way to take notes, do not fall back on the counter-hygiene point if the room already said it; raise the new operational catch from the facts instead — a $2.20 Kopi against only $2 and $10 notes leaves change to account for, the two toast staff cannot double as cashier, and pulling Auntie Mary onto cash leaves solo diners with no one to seat them — then ask ${who} an OPEN question about who runs cash, how change and payment are accounted for, and how one-off visitors avoid being forced to prepay; if ${who} proposed decoupling POS print labels or renaming Kopi buttons, point out that our 15-inch screen only fits 12 buttons per page and 18 characters per line so writing out all 24 drink combinations spills onto Page 2; if ${who} proposed cutting booth wall-socket power or banning tissue packets, point out that 60% of morning customers are solo diners carrying hot egg trays who need a guaranteed spot after paying without 62-year-old Auntie Mary policing tables; or if ${who} proposed fixing the takeaway butter melt / cooling toast, point out that we still need to decide how to handle @MakanWithZack's $600 live re-taste fee within our $750 remaining budget). CRITICAL: NEVER repeat a sentence or fact that a colleague already said aloud on Turn 1! State ONLY the new operational/budget catch and finish by asking ${who} by name an OPEN "How do we...?" or "How should we...?" question so ${who} has to think of a solution themselves — NEVER pitch a specific workaround or ask a yes/no "Can we [do solution]?" question, and do NOT say "I'll" or assign any follow-up task yet.]`
-            : `[${who} has not settled on a full decision yet on "${this.agendaItem ?? 'this item'}": NEVER repeat any sentence or fact that a colleague already said aloud on an earlier turn! Respond directly to the exact point or question ${who} just raised (for example, if ${who} asked why we can't give double butter only to Zack/"him", explain directly from your facts that regular customers queue right behind him and Zack warned his followers will cancel us if we fake influencer-only portions; if ${who} asked "Can you do that?" about a kitchen or tech step, answer directly whether it works and then ask how ${who} wants to handle the remaining half of the problem). If they are joking, greeting, or chatting personally, respond naturally and in character first. Do NOT say "I'll" or ask anyone to post/email/file a follow-up task yet, and end by asking ${who} by name what they want to do on "${this.agendaItem ?? 'this item'}".]`;
-        messages[messages.length - 1] = {
-          ...last,
-          content: `${last.content}\n${note}`,
-        };
-      } else if (
-        this.humanDecidedOnCurrentItem &&
-        !this.decisionWrappedUpOnItem &&
-        this.names.length > 2 &&
+      const last = messages[messages.length - 1]!;
+      const freshHumanLine = last.role === 'user' && !last.content.startsWith('[') ? last.content : undefined;
+      if (
+        freshHumanLine !== undefined &&
         this.mode() !== 'observe' &&
-        last?.role === 'user' &&
-        !last.content.startsWith('[')
+        isSubstantiveProposal(freshHumanLine)
       ) {
-        const who = this.human?.name ?? 'The person';
-        const item = this.currentItem();
-        const itemOwner =
-          this.options.scenario.attendees.find((a) => a.role === item?.ownerRole)?.name ??
-          this.names.find((n) => n !== host) ??
-          'Mei';
+        const assessment = await this.assessVisitorLine(freshHumanLine, signal);
+        if (signal.aborted) throw new Error('the turn was interrupted during the readiness check');
         messages[messages.length - 1] = {
           ...last,
-          content: `${last.content}\n[${who} has now addressed the trade-offs and settled the plan on "${this.agendaItem ?? 'this item'}". Do NOT raise any new catches or ask for extra dev time or details! If this is the cash item and who runs cash, how change and payment are accounted for, or how one-off visitors avoid forced prepayment is still unclear, do not confirm yet: ask ${who} the missing open question by name and stop. Otherwise, have ${itemOwner} (in 2 short sentences ONLY, and nobody else speaks in this reply) confirm ONLY the actual decision that ${who} and the team discussed in the conversation above in one natural sentence (NEVER introduce new terms, numbers, or equipment that were not spoken aloud earlier in the discussion, and NEVER say "I'll", "I will", or volunteer for a second task yourself — state the agreed plan as "That works — we'll..." or "Spot on, we'll..."), and then ask ${who} directly by name: "${who}, could you post that decision in the team channel today so everyone has it?" so Kaki can draft it for them.]`,
+          content: `${last.content}\n${this.proposalNote(freshHumanLine, assessment)}`,
         };
       }
       if (addressed !== undefined && last?.role === 'user' && turn.forced === undefined) {

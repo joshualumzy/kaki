@@ -8,7 +8,7 @@ import { testScenario } from '../fixtures/scenario';
 import { waitFor } from '../helpers';
 
 const settings: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
-const reply = JSON.stringify({ title: 'Follow-up with Starfruit', start: '2026-11-13 10:00', durationMinutes: 30, description: 'Confirm the build date.' });
+const reply = JSON.stringify({ title: 'Follow-up with Zack', start: '2026-11-13 10:00', durationMinutes: 30, description: 'Confirm the re-taste time.' });
 const stops: Array<() => void> = [];
 
 afterEach(() => {
@@ -73,8 +73,8 @@ describe('calendar action module', () => {
     const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
     expect(ready.draft).toEqual({
       target: 'Team calendar',
-      subject: 'Follow-up with Starfruit',
-      body: 'Start: 2026-11-13 10:00\nDuration: 30 minutes\n\nConfirm the build date.',
+      subject: 'Follow-up with Zack',
+      body: 'Start: 2026-11-13 10:00\nDuration: 30 minutes\n\nConfirm the re-taste time.',
     });
   });
 
@@ -89,7 +89,7 @@ describe('calendar action module', () => {
     expect(done.artifactUrl).toBe(`http://kaki.test/api/calendar/${task.id}`);
     const put = fetchImpl.mock.calls.find(([, init]) => init?.method === 'PUT');
     expect(String(put?.[0])).toBe(`http://cal.test/user/calendar/${task.id}.ics`);
-    expect(String(put?.[1]?.body)).toContain('SUMMARY:Follow-up with Starfruit');
+    expect(String(put?.[1]?.body)).toContain('SUMMARY:Follow-up with Zack');
     expect(String(put?.[1]?.body)).toContain('DTSTART:20261113T100000');
     expect(String(put?.[1]?.body)).toContain('DTEND:20261113T103000');
   });

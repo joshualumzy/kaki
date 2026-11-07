@@ -15,7 +15,7 @@ import { settle, waitFor } from '../helpers';
 const settings: EmailSettings = {
   smtpHost: '127.0.0.1',
   smtpPort: 1025,
-  from: 'kaki@pixelkampung.example',
+  from: 'kaki@nanyangkopitiam.example',
   mailpitUrl: 'http://mailpit.test',
 };
 
@@ -168,7 +168,7 @@ describe('email action module', () => {
     if (sendCall === undefined) throw new Error('Expected the email to be sent');
     const message = sendCall[0];
     expect(message).toEqual({
-      from: 'kaki@pixelkampung.example',
+      from: 'kaki@nanyangkopitiam.example',
       to: ['supplier@example.com'],
       subject: 'Fix the oven',
       text: 'The oven trips the fuse after ten minutes.',

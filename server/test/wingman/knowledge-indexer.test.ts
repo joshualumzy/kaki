@@ -1,33 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import {
-  budgetChunk,
   giteaChunk,
   mailChunk,
   mattermostThreadChunk,
   parseIssueOpenedAt,
+  postgresRowChunk,
   parseMailDate,
   parseMattermostSentAt,
   parseWikiUpdatedAt,
-  quitStatChunk,
   wikiChunks,
-  wishlistChunk,
 } from '../../src/wingman/knowledge/indexer';
 
 describe('knowledge chunk dates and headers', () => {
   it('reads a wiki page date and puts it in every section header', () => {
     const chunks = wikiChunks({
-      path: 'hawker-heroes/publisher-contract',
-      title: 'Starfruit Publishing - Contract Summary',
-      content: `# Contract\n\nLast updated: 10 November 2026\n\n## Milestones\n\nFinal build 20 November.\n\n## Notes\n\nCheck email.`,
+      path: 'kopitiam/mall-promo-rules',
+      title: 'Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget',
+      content: `# Butter costing\n\nLast updated: 10 November 2026\n\n## Butter cost\n\nDoubling butter to 20g costs SGD 1,100/month.\n\n## Notes\n\nCheck email.`,
     });
 
     expect(chunks).toHaveLength(3);
-    expect(chunks.every((chunk) => chunk.text.startsWith('[Wiki: Starfruit Publishing - Contract Summary, updated 10 Nov 2026]'))).toBe(true);
+    expect(chunks.every((chunk) => chunk.text.startsWith('[Wiki: Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget, updated 10 Nov 2026]'))).toBe(true);
     expect(chunks.every((chunk) => chunk.publishedAt === '2026-11-10')).toBe(true);
     expect(chunks.map((chunk) => chunk.ref)).toEqual([
-      'hawker-heroes/publisher-contract#1-overview',
-      'hawker-heroes/publisher-contract#2-milestones',
-      'hawker-heroes/publisher-contract#3-notes',
+      'kopitiam/mall-promo-rules#1-overview',
+      'kopitiam/mall-promo-rules#2-butter-cost',
+      'kopitiam/mall-promo-rules#3-notes',
     ]);
   });
 
@@ -48,9 +46,9 @@ describe('knowledge chunk dates and headers', () => {
         labels: ['playtest', 'design'],
         body: '14 of 20 quit.\n\nOpened: 2026-11-10',
       },
-      'hawker-heroes',
+      'kopitiam-pos',
     );
-    expect(chunk.text.startsWith('[Gitea: hawker-heroes #5 "Level 5 difficulty needs a decision", opened 10 Nov 2026]')).toBe(true);
+    expect(chunk.text.startsWith('[Gitea: kopitiam-pos #5 "Level 5 difficulty needs a decision", opened 10 Nov 2026]')).toBe(true);
     expect(chunk.publishedAt).toBe('2026-11-10');
     expect(chunk.ref).toBe('#5');
   });
@@ -61,14 +59,14 @@ describe('knowledge chunk dates and headers', () => {
     expect(() => parseMattermostSentAt({})).toThrow(/props.sent_at/);
 
     const chunk = mattermostThreadChunk(
-      'playtest-feedback',
-      { id: 'root', user_id: 'u1', message: 'Level 5 spike', props, create_at: 1 },
+      'kiosk-trials',
+      { id: 'root', user_id: 'u1', message: 'Kiosk trial spike', props, create_at: 1 },
       [
         {
           id: 'reply',
           root_id: 'root',
           user_id: 'u2',
-          message: 'That is the point',
+          message: 'That is the point, the toggle is too small',
           props: { sent_at: '2026-11-10T09:15:00+08:00' },
           create_at: 2,
         },
@@ -78,10 +76,10 @@ describe('knowledge chunk dates and headers', () => {
         ['u2', 'arjun'],
       ]),
     );
-    expect(chunk.text.startsWith('[Mattermost: #playtest-feedback thread, 10 Nov 2026]')).toBe(true);
-    expect(chunk.text).toContain('mei: Level 5 spike');
-    expect(chunk.text).toContain('arjun: That is the point');
-    expect(chunk.ref).toBe('#playtest-feedback/root');
+    expect(chunk.text.startsWith('[Mattermost: #kiosk-trials thread, 10 Nov 2026]')).toBe(true);
+    expect(chunk.text).toContain('mei: Kiosk trial spike');
+    expect(chunk.text).toContain('arjun: That is the point, the toggle is too small');
+    expect(chunk.ref).toBe('#kiosk-trials/root');
   });
 
   it('reads the Mailpit Date header', () => {
@@ -89,42 +87,35 @@ describe('knowledge chunk dates and headers', () => {
     expect(() => parseMailDate('not a date')).toThrow(/invalid Date header/);
 
     const chunk = mailChunk({
-      messageId: '<starfruit@example>',
-      subject: 'Final build date moved up',
-      from: 'Priya <priya@starfruit.example>',
-      fromAddress: 'priya@starfruit.example',
+      messageId: '<anchor-price@example>',
+      subject: 'Anchor butter price notice',
+      from: 'Fonterra <orders@fonterradairy.example>',
+      fromAddress: 'orders@fonterradairy.example',
       date: '2026-11-16T09:12:00+08:00',
-      text: 'Deliver by 17 November.',
+      text: 'Wholesale butter rose 35%.',
     });
-    expect(chunk.text.startsWith('[Mail from Starfruit: Final build date moved up, 16 Nov 2026]')).toBe(true);
+    expect(chunk.text.startsWith('[Mail from Fonterradairy: Anchor butter price notice, 16 Nov 2026]')).toBe(true);
     expect(chunk.publishedAt).toBe('2026-11-16');
   });
 
-  it('puts Postgres dates in the quit, wishlist and budget headers', () => {
-    const quit = quitStatChunk({
-      level: 5,
-      players_started: 29,
-      players_quit: 19,
-      quit_rate: '65.52',
-      notes: 'Boss order',
-      updated_on: '2026-11-10',
-    });
-    expect(quit.text.startsWith('[Postgres: playtest quit stats, level 5, updated 10 Nov 2026]')).toBe(true);
-    expect(quit.text).toContain('65.52%');
-
-    const wishlist = wishlistChunk([
-      { captured_on: '2026-10-19', wishlists: 1840 },
-      { captured_on: '2026-11-09', wishlists: 3120 },
-    ]);
-    expect(wishlist.text.startsWith('[Postgres: wishlist counts, updated 9 Nov 2026]')).toBe(true);
-
-    const budget = budgetChunk({
-      item: 'Launch trailer',
-      planned_sgd: '300.00',
-      spent_sgd: '0.00',
-      notes: null,
-      updated_on: '2026-11-11',
-    });
-    expect(budget.text.startsWith('[Postgres: launch budget - Launch trailer, updated 11 Nov 2026]')).toBe(true);
+  it('puts Postgres dates and column values in a row chunk', () => {
+    const chunk = postgresRowChunk(
+      'kiosk_trial_stats',
+      {
+        id: 1,
+        trial_date: '2026-11-10',
+        first_time_users: 28,
+        froze_at_kopi_o_kosong: 19,
+        missed_language_toggle_pct: '72.00',
+        notes: 'First-time users froze on Step 2',
+        updated_on: '2026-11-10',
+      },
+      'updated_on',
+    );
+    expect(chunk.text.startsWith('[Postgres: kiosk_trial_stats, updated 10 Nov 2026]')).toBe(true);
+    expect(chunk.text).toContain('first_time_users: 28');
+    expect(chunk.text).toContain('missed_language_toggle_pct: 72.00');
+    expect(chunk.ref).toBe('kiosk_trial_stats/1');
+    expect(chunk.publishedAt).toBe('2026-11-10');
   });
 });

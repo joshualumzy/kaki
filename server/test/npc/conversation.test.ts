@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../../src/llm';
 import { NpcConversation, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
@@ -31,8 +30,13 @@ interface Playing {
   finished: boolean;
 }
 
-function harness(scenarioUsed: typeof scenario = scenario, bargeInMs = 0) {
+function harness(
+  scenarioUsed: typeof scenario = scenario,
+  bargeInMs = 0,
+  assessment?: (messages: ChatMessage[], call: number) => string,
+) {
   const calls: LlmCall[] = [];
+  const assessments: ChatMessage[][] = [];
   const playing: Playing[] = [];
   const states: NpcUiState[] = [];
   const transcript: Array<[string, string]> = [];
@@ -40,6 +44,16 @@ function harness(scenarioUsed: typeof scenario = scenario, bargeInMs = 0) {
 
   const ports: NpcPorts<Utterance> = {
       stream(messages, signal) {
+        if (messages.some((message) => message.content.includes('[KAKI_PROPOSAL_ASSESSMENT]'))) {
+          const call = assessments.length;
+          assessments.push(messages);
+          const reply =
+            assessment?.(messages, call) ??
+            JSON.stringify({ isProposal: true, readiness: 'complete', resolved: [], unresolved: [] });
+          return (async function* () {
+            yield reply;
+          })();
+        }
         const items: string[] = [];
         let wake: (() => void) | undefined;
         let ended = false;
@@ -95,7 +109,7 @@ function harness(scenarioUsed: typeof scenario = scenario, bargeInMs = 0) {
     conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(900);
   }
-  return { conversation, ports, calls, playing, states, transcript, logs, flush, say };
+  return { conversation, ports, calls, assessments, playing, states, transcript, logs, flush, say };
 }
 
 describe('NpcConversation', () => {
@@ -987,101 +1001,149 @@ describe('NpcConversation', () => {
       expect(advanced).toBe(1);
     });
 
-    it('prevents one-shotting in a multi-colleague meeting by pushing back with a second-order catch on the first proposal before locking in on the second', async () => {
-      const multiNpcScenario = {
-        ...hostedScenario(),
-        npcs: [
-          { attendee: 'Ada', voice: 'v1', role: 'host' as const, personality: 'Calm host', agenda: 'Run meeting', concerns: [] },
-          { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['15-inch screen grid limit'] },
-          { attendee: 'Chen', voice: 'v3', personality: 'Ops boss', agenda: 'Protect staff', concerns: ['Kitchen docket printer'] },
-        ],
-      };
-      const { conversation, calls, say, flush, playing } = harness(multiNpcScenario);
-      conversation.agendaMoved(multiNpcScenario.agenda[0]!.title);
-
-      // Turn 1: Visitor tries to one-shot the topic with a single-sentence proposal.
-      await say('Let us just rename all the buttons to plain English.');
-      expect(conversation.canDispatchTask()).toBe(false);
-      const turn1Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn1Prompt).toContain('Do NOT let Josh one-shot this topic');
-      expect(turn1Prompt).toContain('raise the concrete second-order catch');
-      calls.at(-1)?.push('Chen: Renaming buttons helps tourists, Josh, but our kitchen docket printer prints the button label directly and will slow down the uncles — how should we handle the kitchen tickets?');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      // Turn 2: Visitor addresses the catch and refines the plan -> now settled!
-      await say('Keep the kitchen printer mapped to the traditional Kopi shorthand and show a two-step visual popup on the screen.');
-      expect(conversation.canDispatchTask()).toBe(true);
-      const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn2Prompt).toContain('Josh has now addressed the trade-offs and settled the plan');
-      calls.at(-1)?.end();
-    });
   });
 
-  describe('the Kopitiam cash first-proposal catch', () => {
-    it('keeps a cash proposal open with the change and staffing trade-offs instead of a prewritten fix', async () => {
-      const cashScenario = {
-        ...hostedScenario(),
-        agenda: [
-          {
-            ...hostedScenario().agenda[0]!,
-            title: 'Elderly regulars turned away at cashless kiosks',
-            decision: 'how do we let our retired morning regulars pay with cash without turning them away or forcing them into prepayment?',
-          },
-        ],
+  describe('proposal readiness checks', () => {
+    const assessedScenario = () => {
+      const base = hostedScenario();
+      return {
+        ...base,
+        attendees: [...base.attendees, { name: 'Chen', role: 'producer', zoomDisplayName: 'Chen' }],
+        agenda: base.agenda.map((item, index) =>
+          index === 0
+            ? {
+                ...item,
+                discussion: {
+                  openingViews: [
+                    { attendee: 'Ada', view: 'We need to keep the queue moving.' },
+                    { attendee: 'Bao', view: 'The till screen is already full.' },
+                  ],
+                  tradeOffs: [
+                    {
+                      attendee: 'Bao',
+                      role: 'cashier' as const,
+                      tradeOff: 'The till screen only fits twelve buttons.',
+                      question: 'What do we remove from the screen?',
+                    },
+                    {
+                      attendee: 'Chen',
+                      role: 'producer' as const,
+                      tradeOff: 'The kitchen docket must stay readable.',
+                      question: 'How do we keep the docket readable?',
+                    },
+                  ],
+                },
+              }
+            : item,
+        ),
         npcs: [
           { attendee: 'Ada', voice: 'v1', role: 'host' as const, personality: 'Calm host', agenda: 'Run meeting', concerns: [] },
-          { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['Cash change and float'] },
-          { attendee: 'Chen', voice: 'v3', personality: 'Ops boss', agenda: 'Protect staff', concerns: ['Two toast staff and Auntie Mary'] },
+          { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['Till grid'] },
+          { attendee: 'Chen', voice: 'v3', personality: 'Ops boss', agenda: 'Protect staff', concerns: ['Dockets'] },
         ],
       };
-      const { conversation, calls, say, flush, playing } = harness(cashScenario);
-      conversation.agendaMoved(cashScenario.agenda[0]!.title);
+    };
 
-      await say('Let us put a cash box by the door, away from the food.');
+    const shallow = JSON.stringify({
+      isProposal: true,
+      readiness: 'open',
+      resolved: [{ tradeOffId: 'T1', evidence: 'rename all the buttons to plain english' }],
+      unresolved: [{ tradeOffId: 'T2', question: 'How do we keep the docket readable?' }],
+    });
+    const complete = JSON.stringify({
+      isProposal: true,
+      readiness: 'complete',
+      resolved: [
+        { tradeOffId: 'T1', evidence: 'two-step milk and sugar popup on the screen' },
+        { tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' },
+      ],
+      unresolved: [],
+    });
+
+    it('keeps a shallow first proposal open with the unresolved trade-off and settles after the person addresses it', async () => {
+      const replies = [shallow, complete];
+      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Let us rename all the buttons to plain English.');
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(false);
       const turn1Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn1Prompt).toContain('Do NOT let Josh one-shot this topic');
-      expect(turn1Prompt).toContain('$2.20 Kopi against only $2 and $10 notes');
-      expect(turn1Prompt).toContain('two toast staff cannot double as cashier');
-      expect(turn1Prompt).toContain('Auntie Mary');
-      expect(turn1Prompt).toContain('who runs cash');
-      expect(turn1Prompt).not.toContain('RFID badge');
-
-      calls.at(-1)?.push('Bao: A cash box by the door helps, Josh, but a $2.20 Kopi against only $2 and $10 notes still needs change and the two toast staff cannot double as cashier, so who runs cash and how do we handle change?');
+      expect(turn1Prompt).toContain('has not settled');
+      expect(turn1Prompt).toContain('The kitchen docket must stay readable.');
+      expect(turn1Prompt).toContain('How do we keep the docket readable?');
+      expect(turn1Prompt).not.toContain('The till screen only fits twelve buttons.');
+      expect(turn1Prompt).not.toContain('Do NOT let Josh one-shot');
+      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
       calls.at(-1)?.end();
       await flush();
       playing.at(-1)?.finish();
       await conversation.settled();
 
-      await say('Put the cash box by the door.');
+      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
+      expect(assessments).toHaveLength(2);
+      expect(conversation.canDispatchTask()).toBe(true);
       const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn2Prompt).toContain('do not confirm yet');
-      expect(turn2Prompt).toContain('how change and payment are accounted for');
-      expect(turn2Prompt).toContain('how one-off visitors avoid forced prepayment');
+      expect(turn2Prompt).toContain('has made a complete proposal');
+      expect(turn2Prompt).toContain('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
+      expect(turn2Prompt).toContain('Confirm ONLY that decision');
       calls.at(-1)?.end();
     });
 
-    it('keeps the shipped Kopitiam cash scenario free of prewritten cash workarounds', async () => {
-      const raw = await readFile(new URL('../../../scenarios/kopitiam/scenario.json', import.meta.url), 'utf8');
-      const kopitiam = JSON.parse(raw) as {
-        agenda: Array<{ title: string; decision?: string }>;
-        roles: Array<{ card?: { facts?: string[] } }>;
-        npcs: unknown[];
-      };
-      const cashAgenda = kopitiam.agenda.find((item) => /cash/i.test(item.title));
-      expect(cashAgenda?.decision).toMatch(/^how do we /i);
-      expect(cashAgenda?.decision).not.toMatch(/rfid|drop-?box|stamp card|coin drawer|cash-assist/i);
-      const cashText = JSON.stringify({
-        decision: cashAgenda?.decision,
-        roleCards: kopitiam.roles.map((role) => role.card?.facts ?? []),
-        npcs: kopitiam.npcs,
+    it('allows a genuinely complete first proposal and grounds confirmation in the decision spoken', async () => {
+      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, () => complete);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(true);
+      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(prompt).toContain('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
+      expect(prompt).toContain('do not add new terms, numbers, equipment or promises');
+      calls.at(-1)?.end();
+    });
+
+    it('never assesses a question, side request or filler', async () => {
+      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, () => {
+        throw new Error('a question, side request or filler must not be assessed');
       });
-      expect(cashText).not.toMatch(/rfid|drop-?box|stamp card|cash-assist/i);
-      expect(cashText).toMatch(/\$2\.20 Kopi always needs change/);
-      expect(cashText).toMatch(/two toast staff/);
-      expect(cashText).toMatch(/Auntie Mary[^.]*solo diners|solo diners[^.]*Auntie Mary/i);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      for (const line of ['How do we keep the docket readable?', 'Could you send me the budget breakdown after this?', 'Hi team.']) {
+        await say(line);
+        calls.at(-1)?.push('Bao: Noted, Josh.');
+        calls.at(-1)?.end();
+        await flush();
+        while (playing.some((entry) => !entry.finished)) {
+          for (const entry of playing) {
+            if (!entry.finished) entry.finish();
+          }
+          await flush();
+        }
+        await conversation.settled();
+      }
+
+      expect(assessments).toHaveLength(0);
+      expect(conversation.canDispatchTask()).toBe(false);
+    });
+
+    it('keeps the item open when the readiness check fails or is malformed', async () => {
+      const replies = ['not json', complete];
+      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Let us rename all the buttons to plain English.');
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(false);
+      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(prompt).toContain('readiness check could not run');
+      expect(prompt).toContain('The till screen only fits twelve buttons.');
+      calls.at(-1)?.end();
+
+      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
+      expect(assessments).toHaveLength(2);
+      expect(conversation.canDispatchTask()).toBe(true);
+      calls.at(-1)?.end();
     });
   });
 });

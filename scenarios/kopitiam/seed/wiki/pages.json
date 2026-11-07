@@ -3,7 +3,7 @@
     {
       "path": "kopitiam/kiosk-menu-sop",
       "title": "Nanyang Kopi & Toast - Kiosk Menu & Kitchen Printer Notes",
-      "description": "Self-order kiosk 'Kopi O Kosong' tourist checkout stats, 15-inch screen grid limits, and POS kitchen printer label coupling.",
+      "description": "Self-order kiosk 'Kopi O Kosong' tourist checkout stats, 15-inch screen grid limits, and kitchen docket label coupling.",
       "file": "kiosk-menu-sop.md"
     },
     {
@@ -15,7 +15,7 @@
     {
       "path": "kopitiam/mall-promo-rules",
       "title": "Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget",
-      "description": "Anchor Salted Butter portion margins, takeaway packaging options, and $750 launch promo budget breakdown.",
+      "description": "Anchor Salted Butter portion margins, takeaway packing, and $750 launch promo budget breakdown.",
       "file": "mall-promo-rules.md"
     }
   ]

@@ -8,13 +8,16 @@ function addressee(scenario: Scenario, task: Task): string {
   return attendee?.name ?? roleLabel(scenario, task.suggestedAssignee);
 }
 
-/** Lowercases a leading verb/capital letter unless the title starts with an acronym or known proper noun. */
+/** Lowercases a leading verb/capital letter unless the title starts with an acronym or a proper noun. */
 function inlineTitle(title: string): string {
   const trimmed = title.trim().replace(/\.$/, '');
   if (trimmed.length < 2) return trimmed;
-  if (/^[A-Z]{2,}\b/.test(trimmed) || /^(?:Gitea|Mattermost|Starfruit|Hawker|Nanyang|Kopi|TikTok|Jewel|Raffles|Friday|Monday|Tuesday|Wednesday|Thursday)\b/.test(trimmed)) {
-    return trimmed;
-  }
+  const [first, second] = trimmed.split(/\s+/);
+  const looksProper =
+    /^[A-Z]{2,}\b/.test(trimmed) ||
+    (first !== undefined && (/[a-z][A-Z]/.test(first) || (second !== undefined && /^[A-Z]/.test(second)))) ||
+    /^(?:Friday|Saturday|Sunday|Monday|Tuesday|Wednesday|Thursday)\b/.test(trimmed);
+  if (looksProper) return trimmed;
   return `${trimmed[0]!.toLowerCase()}${trimmed.slice(1)}`;
 }
 

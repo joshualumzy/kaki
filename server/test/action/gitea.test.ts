@@ -10,11 +10,11 @@ import { settle, waitFor } from '../helpers';
 const settings: GiteaSettings = {
   url: 'http://gitea.test',
   token: 'secret-token',
-  owner: 'pixel-kampung',
-  repo: 'hawker-heroes',
+  owner: 'kopitiam',
+  repo: 'kopitiam-pos',
 };
 
-const issueUrl = 'http://gitea.test/pixel-kampung/hawker-heroes/issues/7';
+const issueUrl = 'http://gitea.test/kopitiam/kopitiam-pos/issues/7';
 
 const issueReply = JSON.stringify({
   title: 'Fix the oven',
@@ -104,7 +104,7 @@ describe('gitea action module', () => {
     const ready = await claim(tasks, task);
 
     expect(ready.draft).toEqual({
-      target: 'pixel-kampung/hawker-heroes',
+      target: 'kopitiam/kopitiam-pos',
       subject: 'Fix the oven',
       body: 'The oven trips the fuse after ten minutes.',
     });
@@ -173,7 +173,7 @@ describe('gitea action module', () => {
     const call = fetchImpl.mock.calls[0];
     if (call === undefined) throw new Error('Expected a Gitea request');
     const [url, init] = call;
-    expect(String(url)).toBe('http://gitea.test/api/v1/repos/pixel-kampung/hawker-heroes/issues');
+    expect(String(url)).toBe('http://gitea.test/api/v1/repos/kopitiam/kopitiam-pos/issues');
     expect(init?.method).toBe('POST');
     expect(init?.headers).toMatchObject({ authorization: 'token secret-token' });
     expect(JSON.parse(String(init?.body))).toEqual({
@@ -196,7 +196,7 @@ describe('gitea action module', () => {
     const call = fetchImpl.mock.calls[0];
     if (call === undefined) throw new Error('Expected a Gitea request');
     const [url, init] = call;
-    expect(String(url)).toBe('http://gitea.test/api/v1/repos/pixel-kampung/hawker-heroes/issues');
+    expect(String(url)).toBe('http://gitea.test/api/v1/repos/kopitiam/kopitiam-pos/issues');
     expect(JSON.parse(String(init?.body))).toEqual({ title: 'Edited title', body: 'Edited body' });
   });
 
@@ -233,7 +233,7 @@ describe('gitea action module', () => {
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
     expect(failed.error).toBe(
-      'Gitea token lacks permission to create issues in pixel-kampung/hawker-heroes (HTTP 403)',
+      'Gitea token lacks permission to create issues in kopitiam/kopitiam-pos (HTTP 403)',
     );
   });
 

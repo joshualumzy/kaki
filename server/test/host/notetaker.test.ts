@@ -34,8 +34,8 @@ let scenario: Scenario;
 let replay: ReplayLine[];
 
 beforeAll(async () => {
-  scenario = await loadScenario('pixel-kampung');
-  replay = await loadReplay(scenario, 'pixel-kampung');
+  scenario = await loadScenario('kopitiam');
+  replay = await loadReplay(scenario, 'kopitiam');
 });
 
 // The replay lines between two script times, as a canned transcript slice.
@@ -55,54 +55,53 @@ function setup(respond: Parameters<typeof createFakeLlm>[0], startIndex = 0) {
   return { tasks, llm, notetaker, feed, onAgendaIndex };
 }
 
-describe('notetaker on canned Lah Studios slices', () => {
+describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
   it('suggests the scripted tasks and records the scripted questions', async () => {
     const { tasks, llm, notetaker, feed } = setup((messages) => {
       const text = newLines(messages);
-      if (text.includes('ten customers in a row')) {
+      if (text.includes('file a ticket for the kiosk label experiment')) {
         return reply({
+          newQuestions: [{ text: 'Do tourists or locals struggle more at the kiosk?', forRole: 'game_designer' }],
           newTasks: [
             {
-              title: 'File a bug for the crash after ten customers',
-              context: 'The game crashes after serving ten customers in a row; blocks the launch build.',
-              suggestedAssignee: 'lead_programmer',
+              title: 'File the kiosk label experiment ticket',
+              context: 'Track the kiosk label experiment with the 19 of 28 trial numbers.',
+              suggestedAssignee: 'game_designer',
               actionKind: 'gitea_issue',
-              evidence: 'If you serve ten customers in a row without a break, the game crashes.',
+              evidence: 'Mei, can you file a ticket for the kiosk label experiment so it is tracked with the trial numbers?',
             },
           ],
         });
       }
-      if (text.includes('exactly where in level 5')) {
+      if (text.includes('How many solo diners actually need a table')) {
         return reply({
           agendaIndex: 1,
-          newQuestions: [{ text: 'Where exactly in level 5 do players quit?', forRole: 'game_designer' }],
+          newQuestions: [{ text: 'How many solo diners need a table between eight and ten?', forRole: 'producer' }],
         });
       }
-      if (text.includes('When does Starfruit need the final build')) {
+      if (text.includes('who runs cash')) {
         return reply({
           agendaIndex: 2,
-          newQuestions: [{ text: 'When does Starfruit need the final build?', forRole: 'producer' }],
-          newTasks: [
-            {
-              title: 'Post the launch date in the team channel',
-              context: 'Once the final build date is confirmed, tell the team the launch date.',
-              suggestedAssignee: 'producer',
-              actionKind: 'mattermost_post',
-              evidence: "I'll post the launch date in the team channel",
-            },
-          ],
+          newQuestions: [{ text: 'Who runs cash, and how is the change float balanced at close?', forRole: 'producer' }],
         });
       }
-      if (text.includes('email a streamer')) {
+      if (text.includes('email Zack')) {
         return reply({
           agendaIndex: 3,
           newTasks: [
             {
-              title: 'Email a streamer to play Hawker Heroes on launch day',
-              context: 'The launch plan has no live stream yet.',
+              title: 'Email Zack to confirm the re-taste',
+              context: 'Confirm the 8:30am re-taste and the standard butter portion.',
               suggestedAssignee: 'marketing_lead',
               actionKind: 'email',
-              evidence: 'Daniel, can you email a streamer and ask them to play Hawker Heroes on launch day?',
+              evidence: "Yes, I'll email Zack tonight and confirm the details.",
+            },
+            {
+              title: 'Post the final plan in the team channel',
+              context: 'Post the agreed launch plan in the team channel once the butter decision is settled.',
+              suggestedAssignee: 'producer',
+              actionKind: 'mattermost_post',
+              evidence: "I'll post the final plan in the team channel once we settle the butter decision.",
             },
           ],
         });
@@ -111,10 +110,10 @@ describe('notetaker on canned Lah Studios slices', () => {
     });
 
     for (const [from, to] of [
-      [0, 520],
-      [520, 1200],
-      [1200, 1650],
-      [1650, 2200],
+      [0, 360],
+      [360, 1000],
+      [1000, 1450],
+      [1450, 2200],
     ] as const) {
       feed(slice(from, to));
       await notetaker.run();
@@ -122,13 +121,14 @@ describe('notetaker on canned Lah Studios slices', () => {
 
     expect(llm.calls).toHaveLength(4);
     expect(tasks.list().map((task) => [task.suggestedAssignee, task.actionKind, task.status])).toEqual([
-      ['lead_programmer', 'gitea_issue', 'SUGGESTED'],
-      ['producer', 'mattermost_post', 'SUGGESTED'],
+      ['game_designer', 'gitea_issue', 'SUGGESTED'],
       ['marketing_lead', 'email', 'SUGGESTED'],
+      ['producer', 'mattermost_post', 'SUGGESTED'],
     ]);
     expect(notetaker.state().openQuestions).toEqual([
-      { id: 'q-1', text: 'Where exactly in level 5 do players quit?', forRole: 'game_designer' },
-      { id: 'q-2', text: 'When does Starfruit need the final build?', forRole: 'producer' },
+      { id: 'q-1', text: 'Do tourists or locals struggle more at the kiosk?', forRole: 'game_designer' },
+      { id: 'q-2', text: 'How many solo diners need a table between eight and ten?', forRole: 'producer' },
+      { id: 'q-3', text: 'Who runs cash, and how is the change float balanced at close?', forRole: 'producer' },
     ]);
     expect(notetaker.state().status).toBe('ok');
   });
@@ -137,13 +137,13 @@ describe('notetaker on canned Lah Studios slices', () => {
     const { llm, notetaker, feed } = setup((_messages, call) =>
       call === 0
         ? reply({
-            newQuestions: [{ text: 'When does Starfruit need the final build?' }],
+            newQuestions: [{ text: 'Do tourists or locals struggle more at the kiosk?' }],
             newTasks: [
               {
-                title: 'Fix the crash',
-                context: 'Crash after ten customers.',
-                suggestedAssignee: 'lead_programmer',
-                evidence: 'the game crashes',
+                title: 'File the kiosk label experiment ticket',
+                context: 'Track the kiosk label experiment.',
+                suggestedAssignee: 'game_designer',
+                evidence: 'Nineteen of them froze',
               },
             ],
           })
@@ -156,28 +156,28 @@ describe('notetaker on canned Lah Studios slices', () => {
     await notetaker.run();
 
     const [system, user] = llm.calls[1]!;
-    expect(system!.content).toContain('lead_programmer: Lead Programmer (Arjun)');
-    expect(system!.content).toContain('1. Level 5 difficulty and playtest feedback');
-    expect(user!.content).toContain('- q-1: When does Starfruit need the final build?');
-    expect(user!.content).toMatch(/- task-[\w-]+: Fix the crash \(owner: lead_programmer\) — Crash after ten customers\./);
-    expect(user!.content).toContain('[Wei Ling (Producer)] That blocks the launch build then.');
+    expect(system!.content).toContain('lead_programmer: Tech & POS Lead (Arjun)');
+    expect(system!.content).toContain('1. Morning seat crunch & laptop campers');
+    expect(user!.content).toContain('- q-1: Do tourists or locals struggle more at the kiosk?');
+    expect(user!.content).toMatch(/- task-[\w-]+: File the kiosk label experiment ticket \(owner: game_designer\) — Track the kiosk label experiment\./);
+    expect(user!.content).toContain('[Arjun (Tech & POS Lead)] When we tested that at Tampines');
     // Only lines added since the last pass are sent.
-    expect(user!.content).not.toContain('Release candidate two');
+    expect(user!.content).not.toContain('Yesterday');
   });
 });
 
 describe('notetaker record keeping', () => {
   it('does not repeat a task or question the meeting already has, and drops answered questions', async () => {
     const task = {
-      title: 'Fix the crash!',
+      title: 'Review the kiosk trial',
       context: 'c',
-      suggestedAssignee: 'lead_programmer',
-      evidence: "Arjun, let's start with the build.",
+      suggestedAssignee: 'game_designer',
+      evidence: "Mei, let's start with the kiosk.",
     };
     const { tasks, notetaker, feed } = setup((_messages, call) =>
       [
-        reply({ newTasks: [task], newQuestions: [{ text: 'Final build date?' }] }),
-        reply({ newTasks: [{ ...task, title: 'fix the crash' }], newQuestions: [{ text: 'final build date' }] }),
+        reply({ newTasks: [task], newQuestions: [{ text: 'Kiosk trial split?' }] }),
+        reply({ newTasks: [{ ...task, title: 'review the kiosk trial' }], newQuestions: [{ text: 'kiosk trial split' }] }),
         reply({ answeredQuestionIds: ['q-1'] }),
       ][call]!,
     );
@@ -226,7 +226,7 @@ describe('notetaker record keeping', () => {
     let down = false;
     const { llm, notetaker, feed } = setup(() => {
       if (down) throw new Error('gateway unreachable');
-      return reply({ newQuestions: [{ text: 'Final build date?' }] });
+      return reply({ newQuestions: [{ text: 'Kiosk trial split?' }] });
     });
 
     feed(slice(0, 30));
@@ -238,7 +238,7 @@ describe('notetaker record keeping', () => {
     expect(notetaker.state()).toMatchObject({
       status: 'stale',
       lastError: 'gateway unreachable',
-      openQuestions: [{ id: 'q-1', text: 'Final build date?' }],
+      openQuestions: [{ id: 'q-1', text: 'Kiosk trial split?' }],
     });
 
     down = false;
@@ -246,8 +246,8 @@ describe('notetaker record keeping', () => {
     await notetaker.run();
     expect(notetaker.state().status).toBe('ok');
     const resent = userMessage(llm.calls[2]!);
-    expect(resent).toContain('Release candidate two');
-    expect(resent).toContain('That blocks the launch build then.');
+    expect(resent).toContain('Nineteen of them froze');
+    expect(resent).toContain('Seventy-two percent');
   });
 
   it('treats a reply that is not JSON as a failed pass', async () => {
@@ -301,7 +301,7 @@ describe('task precision', () => {
       reply({
         newTasks: [
           candidate('Order new office chairs', 'producer', 'Wei Ling promised to order new chairs for everyone'),
-          candidate('File the crash bug', 'lead_programmer', "Yes, I'll file it today."),
+          candidate('Check the docket print change', 'lead_programmer', 'drink prep slowed by fifteen seconds a cup'),
         ],
       }),
     );
@@ -309,7 +309,7 @@ describe('task precision', () => {
     feed(slice(120, 160));
     await notetaker.run();
 
-    expect(tasks.list().map((task) => task.title)).toEqual(['File the crash bug']);
+    expect(tasks.list().map((task) => task.title)).toEqual(['Check the docket print change']);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Order new office chairs'));
   });
 
@@ -318,35 +318,35 @@ describe('task precision', () => {
       [
         reply({
           newTasks: [
-            candidate('Fix crash after serving ten customers in a row', 'lead_programmer', 'the game crashes'),
-            candidate('Confirm Starfruit final build deadline', 'producer', 'I remember an email from them saying earlier'),
+            candidate('Review kiosk trial numbers', 'game_designer', 'Nineteen of them froze'),
+            candidate('Check butter margin', 'producer', 'where are we with Zack'),
           ],
         }),
         reply({
           newTasks: [
-            candidate('File bug ticket for ten-customer crash with repro steps', 'lead_programmer', "Yes, I'll file it today."),
-            candidate('Track the ten customer crash', 'lead_programmer', "Yes, I'll file it today.", {
+            candidate('Review the kiosk trial freeze', 'game_designer', 'Nineteen of them froze'),
+            candidate('Track the kiosk trial freeze', 'game_designer', 'Nineteen of them froze', {
               duplicateOf: 'task-1',
             }),
             candidate(
-              'Post launch date in team channel once final build date is confirmed',
+              'Post the butter plan in the team channel',
               'producer',
-              "I'll post the launch date in the team channel",
+              "I'll post the final plan in the team channel",
             ),
           ],
         }),
       ][call]!,
     );
 
-    feed([...slice(0, 100), ...slice(1300, 1310)]);
+    feed([...slice(0, 100), ...slice(1450, 1460)]);
     await notetaker.run();
-    feed([...slice(100, 200), ...slice(1530, 1540)]);
+    feed([...slice(100, 200), ...slice(1970, 1990)]);
     await notetaker.run();
 
     expect(tasks.list().map((task) => task.title)).toEqual([
-      'Fix crash after serving ten customers in a row',
-      'Confirm Starfruit final build deadline',
-      'Post launch date in team channel once final build date is confirmed',
+      'Review kiosk trial numbers',
+      'Check butter margin',
+      'Post the butter plan in the team channel',
     ]);
   });
 
@@ -439,7 +439,7 @@ describe('task precision', () => {
 });
 
 describe('talk time', () => {
-  it('counts talk time per role for each agenda item and spots the quiet marketing lead', async () => {
+  it('counts talk time per role for each agenda item', async () => {
     const tasks = createTaskStore({ hub: quietHub(), scenario });
     let agendaIndex = 0;
     const notetaker = createNotetaker({ scenario, tasks, agendaIndex: () => agendaIndex });
@@ -452,9 +452,20 @@ describe('talk time', () => {
 
     const state = notetaker.state();
     expect(Object.keys(state.talkSecondsFor(1)).sort()).toEqual(['game_designer', 'lead_programmer', 'producer']);
-    expect(state.talkSecondsFor(1).game_designer).toBeGreaterThan(state.talkSecondsFor(1).producer!);
+    expect(state.talkSecondsFor(1).producer).toBeGreaterThan(state.talkSecondsFor(1).game_designer!);
     expect(state.talkSecondsFor(3).marketing_lead).toBeGreaterThan(0);
-    expect(state.quietRoles).toEqual(['marketing_lead']);
+  });
+
+  it('spots a role that barely speaks', () => {
+    const tasks = createTaskStore({ hub: quietHub(), scenario });
+    const notetaker = createNotetaker({ scenario, tasks, agendaIndex: () => 0 });
+
+    for (let line = 0; line < 30; line += 1) {
+      notetaker.addChunk({ speaker: 'Wei Ling', text: 'one two three four five six seven eight nine ten' });
+    }
+    notetaker.addChunk({ speaker: 'Daniel', text: 'Short.' });
+
+    expect(notetaker.state().quietRoles).toContain('marketing_lead');
   });
 
   it('calls nobody quiet before there is enough talk to judge', () => {
@@ -510,9 +521,9 @@ describe('notetaker reply parsing', () => {
 
 describe('isLikelyDuplicateQuestion', () => {
   it('catches the same question worded differently, but not a different one', () => {
-    const open = ['When is the final build date?'];
-    expect(isLikelyDuplicateQuestion('What is the date of the final build?', open)).toBe(true);
-    expect(isLikelyDuplicateQuestion('Where do players quit on level 5?', open)).toBe(false);
+    const open = ['When is the butter decision?'];
+    expect(isLikelyDuplicateQuestion('When will the butter decision be made?', open)).toBe(true);
+    expect(isLikelyDuplicateQuestion('How many solo diners need a table?', open)).toBe(false);
   });
 
   it('does not treat a short question as a repeat just because a long one contains "is it"', () => {

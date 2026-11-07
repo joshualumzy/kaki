@@ -1,31 +1,31 @@
 {
   "team": {
-    "name": "pixel-kampung",
+    "name": "kopitiam",
     "display_name": "Nanyang Kopi & Toast"
   },
   "users": [
     {
       "username": "weiling",
-      "email": "wei.ling@pixelkampung.example",
+      "email": "wei.ling@nanyangkopitiam.example",
       "first_name": "Wei Ling",
       "last_name": "",
       "admin": true
     },
     {
       "username": "arjun",
-      "email": "arjun@pixelkampung.example",
+      "email": "arjun@nanyangkopitiam.example",
       "first_name": "Arjun",
       "last_name": ""
     },
     {
       "username": "mei",
-      "email": "mei@pixelkampung.example",
+      "email": "mei@nanyangkopitiam.example",
       "first_name": "Mei",
       "last_name": ""
     },
     {
       "username": "daniel",
-      "email": "daniel@pixelkampung.example",
+      "email": "daniel@nanyangkopitiam.example",
       "first_name": "Daniel",
       "last_name": ""
     }
@@ -53,14 +53,14 @@
       "channel": "kiosk-trials",
       "author": "mei",
       "at": "2026-11-10T09:05:00+08:00",
-      "text": "Just finished the morning kiosk trial at Raffles Place (40 customers). 19 out of 28 first-time expats and tourists froze for over 2 minutes on Step 2 trying to guess 'Kopi O Kosong' vs 'Kopi C Siew Dai', and 72% missed the tiny language toggle in the corner."
+      "text": "Just finished the morning kiosk trial at Raffles Place (28 first-time users). 19 of them froze for over 2 minutes on Step 2 trying to guess 'Kopi O Kosong' vs 'Kopi C Siew Dai', and 72% missed the tiny language toggle in the corner."
     },
     {
       "channel": "kiosk-trials",
       "author": "arjun",
       "replyToKey": "kiosk1",
       "at": "2026-11-10T09:12:00+08:00",
-      "text": "Careful with renaming the POS buttons to English though. In POS v2.4, `display_name` prints straight onto the kitchen thermal docket (`ticket_label`). When we tested 'Black Coffee No Sugar' at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds a cup trying to read the docket."
+      "text": "Careful with renaming the POS buttons to English though. The kitchen docket currently prints the same button name the customer sees. When we tested 'Black Coffee No Sugar' at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds a cup trying to read the docket. POS v2.4 can hold a separate kitchen print name, but it needs configuring and a kitchen test before 8am."
     },
     {
       "channel": "kiosk-trials",
@@ -95,7 +95,7 @@
       "author": "weiling",
       "replyToKey": "cash1",
       "at": "2026-11-11T09:24:00+08:00",
-      "text": "We can't run cash from the toast counter. Our internal counter hygiene SOP keeps money handling separate from ready-to-eat food: anyone who touches coins or notes has to change gloves and wash hands before slicing kaya toast (+40s per order), and counting cash at night costs $380/month in overtime. Both toast staff are flat out at the 8am queue, Auntie Mary is the only one seating solo diners with hot trays, and there is no spare till or cashier terminal at the front. Physical kiosk bill-acceptors take 3 weeks and $1,400 too."
+      "text": "We can't run cash from the toast counter. Our internal counter hygiene SOP keeps money handling separate from ready-to-eat food: anyone who touches coins or notes has to change gloves and wash hands before slicing kaya toast (+40s per order), and counting cash at night costs $380/month in overtime. Both toast staff are flat out at the 8am queue, Auntie Mary is the only one seating solo diners with hot trays, and there is no spare till or cashier terminal at the front. Physical kiosk bill-acceptors take 3 weeks and $1,400 too. We still haven't decided who runs cash or how the float is counted."
     },
     {
       "key": "butter1",
@@ -109,7 +109,7 @@
       "author": "weiling",
       "replyToKey": "butter1",
       "at": "2026-11-11T11:09:00+08:00",
-      "text": "Good catch, because Anchor salted butter jumped 35% last month and doubling our butter slab to 20g across all sets would wipe out $0.42 per set ($1,100/month in margin). Zack wants $600 cash or $450 + 20 Kaya Toast plushies for an 8:30am live re-taste tomorrow, and we only have $750 left in our launch budget."
+      "text": "Good catch, because Anchor salted butter jumped 35% last month and doubling our butter slab to 20g across all sets would wipe out $0.42 per set ($1,100/month in margin). Zack wants $600 cash or $450 + 20 Kaya Toast plushies for an 8:30am live re-taste tomorrow, and we only have $750 left in our launch budget. We haven't agreed what we show on camera or what we change permanently."
     }
   ]
 }
