@@ -51,6 +51,8 @@ export type KakiEvent =
         notetakerStatus?: NotetakerStatus;
         /** Optional: attendee roles that have barely spoken so far. */
         quietRoles?: Role[];
+        /** Optional: whether the meeting clock is currently paused by the visitor. */
+        paused?: boolean;
       }
     >
   | KakiEventOf<
@@ -142,7 +144,8 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isSpeakerTalkSeconds(payload.speakerTalkSeconds, scenario) &&
     (payload.notetakerStatus === undefined || isNotetakerStatus(payload.notetakerStatus)) &&
     (payload.quietRoles === undefined ||
-      (Array.isArray(payload.quietRoles) && payload.quietRoles.every((role) => isRoleIn(scenario, role)))),
+      (Array.isArray(payload.quietRoles) && payload.quietRoles.every((role) => isRoleIn(scenario, role)))) &&
+    (payload.paused === undefined || typeof payload.paused === 'boolean'),
   HOST_SPEECH_TRIGGERED: (payload) =>
     (payload.kind === 'OPENING' ||
       payload.kind === 'TIMEOUT' ||

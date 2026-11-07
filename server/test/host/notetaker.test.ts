@@ -376,6 +376,32 @@ describe('task precision', () => {
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped the 5 oldest transcript lines'));
   });
+
+  it('routes a natural second-person task request ("Could you post...") to the visitor role even when zoomDisplayName has no parentheses', async () => {
+    const kopitiamScenario = await loadScenario('kopitiam');
+    const tasks = createTaskStore({ hub: quietHub(), scenario: kopitiamScenario });
+    const llm = createFakeLlm(() =>
+      reply({
+        newTasks: [
+          candidate(
+            'Post kiosk English subtitles decision in team channel',
+            'game_designer',
+            'Feifei Li, could you post that decision in the team channel today so everyone has it?',
+            { actionKind: 'mattermost_post' },
+          ),
+        ],
+      }),
+    );
+    const notetaker = createNotetaker({ scenario: kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us add the Simple English toggle on the kiosk.' });
+    notetaker.addChunk({
+      speaker: 'Mei',
+      text: 'Got it, we will build the Simple English toggle tonight. Feifei Li, could you post that decision in the team channel today so everyone has it?',
+    });
+    await notetaker.run();
+    expect(tasks.list()).toHaveLength(1);
+    expect(tasks.list()[0]?.suggestedAssignee).toBe('producer');
+  });
 });
 
 describe('talk time', () => {

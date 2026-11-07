@@ -17,7 +17,9 @@ export type KakiCommand =
   /** Screen only. The host moves the meeting on to the next agenda item. */
   | { type: 'NEXT_AGENDA_ITEM' }
   /** Screen only. Whether a person (not the AI) is in the host's seat: while one is, Sam does not dispatch tasks by himself. */
-  | { type: 'SET_HOST_MODE'; human: boolean };
+  | { type: 'SET_HOST_MODE'; human: boolean }
+  /** Screen only. Pauses or resumes the agenda clock when the visitor clicks Pause / Play. */
+  | { type: 'SET_PAUSED'; paused: boolean };
 
 const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'DISPATCH_TASK',
@@ -31,6 +33,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'END_MEETING',
   'NEXT_AGENDA_ITEM',
   'SET_HOST_MODE',
+  'SET_PAUSED',
 ];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -50,6 +53,7 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
   if (!isObject(value) || !isCommandType(value.type)) return false;
   if (value.type === 'NEXT_AGENDA_ITEM') return true;
   if (value.type === 'SET_HOST_MODE') return typeof value.human === 'boolean';
+  if (value.type === 'SET_PAUSED') return typeof value.paused === 'boolean';
   if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';
   if (!isString(value.taskId)) return false;
 

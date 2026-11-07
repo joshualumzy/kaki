@@ -150,6 +150,11 @@ async function handleRequest(
           if (present.length === 0) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
             if (npcNames.length > 0 && context.fullAgenda.length > 1) {
+              context.tasks.reset();
+              context.hub.clearRetained('record');
+              context.hub.clearRetained('host:opening');
+              context.hub.clearRetained('fact:');
+              context.hub.clearRetained('nudge:');
               const maxAgendaItems = Number(process.env.KAKI_AGENDA_ITEMS) || 2;
               const reordered = shuffleAgendaForRole(
                 { ...context.scenario, agenda: context.fullAgenda },
@@ -158,6 +163,7 @@ async function handleRequest(
                 maxAgendaItems,
               );
               context.scenario.agenda.splice(0, context.scenario.agenda.length, ...reordered);
+              context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
             }
           }
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);

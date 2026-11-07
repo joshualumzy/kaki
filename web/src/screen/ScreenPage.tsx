@@ -195,16 +195,16 @@ export function isRecord(event: KakiEvent): event is RecordEvent {
  */
 const MAX_COUNT_UP_SECONDS = 35;
 
-function useCountUp(elapsedSeconds: number, record: RecordEvent, ended = false): number {
+function useCountUp(elapsedSeconds: number, record: RecordEvent, frozen = false): number {
   // Each record is a new object, so this restarts the count whenever one arrives.
   const receivedAt = useMemo(() => Date.now(), [record]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (ended) return;
+    if (frozen) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [ended]);
-  if (ended) return elapsedSeconds;
+  }, [frozen]);
+  if (frozen) return elapsedSeconds;
   return elapsedSeconds + Math.min(MAX_COUNT_UP_SECONDS, Math.max(0, (now - receivedAt) / 1000));
 }
 
@@ -219,8 +219,8 @@ function ringColour(over: boolean): string {
 
 /** The big agenda view: a clock ring, the four items as a timeline, open questions, talk time and who is quiet. */
 function AgendaPanel({ record, scenario, ended = false }: { record: RecordEvent; scenario: Scenario; ended?: boolean }) {
-  const { agendaIndex, openQuestions, quietRoles = [], speakerTalkSeconds } = record.payload;
-  const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended);
+  const { agendaIndex, openQuestions, quietRoles = [], speakerTalkSeconds, paused } = record.payload;
+  const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
   const over = limit > 0 && elapsed >= limit;
@@ -322,8 +322,8 @@ export function MeetingRecordCard({
   scenario: Scenario;
   ended?: boolean;
 }) {
-  const { agendaIndex, openQuestions } = record.payload;
-  const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended);
+  const { agendaIndex, openQuestions, paused } = record.payload;
+  const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
   const over = limit > 0 && elapsed >= limit;
@@ -337,7 +337,8 @@ export function MeetingRecordCard({
       </p>
       <h2 className="card-title">{item?.title ?? 'Meeting'}</h2>
       <div className="kd-host-clock">
-        {formatMinutes(elapsed)} <small>{ended ? 'concluded' : over ? 'over time' : `of ${formatMinutes(limit)}`}</small>
+        {formatMinutes(elapsed)}{' '}
+        <small>{ended ? 'concluded' : paused ? 'paused' : over ? 'over time' : `of ${formatMinutes(limit)}`}</small>
       </div>
       <div className="kd-host-bar">
         <i style={{ width: `${ended ? 100 : limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%` }} />

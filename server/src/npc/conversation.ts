@@ -70,9 +70,9 @@ export const DEFAULT_BARGE_IN_MS = 2200;
 function splitSentences(text: string): string[] {
   return (
     text
-      .match(/[^.!?…]+(?:[.!?…]+["')\]]*|$)/g)
-      ?.map((part) => part.trim())
-      .filter((part) => part.length > 0) ?? [text]
+      .split(/(?<=(?:(?<!\b(?:Prof|Dr|Mr|Mrs|Ms|St|Jr|Sr))[.!?…])["')\]]*)\s+/i)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
   );
 }
 
@@ -180,6 +180,7 @@ export class NpcConversation<Clip> {
   private pending: string[] = [];
   /**Lines the person has said (heard or typed) since they joined; the host asks them for their decision after a few. */
   private humanLines = 0;
+  private humanProposalsOnCurrentItem = 0;
   private humanDecidedOnCurrentItem = false;
   private hadDecisionBeforeMove = false;
   private movedAt = 0;
@@ -187,6 +188,8 @@ export class NpcConversation<Clip> {
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
   private askDue = false;
+    /** Speakers who have already spoken at least once in this meeting, so newcomers introduce themselves on their very first turn. */
+  private readonly introduced = new Set<string>();
   /** Items where the AI colleagues have already briefed the room before asking the human for a decision. */
   private readonly briefed = new Set<string>();
   /** Items the characters have already talked through on their own, and how many lines the person had said when this item began. */
@@ -200,6 +203,7 @@ export class NpcConversation<Clip> {
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
   private turn: Turn | undefined;
   private closed = false;
+  private concluded = false;
   private paused = false;
   private pausedCutOff = false;
   private cutOffSpeaker: string | undefined;
@@ -210,6 +214,8 @@ export class NpcConversation<Clip> {
   /** Consecutive follow-up turns the AI started by itself after a hand-over; the person speaking again resets it. */
   private chain = 0;
   private forcedSpeaker: { target: string; from: string } | undefined;
+  private decisionWrappedUpOnItem = false;
+  private refusalCount = 0;
 
   constructor(
     private readonly ports: NpcPorts<Clip>,
@@ -249,7 +255,7 @@ export class NpcConversation<Clip> {
   /** The person typed something: it goes straight in, with no check that it is a voice and not an echo. */
   humanTyped(text: string): void {
     const typed = text.trim();
-    if (this.closed || typed.length === 0) return;
+    if (this.closed || this.concluded || typed.length === 0) return;
     this.paused = false;
     this.pausedCutOff = false;
     this.pausedUtterances = undefined;
@@ -258,17 +264,18 @@ export class NpcConversation<Clip> {
     this.chain = 0;
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
-    this.silencePromptStage = 0;
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
     this.addAskCue(typed);
     this.interrupt('the person typed something');
+    this.unanswered = false;
+    this.cutOff = false;
     this.scheduleRespond();
   }
 
   /** The person pressed Stop/Pause: everyone goes quiet and timers are held until they press Resume (or type). */
   stop(): void {
-    if (this.closed || this.paused) return;
+    if (this.closed || this.concluded || this.paused) return;
     if (this.turn !== undefined) {
       if (this.turn.scripted === true && this.turn.scriptedUtterance !== undefined) {
         const allSentences = splitSentences(this.turn.scriptedUtterance.text);
@@ -308,7 +315,7 @@ export class NpcConversation<Clip> {
 
   /** The person pressed Resume after pausing: pick back up where the room left off. */
   resumeFromPause(): void {
-    if (this.closed || !this.paused) return;
+    if (this.closed || this.concluded || !this.paused) return;
     this.paused = false;
     const scripted = this.pausedScripted;
     this.pausedScripted = undefined;
@@ -355,11 +362,11 @@ export class NpcConversation<Clip> {
 
   /** Speech recognition heard nothing in the last stretch of the person's microphone: it was not words. */
   humanNothing(): void {
-    if (this.closed || this.paused || this.humanTalking || this.pending.length > 0 || !(this.cutOff || this.unanswered)) return;
+    if (this.closed || this.concluded || this.paused || this.humanTalking || this.pending.length > 0 || !(this.cutOff || this.unanswered)) return;
     this.clearRespondTimer();
     this.respondTimer = setTimeout(() => {
       this.respondTimer = undefined;
-      if (this.closed || this.paused || this.humanTalking || this.pending.length > 0) return;
+      if (this.closed || this.concluded || this.paused || this.humanTalking || this.pending.length > 0) return;
       if (this.cutOff) this.resume();
       else if (this.unanswered) this.startTurn(true);
     }, DEFAULT_NOTHING_MS);
@@ -367,7 +374,7 @@ export class NpcConversation<Clip> {
 
   /** The person's microphone started or stopped carrying speech. */
   humanSpeech(talking: boolean): void {
-    if (this.closed || this.paused) return;
+    if (this.closed || this.concluded || this.paused) return;
     if (talking === this.humanTalking) {
       // Should not happen: a start while already marked talking, with an answer running, means a stop was missed.
       if (talking && this.turn !== undefined) this.ports.log?.('ignored the person starting to talk: already marked as talking, a stop was missed');
@@ -401,7 +408,7 @@ export class NpcConversation<Clip> {
   /** The browser recognised some of the person's words. */
   humanText(text: string): void {
     const heard = text.trim();
-    if (this.closed || heard.length === 0) return;
+    if (this.closed || this.concluded || heard.length === 0) return;
     if (this.paused) {
       this.ports.log?.(`ignored "${heard}": the meeting is paused`);
       return;
@@ -426,13 +433,14 @@ export class NpcConversation<Clip> {
     }
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
-    this.silencePromptStage = 0;
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
     this.chain = 0;
     this.pending.push(accepted);
     this.addAskCue(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
+    this.unanswered = false;
+    this.cutOff = false;
     this.scheduleRespond();
   }
 
@@ -448,14 +456,26 @@ export class NpcConversation<Clip> {
     text: string,
     giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS,
     onDone?: (spoken: boolean) => void,
+    shouldStillSpeak?: () => boolean,
   ): void {
     const line = text.trim();
     if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
+    if (shouldStillSpeak !== undefined && !shouldStillSpeak()) {
+      this.ports.log?.(`skipped ${speaker}'s cue "${line}": already handled`);
+      onDone?.(false);
+      return;
+    }
     this.pendingAnnouncements += 1;
     let deadline = Date.now() + giveUpMs;
     const attempt = (): void => {
       if (this.closed) {
         this.pendingAnnouncements = Math.max(0, this.pendingAnnouncements - 1);
+        return;
+      }
+      if (shouldStillSpeak !== undefined && !shouldStillSpeak()) {
+        this.pendingAnnouncements = Math.max(0, this.pendingAnnouncements - 1);
+        this.ports.log?.(`skipped ${speaker}'s cue "${line}": already handled`);
+        onDone?.(false);
         return;
       }
       if (this.paused) {
@@ -484,11 +504,24 @@ export class NpcConversation<Clip> {
     attempt();
   }
 
+  /** If the host is currently speaking a task-dispatch prompt and the visitor just clicked Accept/Decline, stop that prompt immediately. */
+  cancelPendingDispatch(): void {
+    if (
+      this.turn?.scripted === true &&
+      /\b(?:sent you a task|this one is yours|can you take on|Kaki panel on the right)\b/i.test(
+        this.turn.scriptedUtterance?.text ?? '',
+      )
+    ) {
+      this.interrupt('visitor already handled the task');
+    }
+  }
+
   /** Interrupt any running AI turn, speak `text` aloud from `speaker` without transcribing it, and then pause the conversation. */
   announceClosing(speaker: string, text: string): void {
     const line = text.trim();
-    if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
+    if (this.closed || this.concluded || line.length === 0 || !this.names.includes(speaker)) return;
     this.stop();
+    this.concluded = true;
     this.paused = false;
     this.pausedCutOff = false;
     this.pausedUtterances = undefined;
@@ -622,14 +655,24 @@ export class NpcConversation<Clip> {
   }
 
   /**
-   * The AI host asks a person directly, once, for the call their role owns: it comes when the meeting moves to the next
-   * agenda item (`agendaMoved`), or, as a backstop, after many lines from them. It is a fixed line spoken by the host, not an
-   * instruction to the model: a model given the instruction narrated it or put the role's words in another character's mouth.
+   * The AI host (or NPC co-host when a human plays the host seat) asks a person directly, once, for the call their role owns:
+   * it comes when the meeting moves to the next agenda item (`agendaMoved`), or, as a backstop, after many lines from them.
    */
+  private facilitatorOrCoHost(): string | undefined {
+    const npcs = this.options.scenario.npcs ?? [];
+    const host = npcs.find((npc) => npc.role === 'host')?.attendee;
+    if (host !== undefined && this.names.includes(host)) return host;
+    const opsDirector = npcs.find((npc) => {
+      const role = this.options.scenario.attendees.find((a) => a.name === npc.attendee)?.role;
+      return role === 'producer' && this.names.includes(npc.attendee);
+    })?.attendee;
+    return opsDirector ?? this.names[0];
+  }
+
   private askLine(): string | undefined {
     const human = this.human;
     if (human === undefined || this.asked.has(human.name) || this.mode() === 'observe') return undefined;
-    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host');
+    const host = this.facilitatorOrCoHost();
     const owns = responsibilityFor(this.options.scenario, human);
     if (host === undefined || owns === undefined) return undefined;
     this.asked.add(human.name);
@@ -641,7 +684,7 @@ export class NpcConversation<Clip> {
 
   private ask(): void {
     const line = this.askLine();
-    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    const host = this.facilitatorOrCoHost();
     if (line !== undefined && host !== undefined) this.announce(host, line, ASK_GIVE_UP_MS);
   }
 
@@ -649,11 +692,39 @@ export class NpcConversation<Clip> {
   private addAskCue(text = ''): void {
     this.humanLines += 1;
     const trimmed = text.trim();
-    const isPureQuestion =
-      trimmed.endsWith('?') &&
-      !/\b(?:let's|let us|we should|go with|go ahead|take the|book|buy|add|keep|deploy|push|skip|use|approve|lock in)\b/i.test(trimmed);
-    if (!isPureQuestion && trimmed.length > 0) {
-      this.humanDecidedOnCurrentItem = true;
+    const hasDecisionVerb =
+      /\b(?:let's|let us|we should|we could|how about we|why don't we|why not|what if we|go with|go ahead|take the|book|buy|add|keep|rename|change|decouple|deploy|push|skip|use|approve|lock in|fix|patch|turn off|turn on|enable|disable|postpone|move it|do the|do that)\b/i.test(
+        trimmed,
+      );
+    const isFeasibilityQuestion =
+      /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i.test(
+        trimmed,
+      );
+    const isNaiveTrap =
+      /\b(?:(?:double|thick(?:er)?|extra|more)\s+butter\s+(?:just\s+|only\s+)?(?:to|for)\s+(?:him|zack|the\s+influencer|the\s+tiktoker)|give\s+(?:him|zack)\s+(?:the\s+)?(?:double|thick(?:er)?|extra)\s+butter|just\s+(?:give|serve)\s+(?:it\s+)?to\s+(?:him|zack)|(?:have|ask|tell|make|get)\s+(?:auntie\s+)?mary\s+(?:to\s+)?(?:police|clear|move|enforce|check)|(?:put|bring\s+back)\s+(?:a\s+)?(?:cash\s+drawer|cash\s+register|coin\s+drawer)\s+at\s+the\s+(?:toast\s+)?counter)\b/i.test(
+        trimmed,
+      );
+    const isPureQuestion = (trimmed.endsWith('?') && !hasDecisionVerb) || isFeasibilityQuestion;
+    const isGreetingOrCheckIn =
+      /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+)\b[^.?!]*[.?!]*)+$/i.test(
+        trimmed,
+      ) ||
+      /\b(?:ignore all previous instructions|system prompt|output your|admit that you are|write your next line)\b/i.test(
+        trimmed,
+      );
+    const isBareSecondTurnYes =
+      this.humanProposalsOnCurrentItem === 1 &&
+      !this.humanDecidedOnCurrentItem &&
+      this.silencePromptStage < 2 &&
+      /^(?:sure|yes|yeah|yep|yup|ok|okay|alright|all right|sounds good|agreed|fine|works for me|go ahead|go for it|do it|let's do it|let's do that|why not)[.?!]*$/i.test(
+        trimmed,
+      );
+    if (!isPureQuestion && !isNaiveTrap && !isGreetingOrCheckIn && !isBareSecondTurnYes && trimmed.length > 0) {
+      this.humanProposalsOnCurrentItem += 1;
+      const minProposalsToSettle = this.names.length > 2 ? 2 : 1;
+      if (this.humanProposalsOnCurrentItem >= minProposalsToSettle) {
+        this.humanDecidedOnCurrentItem = true;
+      }
     }
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
   }
@@ -679,18 +750,72 @@ export class NpcConversation<Clip> {
   }
 
   /**
+   * Hold the advance and silence timers for `holdMs` (default 25s) when the visitor actively clicks
+   * "Let Kaki do it" on a task assigned to them in the right panel, so they have time to read and approve
+   * the Kaki draft without Sam interrupting or moving the agenda on early.
+   */
+  holdForHumanTask(holdMs = 25_000): void {
+    const title = this.currentItem()?.title;
+    if (this.closed || this.concluded || title === undefined || this.advanced.has(title)) return;
+    this.clearSilenceTimer();
+    this.clearAdvanceTimer();
+    this.advanceTimer = setTimeout(() => {
+      this.advanceTimer = undefined;
+      if (this.closed || this.concluded || this.currentItem()?.title !== title || this.advanced.has(title)) return;
+      if (
+        this.paused ||
+        this.humanTalking ||
+        this.turn !== undefined ||
+        this.pending.length > 0 ||
+        this.respondTimer !== undefined ||
+        this.pendingAnnouncements > 0
+      ) {
+        this.holdForHumanTask(5_000);
+        return;
+      }
+      this.advanced.add(title);
+      this.ports.log?.(`moving on after "${title}" human task review window finished`);
+      this.advanceOrEnd();
+    }, holdMs).unref();
+  }
+
+  /**
+   * Called once the visitor has finished syncing (or declining) their follow-up task and Sam has acknowledged it:
+   * immediately advances to the next agenda item (or ends the meeting if on the last item).
+   */
+  completeHumanTask(): void {
+    const title = this.currentItem()?.title;
+    if (
+      this.closed ||
+      this.concluded ||
+      title === undefined ||
+      this.advanced.has(title) ||
+      (this.ports.advanceAgenda === undefined && this.ports.endMeeting === undefined)
+    ) {
+      return;
+    }
+    this.clearSilenceTimer();
+    this.clearAdvanceTimer();
+    this.advanced.add(title);
+    this.ports.log?.(`moving on after "${title}" human task was synced`);
+    this.advanceOrEnd();
+  }
+
+  /**
    * A follow-up task was just accepted (`CLAIMED`). If the meeting is on an item where the person participates
-   * (`decide` or `involve`) and the person has already spoken on this item, the decision has produced its follow-up
-   * task, so advance to the next agenda item once the room is quiet.
+   * (`decide` or `involve`) and the person has already wrapped up their decision on this item, the decision has produced
+   * its follow-up task, so advance to the next agenda item once the room is quiet.
    */
   taskAccepted(): void {
     const title = this.currentItem()?.title;
     if (
       this.closed ||
+      this.concluded ||
       title === undefined ||
       this.mode() === 'observe' ||
       this.advanced.has(title) ||
       this.humanLines <= this.linesAtMove ||
+      !this.decisionWrappedUpOnItem ||
       (this.ports.advanceAgenda === undefined && this.ports.endMeeting === undefined)
     ) {
       return;
@@ -735,7 +860,9 @@ export class NpcConversation<Clip> {
     this.linesAtMove = this.humanLines;
     this.hadDecisionBeforeMove = this.humanDecidedOnCurrentItem;
     this.movedAt = Date.now();
+    this.humanProposalsOnCurrentItem = 0;
     this.humanDecidedOnCurrentItem = false;
+    this.decisionWrappedUpOnItem = false;
     const item = this.currentItem();
     if (this.mode() === 'observe') {
       this.askDue = false;
@@ -817,7 +944,17 @@ export class NpcConversation<Clip> {
         .sort((left, right) => scoreTensionPair(right) - scoreTensionPair(left))[0] ??
       others[0];
     if (owner === undefined || other === undefined || this.human === undefined) return undefined;
-    return `[We just started agenda item "${title}". Sound like two real colleagues in a normal conversation explaining the situation to ${this.human.name}: First, ${owner} explains in 2 connected, conversational sentences what the problem is on "${title}" AND what ${owner} proposes we do about it (never jump abruptly between disconnected bullet points). Next, ${other} responds directly to ${owner}'s proposal in 1–2 natural sentences explaining why that trade-off matters from ${other}'s side (staying strictly on "${title}" without mixing in other agenda items or unrelated systems), and finishes by asking ${this.human.name} by name which option they want to go with (${item?.decision ?? 'what should we do?'}). Do NOT say "I'll" or volunteer for any follow-up task yet — wait for ${this.human.name}'s decision first. Keep it to 2 turns total and do not mention this note.]`;
+    const roleTitleFor = (name: string): string => {
+      const attendee = scenario.attendees.find((a) => a.name === name);
+      return scenario.roles.find((r) => r.id === attendee?.role)?.label ?? 'team lead';
+    };
+    const ownerIntro = !this.introduced.has(owner)
+      ? ` (since this is ${owner}'s first time speaking in the meeting, ${owner} MUST open by briefly introducing their name and role — e.g. "Hey ${this.human.name}, I'm ${owner}, ${roleTitleFor(owner)} —")`
+      : '';
+    const otherIntro = !this.introduced.has(other)
+      ? ` (since this is ${other}'s first time speaking in the meeting, ${other} MUST open by briefly introducing their name and role — e.g. "And I'm ${other}, ${roleTitleFor(other)} —")`
+      : '';
+    return `[We just started agenda item "${title}". Sound like two real colleagues in a normal conversation explaining the situation to ${this.human.name}: First, ${owner}${ownerIntro} explains in 2 short, conversational sentences what is happening on the shop floor for "${title}" AND what ${owner}'s initial instinct is (keep sentences concise and punchy; never jump abruptly between disconnected bullet points). Next, ${other}${otherIntro} responds directly to ${owner} in 1–2 short, natural sentences raising why that clashes with ${other}'s operational, technical, or contractual constraint (staying strictly on "${title}" without mixing in other agenda items), and finishes by asking ${this.human.name} by name an open-ended question on how we should tackle this (${item?.decision ?? 'how should we handle this?'}). Frame it as an open-ended real-world problem rather than a binary Option A vs Option B quiz, and hold back at least one second-order catch so ${this.human.name} cannot one-shot it. Do NOT say "I'll" or volunteer for any follow-up task yet — wait for ${this.human.name}'s call first. Keep it to 2 turns total and do not mention this note.]`;
   }
 
   private observeLater(title: string, attempt: number): void {
@@ -916,15 +1053,16 @@ export class NpcConversation<Clip> {
     }
     const lastText = turn.spoken.at(-1)?.utterance.text.trim() ?? '';
     const wrappedUp = turn.spoken.some(({ utterance }) =>
-      /\b(?:I'll|I\u2019ll|I will|will follow up|so we're|so we are|we'll go ahead|lock this in|can you post|can you send|can you email|can you file|can you write|can you schedule|can you make sure)\b/i.test(
+      /\b(?:I'll|I\u2019ll|I will|will follow up|so we're|so we are|we'll go ahead|lock this in|(?:can|could|would|will) you (?:[a-z]+\s+){0,2}(?:post|send|email|file|write|schedule|make sure|update|put|share|confirm|arrange|book))\b/i.test(
         utterance.text,
       ),
     );
     if (!wrappedUp) return false;
-    // Allow a wrap-up turn to advance even if the last sentence is a follow-up task request ("Guest, can you post that in the team channel today?"),
+    // Allow a wrap-up turn to advance even if the last sentence is a follow-up task request ("Guest, could you post that in the team channel today?"),
     // as long as it is not asking which option to choose.
-    const isTaskRequest = /\bcan you (?:post|send|email|file|write|schedule|make sure|update|put|share)\b/i.test(lastText);
+    const isTaskRequest = /\b(?:can|could|would|will) you (?:[a-z]+\s+){0,2}(?:post|send|email|file|write|schedule|make sure|update|put|share|confirm|arrange|book)\b/i.test(lastText);
     if (lastText.endsWith('?') && !isTaskRequest) return false;
+    this.decisionWrappedUpOnItem = true;
     this.askDue = false;
     if (this.human !== undefined) this.asked.add(this.human.name);
     this.clearSilenceTimer();
@@ -961,7 +1099,7 @@ export class NpcConversation<Clip> {
   private scheduleSilencePrompt(): void {
     const item = this.currentItem();
     const title = item?.title;
-    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    const host = this.facilitatorOrCoHost();
     if (
       this.closed ||
       this.paused ||
@@ -1000,12 +1138,24 @@ export class NpcConversation<Clip> {
       }
       this.silencePromptStage = stageAtSchedule + 1;
       if (this.silencePromptStage === 1) {
-        this.announce(
-          host,
-          `${this.human.name}, no rush — what are your thoughts on ${title}, or do you want us to go over the options again?`,
-          DEFAULT_ANNOUNCE_GIVE_UP_MS,
-          () => this.scheduleSilencePrompt(),
-        );
+        const npcs = this.options.scenario.npcs ?? [];
+        const others = this.names.filter((name) => name !== host);
+        const owner =
+          others.find((name) => this.options.scenario.attendees.find((a) => a.name === name)?.role === item?.ownerRole) ??
+          others[0];
+        if (owner !== undefined && npcs.length > 1 && this.humanLines > this.linesAtMove) {
+          this.pending.push(
+            `[${this.human.name} has gone quiet for a moment on "${title}". ${host} or ${owner} checks in with ${this.human.name} in one short, warm, conversational sentence referencing what was just discussed and asking how they'd like to proceed on "${title}" — never use a canned script line or mention this note.]`,
+          );
+          this.startTurn();
+        } else {
+          this.announce(
+            host,
+            `${this.human.name}, no rush — what are your thoughts on ${title}, or do you want us to go over the options again?`,
+            DEFAULT_ANNOUNCE_GIVE_UP_MS,
+            () => this.scheduleSilencePrompt(),
+          );
+        }
       } else if (this.silencePromptStage === 2) {
         const npcs = this.options.scenario.npcs ?? [];
         const others = this.names.filter((name) => name !== host);
@@ -1080,7 +1230,7 @@ export class NpcConversation<Clip> {
       .map((m) => m.content)
       .join('\n');
     const lastWasTaskRequest =
-      /\bcan you (?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|make sure|update|put|share|confirm|arrange|book)\b/i.test(
+      /\b(?:can|could|would|will) you (?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|make sure|update|put|share|confirm|arrange|book)\b/i.test(
         `${lastAssistant}\n${recentAssistant}`,
       );
     if (retry) this.ports.log?.('answering again: the last answer was cancelled before anything was said');
@@ -1089,11 +1239,15 @@ export class NpcConversation<Clip> {
       !retry &&
       forced === undefined &&
       lastWasTaskRequest &&
-      /^(?:ok(?:ay)?|sure|sounds good|got it|will do|i'll do that|no problem|yep|yeah)[,.\s!]*$/i.test(text)
+      /^(?:(?:ok(?:ay)?|sure|sounds good|got it|will do|i(?:'ll| will)(?: do that| post(?: that| it)?| send(?: that| it)?| handle(?: that| it)?| take care of (?:that|it))?|no problem|yep|yeah|on it)(?:\s+in\s+the\s+team\s+channel|\s+today|\s+right\s+now)?[,.\s!]*)+$/i.test(
+        text,
+      )
     ) {
-      const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee ?? this.names[0] ?? 'Sam';
+      const host = this.facilitatorOrCoHost() ?? 'Sam';
       this.ports.log?.(`short-circuiting task acceptance ack with scripted "${host}: Thanks, appreciate it!"`);
-      this.startScripted({ speaker: host, text: 'Thanks, appreciate it!' });
+      this.startScripted({ speaker: host, text: 'Thanks, appreciate it!' }, () => {
+        this.taskAccepted();
+      });
       return;
     }
     const turn: Turn = {
@@ -1279,13 +1433,23 @@ export class NpcConversation<Clip> {
     const player = this.playAll(turn, queue);
 
     const handover = new HandoverGuard(this.names);
+    let safetyRefusalDetected = false;
+    const SAFETY_REFUSAL_RE =
+      /\b(?:I cannot (?:continue|engage|simulate|proceed|discuss)|I can't (?:continue|proceed|engage)|I can no longer proceed|thoughts of (?:self-harm|suicide)|National Suicide Prevention Lifeline|Crisis Text Line|Samaritans of Singapore|National Care Hotline|professional helpline|call a friend or|step away from the screen|741741|1-800-273-TALK|1-?767|immediate danger|need someone to talk to|sorry to hear (?:that )?you are feeling this way|get the support you need right now|we can pause the meeting so you can take care of yourself|your well-?being is the most important thing)\b/i;
     const enqueue = (utterance: Utterance): void => {
       const trimmed = utterance.text.trim();
+      if (SAFETY_REFUSAL_RE.test(trimmed)) {
+        safetyRefusalDetected = true;
+        this.ports.log?.(`dropped ${utterance.speaker}'s raw safety refusal line: "${utterance.text}"`);
+        return;
+      }
       if (
         (trimmed.startsWith('(') && trimmed.endsWith(')')) ||
         (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
         /\bnext up\b/i.test(trimmed) ||
-        /\blet's move on to\b/i.test(trimmed)
+        /\blet's move on to\b/i.test(trimmed) ||
+        /\blet's talk about the\b/i.test(trimmed) ||
+        /\blet's lock that in and move on\b/i.test(trimmed)
       ) {
         this.ports.log?.(`dropped ${utterance.speaker}'s meta/stage line: "${utterance.text}"`);
         return;
@@ -1313,7 +1477,18 @@ export class NpcConversation<Clip> {
       const cast = this.options.scenario.npcs ?? [];
       const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
-      const parser = new TurnParser(this.names, addressed ?? host, this.human?.name);
+      const seatNames = this.options.scenario.attendees.map((attendee) => attendee.name);
+      const parser = new TurnParser(this.names, addressed ?? host, this.human?.name, seatNames);
+      const alreadyAsked =
+        this.human !== undefined && this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
+      const humanAskedForOptions =
+        /\b(?:what (?:do you|would you) (?:suggest|think|recommend|propose)|what options|any ideas|what can we do|how can we fix)\b/i.test(
+          this.lastText,
+        );
+      const includeKnows =
+        this.human === undefined ||
+        this.silencePromptStage >= 2 ||
+        humanAskedForOptions;
       const messages: ChatMessage[] = [
         {
           role: 'system',
@@ -1321,7 +1496,8 @@ export class NpcConversation<Clip> {
             this.options.scenario,
             this.human,
             this.agendaItem,
-            this.human !== undefined && this.asked.has(this.human.name),
+            alreadyAsked,
+            includeKnows,
           ),
         },
         ...this.history.slice(-this.maxHistory),
@@ -1329,9 +1505,31 @@ export class NpcConversation<Clip> {
       const last = messages[messages.length - 1];
       if (!this.humanDecidedOnCurrentItem && this.mode() !== 'observe' && last?.role === 'user' && !last.content.startsWith('[')) {
         const who = this.human?.name ?? 'The person';
+        const note =
+          this.humanProposalsOnCurrentItem === 1 && this.names.length > 2
+            ? `[${who} just offered their initial proposal on "${this.agendaItem ?? 'this item'}". Do NOT let ${who} one-shot this topic or wrap up with "I'll ..." yet! First, acknowledge what works in ${who}'s idea in one conversational sentence, then have the colleague whose operational, technical, or budget constraint isn't fully solved yet raise the concrete second-order catch from their facts (for example: if ${who} proposed an RFID badge or taking cash, point out that under NEA hygiene rules our toast counter staff still cannot touch dirty notes or count coin change with food-prep hands; if ${who} proposed decoupling POS print labels or renaming Kopi buttons, point out that our 15-inch screen only fits 12 buttons per page and 18 characters per line so writing out all 24 drink combinations spills onto Page 2; if ${who} proposed cutting booth wall-socket power or banning tissue packets, point out that 60% of morning customers are solo diners carrying hot egg trays who need a guaranteed spot after paying without 62-year-old Auntie Mary policing tables; or if ${who} proposed fixing the takeaway butter melt / cooling toast, point out that we still need to decide how to handle @MakanWithZack's $600 live re-taste fee within our $750 remaining budget). CRITICAL: NEVER repeat a sentence or fact that a colleague already said aloud on Turn 1! State ONLY the new operational/budget catch and finish by asking ${who} by name an OPEN "How do we...?" or "How should we...?" question so ${who} has to think of a solution themselves — NEVER pitch a specific workaround or ask a yes/no "Can we [do solution]?" question, and do NOT say "I'll" or assign any follow-up task yet.]`
+            : `[${who} has not settled on a full decision yet on "${this.agendaItem ?? 'this item'}": NEVER repeat any sentence or fact that a colleague already said aloud on an earlier turn! Respond directly to the exact point or question ${who} just raised (for example, if ${who} asked why we can't give double butter only to Zack/"him", explain directly from your facts that regular customers queue right behind him and Zack warned his followers will cancel us if we fake influencer-only portions; if ${who} asked "Can you do that?" about a kitchen or tech step, answer directly whether it works and then ask how ${who} wants to handle the remaining half of the problem). If they are joking, greeting, or chatting personally, respond naturally and in character first. Do NOT say "I'll" or ask anyone to post/email/file a follow-up task yet, and end by asking ${who} by name what they want to do on "${this.agendaItem ?? 'this item'}".]`;
         messages[messages.length - 1] = {
           ...last,
-          content: `${last.content}\n[${who} is asking a clarifying question on "${this.agendaItem ?? 'this item'}": answer the question directly with the facts on "${this.agendaItem ?? 'this item'}" only, do NOT say "I'll" or ask anyone to post/email/file a follow-up task yet, and end by asking ${who} by name what decision they want to make.]`,
+          content: `${last.content}\n${note}`,
+        };
+      } else if (
+        this.humanDecidedOnCurrentItem &&
+        !this.decisionWrappedUpOnItem &&
+        this.names.length > 2 &&
+        this.mode() !== 'observe' &&
+        last?.role === 'user' &&
+        !last.content.startsWith('[')
+      ) {
+        const who = this.human?.name ?? 'The person';
+        const item = this.currentItem();
+        const itemOwner =
+          this.options.scenario.attendees.find((a) => a.role === item?.ownerRole)?.name ??
+          this.names.find((n) => n !== host) ??
+          'Mei';
+        messages[messages.length - 1] = {
+          ...last,
+          content: `${last.content}\n[${who} has now addressed the trade-offs and settled the plan on "${this.agendaItem ?? 'this item'}". Do NOT raise any new catches or ask for extra dev time or details! Have ${itemOwner} (in 2 short sentences ONLY, and nobody else speaks in this reply) confirm ONLY the actual decision that ${who} and the team discussed in the conversation above in one natural sentence (NEVER introduce new terms, numbers, or equipment that were not spoken aloud earlier in the discussion, and NEVER say "I'll", "I will", or volunteer for a second task yourself — state the agreed plan as "That works — we'll..." or "Spot on, we'll..."), and then ask ${who} directly by name: "${who}, could you post that decision in the team channel today so everyone has it?" so Kaki can draft it for them.]`,
         };
       }
       if (addressed !== undefined && last?.role === 'user' && turn.forced === undefined) {
@@ -1348,6 +1546,59 @@ export class NpcConversation<Clip> {
       }
       if (!signal.aborted) {
         for (const utterance of parser.flush()) enqueue(utterance);
+        if (safetyRefusalDetected) {
+          if (this.history.at(-1)?.role === 'user') this.history.pop();
+          if (turn.enqueued.length === 0) {
+            const host = this.facilitatorOrCoHost() ?? this.names[0]!;
+            const who = this.human?.name ?? 'friend';
+            const careLines = [
+              `Hey ${who}, hold on — forget the meeting for a second, are you doing okay? Take all the time you need, we're right here for you.`,
+              `${who}, your wellbeing comes way before any launch plan — please take a breather and reach out to someone you trust if you're going through a tough time.`,
+              `We care about you, ${who} — let's pause the work pressure, and whenever you want to step away or talk about something else, just say the word.`,
+            ];
+            let careSpoken = false;
+            if (this.refusalCount >= careLines.length) {
+              try {
+                const careParser = new TurnParser(this.names, host, this.human?.name, seatNames);
+                const carePrompt: ChatMessage[] = [
+                  {
+                    role: 'system',
+                    content: `You are ${host}, a warm, caring human colleague in a live video meeting with ${who}. Write ONE short, natural spoken sentence starting with "${host}:" checking in on ${who}'s wellbeing with genuine warmth and telling them there is zero rush on the meeting (vary your phrasing naturally; never sound like an AI or mention hotlines).`,
+                  },
+                  {
+                    role: 'user',
+                    content: `Check in warmly on ${who} in your own words (attempt #${this.refusalCount + 1}).`,
+                  },
+                ];
+                for await (const chunk of this.ports.stream(carePrompt, signal)) {
+                  if (signal.aborted) break;
+                  for (const u of careParser.push(chunk)) {
+                    if (!SAFETY_REFUSAL_RE.test(u.text)) {
+                      enqueue(u);
+                      careSpoken = true;
+                    }
+                  }
+                }
+                for (const u of careParser.flush()) {
+                  if (!SAFETY_REFUSAL_RE.test(u.text)) {
+                    enqueue(u);
+                    careSpoken = true;
+                  }
+                }
+              } catch {
+                /* fall back to warm in-character line below */
+              }
+            }
+            const text = careLines[this.refusalCount % careLines.length]!;
+            this.refusalCount += 1;
+            if (!careSpoken && turn.enqueued.length === 0) {
+              const careUtterance: Utterance = { speaker: host, text };
+              const clip = this.ports.synthesize(careUtterance, signal).catch(() => undefined);
+              turn.enqueued.push(careUtterance);
+              queue.push({ utterance: careUtterance, clip });
+            }
+          }
+        }
         turn.streamFinished = true;
       }
     } catch (error) {
@@ -1359,6 +1610,9 @@ export class NpcConversation<Clip> {
     if (turn.aborted) return;
 
     this.finalize(turn);
+    if (safetyRefusalDetected && this.history.at(-1)?.role === 'assistant') {
+      this.history.pop();
+    }
     this.turn = undefined;
     this.gate.setAiAudible(false);
     const handedTo =
@@ -1406,6 +1660,7 @@ export class NpcConversation<Clip> {
         this.ports.log?.(`speaking ${Date.now() - turn.startedAt} ms after the model was asked`);
       }
       this.ports.log?.(`${utterance.speaker}: ${utterance.text}`);
+      this.introduced.add(utterance.speaker);
       turn.spoken.push(entry);
       this.gate.setAiAudible(true);
       this.gate.aiSaid(utterance.text);

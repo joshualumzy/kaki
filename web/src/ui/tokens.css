@@ -30,7 +30,7 @@
   --color-warning-soft: rgba(255, 90, 31, 0.12);
   --color-info: #3b4cd6;
   --color-info-soft: rgba(88, 101, 255, 0.12);
-  --orb-a: #00c2a8; --orb-b: #ff5a1f; --orb-c: #5865ff; --orb-d: #ff3d81;
+  --orb-a: #00c2a8; --orb-b: #ff5a1f; --orb-c: #5865ff; --orb-d: #ff3d81; --orb-e: #0ea5e9;
   --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 20px 50px -22px rgba(30, 40, 70, 0.28);
   --font-sans: "Geist", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-display: "Geist", "Inter", system-ui, sans-serif;

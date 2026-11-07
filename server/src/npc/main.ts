@@ -140,6 +140,7 @@ const runner = await startNpcRunner({
     sendAs('screen', { type: 'END_MEETING', silent: true });
   },
   onHostChange: (human) => sendAs('screen', { type: 'SET_HOST_MODE', human }),
+  onPauseChange: (paused) => sendAs('screen', { type: 'SET_PAUSED', paused }),
   onAdvanceAgenda: () => {
     if (!runner.hostIsHuman()) sendAs('screen', { type: 'NEXT_AGENDA_ITEM' });
   },
@@ -196,6 +197,10 @@ const taskResponder = createTaskResponder({
 // What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
 // Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
 let dispatchCount = 0;
+const taskStatusByTitle = new Map<string, string>();
+const activeHumanTaskIds = new Set<string>();
+const syncedTaskIds = new Set<string>();
+const declinedTaskIds = new Set<string>();
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
   const socket = new WebSocket(url);
@@ -207,15 +212,94 @@ function followHostCues(): void {
     if (Date.now() - openedAt.at < 1000) return;
     try {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
+      if (event.type === 'MEETING_RESET') {
+        taskStatusByTitle.clear();
+        activeHumanTaskIds.clear();
+        syncedTaskIds.clear();
+        declinedTaskIds.clear();
+        return;
+      }
       if (event.type === 'TASK_UPDATED') {
-        const updatedTask = (event.payload as { task?: { id?: string; status?: string } } | undefined)?.task;
+        const updatedTask = (
+          event.payload as {
+            task?: {
+              id?: string;
+              title?: string;
+              status?: string;
+              mode?: string;
+              assignee?: string;
+              suggestedAssignee?: string;
+              declinedBy?: string[];
+            };
+          } | undefined
+        )?.task;
+        if (updatedTask?.title !== undefined && updatedTask.status !== undefined) {
+          taskStatusByTitle.set(updatedTask.title.trim().toLowerCase(), updatedTask.status);
+        }
         if (updatedTask?.status === 'DISPATCHED' && !runner.canDispatchTask()) {
           log(`dismissed premature task ${updatedTask.id ?? ''} before visitor spoke on this item`);
           if (updatedTask.id !== undefined) sendAs('screen', { type: 'DISMISS_TASK', taskId: updatedTask.id });
           return;
         }
         taskResponder.handle(event as unknown as KakiEvent);
-        if (updatedTask?.status === 'CLAIMED') runner.taskAccepted();
+        const assigneeRole = updatedTask?.assignee ?? updatedTask?.suggestedAssignee;
+        const assigneeAttendee = scenario.attendees.find((a) => a.role === assigneeRole)?.name;
+        const isHumanTask = assigneeAttendee !== undefined && !runner.plays(assigneeAttendee);
+        const wasDeclinedByHuman =
+          updatedTask?.status === 'SUGGESTED' &&
+          Array.isArray(updatedTask.declinedBy) &&
+          updatedTask.declinedBy.some((r) => {
+            const name = scenario.attendees.find((a) => a.role === r)?.name;
+            return name !== undefined && !runner.plays(name);
+          });
+
+        if (isHumanTask && updatedTask?.id !== undefined) {
+          if (updatedTask.status === 'DISPATCHED') {
+            activeHumanTaskIds.add(updatedTask.id);
+            runner.holdForHumanTask(45_000);
+          } else if (
+            updatedTask.status === 'CLAIMED' ||
+            updatedTask.status === 'DRAFT_READY' ||
+            updatedTask.status === 'RUNNING' ||
+            updatedTask.status === 'FAILED'
+          ) {
+            activeHumanTaskIds.add(updatedTask.id);
+            runner.cancelPendingDispatch();
+            runner.holdForHumanTask(45_000);
+          } else if (updatedTask.status === 'COMPLETED') {
+            activeHumanTaskIds.add(updatedTask.id);
+            runner.cancelPendingDispatch();
+            runner.holdForHumanTask(25_000);
+          } else if (updatedTask.status === 'SYNCED') {
+            activeHumanTaskIds.delete(updatedTask.id);
+            runner.cancelPendingDispatch();
+            if (!syncedTaskIds.has(updatedTask.id)) {
+              syncedTaskIds.add(updatedTask.id);
+              const who = runner.visitorName() ?? assigneeAttendee ?? 'team';
+              runner.announce(
+                `Thanks ${who}, I see that's synced to the meeting record.`,
+                () => runner.completeHumanTask(),
+              );
+            }
+          }
+        } else if (wasDeclinedByHuman && updatedTask?.id !== undefined && !declinedTaskIds.has(updatedTask.id)) {
+          declinedTaskIds.add(updatedTask.id);
+          activeHumanTaskIds.delete(updatedTask.id);
+          runner.cancelPendingDispatch();
+          const who = runner.visitorName() ?? 'there';
+          runner.announce(
+            `No worries ${who}, we'll cover that follow-up after the call.`,
+            () => runner.completeHumanTask(),
+          );
+        } else if (
+          activeHumanTaskIds.size === 0 &&
+          (updatedTask?.status === 'CLAIMED' ||
+            updatedTask?.status === 'RUNNING' ||
+            updatedTask?.status === 'COMPLETED' ||
+            updatedTask?.status === 'DECLINED')
+        ) {
+          runner.taskAccepted();
+        }
       }
       // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
       if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string' && !runner.hostIsHuman()) {
@@ -227,8 +311,17 @@ function followHostCues(): void {
         }
         // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
         const colleague = payload.kind === 'DISPATCH' && payload.assignee !== undefined && payload.title !== undefined && runner.plays(payload.assignee);
-        if (colleague) cueOrder.cue((done) => runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done));
-        else runner.announce(payload.text);
+        if (colleague) {
+          cueOrder.cue((done) => runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done));
+        } else if (payload.kind === 'DISPATCH') {
+          const titleKey = (payload.title ?? '').trim().toLowerCase();
+          runner.announce(payload.text, undefined, () => {
+            const currentStatus = taskStatusByTitle.get(titleKey);
+            return currentStatus === undefined || currentStatus === 'DISPATCHED';
+          });
+        } else {
+          runner.announce(payload.text);
+        }
         if (event.payload.text.startsWith('Next up:')) runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
       }
     } catch {
@@ -241,8 +334,10 @@ function followHostCues(): void {
 followHostCues();
 
 log(`speech recognition: ${sttMode === 'azure' ? `Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})` : "the browser's"}`);
+const fixedNames = aiCast(scenario).map((npc) => npc.attendee);
+const hostFallback = npcs.find((npc) => npc.role === 'host')?.attendee ?? npcs[0]?.attendee ?? 'NPCs';
 log(
-  `ready: ${aiCast(scenario).map((npc) => npc.attendee).join(' and ')} are in the room; the other characters join for whoever arrives, as everyone except the role they pick. Open /demo and talk.`,
+  `ready: ${fixedNames.length > 0 ? fixedNames.join(' and ') : hostFallback} in the room; the other characters join for whoever arrives, as everyone except the role they pick. Open /demo and talk.`,
 );
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

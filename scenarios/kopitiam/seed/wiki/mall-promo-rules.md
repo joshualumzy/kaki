@@ -1,17 +1,19 @@
-# Raffles Place Flagship - Queue & Promo Rules
+# Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget
 
-Owner: Daniel (Marketing Lead)
-Last updated: 30 October 2026
+Owner: Daniel (Marketing Lead) & Mei (Menu & Store Experience Lead)
+Last updated: 11 November 2026
 
-## Storefront Queue Boundary
+## 1. @MakanWithZack 'shrinking butter' video (90,000 views)
 
-- Mall management restricts our physical queue barrier to **3m x 2m** directly in front of Unit #B1-14.
-- Queues must never block the B1 central escalator landing or security will halt the promotion.
-- Encouraging customers to order via the mobile app keeps the physical storefront queue short.
+- Food TikToker `@MakanWithZack` (85k followers) posted a reel claiming our Kaya Butter Toast has "half as much cold butter as Ya Kun".
+- Wholesale Anchor Golden Salted Butter rose 35% this month. Doubling the butter slab from 12g to 20g across all sets adds SGD 0.42 per set (wiping out SGD 1,100/month in gross margin).
+- Our 12g butter portion did not shrink: it stays thick on dine-in open plates, but melts flat when packed inside a closed takeaway box with hot toast.
+- Kitchen & POS options on hand: serving dine-in sets open-faced, packing takeaway butter in a separate chilled cup on the side (SGD 0.05/box) or steam-vented takeaway box, and adding an optional `+$0.60 Double Butter` upsell button on the kiosk.
 
-## Launch Promo Budget (SGD 1,800 Total)
+## 2. Launch promo budget (SGD 750 remaining)
 
-- Storefront bunting & signage: SGD 450 (paid)
-- 300 Limited-Edition Kaya Toast Plushie Keychains: SGD 600 (paid, in storeroom)
-- **Remaining unspent budget: SGD 750**
-- @MakanWithZack (85k TikTok followers) standard livestream rate: SGD 600 (or SGD 450 buddy rate + 20 plushie keychains and VIP vouchers).
+| Item | Cost | Notes |
+| --- | --- | --- |
+| Remaining unspent launch budget | SGD 750 | Available for tomorrow |
+| `@MakanWithZack` standard live re-taste fee | SGD 600 | Cash only |
+| `@MakanWithZack` rate with 20 Kaya Toast plushies | SGD 450 | Uses 20 of the 300 plushies in the storeroom; leaves SGD 300 buffer |

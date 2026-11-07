@@ -123,7 +123,14 @@ export default function Meeting() {
             <MeetingGrid role={session.role} />
           </ErrorBoundary>
           <LocalSpeechSTT />
-          {needsStart && <ConnectedStartPrompt onStarted={() => setStarted(true)} />}
+          {needsStart && (
+            <ConnectedStartPrompt
+              role={seatRole}
+              viewerName={session.name}
+              seatName={scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName}
+              onStarted={() => setStarted(true)}
+            />
+          )}
         </LiveKitRoom>
       </div>
       <Dock

@@ -6,8 +6,11 @@ describe('keepRecognised', () => {
     expect(keepRecognised('Dislocation.', 0.31)).toBe(false);
     expect(keepRecognised('You know.', 0.42)).toBe(false);
   });
-  it('keeps a short result that scored well, a long one, and one with no score', () => {
+  it('keeps a short result that scored well, a 3-4 word phrase or confirmation above 0.4, a long one, and one with no score', () => {
     expect(keepRecognised('OK.', 0.9)).toBe(true);
+    expect(keepRecognised('You hear me?', 0.45)).toBe(true);
+    expect(keepRecognised('Can you hear me?', 0.42)).toBe(true);
+    expect(keepRecognised('Sounds good.', 0.45)).toBe(true);
     expect(keepRecognised('can you fix the crash before friday please', 0.3)).toBe(true);
     expect(keepRecognised('Dislocation.', undefined)).toBe(true);
   });

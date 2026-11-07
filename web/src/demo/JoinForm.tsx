@@ -4,7 +4,7 @@ import { MediaPreview, type MediaChoice } from './MediaPreview';
 import './demo.css';
 
 /** What the name box starts with: people can change it to anything. */
-export const DEFAULT_NAME = 'Guest';
+export const DEFAULT_NAME = 'Foo';
 
 export interface JoinFormProps {
   meetingTitle: string;
@@ -19,6 +19,22 @@ export interface JoinFormProps {
   initialCode?: string;
   /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
   onJoin(name: string, roleLabel: string, media: MediaChoice, meetingCode?: string): void;
+}
+
+function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
+  if (role.facilitator === true) return { icon: '🎙️', tag: 'Host · Chair the meeting' };
+  switch (role.id) {
+    case 'producer':
+      return { icon: '🏢', tag: '★ Recommended · Floor & Budget' };
+    case 'lead_programmer':
+      return { icon: '🖥️', tag: 'Kiosks, Printer & POS' };
+    case 'game_designer':
+      return { icon: '☕', tag: 'Kopi, Toast & Customer UX' };
+    case 'marketing_lead':
+      return { icon: '📱', tag: 'TikTok PR & Brand Buzz' };
+    default:
+      return { icon: '✨', tag: 'Team Lead' };
+  }
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
@@ -53,7 +69,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
           <h1 className="kd-title">Join meeting</h1>
           <p className="kd-sub">{meetingTitle}</p>
 
-          <div style={{ marginBottom: '18px' }}>
+          <div style={{ marginBottom: '14px' }}>
             <label htmlFor="join-name" className="kd-label">
               Your name
             </label>
@@ -70,23 +86,56 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
             />
           </div>
 
-          <div style={{ marginBottom: '24px' }}>
+          <div style={{ marginBottom: '18px' }}>
             <label htmlFor="join-role" className="kd-label">
-              Your role
+              Choose your seat
             </label>
-            <select id="join-role" className="kd-field" value={roleLabel} onChange={(event) => setRoleLabel(event.target.value)}>
+            <select
+              id="join-role"
+              aria-label="Your role"
+              className="kd-field kd-role-select-sr"
+              value={roleLabel}
+              onChange={(event) => setRoleLabel(event.target.value)}
+            >
               {roles.map((role) => (
                 <option key={role.id} value={role.label}>
                   {role.facilitator === true ? `${role.label} · run the meeting` : role.label}
                 </option>
               ))}
             </select>
+
+            {roles.length > 0 && (
+              <div className="kd-seat-picker" role="radiogroup" aria-label="Pick your seat">
+                {roles.map((role) => {
+                  const selected = role.label === roleLabel;
+                  const meta = roleVisualMeta(role);
+                  return (
+                    <button
+                      key={role.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      className="kd-seat-option"
+                      data-selected={selected}
+                      onClick={() => setRoleLabel(role.label)}
+                    >
+                      <span className="kd-seat-icon" aria-hidden="true">{meta.icon}</span>
+                      <span className="kd-seat-text">
+                        <b>{role.label}</b>
+                        <small>{meta.tag}</small>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {(() => {
               const selectedRole = roles.find((role) => role.label === roleLabel);
               const responsibility = selectedRole?.card?.responsibility;
               if (responsibility === undefined) return null;
               return (
-                <p className="kd-hint" style={{ marginTop: '8px' }}>
+                <p className="kd-hint" style={{ marginTop: '8px', fontWeight: 600 }}>
                   {responsibility}
                 </p>
               );
@@ -94,7 +143,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
           </div>
 
           {showCode && (
-            <div style={{ marginBottom: '24px' }}>
+            <div style={{ marginBottom: '18px' }}>
               <label htmlFor="join-code" className="kd-label">
                 Meeting code
               </label>

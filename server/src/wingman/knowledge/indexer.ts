@@ -352,18 +352,21 @@ interface GiteaIssueResponse {
 }
 
 async function fetchGiteaIssues(env: Env): Promise<GiteaIssueInput[]> {
+  const seededTitles = new Set(loadScenarioSeed(env.SCENARIO).gitea.issues.map((issue) => issue.title));
   const issues = await jsonRequest<GiteaIssueResponse[]>(
     `${env.GITEA_URL}/api/v1/repos/${env.GITEA_ORG}/${env.GITEA_REPO}/issues?state=all&type=issues&limit=100`,
     { headers: { Authorization: `token ${env.GITEA_TOKEN}` } },
     'Gitea issues',
   );
-  return issues.map((issue) => ({
-    number: issue.number,
-    title: issue.title,
-    state: issue.state,
-    labels: issue.labels.map((label) => label.name),
-    body: issue.body,
-  }));
+  return issues
+    .filter((issue) => seededTitles.has(issue.title))
+    .map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      state: issue.state,
+      labels: issue.labels.map((label) => label.name),
+      body: issue.body,
+    }));
 }
 
 interface MattermostTeam {
@@ -423,7 +426,9 @@ async function fetchMattermostThreads(
       env,
       `/channels/${channel.id}/posts?per_page=200&page=0`,
     );
-    const posts = Object.values(list.posts).filter((post) => !post.type);
+    const posts = Object.values(list.posts).filter(
+      (post) => !post.type && typeof post.props?.sent_at === 'string' && post.props.sent_at.trim() !== '',
+    );
     const replies = new Map<string, MattermostPostInput[]>();
     const roots: MattermostPostInput[] = [];
     for (const post of posts) {

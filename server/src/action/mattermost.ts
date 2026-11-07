@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -117,7 +117,7 @@ export function createMattermostModule({
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
       const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
-      const knownFacts = role?.card?.facts ?? [];
+      const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
       const ownerLine =
         attendee !== undefined && role !== undefined ? `\nSender: ${attendee.name} (${role.label})` : '';
       const factsBlock =
@@ -127,9 +127,9 @@ export function createMattermostModule({
         {
           role: 'system',
           content:
-            'You turn a team task into a short Mattermost message. Reply with one JSON object and ' +
+            'You turn a team task into a short Mattermost message announcing the agreed decision to the team. Reply with one JSON object and ' +
             'nothing else: {"message": "..."}. Keep it plain and short; Markdown is fine.' +
-            ' Use only what is in the task, its context, and any relevant known facts below. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            ' State the specific decision and action steps from the Context clearly. Only include Known facts below if they directly support the agreed solution — NEVER copy-paste background problem complaints or budget warnings as if they were the decision. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         {
           role: 'user',

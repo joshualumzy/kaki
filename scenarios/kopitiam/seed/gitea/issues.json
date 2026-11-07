@@ -1,7 +1,7 @@
 {
   "repository": {
     "name": "kopitiam-pos",
-    "description": "Nanyang Kopi & Toast - Mobile Ordering App & Kiosk POS",
+    "description": "Nanyang Kopi & Toast - Self-Order Kiosk, Kitchen Docket Printer & Payment POS",
     "private": false
   },
   "labels": [
@@ -9,42 +9,41 @@
     { "name": "pos", "color": "b60205", "description": "Cashier POS and kitchen printer" },
     { "name": "kiosk", "color": "fbca04", "description": "Self-order kiosk menu UX" },
     { "name": "promo", "color": "5319e7", "description": "Vouchers and launch promotions" },
-    { "name": "marketing", "color": "0e8a16", "description": "Storefront and campaign logistics" },
-    { "name": "ops", "color": "006b75", "description": "Supplier and outlet operations" }
+    { "name": "marketing", "color": "0e8a16", "description": "TikTok reviews and campaign logistics" },
+    { "name": "ops", "color": "006b75", "description": "Seating, hygiene and outlet operations" }
   ],
   "issues": [
     {
-      "title": "PayNow QR receipt not printing on kitchen thermal printer",
-      "date": "2026-10-18",
-      "state": "closed",
-      "labels": ["bug", "pos"],
-      "createdAt": "2026-10-18T10:20:00+08:00",
-      "closedAt": "2026-10-22T17:40:00+08:00",
-      "body": "During the Tampines outlet trial, PayNow orders showed as paid on the phone but the kitchen printer dropped the docket when two orders arrived in the same second.\n\nFixed in POS v1.4.2 by queuing print jobs sequentially. Arjun verified at Raffles Place on Monday."
-    },
-    {
-      "title": "$1 Kaya Butter Set promo code allows 50 sets on double-tap",
-      "date": "2026-11-11",
-      "state": "open",
-      "labels": ["bug", "promo"],
-      "createdAt": "2026-11-11T09:15:00+08:00",
-      "body": "The KAYADOLLAR launch voucher is supposed to be capped at 1 set per customer. However, if a user double-taps 'Add to Cart' before the voucher check finishes, the cart allows up to 50 sets at $1 each.\n\nRoot cause: CartButton does not lock while validateVoucher() is in flight. Patching and testing takes half a day."
-    },
-    {
-      "title": "Kiosk Step 2 'Kopi O Kosong Peng' drink customization drop-off",
+      "title": "Kiosk Step 2 'Kopi O Kosong' freeze & POS kitchen docket label coupling",
       "date": "2026-11-10",
       "state": "open",
-      "labels": ["kiosk"],
+      "labels": ["kiosk", "pos"],
       "createdAt": "2026-11-10T10:05:00+08:00",
-      "body": "In the Raffles Place kiosk trial, 19 of 28 first-time kiosk users froze on Step 2 (drink sweetness & milk level) because buttons only show traditional Kopi terms ('Kopi O Kosong', 'Kopi C Siew Dai').\n\nMei proposed adding a 'Kopi Lingo / Simple English' toggle (3 hours dev work) plus a 'Usual Set A' shortcut button (20 mins config)."
+      "body": "In yesterday's Raffles Place kiosk trial, 19 of 28 first-time users (68%) froze for over 2 minutes on Step 2 ('Kopi O Kosong', 'Kopi C Siew Dai', 'Teh Halia'), and 72% missed the small top-right language toggle.\n\nWhy renaming the buttons to 'Black Coffee No Sugar' failed at Tampines:\n- In POS v2.4, button `display_name` prints straight onto the kitchen thermal docket (`ticket_label`). When English names printed on kitchen dockets at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds per cup.\n- The 15-inch screen only fits 12 buttons per page (max 18 chars). Adding two-line subtitles pushes half the drinks onto Page 2.\n\nPOS v2.4 technical specification: `kitchen_print_name` is a separate config field from `display_name` (1 hr setup), and the 2-step Milk & Sugar pop-up modal module takes 1.5 hrs to configure."
     },
     {
-      "title": "Raffles Place Friday 8am launch checklist",
+      "title": "28-seat morning crunch: tissue-packet chope-ing & laptop wall-socket campers",
       "date": "2026-11-11",
       "state": "open",
-      "labels": ["ops", "marketing"],
-      "createdAt": "2026-11-11T09:00:00+08:00",
-      "body": "Before Friday 8am doors open:\n\n- Lock POS and mobile app build with the $1 voucher cap fix.\n- Set up the 3m x 2m queue stanchions away from the mall escalator.\n- Unpack the 300 Kaya Toast plushie keychains at the collection counter.\n- Confirm Friday morning egg stock (Ah Seng Farm delivery vs Seng Shiong backup)."
+      "labels": ["ops"],
+      "createdAt": "2026-11-11T08:45:00+08:00",
+      "body": "Our Raffles Place shop has only 28 seats. Between 8:00am and 10:00am, office workers leave tissue packets on empty tables before joining the 15-minute queue, while freelancers buy one $2.20 Kopi O and camp at our four 4-seater booths (16 seats) for 2 hours using the 12 wall power sockets and free Wi-Fi. That costs us about $420 every morning in lost breakfast turnover.\n\nFloor notes from Wei Ling & Mei:\n- Auntie Mary (62) got yelled at by a customer in a suit when she moved his tissue packet last week, and she will not play seat police or touch customer belongings.\n- 60% of our morning customers dine solo and cannot carry a hot tray of runny soft-boiled eggs without a table.\n- Store electrical spec: the 12 booth wall sockets and guest Wi-Fi router run on a programmable smart relay breaker in the back room."
+    },
+    {
+      "title": "Cashless-only kiosks turning away elderly regulars with $2 notes",
+      "date": "2026-11-11",
+      "state": "open",
+      "labels": ["pos", "ops"],
+      "createdAt": "2026-11-11T09:15:00+08:00",
+      "body": "Our Raffles Place kiosks only take PayNow QR and cards. Yesterday 14 retired morning regulars walked out angry when told we don't take $2 notes, and a TikTok clip of a 74-year-old uncle looking lost at our 'NO CASH' sign hit 40,000 views.\n\nWhy we removed the counter cash register:\n- Under NEA food-hygiene rules, our 2 toast counter staff cannot handle coins or notes and slice kaya toast without changing gloves and washing hands every order (+40s delay), and counting the cash float at night costs $380/month in overtime.\n- Physical cash bill-acceptors for the kiosks cost $1,400 and take 3 weeks to arrive, and uncles yesterday refused to buy a $20 minimum stored-value card.\n- POS v2.4 technical specification: the kiosk software includes an unconfigured 'Staff Cash-Assist RFID Badge' mode (30 mins setup) that lets a staff badge tap print an order receipt without a physical bill-acceptor, and 94% of morning regulars carry $2 or $10 notes."
+    },
+    {
+      "title": "@MakanWithZack viral 'shrinking butter slice' video & takeaway melt root cause",
+      "date": "2026-11-11",
+      "state": "open",
+      "labels": ["marketing", "ops"],
+      "createdAt": "2026-11-11T09:30:00+08:00",
+      "body": "Food TikToker @MakanWithZack (85k followers) posted a reel (90,000 views) claiming our Kaya Butter Toast has half as much cold butter as Ya Kun. He offered to film a live re-taste tomorrow at 8:30am for $600 cash, or $450 + 20 Kaya Toast plushie keychains (we have $750 left in our launch budget), provided every regular customer gets the exact same standard.\n\nKitchen & margin notes:\n- Wholesale Anchor Golden Salted Butter went up 35% last month. Doubling the butter slab from 12g to 20g across all sets wipes out $0.42 per set ($1,100/month in margin).\n- Our 12g cold butter slab did not shrink: it stays thick on dine-in open plates, but melts flat when sealed inside a closed takeaway box with hot toast unless packed in a separate chilled cup on the side ($0.05/box) or in a vented box."
     }
   ]
 }

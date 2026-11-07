@@ -26,10 +26,10 @@ export function Dock({
   started?: boolean;
 }) {
   const scenario = useScenario();
-  const [briefingOpen, setBriefingOpen] = useState(!started);
+  const [briefingOpen, setBriefingOpen] = useState(false);
 
   useEffect(() => {
-    setBriefingOpen(!started);
+    if (started) setBriefingOpen(false);
   }, [started]);
 
   return (
@@ -62,10 +62,10 @@ export function Dock({
             <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
             <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
           </summary>
-          <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
           <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
+          <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
         </details>
-        <ErrorBoundary>{role !== undefined && <ActiveRoleCards role={role.id} />}</ErrorBoundary>
+        <ErrorBoundary>{role !== undefined && <ActiveRoleCards role={role.id} viewer={viewer} />}</ErrorBoundary>
         <ErrorBoundary>
           <MeetingPanel viewer={viewer} role={role} isHost={role?.facilitator === true} />
         </ErrorBoundary>

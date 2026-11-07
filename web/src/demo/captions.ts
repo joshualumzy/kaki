@@ -26,8 +26,50 @@ export function transcriptNameFor(
 }
 
 /**
- * The caption to show under a speaker's tile: their latest spoken sentence. Stays visible while they
- * are still speaking, and fades `windowMs` after their line started once they finish.
+ * Split a long spoken sentence into bite-sized caption bursts (~11 words max) on natural phrase boundaries
+ * so the video tile never renders a dense wall of text.
+ */
+export function splitCaptionBursts(text: string, maxWords = 11): string[] {
+  const cleaned = text.trim();
+  if (cleaned.length === 0) return [];
+  const words = cleaned.split(/\s+/);
+  if (words.length <= maxWords) return [cleaned];
+
+  // First split on natural clause boundaries (commas, semicolons, em-dashes, colons, sentence endings)
+  const rawClauses = cleaned
+    .split(/(?<=[,;:.!?—–])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  const bursts: string[] = [];
+  let current: string[] = [];
+
+  for (const clause of rawClauses) {
+    const clauseWords = clause.split(/\s+/);
+    if (current.length > 0 && current.length + clauseWords.length <= maxWords) {
+      current.push(...clauseWords);
+    } else {
+      if (current.length > 0) {
+        bursts.push(current.join(' '));
+        current = [];
+      }
+      if (clauseWords.length <= maxWords) {
+        current.push(...clauseWords);
+      } else {
+        for (let i = 0; i < clauseWords.length; i += maxWords) {
+          bursts.push(clauseWords.slice(i, i + maxWords).join(' '));
+        }
+      }
+    }
+  }
+  if (current.length > 0) bursts.push(current.join(' '));
+  return bursts;
+}
+
+/**
+ * The caption to show under a speaker's tile: their latest spoken sentence, matching the exact
+ * sentence currently playing in TTS audio. Stays visible while they are still speaking, and
+ * fades `windowMs` after their line started once they finish.
  */
 export function captionFor(
   chunks: readonly TranscriptChunk[],

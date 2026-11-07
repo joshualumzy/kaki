@@ -1,34 +1,37 @@
 {
   "emails": [
     {
-      "from": { "name": "Ah Seng Poultry Farm", "address": "orders@ahsengfarm.example" },
-      "to": [{ "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" }],
-      "subject": "URGENT: Friday kampong egg delivery delayed to 12pm noon",
-      "date": "2026-11-16T09:12:00+08:00",
-      "messageId": "<ahseng-egg-delay-20261116@ahsengfarm.example>",
-      "text": "Hi Wei Ling,\n\nPaiseh, our main chilled lorry broke down at the Tuas checkpoint inspection. For Friday 17 November, we can only deliver your 80 trays of Grade A kampong eggs to Raffles Place by 12:00pm noon instead of 6:30am.\n\nIf you need eggs for the 8:00am breakfast rush, you will need to source backup trays for the morning wave, or move your $1 Set A launch promo to Monday morning.\n\nRegards,\nUncle Lim\nAh Seng Poultry Farm"
-    },
-    {
       "from": { "name": "Zack Tan (@MakanWithZack)", "address": "zack@makanwithzack.example" },
       "to": [
         { "name": "Daniel", "address": "daniel@pixelkampung.example" },
         { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" }
       ],
-      "subject": "Re: Friday 8am TikTok Livestream at Nanyang Kopi Raffles Place",
-      "date": "2026-11-12T14:05:00+08:00",
+      "subject": "Re: Kaya Butter Toast Review - Tomorrow 8:30am Live Re-Taste",
+      "date": "2026-11-11T14:05:00+08:00",
       "messageId": "<zack-tiktok-quote-20261112@makanwithzack.example>",
-      "text": "Hey Daniel!\n\nSuper hyped for the Nanyang Kopi & Toast flagship launch! My standard rate for a 1-hour TikTok Live + Reel (85k followers) is SGD 600.\n\nSince I love your kaya butter toast, I can do a special buddy rate of SGD 450 if you throw in 20 of those cute Kaya Toast plushie keychains and 20 Set A vouchers for my comment-section giveaway. Let me know today so I can lock my Friday morning schedule!\n\nCheers,\nZack (@MakanWithZack)"
+      "text": "Hey Daniel & Wei Ling,\n\nMy reel from yesterday ('Did Nanyang Kopi shrink their butter slice?!') just crossed 90,000 views. I love your coffee, so I'm happy to come down tomorrow morning at 8:30am to film a live re-taste and show your kitchen's side.\n\nMy usual rate is SGD 600, or I can do SGD 450 if you throw in 20 of your Kaya Toast plushie keychains for my comment-section giveaway. One condition: whatever butter cut and toast prep you serve me on camera has to be the exact same standard every regular customer gets, because my followers will check.\n\nCheers,\nZack (@MakanWithZack)"
     },
     {
-      "from": { "name": "Raffles Place Mall Management", "address": "ops@rafflesplacemall.example" },
+      "from": { "name": "Fonterra Dairy Wholesale SG", "address": "orders@fonterradairy.example" },
       "to": [
         { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" },
-        { "name": "Daniel", "address": "daniel@pixelkampung.example" }
+        { "name": "Mei", "address": "mei@pixelkampung.example" }
       ],
-      "subject": "Storefront queue lane restriction - Unit #B1-14",
-      "date": "2026-11-11T10:00:00+08:00",
-      "messageId": "<mall-queue-rules-20261111@rafflesplacemall.example>",
-      "text": "Dear Tenant (Nanyang Kopi & Toast),\n\nPlease note that for your Friday morning promotion, your queue stanchions must stay strictly within the 3m x 2m boundary directly in front of Unit #B1-14.\n\nUnder fire safety rules, queues may not spill past the B1 central escalator landing. Please station a staff marshal or use mobile pre-ordering so the corridor stays clear.\n\nCentre Management"
+      "subject": "Price Notice: Anchor Golden Salted Butter 25kg Block (+35% Q4 Surcharge)",
+      "date": "2026-11-10T11:20:00+08:00",
+      "messageId": "<anchor-butter-price-20261110@fonterradairy.example>",
+      "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nPlease note that wholesale pricing for Anchor Golden Salted Butter (New Zealand grass-fed) has increased by 35% effective this month.\n\nAt your current Set A price ($4.80), increasing portion weight from 12g to 20g per toast set adds SGD 0.42 in raw dairy cost per set (approx. SGD 1,100/month across 90 daily sets). For takeaway orders, packing the 12g chilled slab in a separate side butter cup ($0.05/unit) or steam-vented box prevents melting without increasing butter weight.\n\nRegards,\nAccount Team\nFonterra Foodservice Singapore"
+    },
+    {
+      "from": { "name": "NEA Food Hygiene & Licensing Advisory", "address": "compliance@nea-advisory.example" },
+      "to": [
+        { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" },
+        { "name": "Arjun", "address": "arjun@pixelkampung.example" }
+      ],
+      "subject": "Raffles Place #B1-14 Counter Inspection Note - Cash Handling vs Ready-to-Eat Toast",
+      "date": "2026-11-09T16:00:00+08:00",
+      "messageId": "<nea-cash-hygiene-20261109@nea-advisory.example>",
+      "text": "Dear Licensee (Nanyang Kopi & Toast, #B1-14),\n\nFollowing our pre-opening inspection, please be reminded that food handlers slicing ready-to-eat kaya butter toast and cracking soft-boiled eggs may not handle loose coins or currency notes unless they remove gloves and wash hands between every transaction (+40s delay per order).\n\nRegards,\nEnvironmental Health Officer"
     }
   ]
 }

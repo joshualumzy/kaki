@@ -403,10 +403,15 @@ const MIN_SENDING_MS = 1200;
  * Shows only the visitor's active task card (when a task assigned to `role` needs action or review)
  * and any latest company-record lookup, without the full PhonePage header, empty state, or history list.
  */
-export function ActiveRoleCards({ role }: { role: string }) {
+export function ActiveRoleCards({
+  role,
+  viewer,
+}: {
+  role: string;
+  viewer?: { name: string; seatName?: string };
+}) {
   const scenario = useScenario();
-  const { events, tasks, rejection, send } = useKaki(role);
-  const stamped = useStampedEvents(events);
+  const { tasks, rejection, send } = useKaki(role);
   const activeRef = useRef<HTMLDivElement>(null);
   const lastScrolledKey = useRef<string>('');
 
@@ -415,26 +420,23 @@ export function ActiveRoleCards({ role }: { role: string }) {
     .filter(needsAction)
     .sort((left, right) => updatedAtMs(right) - updatedAtMs(left))[0];
 
-  const factEvents = stamped.filter(
-    (item): item is StampedEvent & { event: Extract<KakiEvent, { type: 'FACT_FOUND' }> } =>
-      item.event.type === 'FACT_FOUND' && item.event.payload.facts.length > 0,
-  );
-  const latestFact = factEvents.at(-1);
-
   const actionableTaskKey =
     currentTask !== undefined &&
-    (currentTask.status === 'DISPATCHED' || currentTask.status === 'DRAFT_READY' || currentTask.status === 'FAILED')
+    (currentTask.status === 'DISPATCHED' ||
+      currentTask.status === 'DRAFT_READY' ||
+      currentTask.status === 'COMPLETED' ||
+      currentTask.status === 'FAILED')
       ? `${currentTask.id}:${currentTask.status}`
       : '';
-  const scrollTriggerKey = `${actionableTaskKey}|${latestFact?.id ?? ''}`;
+  const scrollTriggerKey = actionableTaskKey;
 
   useEffect(() => {
-    if (scrollTriggerKey === '|' || scrollTriggerKey === lastScrolledKey.current) return;
+    if (scrollTriggerKey === '' || scrollTriggerKey === lastScrolledKey.current) return;
     lastScrolledKey.current = scrollTriggerKey;
     activeRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }, [scrollTriggerKey]);
 
-  if (currentTask === undefined && latestFact === undefined && rejection === null) {
+  if (currentTask === undefined && rejection === null) {
     return null;
   }
 
@@ -452,15 +454,9 @@ export function ActiveRoleCards({ role }: { role: string }) {
             scenario={scenario}
             send={send}
             rejection={rejection}
+            viewer={viewer}
           />
         </section>
-      )}
-      {latestFact !== undefined && (
-        <FactCard
-          question={latestFact.event.payload.question}
-          facts={latestFact.event.payload.facts}
-          at={latestFact.receivedAt}
-        />
       )}
     </div>
   );
@@ -475,6 +471,7 @@ function TaskCard(props: {
   scenario: Scenario;
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
+  viewer?: { name: string; seatName?: string };
 }) {
   const { task, send, rejection } = props;
   const [approvedAt, setApprovedAt] = useState<number | null>(null);
@@ -506,11 +503,13 @@ function TaskCardBody({
   scenario,
   send,
   rejection,
+  viewer,
 }: {
   task: Task;
   scenario: Scenario;
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
+  viewer?: { name: string; seatName?: string };
 }) {
   const [body, setBody] = useState(task.draft?.body ?? '');
   const [target, setTarget] = useState(task.draft?.target ?? '');
@@ -540,7 +539,7 @@ function TaskCardBody({
       <h2 className="card-title phone-task-title">{task.title}</h2>
       <p className="task-meta">
         <StatusPill status={task.status} />
-        <span>{assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee)}</span>
+        <span>{assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}</span>
       </p>
       {task.context.trim() === '' ? null : (
         <p className="phone-task-context">{task.context}</p>
@@ -571,7 +570,7 @@ function TaskCardBody({
                 submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'ACTION_AGENT' })
               }
             >
-              Let Kaki do it
+              Accept · Let Kaki do it
             </Button>
           )}
           <Button
@@ -579,7 +578,7 @@ function TaskCardBody({
             disabled={pending}
             onClick={() => submit({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' })}
           >
-            I&apos;ll do it
+            Accept · I&apos;ll do it
           </Button>
           <Button
             variant="ghost"
@@ -623,7 +622,7 @@ function TaskCardBody({
               submit({ type: 'APPROVE_ACTION', taskId: task.id, draft: { ...draft, target, body } })
             }
           >
-            Approve
+            Approve &amp; publish
           </Button>
         </div>
       ) : null}

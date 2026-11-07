@@ -31,7 +31,14 @@ function handleEvent(
   log: QuestionLog,
   event: KakiEvent,
 ): void {
-  if (log.stopped || event.type !== 'MEETING_RECORD_UPDATED') return;
+  if (log.stopped) return;
+  if (event.type === 'MEETING_RESET') {
+    log.settled.clear();
+    log.running.clear();
+    log.attempts.clear();
+    return;
+  }
+  if (event.type !== 'MEETING_RECORD_UPDATED') return;
 
   for (const question of event.payload.openQuestions) {
     if (log.settled.has(question.id) || log.running.has(question.id)) continue;
@@ -74,6 +81,49 @@ function handleEvent(
         );
       } finally {
         log.running.delete(question.id);
+      }
+    })();
+  }
+
+  // When a live agenda item has a decision on the table and no open question is queued yet,
+  // proactively surface the company records for that agenda item so the dock has the receipts ready.
+  const activeItem = ctx.scenario.agenda[event.payload.agendaIndex];
+  const agendaKey = `agenda-${event.payload.agendaIndex}`;
+  if (
+    activeItem?.decision !== undefined &&
+    event.payload.openQuestions.length === 0 &&
+    !log.settled.has(agendaKey) &&
+    !log.running.has(agendaKey)
+  ) {
+    const role = activeItem.ownerRole;
+    const queryText = `${activeItem.title} — ${activeItem.decision}`;
+    const attempt = (log.attempts.get(agendaKey) ?? 0) + 1;
+    log.attempts.set(agendaKey, attempt);
+    if (attempt >= MAX_SEARCH_ATTEMPTS) log.settled.add(agendaKey);
+    log.running.add(agendaKey);
+
+    void (async () => {
+      try {
+        const facts = await search(queryText, role);
+        if (log.stopped) return;
+        if (facts.length === 0) return;
+        ctx.hub.publish(
+          {
+            type: 'FACT_FOUND',
+            audience: { kind: 'role', role },
+            payload: { questionId: agendaKey, question: activeItem.title, facts },
+          },
+          { retainKey: `fact:${agendaKey}` },
+        );
+        log.settled.add(agendaKey);
+      } catch (error) {
+        if (log.stopped) return;
+        console.error(
+          `kaki wingman: company search failed for agenda item ${agendaKey} (${role}), attempt ${attempt}:`,
+          error,
+        );
+      } finally {
+        log.running.delete(agendaKey);
       }
     })();
   }

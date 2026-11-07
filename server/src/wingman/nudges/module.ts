@@ -92,6 +92,10 @@ function handleEvent(
   fired: Set<string>,
   event: KakiEvent,
 ): void {
+  if (event.type === 'MEETING_RESET') {
+    fired.clear();
+    return;
+  }
   if (event.type !== 'MEETING_RECORD_UPDATED') return;
 
   const { agendaIndex, elapsedSeconds, speakerTalkSeconds } = event.payload;

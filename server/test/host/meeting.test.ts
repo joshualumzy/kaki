@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createMeetingModule, openingLine } from '../../src/host/meeting';
+import { liveOpeningLine } from '../../src/host/opening';
 import { createFakeLlm } from '../../src/llm';
 import { testScenario } from '../fixtures/scenario';
 import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
@@ -396,5 +397,16 @@ describe('openingLine', () => {
 
   it('ignores a seat that is not in the scenario', () => {
     expect(openingLine(testScenario, { name: 'Priya', seat: 'Nobody' })).not.toContain('Priya');
+  });
+
+  it('has the facilitator introduce themselves by name and role in liveOpeningLine', () => {
+    const seat = testScenario.attendees[0]!;
+    const live = liveOpeningLine(testScenario, { name: 'Boo', seat: seat.name });
+    const hostRole = testScenario.roles.find((r) => r.facilitator === true);
+    const hostAttendee = testScenario.attendees.find((a) => a.role === hostRole?.id);
+    if (hostAttendee && hostRole) {
+      expect(live).toContain(`I'm ${hostAttendee.name}, your ${hostRole.label}`);
+    }
+    expect(live).toContain('Boo');
   });
 });

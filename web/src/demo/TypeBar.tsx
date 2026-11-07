@@ -88,7 +88,7 @@ export function TypeBar({ send }: TypeBarProps) {
 }
 
 /** The type bar wired to the LiveKit room it is in. */
-export function ConnectedTypeBar() {
+export function ConnectedTypeBar({ micOnline }: { micOnline?: boolean }) {
   const room = useRoomContext();
   const send = useCallback(
     (message: ControlMessage) => {
@@ -98,5 +98,23 @@ export function ConnectedTypeBar() {
     },
     [room],
   );
-  return <TypeBar send={send} />;
+  return (
+    <div className="kd-typebar-wrap">
+      {micOnline !== undefined && (
+        <span
+          className="kd-mic-online-pill"
+          data-online={micOnline}
+          title={
+            micOnline
+              ? 'Server speech recognition is online and listening to your microphone'
+              : 'Microphone is muted. Unmute below to speak, or type in the bar.'
+          }
+        >
+          <i className="kd-mic-online-dot" />
+          {micOnline ? 'Voice active' : 'Mic muted'}
+        </span>
+      )}
+      <TypeBar send={send} />
+    </div>
+  );
 }

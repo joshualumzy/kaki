@@ -1,7 +1,7 @@
 import { roleLabel, type Question, type Scenario, type Task } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MINUTES_DELAY_MS = 1_500;
@@ -223,7 +223,7 @@ export function createWikiModule({
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
       const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
-      const knownFacts = role?.card?.facts ?? [];
+      const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
       const ownerLine =
         attendee !== undefined && role !== undefined ? `\nAuthor: ${attendee.name} (${role.label})` : '';
       const factsBlock =
@@ -235,7 +235,7 @@ export function createWikiModule({
           content:
             'You turn a team task into a short wiki page for the team. Reply with one JSON object and nothing else: ' +
             '{"title": "...", "body": "..."}. The body is Markdown: a few headings or bullet points, plain and short. ' +
-            'Use only what is in the task, its context, and any relevant known facts below. Do not invent decisions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            'Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). Do not invent decisions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
         { role: 'user', content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}` },
       ];

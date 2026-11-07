@@ -234,11 +234,17 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('nobody tells another character to hand over or to speak');
   });
 
-  it('strips the person\'s name from a line and drops lines that narrate the prompt', () => {
-    const parser = new TurnParser(['Ada', 'Bao'], undefined, 'Boogy');
-    const lines = [...parser.push('Ada: Boogy: How much does that take?\nBao: The person you are talking to is Boogy.\nBao: Fair point.\n'), ...parser.flush()];
+  it('strips the person\'s name or seat name from a line and drops lines that narrate the prompt', () => {
+    const parser = new TurnParser(['Ada', 'Bao'], undefined, 'Boogy', ['Wei Ling']);
+    const lines = [
+      ...parser.push(
+        'Ada: Boogy: How much does that take?\nAda: Wei Ling: Wei Ling: Absolutely!\nAda: You are now speaking directly to Boogy instead of the team.\nBao: The person you are talking to is Boogy.\nBao: Fair point.\n',
+      ),
+      ...parser.flush(),
+    ];
     expect(lines).toEqual([
       { speaker: 'Ada', text: 'How much does that take?' },
+      { speaker: 'Ada', text: 'Absolutely!' },
       { speaker: 'Bao', text: 'Fair point.' },
     ]);
   });

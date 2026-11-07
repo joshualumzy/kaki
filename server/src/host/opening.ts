@@ -43,19 +43,30 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
  */
 export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
   const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
+  const hostRole = scenario.roles.find((role) => role.facilitator === true);
+  const hostAttendee = hostRole === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === hostRole.id);
+  const hostIntro =
+    hostAttendee !== undefined && hostRole !== undefined
+      ? ` I'm ${hostAttendee.name}, your ${hostRole.label}`
+      : '';
   const first = scenario.agenda[0];
   const owner = first === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === first.ownerRole);
   const ownerIsHost = first === undefined ? false : scenario.roles.find((role) => role.id === first.ownerRole)?.facilitator === true;
   const speakerName = owner !== undefined && !ownerIsHost ? (visitor?.seat === owner.name ? visitor.name : owner.name) : undefined;
   const who =
     visitor !== undefined && seat !== undefined
-      ? `, glad you're here as ${roleLabel(scenario, seat.role)}, ${visitor.name}`
-      : '';
+      ? `, ${visitor.name}.${hostIntro ? `${hostIntro}, and we're` : " We're"} glad you're here as ${roleLabel(scenario, seat.role)}`
+      : hostIntro
+        ? `.${hostIntro}`
+        : '';
 
   const situationLead = scenario.situation
     ?.split(/\n/)[0]
     ?.split(/(?<=[.!?])\s+/)[0]
     ?.trim()
+    .replace(new RegExp(`\\s*${scenario.organisation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/,\s*and the team needs your call.*$/i, '')
     .replace(/\.$/, '');
 
   const handoff =

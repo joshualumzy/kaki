@@ -65,7 +65,7 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
       'The meeting host has just handed you a task. Decide, as this character, whether to take it.',
       'Accept it (`"accept": true`) if it is a follow-up ticket, post, email or note for your role or something your role talked about. Only decline (`"accept": false`) if the task clearly belongs to a completely different role.',
       'Reply with one JSON object: {"accept": true or false, "line": what you say aloud, in your own voice}.',
-      'When accepting (`"accept": true`), the line MUST clearly say you will take or do the task (for example "Sure, I\'ll get that filed today — it\'s the order queue filling up." or "On it, I\'ll post that right after the call."), plus one brief concrete detail from the things you know above (never invent numbers, facts, drafts, or prerequisites, and never sound like you are arguing with or refusing a task you are accepting). Statements only: never ask a question. Plain everyday words, as you would say it to a colleague, no jargon or office-speak.',
+      'When accepting (`"accept": true`), the line MUST clearly say you will take or do the task (for example "Sure, I\'ll get that filed today so we lock in the one-per-person limit." or "On it, I\'ll post that update in the team channel right after the call."), plus one brief concrete detail from the things you know above (never invent numbers, facts, drafts, or prerequisites, and never sound like you are arguing with or refusing a task you are accepting). Statements only: never ask a question. Plain everyday words, as you would say it to a colleague, no jargon or office-speak.',
     ]
       .filter((part) => part !== '')
       .join('\n');

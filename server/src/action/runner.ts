@@ -35,6 +35,40 @@ export function plainReason(error: unknown, service: string): string {
   return raw;
 }
 
+const GENERIC_TASK_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'are', 'was', 'were',
+  'have', 'has', 'had', 'not', 'but', 'what', 'when', 'who', 'how', 'why', 'where',
+  'your', 'you', 'our', 'their', 'they', 'will', 'can', 'just', 'more', 'first',
+  'post', 'send', 'draft', 'write', 'file', 'create', 'update', 'team', 'channel',
+  'today', 'everyone', 'decision', 'about', 'regarding', 'issue', 'ticket', 'page',
+  'email', 'confirm', 'follow', 'asked', 'requested',
+]);
+
+/** Filter a role's known facts to only those overlapping the task's topic words (plus any facts with email addresses when drafting an email). */
+export function relevantFactsForTask(
+  task: Pick<Task, 'title' | 'context'>,
+  facts: readonly string[],
+  includeEmailFacts = false,
+): string[] {
+  if (facts.length <= 1) return [...facts];
+  const text = `${task.title} ${task.context}`.toLowerCase();
+  const keywords = (text.match(/[a-z0-9]+/g) ?? []).filter(
+    (word) => (word.length >= 4 || /^\d+$/.test(word)) && !GENERIC_TASK_WORDS.has(word),
+  );
+  if (keywords.length === 0) return [...facts];
+  const scored = facts.map((fact) => {
+    const lower = fact.toLowerCase();
+    const hits = keywords.filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(lower)).length;
+    const hasEmail = includeEmailFacts && /@/.test(fact);
+    return { fact, hits: hits + (hasEmail ? 1 : 0) };
+  });
+  const matching = scored.filter((entry) => entry.hits > 0);
+  if (matching.length === 0) return [];
+  const maxHits = Math.max(...matching.map((entry) => entry.hits));
+  const threshold = maxHits >= 2 ? 2 : 1;
+  return matching.filter((entry) => entry.hits >= threshold).map((entry) => entry.fact);
+}
+
 /** Create a module that drafts on claim, runs on approval and records the result or failure. */
 export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
   return {

@@ -402,6 +402,15 @@ export function assigneeLabel(
 /** Map a Zoom display name to that attendee's role, if they are in this scenario. */
 export function roleForZoomName(scenario: Scenario, name: string): Role | undefined {
   const wanted = name.trim().toLowerCase();
-  return scenario.attendees.find((attendee) => attendee.zoomDisplayName.trim().toLowerCase() === wanted)
-    ?.role;
+  const exact = scenario.attendees.find(
+    (attendee) => attendee.zoomDisplayName.trim().toLowerCase() === wanted || attendee.name.trim().toLowerCase() === wanted,
+  )?.role;
+  if (exact !== undefined) return exact;
+  const roleMatch = /\(([^)]+)\)\s*$/.exec(wanted);
+  if (roleMatch !== null) {
+    const label = roleMatch[1]!.trim();
+    const role = scenario.roles.find((r) => r.label.trim().toLowerCase() === label || r.id.toLowerCase() === label);
+    if (role !== undefined) return role.id;
+  }
+  return undefined;
 }

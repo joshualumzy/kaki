@@ -14,6 +14,13 @@ Five canonical triage roles mapped 1:1 to GitHub labels (`ready-for-agent`, `nee
 
 Single-context layout (`CONTEXT.md` at root). See `docs/agents/domain.md`.
 
+### Active Session Handoff & Kopitiam Live Demo Context
+
+If the user asks to "resume where we left off" or asks about the Kopitiam live demo (`http://localhost:5173/demo`), **immediately read**:
+- `docs/session-discussions-and-findings-2026-11-07.md` (complete archive of all product, scenario, UI/UX, pacing, caption-burst, and self-introduction decisions & findings)
+- `docs/live-demo.md` (live demo architecture & startup guide)
+- Prior conversation artifacts in `/Users/joshualum/.gemini/antigravity-cli/brain/e1fdfa3c-dd5a-4bac-b433-6fabc0f5e0cf/` (`session_handoff_and_restart_guide.md`, `all_discussions_and_findings.md`, `ai_playtest_report.md`, `feifei_playtest_action_plan.md`)
+
 ### Critical System Safety
 - **NEVER kill Chrome:** Do not run `pkill`, `killall`, or `kill` commands targeting "chrome", "Google Chrome", or any browser wildcard. If a Puppeteer process is orphaned, either target its specific PID directly after verifying it is headless, or ask the user to close it. Never risk killing the user's personal browser session.
 

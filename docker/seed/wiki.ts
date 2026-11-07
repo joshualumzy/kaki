@@ -152,7 +152,7 @@ async function ensurePage(env: Env, jwt: string, page: WikiPageSeed): Promise<'c
     env,
     `mutation Update($id: Int!, $content: String!, $description: String!, $title: String!) {
       pages {
-        update(id: $id, content: $content, description: $description, isPublished: true, title: $title) {
+        update(id: $id, content: $content, description: $description, isPublished: true, tags: [], title: $title) {
           responseResult { succeeded message }
         }
       }

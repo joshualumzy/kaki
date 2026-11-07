@@ -229,4 +229,21 @@ describe('knowledge module', () => {
       log.mockRestore();
     }
   });
+
+  it('clears settled questions on MEETING_RESET so a new meeting can look up q-1 again', async () => {
+    const search = vi.fn<SearchCompanyData>(async () => [fact]);
+    const fake = fakeHub();
+    const stop = start(search, fake.hub);
+
+    try {
+      fake.emit(recordUpdate('q-1'));
+      await waitFor(() => fake.published.length === 1, 'first meeting fact card');
+      fake.emit({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+      fake.emit(recordUpdate('q-1'));
+      await waitFor(() => fake.published.length === 2, 'second meeting fact card after reset');
+      expect(search).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+    }
+  });
 });

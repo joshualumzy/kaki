@@ -145,7 +145,7 @@ export function MediaPreview({ value, onChange, onProblem, name = '' }: MediaPre
         <Orb state={value.microphone && level > 0.12 ? 'speaking' : 'idle'} level={level} />
         <video ref={videoRef} autoPlay muted playsInline aria-label="Camera preview" style={{ display: camera ? 'block' : 'none' }} />
         {!camera && <div className="kd-off">{value.camera ? 'Starting camera…' : 'Camera is off'}</div>}
-        <span className="kd-tag">{name.trim() || 'Guest'}</span>
+        <span className="kd-tag">{name.trim() || 'Foo'}</span>
       </div>
       <div className="kd-controls">
         <button

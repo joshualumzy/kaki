@@ -125,4 +125,26 @@ describe('agenda clock', () => {
     clock.tick();
     expect(overruns).toBe(2);
   });
+
+  it('freezes elapsed time and suppresses overruns while paused, then resumes from the exact second', () => {
+    const time = fakeTime();
+    const clock = createAgendaClock({ agenda, now: time.now });
+    const overruns: number[] = [];
+    clock.onOverrun((index) => overruns.push(index));
+
+    clock.start();
+    time.advance(150);
+    clock.pause();
+    expect(clock.snapshot()).toMatchObject({ paused: true, itemElapsedSeconds: 150, meetingElapsedSeconds: 150 });
+
+    time.advance(500);
+    clock.tick();
+    expect(clock.snapshot()).toMatchObject({ paused: true, itemElapsedSeconds: 150, meetingElapsedSeconds: 150, overrun: false });
+    expect(overruns).toEqual([]);
+
+    clock.resume();
+    expect(clock.snapshot()).toMatchObject({ paused: false, itemElapsedSeconds: 150, meetingElapsedSeconds: 150 });
+    time.advance(40);
+    expect(clock.snapshot()).toMatchObject({ paused: false, itemElapsedSeconds: 190, meetingElapsedSeconds: 190 });
+  });
 });

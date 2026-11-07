@@ -8,6 +8,7 @@ const PALETTE: readonly (readonly [string, string])[] = [
   ['--orb-a', '--orb-c'],
   ['--orb-d', '--orb-b'],
   ['--orb-c', '--orb-a'],
+  ['--orb-e', '--orb-a'],
 ];
 
 /** The colour pair for the n-th attendee, so each person keeps their own orb. */

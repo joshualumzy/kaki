@@ -64,6 +64,8 @@ export interface RunnerOptions {
   onAdvanceAgenda?: () => void;
   /** Called when the final agenda item has wrapped up and the meeting should conclude. */
   onEndMeeting?: () => void;
+  /** Called when the visitor pauses or resumes the meeting via the TypeBar button or Escape. */
+  onPauseChange?: (paused: boolean) => void;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -87,11 +89,19 @@ export interface NpcRunner {
    * The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there).
    * `onDone` runs when it has been said (`true`) or given up on (`false`); it is not called when the cue is ignored outright.
    */
-  announce(text: string, onDone?: (spoken: boolean) => void): void;
+  announce(text: string, onDone?: (spoken: boolean) => void, shouldStillSpeak?: () => boolean): void;
   /** The meeting moved to the next agenda item: the AI host will ask the person for the decision they own. */
   agendaMoved(title?: string): void;
   /** A follow-up task on the current agenda item was accepted: if the person already weighed in, move the meeting on. */
   taskAccepted(): void;
+  /** The visitor clicked "Let Kaki do it" on a task assigned to them: hold the advance timer so they can review the draft. */
+  holdForHumanTask(holdMs?: number): void;
+  /** Cancel a queued or running task-dispatch announcement when the visitor already clicked Accept or Decline. */
+  cancelPendingDispatch(): void;
+  /** Advance to the next agenda item (or end the meeting) once the visitor's task has been synced/declined. */
+  completeHumanTask(): void;
+  /** The current human visitor's display name, if someone is in the room. */
+  visitorName(): string | undefined;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
   /** True when the visitor has already spoken on the current agenda item (or the item is observe-only). */
@@ -287,8 +297,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             transcriptName: humanAttendeeForRole(scenario, person.role)?.zoomDisplayName,
           });
         }
-        // Sam welcomes the person once they press Start, before anyone else speaks (nothing when a person hosts).
-        if (humans.size > 0 && started && !welcomed && !hostIsHuman()) announce(openingLine(scenario));
+        // Sam welcomes the person once they press Start, before anyone else speaks (when a person hosts, the NPC co-host kicks off item 1's briefing).
+        if (humans.size > 0 && started && !welcomed) {
+          if (!hostIsHuman()) {
+            announce(openingLine(scenario));
+          } else {
+            welcomed = true;
+            conversation?.agendaMoved(scenario.agenda[0]?.title);
+          }
+        }
       })
       .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
   }
@@ -423,18 +440,23 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         }
       } else if (message.kind === 'stop') {
         paused = true;
+        options.onPauseChange?.(true);
         talking.clear();
         for (const vad of vads.values()) vad.close();
         log(`${participant.identity} pressed stop`);
         conversation?.stop();
       } else if (message.kind === 'resume') {
         paused = false;
+        options.onPauseChange?.(false);
         log(`${participant.identity} pressed resume`);
         conversation?.resumeFromPause();
       } else if (!started && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {
-        paused = false;
+        if (paused) {
+          paused = false;
+          options.onPauseChange?.(false);
+        }
         typingUntil = Date.now() + TYPING_QUIET_MS;
         conversation?.humanTyped(message.text);
       }
@@ -457,7 +479,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
 
-  function announce(text: string, onDone?: (spoken: boolean) => void): void {
+  function announce(text: string, onDone?: (spoken: boolean) => void, shouldStillSpeak?: () => boolean): void {
     if (hostName === undefined || conversation === undefined) return;
     const isWelcome = text.startsWith(OPENING_PREFIX);
     // The welcome was already spoken when the person arrived; the host cue that follows the first line is not said again.
@@ -469,12 +491,40 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const visitor = person?.seat !== undefined ? { name: person.name, seat: person.seat } : undefined;
     const isNextUp = text.startsWith('Next up:');
     const nextTitle = isNextUp ? text.replace(/^Next up:\s*/, '').replace(/\.$/, '') : undefined;
-    const spoken =
+    let spoken =
       isWelcome && visitor !== undefined
         ? liveOpeningLine(scenario, visitor)
         : isNextUp && nextTitle !== undefined
           ? liveNextItemLine(scenario, nextTitle, visitor)
           : text;
+    if (!isWelcome && !isNextUp && visitor !== undefined && visitor.seat !== visitor.name) {
+      const escapedSeat = visitor.seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      spoken = spoken.replace(new RegExp(`\\b${escapedSeat}\\b`, 'g'), visitor.name);
+    }
+    spoken = spoken
+      .replace(
+        /\bAccept or decline it on your phone\./gi,
+        'Check the Kaki panel on the right to accept and let Kaki draft it, or decline.',
+      )
+      .replace(
+        /\bHave a look on your phone and accept or decline\./gi,
+        'Check the Kaki panel on the right to accept and let Kaki draft it, or decline.',
+      )
+      .replace(
+        /\bIt's on your phone\./gi,
+        'Check the Kaki panel on the right to accept and let Kaki draft it, or decline.',
+      );
+    const timeoutMatch =
+      /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
+      /^(.+?) is at (\d+) minutes, please wrap up\.$/i.exec(spoken.trim());
+    if (timeoutMatch !== null) {
+      const personName = person?.name;
+      const itemTitle = timeoutMatch[1];
+      spoken =
+        personName !== undefined
+          ? `${personName}, we're a bit past time on ${itemTitle} — do you want another minute on this, or should we lock in a call and keep moving?`
+          : `We're a bit past time on ${itemTitle} — should we take another minute on this, or lock in a call and keep moving?`;
+    }
     if (isWelcome) welcomed = true;
     // After the welcome, the first agenda item begins: the person is asked, or the characters start talking it through.
     conversation.announce(
@@ -487,6 +537,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             onDone?.(wasSpoken);
           }
         : onDone,
+      shouldStillSpeak,
     );
   }
   function hostIsHuman(): boolean {
@@ -507,6 +558,18 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     taskAccepted() {
       conversation?.taskAccepted();
+    },
+    holdForHumanTask(holdMs) {
+      conversation?.holdForHumanTask(holdMs);
+    },
+    cancelPendingDispatch() {
+      conversation?.cancelPendingDispatch();
+    },
+    completeHumanTask() {
+      conversation?.completeHumanTask();
+    },
+    visitorName() {
+      return [...humans.values()].at(-1)?.name;
     },
     say(attendee, text, onDone) {
       if (conversation === undefined) {

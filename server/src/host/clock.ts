@@ -5,6 +5,8 @@ export interface ClockSnapshot {
   started: boolean;
   /** True once the meeting is over; time stands still from then on. */
   ended: boolean;
+  /** True while the meeting clock is paused by the visitor. */
+  paused?: boolean;
   agendaIndex: number;
   /** Seconds spent on the current agenda item. */
   itemElapsedSeconds: number;
@@ -17,6 +19,8 @@ export interface ClockSnapshot {
 /** The agenda clock: knows the current item and its elapsed time, and signals overrun once per item. */
 export interface AgendaClock {
   start(): void;
+  pause(): void;
+  resume(): void;
   /** Back to a meeting that has not started: item 0, no time spent, overruns armed again. */
   reset(): void;
   /** Stop the meeting: time freezes and no more overruns fire. */
@@ -41,6 +45,8 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
   if (!(speed > 0)) throw new Error(`Clock speed must be positive, got ${speed}`);
 
   let startedAt: number | undefined;
+  let pausedAt: number | undefined;
+  let totalPausedMs = 0;
   let endedAtSeconds: number | undefined;
   let agendaIndex = 0;
   let itemStartSeconds = 0;
@@ -49,7 +55,9 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
 
   function meetingSeconds(): number {
     if (endedAtSeconds !== undefined) return endedAtSeconds;
-    return startedAt === undefined ? 0 : ((now() - startedAt) / 1000) * speed;
+    if (startedAt === undefined) return 0;
+    const effectiveNow = pausedAt ?? now();
+    return Math.max(0, ((effectiveNow - startedAt - totalPausedMs) / 1000) * speed);
   }
 
   function snapshot(): ClockSnapshot {
@@ -59,6 +67,7 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
     return {
       started: startedAt !== undefined,
       ended: endedAtSeconds !== undefined,
+      paused: pausedAt !== undefined,
       agendaIndex,
       itemElapsedSeconds,
       meetingElapsedSeconds,
@@ -70,8 +79,19 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
     start() {
       startedAt ??= now();
     },
+    pause() {
+      if (startedAt === undefined || endedAtSeconds !== undefined || pausedAt !== undefined) return;
+      pausedAt = now();
+    },
+    resume() {
+      if (pausedAt === undefined) return;
+      totalPausedMs += Math.max(0, now() - pausedAt);
+      pausedAt = undefined;
+    },
     reset() {
       startedAt = undefined;
+      pausedAt = undefined;
+      totalPausedMs = 0;
       endedAtSeconds = undefined;
       agendaIndex = 0;
       itemStartSeconds = 0;
@@ -79,6 +99,7 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
     },
     end() {
       if (startedAt !== undefined) endedAtSeconds ??= meetingSeconds();
+      pausedAt = undefined;
     },
     snapshot,
     advanceTo(index) {
@@ -91,7 +112,7 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
     tick() {
       const current = snapshot();
       const item = agenda[current.agendaIndex];
-      if (current.ended || !current.overrun || item === undefined || overrunFired.has(current.agendaIndex)) return;
+      if (current.ended || current.paused || !current.overrun || item === undefined || overrunFired.has(current.agendaIndex)) return;
       overrunFired.add(current.agendaIndex);
       for (const handler of overrunHandlers) {
         try {

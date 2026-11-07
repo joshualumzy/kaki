@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -72,7 +72,7 @@ export function createGiteaModule({
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
       const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
-      const knownFacts = role?.card?.facts ?? [];
+      const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
       const ownerLine =
         attendee !== undefined && role !== undefined ? `\nOwner: ${attendee.name} (${role.label})` : '';
       const factsBlock =

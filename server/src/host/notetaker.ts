@@ -32,7 +32,8 @@ const DUPLICATE_OVERLAP = 0.6;
 const FILLER_WORDS = new Set(
   (
     'a an and at by for from in into of on or the to with after before about once our their this that ' +
-    'fix file send post email create add make update write draft ask get do check confirm follow up'
+    'fix file send post email create add make update write draft ask get do check confirm follow up ' +
+    'decision team channel today tomorrow everyone use'
   ).split(' '),
 );
 
@@ -126,6 +127,29 @@ function questionKeywords(text: string): Set<string> {
   return keywords(text, new Set([...FILLER_WORDS, ...QUESTION_WORDS]));
 }
 
+/** True when a question is just the host opening a topic ("What's happening there?") or a colleague handing the decision to the room ("How do we help tourists...?"). */
+export function isRhetoricalTopicHandoff(text: string): boolean {
+  const trimmed = text.trim();
+  if (
+    /^\W*(?:[a-z][a-z\s]{0,20},\s*)?(?:what(?:'s| is) happening(?: there| with [a-z\s]+)?|what(?:'s| is) going on(?: there| with [a-z\s]+)?|can you walk us through|what do you think|what(?:'s| is) your call|what should we do)\s*\?*$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^\W*(?:[a-z][a-z\s]{0,20},\s*)?(?:how (?:do|should|can|could|would|shall) we\b|(?:can|could|should|shall|would) we\b|what (?:do|should|can|could|would|shall) we\b)/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+  if (/\bwhat is the root cause of the freeze\b/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 /** True when a question asks (nearly) the same thing as one already open. */
 export function isLikelyDuplicateQuestion(text: string, openTexts: string[]): boolean {
   const mine = questionKeywords(text);
@@ -152,14 +176,33 @@ export function groundingLine<T extends { text: string; speaker?: string; role?:
   evidence: string,
   lines: T[],
 ): T | undefined {
-  // Strip any leading "[Speaker (Role)]" prefix the LLM may have included in `evidence`.
-  const stripped = evidence.replace(/^\s*\[[^\]]+\]\s*/, '');
+  // Strip any leading "[Speaker (Role)]" or "Speaker:" prefix the LLM may have included in `evidence`.
+  const stripped = evidence
+    .replace(/^\s*\[[^\]]+\]\s*/, '')
+    .replace(/^\s*[A-Za-z][A-Za-z\s]{0,24}:\s*/, '');
   const wanted = words(stripped.length > 0 ? stripped : evidence);
-  if (wanted.length < 3) return undefined;
-  return lines.find((line) => {
+  if (wanted.length === 0) return undefined;
+  const single = lines.find((line) => {
     const said = new Set(words(line.text));
+    if (wanted.length < 3) {
+      return wanted.every((word) => said.has(word)) && words(line.text).length <= 4;
+    }
     return wanted.filter((word) => said.has(word)).length / wanted.length >= EVIDENCE_MATCH;
   });
+  if (single !== undefined) return single;
+  // TurnParser splits a speaker's multi-sentence turn into consecutive lines; if `evidence` spans two consecutive
+  // lines from the same speaker, match against their combined text and return the sentence with the commitment/request.
+  for (let i = 0; i + 1 < lines.length; i += 1) {
+    const a = lines[i]!;
+    const b = lines[i + 1]!;
+    if (a.speaker !== undefined && a.speaker === b.speaker) {
+      const combinedSaid = new Set(words(`${a.text} ${b.text}`));
+      if (wanted.filter((word) => combinedSaid.has(word)).length / wanted.length >= EVIDENCE_MATCH) {
+        return /\b(?:can|could|would|will) you\b/i.test(b.text) ? b : a;
+      }
+    }
+  }
+  return undefined;
 }
 
 /** True when the evidence is (nearly) word for word one of the transcript lines. */
@@ -169,9 +212,9 @@ export function isGrounded(evidence: string, lines: Array<{ text: string }>): bo
 
 // "I'll ...", "I can ...", "I will ...": the speaker is taking the work on themselves.
 const FIRST_PERSON_COMMITMENT = /\bI(?:'ll|\u2019ll| will| can| am going to|'m going to)\b/i;
-// "what if we ...", "if we ...", "should we ...", "we could ...": pitching an option or asking for a decision, never a task commitment.
+// "what if we ...", "if we ...", "should we ...", "we could ...", "I propose we ...": pitching an option or asking for a decision, never a task commitment.
 const HYPOTHETICAL_PROPOSAL =
-  /\b(?:what if we|if we\b|how about we|should we|we could\b|could we\b|proposing we\b|i think we should\b|i suggest we\b|we need to decide\b|do you want to|are you happy to|would you rather|which option|do you think it's worth|could I get your approval)\b/i;
+  /\b(?:what if we|if we\b|how about we|should we|we could\b|could we\b|proposing we\b|i propose we\b|i think we should\b|i suggest we\b|we need to decide\b|do you want to|are you happy to|would you rather|which option|do you think it's worth|could I get your approval)\b/i;
 
 /** True when a transcript line is pitching a hypothetical option or asking for a decision rather than assigning a post-meeting task. */
 export function isHypotheticalProposal(text: string): boolean {
@@ -188,6 +231,7 @@ export function addressedRole(
   evidence: string,
   scenario: Scenario,
   lines: ReadonlyArray<{ speaker?: string; role?: Role; text?: string }>,
+  sourceRole?: Role,
 ): Role | undefined {
   // Check the evidence line itself first so earlier lines in the batch don't hijack the assignee.
   const evidenceLower = evidence.toLowerCase();
@@ -196,19 +240,31 @@ export function addressedRole(
   }
   const checkText = [evidence, ...lines.slice(-4).map((l) => l.text ?? '')].join(' ');
   const lower = checkText.toLowerCase();
-  // If someone says "can you...", "could you...", or "would you..." in the evidence line, and a human visitor has spoken in the transcript
-  // (identified by their "<SeatName> (<RoleLabel>)" speaker tag), route second-person requests to the visitor first unless an NPC's name opens the line.
+  const findVisitorRole = (): Role | undefined => {
+    for (const line of lines) {
+      if (line.role !== undefined && line.speaker !== undefined && line.speaker.includes('(')) {
+        return line.role;
+      }
+    }
+    const facilitatorIds = new Set(scenario.roles.filter((r) => r.facilitator === true).map((r) => r.id));
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const role = lines[i]?.role;
+      if (role !== undefined && role !== sourceRole && !facilitatorIds.has(role)) {
+        return role;
+      }
+    }
+    return undefined;
+  };
+  // If someone says "can you...", "could you...", or "would you..." in the evidence line, and a human visitor has spoken in the transcript,
+  // route second-person requests to the visitor first unless an NPC's name opens the line.
   if (/\b(?:can you|could you|would you|will you)\b/i.test(evidence)) {
     const startsWithNpc = scenario.attendees.some((attendee) => {
       const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return new RegExp(`^\\W*${escaped}\\b`, 'i').test(evidence);
     });
     if (!startsWithNpc) {
-      for (const line of lines) {
-        if (line.role !== undefined && line.speaker !== undefined && line.speaker.includes('(')) {
-          return line.role;
-        }
-      }
+      const visitorRole = findVisitorRole();
+      if (visitorRole !== undefined) return visitorRole;
     }
   }
   for (const role of scenario.roles) {
@@ -217,16 +273,15 @@ export function addressedRole(
   if (FIRST_PERSON_COMMITMENT.test(evidence)) return undefined;
   for (const attendee of scenario.attendees) {
     const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(`^\\W*${escaped}\\b|,\\s*${escaped}\\b`, 'i').test(evidence)) {
+    if (
+      new RegExp(`^\\W*${escaped}\\b|,\\s*${escaped}\\b|\\b(?:have|ask|get)\\s+${escaped}\\b`, 'i').test(evidence)
+    ) {
       return attendee.role;
     }
   }
-  if (/\b(?:can you|get\s+[a-z]+\s+to|ask\s+[a-z]+\s+to)\b/i.test(checkText)) {
-    for (const line of lines) {
-      if (line.role !== undefined && line.speaker !== undefined && line.speaker.includes('(')) {
-        return line.role;
-      }
-    }
+  if (/\b(?:can you|could you|would you|will you|get\s+[a-z]+\s+to|ask\s+[a-z]+\s+to)\b/i.test(checkText)) {
+    const visitorRole = findVisitorRole();
+    if (visitorRole !== undefined) return visitorRole;
   }
   return undefined;
 }
@@ -306,9 +361,13 @@ export function parseNotetakerReply(text: string, scenario: Scenario): Notetaker
   };
 }
 
-function systemPrompt(scenario: Scenario): string {
+function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string {
   const roles = scenario.roles.map((role) => {
-    const people = scenario.attendees.filter((attendee) => attendee.role === role.id).map((a) => a.name);
+    const lineSpeaker = lines.find((l) => l.role === role.id)?.speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    const people =
+      lineSpeaker !== undefined && lineSpeaker.length > 0
+        ? [lineSpeaker]
+        : scenario.attendees.filter((attendee) => attendee.role === role.id).map((a) => a.name);
     return `- ${role.id}: ${role.label}${people.length > 0 ? ` (${people.join(', ')})` : ''}`;
   });
   const agenda = scenario.agenda.map(
@@ -340,10 +399,13 @@ function systemPrompt(scenario: Scenario): string {
     '',
     'Rules:',
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
-    '- newQuestions: factual questions someone asked that nobody answered in the lines. Write each as a full question',
+    '- newQuestions: factual questions someone asked about data, rules, costs, dates, or specs that nobody answered in the lines. Write each as a full question',
     '  ending in a question mark. forRole is the role best placed to answer (always set forRole to one of the role ids',
     '  listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of',
     '  the current agenda item so Kaki can search company records for them; never omit forRole).',
+    '  NEVER list a host opening handoff ("What\'s happening there?", "Can you walk us through...?") or the open-ended agenda decision question',
+    '  addressed to a colleague ("How do we help newcomers order Kopi...?", "How should we handle...?", "What do you want to do?") in newQuestions —',
+    '  those are discussion prompts, not factual lookups.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up")',
     '  does not answer the question: it stays a question. Neither does an answer its speaker doubts or contradicts.',
     '  Read on before listing a question: if a later line, even the very next one, answers it, do not list it.',
@@ -351,9 +413,9 @@ function systemPrompt(scenario: Scenario): string {
     '  evidence: copy, word for word, the line that states the answer. A line that only mentions the topic, or gives a',
     '  figure the speaker is unsure of, leaves the question open. Never close a question you cannot quote an answer for.',
     '- newTasks: a short list, usually empty. A task is a follow-up to deliver after the meeting that a person was',
-    '  explicitly asked to do ("can you…", "please…") or explicitly volunteered for ("I\'ll…", "I will…"). Include it only if:',
-    '  * the evidence line itself explicitly contains a direct commitment ("I\'ll…", "I will…") or a direct request',
-    '    ("can you…", "please…") for a post-meeting deliverable. NEVER create a task from a line where someone is only',
+    '  explicitly asked to do ("can you…", "please…", "let\'s have <Name> post/email/file…") or explicitly volunteered for ("I\'ll…", "I will…"). Include it only if:',
+    '  * the evidence line itself explicitly contains a direct commitment ("I\'ll…", "I will…") or a direct request/assignment',
+    '    ("can you…", "please…", "let\'s have <Name> post/email/file…") for a post-meeting deliverable. NEVER create a task from a line where someone is only',
     '    explaining a problem, pitching an option ("I think we should take the $450 deal"), or debating a trade-off',
     '    before the decision has been made;',
     '  * one person owns it and it was decided, not just proposed;',
@@ -374,7 +436,7 @@ function systemPrompt(scenario: Scenario): string {
     '    in reply to a question, when no one was asked to do it by name or role and no one volunteered.',
     '  suggestedAssignee is the role of the person who will do it, not the role the topic belongs to: the speaker\'s',
     '  role when they volunteered ("I\'ll…"), the role of the person addressed when they were asked ("Alex, can you…").',
-    '  The role is shown in brackets before each line. Always set actionKind when the deliverable is an issue, a team',
+    '  The role is shown in brackets before each line. Always use the speaker names as they appear in the transcript lines (never append a scenario default name in parentheses after a speaker\'s name). Always set actionKind when the deliverable is an issue, a team',
     '  chat post, an email, a wiki page or a calendar event; omit it only when none of these fits. Both title and context',
     '  MUST include the specific topic and decision from the preceding lines (for example, title: "Post kiosk English',
     '  subtitles decision in team channel", context: "Announce in the team channel today that we decided to add English',
@@ -389,8 +451,8 @@ function systemPrompt(scenario: Scenario): string {
     '',
     'Examples:',
     '- "[Priya (Manager)] I\'ll post the new opening hours in the team channel tonight." → task (mattermost_post, Manager: the speaker owns it, not whoever the topic concerns).',
-    '- "Can the login fix go in before the demo?" "Should be fine." → not a task: product work itself.',
-    '- "[Sam (Studio Manager)] Arjun, can you summarise the current state of the build?" → not a task: asking someone to speak in the meeting.',
+    '- "Can the payment fix go in before Friday morning?" "Should be fine." → not a task: product work itself.',
+    '- "[Sam (General Manager)] Arjun, can you walk us through the current state of the ordering app?" → not a task: asking someone to speak in the meeting.',
     '- "Should the flyers use the new logo?" "Yes, use the new one." → not a task: an answer, nobody asked or volunteered.',
     '- "When is the delivery due?" "The email says Monday, but I think it moved, so don\'t quote me." → question:',
     '  the only answer was doubted. Keep it open until someone states the date without doubt.',
@@ -477,15 +539,39 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         console.warn(`kaki notetaker: dropped question "${question.text}"; it is not phrased as a question`);
         continue;
       }
+      if (isRhetoricalTopicHandoff(question.text)) {
+        console.warn(`kaki notetaker: dropped rhetorical topic handoff "${question.text}"`);
+        continue;
+      }
       if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) {
-        console.warn(`kaki notetaker: dropped question "${question.text}"; it repeats one that is already open`);
         continue;
       }
       questionCount += 1;
       openQuestions.push({ id: `q-${questionCount}`, ...question });
     }
 
+    // If a participant reverses their decision on the same agenda item in the current batch ("Actually wait no, I changed my mind — scrap that..."),
+    // dismiss any earlier SUGGESTED tasks before processing the new batch so only the revised decision's tasks remain active.
+    if (
+      batch.some((l) => /\b(?:changed my mind|scrap that|wait no|actually wait|instead of|forget that)\b/i.test(l.text))
+    ) {
+      for (const existing of tasks.list()) {
+        if (existing.status === 'SUGGESTED') {
+          try {
+            tasks.transition(existing.id, 'DISMISSED');
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+
+    const batchHasActionableTask = reply.newTasks.some((t) => t.actionKind !== undefined);
     for (const { evidence, duplicateOf, ...task } of reply.newTasks) {
+      if (batchHasActionableTask && task.actionKind === undefined) {
+        console.warn(`kaki notetaker: dropped manual product task "${task.title}" in favour of actionable deliverable`);
+        continue;
+      }
       const activeDuplicateOf =
         duplicateOf !== undefined && tasks.get(duplicateOf)?.status !== 'DISMISSED' ? duplicateOf : undefined;
       if (activeDuplicateOf !== undefined || isLikelyDuplicate(task, tasks.list())) continue;
@@ -500,9 +586,36 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       }
       // Whoever is explicitly asked by role ("as Operations Director, can you...") or by name ("Mei, can you...") owns it;
       // otherwise whoever says "I'll do it" owns it.
-      const owner = addressedRole(source.text, scenario, groundingPool) ?? volunteerRole(evidence, source);
-      const owned = owner === undefined ? task : { ...task, suggestedAssignee: owner };
-      if (owned !== task && isLikelyDuplicate(owned, tasks.list())) continue;
+      const owner = addressedRole(source.text, scenario, groundingPool, source.role) ?? volunteerRole(evidence, source);
+      let cleanedContext = task.context.replace(/\s*\((?:Wei Ling|Arjun|Mei|Daniel|Sam)\)/g, '');
+      for (const attendee of scenario.attendees) {
+        const visitorLine = groundingPool.find(
+          (l) => l.role === attendee.role && l.speaker !== undefined && !l.speaker.startsWith(attendee.name),
+        );
+        if (visitorLine?.speaker !== undefined) {
+          const visitorName = visitorLine.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+          const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          cleanedContext = cleanedContext.replace(new RegExp(`\\b${escaped}\\b`, 'g'), visitorName);
+        }
+      }
+      const sourceIdx = groundingPool.indexOf(source);
+      if (sourceIdx > 0 && /\b(?:post|share|send|announce)\s+(?:that|the)\s+decision\b/i.test(`${source.text} ${cleanedContext}`)) {
+        const decisionSnippets = groundingPool
+          .slice(Math.max(0, sourceIdx - 3), sourceIdx)
+          .map((l) => l.text.trim())
+          .filter(
+            (t) =>
+              t.length > 8 &&
+              !/\b(?:could you|can you|would you|will you)\s+(?:post|send|share|email|file)\b/i.test(t) &&
+              !cleanedContext.toLowerCase().includes(t.toLowerCase().slice(0, 24)),
+          );
+        if (decisionSnippets.length > 0) {
+          cleanedContext = `${cleanedContext.replace(/[.!\s]+$/, '')}. Agreed plan: ${decisionSnippets.join(' ')}`;
+        }
+      }
+      const baseTask = cleanedContext === task.context ? task : { ...task, context: cleanedContext };
+      const owned = owner === undefined ? baseTask : { ...baseTask, suggestedAssignee: owner };
+      if (owned !== baseTask && isLikelyDuplicate(owned, tasks.list())) continue;
       try {
         tasks.suggest(owned);
       } catch (error) {
@@ -519,10 +632,14 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
       const isFacilitator = role !== undefined && scenario.roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
-      if (isFacilitator) {
-        // The facilitator's job is to open the meeting, introduce agenda items, ask questions, and dispatch tasks;
-        // none of those lines are new task commitments, and feeding them to the notetaker causes premature tasks.
-        return;
+      if (isFacilitator && speaker === 'Sam') {
+        // When AI Sam explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
+        // keep that line so the notetaker extracts the task even if the LLM put the task request on a "Sam:" line.
+        const isTaskRequestFromSam =
+          /\b(?:can|could|would|will) you (?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|put|share|confirm)\b/i.test(
+            text,
+          );
+        if (!isTaskRequestFromSam) return;
       }
       keepPending([...pending, role === undefined ? { speaker, text } : { speaker, role, text }]);
     },
@@ -543,7 +660,7 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
 
       try {
         const messages: ChatMessage[] = [
-          { role: 'system', content: systemPrompt(scenario) },
+          { role: 'system', content: systemPrompt(scenario, [...recentGrounded, ...batch]) },
           { role: 'user', content: userPrompt(scenario, agendaIndex(), openQuestions, tasks.list(), batch) },
         ];
         const reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario);

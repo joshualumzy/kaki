@@ -63,10 +63,10 @@ Answer with facts from the company records below. Return strict JSON and nothing
 {"facts":[{"text":"...","source":"...","date":"YYYY-MM-DD"}]}
 
 Rules:
-- Include a fact only if it directly helps answer that question. A record about something else, even something nearby, is not a fact: leave it out. Return {"facts":[]} when nothing answers the question.
-- Return the 1 to ${MAX_FACTS} most useful facts, best first. One short, plain sentence each, written for someone listening in a meeting: no ids, no jargon, no repeating the question.
+- Include a fact only if it directly helps answer that question or topic. A record about a different topic or agenda item (even from the same shop or project, such as seating/booths when the topic is the Kopi menu, or cash hygiene when the topic is butter) is not a fact: strictly leave it out. Return {"facts":[]} when nothing answers the question.
+- Return the 1 to ${MAX_FACTS} most useful facts, best first. One short, plain sentence each, written as an objective company record, measurement, or system specification from the source document (for example: "POS v2.4 spec: kitchen_print_name can be configured separately from screen display_name (1 hr setup), and a 2-step Milk & Sugar pop-up modal is supported (1.5 hr setup)."). NEVER phrase a fact as first-person advice or a pre-made meeting decision ("We can...", "We should...", "You can..."). No ids, no repeating the question.
 - Use only the records. Never invent or round numbers, names or dates, and do not take numbers from the question itself.
-- "source" is the short label in the record's first line, in plain words (for example "Wiki: Game Design Doc" or "Email from Starfruit"). Never write ids or "ref".
+- "source" is the short label in the record's first line, in plain words (for example "Wiki: Kiosk Menu & Kitchen Printer Notes" or "Mattermost: #kiosk-trials"). Never write ids or "ref".
 - "date" is the record's published date.
 - Only when two records disagree about the same thing, say so in one sentence, naming both sources and dates, and say which is newer and so more likely right.
 

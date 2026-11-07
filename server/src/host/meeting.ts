@@ -73,6 +73,7 @@ export function createMeetingModule({
         const signature = JSON.stringify([
           now.agendaIndex,
           now.overrun,
+          Boolean(now.paused),
           openQuestions,
           status,
           quietRoles,
@@ -98,6 +99,7 @@ export function createMeetingModule({
             ),
             notetakerStatus: status,
             quietRoles,
+            ...(now.paused ? { paused: true } : {}),
           },
         };
         hub.publish(event, { retainKey: 'record' });
@@ -155,6 +157,8 @@ export function createMeetingModule({
         tasks.reset();
         hub.clearRetained('record');
         hub.clearRetained('host:opening');
+        hub.clearRetained('fact:');
+        hub.clearRetained('nudge:');
         lastSignature = undefined;
         lastPublishedAt = 0;
         announcedAgendaIndex = -1;
@@ -180,6 +184,22 @@ export function createMeetingModule({
       }
 
       const unsubscribe = hub.subscribe((event) => {
+        if (event.type === 'MEETING_RESET') {
+          if (clock.snapshot().started || clock.snapshot().ended) {
+            clock.reset();
+            notetaker.reset();
+            tasks.reset();
+            hub.clearRetained('record');
+            hub.clearRetained('host:opening');
+            hub.clearRetained('fact:');
+            hub.clearRetained('nudge:');
+            lastSignature = undefined;
+            lastPublishedAt = 0;
+            announcedAgendaIndex = -1;
+            startTicker();
+          }
+          return;
+        }
         if (event.type !== 'TRANSCRIPT_CHUNK') return;
 
         if (clock.snapshot().ended) resetMeeting();
@@ -231,10 +251,24 @@ export function createMeetingModule({
       }
 
       hub.onCommand((command, sender) => {
-        if (command.type !== 'END_MEETING' && command.type !== 'NEXT_AGENDA_ITEM' && command.type !== 'SET_HOST_MODE') return;
+        if (
+          command.type !== 'END_MEETING' &&
+          command.type !== 'NEXT_AGENDA_ITEM' &&
+          command.type !== 'SET_HOST_MODE' &&
+          command.type !== 'SET_PAUSED'
+        ) {
+          return;
+        }
         if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
         if (command.type === 'SET_HOST_MODE') {
           humanHost = command.human;
+          return;
+        }
+        if (command.type === 'SET_PAUSED') {
+          if (command.paused) clock.pause();
+          else clock.resume();
+          lastSignature = undefined;
+          publishRecord();
           return;
         }
         if (command.type === 'END_MEETING') {

@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
+  <style>
+    @keyframes noteWaveLeft {
+      0%, 100% { transform: translateY(0px) rotate(-14deg); }
+      50% { transform: translateY(-7px) rotate(-6deg); }
+    }
+    @keyframes noteWaveRight {
+      0%, 100% { transform: translateY(0px) rotate(12deg); }
+      50% { transform: translateY(-7px) rotate(4deg); }
+    }
+    @keyframes qrScan {
+      0%, 100% { transform: translateY(0px); opacity: 0.85; }
+      50% { transform: translateY(44px); opacity: 1; }
+    }
+    @keyframes badgePulse {
+      0%, 100% { stroke-opacity: 0.7; transform: scale(1); }
+      50% { stroke-opacity: 1; transform: scale(1.02); }
+    }
+    @keyframes bubbleFloat {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-3px); }
+    }
+    .note-2 { transform: translateY(0px) rotate(-14deg); animation: noteWaveLeft 2.2s ease-in-out infinite both; }
+    .note-10 { transform: translateY(0px) rotate(12deg); animation: noteWaveRight 2.2s ease-in-out 0.3s infinite both; }
+    .qr-laser { animation: qrScan 2.4s ease-in-out infinite; }
+    .no-cash-box { transform-origin: 68px 114px; animation: badgePulse 1.8s ease-in-out infinite; }
+    .speech-float { animation: bubbleFloat 3s ease-in-out infinite; }
+  </style>
+  <defs>
+    <linearGradient id="bgCash" x1="0" y1="0" x2="400" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f3d36"/>
+      <stop offset="55%" stop-color="#145349"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="warmGlowCash" x1="275" y1="10" x2="275" y2="185" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Heritage Kopitiam Tile Wall -->
+  <rect width="400" height="200" fill="url(#bgCash)"/>
+  <g stroke="#ffffff" stroke-opacity="0.06" stroke-width="1">
+    <line x1="0" y1="40" x2="400" y2="40"/>
+    <line x1="0" y1="80" x2="400" y2="80"/>
+    <line x1="0" y1="120" x2="400" y2="120"/>
+    <line x1="0" y1="160" x2="400" y2="160"/>
+    <line x1="50" y1="0" x2="50" y2="200"/>
+    <line x1="100" y1="0" x2="100" y2="200"/>
+    <line x1="150" y1="0" x2="150" y2="200"/>
+    <line x1="200" y1="0" x2="200" y2="200"/>
+    <line x1="250" y1="0" x2="250" y2="200"/>
+    <line x1="300" y1="0" x2="300" y2="200"/>
+    <line x1="350" y1="0" x2="350" y2="200"/>
+  </g>
+
+  <!-- Hanging Kopitiam Lamp & Warm Sunbeam -->
+  <circle cx="275" cy="65" r="110" fill="url(#warmGlowCash)"/>
+  <line x1="275" y1="0" x2="275" y2="24" stroke="#d97706" stroke-width="2.5"/>
+  <path d="M252 24 C255 10, 295 10, 298 24 Z" fill="#047857" stroke="#fde68a" stroke-width="1.8"/>
+  <ellipse cx="275" cy="27" rx="10" ry="4" fill="#fef08a"/>
+
+  <!-- Marble Counter -->
+  <rect x="0" y="160" width="400" height="40" fill="#f8fafc"/>
+  <path d="M0 160 H400" stroke="#d97706" stroke-width="3.5"/>
+  <path d="M35 178 Q95 168 155 184 T290 176" stroke="#cbd5e1" stroke-width="1.5" fill="none"/>
+
+  <!-- Left: Sleek PayNow QR Stand & "NO CASH" Plaque on Marble Counter -->
+  <g transform="translate(24, 22)">
+    <rect x="0" y="0" width="136" height="138" rx="14" fill="#0f172a" stroke="#38bdf8" stroke-width="2.5"/>
+    <rect x="10" y="10" width="116" height="84" rx="8" fill="#1e293b"/>
+    <!-- Stylized Purple/White PayNow QR Code -->
+    <rect x="38" y="16" width="60" height="54" rx="6" fill="#ffffff" stroke="#a855f7" stroke-width="2.5"/>
+    <rect x="46" y="23" width="14" height="14" fill="#581c87"/>
+    <rect x="76" y="23" width="14" height="14" fill="#581c87"/>
+    <rect x="46" y="48" width="14" height="14" fill="#581c87"/>
+    <rect x="64" y="38" width="10" height="10" fill="#9333ea"/>
+    <rect x="78" y="50" width="12" height="12" fill="#581c87"/>
+    <!-- Animated QR Scan Line -->
+    <line class="qr-laser" x1="40" y1="20" x2="96" y2="20" stroke="#2fe0c4" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="68" y="85" text-anchor="middle" fill="#e9d5ff" font-family="system-ui, sans-serif" font-size="8" font-weight="800" letter-spacing="0.04em">PAYNOW · QR ONLY</text>
+
+    <!-- Red "NO CASH" Badge (Comfortably fitted!) -->
+    <g class="no-cash-box">
+      <rect x="12" y="102" width="112" height="24" rx="6" fill="#450a0a" stroke="#ef4444" stroke-width="1.8"/>
+      <text x="68" y="118" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="9" font-weight="800" letter-spacing="0.04em">NO CASH ACCEPTED</text>
+    </g>
+  </g>
+
+  <!-- Right: Elderly Singaporean Uncle Holding Crisp Purple $2 & Red $10 Notes -->
+  <g transform="translate(182, 22)">
+    <!-- Speech Bubble (Wider 196px box + concise text so quotes stay 100% inside!) -->
+    <g class="speech-float">
+      <rect x="0" y="0" width="196" height="40" rx="12" fill="#fffbeb" stroke="#f59e0b" stroke-width="2"/>
+      <path d="M90 40 L82 50 L100 40 Z" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5"/>
+      <text x="98" y="18" text-anchor="middle" fill="#92400e" font-family="system-ui, sans-serif" font-size="10.5" font-weight="800">"Cannot take $2 cash meh?!"</text>
+      <text x="98" y="32" text-anchor="middle" fill="#b45309" font-family="system-ui, sans-serif" font-size="8.5" font-weight="600">30-year regular · No banking app</text>
+    </g>
+
+    <!-- Uncle Character (Silver Hair, Reading Glasses) -->
+    <g transform="translate(66, 54)">
+      <path d="M14 22 C14 6, 50 6, 50 22" fill="#e2e8f0"/>
+      <circle cx="32" cy="26" r="16" fill="#fed7aa" stroke="#d97706" stroke-width="2"/>
+      <circle cx="26" cy="25" r="5" fill="none" stroke="#475569" stroke-width="1.8"/>
+      <circle cx="38" cy="25" r="5" fill="none" stroke="#475569" stroke-width="1.8"/>
+      <line x1="31" y1="25" x2="33" y2="25" stroke="#475569" stroke-width="1.8"/>
+      <path d="M27 34 Q32 30 37 34" stroke="#7c2d12" stroke-width="1.8" fill="none"/>
+      <path d="M6 84 C6 50, 58 50, 58 84 Z" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+    </g>
+
+    <!-- Animated Singapore Purple $2 Note -->
+    <g transform="translate(6, 80)">
+      <g class="note-2">
+        <rect x="0" y="0" width="58" height="30" rx="5" fill="#9333ea" stroke="#f3e8ff" stroke-width="2"/>
+        <circle cx="16" cy="15" r="7" fill="#c084fc" fill-opacity="0.5"/>
+        <text x="38" y="20" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="900">$2</text>
+      </g>
+    </g>
+
+    <!-- Animated Singapore Red $10 Note -->
+    <g transform="translate(128, 78)">
+      <g class="note-10">
+        <rect x="0" y="0" width="60" height="30" rx="5" fill="#dc2626" stroke="#fee2e2" stroke-width="2"/>
+        <circle cx="16" cy="15" r="7" fill="#f87171" fill-opacity="0.5"/>
+        <text x="39" y="20" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12.5" font-weight="900">$10</text>
+      </g>
+    </g>
+  </g>
+</svg>

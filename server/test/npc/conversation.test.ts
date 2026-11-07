@@ -886,5 +886,136 @@ describe('NpcConversation', () => {
       expect(h.playing).toHaveLength(0);
       expect(h.logs.join('\n')).toContain('dropped Ada');
     });
+
+    it('does not auto-advance on a side-task acceptance before the decision is wrapped up', async () => {
+      const { conversation, ports, calls, say, flush } = harness(hostedScenario());
+      let advanced = 0;
+      ports.advanceAgenda = () => {
+        advanced += 1;
+      };
+      conversation.agendaMoved(hostedScenario().agenda[0]!.title);
+      await say('Have you told anyone about the promo yet?');
+      calls.at(-1)?.push('Bao: I mentioned a rough idea on social media, Josh, what do you want to do?');
+      calls.at(-1)?.end();
+      await flush();
+      // A mid-discussion side task is accepted while the item is still an open question: must NOT advance.
+      conversation.taskAccepted();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(advanced).toBe(0);
+    });
+
+    it('freezes the conversation after announceClosing so trailing speech cannot restart it', async () => {
+      const h = harness();
+      h.conversation.announceClosing('Ada', 'That concludes our meeting.');
+      await h.flush();
+      h.playing[0]?.finish();
+      await h.conversation.settled();
+      await h.say('Hello, anyone still here?');
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(h.calls).toHaveLength(0);
+    });
+
+    it('intercepts canned safety refusals, speaks a warm colleague check-in, and scrubs the turn from history so the next turn recovers', async () => {
+      const h = harness(hostedScenario());
+      await h.say('I am so stressed I want to hurt myself.');
+      h.calls[0]?.push(
+        'Ada: I cannot continue a conversation that is discussing self-harm. Please call the National Suicide Prevention Lifeline at 1-800-273-TALK or text HOME to 741741.',
+      );
+      h.calls[0]?.end();
+      await h.flush();
+      expect(h.playing).toHaveLength(1);
+      expect(h.playing[0]?.text).toContain('forget the meeting for a second');
+      expect(h.playing[0]?.text).not.toContain('741741');
+      h.playing[0]?.finish();
+      await h.conversation.settled();
+
+      // Next turn: the person moves back to the meeting topic; the refusal turn was scrubbed from history.
+      await h.say('Okay, let us decide on the menu.');
+      const historySent = JSON.stringify(h.calls[1]?.messages ?? []);
+      expect(historySent).not.toContain('741741');
+      expect(historySent).not.toContain('hurt myself');
+    });
+
+    it('clears cutOff when real speech arrives after a barge-in so humanNothing cannot trigger a stale resume', async () => {
+      const h = harness();
+      await h.say('What is the plan?');
+      h.calls[0]?.push('Ada: Here is the first sentence. Here is the second sentence.');
+      h.calls[0]?.end();
+      await h.flush();
+      expect(h.playing).toHaveLength(1);
+      // Barge in while Ada is speaking sentence 1.
+      h.conversation.humanSpeech(true);
+      await vi.advanceTimersByTimeAsync(1500);
+      h.conversation.humanSpeech(false);
+      // Real speech arrives right after stopping talking:
+      h.conversation.humanText('Hold on, let us check the cost.');
+      // A trailing humanNothing from a throat clear must NOT trigger a "[made a sound]" resume:
+      h.conversation.humanNothing();
+      await vi.advanceTimersByTimeAsync(2000);
+      const lastCallMessages = JSON.stringify(h.calls.at(-1)?.messages ?? []);
+      expect(lastCallMessages).toContain('Hold on, let us check the cost.');
+      expect(lastCallMessages).not.toContain('made a sound');
+    });
+
+    it('holds the advance timer when holdForHumanTask is called so the visitor can review a Kaki draft', async () => {
+      const { conversation, ports, calls, say, flush, playing } = harness(hostedScenario());
+      let advanced = 0;
+      ports.advanceAgenda = () => {
+        advanced += 1;
+      };
+      conversation.agendaMoved(hostedScenario().agenda[0]!.title);
+      await say('Let us go with the first option.');
+      calls.at(-1)?.push('Bao: Got it, we will go with the first option. Josh, could you post that update in the team channel today?');
+      calls.at(-1)?.end();
+      await flush();
+      while (playing.some((entry) => !entry.finished)) {
+        for (const entry of playing) {
+          if (!entry.finished) entry.finish();
+        }
+        await flush();
+        await vi.advanceTimersByTimeAsync(600);
+      }
+      await conversation.settled();
+      // Visitor clicks "Let Kaki do it" -> holdForHumanTask holds the advance timer for 25s
+      conversation.holdForHumanTask(25_000);
+      await vi.advanceTimersByTimeAsync(18_000);
+      expect(advanced).toBe(0);
+      // Visitor approves the draft -> taskAccepted advances after 3s
+      conversation.taskAccepted();
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(advanced).toBe(1);
+    });
+
+    it('prevents one-shotting in a multi-colleague meeting by pushing back with a second-order catch on the first proposal before locking in on the second', async () => {
+      const multiNpcScenario = {
+        ...hostedScenario(),
+        npcs: [
+          { attendee: 'Ada', voice: 'v1', role: 'host' as const, personality: 'Calm host', agenda: 'Run meeting', concerns: [] },
+          { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['15-inch screen grid limit'] },
+          { attendee: 'Chen', voice: 'v3', personality: 'Ops boss', agenda: 'Protect staff', concerns: ['Kitchen docket printer'] },
+        ],
+      };
+      const { conversation, calls, say, flush, playing } = harness(multiNpcScenario);
+      conversation.agendaMoved(multiNpcScenario.agenda[0]!.title);
+
+      // Turn 1: Visitor tries to one-shot the topic with a single-sentence proposal.
+      await say('Let us just rename all the buttons to plain English.');
+      expect(conversation.canDispatchTask()).toBe(false);
+      const turn1Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(turn1Prompt).toContain('Do NOT let Josh one-shot this topic');
+      expect(turn1Prompt).toContain('raise the concrete second-order catch');
+      calls.at(-1)?.push('Chen: Renaming buttons helps tourists, Josh, but our kitchen docket printer prints the button label directly and will slow down the uncles — how should we handle the kitchen tickets?');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      // Turn 2: Visitor addresses the catch and refines the plan -> now settled!
+      await say('Keep the kitchen printer mapped to the traditional Kopi shorthand and show a two-step visual popup on the screen.');
+      expect(conversation.canDispatchTask()).toBe(true);
+      const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(turn2Prompt).toContain('Josh has now addressed the trade-offs and settled the plan');
+      calls.at(-1)?.end();
+    });
   });
 });

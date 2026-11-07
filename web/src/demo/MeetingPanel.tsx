@@ -35,12 +35,19 @@ export function MeetingPanel({
   const { events, tasks, connected, rejection, send } = useKaki('screen');
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const seenKeys = useRef(new Set<string>());
   const seenEvents = useRef(new WeakSet<KakiEvent>());
   const taskStatus = useRef(new Map<string, Task['status']>());
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (events.length === 0 || (events.length === 1 && events[0]?.type === 'TRANSCRIPT_CHUNK')) {
+      setEntries([]);
+      setRecord(undefined);
+      seenKeys.current.clear();
+      taskStatus.current.clear();
+    }
     const added: TimelineEntry[] = [];
     for (const event of events) {
       if (seenEvents.current.has(event)) continue;
@@ -58,6 +65,20 @@ export function MeetingPanel({
     if (added.length > 0) setEntries((previous) => [...previous, ...added]);
   }, [events, viewer, isHost, scenario]);
 
+  const facilitatorName = useMemo(() => {
+    const hostRole = scenario.roles.find((r) => r.facilitator === true);
+    return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
+  }, [scenario]);
+
+  const topicBriefingStarted = useMemo(() => {
+    if (record !== undefined && record.payload.elapsedSeconds >= 22) return true;
+    return events.some(
+      (event) =>
+        event.type === 'TRANSCRIPT_CHUNK' &&
+        !event.payload.speaker.startsWith(facilitatorName),
+    );
+  }, [events, facilitatorName, record]);
+
   const screenFacts = useMemo(
     () =>
       events.filter(
@@ -66,7 +87,7 @@ export function MeetingPanel({
       ),
     [events],
   );
-  const latestFact = screenFacts.at(-1);
+  const latestFact = topicBriefingStarted ? screenFacts.at(-1) : undefined;
 
   useEffect(() => {
     const added: TimelineEntry[] = [];
@@ -87,7 +108,12 @@ export function MeetingPanel({
       [...tasks.values()].some(
         (task) =>
           task.assignee === role.id &&
-          (task.status === 'DISPATCHED' || task.status === 'DRAFT_READY' || task.status === 'FAILED'),
+          (task.status === 'DISPATCHED' ||
+            task.status === 'CLAIMED' ||
+            task.status === 'DRAFT_READY' ||
+            task.status === 'RUNNING' ||
+            task.status === 'COMPLETED' ||
+            task.status === 'FAILED'),
       ),
     [role, tasks],
   );
@@ -109,6 +135,23 @@ export function MeetingPanel({
   }, [entries.length, hasActiveVisitorTask]);
 
   const visibleTasks = useMemo(() => [...tasks.values()].filter((task) => task.status !== 'DISMISSED'), [tasks]);
+  const boardTasks = useMemo(
+    () =>
+      visibleTasks.filter(
+        (task) =>
+          !(
+            role !== undefined &&
+            task.assignee === role.id &&
+            (task.status === 'DISPATCHED' ||
+              task.status === 'CLAIMED' ||
+              task.status === 'DRAFT_READY' ||
+              task.status === 'RUNNING' ||
+              task.status === 'COMPLETED' ||
+              task.status === 'FAILED')
+          ),
+      ),
+    [visibleTasks, role],
+  );
   const minutesTask = useMemo(
     () =>
       visibleTasks.find(
@@ -174,11 +217,17 @@ export function MeetingPanel({
         </section>
       )}
       {record === undefined ? (
-        <p className="empty-state">The meeting has not started yet. The agenda clock begins with the first thing said.</p>
+        <>
+          {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} />}
+          <p className="empty-state">The meeting has not started yet. The agenda clock begins with the first thing said.</p>
+        </>
       ) : (
         <>
           <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} />
-          {!meetingEnded && (
+          {!meetingEnded && isHost && (
+            <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started />
+          )}
+          {!meetingEnded && topicBriefingStarted && (
             <CurrentTopicCard
               item={scenario.agenda[record.payload.agendaIndex]}
               scenario={scenario}
@@ -186,49 +235,57 @@ export function MeetingPanel({
               viewer={viewer}
             />
           )}
-          {latestFact !== undefined && (
-            <section className="kd-role kd-topic-card" aria-label="From the company records">
-              <p className="kd-role-eyebrow">Kaki Wingman · From the company records</p>
-              <p style={{ marginBottom: 6 }}>
-                <strong>{latestFact.payload.question}</strong>
-              </p>
-              <ul style={{ marginBottom: 0 }}>
-                {latestFact.payload.facts.slice(0, 3).map((fact, index) => (
-                  <li key={`${fact.source}-${fact.date}-${index}`}>
-                    {fact.text} <small>({fact.source} · {fact.date})</small>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          {(() => {
+            if (latestFact === undefined) return null;
+            const currentItem = scenario.agenda[record.payload.agendaIndex];
+            const myFacts =
+              currentItem !== undefined
+                ? relevantFactsForItem(
+                    currentItem,
+                    role?.card?.facts ?? [],
+                    itemMode(scenario, currentItem, role?.id) === 'involve',
+                  )
+                : [];
+            const nonDuplicateFacts = filterNonDuplicateCompanyFacts(latestFact.payload.facts, myFacts);
+            if (nonDuplicateFacts.length === 0) return null;
+            return (
+              <section className="kd-role kd-topic-card" aria-label="From the company records">
+                <p className="kd-role-eyebrow">Kaki Wingman · From the company records</p>
+                <p style={{ marginBottom: 6 }}>
+                  <strong>{latestFact.payload.question}</strong>
+                </p>
+                <ul className="kd-record-list" style={{ marginBottom: 0 }}>
+                  {nonDuplicateFacts.slice(0, 3).map((fact, index) => (
+                    <li key={`${fact.source}-${fact.date}-${index}`}>
+                      <span className="kd-record-source-pill">{sourceBadgeText(fact.source)}</span>
+                      <span>{fact.text}</span>
+                      <small>({fact.source} · {fact.date})</small>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })()}
         </>
       )}
 
-      <h3 className="eyebrow">Live feed</h3>
-      {entries.length === 0 ? (
-        <p className="empty-state">Nothing yet.</p>
-      ) : (
-        <ol className="kd-lines">
-          {entries.map((entry) => (
-            <li key={entry.key} data-kind={entry.kind}>
-              {entry.who !== undefined && <b>{entry.who}</b>}
-              <span>{entry.text}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-      <div ref={end} />
-
-      {visibleTasks.length > 0 && (
+      {boardTasks.length > 0 && (
         <div className="kd-tasks">
-          <h3 className="eyebrow">Tasks</h3>
+          <h3 className="eyebrow">Live Kaki Actions ({boardTasks.length})</h3>
           <ul>
-            {visibleTasks.map((task) => (
-              <li key={task.id}>
-                <b>{task.title}</b>
+            {boardTasks.map((task) => (
+              <li key={task.id} className="kd-task-card" data-status={task.status}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <b style={{ flex: 1, minWidth: 0 }}>{task.title}</b>
+                  <span style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {actionKindBadge(task) !== undefined && (
+                      <span className="kd-task-badge">{actionKindBadge(task)}</span>
+                    )}
+                    <span className="kd-task-badge">{taskStatusText(task)}</span>
+                  </span>
+                </div>
                 <span>
-                  {assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)} ·{' '}
-                  {taskStatusText(task)}
+                  Owner: {assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}
                 </span>
                 {task.context.trim() !== '' && <small>{task.context}</small>}
                 {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') && (
@@ -250,6 +307,39 @@ export function MeetingPanel({
           </ul>
         </div>
       )}
+
+      <details
+        className="kd-briefing kd-transcript-drawer"
+        open={transcriptOpen}
+        onToggle={(event) => setTranscriptOpen(event.currentTarget.open)}
+      >
+        <summary className="kd-briefing-summary">
+          <span>
+            Live transcript ({entries.length})
+            {!transcriptOpen && entries.at(-1) !== undefined && (
+              <small style={{ marginLeft: 8, opacity: 0.75, fontWeight: 400 }}>
+                · {entries.at(-1)?.who ? `${entries.at(-1)?.who}: ` : ''}
+                {(entries.at(-1)?.text ?? '').slice(0, 48)}
+                {(entries.at(-1)?.text.length ?? 0) > 48 ? '…' : ''}
+              </small>
+            )}
+          </span>
+          <span className="kd-briefing-toggle">{transcriptOpen ? 'Hide' : 'Show'}</span>
+        </summary>
+        {entries.length === 0 ? (
+          <p className="empty-state" style={{ marginTop: 8 }}>Nothing yet.</p>
+        ) : (
+          <ol className="kd-lines" style={{ marginTop: 10 }}>
+            {entries.map((entry) => (
+              <li key={entry.key} data-kind={entry.kind}>
+                {entry.who !== undefined && <b>{entry.who}</b>}
+                <span>{entry.text}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <div ref={end} />
+      </details>
     </div>
   );
 }
@@ -264,6 +354,33 @@ function taskStatusText(task: Task): string {
       return 'publishing…';
     default:
       return task.status.replace('_', ' ').toLowerCase();
+  }
+}
+
+function sourceBadgeText(source: string): string {
+  const lower = source.toLowerCase();
+  if (lower.includes('gitea') || lower.includes('issue') || lower.includes('ticket')) return '🐛 Gitea Ticket';
+  if (lower.includes('mattermost') || lower.includes('chat') || lower.includes('channel')) return '💬 Team Chat';
+  if (lower.includes('wiki') || lower.includes('sop') || lower.includes('doc') || lower.includes('guide')) return '📖 Wiki SOP';
+  if (lower.includes('mail') || lower.includes('email')) return '📧 Email';
+  if (lower.includes('sql') || lower.includes('postgres') || lower.includes('table')) return '📊 Store DB';
+  return '📁 Record';
+}
+
+function actionKindBadge(task: Task): string | undefined {
+  switch (task.actionKind) {
+    case 'gitea_issue':
+      return 'Gitea';
+    case 'mattermost_post':
+      return 'Mattermost';
+    case 'wiki_page':
+      return 'Wiki';
+    case 'email':
+      return 'Mailpit';
+    case 'calendar_event':
+      return 'Calendar';
+    default:
+      return undefined;
   }
 }
 
@@ -313,18 +430,50 @@ function CurrentTopicCard({
     <section className="kd-role kd-topic-card" aria-label="Current topic context">
       <p className="kd-role-eyebrow">Wingman · {roleBadge}</p>
       {item.decision !== undefined && (
-        <p style={{ marginBottom: myFacts.length > 0 ? 6 : 0 }}>
+        <p style={{ marginBottom: myFacts.length > 0 ? 8 : 0 }}>
           <strong>{mode === 'observe' ? 'On the table: ' : 'Your call to make: '}</strong>
           {item.decision}
         </p>
       )}
       {myFacts.length > 0 && (
-        <ul style={{ marginBottom: 0 }}>
+        <div className="kd-fact-chips" aria-label="Key facts for this topic">
           {myFacts.map((fact) => (
-            <li key={fact}>{fact}</li>
+            <div key={fact} className="kd-fact-chip">
+              {fact}
+            </div>
           ))}
-        </ul>
+        </div>
       )}
+    </section>
+  );
+}
+
+/** Live cue card for a visitor playing the Host seat so they know who to call on and what to land on each agenda item. */
+function HostCueCard({
+  scenario,
+  agendaIndex,
+  started,
+}: {
+  scenario: Scenario;
+  agendaIndex: number;
+  started: boolean;
+}) {
+  const item = scenario.agenda[agendaIndex] ?? scenario.agenda[0];
+  if (item === undefined) return null;
+  const ownerAttendee = scenario.attendees.find((a) => a.role === item.ownerRole)?.name ?? roleLabel(scenario, item.ownerRole);
+  const coHostAttendee = scenario.attendees.find((a) => a.role === 'producer')?.name ?? 'Wei Ling';
+  return (
+    <section className="kd-role kd-topic-card" aria-label="Host cue card">
+      <p className="kd-role-eyebrow">Kaki Wingman · Host Cue Card (Item {agendaIndex + 1} of {scenario.agenda.length})</p>
+      <p style={{ marginBottom: 6 }}>
+        <strong>{started ? `Now chairing: ${item.title}` : `How to kick off Item 1: ${item.title}`}</strong>
+      </p>
+      <p style={{ marginBottom: 6 }}>
+        Try saying: <em>&ldquo;Hey team, let&rsquo;s start with {item.title}. {ownerAttendee}, can you walk us through it?&rdquo;</em>
+      </p>
+      <small style={{ display: 'block', opacity: 0.85 }}>
+        Tip: {coHostAttendee} (Operations Director) will help co-host if the room goes quiet, or you can click <b>Next agenda item</b> above anytime.
+      </small>
     </section>
   );
 }
@@ -334,21 +483,58 @@ const GENERIC_WORDS = new Set([
   'have', 'has', 'had', 'not', 'but', 'what', 'when', 'who', 'how', 'why', 'where',
   'your', 'you', 'our', 'their', 'they', 'will', 'can', 'just', 'more', 'first',
   'build', 'game', 'launch', 'team', 'time', 'open', 'issue', 'issues', 'before',
+  'order', 'morning', 'counter', 'kiosk', 'kiosks', 'toast', 'staff', 'regulars',
+  'customers', 'handle', 'without', 'make', 'keep', 'turn', 'turned', 'away',
 ]);
 
-/** Pick only the facts from the visitor's own role card that overlap with this agenda item's specific topic words (or all of them when the visitor owns the item). */
+/** Pick only the single most relevant fact from the visitor's own role card that matches this agenda item's specific topic words. */
 function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwner: boolean): string[] {
   if (facts.length === 0) return [];
   const text = `${item.title} ${item.decision ?? ''}`.toLowerCase();
   const keywords = (text.match(/[a-z0-9]+/g) ?? []).filter(
     (word) => (word.length >= 4 || /^\d+$/.test(word)) && !GENERIC_WORDS.has(word),
   );
-  const matched = facts.filter((fact) => {
-    const lower = fact.toLowerCase();
-    return keywords.some((word) => new RegExp(`\\b${word}\\b`, 'i').test(lower));
+  if (keywords.length > 0) {
+    const scored = facts
+      .map((fact) => {
+        const lower = fact.toLowerCase();
+        const hits = keywords.filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(lower)).length;
+        return { fact, hits };
+      })
+      .filter((entry) => entry.hits > 0)
+      .sort((a, b) => b.hits - a.hits);
+    if (scored.length > 0) {
+      return [scored[0]!.fact];
+    }
+  }
+  return isOwner ? facts.slice(0, 1) : [];
+}
+
+/** Drop company-record bullets that merely repeat the visitor's own role-card fact shown right above in "Your call to make". */
+function filterNonDuplicateCompanyFacts<T extends { text: string }>(
+  companyFacts: readonly T[],
+  myRoleFacts: readonly string[],
+): T[] {
+  if (myRoleFacts.length === 0 || companyFacts.length <= 1) return [...companyFacts];
+  const roleTokens = new Set(
+    myRoleFacts
+      .join(' ')
+      .toLowerCase()
+      .replace(/,/g, '')
+      .match(/[a-z0-9]{3,}/g) ?? [],
+  );
+  const filtered = companyFacts.filter((entry) => {
+    const clean = entry.text.toLowerCase().replace(/,/g, '');
+    // If both the role card and the company record cite the same specific numbers (e.g. "35" and "1100"), it's a duplicate of their own card.
+    const numbers = clean.match(/\b\d{2,}\b/g) ?? [];
+    const sharedNumbers = numbers.filter((num) => roleTokens.has(num));
+    if (sharedNumbers.length >= 2) return false;
+    const words = (clean.match(/[a-z0-9]{4,}/g) ?? []).filter((w) => !GENERIC_WORDS.has(w));
+    if (words.length === 0) return true;
+    const overlap = words.filter((w) => roleTokens.has(w)).length / words.length;
+    return overlap < 0.55;
   });
-  if (matched.length > 0) return matched;
-  return isOwner ? facts.slice(0, 2) : [];
+  return filtered.length > 0 ? filtered : companyFacts.slice(0, 2);
 }
 
 /** What the person hosting is told before they start: the goal, the decision to land and the agenda. */

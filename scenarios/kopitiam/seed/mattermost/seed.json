@@ -33,18 +33,18 @@
   "channels": [
     {
       "name": "kiosk-trials",
-      "display_name": "Kiosk & App Trials",
-      "purpose": "What customers and uncles actually did at the Raffles Place self-order kiosks."
+      "display_name": "Kiosk & Cashless POS",
+      "purpose": "Kiosk 'Kopi O Kosong' UX, kitchen thermal docket labels, and cash-paying elderly regulars."
     },
     {
       "name": "storefront",
-      "display_name": "Menu & Storefront",
-      "purpose": "Kiosk screens, Kaya Toast plushies and outlet signage."
+      "display_name": "28-Seat Floor & Toast",
+      "purpose": "Tissue-packet chope-ing, laptop campers, Auntie Mary staffing, and Kaya Butter Toast SOP."
     },
     {
       "name": "kopitiam-launch",
-      "display_name": "Friday Launch",
-      "purpose": "Raffles Place Friday 8am promo launch, TikTok influencer and supplier schedule."
+      "display_name": "TikTok PR & Launch",
+      "purpose": "@MakanWithZack 'shrinking butter' video, $750 remaining budget, and plushie giveaway."
     }
   ],
   "posts": [
@@ -53,59 +53,63 @@
       "channel": "kiosk-trials",
       "author": "mei",
       "at": "2026-11-10T09:05:00+08:00",
-      "text": "Raffles Place morning kiosk trial (40 customers): 19 out of 28 first-time kiosk users got stuck on Step 2 when choosing Kopi O Kosong vs Kopi C Siew Dai. The line backed up all the way to the glass doors."
+      "text": "Just finished the morning kiosk trial at Raffles Place (40 customers). 19 out of 28 first-time expats and tourists froze for over 2 minutes on Step 2 trying to guess 'Kopi O Kosong' vs 'Kopi C Siew Dai', and 72% missed the tiny language toggle in the corner."
     },
     {
       "channel": "kiosk-trials",
       "author": "arjun",
       "replyToKey": "kiosk1",
       "at": "2026-11-10T09:12:00+08:00",
-      "text": "Wait, didn't we try switching the buttons to plain English ('Black Coffee No Sugar') last week at Tampines?"
+      "text": "Careful with renaming the POS buttons to English though. In POS v2.4, `display_name` prints straight onto the kitchen thermal docket (`ticket_label`). When we tested 'Black Coffee No Sugar' at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds a cup trying to read the docket."
     },
     {
       "channel": "kiosk-trials",
       "author": "mei",
       "replyToKey": "kiosk1",
-      "at": "2026-11-10T09:15:00+08:00",
-      "text": "We did, and three regular uncles scolded the cashier saying it looked like an overpriced hipster cafe and they couldn't find their Kopi Gao! That's why we need a 'Kopi Lingo / Simple English' toggle button plus a one-tap 'Usual Set A' button."
+      "at": "2026-11-10T09:18:00+08:00",
+      "text": "Yeah, and Reddit roasted our rival down the street when they renamed Kopi O to 'Local Americano'. Plus the 15-inch screen only fits 12 buttons per page. Let's figure out what to change at the huddle."
     },
     {
-      "channel": "kiosk-trials",
+      "key": "seat1",
+      "channel": "storefront",
+      "author": "weiling",
+      "at": "2026-11-11T08:50:00+08:00",
+      "text": "Our 28 seats were jammed again this morning. Office workers left tissue packets on empty tables before joining the 15-min queue, and 4 laptop freelancers sat across our four 4-seater booths (16 seats) for 2 hours on a single $2.20 Kopi O. That's $420 in lost breakfast sets, and Auntie Mary (62) is still shaken after that guy in a suit yelled at her last week."
+    },
+    {
+      "channel": "storefront",
       "author": "arjun",
-      "replyToKey": "kiosk1",
-      "at": "2026-11-10T09:24:00+08:00",
-      "text": "The 'Usual Set A' shortcut is a 20-minute config change. The full language toggle with cup icons is about 3 hours of work — and I still need half a day to fix the $1 Kaya Toast cart exploit where double-tapping lets people order 50 sets."
+      "replyToKey": "seat1",
+      "at": "2026-11-11T09:02:00+08:00",
+      "text": "Those 12 booth wall plugs and the guest Wi-Fi router are wired to our smart relay breaker in the back room, and we still have the numbered table pucks in the storeroom. Let's bring it up in the meeting so we don't put Auntie Mary in the middle."
+    },
+    {
+      "key": "cash1",
+      "channel": "kiosk-trials",
+      "author": "daniel",
+      "at": "2026-11-11T09:20:00+08:00",
+      "text": "Someone filmed a 74-year-old regular uncle getting turned away at our 'NO CASH ACCEPTED' kiosk sign yesterday and the TikTok clip just hit 40,000 views calling us anti-elderly."
     },
     {
       "channel": "kiosk-trials",
-      "author": "daniel",
-      "replyToKey": "kiosk1",
-      "at": "2026-11-10T09:31:00+08:00",
-      "text": "Confirm need to fix that 50-set exploit before Friday ah! If one CBD office pools an order for 50 $1 sets on launch morning, our toaster will catch fire while @MakanWithZack is filming live."
-    },
-    {
-      "channel": "kopitiam-launch",
-      "author": "daniel",
-      "at": "2026-11-11T11:00:00+08:00",
-      "text": "3,120 people have already downloaded the Nanyang Kopi app to claim the Friday $1 Kaya Butter Set voucher!"
-    },
-    {
-      "channel": "kopitiam-launch",
       "author": "weiling",
+      "replyToKey": "cash1",
+      "at": "2026-11-11T09:24:00+08:00",
+      "text": "We can't put an open coin drawer back at the toast counter. Under NEA food-hygiene rules, our 2 counter staff cannot touch dirty coins and kaya toast without changing gloves every order (+40s delay), and counting cash at night costs $380/month in overtime. Physical kiosk bill-acceptors take 3 weeks and $1,400 too."
+    },
+    {
+      "key": "butter1",
+      "channel": "kopitiam-launch",
+      "author": "mei",
       "at": "2026-11-11T11:04:00+08:00",
-      "text": "Reminder on budget: total launch promo budget is SGD 1,800. We already spent SGD 1,050 on the storefront bunting and 300 Kaya Toast plushie keychains. That leaves SGD 750 total."
-    },
-    {
-      "channel": "kopitiam-launch",
-      "author": "daniel",
-      "at": "2026-11-11T11:08:00+08:00",
-      "text": "@MakanWithZack (85k followers on TikTok) quoted SGD 600 to do a Friday 8am breakfast livestream at Raffles Place. However, he just emailed saying he can drop to SGD 450 if we give him 20 Kaya Toast plushie keychains and VIP vouchers for his giveaway!"
+      "text": "I checked our takeaway packaging after @MakanWithZack's 'shrinking butter' TikTok (90k views). Our 12g butter weight didn't shrink at all — it stays thick on dine-in open plates, but sealing cold butter inside a closed takeaway box with hot toast steams and melts half the slab before customers open it."
     },
     {
       "channel": "kopitiam-launch",
       "author": "weiling",
-      "at": "2026-11-11T11:16:00+08:00",
-      "text": "Bigger problem: Ah Seng Farm just emailed that Friday's kampong egg lorry is delayed until 12pm noon. If we launch at 8am Friday, we need 60 trays of backup eggs from Seng Shiong for SGD 180, or we postpone the promo to Monday."
+      "replyToKey": "butter1",
+      "at": "2026-11-11T11:09:00+08:00",
+      "text": "Good catch, because Anchor salted butter jumped 35% last month and doubling our butter slab to 20g across all sets would wipe out $0.42 per set ($1,100/month in margin). Zack wants $600 cash or $450 + 20 Kaya Toast plushies for an 8:30am live re-taste tomorrow, and we only have $750 left in our launch budget."
     }
   ]
 }

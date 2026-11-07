@@ -69,6 +69,14 @@ describe('captionFor', () => {
     if (broken.type === 'TRANSCRIPT_CHUNK') broken.payload.timestamp = 'not a date';
     expect(captionFor(transcriptChunks([broken]), 'A', NOW)).toBeNull();
   });
+
+  it('shows the exact spoken sentence currently playing so captions stay synced with audio', () => {
+    const longSentence =
+      'Hey Foo, I am Arjun, Tech and POS Lead, and our Raffles Place kiosks only take PayNow and cards right now.';
+    const startChunk = chunk('A', longSentence, 0);
+    expect(captionFor(transcriptChunks([startChunk]), 'A', NOW, 8000, true)).toBe(longSentence);
+    expect(captionFor(transcriptChunks([startChunk]), 'A', NOW + 4000, 8000, true)).toBe(longSentence);
+  });
 });
 
 describe('transcriptChunks', () => {

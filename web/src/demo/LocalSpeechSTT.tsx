@@ -5,15 +5,17 @@ import { browserRecognitionWanted, speechRecognitionCtor, startRecognizer } from
 
 const chip: CSSProperties = {
   position: 'absolute',
-  top: '10px',
-  right: '10px',
-  background: 'rgba(0,0,0,0.6)',
+  bottom: '108px',
+  right: '14px',
+  background: 'rgba(13, 17, 23, 0.72)',
+  backdropFilter: 'blur(8px)',
   color: 'white',
-  padding: '4px 8px',
-  borderRadius: '4px',
-  fontSize: '12px',
+  padding: '4px 10px',
+  borderRadius: '999px',
+  fontSize: '11.5px',
   maxWidth: '60%',
   pointerEvents: 'none',
+  zIndex: 4,
 };
 
 /** Singapore English by default, which hears local accents better than US English; `/demo?lang=en-US` overrides it. */
@@ -62,13 +64,13 @@ export function LocalSpeechSTT() {
   }, [Recognition, isMicrophoneEnabled, room]);
 
   if (!wanted) {
-    return <div style={chip}>{isMicrophoneEnabled ? '🎙️ The meeting server is listening' : 'Microphone off: type your message in the box below.'}</div>;
+    return null;
   }
   if (Recognition === undefined) {
     return <div style={chip}>Speech recognition needs Chrome or Edge: the AI cannot hear you in this browser.</div>;
   }
   if (problem !== undefined) return <div style={{ ...chip, background: 'rgba(153,27,27,0.85)' }}>{problem}</div>;
-  if (!isMicrophoneEnabled) return <div style={chip}>Microphone off: type your message in the box below.</div>;
+  if (!isMicrophoneEnabled) return null;
 
   return (
     <>
