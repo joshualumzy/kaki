@@ -84,6 +84,61 @@ describe('assessProposal', () => {
     expect(seen[0]?.some((message) => message.content.includes('[KAKI_PROPOSAL_ASSESSMENT]'))).toBe(true);
   });
 
+  it('accepts resolved evidence the visitor said in an earlier substantive line on the same item', async () => {
+    const reply = JSON.stringify({
+      isProposal: true,
+      readiness: 'complete',
+      resolved: [
+        { tradeOffId: 'T1', evidence: 'we will open a second prep station before the rush' },
+        { tradeOffId: 'T2', evidence: 'remove the two slow items from the till screen' },
+      ],
+      unresolved: [],
+    });
+    const seen: ChatMessage[][] = [];
+    const result = await assessProposal({
+      scenario,
+      item,
+      visitorContext: ['We will open a second prep station before the rush.'],
+      visitorText: 'Also remove the two slow items from the till screen.',
+      stream: streamReply(reply, seen),
+    });
+    expect(result).toMatchObject({ isProposal: true, readiness: 'complete', unresolved: [] });
+    expect(result?.resolved.map((entry) => entry.tradeOff)).toEqual([
+      'The morning queue is backing out of the door.',
+      'The till screen only fits twelve buttons.',
+    ]);
+    const prompt = String(seen[0]?.[0]?.content ?? '');
+    expect(prompt).toContain('We will open a second prep station before the rush.');
+    expect(prompt).toContain('Also remove the two slow items from the till screen.');
+  });
+
+  it('carries resolved trade-offs forward when the latest line only adds the missing settlement', async () => {
+    const reply = JSON.stringify({
+      isProposal: true,
+      readiness: 'complete',
+      resolved: [{ tradeOffId: 'T2', evidence: 'remove the two slow items from the till screen' }],
+      unresolved: [],
+    });
+    const result = await assessProposal({
+      scenario,
+      item,
+      visitorContext: ['We will open a second prep station before the rush.'],
+      visitorText: 'Also remove the two slow items from the till screen.',
+      resolvedSoFar: [
+        {
+          tradeOff: 'The morning queue is backing out of the door.',
+          evidence: 'we will open a second prep station before the rush',
+        },
+      ],
+      stream: streamReply(reply),
+    });
+    expect(result).toMatchObject({ isProposal: true, readiness: 'complete', unresolved: [] });
+    expect(result?.resolved.map((entry) => entry.tradeOff)).toEqual([
+      'The till screen only fits twelve buttons.',
+      'The morning queue is backing out of the door.',
+    ]);
+  });
+
   it('keeps a shallow first proposal open with the unresolved trade-off', async () => {
     const reply = JSON.stringify({
       isProposal: true,

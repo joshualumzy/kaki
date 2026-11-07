@@ -93,22 +93,26 @@ export function isSubstantiveProposal(text: string): boolean {
   return !FEASIBILITY_QUESTION.test(trimmed);
 }
 
-function assessmentPrompt(item: AgendaItem): string {
+function assessmentPrompt(item: AgendaItem, visitorLines: string[]): string {
   const tradeOffs = item.discussion?.tradeOffs ?? [];
   const listed =
     tradeOffs.length === 0
       ? 'There are no listed trade-offs for this item; mark it complete only when the visitor makes a clear, concrete call.'
       : tradeOffs.map((tradeOff, index) => tradeOffLine(tradeOff, index)).join('\n');
+  const spoken = visitorLines.map((line, index) => `${index + 1}. "${line}"`).join('\n');
   return [
     PROPOSAL_ASSESSMENT_MARKER,
-    'You check one visitor line in a live meeting against one agenda decision. Reply with one JSON object only.',
+    'You check the visitor\'s cumulative proposal in a live meeting against one agenda decision. Reply with one JSON object only.',
     `Decision: ${item.decision ?? item.title}`,
     'Trade-offs (use the id on the left):',
     listed,
+    'What the visitor has said on this decision so far, oldest first:',
+    spoken,
     'Rules:',
     '- A proposal is a concrete course of action for this decision. A question, greeting, filler, status update, or a side request to send/file/post something is not a proposal.',
-    '- Mark readiness "complete" only when the visitor\'s own words make a clear call and resolve EVERY listed trade-off (or explicitly accept its residual risk).',
-    '- Resolved entries must quote the visitor\'s exact words in "evidence". Never invent an offer, number, permission or promise.',
+    '- Judge the proposal as a whole across these lines, not only the latest one: an adjustment can complete an earlier partial proposal.',
+    '- Mark readiness "complete" only when the visitor\'s own words across these lines make a clear call and resolve EVERY listed trade-off (or explicitly accept its residual risk).',
+    '- Resolved entries must quote the visitor\'s exact words in "evidence", taken from any of the lines above. Never invent an offer, number, permission or promise.',
     '- Unresolved entries name the trade-off id and the open question a colleague should ask next.',
     '- If the line is not a proposal, return "isProposal": false with empty arrays.',
     'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
@@ -172,6 +176,36 @@ function allUnresolved(tradeOffs: AgendaTradeOff[]): UnresolvedTradeOff[] {
   return tradeOffs.map((tradeOff) => ({ tradeOff: tradeOff.tradeOff, question: tradeOff.question }));
 }
 
+function dedupeUnresolved(entries: UnresolvedTradeOff[]): UnresolvedTradeOff[] {
+  const out: UnresolvedTradeOff[] = [];
+  for (const entry of entries) {
+    if (out.some((unresolved) => normalize(unresolved.tradeOff) === normalize(entry.tradeOff))) continue;
+    out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * Keeps trade-offs already resolved earlier on this item, as long as their quoted words are still in the
+ * visitor's cumulative proposal text. Later assessments may therefore omit an earlier settlement without
+ * dropping it; nothing from a previous agenda item survives, because callers reset the list on a move.
+ */
+function mergeResolved(
+  previous: ResolvedTradeOff[] | undefined,
+  current: ResolvedTradeOff[],
+  tradeOffs: AgendaTradeOff[],
+  visitorWords: string,
+): ResolvedTradeOff[] {
+  const out = [...current];
+  for (const entry of previous ?? []) {
+    if (!tradeOffs.some((tradeOff) => normalize(tradeOff.tradeOff) === normalize(entry.tradeOff))) continue;
+    if (!evidenceMatchesVisitor(entry.evidence, visitorWords)) continue;
+    if (out.some((resolved) => normalize(resolved.tradeOff) === normalize(entry.tradeOff))) continue;
+    out.push(entry);
+  }
+  return out;
+}
+
 /**
  * One bounded model call that decides whether a substantive visitor proposal is ready to settle.
  * Returns `undefined` on a failed, empty, malformed or timed-out reply; callers keep the item open.
@@ -179,7 +213,12 @@ function allUnresolved(tradeOffs: AgendaTradeOff[]): UnresolvedTradeOff[] {
 export async function assessProposal(options: {
   scenario: Scenario;
   item: AgendaItem;
+  /** The latest substantive visitor proposal line. */
   visitorText: string;
+  /** Earlier substantive proposal lines for the same agenda item, oldest first. */
+  visitorContext?: string[];
+  /** Trade-offs already resolved earlier on this item, so a later proposal builds on them. */
+  resolvedSoFar?: ResolvedTradeOff[];
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -189,6 +228,8 @@ export async function assessProposal(options: {
   const { scenario, item, visitorText, stream, signal, log } = options;
   const tradeOffs = item.discussion?.tradeOffs ?? [];
   if (signal?.aborted === true) return undefined;
+  const visitorLines = [...(options.visitorContext ?? []), visitorText];
+  const visitorWords = visitorLines.join('\n');
 
   const controller = new AbortController();
   const abort = (): void => controller.abort();
@@ -199,9 +240,9 @@ export async function assessProposal(options: {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: [`The meeting is at ${scenario.organisation}: "${scenario.meetingTitle}".`, assessmentPrompt(item)].join('\n'),
+      content: [`The meeting is at ${scenario.organisation}: "${scenario.meetingTitle}".`, assessmentPrompt(item, visitorLines)].join('\n'),
     },
-    { role: 'user', content: `Visitor said: "${visitorText}"` },
+    { role: 'user', content: `Visitor's latest line: "${visitorText}"` },
   ];
 
   let raw = '';
@@ -245,8 +286,15 @@ export async function assessProposal(options: {
     return undefined;
   }
 
-  const resolved = readResolved(parsed.resolved, tradeOffs, visitorText);
-  const unresolved = readUnresolved(parsed.unresolved, tradeOffs);
+  const resolved = mergeResolved(
+    options.resolvedSoFar,
+    readResolved(parsed.resolved, tradeOffs, visitorWords),
+    tradeOffs,
+    visitorWords,
+  );
+  const unresolved = readUnresolved(parsed.unresolved, tradeOffs).filter(
+    (entry) => !resolved.some((settled) => normalize(settled.tradeOff) === normalize(entry.tradeOff)),
+  );
   const missing = tradeOffs.filter(
     (tradeOff) => !resolved.some((entry) => normalize(entry.tradeOff) === normalize(tradeOff.tradeOff)),
   );
@@ -255,7 +303,10 @@ export async function assessProposal(options: {
       isProposal: true,
       readiness: 'open',
       resolved,
-      unresolved: [...unresolved, ...missing.map((tradeOff) => ({ tradeOff: tradeOff.tradeOff, question: tradeOff.question }))],
+      unresolved: dedupeUnresolved([
+        ...unresolved,
+        ...missing.map((tradeOff) => ({ tradeOff: tradeOff.tradeOff, question: tradeOff.question })),
+      ]),
     };
   }
   if (readiness === 'complete') {
@@ -265,6 +316,6 @@ export async function assessProposal(options: {
     isProposal: true,
     readiness: 'open',
     resolved,
-    unresolved: unresolved.length > 0 ? unresolved : allUnresolved(tradeOffs.filter((tradeOff) => !resolved.some((entry) => normalize(entry.tradeOff) === normalize(tradeOff.tradeOff)))),
+    unresolved: unresolved.length > 0 ? unresolved : allUnresolved(missing),
   };
 }

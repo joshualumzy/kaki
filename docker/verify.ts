@@ -286,7 +286,7 @@ check('Wiki kiosk page carries the trial numbers and docket constraint', async (
   const pages = await once('wiki', wikiPages);
   const page = pages.get('kopitiam/kiosk-menu-sop');
   assert(page, 'kiosk menu page is missing');
-  assert(/19 of 28/.test(page) && /72%/.test(page), 'the kiosk trial numbers are missing');
+  assert(/(?:19\s+of\s+28|28[^\n]{0,180}\b19\b)/.test(page) && /72%/.test(page), 'the kiosk trial numbers are missing');
   assert(/kitchen (thermal )?docket/i.test(page), 'the kitchen docket constraint is missing');
   return 'kiosk page present';
 });

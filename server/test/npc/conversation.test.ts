@@ -1006,36 +1006,33 @@ describe('NpcConversation', () => {
   describe('proposal readiness checks', () => {
     const assessedScenario = () => {
       const base = hostedScenario();
+      const firstItem = {
+        ...base.agenda[0]!,
+        discussion: {
+          openingViews: [
+            { attendee: 'Ada', view: 'We need to keep the queue moving.' },
+            { attendee: 'Bao', view: 'The till screen is already full.' },
+          ],
+          tradeOffs: [
+            {
+              attendee: 'Bao',
+              role: 'cashier' as const,
+              tradeOff: 'The till screen only fits twelve buttons.',
+              question: 'What do we remove from the screen?',
+            },
+            {
+              attendee: 'Chen',
+              role: 'producer' as const,
+              tradeOff: 'The kitchen docket must stay readable.',
+              question: 'How do we keep the docket readable?',
+            },
+          ],
+        },
+      };
       return {
         ...base,
         attendees: [...base.attendees, { name: 'Chen', role: 'producer', zoomDisplayName: 'Chen' }],
-        agenda: base.agenda.map((item, index) =>
-          index === 0
-            ? {
-                ...item,
-                discussion: {
-                  openingViews: [
-                    { attendee: 'Ada', view: 'We need to keep the queue moving.' },
-                    { attendee: 'Bao', view: 'The till screen is already full.' },
-                  ],
-                  tradeOffs: [
-                    {
-                      attendee: 'Bao',
-                      role: 'cashier' as const,
-                      tradeOff: 'The till screen only fits twelve buttons.',
-                      question: 'What do we remove from the screen?',
-                    },
-                    {
-                      attendee: 'Chen',
-                      role: 'producer' as const,
-                      tradeOff: 'The kitchen docket must stay readable.',
-                      question: 'How do we keep the docket readable?',
-                    },
-                  ],
-                },
-              }
-            : item,
-        ),
+        agenda: [firstItem, { ...firstItem, title: 'Close', minutes: 3 }],
         npcs: [
           { attendee: 'Ada', voice: 'v1', role: 'host' as const, personality: 'Calm host', agenda: 'Run meeting', concerns: [] },
           { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['Till grid'] },
@@ -1143,6 +1140,77 @@ describe('NpcConversation', () => {
       await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
       expect(assessments).toHaveLength(2);
       expect(conversation.canDispatchTask()).toBe(true);
+      calls.at(-1)?.end();
+    });
+
+    it('settles a two-turn discussion when the person only adds the missing adjustment', async () => {
+      const replies = [
+        shallow,
+        JSON.stringify({
+          isProposal: true,
+          readiness: 'complete',
+          resolved: [{ tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' }],
+          unresolved: [],
+        }),
+      ];
+      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Let us rename all the buttons to plain English.');
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(false);
+      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      await say('Keep the kitchen docket in shorthand.');
+      expect(assessments).toHaveLength(2);
+      const context = String(assessments[1]?.[0]?.content ?? '');
+      expect(context).toContain('Let us rename all the buttons to plain English.');
+      expect(context).toContain('Keep the kitchen docket in shorthand.');
+      expect(conversation.canDispatchTask()).toBe(true);
+      const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(turn2Prompt).toContain('Let us rename all the buttons to plain English.');
+      expect(turn2Prompt).toContain('Keep the kitchen docket in shorthand.');
+      expect(turn2Prompt).toContain('has made a complete proposal');
+      calls.at(-1)?.end();
+    });
+
+    it('does not let proposal lines from the previous item settle the new item', async () => {
+      const replies = [
+        shallow,
+        JSON.stringify({
+          isProposal: true,
+          readiness: 'complete',
+          resolved: [
+            { tradeOffId: 'T1', evidence: 'rename all the buttons to plain english' },
+            { tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' },
+          ],
+          unresolved: [],
+        }),
+      ];
+      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Let us rename all the buttons to plain English.');
+      expect(assessments).toHaveLength(1);
+      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      conversation.agendaMoved('Close');
+      await say('Keep the kitchen docket in shorthand.');
+
+      expect(assessments).toHaveLength(2);
+      const context = String(assessments[1]?.[0]?.content ?? '');
+      expect(context).not.toContain('Let us rename all the buttons to plain English.');
+      expect(context).toContain('Keep the kitchen docket in shorthand.');
+      expect(String(calls.at(-1)?.messages.at(-1)?.content ?? '')).toContain('The till screen only fits twelve buttons.');
+      expect(conversation.canDispatchTask()).toBe(false);
       calls.at(-1)?.end();
     });
   });
