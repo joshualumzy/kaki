@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../../src/llm';
 import { NpcConversation, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
@@ -1016,6 +1017,71 @@ describe('NpcConversation', () => {
       const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
       expect(turn2Prompt).toContain('Josh has now addressed the trade-offs and settled the plan');
       calls.at(-1)?.end();
+    });
+  });
+
+  describe('the Kopitiam cash first-proposal catch', () => {
+    it('keeps a cash proposal open with the change and staffing trade-offs instead of a prewritten fix', async () => {
+      const cashScenario = {
+        ...hostedScenario(),
+        agenda: [
+          {
+            ...hostedScenario().agenda[0]!,
+            title: 'Elderly regulars turned away at cashless kiosks',
+            decision: 'how do we let our retired morning regulars pay with cash without turning them away or forcing them into prepayment?',
+          },
+        ],
+        npcs: [
+          { attendee: 'Ada', voice: 'v1', role: 'host' as const, personality: 'Calm host', agenda: 'Run meeting', concerns: [] },
+          { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['Cash change and float'] },
+          { attendee: 'Chen', voice: 'v3', personality: 'Ops boss', agenda: 'Protect staff', concerns: ['Two toast staff and Auntie Mary'] },
+        ],
+      };
+      const { conversation, calls, say, flush, playing } = harness(cashScenario);
+      conversation.agendaMoved(cashScenario.agenda[0]!.title);
+
+      await say('Let us put a cash box by the door, away from the food.');
+      const turn1Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(turn1Prompt).toContain('Do NOT let Josh one-shot this topic');
+      expect(turn1Prompt).toContain('$2.20 Kopi against only $2 and $10 notes');
+      expect(turn1Prompt).toContain('two toast staff cannot double as cashier');
+      expect(turn1Prompt).toContain('Auntie Mary');
+      expect(turn1Prompt).toContain('who runs cash');
+      expect(turn1Prompt).not.toContain('RFID badge');
+
+      calls.at(-1)?.push('Bao: A cash box by the door helps, Josh, but a $2.20 Kopi against only $2 and $10 notes still needs change and the two toast staff cannot double as cashier, so who runs cash and how do we handle change?');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      await say('Put the cash box by the door.');
+      const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(turn2Prompt).toContain('do not confirm yet');
+      expect(turn2Prompt).toContain('how change and payment are accounted for');
+      expect(turn2Prompt).toContain('how one-off visitors avoid forced prepayment');
+      calls.at(-1)?.end();
+    });
+
+    it('keeps the shipped Kopitiam cash scenario free of prewritten cash workarounds', async () => {
+      const raw = await readFile(new URL('../../../scenarios/kopitiam/scenario.json', import.meta.url), 'utf8');
+      const kopitiam = JSON.parse(raw) as {
+        agenda: Array<{ title: string; decision?: string }>;
+        roles: Array<{ card?: { facts?: string[] } }>;
+        npcs: unknown[];
+      };
+      const cashAgenda = kopitiam.agenda.find((item) => /cash/i.test(item.title));
+      expect(cashAgenda?.decision).toMatch(/^how do we /i);
+      expect(cashAgenda?.decision).not.toMatch(/rfid|drop-?box|stamp card|coin drawer|cash-assist/i);
+      const cashText = JSON.stringify({
+        decision: cashAgenda?.decision,
+        roleCards: kopitiam.roles.map((role) => role.card?.facts ?? []),
+        npcs: kopitiam.npcs,
+      });
+      expect(cashText).not.toMatch(/rfid|drop-?box|stamp card|cash-assist/i);
+      expect(cashText).toMatch(/\$2\.20 Kopi always needs change/);
+      expect(cashText).toMatch(/two toast staff/);
+      expect(cashText).toMatch(/Auntie Mary[^.]*solo diners|solo diners[^.]*Auntie Mary/i);
     });
   });
 });

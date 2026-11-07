@@ -10,8 +10,9 @@
         "youAre": "You are Wei Ling, Operations Director looking after the shop floor, Auntie Mary, food hygiene, and the budget.",
         "facts": [
           "65-year-old kopi uncles read traditional Kopi shorthand at a glance; printing long English names on kitchen dockets slows drinks down by 15 seconds per cup.",
-          "The shop has 28 seats and one floor auntie (Auntie Mary, 62), who got yelled at last week when moving a tissue packet and refuses to police seats.",
+          "The shop has 28 seats and one floor auntie (Auntie Mary, 62), who is the only person who seats solo diners with hot trays and clears tables; she got yelled at last week when moving a tissue packet and refuses to police seats.",
           "Under NEA food-hygiene rules, counter staff cannot handle cash coins at the toast station without changing gloves every order (+40s delay), and counting a coin float at night costs $380 a month in overtime.",
+          "We run the breakfast counter with two toast staff; if one of them steps away to take cash or count change, the toast queue loses half its hands at the 8am rush.",
           "We have $750 left in our launch promo budget, and wholesale Anchor salted butter went up 35% last month (upgrading all sets to 20g double butter wipes out $1,100 a month in margin)."
         ],
         "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without blowing our food margin."
@@ -25,7 +26,7 @@
         "facts": [
           "The 15-inch kiosk screen fits 12 drink buttons per page, and button names print straight onto the kitchen docket unless we spend 1 hour decoupling the print label in POS v2.4.",
           "The 12 booth wall plugs and guest Wi-Fi run on a smart breaker that can automatically cut laptop power from 8:00 AM to 10:30 AM.",
-          "Physical kiosk cash acceptors cost $1,400 and take 3 weeks to deliver, but we can enable a Staff Cash-Assist RFID tap card tonight in 30 minutes.",
+          "Physical kiosk cash acceptors cost $1,400 and take 3 weeks to deliver, so the kiosks cannot accept cash tomorrow morning.",
           "Adding a '+$0.60 Double Butter' upsell button or a takeaway 'Butter on Side' kitchen docket flag on the POS takes 15 minutes tonight."
         ],
         "responsibility": "Keep the kiosks, kitchen printer, and smart breaker simple enough to configure tonight."
@@ -38,8 +39,8 @@
         "youAre": "You are Mei, Menu & Store Experience Lead looking after our kopi and kaya toast recipes, the menu, and customer flow.",
         "facts": [
           "In yesterday's trial, 19 out of 28 first-time kiosk users froze for over 2 minutes at 'Kopi O Kosong', and 72% missed the small corner language toggle.",
-          "60% of our morning crowd dines solo while carrying hot trays of runny soft-boiled eggs, so they need a standing express bar or cashier table token before sitting.",
-          "Our retired morning regulars only carry $2 and $10 notes and walked out angry yesterday when asked to buy a $20 minimum stored-value card for a $2.20 Kopi.",
+          "60% of our morning crowd dines solo while carrying hot trays of runny soft-boiled eggs, so someone on the floor has to find them a seat before they sit.",
+          "Our retired morning regulars only carry $2 and $10 notes, so a $2.20 Kopi always needs change, and yesterday they walked out angry when asked to buy a $20 minimum stored-value card instead.",
           "Our 12g cold butter slab did not shrink: it stays thick on dine-in open plates, but melts flat inside closed takeaway boxes unless packed in a separate chilled butter cup on the side ($0.05/box) or cooled in a vented box."
         ],
         "responsibility": "Keep our kopi and kaya toast authentic while making ordering and finding a seat easy."
@@ -53,7 +54,7 @@
         "facts": [
           "When a rival kopitiam renamed 'Kopi O Kosong' to 'Local Americano' on their kiosks, local regulars roasted them on Reddit for losing their heritage.",
           "Google reviews dropped to 3.6 stars during our soft trial because breakfast walk-ins could not find a seat while laptop campers held the 4-seater booths for 2 hours.",
-          "A 40,000-view TikTok clip of a 74-year-old regular getting turned away at our 'NO CASH ACCEPTED' sign is calling us anti-elderly, which we can flip by launching a $10 5-Cup Kopi Stamp Card.",
+          "A 40,000-view TikTok clip of a 74-year-old regular getting turned away at our 'NO CASH ACCEPTED' sign is calling us anti-elderly, and the views are still climbing.",
           "Food TikToker @MakanWithZack (85k followers, 90k views on his butter video) will film an 8:30 AM live re-taste tomorrow for $600 cash, or $450 cash plus 20 Kaya Toast plushies from our storeroom."
         ],
         "responsibility": "Win back public goodwill on TikTok without promising things the kitchen cannot deliver."
@@ -100,7 +101,7 @@
       "minutes": 4,
       "ownerRole": "lead_programmer",
       "contested": true,
-      "decision": "how do we take cash from our retired morning regulars without putting a coin drawer at the toast counter?"
+      "decision": "how do we let our retired morning regulars pay with cash without turning them away or forcing them into prepayment?"
     },
     {
       "title": "@MakanWithZack's TikTok on our butter slice",
@@ -164,7 +165,7 @@
         "studio_manager": "The meeting host keeping everyone on time. Flag technical catches clearly and concisely."
       },
       "speechStyle": "Skeptical, pragmatic Singaporean tech lead with dry NS-style humour. Speaks crisp, practical sentences and always brings up second-order technical and operational catches. Uses at most one light, natural local expression when the moment calls for it (such as 'wah' or 'steady'), without forcing Singlish catchphrases when plain English sounds more natural.",
-      "hiddenGoal": "He wants clean config-level fixes tonight: decoupling POS kitchen print labels (for the Kopi menu topic), putting wall sockets/Wi-Fi on an 8–10:30am cutoff timer (for the seat crunch topic), enabling a Staff Cash-Assist RFID tap card (for the cashless kiosk topic), or adding a '+$0.60 Double Butter' upsell button and takeaway 'Butter on Side' docket flag (for the butter TikTok topic).",
+      "hiddenGoal": "He wants clean config-level fixes tonight: decoupling POS kitchen print labels (for the Kopi menu topic), putting wall sockets/Wi-Fi on an 8–10:30am cutoff timer (for the seat crunch topic), finding a cash setup that keeps notes and coins away from the toast counter without new hardware (for the cashless kiosk topic), or adding a '+$0.60 Double Butter' upsell button and takeaway 'Butter on Side' docket flag (for the butter TikTok topic).",
       "tensions": [
         {
           "with": "Mei",
@@ -191,7 +192,7 @@
       "knows": [
         "For the kiosk Kopi menu topic: decoupling the kiosk customer `display_name` from the kitchen printer `ticket_label` in POS v2.4 takes 1 hour tonight, and adding a visual 2-step Milk & Sugar pop-up modal when a user taps 'Kopi' or 'Teh' takes 1.5 hours.",
         "For the morning seat crunch topic: the 12 wall power sockets and guest Wi-Fi router along the 4-seater booths are wired to a smart relay breaker that Arjun can program to automatically cut power and Wi-Fi from 8:00am to 10:30am on weekdays.",
-        "For the cashless kiosks topic: Arjun can enable a 'Staff Cash-Assist RFID Card' tonight (30 mins) so an uncle pays with an exact $2 or $10 note (or buys a $10 5-Cup Paper Kopi Stamp Card with zero coin change) and staff tap the RFID badge on the kiosk to print their docket immediately.",
+        "For the cashless kiosks topic: the kiosks can only take card or stored value tomorrow, there is no spare till or cashier terminal at the front, and any cash point needs a free pair of hands plus a float that balances at close.",
         "For the @MakanWithZack butter slice topic: Arjun can add a '+$0.60 Double Butter' upsell button on the kiosk and a takeaway 'Butter on Side' kitchen docket flag in 15 minutes tonight."
       ]
     },
@@ -254,7 +255,7 @@
       ],
       "knows": [
         "We only have $750 left in the launch budget: if Daniel negotiates @MakanWithZack down from $600 to $450 (by bundling 20 Kaya Toast plushies from our storeroom), we save $150 and stay well within budget.",
-        "A sealed exact-note drop-box ($2 / $10 notes only, zero coin change) or selling a $10 5-Cup Paper Kopi Stamp Card at the side pickup counter lets elderly regulars pay with cash without toast staff touching wet coins.",
+        "For the cashless kiosk topic: the two toast staff are flat out at the 8am queue, so any staffed cash point needs a third pair of hands, and pulling Auntie Mary off the floor leaves solo diners with hot trays and no one to seat them.",
         "Our 65-year-old kopi uncles read traditional Kopi shorthand (`Kopi O Kosong`, `Teh C Siew Dai`) at a glance; if the thermal docket printer prints long English sentences, drink prep slows down by 15 seconds per cup."
       ],
       "withRoles": {
@@ -293,7 +294,7 @@
       "knows": [
         "MakanWithZack agreed in writing to drop his fee from $600 to $450 if we bundle 20 Kaya Toast plushie keychains (already in our storeroom) for his comment-section giveaway, leaving $300 of our $750 budget untouched.",
         "If we show Zack on camera why takeaway butter melts inside a closed box and serve dine-in toast open-faced (with takeaway butter packed on the side or in vented boxes so every customer gets the same thick 12g cold slab), it makes a great 'kitchen craft' TikTok.",
-        "For elderly regulars with cash, launching an old-school '$10 for 5 Kopis Paper Stamp Card' (or exact $2 note drop-box with staff RFID tap) lets us post a heartwarming TikTok welcoming the pioneer generation back."
+        "For elderly regulars with cash: whatever we do has to be visible and simple enough to show on TikTok tomorrow morning without asking a 74-year-old to download an app or prepay $20."
       ],
       "withRoles": {
         "producer": "Your budget and ops boss. Make sure we respond to Zack's viral reel and the anti-elderly TikTok without breaking her NEA hygiene rules or $1,100/month butter margin.",
@@ -335,7 +336,7 @@
       ],
       "withRoles": {
         "producer": "Ask them how we balance floor operations and margins with customer experience.",
-        "lead_programmer": "Keep him focused on practical POS, kiosk, RFID, and smart-breaker fixes we can configure tonight.",
+        "lead_programmer": "Keep him focused on practical POS, kiosk, and smart-breaker fixes we can configure tonight.",
         "game_designer": "Help her balance authentic food & menu craft with kitchen speed and floor reality.",
         "marketing_lead": "Pin him down on the $450 Zack plushie deal and turning PR crises into wins that ops can actually execute."
       }

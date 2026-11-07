@@ -598,21 +598,6 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
           cleanedContext = cleanedContext.replace(new RegExp(`\\b${escaped}\\b`, 'g'), visitorName);
         }
       }
-      const sourceIdx = groundingPool.indexOf(source);
-      if (sourceIdx > 0 && /\b(?:post|share|send|announce)\s+(?:that|the)\s+decision\b/i.test(`${source.text} ${cleanedContext}`)) {
-        const decisionSnippets = groundingPool
-          .slice(Math.max(0, sourceIdx - 3), sourceIdx)
-          .map((l) => l.text.trim())
-          .filter(
-            (t) =>
-              t.length > 8 &&
-              !/\b(?:could you|can you|would you|will you)\s+(?:post|send|share|email|file)\b/i.test(t) &&
-              !cleanedContext.toLowerCase().includes(t.toLowerCase().slice(0, 24)),
-          );
-        if (decisionSnippets.length > 0) {
-          cleanedContext = `${cleanedContext.replace(/[.!\s]+$/, '')}. Agreed plan: ${decisionSnippets.join(' ')}`;
-        }
-      }
       const baseTask = cleanedContext === task.context ? task : { ...task, context: cleanedContext };
       const owned = owner === undefined ? baseTask : { ...baseTask, suggestedAssignee: owner };
       if (owned !== baseTask && isLikelyDuplicate(owned, tasks.list())) continue;

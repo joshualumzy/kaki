@@ -377,6 +377,40 @@ describe('task precision', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped the 5 oldest transcript lines'));
   });
 
+  it('keeps the agreed decision in the task context without appending raw speech fragments', async () => {
+    const kopitiamScenario = await loadScenario('kopitiam');
+    const tasks = createTaskStore({ hub: quietHub(), scenario: kopitiamScenario });
+    const decision =
+      'Announce in the team channel today that we decided to move the cash box away from the food prep area.';
+    const llm = createFakeLlm(() =>
+      reply({
+        newTasks: [
+          candidate(
+            'Post cash box decision in team channel',
+            'producer',
+            'Feifei Li, could you post that decision in the team channel today so everyone has it?',
+            { context: decision, actionKind: 'mattermost_post' },
+          ),
+        ],
+      }),
+    );
+    const notetaker = createNotetaker({ scenario: kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
+    notetaker.addChunk({ speaker: 'Feifei Li', text: 'We should separate cash collection from food prep.' });
+    notetaker.addChunk({ speaker: 'Arjun', text: 'Move the counter?' });
+    notetaker.addChunk({ speaker: 'Feifei Li', text: 'Whatever that that that that box. Away from the food, right?' });
+    notetaker.addChunk({ speaker: 'Mei', text: 'So we move the cash box away from the food prep area.' });
+    notetaker.addChunk({
+      speaker: 'Mei',
+      text: 'Feifei Li, could you post that decision in the team channel today so everyone has it?',
+    });
+    await notetaker.run();
+
+    const [task] = tasks.list();
+    expect(task?.context).toBe(decision);
+    expect(task?.context).not.toContain('Whatever that that that that box');
+    expect(task?.context).not.toContain('Move the counter?');
+  });
+
   it('routes a natural second-person task request ("Could you post...") to the visitor role even when zoomDisplayName has no parentheses', async () => {
     const kopitiamScenario = await loadScenario('kopitiam');
     const tasks = createTaskStore({ hub: quietHub(), scenario: kopitiamScenario });
