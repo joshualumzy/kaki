@@ -16,7 +16,7 @@ const scenario: Scenario = {
     { id: 'producer', label: 'Producer' },
   ],
   attendees: [],
-  agenda: [{ title: 'Prep', minutes: 5, ownerRole: 'chef' }],
+  agenda: [{ title: 'Prep', minutes: 5, ownerRole: 'chef', decision: 'Do we prep early?' }],
 };
 
 const fact: Fact = { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' };
@@ -69,6 +69,19 @@ function recordUpdate(
     payload: {
       agendaIndex: 0,
       openQuestions: [{ id: questionId, text: 'Where do players quit?', ...(forRole === null ? {} : { forRole }) }],
+      elapsedSeconds: 1,
+      speakerTalkSeconds: {},
+    },
+  };
+}
+
+function recordUpdateWithNoQuestions(): KakiEvent {
+  return {
+    type: 'MEETING_RECORD_UPDATED',
+    audience: { kind: 'all' },
+    payload: {
+      agendaIndex: 0,
+      openQuestions: [],
       elapsedSeconds: 1,
       speakerTalkSeconds: {},
     },
@@ -227,6 +240,47 @@ describe('knowledge module', () => {
       expect(log).toHaveBeenCalledWith(expect.stringContaining('KAKI_LLM_BASE_URL'));
     } finally {
       log.mockRestore();
+    }
+  });
+
+  it('does not search company records proactively when an agenda item has no open question', async () => {
+    const search = vi.fn<SearchCompanyData>(async () => [fact]);
+    const fake = fakeHub();
+    const stop = start(search, fake.hub);
+
+    try {
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+
+      expect(search).not.toHaveBeenCalled();
+      expect(fake.published).toEqual([]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('still searches and publishes a fact for a real open question', async () => {
+    const search = vi.fn<SearchCompanyData>(async () => [fact]);
+    const fake = fakeHub();
+    const stop = start(search, fake.hub);
+
+    try {
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+      expect(search).not.toHaveBeenCalled();
+
+      fake.emit(recordUpdate());
+      await waitFor(() => fake.published.length === 1, 'the open-question fact card');
+
+      expect(search).toHaveBeenCalledWith('Where do players quit?', 'game_designer');
+      expect(fake.published[0]).toMatchObject({
+        type: 'FACT_FOUND',
+        payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact] },
+      });
+    } finally {
+      stop();
     }
   });
 

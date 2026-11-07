@@ -15,6 +15,8 @@ import { MeetingRecordCard, isRecord, type RecordEvent } from '../screen/ScreenP
 import type { TranscriptViewer } from './captions';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 
+type FactEvent = Extract<KakiEvent, { type: 'FACT_FOUND' }>;
+
 /**
  * Everything the room is tracking in one place: the agenda clock, a quick topic cheat sheet for the
  * current item, the live transcript, and the tasks.
@@ -79,15 +81,19 @@ export function MeetingPanel({
     );
   }, [events, facilitatorName, record]);
 
-  const screenFacts = useMemo(
-    () =>
-      events.filter(
-        (event): event is Extract<KakiEvent, { type: 'FACT_FOUND' }> =>
-          event.type === 'FACT_FOUND' && event.payload.facts.length > 0,
-      ),
-    [events],
-  );
-  const latestFact = topicBriefingStarted ? screenFacts.at(-1) : undefined;
+  const currentFact = useMemo<FactEvent | undefined>(() => {
+    if (record === undefined || !topicBriefingStarted) return undefined;
+    let agendaIndex: number | undefined;
+    let latest: { event: FactEvent; agendaIndex: number | undefined } | undefined;
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        agendaIndex = event.payload.agendaIndex;
+      } else if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
+        latest = { event, agendaIndex };
+      }
+    }
+    return latest?.agendaIndex === record.payload.agendaIndex ? latest.event : undefined;
+  }, [events, record, topicBriefingStarted]);
 
   useEffect(() => {
     const added: TimelineEntry[] = [];
@@ -233,39 +239,9 @@ export function MeetingPanel({
               scenario={scenario}
               role={role}
               viewer={viewer}
+              companyFact={currentFact}
             />
           )}
-          {(() => {
-            if (latestFact === undefined) return null;
-            const currentItem = scenario.agenda[record.payload.agendaIndex];
-            const myFacts =
-              currentItem !== undefined
-                ? relevantFactsForItem(
-                    currentItem,
-                    role?.card?.facts ?? [],
-                    itemMode(scenario, currentItem, role?.id) === 'involve',
-                  )
-                : [];
-            const nonDuplicateFacts = filterNonDuplicateCompanyFacts(latestFact.payload.facts, myFacts);
-            if (nonDuplicateFacts.length === 0) return null;
-            return (
-              <section className="kd-role kd-topic-card" aria-label="From the company records">
-                <p className="kd-role-eyebrow">Kaki Wingman · From the company records</p>
-                <p style={{ marginBottom: 6 }}>
-                  <strong>{latestFact.payload.question}</strong>
-                </p>
-                <ul className="kd-record-list" style={{ marginBottom: 0 }}>
-                  {nonDuplicateFacts.slice(0, 3).map((fact, index) => (
-                    <li key={`${fact.source}-${fact.date}-${index}`}>
-                      <span className="kd-record-source-pill">{sourceBadgeText(fact.source)}</span>
-                      <span>{fact.text}</span>
-                      <small>({fact.source} · {fact.date})</small>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })()}
         </>
       )}
 
@@ -408,15 +384,21 @@ function CurrentTopicCard({
   scenario,
   role,
   viewer,
+  companyFact,
 }: {
   item: AgendaItem | undefined;
   scenario: Scenario;
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
+  companyFact: FactEvent | undefined;
 }) {
   if (item === undefined) return null;
   const mode = itemMode(scenario, item, role?.id);
   const myFacts = relevantFactsForItem(item, role?.card?.facts ?? [], mode === 'involve');
+  const companyFacts =
+    companyFact === undefined
+      ? []
+      : filterNonDuplicateCompanyFacts(companyFact.payload.facts, myFacts);
   const roleBadge =
     mode === 'involve'
       ? 'Your item to lead'
@@ -424,13 +406,13 @@ function CurrentTopicCard({
         ? 'Team needs your call'
         : `Led by ${assigneeLabel(scenario, item.ownerRole, viewer)} · You can listen in or jump in`;
 
-  if (item.decision === undefined && myFacts.length === 0) return null;
+  if (item.decision === undefined && myFacts.length === 0 && companyFacts.length === 0) return null;
 
   return (
     <section className="kd-role kd-topic-card" aria-label="Current topic context">
       <p className="kd-role-eyebrow">Wingman · {roleBadge}</p>
       {item.decision !== undefined && (
-        <p style={{ marginBottom: myFacts.length > 0 ? 8 : 0 }}>
+        <p style={{ marginBottom: myFacts.length > 0 || companyFacts.length > 0 ? 8 : 0 }}>
           <strong>{mode === 'observe' ? 'On the table: ' : 'Your call to make: '}</strong>
           {item.decision}
         </p>
@@ -442,6 +424,22 @@ function CurrentTopicCard({
               {fact}
             </div>
           ))}
+        </div>
+      )}
+      {companyFact !== undefined && companyFacts.length > 0 && (
+        <div style={{ marginTop: myFacts.length > 0 ? 10 : 0 }}>
+          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
+            From the company records · {companyFact.payload.question}
+          </p>
+          <ul className="kd-record-list" style={{ marginBottom: 0 }}>
+            {companyFacts.slice(0, 3).map((fact, index) => (
+              <li key={`${fact.source}-${fact.date}-${index}`}>
+                <span className="kd-record-source-pill">{sourceBadgeText(fact.source)}</span>
+                <span>{fact.text}</span>
+                <small>({fact.source} · {fact.date})</small>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </section>
@@ -510,12 +508,19 @@ function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwne
   return isOwner ? facts.slice(0, 1) : [];
 }
 
-/** Drop company-record bullets that merely repeat the visitor's own role-card fact shown right above in "Your call to make". */
+/** Drop company-record bullets that repeat each other or the visitor's own role-card fact shown above in "Your call to make". */
 function filterNonDuplicateCompanyFacts<T extends { text: string }>(
   companyFacts: readonly T[],
   myRoleFacts: readonly string[],
 ): T[] {
-  if (myRoleFacts.length === 0 || companyFacts.length <= 1) return [...companyFacts];
+  const seen = new Set<string>();
+  const unique = companyFacts.filter((entry) => {
+    const key = entry.text.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (myRoleFacts.length === 0) return unique;
   const roleTokens = new Set(
     myRoleFacts
       .join(' ')
@@ -523,7 +528,7 @@ function filterNonDuplicateCompanyFacts<T extends { text: string }>(
       .replace(/,/g, '')
       .match(/[a-z0-9]{3,}/g) ?? [],
   );
-  const filtered = companyFacts.filter((entry) => {
+  return unique.filter((entry) => {
     const clean = entry.text.toLowerCase().replace(/,/g, '');
     // If both the role card and the company record cite the same specific numbers (e.g. "35" and "1100"), it's a duplicate of their own card.
     const numbers = clean.match(/\b\d{2,}\b/g) ?? [];
@@ -534,7 +539,6 @@ function filterNonDuplicateCompanyFacts<T extends { text: string }>(
     const overlap = words.filter((w) => roleTokens.has(w)).length / words.length;
     return overlap < 0.55;
   });
-  return filtered.length > 0 ? filtered : companyFacts.slice(0, 2);
 }
 
 /** What the person hosting is told before they start: the goal, the decision to land and the agenda. */

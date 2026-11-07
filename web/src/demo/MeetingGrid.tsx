@@ -112,7 +112,7 @@ function useStage(): Stage {
 }
 
 function CaptionedTile() {
-  const { scenario, chunks, now, npcState, waitingForHuman } = useStage();
+  const { scenario, chunks, now, npcState } = useStage();
   const participant = useTrackRefContext().participant;
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
