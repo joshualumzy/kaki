@@ -23,15 +23,15 @@
       "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nPlease note that wholesale pricing for Anchor Golden Salted Butter (New Zealand grass-fed) has increased by 35% effective this month.\n\nAt your current Set A price ($4.80), increasing portion weight from 12g to 20g per toast set adds SGD 0.42 in raw dairy cost per set (approx. SGD 1,100/month across 90 daily sets). For takeaway orders, packing the 12g chilled slab in a separate side butter cup ($0.05/unit) or steam-vented box prevents melting without increasing butter weight.\n\nRegards,\nAccount Team\nFonterra Foodservice Singapore"
     },
     {
-      "from": { "name": "NEA Food Hygiene & Licensing Advisory", "address": "compliance@nea-advisory.example" },
+      "from": { "name": "Hafiz Rahman (Outlet Hygiene Lead)", "address": "hafiz@pixelkampung.example" },
       "to": [
         { "name": "Wei Ling", "address": "wei.ling@pixelkampung.example" },
         { "name": "Arjun", "address": "arjun@pixelkampung.example" }
       ],
-      "subject": "Raffles Place #B1-14 Counter Inspection Note - Cash Handling vs Ready-to-Eat Toast",
+      "subject": "Internal counter hygiene SOP - cash handling vs ready-to-eat toast",
       "date": "2026-11-09T16:00:00+08:00",
-      "messageId": "<nea-cash-hygiene-20261109@nea-advisory.example>",
-      "text": "Dear Licensee (Nanyang Kopi & Toast, #B1-14),\n\nFollowing our pre-opening inspection, please be reminded that food handlers slicing ready-to-eat kaya butter toast and cracking soft-boiled eggs may not handle loose coins or currency notes unless they remove gloves and wash hands between every transaction (+40s delay per order).\n\nRegards,\nEnvironmental Health Officer"
+      "messageId": "<counter-hygiene-sop-20261109@pixelkampung.example>",
+      "text": "Hi Wei Ling and Arjun,\n\nAfter this week's morning observation, a reminder of our internal counter hygiene SOP. Money handling and ready-to-eat food prep must stay separate at the toast station: any staff member who handles coins or notes has to remove gloves and wash hands before slicing kaya butter toast or cracking soft-boiled eggs (+40s per order).\n\nAt the 8am rush both toast staff are on the line, so there is no spare pair of hands to take cash and make change without slowing toast orders. Please keep the SOP in mind when we discuss the cash-paying regulars.\n\nThanks,\nHafiz\nOutlet Hygiene & Safety Lead"
     }
   ]
 }

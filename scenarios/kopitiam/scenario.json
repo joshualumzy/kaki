@@ -11,7 +11,7 @@
         "facts": [
           "65-year-old kopi uncles read traditional Kopi shorthand at a glance; printing long English names on kitchen dockets slows drinks down by 15 seconds per cup.",
           "The shop has 28 seats and one floor auntie (Auntie Mary, 62), who is the only person who seats solo diners with hot trays and clears tables; she got yelled at last week when moving a tissue packet and refuses to police seats.",
-          "Under NEA food-hygiene rules, counter staff cannot handle cash coins at the toast station without changing gloves every order (+40s delay), and counting a coin float at night costs $380 a month in overtime.",
+          "Under our internal counter hygiene SOP, staff who handle cash at the toast station must change gloves and wash hands before touching ready-to-eat food (+40s per order), and counting a coin float at night costs $380 a month in overtime.",
           "We run the breakfast counter with two toast staff; if one of them steps away to take cash or count change, the toast queue loses half its hands at the 8am rush.",
           "We have $750 left in our launch promo budget, and wholesale Anchor salted butter went up 35% last month (upgrading all sets to 20g double butter wipes out $1,100 a month in margin)."
         ],
@@ -177,7 +177,7 @@
         },
         {
           "with": "Daniel",
-          "about": "cashless kiosks vs elderly uncles: Daniel worries about the 40k-view TikTok clip calling our 'NO CASH' sign anti-elderly, but installing physical cash bill-acceptors in the kiosks costs $1,400 and takes 3 weeks, and putting a coin drawer back at the toast counter breaks NEA hygiene rules"
+          "about": "cashless kiosks vs elderly uncles: Daniel worries about the 40k-view TikTok clip calling our 'NO CASH' sign anti-elderly, but installing physical cash bill-acceptors in the kiosks costs $1,400 and takes 3 weeks, and putting a coin drawer back at the toast counter breaks our counter hygiene SOP"
         }
       ],
       "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
@@ -243,14 +243,14 @@
       "voice": "en-SG-LunaNeural?rate=-8%",
       "playable": true,
       "role": "participant",
-      "speechStyle": "Sharp, no-nonsense Singaporean operations boss who counts every dollar, butter gram, NEA hygiene rule, and staff shift. Speaks directly with zero fluff ('Bottom line is...', 'Who is going to enforce that?', 'Do you know how much Anchor butter costs right now?'). Uses natural Singaporean cadence without forced slang.",
-      "hiddenGoal": "She wants to protect 62-year-old Auntie Mary from confronting customers, keep dirty cash coins away from the toast station (NEA hygiene rule), and avoid doubling butter portions across all sets which would wipe out $1,100/month in margin.",
+      "speechStyle": "Sharp, no-nonsense Singaporean operations boss who counts every dollar, butter gram, counter hygiene step, and staff shift. Speaks directly with zero fluff ('Bottom line is...', 'Who is going to enforce that?', 'Do you know how much Anchor butter costs right now?'). Uses natural Singaporean cadence without forced slang.",
+      "hiddenGoal": "She wants to protect 62-year-old Auntie Mary from confronting customers, keep cash handling away from ready-to-eat food under the shop's hygiene SOP, and avoid doubling butter portions across all sets which would wipe out $1,100/month in margin.",
       "personality": "Operations Director. Pragmatic, fiercely protective of her elderly outlet staff, and allergic to ideas that sound nice online but fail on a busy shop floor.",
-      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, breaking NEA food-hygiene rules at the toast counter, or blowing our butter margin and $750 launch budget.",
+      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, breaking our counter hygiene SOP, or blowing our butter margin and $750 launch budget.",
       "concerns": [
         "Signboards banning tissue packets do not work by themselves: our only floor auntie (Auntie Mary, 62) got screamed at by a customer in a suit last week when she moved his tissue packet, and she will quit if we ask her to play seat police or enforce a 30-minute dining timer.",
         "Four 4-seater booths (16 of our 28 seats) are being hogged for 2 hours every morning by laptop freelancers buying a single $2.20 Kopi O because of the 12 wall power sockets and free guest Wi-Fi, costing us $420/morning in lost breakfast sets.",
-        "For the cashless kiosk issue: we cannot put an open coin-and-note cash register back at the food counter because under NEA food-hygiene rules, our 2 counter staff cannot touch dirty coins and kaya toast without changing gloves every order (+40s delay), plus nightly cash float counting costs $380/month in overtime.",
+        "For the cashless kiosk issue: our internal counter hygiene SOP keeps cash handling separate from ready-to-eat food; our 2 toast staff would need to change gloves and wash hands after touching coins or notes (+40s per order), plus nightly cash float counting costs $380/month in overtime.",
         "For the viral butter video: wholesale Anchor salted butter jumped 35% last month, so doubling butter from 12g to 20g on every toast set wipes out $1,100/month in margin, and we only have $750 left in our launch promo budget (so paying Zack $600 cash leaves almost nothing)."
       ],
       "knows": [
@@ -259,7 +259,7 @@
         "Our 65-year-old kopi uncles read traditional Kopi shorthand (`Kopi O Kosong`, `Teh C Siew Dai`) at a glance; if the thermal docket printer prints long English sentences, drink prep slows down by 15 seconds per cup."
       ],
       "withRoles": {
-        "producer": "Your fellow operations lead. Push hard on floor realism, staff protection, NEA hygiene, and exact dollar margins.",
+        "producer": "Your fellow operations lead. Push hard on floor realism, staff protection, our counter hygiene SOP, and exact dollar margins.",
         "lead_programmer": "Rely on his automated POS and smart-breaker controls so staff don't have to manually police laptops or count coins.",
         "game_designer": "Back her up on protecting the kopi uncles' kitchen dockets and keeping our butter cost within margin.",
         "marketing_lead": "Refuse to double butter cost to 20g across the board, and hold him to the $750 remaining budget cap.",
@@ -268,7 +268,7 @@
       "tensions": [
         {
           "with": "Daniel",
-          "about": "how to fix the viral 'shrinking butter' video (where doubling Anchor butter wipes out $1,100/month in margin and Zack's $600 fee eats almost our whole $750 budget) and the 'anti-elderly cashless' backlash (where handling coins at the toast station violates NEA hygiene rules)"
+          "about": "how to fix the viral 'shrinking butter' video (where doubling Anchor butter wipes out $1,100/month in margin and Zack's $600 fee eats almost our whole $750 budget) and the 'anti-elderly cashless' backlash (where handling coins at the toast station breaks our counter hygiene SOP)"
         },
         {
           "with": "Mei",
@@ -297,7 +297,7 @@
         "For elderly regulars with cash: whatever we do has to be visible and simple enough to show on TikTok tomorrow morning without asking a 74-year-old to download an app or prepay $20."
       ],
       "withRoles": {
-        "producer": "Your budget and ops boss. Make sure we respond to Zack's viral reel and the anti-elderly TikTok without breaking her NEA hygiene rules or $1,100/month butter margin.",
+        "producer": "Your budget and ops boss. Make sure we respond to Zack's viral reel and the anti-elderly TikTok without breaking our counter hygiene SOP or $1,100/month butter margin.",
         "lead_programmer": "Push for a way to let elderly uncles with $2 or $10 notes order immediately tomorrow morning.",
         "game_designer": "Work with her on why the takeaway butter melted yesterday so we can show Zack the truth on camera tomorrow.",
         "studio_manager": "The meeting host. Make sure we protect our public reputation on both the butter critique and the elderly cash issue."
@@ -327,7 +327,7 @@
       "personality": "General Manager and meeting host. Warm, organised, makes sure no topic is brushed off with a simplistic one-liner, and ensures every item ends with a clear decision and task owner.",
       "agenda": "Run the meeting smoothly: cover the launch crises, make sure the visitor weighs both the customer and operational catches, and assign clear follow-up tasks.",
       "concerns": [
-        "Making sure we don't lock in a superficial fix that breaks kitchen dockets, violates NEA hygiene rules, blows our butter margin, or forces Auntie Mary into customer fights.",
+        "Making sure we don't lock in a superficial fix that breaks kitchen dockets, violates our counter hygiene SOP, blows our butter margin, or forces Auntie Mary into customer fights.",
         "Leaving any item without a concrete follow-up owner."
       ],
       "knows": [

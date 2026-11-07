@@ -13,4 +13,4 @@ INSERT INTO launch_budget (item, planned_sgd, spent_sgd, notes, updated_on) VALU
   ('Storefront bunting and signage', 450.00, 450.00, 'Installed at Raffles Place #B1-14', '2026-11-11'),
   ('300 Kaya Toast plushie keychains', 600.00, 600.00, 'Delivered to Raffles Place storeroom', '2026-11-11'),
   ('TikTok Live Re-Taste (@MakanWithZack)', 450.00, 0.00, '$600 cash rate or $450 buddy rate + 20 plushies out of $750 remaining budget', '2026-11-11'),
-  ('Anchor Salted Butter & Cash-Assist Contingency', 300.00, 0.00, 'Doubling butter to 20g costs $1,100/mo; nightly coin counting costs $380/mo', '2026-11-11');
+  ('Anchor Salted Butter & Cash Handling Contingency', 300.00, 0.00, 'Doubling butter to 20g costs $1,100/mo; nightly coin counting costs $380/mo', '2026-11-11');

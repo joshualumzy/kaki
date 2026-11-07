@@ -11,9 +11,10 @@ Last updated: 11 November 2026
 - 60% of our morning customers dine solo and cannot carry a hot tray of Kopi and runny soft-boiled eggs without a table.
 - Store equipment: the 12 booth wall sockets and guest Wi-Fi router are wired to a programmable smart relay breaker in the back room.
 
-## 2. Cashless kiosks and elderly regulars with cash
+## 2. Cash-paying elderly regulars and counter hygiene
 
 - Yesterday 14 retired morning regulars walked out when told our kiosks only take PayNow and cards, and a TikTok clip of a 74-year-old uncle at our `NO CASH` sign hit 40,000 views.
-- Our 2 counter staff slice ready-to-eat kaya toast. Under NEA food-hygiene rules, handling loose coins or notes requires changing gloves and washing hands every order (+40s delay), and counting the cash float at night costs SGD 380/month in overtime.
-- Physical kiosk cash bill-acceptors cost SGD 1,400 and take 3 weeks to arrive, and elderly regulars refused to buy a $20 minimum stored-value card.
-- POS v2.4 has a Staff Cash-Assist RFID Badge mode (30 mins setup) that unlocks a kiosk order with one tap, and 94% of retired morning regulars pay with $2 or $10 notes.
+- Our internal counter hygiene SOP keeps money handling separate from ready-to-eat food: staff who handle coins or notes must change gloves and wash hands before slicing kaya toast or cracking soft-boiled eggs (+40s per order). Counting the cash float at night costs SGD 380/month in overtime.
+- The toast counter runs on two staff at the 8am rush, so there is no free pair of hands for cash and change. Auntie Mary (62) is the only floor staff who seats solo diners with hot trays and clears tables, so she cannot run cash either.
+- 94% of retired morning regulars carry only $2 or $10 notes, so a $2.20 Kopi always needs change, and they refused to buy a $20 minimum stored-value card.
+- Physical kiosk cash bill-acceptors cost SGD 1,400 and take 3 weeks to arrive, and there is no spare till or cashier terminal at the front.
