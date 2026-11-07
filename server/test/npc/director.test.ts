@@ -283,6 +283,12 @@ describe('the director prompt', () => {
   it('forbids a character from inventing what another character did or said', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('never says what another character did');
   });
+
+  it('forbids inventing an unsupported change in a colleague\'s job or commitments', () => {
+    const prompt = buildSystemPrompt(npcScenario);
+    expect(prompt).toContain('Never invent a change in a colleague');
+    expect(prompt).toContain('quit, resigned, was fired, is leaving');
+  });
 });
 
 describe('findHandover', () => {

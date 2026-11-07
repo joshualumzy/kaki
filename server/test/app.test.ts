@@ -282,4 +282,13 @@ describe('app', () => {
     ]);
     expect(scenario.agenda).toHaveLength(4);
   });
+
+  it('keeps the shipped Auntie Mary facts to what the records say', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const weiLing = scenario.npcs?.find((npc) => npc.attendee === 'Wei Ling');
+    const concerns = weiLing?.concerns.join(' ') ?? '';
+    expect(concerns).toContain('got screamed at');
+    expect(concerns).toContain('refuses to police seats or touch customers\' belongings');
+    expect(concerns).not.toMatch(/\b(?:quit|resigned|fired|leaving)\b/i);
+  });
 });

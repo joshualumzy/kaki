@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgendaItem, Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../../src/llm';
 import {
   assessProposal,
+  DEFAULT_ASSESSMENT_TIMEOUT_MS,
   evidenceMatchesVisitor,
   isSubstantiveProposal,
   type ProposalAssessment,
@@ -49,6 +50,18 @@ describe('isSubstantiveProposal', () => {
   it('accepts a concrete proposal', () => {
     expect(isSubstantiveProposal('Let us move the cash box by the door.')).toBe(true);
     expect(isSubstantiveProposal('What if we put the butter on the side?')).toBe(true);
+  });
+
+  it('accepts terse action imperatives as proposals', () => {
+    expect(isSubstantiveProposal('Ban laptops during breakfast')).toBe(true);
+    expect(isSubstantiveProposal('Put a cash drawer back at the toast counter')).toBe(true);
+  });
+
+  it('rejects an imperative follow-up request, but not a decision that mentions a draft', () => {
+    expect(isSubstantiveProposal('Please draft the cash desk handover for the team channel')).toBe(false);
+    expect(isSubstantiveProposal('Draft the cash desk handover for the team channel.')).toBe(false);
+    expect(isSubstantiveProposal('Post the decision in the team channel today.')).toBe(false);
+    expect(isSubstantiveProposal('Put the cash drawer back and draft a handover note for the team channel.')).toBe(true);
   });
 
   it('rejects questions, side requests and filler', () => {
@@ -220,6 +233,61 @@ describe('assessProposal', () => {
       stream: streamReply(JSON.stringify({ isProposal: false, readiness: 'open', resolved: [], unresolved: [] })),
     });
     expect(result).toEqual({ isProposal: false, readiness: 'open', resolved: [], unresolved: [] });
+  });
+
+  it('keeps a clear action imperative open when the model wrongly calls it a non-proposal', async () => {
+    const reply = JSON.stringify({ isProposal: false, readiness: 'open', resolved: [], unresolved: [] });
+    for (const visitorText of ['Ban laptops during breakfast.', 'Put a cash drawer back at the toast counter.']) {
+      const result = await assessProposal({ scenario, item, visitorText, stream: streamReply(reply) });
+      expect(result).toMatchObject({ isProposal: true, readiness: 'open', resolved: [] });
+      expect(result?.unresolved.map((entry) => entry.tradeOff)).toEqual([
+        'The morning queue is backing out of the door.',
+        'The till screen only fits twelve buttons.',
+      ]);
+    }
+  });
+
+  it('still treats a genuine question or filler as a non-proposal', async () => {
+    const reply = JSON.stringify({ isProposal: false, readiness: 'open', resolved: [], unresolved: [] });
+    for (const visitorText of ['How do we handle cash?', 'Hi team.']) {
+      await expect(assessProposal({ scenario, item, visitorText, stream: streamReply(reply) })).resolves.toEqual({
+        isProposal: false,
+        readiness: 'open',
+        resolved: [],
+        unresolved: [],
+      });
+    }
+  });
+
+  it('allows the full default 15s bound before abandoning a slow assessment and still fails closed', async () => {
+    expect(DEFAULT_ASSESSMENT_TIMEOUT_MS).toBe(15_000);
+    expect(DEFAULT_ASSESSMENT_TIMEOUT_MS).toBeLessThan(20_000);
+
+    vi.useFakeTimers();
+    try {
+      let finished = false;
+      const result = assessProposal({
+        scenario,
+        item,
+        visitorText: 'We will open a second prep station.',
+        stream: async function* (_messages, signal) {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+          yield '';
+        },
+      });
+      void result.then(() => {
+        finished = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(DEFAULT_ASSESSMENT_TIMEOUT_MS - 1);
+      expect(finished).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('matches evidence after normalising punctuation and spacing', () => {

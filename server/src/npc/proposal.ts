@@ -4,8 +4,8 @@ import type { ChatMessage } from '../llm';
 /** Marker in the assessment prompt, so tests and logs can recognise the bounded call. */
 export const PROPOSAL_ASSESSMENT_MARKER = '[KAKI_PROPOSAL_ASSESSMENT]';
 
-/** How long one readiness check may take before it is abandoned and the item stays open. */
-export const DEFAULT_ASSESSMENT_TIMEOUT_MS = 6_000;
+/** How long one readiness check may take before it is abandoned and the item stays open. Must stay under the shared LLM client's 20s timeout. */
+export const DEFAULT_ASSESSMENT_TIMEOUT_MS = 15_000;
 
 /** The most text the assessment will read; a longer reply is malformed and ignored. */
 export const DEFAULT_ASSESSMENT_MAX_CHARS = 4_000;
@@ -78,6 +78,22 @@ const FIRST_PERSON_FOLLOW_UP =
   /\bi(?:'ll| will)\s+(?:send|email|post|file|write|schedule|book|share|confirm|update|put|make sure|arrange|bring|check|draft|print)\b/i;
 
 /**
+ * An imperative follow-up request ("Please draft the handover", "Post the update", "Draft the note").
+ * Deliberately anchored to the first word and limited to communication/deliverable verbs, so it never
+ * swallows a decision that merely mentions a draft or a post as one part of the plan.
+ */
+const SIDE_TASK_IMPERATIVE =
+  /^(?:please\s+)?(?:draft|send|email|post|file|write|print|schedule|book|share|forward|submit|upload|circulate|confirm)\b/i;
+
+/**
+ * A terse instruction that is clearly a course of action for the decision ("Ban laptops during
+ * breakfast", "Put a cash drawer back at the toast counter"). Used only as a fallback when the model
+ * wrongly calls such a line a non-proposal; it never marks the item complete.
+ */
+const CLEAR_ACTION_IMPERATIVE =
+  /^(?:please\s+)?(?:ban|block|stop|start|put|place|move|add|remove|switch|swap|make|set|use|bring|open|close|cap|limit|reserve|keep|leave|cut|charge|price|give|introduce|launch|run|require|allow|hire|train|rotate|assign|redirect|replace|rename|label|double|halve|change|serve|offer|install|enforce|police)\b/i;
+
+/**
  * True when a visitor's line is worth one readiness check: a concrete proposal for the item,
  * not a question, greeting, filler, status update, or a side request to send/file/post something.
  */
@@ -86,11 +102,22 @@ export function isSubstantiveProposal(text: string): boolean {
   if (trimmed.length === 0) return false;
   if (GREETING_OR_FILLER.test(trimmed)) return false;
   if (META_OR_NONSENSE.test(trimmed)) return false;
-  if (SIDE_TASK_REQUEST.test(trimmed) || SIDE_TASK_MARKER.test(trimmed) || FIRST_PERSON_FOLLOW_UP.test(trimmed)) {
+  if (
+    SIDE_TASK_REQUEST.test(trimmed) ||
+    SIDE_TASK_MARKER.test(trimmed) ||
+    FIRST_PERSON_FOLLOW_UP.test(trimmed) ||
+    SIDE_TASK_IMPERATIVE.test(trimmed)
+  ) {
     return false;
   }
   if (trimmed.endsWith('?')) return PROPOSAL_QUESTION.test(trimmed);
   return !FEASIBILITY_QUESTION.test(trimmed);
+}
+
+/** True when the model called a clear action imperative a non-proposal; the item must stay open. */
+function isClearActionImperative(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length > 0 && !trimmed.endsWith('?') && CLEAR_ACTION_IMPERATIVE.test(trimmed);
 }
 
 function assessmentPrompt(item: AgendaItem, visitorLines: string[]): string {
@@ -110,6 +137,7 @@ function assessmentPrompt(item: AgendaItem, visitorLines: string[]): string {
     spoken,
     'Rules:',
     '- A proposal is a concrete course of action for this decision. A question, greeting, filler, status update, or a side request to send/file/post something is not a proposal.',
+    '- A terse instruction telling the room what to do is a proposal, not a question or side request: for example "Ban laptops during breakfast" or "Put a cash drawer back at the toast counter". Mark it a proposal, and keep readiness "open" until every listed trade-off is resolved; never mark it complete just because it states an action.',
     '- Judge the proposal as a whole across these lines, not only the latest one: an adjustment can complete an earlier partial proposal.',
     '- Mark readiness "complete" only when the visitor\'s own words across these lines make a clear call and resolve EVERY listed trade-off (or explicitly accept its residual risk).',
     '- Resolved entries must quote the visitor\'s exact words in "evidence", taken from any of the lines above. Never invent an offer, number, permission or promise.',
@@ -278,7 +306,15 @@ export async function assessProposal(options: {
     return undefined;
   }
   if (!isProposal) {
-    return { isProposal: false, readiness: 'open', resolved: [], unresolved: [] };
+    if (!isClearActionImperative(visitorText)) {
+      return { isProposal: false, readiness: 'open', resolved: [], unresolved: [] };
+    }
+    log?.('proposal assessment called a clear action imperative a non-proposal; keeping the item open');
+    const resolved = mergeResolved(options.resolvedSoFar, [], tradeOffs, visitorWords);
+    const missing = tradeOffs.filter(
+      (tradeOff) => !resolved.some((entry) => normalize(entry.tradeOff) === normalize(tradeOff.tradeOff)),
+    );
+    return { isProposal: true, readiness: 'open', resolved, unresolved: allUnresolved(missing) };
   }
   const readiness = parsed.readiness;
   if (readiness !== 'open' && readiness !== 'complete') {
