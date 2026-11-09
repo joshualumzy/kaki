@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   console.log('Radicale Calendar');
   try {
     const calBase = 'http://127.0.0.1:5232/user/calendar/';
+    await fetch(calBase, { method: 'DELETE' }).catch(() => undefined);
     await fetch('http://127.0.0.1:5232/user/', { method: 'MKCOL' }).catch(() => undefined);
     await fetch(calBase, { method: 'MKCALENDAR' }).catch(() => undefined);
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10).replace(/-/g, '');

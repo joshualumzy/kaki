@@ -183,7 +183,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
             <a href={`http://${host}:8082/kopitiam/kopitiam-pos/issues`} target="_blank" rel="noreferrer">Gitea</a>
             <a href={`http://${host}:8083/kopitiam/channels/kopitiam-launch`} target="_blank" rel="noreferrer">Mattermost</a>
             <a href={`http://${host}:8084`} target="_blank" rel="noreferrer">Mailpit</a>
-            <a href="/api/calendar/kopitiam-launch" target="_blank" rel="noreferrer">Calendar</a>
+            <a href="/api/calendar/seed-sfa-inspection" target="_blank" rel="noreferrer">Calendar</a>
           </nav>
         );
       })()}
