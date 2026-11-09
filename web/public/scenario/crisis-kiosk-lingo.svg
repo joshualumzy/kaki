@@ -1,24 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
   <style>
-    @keyframes qFloat1 {
-      0%, 100% { transform: translateY(0px) rotate(-8deg); opacity: 0.85; }
-      50% { transform: translateY(-6px) rotate(6deg); opacity: 1; }
-    }
-    @keyframes qFloat2 {
-      0%, 100% { transform: translateY(0px) rotate(8deg); opacity: 0.85; }
-      50% { transform: translateY(-7px) rotate(-6deg); opacity: 1; }
-    }
-    @keyframes docketPrint {
-      0%, 100% { transform: translateY(4px); }
-      50% { transform: translateY(-5px); }
-    }
     @keyframes btnGlow {
       0%, 100% { stroke-opacity: 0.5; }
       50% { stroke-opacity: 1; }
     }
-    .q-mark-1 { animation: qFloat1 2.1s ease-in-out infinite both; }
-    .q-mark-2 { animation: qFloat2 2.4s ease-in-out 0.4s infinite both; }
-    .docket-paper { animation: docketPrint 2.6s ease-in-out infinite; }
     .kiosk-btn-glow { animation: btnGlow 1.6s ease-in-out infinite; }
   </style>
   <defs>
@@ -121,9 +106,9 @@
         <line x1="20" y1="-4" x2="58" y2="-4" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
         <line x1="20" y1="4" x2="50" y2="4" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
       </g>
-      <rect x="4" y="22" width="72" height="36" rx="7" fill="#1e293b" stroke="url(#brassAccent)" stroke-width="2"/>
-      <circle cx="62" cy="34" r="3.5" fill="#2fe0c4"/>
-      <text x="40" y="48" text-anchor="middle" fill="#fde68a" font-family="system-ui, sans-serif" font-size="7" font-weight="700" letter-spacing="0.05em">DOCKET PRINTER</text>
+      <rect x="0" y="22" width="80" height="36" rx="7" fill="#1e293b" stroke="url(#brassAccent)" stroke-width="2"/>
+      <circle cx="66" cy="34" r="3.5" fill="#2fe0c4"/>
+      <text x="40" y="48" text-anchor="middle" fill="#fde68a" font-family="system-ui, sans-serif" font-size="6.5" font-weight="700" letter-spacing="0.03em">DOCKET PRINTER</text>
     </g>
   </g>
 </svg>

@@ -1,9 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
   <style>
-    @keyframes chopePulse {
-      0%, 100% { transform: translateY(0px) rotate(-8deg) scale(1); }
-      50% { transform: translateY(-3px) rotate(-4deg) scale(1.05); }
-    }
     @keyframes sweatDrop {
       0% { transform: translateY(0px); opacity: 0.95; }
       75% { transform: translateY(8px); opacity: 0.95; }
@@ -18,15 +14,9 @@
       0%, 100% { width: 28px; }
       50% { width: 44px; }
     }
-    @keyframes bubbleBob {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-3px); }
-    }
-    .chope-pack { transform: translateY(0px) rotate(-8deg) scale(1); animation: chopePulse 2.3s ease-in-out infinite both; }
     .sweat { animation: sweatDrop 1.9s ease-in infinite; }
     .kopi-steam { animation: steamDrift 2.2s ease-out infinite; }
     .laptop-line { animation: codeType 2s ease-in-out infinite; }
-    .speech-bob { animation: bubbleBob 2.8s ease-in-out infinite; }
   </style>
   <defs>
     <linearGradient id="bgChope" x1="0" y1="0" x2="400" y2="200" gradientUnits="userSpaceOnUse">
@@ -88,19 +78,17 @@
     </g>
 
     <!-- Animated Red/White "CHOPE!" Tissue Packet -->
-    <g transform="translate(124, 38)">
-      <g class="chope-pack">
-        <rect x="0" y="6" width="52" height="28" rx="6" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>
-        <ellipse cx="26" cy="6" rx="14" ry="7" fill="#ffffff"/>
-        <text x="26" y="24" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="8.5" font-weight="900" letter-spacing="0.04em">CHOPE!</text>
-      </g>
+    <g transform="translate(124, 38) rotate(-6 26 20)">
+      <rect x="0" y="6" width="56" height="28" rx="6" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>
+      <ellipse cx="28" cy="6" rx="14" ry="7" fill="#ffffff"/>
+      <text x="28" y="24" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="8" font-weight="900" letter-spacing="0.03em">CHOPE!</text>
     </g>
   </g>
 
   <!-- Right: Diner Standing with Steaming Red Tray of Kopi & Soft-Boiled Eggs -->
   <g transform="translate(236, 24)">
     <!-- Speech Pill (Wider 148px box so text fits with wide margin) -->
-    <g class="speech-bob">
+    <g>
       <rect x="0" y="0" width="148" height="34" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="2"/>
       <path d="M68 34 L62 44 L78 34 Z" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5"/>
       <text x="74" y="21" text-anchor="middle" fill="#92400e" font-family="system-ui, sans-serif" font-size="10.5" font-weight="800">"Zero seats left?!"</text>
@@ -108,9 +96,12 @@
 
     <!-- Diner Character -->
     <circle cx="74" cy="66" r="16" fill="#fde68a" stroke="#d97706" stroke-width="2"/>
+    <path d="M67 60 Q70 57 73 60" stroke="#78350f" stroke-width="1.8" fill="none"/>
+    <path d="M76 60 Q79 57 82 60" stroke="#78350f" stroke-width="1.8" fill="none"/>
+    <path d="M69 72 Q74 68 79 72" stroke="#78350f" stroke-width="1.8" fill="none"/>
     <!-- Animated Sweat drop -->
     <path class="sweat" d="M94 52 C94 52, 99 60, 94 63 C89 60, 94 52, 94 52 Z" fill="#38bdf8"/>
-    <path d="M46 150 C46 100, 102 100, 102 150 Z" fill="#0d9488" stroke="#5eead4" stroke-width="2"/>
+    <path d="M46 140 C46 98, 102 98, 102 140 Z" fill="#0d9488" stroke="#5eead4" stroke-width="2"/>
 
     <!-- Traditional Red Kopitiam Tray with Floral Cup, Toast & 2 Kampong Eggs -->
     <g transform="translate(20, 96)">

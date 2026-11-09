@@ -1,15 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
   <style>
     @keyframes feePulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.04); }
+      0%, 100% { stroke-opacity: 0.75; }
+      50% { stroke-opacity: 1; }
     }
-    @keyframes bagFloat {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-3px); }
-    }
-    .fee-pill { transform-origin: 96px 76px; animation: feePulse 2.1s ease-in-out infinite; }
-    .bag-bob { animation: bagFloat 2.5s ease-in-out infinite; }
+    .fee-pill { animation: feePulse 2.1s ease-in-out infinite; }
   </style>
   <defs>
     <linearGradient id="bgDelivery" x1="0" y1="0" x2="400" y2="200" gradientUnits="userSpaceOnUse">
@@ -46,25 +41,25 @@
   <path d="M0 164 H400" stroke="#d97706" stroke-width="3.5"/>
 
   <!-- Left: Merchant Delivery Tablet Showing 32% Commission Squeeze -->
-  <g transform="translate(22, 22)">
-    <rect x="0" y="0" width="164" height="132" rx="12" fill="#0f172a" stroke="#38bdf8" stroke-width="2.5"/>
-    <rect x="8" y="8" width="148" height="116" rx="8" fill="#1e293b"/>
+  <g transform="translate(18, 20)">
+    <rect x="0" y="0" width="176" height="134" rx="12" fill="#0f172a" stroke="#38bdf8" stroke-width="2.5"/>
+    <rect x="8" y="8" width="160" height="118" rx="8" fill="#1e293b"/>
 
-    <rect x="16" y="14" width="132" height="18" rx="4" fill="#10b981"/>
-    <text x="82" y="26" text-anchor="middle" fill="#042f2e" font-family="system-ui, sans-serif" font-size="8.5" font-weight="900" letter-spacing="0.04em">DELIVERY TABLET</text>
+    <rect x="16" y="14" width="144" height="18" rx="4" fill="#10b981"/>
+    <text x="88" y="26" text-anchor="middle" fill="#042f2e" font-family="system-ui, sans-serif" font-size="8" font-weight="900" letter-spacing="0.03em">DELIVERY TABLET</text>
 
     <g class="fee-pill">
-      <rect x="16" y="38" width="132" height="36" rx="6" fill="#450a0a" stroke="#ef4444" stroke-width="1.8"/>
-      <text x="82" y="53" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">PLATFORM COMMISSION</text>
-      <text x="82" y="68" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="12" font-weight="900">32% FEE (-$0.40/set)</text>
+      <rect x="16" y="38" width="144" height="36" rx="6" fill="#450a0a" stroke="#ef4444" stroke-width="1.8"/>
+      <text x="88" y="53" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="8" font-weight="800">PLATFORM COMMISSION</text>
+      <text x="88" y="68" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="10.5" font-weight="900">32% FEE (-$0.40/set)</text>
     </g>
 
-    <text x="20" y="92" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="9" font-weight="700">• 50% CBD office volume</text>
-    <text x="20" y="108" fill="#fde68a" font-family="system-ui, sans-serif" font-size="9" font-weight="700">• Direct QR: Pickup only</text>
+    <text x="20" y="92" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">• 50% CBD office volume</text>
+    <text x="20" y="108" fill="#fde68a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">• Direct QR: Pickup only</text>
   </g>
 
   <!-- Right: CBD Office Takeaway Bundles & Thermal Carrier Bags -->
-  <g class="bag-bob" transform="translate(212, 34)">
+  <g transform="translate(212, 34)">
     <!-- Thermal Delivery Bag -->
     <rect x="12" y="32" width="84" height="96" rx="8" fill="#059669" stroke="#a7f3d0" stroke-width="2"/>
     <path d="M34 32 C34 14, 74 14, 74 32" stroke="#a7f3d0" stroke-width="3" fill="none"/>

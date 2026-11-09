@@ -1,21 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
   <style>
     @keyframes tempPulse {
-      0%, 100% { stroke-opacity: 0.7; transform: scale(1); }
-      50% { stroke-opacity: 1; transform: scale(1.03); }
+      0%, 100% { stroke-opacity: 0.75; }
+      50% { stroke-opacity: 1; }
     }
     @keyframes steamRise {
       0% { opacity: 0; transform: translateY(4px); }
       50% { opacity: 0.75; }
       100% { opacity: 0; transform: translateY(-9px); }
     }
-    @keyframes badgeBob {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-3px); }
-    }
-    .temp-alert { transform-origin: 96px 52px; animation: tempPulse 2s ease-in-out infinite; }
+    .temp-alert { animation: tempPulse 2s ease-in-out infinite; }
     .bath-steam { animation: steamRise 2.3s ease-out infinite; }
-    .sfa-badge { animation: badgeBob 2.6s ease-in-out infinite; }
   </style>
   <defs>
     <linearGradient id="bgSfa" x1="0" y1="0" x2="400" y2="200" gradientUnits="userSpaceOnUse">
@@ -52,12 +47,12 @@
   <path d="M0 162 H400" stroke="#94a3b8" stroke-width="3"/>
 
   <!-- Left: Stainless Steel Sous-Vide Egg Holding Bath -->
-  <g transform="translate(24, 42)">
+  <g transform="translate(18, 42)">
     <!-- Digital Temp Readout Header -->
     <g class="temp-alert">
-      <rect x="24" y="0" width="132" height="34" rx="8" fill="#0f172a" stroke="#ef4444" stroke-width="2"/>
-      <text x="90" y="14" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="7.5" font-weight="800" letter-spacing="0.05em">HOLDING BATH DIP</text>
-      <text x="90" y="27" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="11.5" font-weight="900">58.0°C (45m) ⚠</text>
+      <rect x="18" y="0" width="144" height="34" rx="8" fill="#0f172a" stroke="#ef4444" stroke-width="2"/>
+      <text x="90" y="14" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="7.5" font-weight="800" letter-spacing="0.04em">HOLDING BATH DIP</text>
+      <text x="90" y="27" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="10.5" font-weight="900">58.0°C (45m) ⚠</text>
     </g>
 
     <!-- Water Bath Tank -->
@@ -77,22 +72,22 @@
   </g>
 
   <!-- Right: SFA 9:00 AM Inspection Clipboard & Press 8:00 AM Alert -->
-  <g class="sfa-badge" transform="translate(222, 24)">
+  <g transform="translate(206, 20)">
     <!-- Clipboard -->
-    <rect x="14" y="12" width="142" height="128" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="2.5"/>
-    <rect x="58" y="4" width="54" height="16" rx="5" fill="#d97706" stroke="#78350f" stroke-width="1.5"/>
+    <rect x="6" y="12" width="164" height="132" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="2.5"/>
+    <rect x="61" y="4" width="54" height="16" rx="5" fill="#d97706" stroke="#78350f" stroke-width="1.5"/>
 
     <!-- SFA Header -->
-    <rect x="26" y="28" width="118" height="22" rx="5" fill="#dc2626"/>
-    <text x="85" y="43" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="9.5" font-weight="900" letter-spacing="0.04em">SFA INSPECTION · 9AM</text>
+    <rect x="18" y="28" width="140" height="22" rx="5" fill="#dc2626"/>
+    <text x="88" y="43" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="8.5" font-weight="900" letter-spacing="0.03em">SFA INSPECTION · 9AM</text>
 
     <!-- Checklist Lines -->
-    <text x="30" y="66" fill="#0f172a" font-family="system-ui, sans-serif" font-size="9.5" font-weight="800">• 8:00 AM: Press at door</text>
-    <text x="30" y="84" fill="#0f172a" font-family="system-ui, sans-serif" font-size="9.5" font-weight="800">• 9:00 AM: SFA swab test</text>
-    <text x="30" y="102" fill="#b45309" font-family="system-ui, sans-serif" font-size="9.5" font-weight="800">• Lab culture: 48 hrs</text>
+    <text x="22" y="66" fill="#0f172a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• 8:00 AM: Press at door</text>
+    <text x="22" y="84" fill="#0f172a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• 9:00 AM: SFA swab test</text>
+    <text x="22" y="102" fill="#b45309" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• Lab culture: 48 hrs</text>
 
     <!-- Pasteurized Backup Badge -->
-    <rect x="26" y="111" width="118" height="20" rx="5" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
-    <text x="85" y="124" text-anchor="middle" fill="#047857" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">2 Pasteurized Cartons (63°C)</text>
+    <rect x="18" y="112" width="140" height="22" rx="5" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+    <text x="88" y="126" text-anchor="middle" fill="#047857" font-family="system-ui, sans-serif" font-size="8" font-weight="800">2 Pasteurized Cartons (63°C)</text>
   </g>
 </svg>
