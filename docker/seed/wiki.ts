@@ -29,6 +29,22 @@ interface PageLookupData {
   };
 }
 
+interface PageListData {
+  pages: {
+    list: Array<{
+      id: number;
+      path: string;
+      title: string;
+    }>;
+  };
+}
+
+interface PageDeleteData {
+  pages: {
+    delete?: { responseResult: { succeeded: boolean; message?: string } };
+  };
+}
+
 interface PageWriteData {
   pages: {
     create?: { responseResult: { succeeded: boolean; message?: string } };
@@ -239,7 +255,49 @@ export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
 
   syncWikiDemoAdmin(env);
   const jwt = await login(env);
-  for (const page of pages) {
+
+  const homePage: WikiPageSeed = {
+    path: 'home',
+    title: 'Nanyang Kopi & Toast — Team Wiki',
+    description: 'Standard Operating Procedures (SOPs), Floor Protocols & Launch Costing for Raffles Place Flagship (#B1-14).',
+    content: [
+      '# Nanyang Kopi & Toast — Team Wiki',
+      '',
+      'Welcome to the internal knowledge base for our **Raffles Place Flagship (#B1-14)** launch.',
+      '',
+      '## Active Operations & Launch SOPs',
+      ...pages.map((p) => `- **[${p.title}](/en/${p.path})** — ${p.description}`),
+      '',
+      '---',
+      '*End-of-meeting minutes and action updates published by Kaki appear under `/en/meetings/`.*',
+    ].join('\n'),
+  };
+
+  const allSeedPages = [homePage, ...pages];
+  const validPaths = new Set(allSeedPages.map((p) => p.path));
+
+  try {
+    const existingList = await graphql<PageListData>(
+      env,
+      `query { pages { list { id path title } } }`,
+      {},
+      jwt,
+    );
+    for (const item of existingList.pages.list) {
+      if (!validPaths.has(item.path)) {
+        await graphql<PageDeleteData>(
+          env,
+          `mutation Delete($id: Int!) { pages { delete(id: $id) { responseResult { succeeded message } } } }`,
+          { id: item.id },
+          jwt,
+        ).catch(() => undefined);
+      }
+    }
+  } catch {
+    // Best-effort cleanup of stale pages.
+  }
+
+  for (const page of allSeedPages) {
     const result = await ensurePage(env, jwt, page);
     console.log(`  ${result}: ${page.path}`);
   }

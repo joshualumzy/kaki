@@ -16,6 +16,11 @@ fi
 echo "Starting the Docker stack (Gitea, Mattermost, LiveKit, Mailpit...)"
 npm run stack:up >.live-logs/stack.log 2>&1 || { echo "stack:up failed; see .live-logs/stack.log"; exit 1; }
 
+echo "Seeding Kopitiam data (Wiki, Gitea, Mattermost, Mailpit, Calendar, Postgres)..."
+npm run seed >>.live-logs/stack.log 2>&1 || { echo "seed failed; see .live-logs/stack.log"; exit 1; }
+echo "Indexing company knowledge into pgvector..."
+npm run index:knowledge >>.live-logs/stack.log 2>&1 || { echo "index:knowledge failed; see .live-logs/stack.log"; exit 1; }
+
 start() { # name command...
   local name="$1"; shift
   # Job control (set -m) gives the process its own process group, so live-down.sh can stop it and its children.
