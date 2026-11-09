@@ -98,31 +98,31 @@
         "openingViews": [
           {
             "attendee": "Mei",
-            "view": "In yesterday's trial at Raffles Place, first-timers jammed the kiosks because traditional names like 'Kopi O Kosong' confused them, and 72% missed the corner language toggle. 19 of 28 first-timers stalled until the queue backed out into the concourse, and with our opening tomorrow at 8am, we need drink ordering clear without losing our kopitiam roots."
+            "view": "In yesterday's trial at Raffles Place, 19 out of 28 first-time customers froze at our self-order kiosk because they didn't know what 'Kopi O Kosong' or 'Siew Dai' meant, and the queue backed out into the mall walkway. We open tomorrow at 8am, so we need to make ordering clear for newcomers without losing our kopitiam roots."
           },
           {
             "attendee": "Arjun",
-            "view": "The technical issue is that the kiosk software prints the exact button label straight onto the kitchen docket. Our kopi uncles read 1-second shorthand like 'KO'. If we replace local names with long English explanations, the 12-button screen overflows onto page two and slows kitchen prep by 15 seconds a cup."
+            "view": "The catch is that whatever name we put on the kiosk button also prints straight onto the kitchen ticket, and our 65-year-old kopi uncles rely on short local names to brew fast during the morning rush. Plus, the 15-inch screen only fits 12 buttons on one page."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Kiosk ordering freeze: 19 of 28 first-timers stalled at 'Kopi O Kosong' and 72% missed the corner language toggle, backing queues out into the mall concourse.",
-            "question": "What does a first-timer actually see at the moment they have to choose a drink?"
+            "tradeOff": "Kiosk ordering freeze: 19 of 28 first-timers stalled at 'Kopi O Kosong' and 72% missed the corner language toggle, backing queues out into the mall walkway.",
+            "question": "How do we make the drink choices clear for a first-timer standing at the kiosk?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Kitchen docket bottleneck: Dockets print the exact button label; long English names overflow the 12-button screen and slow kopi uncles by 15s a cup.",
-            "question": "How do we keep the kitchen ticket readable without pushing half the menu onto a second page?"
+            "tradeOff": "Kitchen ticket & screen space: The kitchen printer prints the button name, and the 15-inch screen only fits 12 buttons per page (18 characters per line).",
+            "question": "How do we keep the kitchen ticket fast for our kopi uncles without pushing half the drinks onto page two?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Peak rush throughput: Kopi uncles scan 1-second shorthand at morning rush; interpreting new ticket labels creates an immediate kitchen logjam.",
-            "question": "Who absorbs the extra time if the kitchen has to interpret new labels?"
+            "tradeOff": "Morning rush speed: When long English drink names printed on kitchen tickets at Tampines, our kopi uncles slowed down by 15 seconds a cup.",
+            "question": "How do we make sure our kopi uncles aren't slowed down reading new tickets during the 8am rush?"
           }
         ]
       }
@@ -137,31 +137,31 @@
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "Soft trial Google reviews dropped to 3.6 stars because breakfast customers couldn't find a table. Freelancers camp in four of our 4-seater booths for two hours over one $2.20 kopi—locking up 16 of our 28 seats—and Auntie Mary got shouted at yesterday just for asking someone to share a booth. We open at 8am tomorrow and need a clear seating rule so staff aren't left fighting customers."
+            "view": "Our Google rating dropped to 3.6 stars during the trial because breakfast customers couldn't find a seat. Freelancers plug into our wall sockets and camp at our four 4-seater booths for two hours over a single $2.20 coffee—locking up 16 of our 28 seats—and Auntie Mary got yelled at yesterday just for asking someone to move their tissue packet."
           },
           {
             "attendee": "Mei",
-            "view": "The reason people hold tables is that 60% of our morning customers are solo diners carrying scalding hot trays of runny eggs and kopi. They physically cannot hold a hot tray in a queue without securing a seat first with tissues. If we enforce a blanket ban on table-holding, we leave genuine solo diners stranded with boiling food and turn Auntie Mary into a bouncer."
+            "view": "I want those tables freed up too, Wei Ling, but 60% of our morning customers come alone and carry scalding hot trays of runny eggs and kopi. If we just ban saving seats with tissue packets, solo customers have nowhere to put their hot tray while queuing."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Revenue & seat lockup: 4 booths (16 of 28 seats) held for 2 hours over one $2.20 kopi ($420/morning lost); Auntie Mary got yelled at when moving tissues.",
-            "question": "Who enforces any new seating rule if it cannot be Auntie Mary?"
+            "tradeOff": "Booth lockup & staff safety: 4 booths (16 of 28 seats) are held for 2 hours on a single $2.20 drink ($420/morning lost), and 62-year-old Auntie Mary refuses to police seats after getting yelled at.",
+            "question": "How do we stop people from camping at the booths for hours without making Auntie Mary confront customers?"
           },
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Solo diners stranded: 60% of breakfast diners are solo customers carrying scalding egg trays and kopi; a blanket ban leaves them stranded with boiling food.",
-            "question": "Where does a solo diner with a hot tray sit while the queue clears?"
+            "tradeOff": "Solo diners with hot trays: 60% of morning customers dine solo carrying hot egg trays and kopi; a flat ban on saving tables leaves them stranded with hot food.",
+            "question": "How does a solo customer with a hot tray get a guaranteed spot to sit?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Smart breaker bluntness: Booth sockets and Wi-Fi run on smart relays, but cutting power hits legitimate diners and risks immediate social media backlash.",
-            "question": "Is the answer power, layout or timing, and what evidence will tell us it worked?"
+            "tradeOff": "Booth wall plugs & Wi-Fi: The 12 booth sockets and guest Wi-Fi run on a smart switch in the back room, so how we manage power and table layout determines whether people camp.",
+            "question": "What should we do with the booth power sockets, Wi-Fi, or table layout during the morning rush?"
           }
         ]
       }
@@ -176,31 +176,31 @@
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "A soft-trial diner was hospitalized yesterday with suspected salmonella, and Straits Times journalists arrive at 8:00 AM before SFA inspects at 9:00 AM. Even though hospital lab results take 48 hours, we should pause soft-boiled eggs for the morning and put out a precautionary supplier batch #402 review notice so the press sees us acting first."
+            "view": "A customer from yesterday's trial was hospitalized with suspected salmonella, and Straits Times reporters arrive tomorrow at 8am right before food safety inspectors come at 9am. Even though hospital lab results take 48 hours, I think we should stop serving soft-boiled eggs tomorrow morning so the press sees us being careful."
           },
           {
             "attendee": "Mei",
-            "view": "Hold on—our sous-vide holding bath dipped to 58°C for 45 minutes during yesterday's rush, and SFA will swab the tank and check our temperature log at 9:00 AM. If we publicly point at the supplier or pull eggs before lab confirmation, we spark a media panic and kill 60% of breakfast sets when we have unopened pasteurized backup cartons ready to hold at 63°C."
+            "view": "Stopping soft-boiled eggs wipes out 60% of our breakfast sets—about $1,800 tomorrow morning—and our egg warmer actually dipped to 58 degrees for 45 minutes during yesterday's rush instead of staying at 63 degrees. We have two unopened cartons of safe, pasteurized backup eggs in the storeroom that we can run at 63 degrees if we clean the tank tonight."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "8am press vs unconfirmed lab: Straits Times arrives at 8am while hospital lab results take 48h; a precautionary pause shows action but risks sparking a launch panic.",
-            "question": "What do we tell the 8am press and customers while the hospital lab test is still pending?"
+            "tradeOff": "8am press arrival: Straits Times journalists arrive at 8am while the hospital lab test takes 48 hours; we need a clear, honest answer for reporters without causing a panic.",
+            "question": "What do we tell the 8am reporters and customers while the hospital lab test is still pending?"
           },
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "58°C bath dip & SFA swab: Holding bath dipped below 60°C for 45m yesterday; SFA swabs at 9am, though unopened pasteurized backup eggs can hold at 63°C.",
-            "question": "Do we pull soft-boiled eggs completely, or sanitize the bath and run the pasteurized backup batch at 63°C?"
+            "tradeOff": "Egg warmer temperature dip: Our egg water bath dipped to 58°C yesterday (needs 63°C), and inspectors will swab it at 9am, though we have two unopened cartons of pasteurized backup eggs.",
+            "question": "Do we take soft-boiled eggs off the menu tomorrow, or clean the water bath and use our pasteurized backup eggs at 63°C?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Breakfast revenue vs compliance: Soft-boiled eggs anchor 60% of breakfast sets ($1,800/morning); pulling them guts launch sales, but failing SFA's 9am check shuts us down.",
-            "question": "Who logs and verifies our 9am SFA inspection protocol on the kitchen line?"
+            "tradeOff": "9am inspection & $1,800 breakfast sales: Soft-boiled eggs are in 60% of breakfast sets ($1,800/morning), and inspectors at 9am will check our temperature logbook.",
+            "question": "How do we make sure the kitchen passes the 9am inspection check without losing our morning breakfast sales?"
           }
         ]
       }
@@ -215,31 +215,31 @@
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "GrabFood and Foodpanda just hiked commissions to 32%, so every $10 breakfast set delivered to CBD office towers loses $0.40 after packaging. But platforms drive 50% of our morning revenue—$2,400 a morning—and if we delist or slap a 30% markup on single sets, office regulars will switch straight to Ya Kun."
+            "view": "GrabFood and Foodpanda just raised their delivery fee to 32%, which means we lose 40 cents on every $10 breakfast set we deliver. The problem is that half of our morning sales—about $2,400 every morning—come from nearby office towers ordering on those apps, and if we pull off the apps, those offices will order from Ya Kun instead."
           },
           {
             "attendee": "Arjun",
-            "view": "And we can't just redirect delivery orders to our direct web QR link tonight because our POS has no rider dispatch integration and doesn't batch group delivery dockets for the kitchen. Plus, raising our GrabFood menu price by 30% to $13 triggers platform price-parity penalties that bury our store listing."
+            "view": "And we can't simply mark up our $10 set to $13 on GrabFood, Daniel, because the app penalizes shops that charge higher prices online than in-store by hiding them in search results. Plus, our own website QR code only lets customers order for self-pickup since we don't have delivery riders."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Commission vs CBD volume: Platforms take 32% ($0.40 loss per $10 set), but delisting forfeits $2,400/morning (50% of volume) to Ya Kun.",
-            "question": "How do we restructure our delivery menu or order minimums so we stop losing $0.40 per set?"
+            "tradeOff": "32% app fee vs $2,400 office sales: Delivery apps take 32% (losing $0.40 on every $10 single set), but leaving the apps hands $2,400 every morning in nearby office orders to Ya Kun.",
+            "question": "How do we stop losing money on single $10 delivery sets without losing our nearby office customers?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Price-parity & POS rider gap: A 30% GrabFood markup triggers platform ranking penalties, and our direct QR link only supports self-pickup with no rider dispatch.",
-            "question": "How do we use our POS or QR ordering without violating platform price-parity or needing rider dispatch?"
+            "tradeOff": "App price rules & no delivery riders: Raising single-set prices on GrabFood gets our shop hidden in search results (though multi-set office platters count as a separate menu item), and our own QR link only does self-pickup.",
+            "question": "How should we set up our GrabFood menu or our self-pickup QR option so we don't get penalized by the app?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Floor staff runner risk: Pulling counter or floor staff to hand-deliver CBD office orders during 8am rush leaves the shop short-handed and carries injury liability.",
-            "question": "Who handles fulfillment at 8am without pulling our counter staff off the line?"
+            "tradeOff": "Counter staffing during rush: We cannot pull our counter staff off the line to hand-deliver orders to office towers during the 8am rush.",
+            "question": "How do we fulfill these office orders tomorrow morning without pulling our shop staff off the counter?"
           }
         ]
       }
@@ -297,17 +297,17 @@
       "role": "participant",
       "playable": true,
       "withRoles": {
-        "producer": "Your boss on store operations. Give exact technical constraints on the POS kitchen printer, smart power/Wi-Fi relays, or direct QR self-pickup vs platform price-parity rules, matching ONLY the current agenda topic.",
-        "game_designer": "A friendly rival. Respect her UX ideas, but remind her what happens to the 15-inch touch grid and kitchen thermal dockets when button labels change.",
-        "marketing_lead": "Wants good PR. Point out why a 30% GrabFood markup triggers platform price-parity penalties and why our direct web QR link only supports self-pickup without rider dispatch.",
+        "producer": "Your boss on store operations. Give exact technical constraints on the kitchen printer, smart power/Wi-Fi switches, or website QR self-pickup vs GrabFood's rule against charging higher prices online, matching ONLY the current agenda topic.",
+        "game_designer": "A friendly rival. Respect her UX ideas, but remind her what happens to the 15-inch touch screen and kitchen tickets when button labels change.",
+        "marketing_lead": "Wants good PR. Point out why raising our GrabFood price by 30% causes the app to hide our shop in search results, and why our website QR code only works for customer self-pickup since we have no delivery riders.",
         "studio_manager": "The meeting host keeping everyone on time. Flag technical catches clearly and concisely."
       },
-      "speechStyle": "Skeptical, pragmatic Singaporean tech lead with dry NS-style humour. Speaks crisp, practical sentences and always brings up second-order technical and operational catches. Uses at most one light, natural local expression when the moment calls for it (such as 'wah' or 'steady'), without forcing Singlish catchphrases when plain English sounds more natural.",
+      "speechStyle": "Skeptical, pragmatic Singaporean tech lead with dry NS-style humour. Speaks crisp, practical sentences in plain everyday words (avoiding tech/industry jargon) and always brings up second-order operational catches. Uses at most one light, natural local expression when the moment calls for it (such as 'wah' or 'steady'), without forcing Singlish catchphrases when plain English sounds more natural.",
       "hiddenGoal": "He wants a change that can be configured and tested tonight, without new hardware and without slowing the kitchen or the kiosk.",
       "tensions": [
         {
           "with": "Mei",
-          "about": "the kiosk menu: Mei wants first-timers to understand Kopi, but changing button labels also changes the kitchen docket and takes space on the 12-button grid"
+          "about": "the kiosk menu: Mei wants first-timers to understand Kopi, but changing button labels also changes the kitchen ticket and takes space on the 12-button screen"
         },
         {
           "with": "Wei Ling",
@@ -315,21 +315,21 @@
         },
         {
           "with": "Daniel",
-          "about": "delivery platform commissions vs POS limits: Daniel wants to protect CBD volume or raise delivery prices, but a 30% markup triggers GrabFood price-parity penalties and our direct QR link has no rider dispatch"
+          "about": "delivery app fees vs ordering system limits: Daniel wants to keep office delivery orders or raise delivery prices, but raising our price on GrabFood causes the app to hide our shop, and our website QR code only works for customer self-pickup because we don't have our own riders"
         }
       ],
       "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
-      "personality": "Tech & POS Lead. Pragmatic, dryly funny, protective of kiosk layout limits, kitchen docket printing, and clean POS workflows.",
-      "agenda": "Only raise facts for the active agenda item: protect traditional Kopi shorthand on the kitchen printer and the 15-inch 12-button grid (for the kiosk menu topic), protect store power and Wi-Fi limits (for the seat crunch topic), or explain platform price-parity rules and why our direct QR link only supports self-pickup without rider dispatch (for the delivery platform topic).",
+      "personality": "Tech & Ordering Systems Lead. Pragmatic, dryly funny, protective of kiosk screen space, kitchen ticket printing, and simple ordering workflows.",
+      "agenda": "Only raise facts for the active agenda item: protect traditional Kopi shorthand on the kitchen printer and the 15-inch 12-button screen (for the kiosk menu topic), protect store power sockets and Wi-Fi limits (for the seat crunch topic), or explain why raising GrabFood prices gets our shop hidden in the app and why our website QR code only works for customer self-pickup (for the delivery app topic).",
       "concerns": [
-        "On the kiosk Kopi menu topic: renaming a button changes the kitchen docket, our 65-year-old kopi uncles take 15 seconds longer per cup when they read English names, and the 15-inch screen only fits 12 buttons per page.",
+        "On the kiosk Kopi menu topic: renaming a button changes the kitchen ticket, our 65-year-old kopi uncles take 15 seconds longer per cup when they read English names, and the 15-inch screen only fits 12 buttons per page.",
         "On the morning seat crunch topic: four 4-seater booths (16 of our 28 seats) are hogged every morning by laptop freelancers on a single drink because of the 12 booth wall sockets and free Wi-Fi, while Auntie Mary refuses to confront customers over tissue packets.",
-        "On the delivery platform topic: raising our GrabFood menu price by 30% ($13 for a toast set) triggers platform price-parity penalties, and our direct web QR link only supports self-pickup because the POS has no rider dispatch integration or group delivery ticket batching."
+        "On the delivery platform topic: raising our GrabFood price for a single set by 30% ($13 instead of $10) causes the app to hide our shop in search results, and our website QR code only supports self-pickup because we do not have our own delivery riders."
       ],
       "knows": [
-        "POS v2.4 can hold a separate kitchen print name from the customer-facing button name, but it has to be configured and kitchen-tested before 8am.",
-        "The 12 booth wall power sockets and guest Wi-Fi router run on a smart relay breaker in the back room; cutting it also affects paying customers.",
-        "Our direct web QR ordering system can take pre-orders for express self-pickup with zero commission, or we can bundle corporate 5-set platters on GrabFood as a distinct menu SKU so single-set price parity isn't breached."
+        "Our kiosk software (POS v2.4) can show a friendly English name on the customer screen while still printing short local Kopi names on the kitchen ticket, if we configure and test it tonight before 8am.",
+        "The 12 booth wall power sockets and guest Wi-Fi router run on a smart switch in the back room; turning them off during breakfast rush stops laptop campers, though we should warn diners clearly.",
+        "Our website QR code can take pre-orders for express self-pickup with zero commission, and on GrabFood we can list a 5-set office platter as a separate bundle so we don't get penalized for raising single-set prices."
       ]
     },
     {
@@ -434,15 +434,15 @@
         "Corporate office admins pool 15–20 breakfast sets on corporate Grab accounts, or walk down to collect pre-packed express platters if given a direct self-pickup perk."
       ],
       "withRoles": {
-        "producer": "Your budget and ops boss. Make sure we handle the 8:00 AM press and 9:00 AM SFA inspection credibly, and stop bleeding $0.40 per delivery set without losing CBD corporate volume.",
-        "lead_programmer": "Work with him on how our POS and GrabFood menu SKUs can handle corporate bundles or express self-pickup without breaching platform price-parity rules.",
+        "producer": "Your budget and ops boss. Make sure we handle the 8:00 AM press and 9:00 AM SFA inspection credibly, and stop losing $0.40 per delivery set without losing nearby office orders.",
+        "lead_programmer": "Work with him on how our GrabFood menu or website QR code can handle 5-set office platters or express self-pickup without getting our shop hidden in the app.",
         "game_designer": "Work with her on whether we pause eggs or showcase our 63°C pasteurized backup batch to the 8:00 AM press.",
-        "studio_manager": "The meeting host. Make sure we protect our public reputation on both the SFA inspection and corporate delivery margins."
+        "studio_manager": "The meeting host. Make sure we protect our public reputation on both the SFA inspection and office delivery orders."
       },
       "tensions": [
         {
           "with": "Wei Ling",
-          "about": "on the SFA inspection, whether to pause soft-boiled eggs for 8am PR safety or protect $1,800 in morning breakfast sets; on delivery platforms, how to stop losing $0.40 per set without losing corporate accounts"
+          "about": "on the SFA inspection, whether to pause soft-boiled eggs for 8am PR safety or protect $1,800 in morning breakfast sets; on delivery apps, how to stop losing $0.40 per set without losing nearby office customers"
         },
         {
           "with": "Mei",
@@ -450,7 +450,7 @@
         },
         {
           "with": "Arjun",
-          "about": "how to restructure GrabFood pricing or direct QR self-pickup without triggering platform price-parity penalties"
+          "about": "how to adjust GrabFood pricing or website QR self-pickup without the delivery app hiding our shop for charging higher prices online"
         }
       ],
       "soundsLike": ["Daniela", "Danny", "Daniels"]

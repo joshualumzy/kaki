@@ -62,7 +62,7 @@ export const DEFAULT_OBSERVE_DELAY_MS = 1500;
 /** How long after the characters finish talking through an observe-only item before moving to the next item. */
 export const DEFAULT_OBSERVE_ADVANCE_MS = 8500;
 /** How long the room waits in silence on the person's item before the host gently checks in by name. */
-export const DEFAULT_SILENCE_PROMPT_MS = 11_000;
+export const DEFAULT_SILENCE_PROMPT_MS = 22_000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
@@ -1062,10 +1062,10 @@ export class NpcConversation<Clip> {
     const discussionHint =
       discussion === undefined
         ? ''
-        : ` Use these as the colleagues' own starting points, in their own words, not a script and not a list: ${owner}'s perspective is "${ownerView ?? ownerTradeOff?.tradeOff ?? 'the item is still open'}"; ${other}'s perspective is "${otherView ?? otherTradeOff?.tradeOff ?? 'the item is still open'}", and the trade-off ${other} raises is "${otherTradeOff?.tradeOff ?? 'the unresolved constraint'}" with the open question "${otherTradeOff?.question ?? item?.decision ?? 'how should we handle this?'}". Never read this note aloud or prescribe an answer.`;
-    return `[We just started agenda item "${title}". Speak naturally like two real colleagues hashing this out in a live huddle with ${this.human.name}:
-- ${owner} speaks first in 2 short, natural spoken sentences: tell what happened on the ground (the public incident or floor problem, why it's blowing up right now, and what's on the line for tomorrow). Keep each sentence concise.
-- ${other} speaks second in exactly 2 short sentences: first explain the real physical cause behind what happened and why the obvious fix fails, and your second sentence MUST be the open question directly to ${this.human.name} by name asking how to handle the trade-off (${item?.decision ?? 'how should we tackle this?'}).
+        : ` Use these as the colleagues' own starting points, in their own words, not a script and not a list: ${owner}'s perspective is "${ownerView ?? ownerTradeOff?.tradeOff ?? 'the item is still open'}"; ${other}'s perspective is "${otherView ?? otherTradeOff?.tradeOff ?? 'the item is still open'}". Never read this note aloud or prescribe an answer.`;
+    return `[We just started agenda item "${title}". Speak naturally like two real colleagues hashing this out in a live huddle with ${this.human.name}, using everyday words that someone visiting from outside this industry can follow right away (avoid unexplained technical or internal acronyms):
+- ${owner} speaks first in 2 short, natural spoken sentences: share what happened on the ground and why it matters for tomorrow morning.
+- ${other} speaks second in 2 short sentences that follow directly from what ${owner} just said: add the competing practical catch from your side (without shooting down unmentioned solutions nobody has proposed yet), and end with one simple, open question directly to ${this.human.name} by name asking how they want to handle it (${item?.decision ?? 'how should we tackle this?'}).
 ${discussionHint}
 Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 turns total and do not mention this note.]`;
   }
@@ -1204,10 +1204,9 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
   }
 
   /**
-   * 3-stage silence handling when the room is waiting on the person (`decide` or `involve` mode):
-   * - Stage 1: The AI host gently checks in with the person by name and offers to let the team weigh in.
-   * - Stage 2: If the person stays silent again, the AI colleagues briefly discuss the options and make a recommendation.
-   * - Stage 3: If the person is still silent after the recommendation, the AI host wraps up with the recommended call and moves on.
+   * Gentle silence handling when the room is waiting on the person (`decide` or `involve` mode):
+   * - Stage 1: After `silencePromptMs`, the AI host gently checks in with the person by name and invites them to share a thought or ask a question.
+   * - Stage 2: If the person stays silent again, a colleague briefly summarizes the two plain-English directions on the table as a question — never solving the item for them or auto-advancing.
    */
   private scheduleSilencePrompt(): void {
     const item = this.currentItem();
@@ -1221,7 +1220,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
       title === undefined ||
       this.mode() === 'observe' ||
       this.decisionWrappedUpOnItem ||
-      this.silencePromptStage >= 3
+      this.silencePromptStage >= 2
     ) {
       return;
     }
@@ -1260,7 +1259,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
         const spokenTitle = cleanSpokenTopic(title);
         if (owner !== undefined && npcs.length > 1) {
           this.pending.push(
-            `[${this.human.name} has paused for a moment on "${spokenTitle}". ${host} or ${owner} checks in with ${this.human.name} in one short, warm, conversational sentence referencing what was just discussed and asking how they'd like to proceed on "${spokenTitle}" — never use a canned script line or mention this note.]`,
+            `[${this.human.name} is taking a moment to think on "${spokenTitle}". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence letting them know there is no rush and asking how they'd like to approach it or if they want to ask a question first — never prescribe an answer or mention this note.]`,
           );
           this.startTurn();
         } else {
@@ -1278,34 +1277,13 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
           others.find((name) => this.options.scenario.attendees.find((a) => a.name === name)?.role === item?.ownerRole) ??
           others[0] ??
           this.names[0];
-        const other = others.find((name) => name !== owner) ?? this.names.find((name) => name !== owner);
         const decisionText = item?.decision ? ` (${item.decision})` : '';
-        if (owner !== undefined && other !== undefined && npcs.length > 1) {
+        if (owner !== undefined && npcs.length > 1) {
           this.pending.push(
-            `[${this.human.name} hasn't weighed in yet on "${title}"${decisionText}. ${owner} and ${other} briefly share their two perspectives and recommend a practical default option, then ${owner} asks ${this.human.name} if they are happy to go with that recommendation. Two short turns, then stop. Do not mention this note.]`,
+            `[${this.human.name} is still thinking on "${title}"${decisionText}. ${owner} speaks in ONE short, plain-English sentence offering two simple everyday directions ${this.human.name} could pick between as a helpful question — do NOT solve the trade-offs yourself, do NOT use technical jargon, and wait for ${this.human.name}'s answer. Do not mention this note.]`,
           );
           this.startTurn();
-        } else {
-          this.announce(
-            host,
-            `${this.human.name}, should we go ahead with our default recommendation on ${cleanSpokenTopic(title)}, or would you like to change anything?`,
-            DEFAULT_ANNOUNCE_GIVE_UP_MS,
-            () => this.scheduleSilencePrompt(),
-          );
         }
-      } else if (this.silencePromptStage === 3) {
-        this.announce(
-          host,
-          `Alright, let's lock in the team's recommendation on ${cleanSpokenTopic(title)} for now so we keep moving.`,
-          DEFAULT_ANNOUNCE_GIVE_UP_MS,
-          () => {
-            if (!this.closed && !this.paused && this.currentItem()?.title === title && !this.advanced.has(title)) {
-              this.advanced.add(title);
-              this.ports.log?.(`moving on after "${title}" silence fallback`);
-              this.advanceOrEnd();
-            }
-          },
-        );
       }
     }, this.options.silencePromptMs ?? DEFAULT_SILENCE_PROMPT_MS).unref();
   }
@@ -1641,8 +1619,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
         );
       const includeKnows =
         this.human === undefined ||
-        this.silencePromptStage >= 2 ||
-        humanAskedForOptions;
+        (this.humanLines > this.linesAtMove && humanAskedForOptions);
       const messages: ChatMessage[] = [
         {
           role: 'system',
