@@ -44,6 +44,24 @@
       "labels": ["marketing", "pos", "ops"],
       "createdAt": "2026-11-11T09:30:00+08:00",
       "body": "GrabFood and Foodpanda raised breakfast commissions to 32% this week, meaning every $10 breakfast set delivered loses $0.40 after packaging. However, delivery platforms drive 50% of our morning revenue ($2,400/morning) from CBD corporate office towers.\n\nPOS, pricing & staffing constraints:\n- Delisting from GrabFood/Foodpanda hands $2,400/morning in CBD office orders straight to Ya Kun.\n- Raising our single-set GrabFood price by 30% to $13 triggers platform price-parity ranking penalties, though 5-set corporate bundle platters count as a separate SKU.\n- Our direct web QR link has 0% commission, but only supports express self-pickup because the POS has no rider dispatch integration, and sending floor staff out as delivery runners in CBD morning traffic leaves the counter short-handed and carries injury liability.\n\nNot decided: how we restructure our delivery menu, corporate bundles, or express self-pickup without losing CBD volume or pulling floor staff off the line."
+    },
+    {
+      "title": "PayNow SGQR dynamic timeout on Kiosk #2 during concurrent checkout",
+      "date": "2026-11-08",
+      "state": "closed",
+      "labels": ["bug", "pos"],
+      "createdAt": "2026-11-08T11:20:00+08:00",
+      "closedAt": "2026-11-09T15:40:00+08:00",
+      "body": "When two customers scanned PayNow SGQR within 3 seconds on Kiosk #1 and Kiosk #2, webhook callback acknowledgements collided on the local gateway.\n\nResolution: Upgraded payment webhook listener to key by `terminal_id + order_seq` in POS v2.4. Verified across 50 test transactions with zero dropped receipts."
+    },
+    {
+      "title": "Install 16 numbered RFID table pucks & backroom smart relay breaker for Booths 1-4",
+      "date": "2026-11-09",
+      "state": "closed",
+      "labels": ["ops", "kiosk"],
+      "createdAt": "2026-11-09T14:00:00+08:00",
+      "closedAt": "2026-11-10T17:10:00+08:00",
+      "body": "Wired the 12 booth wall power outlets and guest Wi-Fi router to the programmable smart relay breaker in the back room, and boxed 28 numbered order buzzers/table pucks at the cashier counter ready for morning rush deployment."
     }
   ]
 }

@@ -41,14 +41,58 @@ async function main(): Promise<void> {
     await fetch(calBase, { method: 'DELETE' }).catch(() => undefined);
     await fetch('http://127.0.0.1:5232/user/', { method: 'MKCOL' }).catch(() => undefined);
     await fetch(calBase, { method: 'MKCALENDAR' }).catch(() => undefined);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10).replace(/-/g, '');
+    const dayOffset = (days: number): string =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10).replace(/-/g, '');
+    const dMinus2 = dayOffset(-2);
+    const dMinus1 = dayOffset(-1);
+    const dToday = dayOffset(0);
+    const tomorrow = dayOffset(1);
+    const dPlus2 = dayOffset(2);
+    const dPlus3 = dayOffset(3);
+    const dPlus5 = dayOffset(5);
+
     const events = [
+      {
+        id: 'seed-tampines-printer-test',
+        dtstart: `${dMinus2}T140000`,
+        dtend: `${dMinus2}T153000`,
+        summary: 'Tampines Outlet — Thermal Kitchen Docket & POS v2.4 Trial',
+        description: 'Tested dual-label POS v2.4 kitchen docket printing with Uncle Lim and Uncle Tan.',
+      },
+      {
+        id: 'seed-soft-launch-kiosk-trial',
+        dtstart: `${dMinus1}T080000`,
+        dtend: `${dMinus1}T103000`,
+        summary: 'Raffles Place #B1-14 — Soft Trial (28 First-Time Kiosk Users)',
+        description: 'Observed Step 2 Kopi O Kosong checkout time, 28-seat booth turnover, and sous-vide egg bath holding.',
+      },
+      {
+        id: 'seed-seng-choon-batch405',
+        dtstart: `${dToday}T063000`,
+        dtend: `${dToday}T071500`,
+        summary: 'Seng Choon Farm — Pasteurized Egg Batch #405 Cold-Chain Delivery',
+        description: 'Receive 2 backup cartons of SFA-certified pasteurized eggs at Raffles Place loading bay.',
+      },
+      {
+        id: 'seed-prelaunch-crisis-huddle',
+        dtstart: `${dToday}T160000`,
+        dtend: `${dToday}T164500`,
+        summary: 'Raffles Place Flagship — Pre-Launch Crisis Huddle (All Leads)',
+        description: 'Final sign-off on Kiosk Step 2 UX, 28-seat chope & laptop policy, 9am SFA inspection SOP, and GrabFood 32% commission.',
+      },
+      {
+        id: 'seed-bath-sanitization-prep',
+        dtstart: `${tomorrow}T063000`,
+        dtend: `${tomorrow}T073000`,
+        summary: 'Opening Crew — 63°C Sous-Vide Egg Bath Calibration & Kaya Toast Prep',
+        description: 'Pre-heat sous-vide holding tank to 63.0°C and log initial probe check before 8am doors open.',
+      },
       {
         id: 'seed-straits-times-press',
         dtstart: `${tomorrow}T080000`,
         dtend: `${tomorrow}T084500`,
         summary: 'Straits Times Food Desk — Flagship Ribbon-Cutting & Tasting',
-        description: 'Raffles Place #B1-14 storefront ribbon-cutting and Set A tasting.',
+        description: 'Raffles Place #B1-14 storefront ribbon-cutting and traditional Set A kaya toast tasting.',
       },
       {
         id: 'seed-sfa-inspection',
@@ -63,6 +107,27 @@ async function main(): Promise<void> {
         dtend: `${tomorrow}T110000`,
         summary: 'Post-Rush Kiosk & 28-Seat Floor Turnover Check',
         description: 'Review Step 2 Kopi O Kosong completion times and morning booth turnover.',
+      },
+      {
+        id: 'seed-kaya-delivery',
+        dtstart: `${dPlus2}T070000`,
+        dtend: `${dPlus2}T074500`,
+        summary: 'Pandan Kaya & Hainanese Loaf Restock (Central Kitchen)',
+        description: 'Morning delivery of 40kg house pandan kaya and 180 thick-cut loaves for CBD week.',
+      },
+      {
+        id: 'seed-cbd-catering-review',
+        dtstart: `${dPlus3}T150000`,
+        dtend: `${dPlus3}T160000`,
+        summary: 'CBD Corporate Platter & GrabFood Margin Review',
+        description: 'Compare 5-set corporate bundle orders vs QR express self-pickup volume after Day 3.',
+      },
+      {
+        id: 'seed-weekly-roaster-cupping',
+        dtstart: `${dPlus5}T143000`,
+        dtend: `${dPlus5}T153000`,
+        summary: 'Liberica & Robusta Butter-Roast QC Cupping (Uncle Lim & Mei)',
+        description: 'Check 80/20 Nanyang roast profile and sock-brew extraction yield across outlets.',
       },
     ];
     for (const ev of events) {
@@ -87,7 +152,7 @@ async function main(): Promise<void> {
         body: ics,
       });
     }
-    console.log('  seeded 3 Kopitiam calendar events');
+    console.log(`  seeded ${events.length} Kopitiam calendar events`);
   } catch {
     // Non-fatal if Radicale is not running.
   }

@@ -32,6 +32,38 @@
       "date": "2026-11-11T15:10:00+08:00",
       "messageId": "<sengchoon-pasteurized-batch405-20261111@sengchoonfarm.example>",
       "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nAttached is the SFA Veterinary Public Health laboratory clearance certificate for Pasteurized Egg Batch #405. Switching your Raffles Place morning service to Batch #405 adds SGD 180 per day in ingredient cost, which can be billed against your launch contingency account.\n\nRegards,\nKey Accounts Team\nSeng Choon Farm Singapore"
+    },
+    {
+      "from": { "name": "Straits Times Life! Food Desk", "address": "fooddesk@straitstimes.example" },
+      "to": [
+        { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" },
+        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
+      ],
+      "subject": "Confirmed: 8:00 AM Ribbon-Cutting & Heritage Set A Feature (Tomorrow)",
+      "date": "2026-11-11T13:15:00+08:00",
+      "messageId": "<straitstimes-fooddesk-rsvp-20261111@straitstimes.example>",
+      "text": "Hi Daniel and Wei Ling,\n\nConfirming that our food correspondent and photographer will arrive at Raffles Place #B1-14 tomorrow at 8:00 AM sharp for the flagship opening feature.\n\nWe plan to shoot the self-order kiosk flow, Uncle Lim pulling kopi at the traditional brass spout station, and your signature Set A (charcoal-grilled kaya toast with 63°C soft-boiled eggs).\n\nSee you tomorrow morning,\nStraits Times Food Desk"
+    },
+    {
+      "from": { "name": "One Raffles Place Concourse Management", "address": "tenancy@onerafflesplace.example" },
+      "to": [
+        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
+      ],
+      "subject": "Unit #B1-14 Morning Queue Line & Concourse Fire Corridor Reminder",
+      "date": "2026-11-10T16:40:00+08:00",
+      "messageId": "<orp-concourse-queue-20261110@onerafflesplace.example>",
+      "text": "Dear Tenant (#B1-14 Nanyang Kopi & Toast),\n\nDuring Tuesday morning's soft trial between 8:15 AM and 9:15 AM, your self-order kiosk queue extended 4 metres past your lease boundary line into the MRT walkway.\n\nFor tomorrow's Grand Opening, please ensure kiosk dwell time and table seating turnover are actively managed so the queue stays within your yellow stanchion markers.\n\nThank you,\nCentre Management — One Raffles Place"
+    },
+    {
+      "from": { "name": "Nanyang POS Systems Support", "address": "releases@nanyangpos.example" },
+      "to": [
+        { "name": "Arjun", "address": "arjun@nanyangkopitiam.example" },
+        { "name": "Mei", "address": "mei@nanyangkopitiam.example" }
+      ],
+      "subject": "POS Firmware v2.4.1 — Separate Customer Display vs Kitchen Thermal Docket Labels",
+      "date": "2026-11-09T18:00:00+08:00",
+      "messageId": "<nanyangpos-v241-notes-20261109@nanyangpos.example>",
+      "text": "Hi Arjun,\n\nFirmware v2.4.1 is now staged on your Raffles Place kiosk cluster. Key notes for your launch:\n\n1. Dual-Label Routing: You can now decouple `display_label` (shown on the 15-inch customer kiosk) from `docket_label` (printed on the 80mm kitchen thermal slip in traditional Kopitiam dialect + Mandarin).\n2. Screen Grid Constraint: The 15-inch touch grid remains capped at 12 drink tiles per page (max 18 characters per line).\n3. Backroom Smart Relay API: Booth power circuits (Sockets #1-#12) and Guest Wi-Fi SSID throttling can be scheduled via the local breaker controller.\n\nCheers,\nNanyang POS Engineering"
     }
   ]
 }
