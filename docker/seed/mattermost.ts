@@ -89,12 +89,13 @@ async function login(env: Env, username: string): Promise<Session | undefined> {
 }
 
 async function signup(env: Env, user: MattermostUserSeed): Promise<MmUser> {
+  const safePassword = env.MATTERMOST_PASSWORD.length >= 8 ? env.MATTERMOST_PASSWORD : 'demopassword';
   const response = await request(
     `${env.MATTERMOST_URL}/api/v4/users`,
     jsonBody('POST', {
       email: user.email,
       username: user.username,
-      password: env.MATTERMOST_PASSWORD,
+      password: safePassword,
       first_name: user.first_name,
       last_name: user.last_name,
     }),
