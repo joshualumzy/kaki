@@ -9,14 +9,10 @@
       "card": {
         "youAre": "You are Wei Ling, Operations Director looking after the shop floor, Auntie Mary, food hygiene, and the budget.",
         "facts": [
-          "Our 28-seat Raffles Place shop has four 4-seater booths (16 seats) with 12 wall sockets and free guest Wi-Fi, plus six 2-seater tables.",
-          "Four freelancers held the 4-seater booths for two hours every morning this week on a single $2.20 drink, costing about $420 a morning in lost breakfast sets.",
-          "Auntie Mary (62) is the only floor staff who seats solo diners with hot trays and clears tables. A customer in a suit shouted at her last week when she moved his tissue packet, and she will not police seats or touch customers' belongings.",
-          "60% of our morning customers dine solo and cannot carry a hot tray of runny soft-boiled eggs without a table.",
-          "A customer from our soft trial was hospitalized yesterday with suspected salmonella from soft-boiled eggs; SFA inspectors arrive tomorrow morning at 9:00 AM.",
-          "Our egg sous-vide bath dipped below 60°C for 45 minutes during yesterday's rush; pulling soft-boiled eggs completely wipes out 60% of breakfast set orders ($1,800/morning).",
-          "Delivery platforms take a 32% commission on breakfast sets ($3.20 on a $10 set), turning delivery orders net-negative. Using our floor staff for in-house deliveries carries rain surge and traffic accident liability.",
-          "Our storeroom has two unopened cartons of pasteurized backup eggs ready to heat to 63°C (22 minutes per batch)."
+          "Seat crunch & laptop campers: 4 freelancers camp at our four 4-seater booths (16 of 28 seats) for 2 hours every morning on a single $2.20 drink ($420/morning lost). Auntie Mary (62) got yelled at last week and refuses to police seats, while 60% of customers dine solo with hot egg trays.",
+          "SFA food safety inspection: A trial customer was hospitalized yesterday after eating our soft-boiled eggs; press arrives at 8 AM and SFA inspectors at 9 AM. Our egg bath dipped to 58°C yesterday, but we have 2 unopened cartons of safe pasteurized backup eggs we can run at 63°C (pulling eggs loses $1,800/morning).",
+          "Delivery 32% commission squeeze: Single $10 sets on GrabFood lose $0.40 after the 32% app fee, while a 5-set Office Platter at $55 ($11/set) nets $37.40 after fees on $32.50 of ingredients (~$5 profit per platter) without using our counter staff as riders.",
+          "Kiosk Kopi menu: When long English drink names printed on kitchen tickets at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds per cup during the 8 AM rush."
         ],
         "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without breaking food hygiene or blowing our margin."
       }
@@ -27,12 +23,10 @@
       "card": {
         "youAre": "You are Arjun, Tech & POS Lead looking after the self-order kiosks, the kitchen docket printer, and store power.",
         "facts": [
-          "The 15-inch kiosk screen fits 12 drink buttons per page and about 18 characters per line.",
-          "The kitchen docket currently prints the same button name the customer sees, so renaming a button changes what the kitchen reads. POS v2.4 can hold a separate kitchen print name, but it has to be configured and tested before the morning rush.",
-          "When English names printed on kitchen dockets at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds a cup.",
-          "The 12 booth wall sockets and guest Wi-Fi run on a programmable smart relay breaker in the back room. Cutting power also hits paying customers using the sockets.",
-          "Raising our GrabFood menu price by 30% ($13 for a toast set) triggers platform price-parity penalties, while our direct web QR link only supports self-pickup because the POS has no rider dispatch integration.",
-          "POS changes made tonight still need a short kitchen test before 8am."
+          "Kiosk Kopi menu: The 15-inch kiosk screen fits 12 buttons per page (18 chars/line). POS v2.4 can show plain-English subtitles or a 2-step Milk & Sugar pop-up on the customer screen while still printing short traditional Kopi names on the kitchen ticket.",
+          "Seat crunch & laptop campers: Our 12 booth wall sockets and guest Wi-Fi run on a programmable smart switch in the back room that can automatically cut booth power and cap Wi-Fi during peak hours (8–10 AM).",
+          "Delivery 32% commission squeeze: Raising single-set prices by 30% on GrabFood gets our shop hidden in app search results, but listing a 5-set Office Platter ($55) counts as a new menu item—and our website QR code handles zero-commission express self-pickup.",
+          "SFA food safety inspection: Digital probe logs from our 63°C egg bath can be printed every 15 minutes for the 9 AM SFA inspector."
         ],
         "responsibility": "Keep the kiosks, kitchen printer, and store power simple enough to configure and test tonight."
       }
@@ -43,11 +37,10 @@
       "card": {
         "youAre": "You are Mei, Menu & Store Experience Lead looking after our kopi and kaya toast recipes, the menu, and customer flow.",
         "facts": [
-          "In yesterday's Raffles Place trial, 19 of 28 first-time kiosk users froze for over 2 minutes at 'Kopi O Kosong', 'Kopi C Siew Dai' or 'Teh Halia', and 72% missed the small corner language toggle.",
-          "Soft-boiled eggs require continuous 63°C holding to prevent salmonella enteritidis; heating a fresh pasteurized backup batch takes 22 minutes and cannot be rushed without ruining the runny yolk texture.",
-          "60% of our morning crowd dines solo while carrying hot trays of runny soft-boiled eggs.",
-          "Corporate CBD towers order 20+ toast sets at once on shared GrabFood group carts; if we de-list from GrabFood, office admins will immediately switch orders to Ya Kun.",
-          "Local regulars mocked a rival kopitiam on Reddit when it renamed Kopi O to 'Local Americano'."
+          "Kiosk Kopi menu: In yesterday's trial, 19 of 28 first-timers froze for 2+ minutes at 'Kopi O Kosong' and 'Siew Dai' (72% missed the corner language toggle). Renaming Kopi O to 'Local Americano' gets mocked by regulars, so we need plain-English descriptions alongside local names.",
+          "SFA food safety inspection: Soft-boiled eggs must stay at 63°C continuously; yesterday's water bath dipped to 58°C for 45 minutes. We can sanitize the bath tonight and heat our 2 unopened cartons of certified pasteurized backup eggs at 63°C (22 mins/batch) to save $1,800 in morning sales.",
+          "Seat crunch & laptop campers: 60% of our morning crowd dines solo carrying scalding hot trays of runny eggs—if we ban saving seats with tissue packets, solo diners need a fast counter table or numbered table token so they aren't stranded.",
+          "Delivery 32% commission squeeze: Nearby CBD offices order 20+ sets at once on GrabFood group carts; replacing single sets with a 5-set Office Platter ($55) or express self-pickup perk keeps those offices from switching to Ya Kun."
         ],
         "responsibility": "Keep our kopi and kaya toast authentic while making ordering and finding a seat easier."
       }
@@ -58,10 +51,10 @@
       "card": {
         "youAre": "You are Daniel, Marketing Lead looking after TikTok reviews, store promos, and public goodwill.",
         "facts": [
-          "A soft-trial diner was hospitalized yesterday with suspected salmonella (hospital lab results take 48 hours); Straits Times journalists arrive at 8:00 AM for our ribbon-cutting, and SFA inspectors arrive at 9:00 AM.",
-          "GrabFood and Foodpanda deliver 50% of our peak morning volume; de-listing wipes out $2,400 in morning sales and hands the CBD corporate market to competitors.",
-          "Adding a 30% price markup on GrabFood ($13 for a $10 toast set) breaches platform price-parity visibility rules and risks immediate customer backlash.",
-          "Google reviews dropped to 3.6 stars during our soft trial because breakfast walk-ins could not find a seat while laptop campers held the 4-seater booths for two hours."
+          "SFA food safety inspection: A trial diner was hospitalized yesterday with suspected food poisoning after eating our soft-boiled eggs (hospital lab results take 48 hrs). Straits Times reporters arrive at 8 AM and SFA inspectors at 9 AM—we need visible 63°C temperature logs and a transparent press note.",
+          "Delivery 32% commission squeeze: GrabFood & Foodpanda drive 50% of morning sales ($2,400/morning), but the 32% fee loses $0.40 on every $10 set. Switching apps to a 5-set Office Platter ($55) plus a free drink upgrade for website QR self-pickup protects both our margin and CBD office accounts.",
+          "Seat crunch & laptop campers: Google reviews dropped to 3.6 stars because walk-ins couldn't sit while laptop campers held the 4-seater booths for 2 hours.",
+          "Kiosk Kopi menu: Tourists and expats love authentic Nanyang Kopi names when paired with a simple visual guide or 2-step milk/sugar prompt."
         ],
         "responsibility": "Protect our launch reputation and corporate CBD accounts without making promises the kitchen or floor staff cannot keep."
       }
@@ -90,7 +83,7 @@
   "agenda": [
     {
       "title": "First-timers stalling at the kiosk over Kopi names",
-      "minutes": 4,
+      "minutes": 5,
       "ownerRole": "game_designer",
       "contested": true,
       "decision": "how do we help first-time customers order Kopi confidently without slowing the kitchen or losing our kopitiam identity?",
@@ -129,7 +122,7 @@
     },
     {
       "title": "Morning seat crunch & laptop campers",
-      "minutes": 4,
+      "minutes": 5,
       "ownerRole": "lead_programmer",
       "contested": true,
       "decision": "how do we free up tables for breakfast diners without turning Auntie Mary into seat police or punishing solo customers?",
@@ -168,7 +161,7 @@
     },
     {
       "title": "SFA food safety inspection & salmonella report",
-      "minutes": 4,
+      "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
       "decision": "how do we handle tomorrow's SFA inspection and salmonella report without sparking a media panic or wiping out 60% of our breakfast sets?",
@@ -176,11 +169,11 @@
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "A customer from yesterday's trial was hospitalized with suspected salmonella, and Straits Times reporters arrive tomorrow at 8am right before food safety inspectors come at 9am. Even though hospital lab results take 48 hours, I think we should stop serving soft-boiled eggs tomorrow morning so the press sees us being careful."
+            "view": "Here is what happened: a customer from yesterday's trial was hospitalized with suspected food poisoning after eating our soft-boiled eggs, and Straits Times reporters arrive tomorrow at 8am right before SFA food safety inspectors come at 9am. Even though hospital lab results take 48 hours, I think we should pause serving soft-boiled eggs tomorrow morning so the press sees us putting safety first."
           },
           {
             "attendee": "Mei",
-            "view": "Stopping soft-boiled eggs wipes out 60% of our breakfast sets—about $1,800 tomorrow morning—and our egg warmer actually dipped to 58 degrees for 45 minutes during yesterday's rush instead of staying at 63 degrees. We have two unopened cartons of safe, pasteurized backup eggs in the storeroom that we can run at 63 degrees if we clean the tank tonight."
+            "view": "Pulling soft-boiled eggs wipes out 60% of our breakfast sets—about $1,800 tomorrow morning—and our egg warmer actually dipped to 58 degrees for 45 minutes during yesterday's rush instead of staying at 63 degrees. We have two unopened cartons of safe, pasteurized backup eggs in the storeroom that we can run at 63 degrees if we sanitize the tank tonight."
           }
         ],
         "tradeOffs": [
@@ -207,7 +200,7 @@
     },
     {
       "title": "Delivery platform 32% commission squeeze",
-      "minutes": 4,
+      "minutes": 5,
       "ownerRole": "marketing_lead",
       "contested": true,
       "decision": "how do we protect breakfast margins against 32% delivery commissions without losing 50% of our CBD corporate morning volume?",
@@ -329,7 +322,7 @@
       "knows": [
         "Our kiosk software (POS v2.4) can show a friendly English name on the customer screen while still printing short local Kopi names on the kitchen ticket, if we configure and test it tonight before 8am.",
         "The 12 booth wall power sockets and guest Wi-Fi router run on a smart switch in the back room; turning them off during breakfast rush stops laptop campers, though we should warn diners clearly.",
-        "Our website QR code can take pre-orders for express self-pickup with zero commission, and on GrabFood we can list a 5-set office platter as a separate bundle so we don't get penalized for raising single-set prices."
+        "Our website QR code can take pre-orders for express self-pickup with zero commission, and on GrabFood we can list a 5-set Office Platter at $55 ($11/set, which leaves $37.40 after the 32% app fee vs $32.50 in ingredients—making ~$5 profit per platter) as a separate bundle so we don't get penalized for raising single-set prices."
       ]
     },
     {
@@ -391,7 +384,7 @@
       ],
       "knows": [
         "The SFA inspectors arrive at 9:00 AM tomorrow, and Straits Times press arrives at 8:00 AM; we have two unopened cartons of pasteurized backup eggs in the storeroom and can log manual 15-minute digital probe checks at 63°C.",
-        "For the delivery platform topic: corporate CBD towers order 20+ toast sets at once, and our two toast staff cannot leave the counter to run food upstairs without stopping the line.",
+        "For the delivery platform topic: corporate CBD towers order 20+ toast sets at once, and a 5-set Office Platter at $55 ($11/set) nets $37.40 after the 32% app fee on $32.50 of ingredients (~$5 profit per platter), whereas our two toast staff cannot leave the counter to hand-deliver orders upstairs.",
         "Our 65-year-old kopi uncles read traditional Kopi shorthand at a glance; if the thermal docket prints long English names, drink prep slows down by 15 seconds per cup."
       ],
       "withRoles": {
@@ -431,7 +424,7 @@
       "knows": [
         "Straits Times journalists and food bloggers are confirmed for the 8:00 AM ribbon cutting; transparency and visible temperature logs play much better with press than getting caught hiding a kitchen dip.",
         "GrabFood and Foodpanda represent 50% of our morning revenue ($2,400) from corporate office towers within 500m of Raffles Place.",
-        "Corporate office admins pool 15–20 breakfast sets on corporate Grab accounts, or walk down to collect pre-packed express platters if given a direct self-pickup perk."
+        "Corporate office admins pool 15–20 breakfast sets on corporate Grab accounts (where a 5-set Office Platter at $55 nets $37.40 after the 32% fee vs $32.50 cost, making ~$5 profit per platter), or walk down to collect pre-packed express platters if given a free drink upgrade on our website QR self-pickup."
       ],
       "withRoles": {
         "producer": "Your budget and ops boss. Make sure we handle the 8:00 AM press and 9:00 AM SFA inspection credibly, and stop losing $0.40 per delivery set without losing nearby office orders.",

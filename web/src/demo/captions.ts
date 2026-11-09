@@ -77,9 +77,20 @@ export function captionFor(
   now: number,
   windowMs = 8000,
   stillSpeaking = false,
+  aliases: readonly string[] = [],
 ): string | null {
-  const wanted = speaker.trim().toLowerCase();
-  const mine = chunks.filter((chunk) => chunk.payload.speaker.trim().toLowerCase() === wanted);
+  const candidates = new Set(
+    [speaker, ...aliases]
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0),
+  );
+  const matchesSpeaker = (rawSpeaker: string): boolean => {
+    const lower = rawSpeaker.trim().toLowerCase();
+    if (candidates.has(lower)) return true;
+    const base = lower.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    return base.length > 0 && candidates.has(base);
+  };
+  const mine = chunks.filter((chunk) => matchesSpeaker(chunk.payload.speaker));
   const latest = mine.at(-1);
   if (latest === undefined) return null;
 
@@ -98,15 +109,19 @@ export interface TranscriptViewer {
 
 /** How a speaker is shown in the transcript panel: the visitor sees their own name and role, and AI colleagues show their name and role. */
 export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefined, scenario?: Scenario): string {
+  const cleanSpeaker = speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
   const isViewer =
-    viewer?.seatName !== undefined && speaker.trim().toLowerCase() === viewer.seatName.trim().toLowerCase();
-  const baseName = isViewer ? `${viewer.name} (you)` : speaker;
+    viewer !== undefined &&
+    (cleanSpeaker.toLowerCase() === viewer.name.trim().toLowerCase() ||
+      (viewer.seatName !== undefined && cleanSpeaker.toLowerCase() === viewer.seatName.trim().toLowerCase()));
+  const baseName = isViewer ? `${viewer.name} (you)` : cleanSpeaker;
   if (scenario === undefined) return baseName;
-  const wanted = speaker.trim().toLowerCase();
+  const wanted = cleanSpeaker.toLowerCase();
   const attendee = scenario.attendees.find(
     (candidate) =>
       candidate.name.trim().toLowerCase() === wanted ||
-      candidate.zoomDisplayName.trim().toLowerCase() === wanted,
+      candidate.zoomDisplayName.trim().toLowerCase() === wanted ||
+      (isViewer && viewer.seatName !== undefined && candidate.name.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()),
   );
   const roleObj = attendee === undefined ? undefined : scenario.roles.find((role) => role.id === attendee.role);
   return roleObj === undefined ? baseName : `${baseName} · ${roleObj.label}`;

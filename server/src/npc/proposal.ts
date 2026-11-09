@@ -77,7 +77,7 @@ const PROPOSAL_QUESTION = /^(?:what if|why not|why don'?t we|how about|shall we|
 const FEASIBILITY_QUESTION =
   /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
 
-const GREETING_OR_FILLER =
+export const GREETING_OR_FILLER =
   /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+|ok|okay|sure|yes|no|yeah|yep|nope|right|fine|thanks|thank you|got it)\b[^.?!]*[.?!]*)+$/i;
 
 const META_OR_NONSENSE =
@@ -200,26 +200,34 @@ function isClearActionImperative(text: string): boolean {
   return trimmed.length > 0 && !trimmed.endsWith('?') && CLEAR_ACTION_IMPERATIVE.test(trimmed);
 }
 
-function assessmentPrompt(item: AgendaItem, visitorLines: string[]): string {
+function assessmentPrompt(item: AgendaItem, visitorLines: string[], assistantContext: string[] = []): string {
   const tradeOffs = item.discussion?.tradeOffs ?? [];
   const listed =
     tradeOffs.length === 0
       ? 'There are no listed trade-offs for this item; mark it complete only when the visitor makes a clear, concrete call.'
       : tradeOffs.map((tradeOff, index) => tradeOffLine(tradeOff, index)).join('\n');
   const spoken = visitorLines.map((line, index) => `${index + 1}. "${line}"`).join('\n');
+  const recentColleagues =
+    assistantContext.length > 0
+      ? [
+          'Recent colleague lines just before the visitor spoke (context only — resolved "evidence" quotes must still come from the visitor\'s own lines):',
+          ...assistantContext.map((line) => `- ${line}`),
+        ]
+      : [];
   return [
     PROPOSAL_ASSESSMENT_MARKER,
     'You check the visitor\'s cumulative proposal in a live meeting against one agenda decision. Reply with one JSON object only.',
     `Decision: ${item.decision ?? item.title}`,
     'Trade-offs (use the id on the left):',
     listed,
+    ...recentColleagues,
     'What the visitor has said on this decision so far, oldest first (the number on the left is its line number):',
     spoken,
     'Rules:',
     '- A proposal is a concrete course of action for this decision. A question, greeting, filler, status update, or a side request to send/file/post something is not a proposal.',
     '- A terse instruction telling the room what to do is a proposal, not a question or side request: for example "Ban laptops during breakfast" or "Put a cash drawer back at the toast counter". Mark it a proposal, and keep readiness "open" until every listed trade-off is resolved; never mark it complete just because it states an action.',
     '- Judge the proposal as a whole across these lines, not only the latest one: an adjustment can complete an earlier partial proposal.',
-    '- Mark readiness "complete" when the visitor\'s proposal makes a clear, practical call that addresses the listed trade-offs (including by adopting a practical workaround, phasing a change, accepting a trade-off, or offering a sensible Option C). Do not nitpick or keep readiness "open" if the visitor has already given a multi-part practical plan responding to the team\'s pushback.',
+    '- Mark readiness "complete" when the visitor\'s proposal makes a clear, practical call that addresses the listed trade-offs (including by adopting a practical workaround, phasing a change, accepting a trade-off, endorsing a colleague\'s suggested option, or offering a sensible Option C). Do not nitpick or keep readiness "open" if the visitor has already given a multi-part practical plan or explicitly agreed to a colleague\'s suggested option.',
     '- Resolved entries must quote one continuous, short phrase from the visitor in "evidence", copied exactly from one line above. Do not join fragments with ellipses or add words: for "I can run the desk, count the float and balance receipts", quote "count the float" rather than "run the desk ... balance receipts". Never invent an offer, number, permission or promise.',
     '- Unresolved entries name the trade-off id and the open question a colleague should ask next.',
     '- In "decisionLines", list the line numbers, oldest first, whose exact words still make up the final decision. When a later line replaces, reverses or withdraws an earlier proposal, leave the superseded line out. When a later line only adds a detail the earlier proposal was missing, keep both lines. Never quote or paraphrase the visitor yourself.',
@@ -346,6 +354,8 @@ export async function assessProposal(options: {
   visitorText: string;
   /** Earlier substantive proposal lines for the same agenda item, oldest first. */
   visitorContext?: string[];
+  /** Recent colleague utterances before the visitor spoke, so endorsing a colleague's option is understood. */
+  assistantContext?: string[];
   /** Trade-offs already resolved earlier on this item, so a later proposal builds on them. */
   resolvedSoFar?: ResolvedTradeOff[];
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
@@ -374,7 +384,10 @@ export async function assessProposal(options: {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: [`The meeting is at ${scenario.organisation}: "${scenario.meetingTitle}".`, assessmentPrompt(item, visitorLines)].join('\n'),
+      content: [
+        `The meeting is at ${scenario.organisation}: "${scenario.meetingTitle}".`,
+        assessmentPrompt(item, visitorLines, options.assistantContext),
+      ].join('\n'),
     },
     { role: 'user', content: `Visitor's latest line: "${visitorText}"` },
   ];

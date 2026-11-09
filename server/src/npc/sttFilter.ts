@@ -4,7 +4,7 @@ export const DEFAULT_MIN_CONFIDENCE = 0.6;
 export const MULTI_WORD_MIN_CONFIDENCE = 0.4;
 
 const CONFIRMATION_PHRASE_RE =
-  /\b(?:confirm|confirmed|agree|agreed|problem solved|sounds good|go ahead|let's do|let's go|approve|approved)\b/i;
+  /\b(?:ok|okay|sure|yes|yeah|yep|no|nope|wait|hold on|stop|hello|hey|confirm|confirmed|agree|agreed|problem solved|sounds good|go ahead|let's do|let's go|approve|approved)\b/i;
 
 /**
  * Whether a recognised piece of speech should be kept. Azure turns clicks, fans and distant voices into short,

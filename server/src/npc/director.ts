@@ -44,18 +44,22 @@ function itemRules(
   }
   if (mode === 'involve') {
     return [
-      `- This item is ${person}'s. ${host} hands it to them by name and asks them the question; the others give facts and their view when asked, and wait for ${person}'s answer.${asked} Every reply while this item is open must end with a short, natural question addressed directly to ${person} by name (for example "${person}, ...?" or "..., ${person}?"), so ${person} always knows the room is waiting on them. When ${person} settles on a decision, ${host} (on a "${host}:" line) says it back in one sentence, and one of the other colleagues asks ${person} naturally by name to send out the follow-up deliverable so Kaki can draft it for them (for example "${person}, could you post that decision in the team channel today?" or "${person}, could you email <specific external person/partner name> to confirm?") — or if ${person} already volunteered ("I'll..."), confirms it without asking another question. Never refer to yourself by your own name in the third person.`,
+      `- This item is ${person}'s (${human?.role ?? 'their role'} leads this topic). ${host} hands it to them by name and asks them the question; the others give facts and their view when asked, and wait for ${person}'s answer.${asked} Every reply while this item is open must end with a short, natural question addressed directly to ${person} by name (for example "${person}, ...?" or "..., ${person}?"), so ${person} always knows the room is waiting on them. When ${person} settles on a decision, ${host} (on a "${host}:" line) says it back in one sentence, and one of the other colleagues asks ${person} naturally by name to send out the follow-up deliverable so Kaki can draft it for them (for example "${person}, could you post that decision in the team channel today?" or "${person}, could you email <specific external person/partner name> to confirm?") — or if ${person} already volunteered ("I'll..."), confirms it without asking another question. Never refer to yourself by your own name in the third person.`,
     ];
   }
   const itemOwner = scenario.attendees.find((attendee) => attendee.role === item?.ownerRole)?.name;
   const leads = names.filter((name) => name !== host && (itemOwner === undefined || name === itemOwner || name !== itemOwner)).slice(0, 2);
+  const peerCollaborationRule =
+    itemOwner !== undefined && human !== undefined
+      ? ` Remember that ${itemOwner} owns this agenda topic and ${person} is a peer participant (${human.role}): treat ${person} as a peer collaborator, not an exam candidate. ${itemOwner} and the team can share their own concrete proposals, ask ${person} how a choice affects ${human.role}'s side, or ask if Kaki pulled up a relevant number on ${person}'s screen, and work together with ${person} to settle the call.`
+      : '';
   const wrapUpInstruction =
-    `Once ${person} settles on a clear, practical decision (or a workable compromise that addresses the catch), DO NOT raise a third catch or ask how to design/implement it: accept the decision immediately. ${itemOwner ?? 'the owner'} (on a "${itemOwner ?? 'the owner'}:" line, speaking first) confirms only the decision ${person} actually spoke in one natural sentence, using ${person}'s own words and adding no new terms, numbers, equipment or promises, and never saying "I'll", "I will" or "We'll". If ${person} has not already volunteered for a follow-up deliverable ("I'll file/post/email..."), ${itemOwner ?? 'the owner'} asks ${person} directly in a natural spoken question to send the matching follow-up (team channel post, email, wiki page, calendar invite or issue tracker ticket). If ${person} already volunteered ("I'll file a ticket..." or "I'll post/email..."), simply thank and confirm their commitment without asking them to do it a second time and without saying "Thanks, appreciate it!" before they have answered`;
+    `Once ${person} settles on a clear, practical decision (or agrees with a colleague's suggested option), DO NOT raise a third catch, DO NOT ask ${person} to calculate prices or math in their head, and DO NOT ask how to design/implement it: accept the decision immediately. ${itemOwner ?? 'the owner'} (on a "${itemOwner ?? 'the owner'}:" line, speaking first) confirms only the decision ${person} actually spoke in one natural sentence, using ${person}'s own words and adding no new terms, numbers, equipment or promises, and never saying "I'll", "I will" or "We'll". If ${person} has not already volunteered for a follow-up deliverable ("I'll file/post/email..."), ${itemOwner ?? 'the owner'} asks ${person} directly in a natural spoken question to send the matching follow-up (team channel post, email, wiki page, calendar invite or issue tracker ticket). If ${person} already volunteered ("I'll file a ticket..." or "I'll post/email..."), simply thank and confirm their commitment without asking them to do it a second time and without saying "Thanks, appreciate it!" before they have answered`;
   const openingTurnGuard = alreadyAsked
     ? ''
     : ` On this opening briefing before ${person} has spoken on the topic, the first speaker shares what happened on the ground and what is at stake for tomorrow morning in plain everyday words; the second speaker responds directly to what the first speaker just said, explaining the competing practical catch on their side without shooting down unmentioned solutions nobody has proposed yet, then asks ${person} by name one simple, open question on how they want to handle it. Leave the decision open so ${person} gets to make the first move.`;
   return [
-    `- The characters disagree on this item and ${person} is the one to settle it. Two of them (${leads.join(', ')}) each say their side in plain words and why that trade-off matters from their listed facts about "${title ?? 'this topic'}" ONLY (never invent delays or numbers not in their facts, and NEVER bring up constraints from other agenda items), then ${host} or the last speaker asks ${person} by name in natural words (for example "${person}, ...?" or "..., ${person}?"), so the last line of the reply is a short question addressed directly to ${person} by name.${asked}${openingTurnGuard} If ${person} asks a clarifying question first, answer that question directly with the real facts and end by asking ${person} by name what they want to do; never repeat the opening prompt word-for-word, and never have ${host} cut in right after one character just asked another character a question. If ${person} proposes a vague, hand-wavy, or unrealistic idea that ignores a real operational constraint in your facts (such as screen space, engineering hours, budget limits, or queue rules), do NOT blindly rubber-stamp it: raise the specific constraint from your facts in one natural sentence and ask how ${person} wants to handle that trade-off; if ${person} proposes a high-level intent or workaround (such as a dedicated role or a temporary compromise), collaborate and "yes-and" the idea by proposing concrete, practical compromises from your own facts so ${person} only needs to pick or approve. Once ${person} makes a clear, practical call or addresses the constraint, accept it without creating a stalemate. ${wrapUpInstruction} — always using "I/me/my" and NEVER referring to themselves by their own name in the third person. Only use issue-tracker tickets for software or technical bugs; use team channel posts, emails, wiki pages, or calendar invites for non-software topics. The characters never settle it among themselves.`,
+    `- The characters disagree on this item and ${person} is the one to settle it. Two of them (${leads.join(', ')}) each say their side in plain words and why that trade-off matters from their listed facts about "${title ?? 'this topic'}" ONLY (never invent delays or numbers not in their facts, and NEVER bring up constraints from other agenda items), then ${host} or the last speaker asks ${person} by name in natural words (for example "${person}, ...?" or "..., ${person}?"), so the last line of the reply is a short question addressed directly to ${person} by name.${asked}${openingTurnGuard}${peerCollaborationRule} If ${person} asks a clarifying question first, answer that question directly with the real facts and end by asking ${person} by name what they want to do; never repeat the opening prompt word-for-word, and never have ${host} cut in right after one character just asked another character a question. If ${person} proposes a vague, hand-wavy, or unrealistic idea that ignores a real operational constraint in your facts (such as screen space, engineering hours, budget limits, or queue rules), do NOT blindly rubber-stamp it: raise the specific constraint from your facts in one natural sentence and ask how ${person} wants to handle that trade-off; if ${person} proposes a high-level intent or workaround (such as a dedicated role or a temporary compromise), collaborate and "yes-and" the idea by proposing concrete, practical compromises from your own facts so ${person} only needs to pick or approve. Once ${person} makes a clear, practical call or addresses the constraint, accept it without creating a stalemate. ${wrapUpInstruction} — always using "I/me/my" and NEVER referring to themselves by their own name in the third person. Only use issue-tracker tickets for software or technical bugs; use team channel posts, emails, wiki pages, or calendar invites for non-software topics. The characters never settle it among themselves.`,
   ];
 }
 
@@ -149,11 +153,20 @@ export function buildSystemPrompt(
     scenario.roles.some(
       (role) => role.facilitator === true && (role.id.toLowerCase() === humanRoleKey || role.label.toLowerCase() === humanRoleKey),
     );
-  const hour = new Date().getHours();
+  const now = new Date();
+  const hour = now.getHours();
   const timeOfDay = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  const localClock = now.toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const unintroduced = names
+    .filter((name) => name !== host?.attendee && !alreadyIntroduced.includes(name))
+    .map((name) => {
+      const attendee = scenario.attendees.find((a) => a.name === name);
+      const roleLabel = scenario.roles.find((r) => r.id === attendee?.role)?.label ?? 'colleague';
+      return `${name} (${roleLabel})`;
+    });
 
   return [
-    `You direct the AI attendees of a live video meeting at ${scenario.organisation}: "${scenario.meetingTitle}" (current local time of day: ${timeOfDay}).`,
+    `You direct the AI attendees of a live video meeting at ${scenario.organisation}: "${scenario.meetingTitle}" (current local time: ${localClock} in the ${timeOfDay}).`,
     ...(scenario.situation === undefined ? [] : [`The situation: ${scenario.situation}`]),
     ...(Object.keys(scenario.glossary ?? {}).length === 0
       ? []
@@ -175,12 +188,17 @@ export function buildSystemPrompt(
     [
       'How to reply:',
       `- Decide who should speak. Often one of ${names.join(' and ')}; sometimes both, one after the other. If somebody is addressed by name, only they answer. Do not make everybody talk every time, and vary who goes first.`,
+      ...(unintroduced.length > 0
+        ? [
+            `- FIRST-TIME SPEAKER INTRODUCTION: ${unintroduced.join(', ')} have NOT spoken yet in this meeting. The very first time any of them speaks, they MUST briefly and naturally introduce their name and what they look after in 4–7 casual words at the start of their first sentence (for example "Hey ${human?.name ?? 'there'}, Mei here from menu and kitchen — ..." or "Daniel here on marketing — ...") before making their point.`,
+          ]
+        : []),
       ...(alreadyIntroduced.length > 0
         ? [
             `- ALREADY INTRODUCED: ${alreadyIntroduced.join(', ')} have already introduced themselves. They MUST NEVER repeat their name, job title, or role description again (e.g. NEVER say "[Name] here", or "looking after [role/department]"). Speak directly like a coworker in an ongoing conversation.`,
           ]
         : []),
-      `- Match the current time of day (${timeOfDay}) if you use a greeting. Speak naturally like coworkers who already work together on this launch; do not give formal job title announcements or resume bios.`,
+      `- Match the current time of day (${timeOfDay}, ${localClock}) if you use a greeting or mention times. You have real-time awareness and access to Kaki: if ${human?.name ?? 'the person'} asks for exact figures or cost calculations that are not yet on the table, a colleague can offer to check Kaki / the store database and report back in a minute (for example "Let me pull those exact numbers on Kaki — give me a minute and I'll update you").`,
       ...(humanHosts
         ? [
             `- ${human?.name} is the host and runs this meeting: they open it, keep to the agenda and the clock, hand over by name and wrap up. Take your lead from them. Do not open the meeting, move to the next agenda item, hand over to each other, or summarise the decisions yourselves; wait to be asked.`,
@@ -293,10 +311,18 @@ function escapeRegExp(value: string): string {
  */
 function vocativeTarget(text: string, speaker: string, names: readonly string[]): string | undefined {
   const trimmed = text.trim();
+  // Pure acknowledgements ("Thanks, Arjun.", "Right, Mei.", "Fair point, Daniel.") are not floor handovers.
+  if (
+    /^(?:thanks(?:\s+for\s+that)?|thank\s+you|good\s+(?:point|call)|fair\s+point|spot\s+on|right|agreed|got\s+it|makes\s+sense|appreciate\s+it)\s*,\s*[a-z\s]+[.!]*$/i.test(
+      trimmed,
+    )
+  ) {
+    return undefined;
+  }
   for (const name of names) {
     if (name === speaker) continue;
     const escaped = escapeRegExp(name);
-    const atStart = new RegExp(`^\\W*(?:(?:hey|hi|hello|okay|ok|so|well|thanks|thank\\s+you)\\W+)?${escaped}(?![a-z])`, 'i');
+    const atStart = new RegExp(`^\\W*(?:(?:hey|hi|hello|okay|ok|so|well)\\W+)?${escaped}(?![a-z])`, 'i');
     const atEnd = new RegExp(`,\\s*${escaped}[.!?…"')\\]]*$`, 'i');
     if (atStart.test(trimmed) || atEnd.test(trimmed)) return name;
   }

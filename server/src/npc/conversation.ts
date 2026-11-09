@@ -2,7 +2,7 @@ import { itemMode, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic } from '../host/opening';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
-import { assessProposal, isSideRequest, isSubstantiveProposal, type ProposalAssessment, type ResolvedTradeOff } from './proposal';
+import { assessProposal, GREETING_OR_FILLER, isSideRequest, isSubstantiveProposal, type ProposalAssessment, type ResolvedTradeOff } from './proposal';
 import { SpeechGate } from './speechGate';
 
 /** What the people in the meeting should see the AI attendees doing. */
@@ -67,7 +67,7 @@ export const DEFAULT_SILENCE_PROMPT_MS = 22_000;
 const ASK_GIVE_UP_MS = 45_000;
 
 /** How long the person must keep talking over the room before it stops; a shorter burst is probably noise or an echo. */
-export const DEFAULT_BARGE_IN_MS = 2200;
+export const DEFAULT_BARGE_IN_MS = 450;
 
 function splitSentences(text: string): string[] {
   return (
@@ -323,6 +323,7 @@ export class NpcConversation<Clip> {
     this.clearSilenceTimer();
     this.clearBriefTimer();
     this.clearObserveTimer();
+    this.clearDeferredFollowUpTimer();
     this.pending = [];
     this.interrupt('the person pressed stop');
     this.unanswered = false;
@@ -618,6 +619,7 @@ export class NpcConversation<Clip> {
     this.clearSilenceTimer();
     this.clearBriefTimer();
     this.clearObserveTimer();
+    this.clearDeferredFollowUpTimer();
     this.interrupt('the meeting ended');
   }
 
@@ -626,6 +628,7 @@ export class NpcConversation<Clip> {
   private silenceTimer: ReturnType<typeof setTimeout> | undefined;
   private briefTimer: ReturnType<typeof setTimeout> | undefined;
   private observeTimer: ReturnType<typeof setTimeout> | undefined;
+  private deferredFollowUpTimer: ReturnType<typeof setTimeout> | undefined;
   private silencePromptStage = 0;
 
   private clearBargeTimer(): void {
@@ -651,6 +654,11 @@ export class NpcConversation<Clip> {
   private clearObserveTimer(): void {
     if (this.observeTimer !== undefined) clearTimeout(this.observeTimer);
     this.observeTimer = undefined;
+  }
+
+  private clearDeferredFollowUpTimer(): void {
+    if (this.deferredFollowUpTimer !== undefined) clearTimeout(this.deferredFollowUpTimer);
+    this.deferredFollowUpTimer = undefined;
   }
 
   private clearRespondTimer(): void {
@@ -722,7 +730,18 @@ export class NpcConversation<Clip> {
   }
 
   /** The person said another line: ask if they have talked a long time without being asked. */
-  private noteHumanLine(_text = ''): void {
+  private noteHumanLine(text = ''): void {
+    const currentTitle = this.currentItem()?.title;
+    if (
+      currentTitle !== undefined &&
+      !this.briefed.has(currentTitle) &&
+      this.names.length > 2 &&
+      GREETING_OR_FILLER.test(text.trim())
+    ) {
+      // A short greeting or acknowledgement ("Hello", "OK", "Sure") while the room is transitioning to a new item
+      // must not cancel the colleagues' opening briefing on that item.
+      return;
+    }
     this.humanLines += 1;
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
   }
@@ -736,11 +755,16 @@ export class NpcConversation<Clip> {
     const item = this.currentItem();
     if (item === undefined) return undefined;
     if (this.assessedText === text) return this.proposalAssessment;
+    const assistantContext = this.history
+      .filter((m) => m.role === 'assistant')
+      .slice(-2)
+      .map((m) => m.content);
     const assessment = await assessProposal({
       scenario: this.options.scenario,
       item,
       visitorText: text,
       visitorContext: this.proposalLines.filter((line) => line !== text),
+      assistantContext,
       resolvedSoFar: this.resolvedTradeOffs,
       stream: (messages, innerSignal) => this.ports.stream(messages, innerSignal),
       signal,
@@ -1052,8 +1076,16 @@ export class NpcConversation<Clip> {
         .sort((left, right) => scoreTensionPair(right) - scoreTensionPair(left))[0] ??
       others[0];
     if (owner === undefined || other === undefined || this.human === undefined) return undefined;
-    this.introduced.add(owner);
-    this.introduced.add(other);
+    const ownerRoleLabel =
+      scenario.roles.find((r) => r.id === scenario.attendees.find((a) => a.name === owner)?.role)?.label ?? 'team member';
+    const otherRoleLabel =
+      scenario.roles.find((r) => r.id === scenario.attendees.find((a) => a.name === other)?.role)?.label ?? 'team member';
+    const ownerIntroNote = !this.introduced.has(owner)
+      ? ` Because this is ${owner}'s very first time speaking in this meeting, ${owner} starts with a quick 4–6 word self-introduction ("Hey ${this.human.name}, ${owner} here from ${ownerRoleLabel} — ...").`
+      : '';
+    const otherIntroNote = !this.introduced.has(other)
+      ? ` Because this is ${other}'s very first time speaking in this meeting, ${other} starts with a quick 4–6 word self-introduction ("And I'm ${other}, ${otherRoleLabel} — ...").`
+      : '';
     const ownerView = discussion?.openingViews.find((view) => view.attendee === owner)?.view;
     const otherView = discussion?.openingViews.find((view) => view.attendee === other)?.view;
     const ownerTradeOff = discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === owner);
@@ -1064,8 +1096,8 @@ export class NpcConversation<Clip> {
         ? ''
         : ` Use these as the colleagues' own starting points, in their own words, not a script and not a list: ${owner}'s perspective is "${ownerView ?? ownerTradeOff?.tradeOff ?? 'the item is still open'}"; ${other}'s perspective is "${otherView ?? otherTradeOff?.tradeOff ?? 'the item is still open'}". Never read this note aloud or prescribe an answer.`;
     return `[We just started agenda item "${title}". Speak naturally like two real colleagues hashing this out in a live huddle with ${this.human.name}, using everyday words that someone visiting from outside this industry can follow right away (avoid unexplained technical or internal acronyms):
-- ${owner} speaks first in 2 short, natural spoken sentences: share what happened on the ground and why it matters for tomorrow morning.
-- ${other} speaks second in 2 short sentences that follow directly from what ${owner} just said: add the competing practical catch from your side (without shooting down unmentioned solutions nobody has proposed yet), and end with one simple, open question directly to ${this.human.name} by name asking how they want to handle it (${item?.decision ?? 'how should we tackle this?'}).
+- ${owner} speaks first in 2 short, natural spoken sentences: explain the situation from the beginning (what happened on the ground and why it matters today).${ownerIntroNote}
+- ${other} speaks second in 2 short sentences that follow directly from what ${owner} just said: add the competing practical catch from your side (without shooting down unmentioned solutions nobody has proposed yet), and end with one simple, open question directly to ${this.human.name} by name asking how they want to handle it (${item?.decision ?? 'how should we tackle this?'}).${otherIntroNote}
 ${discussionHint}
 Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 turns total and do not mention this note.]`;
   }
@@ -1514,6 +1546,50 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     this.ports.emitState(this.idleState());
   }
 
+  /**
+   * When a colleague promises aloud to check Kaki or pull numbers and report back "in a minute" / "in two minutes",
+   * schedule a real callback timer so that colleague genuinely chimes back in with the exact figures from their records!
+   */
+  private scheduleDeferredFollowUp(turn: Turn): void {
+    if (this.closed || this.concluded || this.paused) return;
+    const DEFERRED_PROMISE_RE =
+      /\b(?:get back to you|come back to you|check (?:kaki|the numbers|the figures|our records)|pull (?:up )?the (?:numbers|figures)|give me)\b[^.?!]*\b(?:in\s+(?:a|one|two|1|2)\s+minutes?|(?:a|one|two|1|2)\s+minutes?)\b|\b(?:in\s+(?:a|one|two|1|2)\s+minutes?)\b[^.?!]*\b(?:get back|come back|share|update|have the (?:numbers|figures))\b/i;
+    const promised = [...turn.spoken]
+      .reverse()
+      .find(({ utterance }) => DEFERRED_PROMISE_RE.test(utterance.text));
+    if (promised === undefined) return;
+    const speaker = promised.utterance.speaker;
+    const promisedTopic = this.currentItem()?.title ?? 'the earlier item';
+    const isTwoMin = /\b(?:two|2)\s+minutes\b/i.test(promised.utterance.text);
+    const delayMs = isTwoMin ? 75_000 : 45_000;
+    this.clearDeferredFollowUpTimer();
+    this.ports.log?.(`scheduled real-time callback from ${speaker} in ${Math.round(delayMs / 1000)}s on "${promisedTopic}"`);
+    const fire = (): void => {
+      this.deferredFollowUpTimer = undefined;
+      if (this.closed || this.concluded) return;
+      if (
+        this.paused ||
+        this.humanTalking ||
+        this.turn !== undefined ||
+        this.pending.length > 0 ||
+        this.respondTimer !== undefined ||
+        this.pendingAnnouncements > 0
+      ) {
+        this.deferredFollowUpTimer = setTimeout(fire, 5_000);
+        this.deferredFollowUpTimer.unref?.();
+        return;
+      }
+      const who = this.human?.name ?? 'everyone';
+      this.forcedSpeaker = { target: speaker, from: speaker };
+      this.pending.push(
+        `[A minute has passed since ${speaker} promised to check Kaki / pull the figures on "${promisedTopic}". Begin your reply with "${speaker}:". ${speaker} briefly chimes back in to ${who} ("Hey ${who}, quick update — I just pulled those numbers from Kaki...") and shares the exact concrete figures from ${speaker}'s own facts in ONE short sentence, then lets the room continue without derailing the current topic. Do not mention this note.]`,
+      );
+      this.startTurn();
+    };
+    this.deferredFollowUpTimer = setTimeout(fire, delayMs);
+    this.deferredFollowUpTimer.unref?.();
+  }
+
   private finalize(turn: Turn): void {
     if (turn.finalized) return;
     turn.finalized = true;
@@ -1614,7 +1690,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
       const alreadyAsked =
         this.human !== undefined && this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
       const humanAskedForOptions =
-        /\b(?:what (?:do you|would you) (?:suggest|think|recommend|propose)|what options|any ideas|what can we do|how can we fix)\b/i.test(
+        /\b(?:what (?:do you|would you) (?:suggest|think|recommend|propose)|what options|any ideas|what can we do|how can we fix|pulled those numbers from kaki)\b/i.test(
           this.lastText,
         );
       const includeKnows =
@@ -1740,6 +1816,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
         : undefined;
     if (handedTo !== undefined) this.scheduleFollowUp(handedTo.from, handedTo.target);
     else if (failure === undefined && turn.spoken.length > 0) {
+      this.scheduleDeferredFollowUp(turn);
       this.scheduleObserveAdvance();
       if (!this.scheduleDecisionAdvance(turn)) this.scheduleSilencePrompt();
     }

@@ -119,9 +119,19 @@ export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Vi
   const item = scenario.agenda.find((candidate) => candidate.title === title);
   const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
   const ownerIsHost = item === undefined ? false : scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
+  const visitorOwnsItem = owner !== undefined && visitor?.seat === owner.name;
   const speakerName =
-    owner !== undefined && !ownerIsHost && visitor?.seat !== owner.name ? owner.name : undefined;
+    owner !== undefined && !ownerIsHost && !visitorOwnsItem ? owner.name : undefined;
   const spoken = spokenTopicLead(title);
+  if (visitorOwnsItem && visitor !== undefined) {
+    const firstBriefer = item?.discussion?.openingViews
+      ?.map((v) => v.attendee)
+      .find((name) => name !== visitor.seat && name !== visitor.name);
+    if (firstBriefer !== undefined) {
+      return `Alright team, let's look at ${spoken} — ${visitor.name}, this one is yours to lead, so ${firstBriefer}, walk ${visitor.name} through what happened first.`;
+    }
+    return `Alright team, let's look at ${spoken} — ${visitor.name}, this topic is yours to lead.`;
+  }
   if (speakerName !== undefined) {
     const intros = [
       `Alright team, let's look at ${spoken}. ${speakerName}, walk us through what's happening.`,

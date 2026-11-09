@@ -81,22 +81,27 @@ function reactionForColleague(
   speaking: boolean,
   now: number,
 ): { emoji: string; label: string; tone: 'catch' | 'lock' | 'agree' } | undefined {
-  const recentWindow = chunks.slice(-2);
-  const latestByColleague = [...recentWindow].reverse().find((c) => c.payload.speaker === attendeeName);
+  const recentWindow = chunks.slice(-3);
+  const latestByColleague = [...recentWindow]
+    .reverse()
+    .find((c) => c.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim() === attendeeName);
   if (latestByColleague === undefined) return undefined;
   const latestAt = Date.parse(latestByColleague.payload.timestamp);
-  const isFresh = speaking || (Number.isFinite(latestAt) && now - latestAt <= 4500);
+  const isFresh = speaking || (Number.isFinite(latestAt) && now - latestAt <= 8000);
   if (!isFresh) return undefined;
 
-  const text = latestByColleague.payload.text;
-  if (/\b(spot on|that works|lock(ed)? in|on it|got it|will do|works for me|sorted|solid plan|post that decision)\b/i.test(text)) {
+  const text = latestByColleague.payload.text.trim();
+  if (/\b(spot on|that works|lock(ed)? in|on it|got it|will do|works for me|sorted|solid plan|post that decision|i'll post|i'll email|i'll file|i'll draft|appreciate it|thanks boss)\b/i.test(text)) {
     return { emoji: '🙌', label: 'Locked in', tone: 'lock' };
   }
-  if (/\b(hold on|catch|careful|wait|problem|cannot|can't|forbid|refuse|wipe out|margin|docket|gloves|cancelled)\b/i.test(text)) {
+  if (/\b(hold on|catch|careful|wait|problem|cannot|can't|forbid|refuse|wipe out|margin|docket|gloves|cancelled|risk|hospital|sfa|commission|lose|cost|confuse|queue|chope|hogging)\b/i.test(text)) {
     return { emoji: '🤔', label: 'Flagged a trade-off', tone: 'catch' };
   }
-  if (/\b(agree|makes sense|good call|smart|love that|fair point|solid)\b/i.test(text)) {
+  if (/\b(agree|makes sense|good call|smart|love that|fair point|solid|happy with|sounds good|good idea)\b/i.test(text)) {
     return { emoji: '👍', label: 'Sounds good', tone: 'agree' };
+  }
+  if (text.endsWith('?')) {
+    return { emoji: '💬', label: 'Asking the room', tone: 'agree' };
   }
   return undefined;
 }
@@ -124,7 +129,18 @@ function CaptionedTile() {
   const isAi = aiIndex >= 0;
   const humanSpeaking = useIsSpeaking(participant);
   const speaking = isAi ? npcState.kind === 'speaking' && npcState.speaker === participant.identity : humanSpeaking;
-  const caption = captionFor(chunks, transcriptNameFor(scenario, participant), now, 8000, speaking);
+  const speakerAliases = isAi
+    ? []
+    : [participant.name ?? '', participant.identity, 'Guest'].filter((s) => s.trim().length > 0);
+  const recognizedCaption = captionFor(
+    chunks,
+    transcriptNameFor(scenario, participant),
+    now,
+    8000,
+    speaking,
+    speakerAliases,
+  );
+  const caption = recognizedCaption ?? (!isAi && humanSpeaking ? '🎙️ Speaking…' : null);
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
   const attendee = isAi ? scenario.attendees.find((candidate) => candidate.name === participant.identity) : undefined;
