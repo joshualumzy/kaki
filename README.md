@@ -1,77 +1,120 @@
 # Kaki — Multi-Agent AI Meeting Assistant
 
-**Kaki** is a real-time, multi-agent meeting assistant that pairs a shared room display with private participant wingmen and automated post-meeting actions. See the [Product Requirements Document](docs/spec/PRD-kaki-meeting-assistant.md), the [Live Demo Architecture](docs/live-demo.md), and the [Domain Glossary](CONTEXT.md).
+**Kaki** is a real-time, multi-agent meeting assistant that pairs a live voice/text meeting stage with private participant wingmen, live company-record RAG, and human-in-the-loop post-meeting actions across 5 external tools.
+
+See the [Product Requirements Document](docs/spec/PRD-kaki-meeting-assistant.md), the [Live Demo Architecture](docs/live-demo.md), the [Human Playtest Findings](docs/playtests/feifei-action-plan.md), and the [Domain Glossary](CONTEXT.md).
 
 ---
 
-## Architecture Overview
+## 1. Live Cloud Demo (Azure VM)
 
-Kaki splits meeting assistance across three specialized agents and an optional AI attendee engine:
+The project is deployed on Azure (`kaki-vm` in `KAKI-BOT-RG`, Southeast Asia) with automatic Let's Encrypt HTTPS for browser and phone microphone support:
+
+- **Main Meeting App:** **`https://kaki.southeastasia.cloudapp.azure.com`**
+- **Cloud Company Systems (Unified Login: `demo` / `demo`):**
+  - **Wiki.js:** `http://kaki.southeastasia.cloudapp.azure.com:8081` (`demo` / `demo`)
+  - **Gitea:** `http://kaki.southeastasia.cloudapp.azure.com:8082` (`demo` / `demo` — or NPC usernames `wei-ling`, `arjun`, `mei`, `daniel` with password `demo`)
+  - **Mattermost:** `http://kaki.southeastasia.cloudapp.azure.com:8083` (`demo` / `demo` — or NPC usernames `weiling`, `arjun`, `mei`, `daniel` with password `demo`)
+  - **Mailpit (Email Inbox):** `http://kaki.southeastasia.cloudapp.azure.com:8084` *(no login required)*
+  - **Radicale Calendar:** `http://kaki.southeastasia.cloudapp.azure.com:5232` (`demo` / `demo`)
+
+### Waking Up or Stopping the Cloud VM
+To save Azure student credits, `kaki-vm` automatically deallocates itself after **2 hours of zero visitor activity**. Anyone with Azure CLI access to `KAKI-BOT-RG` (or via the Azure Portal **Start** button) can wake it up in ~45 seconds:
+
+```bash
+npm run cloud:status   # Check if kaki-vm is running and https://kaki.southeastasia.cloudapp.azure.com is online
+npm run cloud:up       # Start kaki-vm and wait until the live site and all integrations are ready
+npm run cloud:down     # Immediately deallocate kaki-vm ($0/hr compute billing)
+```
+
+---
+
+## 2. Architecture Overview
+
+Kaki splits meeting assistance across three specialized agents and an interactive AI attendee engine:
 
 1. **Kaki Host (`server/src/host/`):** Tracks the agenda clock, detects open questions and action items via a grounded LLM Notetaker, auto-dispatches follow-ups to the right role, and triggers closing summaries.
 2. **Kaki Wingman (`server/src/wingman/`):** Delivers private, role-filtered nudges when a participant has unshared domain facts, and answers open questions automatically from company records using PostgreSQL + `pgvector` semantic RAG (`bge-m3`).
 3. **Kaki Action (`server/src/action/`):** Drafts concrete external artifacts for claimed tasks and executes them upon human approval across 5 live systems—plus automatically publishes full Markdown meeting minutes to the team wiki when a meeting concludes.
-4. **LiveKit NPC Director (`server/src/npc/`):** Powers the interactive `/demo` voice booth where a visitor speaks or types with AI colleagues over WebRTC (LiveKit + Azure Speech STT/TTS + voice-activity barge-in).
+4. **LiveKit NPC Director (`server/src/npc/`):** Powers the interactive voice booth where one or more humans (on laptop or phone) speak or type with AI colleagues over WebRTC (LiveKit + Azure Speech STT/TTS + voice-activity barge-in).
 
 ---
 
-## Quickstart (One-Command Live Stack)
+## 3. Local Quickstart
 
-Requires **Node 22** and **Docker Desktop**. Copy `.env.example` to `.env` and fill in your OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KAKI_LLM_API_KEY`) and optional Azure Speech keys (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`).
+Requires **Node 22+** and **Docker Desktop**.
+
+### Step 1: Configure `.env`
+Copy `.env.example` to `.env` and fill in your OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KAKI_LLM_API_KEY`, `KAKI_LLM_MODEL`) and Azure Speech keys (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`):
 
 ```bash
+cp .env.example .env
 npm install
+```
 
-# Start the full stack (Docker services, scenario seeding, pgvector indexing, web + server + NPC runner)
-SCENARIO=kopitiam npm run live:up
+### Step 2: First-Time Database & Integration Seeding
+Start the 7 Docker containers, seed the **Nanyang Kopi & Toast (`kopitiam`)** scenario into Postgres, Wiki.js, Gitea, Mattermost, Mailpit, and Radicale Calendar, and index the knowledge chunks into `pgvector`:
 
-# Stop background processes cleanly
+```bash
+npm run stack:up
+npm run seed
+npm run index:knowledge
+npm run seed:verify
+```
+
+> **Note:** `npm run seed` writes the generated `GITEA_TOKEN` and `MATTERMOST_TOKEN` into `docker/.env`. Copy those two tokens into your root `.env` so Kaki Action can file issues and post messages.
+
+### Step 3: Start the Live Demo Locally
+```bash
+# Start Docker stack + Kaki server (:3001) + Vite web (:5173) + AI attendees (NPC runner)
+npm run live:up
+
+# Stop background processes cleanly when done
 npm run live:down
 ```
 
-The shipped scenario is `SCENARIO=kopitiam` (**Nanyang Kopi & Toast**). See [scenarios/README.md](scenarios/README.md).
-
-### Application Views
-
-Once running, open in Chrome or Edge:
-- **Interactive Voice Booth (`/demo`):** `http://localhost:5173/demo?mode=live` — Unified LiveKit stage on the left + private Kaki Wingman dock on the right.
-- **Shared Room Screen (`/screen`):** `http://localhost:5173/screen` — Shared agenda clock, live activity feed, and Kanban task board (`Suggested`, `In progress`, `Done`).
-- **Personal Phone Wingman (`/phone`):** `http://localhost:5173/phone?role=lead_programmer` — Role-filtered mobile companion for private nudges, company record lookups, and action draft approvals.
+Once running, open **`http://localhost:5173`** (or `http://localhost:5173/demo`) in Chrome.
 
 ---
 
-## Active External Integrations (7 Services)
+## 4. Active External Integrations & Unified Logins (`demo` / `demo`)
 
-All backing services run locally via [`docker/docker-compose.yml`](docker/docker-compose.yml) (see [docker/README.md](docker/README.md)):
+All backing services run via [`docker/docker-compose.yml`](docker/docker-compose.yml) (see [docker/README.md](docker/README.md)) and use **`demo` / `demo`** as the unified login:
 
-| Integration | Purpose | Local Endpoint | Module |
-| --- | --- | --- | --- |
-| **Gitea** | Creates engineering / ops issues from approved drafts | `http://127.0.0.1:8082` | `server/src/action/gitea.ts` |
-| **Mattermost** | Posts announcements & updates to team channels | `http://127.0.0.1:8083` | `server/src/action/mattermost.ts` |
-| **Mailpit (SMTP / REST)** | Sends drafted external/internal emails & links to web viewer | `http://127.0.0.1:8084` | `server/src/action/email.ts` |
-| **Wiki.js (GraphQL)** | Publishes team wiki pages + automatic end-of-meeting minutes | `http://127.0.0.1:8081` | `server/src/action/wiki.ts` |
-| **Radicale (CalDAV)** | Books `.ics` calendar events & serves human-readable viewer | `http://127.0.0.1:5232` | `server/src/action/calendar.ts` |
-| **PostgreSQL + `pgvector`** | Stores company records & 1024-dim `bge-m3` RAG embeddings | `127.0.0.1:5433` | `server/src/wingman/knowledge/` |
-| **LiveKit + Azure Speech** | Real-time WebRTC audio room, server VAD, STT & multi-voice TTS | `ws://127.0.0.1:7880` | `server/src/npc/` |
+| Integration | Purpose | Local Endpoint | Login (`Username` / `Password`) | Module |
+| --- | --- | --- | --- | --- |
+| **Gitea** | Creates engineering / ops issues from approved drafts | `http://127.0.0.1:8082` | `demo` / `demo` *(or `wei-ling`, `arjun`, `mei`, `daniel` / `demo`)* | `server/src/action/gitea.ts` |
+| **Mattermost** | Posts announcements & updates to team channels | `http://127.0.0.1:8083` | `demo` / `demo` *(or `weiling`, `arjun`, `mei`, `daniel` / `demo`)* | `server/src/action/mattermost.ts` |
+| **Wiki.js** | Publishes team wiki pages + automatic end-of-meeting minutes | `http://127.0.0.1:8081` | `demo` / `demo` | `server/src/action/wiki.ts` |
+| **Mailpit** | Sends drafted emails via SMTP & serves web inbox viewer | `http://127.0.0.1:8084` | *No login required* | `server/src/action/email.ts` |
+| **Radicale (CalDAV)** | Books `.ics` calendar events & serves seeded Kopitiam calendar | `http://127.0.0.1:5232` | `demo` / `demo` | `server/src/action/calendar.ts` |
+| **PostgreSQL + `pgvector`** | Stores company records & 1024-dim `bge-m3` RAG embeddings | `127.0.0.1:5433` | `kaki` / `kaki_dev_password` | `server/src/wingman/knowledge/` |
+| **LiveKit + Azure Speech** | Real-time WebRTC audio room, server VAD, STT & multi-voice TTS | `ws://127.0.0.1:7880` | `devkey` / `secret` | `server/src/npc/` |
+
+> **Per-User Attribution:** When a human visitor joins the meeting with their name, Kaki automatically updates the `demo` profile display name in Gitea and Mattermost to match the visitor's name. Tasks completed by AI colleagues are posted from each NPC's own account (`arjun`, `mei`, `daniel`, `weiling`/`wei-ling`).
 
 ---
 
-## Manual / Step-by-Step Commands
+## 5. Useful Commands
 
 ```bash
-npm run stack:up          # Start Docker services (Postgres, Wiki.js, Gitea, Mattermost, Mailpit, Radicale, LiveKit)
-npm run seed              # Seed the active scenario's company data into all Docker services
+npm run live:up           # Start full local live demo in the background + run preflight checks
+npm run live:down         # Stop local server, web app, and AI attendees
+npm run cloud:up          # Start Azure VM (kaki-vm) and wait for https://kaki.southeastasia.cloudapp.azure.com
+npm run cloud:down        # Deallocate Azure VM ($0/hr compute billing)
+npm run cloud:status      # Check Azure VM state and live HTTPS health
+npm run stack:up          # Start the 7 Docker containers
+npm run seed              # Idempotently seed all Docker services with the Kopitiam scenario
+npm run seed:verify       # Run 15 automated health & content checks against the Docker stack
 npm run index:knowledge   # Embed and index seeded company records into pgvector
-npm run dev               # Start Kaki server (:3001) and Vite web app (:5173)
-npm run npc               # Start AI attendees in the LiveKit room
-npm run emit-demo         # Emit sample events and tasks in-memory (dev mode)
+npm run knowledge:check   # Verify live pgvector semantic search & role-filtered facts
 npm run typecheck         # Type-check all workspaces (@kaki/shared, @kaki/server, @kaki/web)
-npm test                  # Run the full Vitest unit & integration suite
+npm test                  # Run the full 59-file (721-test) Vitest suite
 ```
 
 ---
 
-## Repository Structure
+## 6. Repository Structure
 
 ```text
 ├── shared/               # Shared TypeScript protocol types, validators, and agenda helpers
@@ -83,11 +126,11 @@ npm test                  # Run the full Vitest unit & integration suite
 │   ├── src/wingman/      # Kaki Wingman (pgvector RAG company search & private role nudges)
 │   └── test/             # Unit & integration test suite mirroring src/
 ├── web/                  # React + Vite frontend
-│   ├── src/demo/         # /demo interactive booth stage + unified Kaki Wingman dock
-│   ├── src/screen/       # /screen shared meeting-room board
-│   └── src/phone/        # /phone personal role companion
-├── scenarios/            # The shipped Kopitiam scenario with seeds & replays
+│   ├── src/demo/         # Interactive meeting stage + unified Kaki Wingman dock (/ and /demo)
+│   ├── src/screen/       # Shared meeting-room board (/screen)
+│   └── src/phone/        # Personal role companion (/phone)
+├── scenarios/kopitiam/   # Nanyang Kopi & Toast scenario, seeds, and scripted replay fixtures
 ├── docker/               # Docker Compose stack & idempotent multi-service seed scripts
-├── scripts/              # One-command stack launchers (live-up.sh, live-down.sh, live-preflight.sh)
-└── docs/                 # PRD specification and live demo architecture guide
+├── scripts/              # Local & cloud launchers (live-up.sh, live-down.sh, cloud.sh, live-preflight.sh)
+└── docs/                 # PRD specification, live demo guide, and human playtest records
 ```
