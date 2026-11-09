@@ -203,10 +203,29 @@ async function ensurePosts(
   sessions: Map<string, Session>,
   posts: MattermostPostSeed[],
 ): Promise<void> {
+  const validTextsByChannel = new Map<string, Set<string>>();
+  for (const post of posts) {
+    let set = validTextsByChannel.get(post.channel);
+    if (!set) {
+      set = new Set<string>();
+      validTextsByChannel.set(post.channel, set);
+    }
+    set.add(post.text);
+  }
+
   const existingByChannel = new Map<string, Map<string, MmPost>>();
   for (const channel of channels.values()) {
     const postsInChannel = await channelPosts(env, adminToken, channel.id);
-    existingByChannel.set(channel.name, new Map(postsInChannel.map((post) => [post.message, post])));
+    const validTexts = validTextsByChannel.get(channel.name) ?? new Set<string>();
+    const kept: MmPost[] = [];
+    for (const post of postsInChannel) {
+      if (!validTexts.has(post.message)) {
+        await mmRequest(env, `/posts/${post.id}`, adminToken, { method: 'DELETE' }).catch(() => undefined);
+      } else {
+        kept.push(post);
+      }
+    }
+    existingByChannel.set(channel.name, new Map(kept.map((post) => [post.message, post])));
   }
 
   const keyed = new Map<string, MmPost>();

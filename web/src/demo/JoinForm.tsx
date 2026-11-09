@@ -184,6 +184,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
             <a href={`http://${host}:8083/kopitiam/channels/kopitiam-launch`} target="_blank" rel="noreferrer">Mattermost</a>
             <a href={`http://${host}:8084`} target="_blank" rel="noreferrer">Mailpit</a>
             <a href={`http://${host}:5232/user/calendar/`} target="_blank" rel="noreferrer">Calendar</a>
+            <a href="/poster.pdf" target="_blank" rel="noreferrer">STePS Poster</a>
           </nav>
         );
       })()}
