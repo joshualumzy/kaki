@@ -67,7 +67,7 @@ export const DEFAULT_SILENCE_PROMPT_MS = 22_000;
 const ASK_GIVE_UP_MS = 45_000;
 
 /** How long the person must keep talking over the room before it stops; a shorter burst is probably noise or an echo. */
-export const DEFAULT_BARGE_IN_MS = 450;
+export const DEFAULT_BARGE_IN_MS = 1400;
 
 function splitSentences(text: string): string[] {
   return (
