@@ -24,19 +24,38 @@ export function TypeBar({ send }: TypeBarProps) {
     send({ kind: 'stop' });
   }, [send]);
 
-  const togglePause = () => {
-    const next = !paused;
-    setPaused(next);
-    send({ kind: next ? 'stop' : 'resume' });
-  };
+  const togglePause = useCallback(() => {
+    setPaused((prev) => {
+      const next = !prev;
+      send({ kind: next ? 'stop' : 'resume' });
+      return next;
+    });
+  }, [send]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') stop();
+      if (event.key === 'Escape') {
+        stop();
+        return;
+      }
+      if (event.key === ' ' || event.code === 'Space') {
+        if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+        const target = event.target;
+        if (
+          target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            target.closest('input, textarea, select, button, a, [role="button"], [role="radio"], .kd-start-backdrop') !== null)
+        ) {
+          return;
+        }
+        if (document.querySelector('.kd-start-backdrop') !== null) return;
+        event.preventDefault();
+        togglePause();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [stop]);
+  }, [stop, togglePause]);
 
   function submit(): void {
     const typed = text.trim();
@@ -79,7 +98,7 @@ export function TypeBar({ send }: TypeBarProps) {
         data-paused={paused}
         aria-pressed={paused}
         onClick={togglePause}
-        title={paused ? 'Play / resume the meeting' : 'Pause the meeting (Esc)'}
+        title={paused ? 'Play / resume the meeting (Space)' : 'Pause the meeting (Space or Esc)'}
       >
         {paused ? '▶ Play' : '⏸ Pause'}
       </button>
