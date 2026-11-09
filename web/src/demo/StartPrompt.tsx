@@ -76,6 +76,40 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
   const [stepIndex, setStepIndex] = useState(0);
   const [spotlightStop, setSpotlightStop] = useState<'stage' | 'dock'>('stage');
 
+  const goPrev = useCallback(() => {
+    if (stepIndex === 2 && spotlightStop === 'dock') {
+      setSpotlightStop('stage');
+    } else if (stepIndex > 0) {
+      setStepIndex((prev) => Math.max(0, prev - 1));
+    }
+  }, [stepIndex, spotlightStop]);
+
+  const goNext = useCallback(() => {
+    if (stepIndex === 0) {
+      setStepIndex(1);
+    } else if (stepIndex === 1) {
+      setSpotlightStop('stage');
+      setStepIndex(2);
+    } else if (stepIndex === 2 && spotlightStop === 'stage') {
+      setSpotlightStop('dock');
+    }
+  }, [stepIndex, spotlightStop]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goNext();
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goPrev();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [goNext, goPrev]);
+
   const trimmedName = viewerName?.trim();
   const card = role?.card;
   const youAre =
@@ -140,33 +174,36 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
               <h3>Talking with the team</h3>
               <ul className="kd-spotlight-list">
                 <li>
-                  Your colleagues are on the tiles on the left, with live captions as they speak.
+                  <b>1. Listen &amp; weigh in:</b> Your colleagues appear on the left tiles with live captions as they speak.
                 </li>
                 <li>
-                  Talk on your mic, type in the bottom bar, or open a question idea when it is your turn.
+                  <b>2. Speak or type:</b> Talk on your mic, type in the bottom bar, or click a question idea when it is your turn.
                 </li>
                 <li>
-                  Hit <b>Pause</b> (or <code>Esc</code>) anytime if you want the room to hold on for a second.
+                  <b>3. Pause anytime:</b> Hit <b>Pause</b> (or <code>Esc</code>) if you want the room to hold on for a second.
                 </li>
               </ul>
             </div>
           ) : (
             <div className="kd-spotlight-body">
               <span className="kd-spotlight-eyebrow">Highlighting Right Side · Kaki Wingman Dock</span>
-              <h3>Notes, shop records, and follow-up tasks</h3>
+              <h3>Your 3-step game plan in the dock</h3>
               <ul className="kd-spotlight-list">
                 <li>
-                  When someone brings up a kitchen rule, email, or ticket, Kaki pulls up the record here so you have the numbers in front of you.
+                  <b>1. Check live shop records:</b> When someone mentions a kitchen rule, email, or ticket, Kaki pulls up the exact numbers here.
                 </li>
                 <li>
-                  When the team agrees on a follow-up task for your role, click <b>Let Kaki do it</b> to review and send the draft.
+                  <b>2. Accept your follow-up task:</b> When the team agrees on an action for your role, click <b>Let Kaki do it</b>.
+                </li>
+                <li>
+                  <b>3. Review &amp; send:</b> Check Kaki’s draft and publish it straight to Gitea, Mattermost, Wiki, Mailpit, or Calendar.
                 </li>
               </ul>
             </div>
           )}
 
           <p className="kd-start-quiet-note" style={{ marginTop: 8 }}>
-            Your colleagues are in the room, but they stay quiet until you start the meeting.
+            Your colleagues are in the room, but they stay quiet until you start the meeting. <span style={{ opacity: 0.75 }}>(Tip: use <code>←</code> / <code>→</code> arrow keys to navigate)</span>
           </p>
           {(starting || startError !== undefined) && (
             <p className="kd-start-quiet-note" role="status" aria-live="polite">

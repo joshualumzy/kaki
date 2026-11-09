@@ -173,6 +173,20 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
           <p className="kd-hint">Headphones work best. With the microphone off you can type to the AI attendees.</p>
         </div>
       </form>
+
+      {(() => {
+        const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+        return (
+          <nav className="kd-join-systems" aria-label="Company systems">
+            <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
+            <a href={`http://${host}:8081`} target="_blank" rel="noreferrer">Wiki</a>
+            <a href={`http://${host}:8082`} target="_blank" rel="noreferrer">Gitea</a>
+            <a href={`http://${host}:8083`} target="_blank" rel="noreferrer">Mattermost</a>
+            <a href={`http://${host}:8084`} target="_blank" rel="noreferrer">Mailpit</a>
+            <a href={`http://${host}:5232`} target="_blank" rel="noreferrer">Calendar</a>
+          </nav>
+        );
+      })()}
     </div>
   );
 }

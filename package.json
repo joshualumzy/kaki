@@ -11,6 +11,9 @@
   "scripts": {
     "live:up": "bash scripts/live-up.sh",
     "live:down": "bash scripts/live-down.sh",
+    "cloud:up": "bash scripts/cloud.sh up",
+    "cloud:down": "bash scripts/cloud.sh down",
+    "cloud:status": "bash scripts/cloud.sh status",
     "dev": "node scripts/dev.mjs",
     "npc": "npm run npc -w @kaki/server",
     "test": "vitest run",
