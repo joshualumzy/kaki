@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -140,14 +141,12 @@ export function createEmailModule({
 
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
-      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
       const allFacts = [
         ...(role?.card?.facts ?? []),
         ...scenario.roles.flatMap((r) => (r.id === roleId ? [] : r.card?.facts ?? [])),
       ];
       const knownFacts = relevantFactsForTask(task, allFacts, true);
-      const senderLine =
-        attendee !== undefined && role !== undefined ? `\nSender: ${attendee.name} (${role.label})` : '';
+      const senderLine = role !== undefined ? `\nSender role: ${role.label}` : '';
       const factsBlock =
         knownFacts.length > 0 ? `\n\nKnown facts from the team:\n- ${knownFacts.join('\n- ')}` : '';
 
@@ -158,11 +157,11 @@ export function createEmailModule({
             'You turn a team task into a short, polite email. Reply with one JSON object and nothing else: ' +
             '{"to": "...", "subject": "...", "body": "..."}. Write the body as plain text and keep it short. ' +
             'For "to", look up the matching recipient email address in the Known facts below when one is listed for the person or partner mentioned in the task or context; if the email is to an internal team or colleague with no listed address, use a sensible address at @example.com (such as team@example.com or dev@example.com).' +
-            ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). When an Accepted decision is given, keep its time of day, who owns or enforces it, and how it will be measured; do not leave out a detail it gives. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. If the Context gives a time of day without AM or PM, keep it exactly as written; never choose AM or PM yourself. Never write "effective immediately" or another start date unless the Context explicitly states it. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${senderLine}\n\nContext:\n${task.context}${factsBlock}`,
+          content: `Task: ${task.title}${senderLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
         },
       ];
 
@@ -176,6 +175,15 @@ export function createEmailModule({
       const draft = parseDraft(reply);
       if (draft === undefined) {
         throw new ActionError('The LLM did not return usable JSON with a subject and body');
+      }
+      const unsupported = unsupportedDraftDetails(
+        `${draft.subject}\n${draft.body}`,
+        draftSourceText(task, knownFacts),
+      );
+      if (unsupported.length > 0) {
+        throw new ActionError(
+          `The draft adds details the task does not support: ${unsupported.join('; ')}. Edit the task or retry.`,
+        );
       }
       return { target: draft.to, subject: draft.subject, body: draft.body };
     },

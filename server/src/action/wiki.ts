@@ -222,12 +222,12 @@ export function createWikiModule({
 
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
-      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
       const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
-      const ownerLine =
-        attendee !== undefined && role !== undefined ? `\nAuthor: ${attendee.name} (${role.label})` : '';
+      const ownerLine = role !== undefined ? `\nAuthor role: ${role.label}` : '';
       const factsBlock =
-        knownFacts.length > 0 ? `\n\nKnown facts from ${attendee?.name ?? 'the author'}:\n- ${knownFacts.join('\n- ')}` : '';
+        knownFacts.length > 0
+          ? `\n\nKnown facts for ${role !== undefined ? `the ${role.label} role` : 'the author'}:\n- ${knownFacts.join('\n- ')}`
+          : '';
 
       const messages: ChatMessage[] = [
         {
@@ -293,7 +293,12 @@ export function createWikiModule({
           openQuestions = [...event.payload.openQuestions];
           return;
         }
-        if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING' && !minutesPublished) {
+        if (
+          event.type === 'HOST_SPEECH_TRIGGERED' &&
+          event.payload.kind === 'CLOSING' &&
+          !minutesPublished &&
+          context.draftOnly !== true
+        ) {
           minutesPublished = true;
           const snapshotLines = [...transcriptLines];
           minutesTimer = setTimeout(() => {

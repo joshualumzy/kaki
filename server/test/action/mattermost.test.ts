@@ -44,10 +44,10 @@ function quietHub(): Hub {
   };
 }
 
-function setup(options: MattermostModuleOptions): TaskStore {
+function setup(options: MattermostModuleOptions, scenario = testScenario): TaskStore {
   const hub = quietHub();
-  const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createMattermostModule(options).start({ hub, tasks, scenario: testScenario });
+  const tasks = createTaskStore({ hub, scenario });
+  const stop = createMattermostModule(options).start({ hub, tasks, scenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }
@@ -130,6 +130,28 @@ describe('mattermost action module', () => {
       'The oven trips the fuse after ten minutes.',
     );
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses a draft that invents a time the task does not support', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => JSON.stringify({ message: 'The booth rule runs from 8 PM to 10:30 PM.' })),
+      mattermost: settings,
+      fetchImpl: okFetch(),
+    });
+    const task = tasks.suggest({
+      title: 'Post the booth rule',
+      context: 'The booth rule runs from 8 to 10:30 every morning.',
+      suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    expect(failed.error).toMatch(/8 PM/);
+    expect(failed.error).toMatch(/does not support/);
+    expect(failed.draft).toBeUndefined();
   });
 
   it('posts the approved draft on run and records the post URL', async () => {
@@ -404,6 +426,48 @@ describe('mattermost action module', () => {
     expect(current?.status).toBe('FAILED');
     expect(current?.error).toBe('changed elsewhere');
     expect(current?.draft).toBeUndefined();
+  });
+
+  it('keeps the visitor in the decision source without naming the default scenario seat as the sender', async () => {
+    const scenarioWithFacts = {
+      ...testScenario,
+      roles: testScenario.roles.map((role) =>
+        role.id === 'chef'
+          ? {
+              ...role,
+              card: {
+                youAre: 'You run the kitchen.',
+                facts: ['The booth demo runs on generator power.', 'The pastry oven needs a new fuse.'],
+                responsibility: 'Kitchen readiness.',
+              },
+            }
+          : role,
+      ),
+    };
+    const decision = 'Booth Playtest approved the booth demo: it runs from 9 to 11 AM and the Chef owns setup.';
+    const llm = createFakeLlm(() => messageReply);
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm, mattermost: settings, fetchImpl }, scenarioWithFacts);
+    const task = tasks.suggest({
+      title: 'Announce the booth demo decision',
+      context: 'Booth Playtest approved the booth demo plan for the launch.',
+      suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post',
+      decisionSource: decision,
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    const ready = await claim(tasks, task);
+    expect(ready.status).toBe('DRAFT_READY');
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    const prompt = llm.calls[0]?.map((message) => message.content).join('\n') ?? '';
+    expect(prompt).toContain(decision);
+    expect(prompt).toContain('The booth demo runs on generator power.');
+    expect(prompt).not.toContain('The pastry oven needs a new fuse.');
+    expect(prompt).toContain('Chef');
+    expect(prompt).not.toContain('Sender: Ada');
+    expect(prompt).not.toContain('Known facts from Ada');
   });
 
   it('ignores other action kinds and manual tasks', async () => {

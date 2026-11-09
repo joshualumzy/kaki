@@ -31,43 +31,49 @@ const COLLEAGUE_STANCE: Record<string, string> = {
   host: 'Chairs the meeting',
 };
 
-const TOPIC_STARTER_CHIPS: Record<string, readonly string[]> = {
-  game_designer: [
-    'Arjun, what happens in our POS if we change the drink names?',
-    'Mei, how would our regulars react if we change the Kopi menu?',
-    'Wei Ling, how does changing the drink names affect our kopi uncles in the kitchen?',
-  ],
-  designer: [
-    'Arjun, what happens in our POS if we change the drink names?',
-    'Mei, how would our regulars react if we change the Kopi menu?',
-    'Wei Ling, how does changing the drink names affect our kopi uncles in the kitchen?',
-  ],
-  producer: [
+function starterChipsForItem(itemTitle: string | undefined, ownerRole: string): readonly string[] {
+  const lower = (itemTitle ?? '').toLowerCase();
+  if (lower.includes('kiosk') || lower.includes('kopi')) {
+    return [
+      'Arjun, what happens in our POS if we change the drink names?',
+      'Mei, how would our regulars react if we change the Kopi menu?',
+      'Wei Ling, how does changing the drink names affect our kopi uncles in the kitchen?',
+    ];
+  }
+  if (lower.includes('seat') || lower.includes('laptop') || lower.includes('chope')) {
+    return [
+      'Wei Ling, what happens on the floor when people chope tables?',
+      'Arjun, why are laptop users staying in our booths all morning?',
+      'Mei, what happens to our solo breakfast customers if we ban reserving seats?',
+    ];
+  }
+  if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('inspection')) {
+    return [
+      'Daniel, what happens if Straits Times arrives at 8 AM and sees us still serving soft-boiled eggs?',
+      'Mei, why did our egg holding bath dip to 58°C yesterday, and can we use the pasteurized backup cartons?',
+      'Wei Ling, how much morning revenue do we lose if we pull soft-boiled eggs off the menu today?',
+    ];
+  }
+  if (lower.includes('commission') || lower.includes('delivery') || lower.includes('platform')) {
+    return [
+      'Wei Ling, what does the 32% delivery commission do to our margin on a $10 breakfast set?',
+      'Daniel, what happens to our CBD office accounts if we delist from GrabFood and Foodpanda today?',
+      'Arjun, why can’t we just mark up our GrabFood prices by 30% or dispatch riders through our direct QR link?',
+    ];
+  }
+  if (ownerRole === 'game_designer' || ownerRole === 'designer') {
+    return [
+      'Arjun, what happens in our POS if we change the drink names?',
+      'Mei, how would our regulars react if we change the Kopi menu?',
+      'Wei Ling, how does changing the drink names affect our kopi uncles in the kitchen?',
+    ];
+  }
+  return [
     'Wei Ling, what happens on the floor when people chope tables?',
     'Arjun, why are laptop users staying in our booths all morning?',
     'Mei, what happens to our solo breakfast customers if we ban reserving seats?',
-  ],
-  lead_programmer: [
-    'Wei Ling, why did we remove the cash drawer from the toast counter?',
-    'Arjun, what are our options on the kiosk for uncles with cash notes?',
-    'Daniel, how bad is the TikTok clip about our cashless sign?',
-  ],
-  engineer: [
-    'Wei Ling, why did we remove the cash drawer from the toast counter?',
-    'Arjun, what are our options on the kiosk for uncles with cash notes?',
-    'Daniel, how bad is the TikTok clip about our cashless sign?',
-  ],
-  marketing_lead: [
-    'Mei, what happened in the kitchen with Zack’s toast order?',
-    'Wei Ling, what does doubling the butter do to our food cost?',
-    'Daniel, can we get Zack to lower his $600 fee using our plushies?',
-  ],
-  comms: [
-    'Mei, what happened in the kitchen with Zack’s toast order?',
-    'Wei Ling, what does doubling the butter do to our food cost?',
-    'Daniel, can we get Zack to lower his $600 fee using our plushies?',
-  ],
-};
+  ];
+}
 
 function reactionForColleague(
   attendeeName: string,
@@ -197,10 +203,30 @@ export function MeetingGrid({ role }: { role: string }) {
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
     return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
   }, [scenario]);
-  const hasColleagueBriefed = useMemo(
-    () => chunks.some((chunk) => !chunk.payload.speaker.startsWith(facilitatorName)),
-    [chunks, facilitatorName],
-  );
+  const activeAgendaIndex = useMemo(() => {
+    const latestRecord = [...screenEvents].reverse().find((e) => e.type === 'MEETING_RECORD_UPDATED');
+    return latestRecord?.type === 'MEETING_RECORD_UPDATED' ? latestRecord.payload.agendaIndex : 0;
+  }, [screenEvents]);
+
+  const hasColleagueBriefed = useMemo(() => {
+    let currentIdx = 0;
+    let sawCurrentItemBrief = false;
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        if (event.payload.agendaIndex !== currentIdx) {
+          currentIdx = event.payload.agendaIndex;
+          sawCurrentItemBrief = false;
+        }
+      } else if (
+        event.type === 'TRANSCRIPT_CHUNK' &&
+        currentIdx === activeAgendaIndex &&
+        !event.payload.speaker.startsWith(facilitatorName)
+      ) {
+        sawCurrentItemBrief = true;
+      }
+    }
+    return sawCurrentItemBrief;
+  }, [events, facilitatorName, activeAgendaIndex]);
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
   const [showStarterIdeas, setShowStarterIdeas] = useState(false);
@@ -212,18 +238,15 @@ export function MeetingGrid({ role }: { role: string }) {
     [scenario, chunks, now, npcState, waitingForHuman],
   );
 
-  const activeOwnerRole = useMemo(() => {
-    const latestRecord = [...screenEvents].reverse().find((e) => e.type === 'MEETING_RECORD_UPDATED');
-    const agendaIndex = latestRecord?.type === 'MEETING_RECORD_UPDATED' ? latestRecord.payload.agendaIndex : 0;
-    return scenario.agenda[agendaIndex]?.ownerRole ?? role;
-  }, [screenEvents, scenario.agenda, role]);
+  const activeItem = scenario.agenda[activeAgendaIndex];
+  const activeOwnerRole = activeItem?.ownerRole ?? role;
 
   const starterChips = useMemo(() => {
-    const raw = TOPIC_STARTER_CHIPS[activeOwnerRole] ?? TOPIC_STARTER_CHIPS[role] ?? TOPIC_STARTER_CHIPS.engineer ?? [];
+    const raw = starterChipsForItem(activeItem?.title, activeOwnerRole);
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
     if (viewerSeatName === undefined) return raw.slice(0, 2);
     return raw.filter((chip) => !chip.toLowerCase().startsWith(viewerSeatName.toLowerCase())).slice(0, 2);
-  }, [activeOwnerRole, role, scenario.attendees]);
+  }, [activeItem?.title, activeOwnerRole, role, scenario.attendees]);
 
   const sendQuickLine = useCallback(
     (text: string) => {
@@ -263,22 +286,29 @@ export function MeetingGrid({ role }: { role: string }) {
         text: `"${publishedTask.title}" is live. Open it in the Kaki panel on the right →`,
       };
     }
-    const latestFact = [...events]
-      .reverse()
-      .find(
-        (e): e is Extract<typeof events[number], { type: 'FACT_FOUND' }> =>
-          e.type === 'FACT_FOUND' && e.payload.facts.length > 0,
-      );
-    if (latestFact !== undefined && hasColleagueBriefed) {
-      const key = `fact:${latestFact.payload.question}`;
+    let factIdx = 0;
+    let latestFactOnCurrentTopic: Extract<typeof events[number], { type: 'FACT_FOUND' }> | undefined;
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        factIdx = event.payload.agendaIndex;
+      } else if (
+        event.type === 'FACT_FOUND' &&
+        event.payload.facts.length > 0 &&
+        factIdx === activeAgendaIndex
+      ) {
+        latestFactOnCurrentTopic = event;
+      }
+    }
+    if (latestFactOnCurrentTopic !== undefined && hasColleagueBriefed) {
+      const key = `fact:${activeAgendaIndex}:${latestFactOnCurrentTopic.payload.question}`;
       return {
         key,
         badge: 'Kaki Wingman · Record Found',
-        text: `${latestFact.payload.facts[0]?.text ?? latestFact.payload.question} (see right panel →)`,
+        text: `${latestFactOnCurrentTopic.payload.facts[0]?.text ?? latestFactOnCurrentTopic.payload.question} (see right panel →)`,
       };
     }
     return undefined;
-  }, [screenTasks, events, role, hasColleagueBriefed]);
+  }, [screenTasks, events, role, hasColleagueBriefed, activeAgendaIndex]);
 
   return (
     <StageContext.Provider value={stage}>

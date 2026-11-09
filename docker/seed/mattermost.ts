@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import type { Env } from './env';
+import { COMPOSE_FILE } from './env';
 import { jsonBody, jsonRequest, jsonResponse, request, waitFor } from './http';
 import type { MattermostPostSeed, MattermostSeed, MattermostUserSeed } from './scenario';
 
@@ -111,10 +113,11 @@ async function ensureUser(env: Env, token: string, user: MattermostUserSeed): Pr
   const existing = await findUser(env, token, user.username);
   if (existing) return existing;
   console.log(`  creating the Mattermost user ${user.username}`);
+  const safePassword = env.MATTERMOST_PASSWORD.length >= 8 ? env.MATTERMOST_PASSWORD : 'demopassword';
   const response = await mmRequest(env, '/users', token, jsonBody('POST', {
     email: user.email,
     username: user.username,
-    password: env.MATTERMOST_PASSWORD,
+    password: safePassword,
     first_name: user.first_name,
     last_name: user.last_name,
   }));
@@ -273,11 +276,46 @@ async function ensureToken(env: Env, session: Session): Promise<string> {
   return created.token;
 }
 
+async function syncDemoPasswords(env: Env, token?: string): Promise<void> {
+  try {
+    execFileSync(
+      'docker',
+      [
+        'compose',
+        '-f',
+        COMPOSE_FILE,
+        'exec',
+        '-T',
+        'postgres',
+        'psql',
+        '-U',
+        'mmuser',
+        '-d',
+        'mattermost',
+        '-c',
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto; UPDATE users SET password = crypt('demo', gen_salt('bf', 10)) WHERE username IN ('demo', 'weiling', 'arjun', 'mei', 'daniel');",
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const authToken = token || env.MATTERMOST_TOKEN;
+    if (authToken) {
+      await fetch(`${env.MATTERMOST_URL}/api/v4/caches/invalidate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => undefined);
+    }
+  } catch {
+    // Best-effort password sync.
+  }
+}
+
 export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<string> {
   await waitFor('Mattermost', async () => {
     const response = await request(`${env.MATTERMOST_URL}/api/v4/system/ping`, {}, 'Mattermost ping');
     if (!response.ok) throw new Error(`ping returned HTTP ${response.status}`);
   });
+
+  await syncDemoPasswords(env);
 
   const adminSeed = seed.users.find((user) => user.username === env.MATTERMOST_ADMIN_USER);
   if (!adminSeed) throw new Error(`Mattermost admin "${env.MATTERMOST_ADMIN_USER}" is not listed in the seed users`);
@@ -285,7 +323,8 @@ export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<st
   let adminSession = await login(env, adminSeed.username);
   if (!adminSession) {
     console.log(`  creating the Mattermost admin user ${adminSeed.username}`);
-    await signup(env, adminSeed);
+    await signup(env, { ...adminSeed });
+    await syncDemoPasswords(env);
     adminSession = await login(env, adminSeed.username);
   }
   if (!adminSession) throw new Error(`Could not log in to Mattermost as "${adminSeed.username}"`);
@@ -296,10 +335,24 @@ export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<st
   const sessions = new Map<string, Session>([[adminSeed.username, adminSession]]);
   const users = new Map<string, MmUser>([[adminSeed.username, adminSession.user]]);
 
-  for (const user of seed.users) {
+  const allUsers: MattermostUserSeed[] = [
+    ...seed.users,
+    ...(seed.users.some((u) => u.username === 'demo')
+      ? []
+      : [{ username: 'demo', email: 'demo@nanyangkopitiam.example', first_name: 'Demo', last_name: 'Visitor', admin: true }]),
+  ];
+
+  for (const user of allUsers) {
     if (user.username === adminSeed.username) continue;
-    const created = await ensureUser(env, adminSession.token, user);
+    const created = await ensureUser(env, adminSession.token, {
+      ...user,
+    });
     users.set(user.username, created);
+  }
+  await syncDemoPasswords(env, adminSession.token);
+
+  for (const user of allUsers) {
+    if (user.username === adminSeed.username) continue;
     const session = await login(env, user.username);
     if (!session) throw new Error(`Could not log in to Mattermost as "${user.username}"`);
     sessions.set(user.username, session);

@@ -7,6 +7,8 @@ export interface KakiContext {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
+  /** When true, actions may be drafted and reviewed but never sent to external services. */
+  draftOnly?: boolean;
 }
 
 /** A team-owned feature that plugs into the server without editing shared files. */

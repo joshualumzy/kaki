@@ -73,12 +73,25 @@ export function MeetingPanel({
   }, [scenario]);
 
   const topicBriefingStarted = useMemo(() => {
-    if (record !== undefined && record.payload.elapsedSeconds >= 22) return true;
-    return events.some(
-      (event) =>
+    const targetIdx = record?.payload.agendaIndex ?? 0;
+    if (targetIdx === 0 && record !== undefined && record.payload.elapsedSeconds >= 22) return true;
+    let currentIdx = 0;
+    let briefedOnTarget = false;
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        if (event.payload.agendaIndex !== currentIdx) {
+          currentIdx = event.payload.agendaIndex;
+          if (currentIdx === targetIdx) briefedOnTarget = false;
+        }
+      } else if (
         event.type === 'TRANSCRIPT_CHUNK' &&
-        !event.payload.speaker.startsWith(facilitatorName),
-    );
+        currentIdx === targetIdx &&
+        !event.payload.speaker.startsWith(facilitatorName)
+      ) {
+        briefedOnTarget = true;
+      }
+    }
+    return briefedOnTarget;
   }, [events, facilitatorName, record]);
 
   const currentFact = useMemo<FactEvent | undefined>(() => {
@@ -229,7 +242,7 @@ export function MeetingPanel({
         </>
       ) : (
         <>
-          <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} />
+          <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} showOpenQuestions={isHost} />
           {!meetingEnded && isHost && (
             <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started />
           )}
@@ -240,6 +253,8 @@ export function MeetingPanel({
               role={role}
               viewer={viewer}
               companyFact={currentFact}
+              events={events}
+              agendaIndex={record.payload.agendaIndex}
             />
           )}
         </>
@@ -264,6 +279,9 @@ export function MeetingPanel({
                   Owner: {assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}
                 </span>
                 {task.context.trim() !== '' && <small>{task.context}</small>}
+                {task.decisionSource !== undefined && (
+                  <small className="kd-task-decision">Accepted decision: {task.decisionSource}</small>
+                )}
                 {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') && (
                   <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
                     {artifactLinkText(task)}
@@ -385,12 +403,16 @@ function CurrentTopicCard({
   role,
   viewer,
   companyFact,
+  events,
+  agendaIndex,
 }: {
   item: AgendaItem | undefined;
   scenario: Scenario;
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
   companyFact: FactEvent | undefined;
+  events?: readonly KakiEvent[];
+  agendaIndex?: number;
 }) {
   if (item === undefined) return null;
   const mode = itemMode(scenario, item, role?.id);
@@ -406,6 +428,62 @@ function CurrentTopicCard({
         ? 'Team needs your call'
         : `Led by ${assigneeLabel(scenario, item.ownerRole, viewer)} · You can listen in or jump in`;
 
+  // Progressive Revelation: Only show a colleague's standoff card once they have actually
+  // delivered their point (at least 8 words or a full sentence), or when another speaker follows them.
+  // This prevents the "movie subtitle spoiler" where the card reveals their conclusion on syllable #1.
+  const currentTopicSpeakers = useMemo(() => {
+    const wordCounts = new Map<string, number>();
+    const completedSpeakers = new Set<string>();
+    if (events === undefined || events.length === 0) return completedSpeakers;
+    let onCurrent = agendaIndex === undefined || agendaIndex === 0;
+    let lastSpeaker: string | undefined;
+
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        if (agendaIndex !== undefined && event.payload.agendaIndex === agendaIndex) {
+          onCurrent = true;
+        } else if (onCurrent && agendaIndex !== undefined && event.payload.agendaIndex !== agendaIndex) {
+          break;
+        }
+      } else if (onCurrent && event.type === 'TRANSCRIPT_CHUNK') {
+        const raw = event.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+        if (lastSpeaker !== undefined && lastSpeaker !== raw) {
+          completedSpeakers.add(lastSpeaker);
+        }
+        lastSpeaker = raw;
+        const words = event.payload.text.trim().split(/\s+/).filter(Boolean).length;
+        const totalWords = (wordCounts.get(raw) ?? 0) + words;
+        wordCounts.set(raw, totalWords);
+
+        // Reveal card once the speaker has delivered a complete thought (8+ words or completed sentence)
+        if (totalWords >= 8 || (totalWords >= 4 && /[.!?]\s*$/.test(event.payload.text.trim()))) {
+          completedSpeakers.add(raw);
+        }
+      }
+    }
+    return completedSpeakers;
+  }, [events, agendaIndex]);
+
+  const visibleTradeOffs = useMemo(() => {
+    const tradeOffs = item.discussion?.tradeOffs ?? [];
+    if (events === undefined || events.length === 0) return [];
+    // The Standoff displays competing views of AI colleagues as they speak.
+    // The visitor's own role constraints are shown in "Your Role Constraints & Numbers" below,
+    // so we exclude the visitor's seat to prevent duplicate cards and phantom seed names (like "Wei Ling").
+    const isVisitorSeat = (to: (typeof tradeOffs)[number]) => {
+      if (role?.id !== undefined && to.role === role.id) return true;
+      if (to.attendee.toLowerCase() === viewer.name.toLowerCase()) return true;
+      if (viewer.seatName !== undefined && to.attendee.toLowerCase() === viewer.seatName.toLowerCase()) return true;
+      return false;
+    };
+
+    const filtered = tradeOffs.filter((to) => {
+      if (isVisitorSeat(to)) return false;
+      return currentTopicSpeakers.has(to.attendee.toLowerCase());
+    });
+    return filtered.slice(0, 3);
+  }, [item, events, currentTopicSpeakers, viewer, role]);
+
   if (item.decision === undefined && myFacts.length === 0 && companyFacts.length === 0) return null;
 
   return (
@@ -417,13 +495,49 @@ function CurrentTopicCard({
           {item.decision}
         </p>
       )}
+      {item.discussion?.tradeOffs !== undefined && item.discussion.tradeOffs.length > 0 && (
+        <div style={{ marginTop: 8, marginBottom: 8 }}>
+          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>The Standoff & Constraints</p>
+          {visibleTradeOffs.length === 0 ? (
+            <p style={{ fontStyle: 'italic', fontSize: 12, color: 'var(--color-text-dim)', margin: 0 }}>
+              Listening to the team's opening points…
+            </p>
+          ) : (
+            <ul className="kd-record-list" style={{ marginBottom: 0 }}>
+              {visibleTradeOffs.map((to) => {
+                const colonIndex = to.tradeOff.indexOf(':');
+                const hasHeadline = colonIndex > 0 && colonIndex < 45;
+                const headline = hasHeadline ? to.tradeOff.slice(0, colonIndex).trim() : null;
+                const detail = hasHeadline ? to.tradeOff.slice(colonIndex + 1).trim() : to.tradeOff;
+                return (
+                  <li key={to.tradeOff} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span className="kd-record-source-pill" style={{ flexShrink: 0 }}>{to.attendee}</span>
+                    <span style={{ fontSize: 13, lineHeight: '1.4' }}>
+                      {headline !== null ? (
+                        <>
+                          <strong>{headline}:</strong> {detail}
+                        </>
+                      ) : (
+                        detail
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
       {myFacts.length > 0 && (
-        <div className="kd-fact-chips" aria-label="Key facts for this topic">
-          {myFacts.map((fact) => (
-            <div key={fact} className="kd-fact-chip">
-              {fact}
-            </div>
-          ))}
+        <div style={{ marginTop: 8 }}>
+          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>Your Role Constraints & Numbers</p>
+          <div className="kd-fact-chips" aria-label="Key facts for this topic">
+            {myFacts.map((fact) => (
+              <div key={fact} className="kd-fact-chip">
+                {fact}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {companyFact !== undefined && companyFacts.length > 0 && (
@@ -432,7 +546,7 @@ function CurrentTopicCard({
             From the company records · {companyFact.payload.question}
           </p>
           <ul className="kd-record-list" style={{ marginBottom: 0 }}>
-            {companyFacts.slice(0, 3).map((fact, index) => (
+            {companyFacts.slice(0, 2).map((fact, index) => (
               <li key={`${fact.source}-${fact.date}-${index}`}>
                 <span className="kd-record-source-pill">{sourceBadgeText(fact.source)}</span>
                 <span>{fact.text}</span>
@@ -481,16 +595,16 @@ const GENERIC_WORDS = new Set([
   'have', 'has', 'had', 'not', 'but', 'what', 'when', 'who', 'how', 'why', 'where',
   'your', 'you', 'our', 'their', 'they', 'will', 'can', 'just', 'more', 'first',
   'build', 'game', 'launch', 'team', 'time', 'open', 'issue', 'issues', 'before',
-  'order', 'morning', 'counter', 'kiosk', 'kiosks', 'toast', 'staff', 'regulars',
+  'order', 'morning', 'counter', 'toast', 'staff', 'regulars',
   'customers', 'handle', 'without', 'make', 'keep', 'turn', 'turned', 'away',
 ]);
 
-/** Pick only the single most relevant fact from the visitor's own role card that matches this agenda item's specific topic words. */
+/** Pick the most relevant facts from the visitor's own role card that match this agenda item's specific topic words. */
 function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwner: boolean): string[] {
   if (facts.length === 0) return [];
   const text = `${item.title} ${item.decision ?? ''}`.toLowerCase();
   const keywords = (text.match(/[a-z0-9]+/g) ?? []).filter(
-    (word) => (word.length >= 4 || /^\d+$/.test(word)) && !GENERIC_WORDS.has(word),
+    (word) => (word.length >= 3 || /^\d+$/.test(word)) && !GENERIC_WORDS.has(word),
   );
   if (keywords.length > 0) {
     const scored = facts
@@ -502,7 +616,7 @@ function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwne
       .filter((entry) => entry.hits > 0)
       .sort((a, b) => b.hits - a.hits);
     if (scored.length > 0) {
-      return [scored[0]!.fact];
+      return scored.slice(0, 2).map((entry) => entry.fact);
     }
   }
   return isOwner ? facts.slice(0, 1) : [];

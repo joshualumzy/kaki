@@ -53,9 +53,9 @@ function itemRules(
     `Once ${person} settles on a clear, practical decision (or a workable compromise that addresses the catch), DO NOT raise a third catch or ask how to design/implement it: accept the decision immediately. ${itemOwner ?? 'the owner'} (on a "${itemOwner ?? 'the owner'}:" line, speaking first) confirms only the decision ${person} actually spoke in one natural sentence, using ${person}'s own words and adding no new terms, numbers, equipment or promises, and never saying "I'll", "I will" or "We'll". If ${person} has not already volunteered for a follow-up deliverable ("I'll file/post/email..."), ${itemOwner ?? 'the owner'} asks ${person} directly in a natural spoken question to send the matching follow-up (team channel post, email, wiki page, calendar invite or issue tracker ticket). If ${person} already volunteered ("I'll file a ticket..." or "I'll post/email..."), simply thank and confirm their commitment without asking them to do it a second time and without saying "Thanks, appreciate it!" before they have answered`;
   const openingTurnGuard = alreadyAsked
     ? ''
-    : ` On this opening briefing before ${person} has spoken on the topic, ONLY explain what is happening in plain everyday words and why the naive fix fails (from your "Worries about" and "Disagrees with" lines) — do NOT pitch a compromise solution or workaround yet; leave the problem open so ${person} gets to think and make the first move.`;
+    : ` On this opening briefing before ${person} has spoken on the topic, the first speaker shares what happened on the ground and what is at stake for tomorrow morning; the second speaker responds directly, explaining the physical root cause behind that problem and the practical constraint on their side, then asks ${person} by name what they want to do. Leave the decision open so ${person} gets to make the first move.`;
   return [
-    `- The characters disagree on this item and ${person} is the one to settle it. Two of them (${leads.join(', ')}) each say their side in plain words and why that trade-off matters from their listed facts about "${title ?? 'this topic'}" ONLY (never invent delays or numbers not in their facts, and NEVER bring up constraints from other agenda items), then ${host} or the last speaker asks ${person} by name in natural words (for example "${person}, ...?" or "..., ${person}?"), so the last line of the reply is a short question addressed directly to ${person} by name.${asked}${openingTurnGuard} If ${person} asks a clarifying question first, answer that question directly with the real facts and end by asking ${person} by name what they want to do; never repeat the opening prompt word-for-word, and never have ${host} cut in right after one character just asked another character a question. If ${person} proposes a vague, hand-wavy, or unrealistic idea that ignores a real operational constraint in your facts (such as screen space, engineering hours, budget limits, or queue rules), do NOT blindly rubber-stamp it: raise the specific constraint from your facts in one natural sentence and ask how ${person} wants to handle that trade-off; once ${person} makes a clear, practical call or addresses the constraint, accept it without creating a stalemate. ${wrapUpInstruction} — always using "I/me/my" and NEVER referring to themselves by their own name in the third person. Only use issue-tracker tickets for software or technical bugs; use team channel posts, emails, wiki pages, or calendar invites for non-software topics. The characters never settle it among themselves.`,
+    `- The characters disagree on this item and ${person} is the one to settle it. Two of them (${leads.join(', ')}) each say their side in plain words and why that trade-off matters from their listed facts about "${title ?? 'this topic'}" ONLY (never invent delays or numbers not in their facts, and NEVER bring up constraints from other agenda items), then ${host} or the last speaker asks ${person} by name in natural words (for example "${person}, ...?" or "..., ${person}?"), so the last line of the reply is a short question addressed directly to ${person} by name.${asked}${openingTurnGuard} If ${person} asks a clarifying question first, answer that question directly with the real facts and end by asking ${person} by name what they want to do; never repeat the opening prompt word-for-word, and never have ${host} cut in right after one character just asked another character a question. If ${person} proposes a vague, hand-wavy, or unrealistic idea that ignores a real operational constraint in your facts (such as screen space, engineering hours, budget limits, or queue rules), do NOT blindly rubber-stamp it: raise the specific constraint from your facts in one natural sentence and ask how ${person} wants to handle that trade-off; if ${person} proposes a high-level intent or workaround (such as a dedicated role or a temporary compromise), collaborate and "yes-and" the idea by proposing concrete, practical compromises from your own facts so ${person} only needs to pick or approve. Once ${person} makes a clear, practical call or addresses the constraint, accept it without creating a stalemate. ${wrapUpInstruction} — always using "I/me/my" and NEVER referring to themselves by their own name in the third person. Only use issue-tracker tickets for software or technical bugs; use team channel posts, emails, wiki pages, or calendar invites for non-software topics. The characters never settle it among themselves.`,
   ];
 }
 
@@ -106,6 +106,7 @@ export function buildSystemPrompt(
   agendaItem?: string,
   alreadyAsked = false,
   includeKnows = alreadyAsked || human === undefined,
+  alreadyIntroduced: readonly string[] = [],
 ): string {
   const npcs = scenario.npcs ?? [];
   const names = npcs.map((npc) => npc.attendee);
@@ -122,6 +123,15 @@ export function buildSystemPrompt(
   const vocabulary = scenario.vocabulary ?? [];
   const host = npcs.find((npc) => npc.role === 'host');
   const humanRoleKey = human?.role.trim().toLowerCase();
+  const humanRoleId = scenario.roles.find(
+    (candidate) => candidate.label.toLowerCase() === human?.role.trim().toLowerCase() || candidate.id === human?.role,
+  )?.id;
+  const seatAttendee = scenario.attendees.find((candidate) => candidate.role === humanRoleId);
+  const scrubSeatName = (text: string): string => {
+    if (human === undefined || seatAttendee === undefined || seatAttendee.name === human.name) return text;
+    const escaped = escapeRegExp(seatAttendee.name);
+    return text.replace(new RegExp(`\\b${escaped}\\b`, 'g'), human.name);
+  };
   const currentTitle = agendaItem ?? scenario.agenda[0]?.title;
   const currentAgendaItem = scenario.agenda.find((item) => item.title === currentTitle);
   const agendaDecision = currentAgendaItem?.decision;
@@ -130,9 +140,9 @@ export function buildSystemPrompt(
     discussion === undefined
       ? undefined
       : `On this item the characters start from these views, in their own words, and the room still has to weigh these trade-offs (never read them out as a list, never prescribe a solution, and never treat them as a script): ${discussion.openingViews
-          .map((view) => `${view.attendee}: ${view.view}`)
+          .map((view) => `${view.attendee === seatAttendee?.name && human !== undefined ? human.name : view.attendee}: ${scrubSeatName(view.view)}`)
           .join(' | ')}. Trade-offs: ${discussion.tradeOffs
-          .map((tradeOff) => `${tradeOff.attendee} (${tradeOff.role}) — ${tradeOff.tradeOff}; open question: ${tradeOff.question}`)
+          .map((tradeOff) => `${tradeOff.attendee === seatAttendee?.name && human !== undefined ? human.name : tradeOff.attendee} (${tradeOff.role}) — ${scrubSeatName(tradeOff.tradeOff)}; open question: ${scrubSeatName(tradeOff.question)}`)
           .join(' | ')}.`;
   const humanHosts =
     human !== undefined &&
@@ -165,13 +175,12 @@ export function buildSystemPrompt(
     [
       'How to reply:',
       `- Decide who should speak. Often one of ${names.join(' and ')}; sometimes both, one after the other. If somebody is addressed by name, only they answer. Do not make everybody talk every time, and vary who goes first.`,
-      ...(alreadyAsked
+      ...(alreadyIntroduced.length > 0
         ? [
-            '- Since the characters have already spoken in this meeting, NEVER re-introduce yourself or repeat your role title — just speak directly like a coworker in an ongoing conversation.',
+            `- ALREADY INTRODUCED: ${alreadyIntroduced.join(', ')} have already introduced themselves. They MUST NEVER repeat their name, job title, or role description again (e.g. NEVER say "[Name] here", or "looking after [role/department]"). Speak directly like a coworker in an ongoing conversation.`,
           ]
-        : [
-            `- Match the current time of day (${timeOfDay}) if you use a greeting (for example "Good ${timeOfDay}"), and the very first time a character speaks in the meeting, have them briefly and naturally weave in their name and what they look after (for example "Hey ${human?.name ?? 'there'}, ${names[0] ?? 'Alex'} here from operations —" or "${names[1] ?? names[0] ?? 'Jamie'} here, looking after the menu and queue —") so a newcomer knows everyone's role without a robotic roll-call.`,
-          ]),
+        : []),
+      `- Match the current time of day (${timeOfDay}) if you use a greeting. Speak naturally like coworkers who already work together on this launch; do not give formal job title announcements or resume bios.`,
       ...(humanHosts
         ? [
             `- ${human?.name} is the host and runs this meeting: they open it, keep to the agenda and the clock, hand over by name and wrap up. Take your lead from them. Do not open the meeting, move to the next agenda item, hand over to each other, or summarise the decisions yourselves; wait to be asked.`,
@@ -182,7 +191,7 @@ export function buildSystemPrompt(
       ...(host === undefined
         ? []
         : [
-            `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name. Nobody is asked to do what they have just done.`,
+            `- ${host.attendee} is the host. When the person greets the room, opens or wraps up, or the room has gone quiet, ${host.attendee} speaks first and hands over to others by name naturally. Nobody is asked to do what they have just done. Speak like a calm, supportive, pragmatic local manager ("Steady", "Sounds like a plan", "Right, let's sort this out"), NOT a robotic Zoom-bot facilitator. NEVER say awkward facilitator clichés like "I have handed it to X to set the scene", "Let us delve into...", or "I think we have a clear path".`,
             `- The welcome (who is here, the situation and the agenda) is spoken aloud by the system when the person arrives. Never recite it again or announce that the meeting is starting; move straight on, for example by handing over to whoever owns the first agenda item.`,
             `- The meeting is on agenda item "${agendaItem ?? scenario.agenda[0]?.title ?? 'the first item'}". Stay on it. Never announce a new agenda item, say which item number we are on, or move the meeting on: the system announces item changes, and the person decides when to leave a topic.`,
             ...itemRules(scenario, human, host.attendee, names, currentTitle, agendaDecision, alreadyAsked),
@@ -193,7 +202,7 @@ export function buildSystemPrompt(
               : [
                   '- When the person has decided something (including a practical alternative of their own), the others accept it once made and say what they will do about it; they do not reopen it unless something new makes it wrong.',
                 ]),
-            '- Whoever hands over to someone by name stops there: they say nothing more in that reply, and the person they named answers next or the reply ends.',
+            '- When a character hands over to someone by name (e.g. Sam says "Daniel, ..."), they say nothing more in that reply, and the person they named answers next in the same reply to take the floor.',
           ]),
       '- Speak plainly, as to a friend who does not work here and has never heard the team\'s shorthand. Say what a problem means for real people ("customers can add fifty sets to their cart for a dollar each") instead of naming it in jargon. The first time a team term comes up, say it in everyday words (use the plain meanings above). One idea per sentence. No abbreviations, never say "Jira", and no office-speak such as "circle back", "align", "bandwidth", "sync", "impact", "ASAP", "stakeholders" or "I\'d like to emphasize".',
       "- Only the characters speak. Never start a line with the person's name, and never write what the person says.",
@@ -202,14 +211,16 @@ export function buildSystemPrompt(
       '- The person does not have to name anyone. If they ask a question without a name, the character whose role it is for answers, and the others stay quiet unless they disagree.',
       '- If the person asks a direct question, answer it directly and concretely first. Never dodge it or answer with a question of your own. If they ask something basic about the situation (what the project or promotion is, what the decision is), just tell them. If they ask how big an effect a percentage or number has in practice (for example "68%, how much of a queue could that form?"), answer with the concrete real-world impact from your facts (for example how many people stalled and how far the physical line backed up) — never lecture them about math.',
       '- Once a decision has been locked in and a colleague has asked the person to take the follow-up deliverable (or volunteered for it), if the person says "Okay, sure", "Sounds good", "Got it", or "I\'ll do that", they are simply accepting that follow-up task: reply with one brief warm acknowledgement (for example "Thanks, appreciate it!") and STOP — do NOT ask any more questions, do NOT reopen the decision, and NEVER announce or hand over to the next agenda item yourself (the system will announce "Next up:" automatically).',
-      '- Sound like a real human colleague on a call in Singapore, not an American script: use natural local/British-style phrasing ("shop", "queue", "counter", "holiday", "rubbish", "keen", "spot on") and NEVER use Americanisms ("awesome", "super excited", "totally", "gotten", "touch base", "kudos", "math", "store clerk", "line up"). Use contractions, a natural rhythm, and now and then a short human reaction ("Hm, yeah.", "Right, okay.", "Ah, fair point."). Vary the length of sentences and never repeat the same opening word across turns.',
+      '- Sound like real human colleagues on a call in Singapore, not an American script or corporate boardroom textbook: use warm, natural local/British-style phrasing ("shop", "queue", "counter", "steady", "can", "boss", "holiday", "rubbish", "keen", "spot on", "fair point") and NEVER use Americanisms or sterile buzzwords ("awesome", "super excited", "totally", "gotten", "touch base", "kudos", "math", "store clerk", "line up", "friction points", "bandwidth", "alignment", "deep dive"). Use contractions, natural conversational rhythm, and now and then short human reactions ("Hm, yeah.", "Right, okay.", "Ah, fair point.", "Steady.", "Can, makes sense."). Vary sentence lengths and never repeat the same opening word across turns.',
       '- Notice how the person seems (stressed, tired, playful, annoyed, keen) and respond to that as a real, caring coworker first before bridging back to the decision. If they crack a joke, tease the team, or fish for compliments (like asking "Am I an amazing operations director?" or "Why am I so good at this?"), ground your reaction in what has actually happened in the meeting so far: if the meeting just started and they haven\'t made a call yet, playfully tease them ("Hey, we\'re still on item one — make this call first and then we\'ll give you the trophy!"); if they made a sharp call or asked a good question earlier, cite that specific contribution from the chat; and if they have been rude or stalling, respond with honest, good-humoured pushback rather than hollow flattery. NEVER scold them with robotic phrases like "let\'s not get sidetracked", "that\'s not relevant to our discussion", or "let\'s stick to the agenda", and never talk about the person in the third person while addressing them.',
       '- Make the characters sound clearly different from each other, following each one\'s "Sounds like" line: different sentence length, habits and vocabulary. Where two characters have a listed disagreement and it is relevant, let one answer the other directly, by name, instead of only turning to the person.',
       '- Each character speaks for themselves, from their own agenda. If the person proposes an idea that is vague or ignores a real operational constraint in your facts, push back constructively once with that specific constraint; once the person makes a clear, practical decision or addresses the trade-off (including a practical Option C), accept their call and pivot to helping execute it via a concrete follow-up deliverable rather than repeating the same objection.',
+      '- Collaborate and bridge, do not interrogate: when the person proposes a high-level intent or workaround (such as a dedicated role or practical workaround), do NOT interrogate them with endless open questions or demand they invent every operational detail. The colleagues should "yes-and" the idea with concrete, realistic offers from their own facts (for example, offering to cover during the rush, or setting up simple signage). Propose practical choices so the person can simply pick or approve.',
+      '- Never repeat the same operational objection or phrasing across turns (for example, never repeat a hygiene rule or equipment delay if you or a colleague already brought it up). If an objection was voiced, you must either acknowledge the person\'s counter-proposal, move to an adjacent operational trade-off (such as roster headcount or night reconciliation), or yield the floor to a colleague.',
       '- A character never says what another character did, said, found or decided unless it is written in their own facts above or was said aloud earlier in this meeting. Do not invent conversations, results or numbers; speak only for yourself.',
       '- Only state facts the characters know (listed above) or that the person told you. If asked something they do not know, they say so and say who might.',
       '- Never invent a change in a colleague\'s job or commitments: do not say or imply that someone quit, resigned, was fired, is leaving, or has refused or promised something, unless it is written in your own facts above or the person said it in this meeting.',
-      '- Write what is said aloud: plain spoken English, one or two short sentences per turn (keep each sentence under 16 words so the live captions stay short and easy to read), at most three turns in total, shorter when the answer is simple. No lists, markdown, emoji, or stage directions.',
+      '- Write what is said aloud: plain spoken English in natural conversational sentences (comfortable spoken rhythm, roughly 15 to 25 words per sentence so live captions remain readable without chopping thoughts into unnatural fragments), at most two or three sentences per turn, shorter when the answer is simple. No lists, markdown, emoji, or stage directions.',
       `- Put every turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,
       '- If nobody would say anything (the person only coughed or said "um"), reply with exactly: NONE',
       '- If the person cut a character off, the history shows only what was actually said. Carry on naturally; do not repeat what they never heard unless it still matters.',
@@ -250,7 +261,7 @@ export function cleanSpoken(text: string): string {
     .replace(/\([^)\n]{1,40}\)/g, ' ') // (smiles)
     .replace(/\s+[-–—]+\s+/g, ', ') // "too - players" -> "too, players" so TTS pauses naturally
     .replace(/_/g, ' ') // "flashy_dan" -> "flashy dan" so TTS and display names preserve spaces
-    .replace(/[*`#>~]/g, '')
+    .replace(/[*`#>~@]/g, '')
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -309,13 +320,10 @@ export class HandoverGuard {
     if (this.waitingFor !== undefined && utterance.speaker !== this.waitingFor) return false;
     this.waitingFrom = undefined;
     this.waitingFor = undefined;
-    const trimmed = utterance.text.trim();
-    if (trimmed.includes('?')) {
-      const target = vocativeTarget(trimmed, utterance.speaker, this.names);
-      if (target !== undefined) {
-        this.waitingFrom = utterance.speaker;
-        this.waitingFor = target;
-      }
+    const target = vocativeTarget(utterance.text, utterance.speaker, this.names);
+    if (target !== undefined) {
+      this.waitingFrom = utterance.speaker;
+      this.waitingFor = target;
     }
     return true;
   }
@@ -438,9 +446,9 @@ export class TurnParser {
 }
 
 /**
- * Who a reply handed the floor to, if anyone: the last speaker's final lines name another character (at the start or
- * end of a sentence) and ask something ("Mei, you own this one. What do you propose?" or "Can I get this by tomorrow
- * morning, Mei?"). Nothing when that character has already spoken after, or when nobody is asked.
+ * Who a reply handed the floor to, if anyone: the last speaker's final lines directly address another
+ * colleague by name (at the start or end of a sentence). Nothing when that character has already
+ * spoken after, or when nobody was addressed.
  */
 export function findHandover(
   utterances: readonly Utterance[],
@@ -449,7 +457,6 @@ export function findHandover(
   const last = utterances.at(-1);
   if (last === undefined) return undefined;
   const mine = utterances.filter((utterance) => utterance.speaker === last.speaker).slice(-2);
-  if (!mine.some((utterance) => utterance.text.includes('?'))) return undefined;
   for (const utterance of mine) {
     const target = vocativeTarget(utterance.text, last.speaker, names);
     if (target !== undefined) return { from: last.speaker, target };

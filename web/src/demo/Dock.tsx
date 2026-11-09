@@ -35,23 +35,22 @@ export function Dock({
   return (
     <aside className="kd-dock" aria-label="Kaki assistant">
       <div className="kd-dock-head">
-        <div className="kd-dock-sub">
-          <b>Kaki</b>
-          <span>
-            {role === undefined
-              ? scenario.meetingTitle
-              : `${viewer.name} (${role.label}) · Live transcript, tasks & context`}
+        <div className="kd-dock-sub" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <b>Kaki</b>
+            <span>
+              {role === undefined
+                ? scenario.meetingTitle
+                : `${viewer.name} (${role.label})`}
+            </span>
           </span>
+          {meetingCode !== undefined && (
+            <span className="kd-code" aria-label="Meeting code" style={{ border: 0, padding: 0, fontSize: 11.5 }}>
+              Code <b>{meetingCode}</b>
+            </span>
+          )}
         </div>
       </div>
-      {meetingCode !== undefined && (
-        <p className="kd-code" aria-label="Meeting code">
-          Meeting code <b>{meetingCode}</b>
-          <span>
-            To add someone on another device, open {window.location.origin}/demo?code={meetingCode}
-          </span>
-        </p>
-      )}
       <div className="kd-dock-body">
         <details
           className="kd-briefing"

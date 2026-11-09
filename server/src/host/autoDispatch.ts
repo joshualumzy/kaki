@@ -35,7 +35,7 @@ export function dispatchLine(name: string, title: string, count: number): string
 export function colleagueLine(name: string, title: string, count: number): string {
   const phrased = inlineTitle(title);
   const lines = [
-    `${name}, I'm assigning this follow-up to you: ${phrased}. Can you take that on?`,
+    `${name}, can help us take ${phrased}? Are you good to handle that?`,
     `${name}, let's put that on your list: ${phrased}. Are you good to take it?`,
     `${name}, can you take the lead on this one: ${phrased}?`,
   ];
@@ -69,12 +69,18 @@ export function installAutoDispatch({
   let sent = 0;
   const lastDispatchedAt = new Map<string, number>();
   return tasks.onChange((task, previous) => {
+    const dedupeKey = `${task.suggestedAssignee}:${task.actionKind ?? 'manual'}`;
+    if (task.status === 'DISMISSED') {
+      if (previous === 'DISPATCHED') {
+        lastDispatchedAt.delete(dedupeKey);
+      }
+      return;
+    }
     if (previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
     if (role === undefined || role.facilitator === true || !present) return;
 
-    const dedupeKey = `${task.suggestedAssignee}:${task.actionKind ?? 'manual'}`;
     const lastAt = lastDispatchedAt.get(dedupeKey);
     const now = Date.now();
     if (lastAt !== undefined && now - lastAt < SAME_ROLE_ACTION_COOLDOWN_MS) {

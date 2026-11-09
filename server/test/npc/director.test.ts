@@ -81,6 +81,7 @@ describe('TurnParser', () => {
       { speaker: 'Ada', text: 'Great idea team!' },
     ]);
     expect(cleanSpoken('  a   b  ')).toBe('a b');
+    expect(cleanSpoken('@MakanWithZack butter slice')).toBe('MakanWithZack butter slice');
     expect(cleanSpoken('Sounds good to me - I will work on it — right away.')).toBe(
       'Sounds good to me, I will work on it, right away.',
     );
@@ -293,13 +294,19 @@ describe('the director prompt', () => {
 
 describe('findHandover', () => {
   const names = ['Ada', 'Bao'];
-  it('finds a named character asked something by the last speaker, at the start or end of the question', () => {
+  it('finds a named colleague vocatively addressed at the start or end of the sentence', () => {
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }, { speaker: 'Ada', text: 'What do you propose?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, what do you think?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
     expect(findHandover([{ speaker: 'Ada', text: 'Can I get this by tomorrow morning, Bao?' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, you have the floor on the menu.' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+    expect(findHandover([{ speaker: 'Ada', text: 'Over to you, Bao.' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, bring us up to speed.' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }], names)).toEqual({ from: 'Ada', target: 'Bao' });
   });
-  it('finds nothing when nobody is asked, or the one named already spoke', () => {
-    expect(findHandover([{ speaker: 'Ada', text: 'Bao, you own this one.' }], names)).toBeUndefined();
+  it('finds nothing when nobody is addressed, when named in passing, or when the colleague already spoke', () => {
+    expect(findHandover([{ speaker: 'Ada', text: 'The oven is broken today.' }], names)).toBeUndefined();
+    expect(findHandover([{ speaker: 'Ada', text: 'I talked to Bao yesterday about the oven.' }], names)).toBeUndefined();
+    expect(findHandover([{ speaker: 'Ada', text: 'Foo, what do you think?' }], names)).toBeUndefined();
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, what next?' }, { speaker: 'Bao', text: 'Fix the queue.' }], names)).toBeUndefined();
     expect(findHandover([], names)).toBeUndefined();
   });

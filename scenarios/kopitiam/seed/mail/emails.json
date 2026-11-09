@@ -1,37 +1,37 @@
 {
   "emails": [
     {
-      "from": { "name": "Zack Tan (@MakanWithZack)", "address": "zack@makanwithzack.example" },
+      "from": { "name": "Singapore Food Agency (SFA) Central Regional Office", "address": "inspections@sfa.gov.example" },
+      "to": [
+        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
+        { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" }
+      ],
+      "subject": "Notice of On-Site Food Hygiene Inspection - Raffles Place #B1-14 (Tomorrow 9:00am)",
+      "date": "2026-11-11T14:05:00+08:00",
+      "messageId": "<sfa-inspection-notice-20261111@sfa.gov.example>",
+      "text": "Dear Licensee (Nanyang Kopi & Toast - Raffles Place #B1-14),\n\nFollowing a hospital notification regarding a suspected salmonella enteritidis case linked to soft-boiled eggs consumed during your 10 November soft trial (hospital lab culture confirmation pending 48 hours), SFA officers will conduct an on-site kitchen inspection tomorrow at 9:00 AM.\n\nInspectors will swab the egg sous-vide holding bath, review your water bath temperature logs (minimum 63°C continuous holding), and verify egg batch supplier certificates (Batch #402 and backup Batch #405).\n\nRegards,\nSFA Central Regional Inspection Team"
+    },
+    {
+      "from": { "name": "GrabFood Merchant Partnerships SG", "address": "merchants@grabfood.example" },
       "to": [
         { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" },
         { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
       ],
-      "subject": "Re: Kaya Butter Toast Review - Tomorrow 8:30am Live Re-Taste",
-      "date": "2026-11-11T14:05:00+08:00",
-      "messageId": "<zack-tiktok-quote-20261112@makanwithzack.example>",
-      "text": "Hey Daniel & Wei Ling,\n\nMy reel from yesterday ('Did Nanyang Kopi shrink their butter slice?!') just crossed 90,000 views. I love your coffee, so I'm happy to come down tomorrow morning at 8:30am to film a live re-taste and show your kitchen's side.\n\nMy usual rate is SGD 600, or I can do SGD 450 if you throw in 20 of your Kaya Toast plushie keychains for my comment-section giveaway. One condition: whatever butter cut and toast prep you serve me on camera has to be the exact same standard every regular customer gets, because my followers will check.\n\nCheers,\nZack (@MakanWithZack)"
+      "subject": "Updated CBD Breakfast Commission Tier (32%) & Menu Price-Parity Policy",
+      "date": "2026-11-10T11:20:00+08:00",
+      "messageId": "<grabfood-commission-notice-20261110@grabfood.example>",
+      "text": "Dear Nanyang Kopi & Toast Team,\n\nEffective this week, your Raffles Place CBD Zone 1 commission tier for morning breakfast delivery orders is 32%. On a SGD 10.00 breakfast set, platform commission is SGD 3.20 (leaving a net margin impact of -SGD 0.40 per single set after packaging).\n\nPlease note our Merchant Price-Parity Policy: marking up single-set menu prices by 30% on the platform triggers automated search ranking suppression. Multi-set corporate platter bundles (5+ sets) are categorised as distinct catering SKUs and are exempt from single-item price parity.\n\nRegards,\nGrabFood Key Accounts Singapore"
     },
     {
-      "from": { "name": "Fonterra Dairy Wholesale SG", "address": "orders@fonterradairy.example" },
+      "from": { "name": "Seng Choon Farm Wholesale SG", "address": "orders@sengchoonfarm.example" },
       "to": [
         { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
         { "name": "Mei", "address": "mei@nanyangkopitiam.example" }
       ],
-      "subject": "Price Notice: Anchor Golden Salted Butter 25kg Block (+35% Q4 Surcharge)",
-      "date": "2026-11-10T11:20:00+08:00",
-      "messageId": "<anchor-butter-price-20261110@fonterradairy.example>",
-      "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nPlease note that wholesale pricing for Anchor Golden Salted Butter (New Zealand grass-fed) has increased by 35% effective this month.\n\nAt your current Set A price ($4.80), increasing portion weight from 12g to 20g per toast set adds SGD 0.42 in raw dairy cost per set (approx. SGD 1,100/month across 90 daily sets).\n\nFor takeaway orders, a separate chilled side cup costs SGD 0.05 per unit; a steam-vented box is also available. Both keep the same 12g slab; neither changes the butter weight.\n\nRegards,\nAccount Team\nFonterra Foodservice Singapore"
-    },
-    {
-      "from": { "name": "Hafiz Rahman (Outlet Hygiene Lead)", "address": "hafiz@nanyangkopitiam.example" },
-      "to": [
-        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
-        { "name": "Arjun", "address": "arjun@nanyangkopitiam.example" }
-      ],
-      "subject": "Internal counter hygiene SOP - cash handling vs ready-to-eat toast",
-      "date": "2026-11-09T16:00:00+08:00",
-      "messageId": "<counter-hygiene-sop-20261109@nanyangkopitiam.example>",
-      "text": "Hi Wei Ling and Arjun,\n\nAfter this week's morning observation, a reminder of our internal counter hygiene SOP. Money handling and ready-to-eat food prep must stay separate at the toast station: any staff member who handles coins or notes has to remove gloves and wash hands before slicing kaya butter toast or cracking soft-boiled eggs (+40s per order).\n\nAt the 8am rush both toast staff are on the line, so there is no spare pair of hands to take cash and make change without slowing toast orders. Please keep the SOP in mind when we discuss the cash-paying regulars.\n\nThanks,\nHafiz\nOutlet Hygiene & Safety Lead"
+      "subject": "Batch #405 Pasteurized Egg Certificate & Emergency Standby Rate (SGD 180/day)",
+      "date": "2026-11-11T15:10:00+08:00",
+      "messageId": "<sengchoon-pasteurized-batch405-20261111@sengchoonfarm.example>",
+      "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nAttached is the SFA Veterinary Public Health laboratory clearance certificate for Pasteurized Egg Batch #405. Switching your Raffles Place morning service to Batch #405 adds SGD 180 per day in ingredient cost, which can be billed against your launch contingency account.\n\nRegards,\nKey Accounts Team\nSeng Choon Farm Singapore"
     }
   ]
 }

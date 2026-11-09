@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import type { Env } from './env';
+import { COMPOSE_FILE } from './env';
 import { jsonBody, jsonRequest, request, sleep, waitFor } from './http';
 import type { WikiPageSeed } from './scenario';
 
@@ -178,6 +180,28 @@ function graphqlProbe(env: Env): RequestInit {
   };
 }
 
+function syncWikiDemoAdmin(env: Env): void {
+  try {
+    execFileSync(
+      'docker',
+      [
+        'compose',
+        '-f',
+        COMPOSE_FILE,
+        'exec',
+        '-T',
+        'wiki',
+        'node',
+        '-e',
+        `const sqlite3 = require("sqlite3"); const bcrypt = require("bcryptjs"); const db = new sqlite3.Database("/wiki/data/wiki.db"); const hash = bcrypt.hashSync(${JSON.stringify(env.WIKI_ADMIN_PASSWORD)}, 10); db.run("UPDATE users SET email = ?, password = ? WHERE id = 1", [${JSON.stringify(env.WIKI_ADMIN_EMAIL)}, hash]);`,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch {
+    // Best-effort sync.
+  }
+}
+
 export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
   await waitFor('Wiki.js', async () => {
     const root = await request(`${env.WIKI_URL}/`, {}, 'Wiki.js setup page');
@@ -191,8 +215,8 @@ export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
       `${env.WIKI_URL}/finalize`,
       jsonBody('POST', {
         siteUrl: env.WIKI_URL,
-        adminEmail: env.WIKI_ADMIN_EMAIL,
-        adminPassword: env.WIKI_ADMIN_PASSWORD,
+        adminEmail: 'admin@nanyangkopitiam.example',
+        adminPassword: 'demopassword',
         telemetry: false,
       }),
       'Wiki.js setup',
@@ -213,6 +237,7 @@ export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
     }
   });
 
+  syncWikiDemoAdmin(env);
   const jwt = await login(env);
   for (const page of pages) {
     const result = await ensurePage(env, jwt, page);

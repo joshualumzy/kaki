@@ -518,6 +518,11 @@ function TaskCardBody({
   const draft = task.draft;
 
   useEffect(() => {
+    setBody(task.draft?.body ?? '');
+    setTarget(task.draft?.target ?? '');
+  }, [task.draft?.body, task.draft?.target]);
+
+  useEffect(() => {
     if (rejection === null) return;
     busy.current = false;
     setPending(false);
@@ -530,12 +535,34 @@ function TaskCardBody({
     send(command);
   }
 
+  const stepIndex =
+    task.status === 'COMPLETED' || task.status === 'SYNCED'
+      ? 3
+      : task.status === 'DRAFT_READY' || task.status === 'RUNNING' || task.status === 'CLAIMED'
+        ? 2
+        : 1;
+
   return (
     <Card>
       <div className="phone-item-head">
         <p className="phone-item-kind">Task</p>
         <TimeLabel at={updatedAtMs(task)} />
       </div>
+      {task.actionKind !== undefined && (
+        <div className="phone-task-steps" aria-label="Task progress">
+          <span className="phone-task-step" data-active={stepIndex === 1} data-done={stepIndex > 1}>
+            1. Accept
+          </span>
+          <span className="phone-task-step-sep" aria-hidden="true">→</span>
+          <span className="phone-task-step" data-active={stepIndex === 2} data-done={stepIndex > 2}>
+            2. Review Draft
+          </span>
+          <span className="phone-task-step-sep" aria-hidden="true">→</span>
+          <span className="phone-task-step" data-active={stepIndex === 3} data-done={false}>
+            3. Published
+          </span>
+        </div>
+      )}
       <h2 className="card-title phone-task-title">{task.title}</h2>
       <p className="task-meta">
         <StatusPill status={task.status} />
@@ -543,6 +570,12 @@ function TaskCardBody({
       </p>
       {task.context.trim() === '' ? null : (
         <p className="phone-task-context">{task.context}</p>
+      )}
+      {task.decisionSource === undefined ? null : (
+        <div className="phone-task-decision">
+          <p className="phone-task-decision-label">Accepted decision</p>
+          <p className="phone-task-decision-text">{task.decisionSource}</p>
+        </div>
       )}
       {task.error === undefined ? null : (
         <p className="task-error" role="alert">

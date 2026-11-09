@@ -27,6 +27,7 @@ try {
     devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
     calendar: calendarFromEnv(),
+    draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);

@@ -317,10 +317,12 @@ export function MeetingRecordCard({
   record,
   scenario,
   ended = false,
+  showOpenQuestions = true,
 }: {
   record: RecordEvent;
   scenario: Scenario;
   ended?: boolean;
+  showOpenQuestions?: boolean;
 }) {
   const { agendaIndex, openQuestions, paused } = record.payload;
   const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
@@ -330,21 +332,27 @@ export function MeetingRecordCard({
 
   return (
     <Card>
-      <p className="eyebrow">
-        {ended
-          ? `Meeting ended · ${scenario.agenda.length} of ${scenario.agenda.length} items completed`
-          : `Now · item ${agendaIndex + 1} of ${scenario.agenda.length}`}
-      </p>
-      <h2 className="card-title">{item?.title ?? 'Meeting'}</h2>
-      <div className="kd-host-clock">
-        {formatMinutes(elapsed)}{' '}
-        <small>{ended ? 'concluded' : paused ? 'paused' : over ? 'over time' : `of ${formatMinutes(limit)}`}</small>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p className="eyebrow" style={{ marginBottom: 2 }}>
+            {ended
+              ? `Meeting ended · ${scenario.agenda.length} of ${scenario.agenda.length} items completed`
+              : `Now · item ${agendaIndex + 1} of ${scenario.agenda.length}`}
+          </p>
+          <h2 className="card-title" style={{ margin: 0, fontSize: 16 }}>{item?.title ?? 'Meeting'}</h2>
+        </div>
+        <div className="kd-host-clock" style={{ flexShrink: 0 }}>
+          {formatMinutes(elapsed)}{' '}
+          <small style={{ fontSize: 12, fontWeight: 500, opacity: 0.75 }}>
+            {ended ? 'concluded' : paused ? 'paused' : over ? 'over time' : `of ${formatMinutes(limit)}`}
+          </small>
+        </div>
       </div>
       <div className="kd-host-bar">
         <i style={{ width: `${ended ? 100 : limit === 0 ? 0 : Math.min(100, (elapsed / limit) * 100)}%` }} />
       </div>
       {scenario.agenda.length > 1 && (
-        <ol className="sc-steps" style={{ marginTop: 10, marginBottom: openQuestions.length > 0 ? 10 : 0 }}>
+        <ol className="sc-steps" style={{ marginTop: 10, marginBottom: showOpenQuestions && openQuestions.length > 0 ? 10 : 0 }}>
           {scenario.agenda.map((step, index) => (
             <li key={step.title} data-state={ended || index < agendaIndex ? 'done' : index === agendaIndex ? 'now' : 'next'}>
               <i />
@@ -354,7 +362,7 @@ export function MeetingRecordCard({
           ))}
         </ol>
       )}
-      {openQuestions.length > 0 && (
+      {showOpenQuestions && openQuestions.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <p className="eyebrow" style={{ marginBottom: 4 }}>Open questions · {openQuestions.length}</p>
           <ul className="sc-questions" style={{ margin: 0, paddingLeft: 18 }}>

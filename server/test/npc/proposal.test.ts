@@ -5,6 +5,7 @@ import {
   assessProposal,
   DEFAULT_ASSESSMENT_TIMEOUT_MS,
   evidenceMatchesVisitor,
+  isSideRequest,
   isSubstantiveProposal,
   type ProposalAssessment,
 } from '../../src/npc/proposal';
@@ -71,6 +72,94 @@ describe('isSubstantiveProposal', () => {
     expect(isSubstantiveProposal("I'll email the supplier after this.")).toBe(false);
     expect(isSubstantiveProposal('Hi team.')).toBe(false);
     expect(isSubstantiveProposal('Um, okay.')).toBe(false);
+  });
+
+  it('rejects a first-person follow-up promise with a bounded comma-delimited name', () => {
+    const line =
+      'Confirmed, that is my decision. I, Booth Playtest, will post the agreed plan in the team channel today. Please assign that Mattermost handover to me so I can review the draft.';
+    expect(isSubstantiveProposal(line)).toBe(false);
+    expect(isSubstantiveProposal('I, Booth Playtest, will email the supplier after this.')).toBe(false);
+  });
+
+  it('still assesses a changed decision that also carries a named post promise', () => {
+    expect(
+      isSubstantiveProposal(
+        'Changed my mind: I, Booth Playtest, will move the cash drawer back and post the handover note after.',
+      ),
+    ).toBe(true);
+  });
+
+  it('still assesses a real decision that precedes a named post promise', () => {
+    expect(
+      isSubstantiveProposal(
+        'Changed my mind: use 20g for everyone. I, Booth Playtest, will post the updated decision in the team channel.',
+      ),
+    ).toBe(true);
+    expect(
+      isSubstantiveProposal(
+        'Changed my mind: scrap the offer. I, Booth Playtest, will post the cancellation.',
+      ),
+    ).toBe(true);
+    expect(
+      isSubstantiveProposal(
+        'Use 20g for everyone. I, Booth Playtest, will post the updated decision in the team channel.',
+      ),
+    ).toBe(true);
+  });
+
+  it('still assesses a real decision that follows a named post promise', () => {
+    expect(
+      isSubstantiveProposal(
+        'I, Booth Playtest, will post the updated decision in the team channel. Use 20g for everyone.',
+      ),
+    ).toBe(true);
+  });
+
+  it('still assesses a substantive plan that ends with an ordinary first-person promise', () => {
+    expect(
+      isSubstantiveProposal(
+        'Remove NO CASH signs and put CASH WELCOME at the entrance. Cash accepted, change given, no app or prepayment. I will post the handover in Mattermost.',
+      ),
+    ).toBe(true);
+    expect(
+      isSubstantiveProposal(
+        "Remove NO CASH signs and put CASH WELCOME at the entrance. Cash accepted, change given, no app or prepayment. I'll post the handover in Mattermost.",
+      ),
+    ).toBe(true);
+  });
+
+  it('still assesses a substantive plan that follows an ordinary first-person promise', () => {
+    expect(
+      isSubstantiveProposal(
+        'I will post the handover in Mattermost. Remove NO CASH signs and put CASH WELCOME at the entrance.',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects a pure ordinary first-person promise', () => {
+    expect(isSubstantiveProposal('I will post the handover in Mattermost.')).toBe(false);
+    expect(isSubstantiveProposal("I'll post the handover in Mattermost.")).toBe(false);
+  });
+
+  it('rejects a pure request even when it asks for the same follow-up', () => {
+    expect(isSubstantiveProposal('Please post the handover in Mattermost.')).toBe(false);
+  });
+});
+
+describe('isSideRequest', () => {
+  it('recognises an explicit request to prepare or send a follow-up deliverable', () => {
+    expect(isSideRequest('Could you draft a ticket for that kiosk trial?')).toBe(true);
+    expect(isSideRequest('Can you file a ticket for the label experiment?')).toBe(true);
+    expect(isSideRequest('Please send the budget breakdown after this.')).toBe(true);
+    expect(isSideRequest('Draft the handover note for the team channel.')).toBe(true);
+  });
+
+  it('leaves decisions, questions, greetings and first-person promises alone', () => {
+    expect(isSideRequest('Put the cash drawer back and draft a handover note for the team channel.')).toBe(false);
+    expect(isSideRequest('How do we handle cash?')).toBe(false);
+    expect(isSideRequest('Hi team.')).toBe(false);
+    expect(isSideRequest("I'll email the supplier after this.")).toBe(false);
+    expect(isSideRequest('After the meeting I checked the numbers.')).toBe(false);
   });
 });
 
@@ -150,6 +239,75 @@ describe('assessProposal', () => {
       'The till screen only fits twelve buttons.',
       'The morning queue is backing out of the door.',
     ]);
+  });
+
+  it('names only the latest line when it replaces the earlier proposal', async () => {
+    const reply = JSON.stringify({
+      isProposal: true,
+      readiness: 'open',
+      decisionLines: [2],
+      resolved: [],
+      unresolved: [],
+    });
+    const result = await assessProposal({
+      scenario,
+      item,
+      visitorContext: ['We will open a second prep station before the rush.'],
+      visitorText: 'Actually, keep the single prep station and move the till by the door instead.',
+      stream: streamReply(reply),
+    });
+    expect(result?.decisionLines).toEqual(['Actually, keep the single prep station and move the till by the door instead.']);
+  });
+
+  it('does not carry a resolved trade-off from a superseded decision line', async () => {
+    const result = await assessProposal({
+      scenario, item,
+      visitorContext: ['We will open a second prep station before the rush.'],
+      visitorText: 'Actually, remove the two slow items from the till screen instead.',
+      resolvedSoFar: [{ tradeOff: 'The morning queue is backing out of the door.', evidence: 'we will open a second prep station before the rush' }],
+      stream: streamReply(JSON.stringify({ isProposal: true, readiness: 'complete', decisionLines: [2],
+        resolved: [{ tradeOffId: 'T2', evidence: 'remove the two slow items from the till screen' }], unresolved: [] })),
+    });
+    expect(result?.readiness).toBe('open');
+    expect(result?.resolved.map((entry) => entry.tradeOff)).not.toContain('The morning queue is backing out of the door.');
+  });
+
+  it('keeps both lines when the later line only adds a missing detail', async () => {
+    const reply = JSON.stringify({
+      isProposal: true,
+      readiness: 'open',
+      decisionLines: [1, 2],
+      resolved: [],
+      unresolved: [],
+    });
+    const result = await assessProposal({
+      scenario,
+      item,
+      visitorContext: ['We will open a second prep station before the rush.'],
+      visitorText: 'Also remove the two slow items from the till screen.',
+      stream: streamReply(reply),
+    });
+    expect(result?.decisionLines).toEqual([
+      'We will open a second prep station before the rush.',
+      'Also remove the two slow items from the till screen.',
+    ]);
+  });
+
+  it('ignores decision line numbers that do not name a visitor line', async () => {
+    const reply = JSON.stringify({
+      isProposal: true,
+      readiness: 'open',
+      decisionLines: [9],
+      resolved: [],
+      unresolved: [],
+    });
+    const result = await assessProposal({
+      scenario,
+      item,
+      visitorText: 'We will open a second prep station before the rush.',
+      stream: streamReply(reply),
+    });
+    expect(result?.decisionLines).toBeUndefined();
   });
 
   it('keeps a shallow first proposal open with the unresolved trade-off', async () => {
@@ -259,8 +417,48 @@ describe('assessProposal', () => {
     }
   });
 
-  it('allows the full default 15s bound before abandoning a slow assessment and still fails closed', async () => {
-    expect(DEFAULT_ASSESSMENT_TIMEOUT_MS).toBe(15_000);
+  it('logs a timeout and caller cancellation differently', async () => {
+    const timeoutLogs: string[] = [];
+    const timedOut = await assessProposal({
+      scenario,
+      item,
+      visitorText: 'We will open a second prep station.',
+      timeoutMs: 5,
+      log: (message) => timeoutLogs.push(message),
+      stream: async function* (_messages, signal) {
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+        yield '';
+      },
+    });
+    expect(timedOut).toBeUndefined();
+    expect(timeoutLogs).toContain('proposal assessment timed out; keeping the item open');
+    expect(timeoutLogs.some((line) => line.includes('cancelled'))).toBe(false);
+
+    const caller = new AbortController();
+    const cancelLogs: string[] = [];
+    const cancelled = await assessProposal({
+      scenario,
+      item,
+      visitorText: 'We will open a second prep station.',
+      signal: caller.signal,
+      log: (message) => cancelLogs.push(message),
+      stream: async function* (_messages, signal) {
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          caller.abort();
+        });
+        yield '';
+      },
+    });
+    expect(cancelled).toBeUndefined();
+    expect(cancelLogs).toContain('proposal assessment cancelled by the caller; keeping the item open');
+    expect(cancelLogs.some((line) => line.includes('timed out'))).toBe(false);
+  });
+
+  it('allows the full default bound before abandoning a slow assessment and still fails closed', async () => {
+    expect(DEFAULT_ASSESSMENT_TIMEOUT_MS).toBe(4_500);
     expect(DEFAULT_ASSESSMENT_TIMEOUT_MS).toBeLessThan(20_000);
 
     vi.useFakeTimers();

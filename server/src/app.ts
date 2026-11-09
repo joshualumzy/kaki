@@ -20,6 +20,8 @@ export interface CreateAppOptions {
   calendar?: CalendarSettings;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
   roomRoster?: RoomRoster;
+  /** When true, modules may draft and review actions but must never send them to external services. */
+  draftOnly?: boolean;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -106,6 +108,45 @@ function devRoutesOpen(request: IncomingMessage, context: { devRoutes: boolean }
   );
 }
 
+async function syncDemoVisitorProfile(participantName: string): Promise<void> {
+  const cleanName = participantName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  if (cleanName === '') return;
+
+  const giteaUrl = process.env.GITEA_URL?.trim();
+  const giteaToken = process.env.GITEA_TOKEN?.trim();
+  if (giteaUrl && giteaToken) {
+    await fetch(`${giteaUrl.replace(/\/+$/, '')}/api/v1/admin/users/demo`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `token ${giteaToken}` },
+      body: JSON.stringify({ full_name: cleanName, login_name: 'demo' }),
+    }).catch(() => undefined);
+  }
+
+  const mmUrl = process.env.MATTERMOST_URL?.trim();
+  if (mmUrl) {
+    try {
+      const loginResp = await fetch(`${mmUrl.replace(/\/+$/, '')}/api/v4/users/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ login_id: 'demo', password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+      });
+      if (loginResp.ok) {
+        const sessionToken = loginResp.headers.get('Token');
+        const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
+        if (sessionToken && userObj?.id) {
+          await fetch(`${mmUrl.replace(/\/+$/, '')}/api/v4/users/${userObj.id}/patch`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionToken}` },
+            body: JSON.stringify({ first_name: cleanName, last_name: '', nickname: cleanName }),
+          }).catch(() => undefined);
+        }
+      }
+    } catch {
+      // Best-effort profile sync when visitor joins.
+    }
+  }
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -176,6 +217,7 @@ async function handleRequest(
           { roomName: join.roomName, participantName: join.participantName, participantRole: join.participantRole },
           npcNames,
         );
+        void syncDemoVisitorProfile(join.participantName);
         sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value });
       } catch (error) {
         if (error instanceof JoinError) {
@@ -303,6 +345,7 @@ export async function createApp({
   auth,
   calendar,
   roomRoster = livekitRoster(),
+  draftOnly = false,
 }: CreateAppOptions): Promise<KakiApp> {
   const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
@@ -334,7 +377,7 @@ export async function createApp({
 
   for (const feature of modules) {
     try {
-      const stop = feature.start({ hub, tasks, scenario });
+      const stop = feature.start({ hub, tasks, scenario, draftOnly });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {
       for (const cleanup of cleanups.reverse()) {

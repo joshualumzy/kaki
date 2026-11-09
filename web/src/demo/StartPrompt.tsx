@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
-import { CONTROL_TOPIC, roleLabel, type AgendaItem, type ControlMessage, type Scenario, type ScenarioRole } from '@kaki/shared';
+import { RoomEvent } from 'livekit-client';
+import { aiCast, CONTROL_TOPIC, NPC_STATE_TOPIC, roleLabel, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario, type ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import './demo.css';
 
@@ -13,6 +14,10 @@ export interface StartPromptProps {
   viewerName?: string;
   /** The scenario character seat name replaced by the visitor, when known. */
   seatName?: string;
+  /** A Start has been sent and the room has not confirmed it yet. */
+  starting?: boolean;
+  /** Why the Start did not reach the room; the button can be pressed again. */
+  startError?: string;
 }
 
 const STEP_LABELS = ['1. Story & Your Role', '2. Today’s 2 Topics', '3. Live Room Spotlight'] as const;
@@ -26,18 +31,18 @@ function crisisArtForTitle(title: string): { src: string; badge: string; summary
       summary: 'Solo breakfast customers are stuck holding hot egg trays because office workers leave tissue packets on tables and laptop users camp at the booths all morning.',
     };
   }
-  if (lower.includes('cashless') || lower.includes('cash') || lower.includes('uncle') || lower.includes('elderly')) {
+  if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('safety') || lower.includes('inspection')) {
     return {
-      src: '/scenario/crisis-cashless-uncles.svg',
-      badge: 'Counter payments',
-      summary: 'We went PayNow-only at the counter, and our retired morning regulars are walking out angry with $2 notes in hand.',
+      src: '/scenario/crisis-sfa-salmonella.svg',
+      badge: 'Food safety',
+      summary: 'A soft-trial diner was hospitalized with suspected salmonella; Straits Times press arrives at 8:00 AM and SFA inspects our egg bath at 9:00 AM.',
     };
   }
-  if (lower.includes('butter') || lower.includes('tiktok') || lower.includes('zack')) {
+  if (lower.includes('commission') || lower.includes('delivery') || lower.includes('platform')) {
     return {
-      src: '/scenario/crisis-butter-slice.svg',
-      badge: 'Food review',
-      summary: 'Food TikToker @MakanWithZack posted a 90,000-view video claiming our Kaya Butter Toast has half as much cold butter as Ya Kun.',
+      src: '/scenario/crisis-delivery-squeeze.svg',
+      badge: 'Delivery margins',
+      summary: 'GrabFood and Foodpanda hiked commissions to 32% (losing $0.40 per $10 set), but they drive 50% of our CBD corporate morning volume.',
     };
   }
   if (lower.includes('kiosk') || lower.includes('kopi') || lower.includes('lingo')) {
@@ -45,13 +50,6 @@ function crisisArtForTitle(title: string): { src: string; badge: string; summary
       src: '/scenario/crisis-kiosk-lingo.svg',
       badge: 'Kiosk menu',
       summary: 'Newcomers keep freezing at the kiosk screen because they do not know what "Kopi O Kosong" or "Siew Dai" means.',
-    };
-  }
-  if (lower.includes('grabfood') || lower.includes('grab') || lower.includes('walk-in')) {
-    return {
-      src: '/scenario/crisis-grab-flood.svg',
-      badge: 'Delivery rush',
-      summary: 'Walk-in regulars are waiting 20 minutes for toast while delivery riders crowd the pickup counter.',
     };
   }
   return {
@@ -73,7 +71,7 @@ function safeUseScenario(): Scenario | undefined {
  * Covers the meeting stage until the person has read their briefing (the role card and the situation in the dock)
  * and presses Start. The AI attendees are already in the room but stay silent until then.
  */
-export function StartPrompt({ onStart, role, viewerName, seatName }: StartPromptProps) {
+export function StartPrompt({ onStart, role, viewerName, seatName, starting = false, startError }: StartPromptProps) {
   const scenario = safeUseScenario();
   const [stepIndex, setStepIndex] = useState(0);
   const [spotlightStop, setSpotlightStop] = useState<'stage' | 'dock'>('stage');
@@ -170,6 +168,11 @@ export function StartPrompt({ onStart, role, viewerName, seatName }: StartPrompt
           <p className="kd-start-quiet-note" style={{ marginTop: 8 }}>
             Your colleagues are in the room, but they stay quiet until you start the meeting.
           </p>
+          {(starting || startError !== undefined) && (
+            <p className="kd-start-quiet-note" role="status" aria-live="polite">
+              {starting ? 'Starting the meeting… waiting for the room to confirm.' : startError}
+            </p>
+          )}
           <div className="kd-start-actions">
             <button
               type="button"
@@ -197,9 +200,10 @@ export function StartPrompt({ onStart, role, viewerName, seatName }: StartPrompt
                   type="button"
                   className="kd-skip-link"
                   onClick={onStart}
+                  disabled={starting}
                   aria-label="Start the meeting"
                 >
-                  Skip tutorial →
+                  {startError !== undefined ? 'Try again' : 'Skip tutorial →'}
                 </button>
               </>
             ) : (
@@ -208,10 +212,11 @@ export function StartPrompt({ onStart, role, viewerName, seatName }: StartPrompt
                 className="kd-go"
                 style={{ marginTop: 0, flex: 1 }}
                 onClick={onStart}
+                disabled={starting}
                 autoFocus
                 aria-label="Start the meeting"
               >
-                Start the meeting
+                {starting ? 'Starting…' : startError !== undefined ? 'Try again' : 'Start the meeting'}
               </button>
             )}
           </div>
@@ -326,6 +331,11 @@ export function StartPrompt({ onStart, role, viewerName, seatName }: StartPrompt
         <p className="kd-start-quiet-note">
           Your colleagues are in the room, but they stay quiet until you start the meeting.
         </p>
+        {(starting || startError !== undefined) && (
+          <p className="kd-start-quiet-note" role="status" aria-live="polite">
+            {starting ? 'Starting the meeting… waiting for the room to confirm.' : startError}
+          </p>
+        )}
         <div className="kd-start-actions">
           {stepIndex > 0 && (
             <button
@@ -356,9 +366,10 @@ export function StartPrompt({ onStart, role, viewerName, seatName }: StartPrompt
             type="button"
             className="kd-skip-link"
             onClick={onStart}
+            disabled={starting}
             aria-label="Start the meeting"
           >
-            Skip tutorial →
+            {startError !== undefined ? 'Try again' : 'Skip tutorial →'}
           </button>
         </div>
       </div>
@@ -366,7 +377,13 @@ export function StartPrompt({ onStart, role, viewerName, seatName }: StartPrompt
   );
 }
 
-/** The start prompt wired to the LiveKit room it is in. */
+const START_RETRY_MS = 750;
+const START_TIMEOUT_MS = 8000;
+
+/**
+ * The start prompt wired to the LiveKit room it is in. Start is sent with a request id and the visitor's
+ * session, retried until the NPC acknowledges that exact request, and reported as failed when it does not.
+ */
 export function ConnectedStartPrompt({
   onStarted,
   role,
@@ -379,12 +396,100 @@ export function ConnectedStartPrompt({
   seatName?: string;
 }) {
   const room = useRoomContext();
-  const start = useCallback(() => {
-    const message: ControlMessage = { kind: 'start' };
+  const scenario = safeUseScenario();
+  const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');
+  const [error, setError] = useState<string | undefined>(undefined);
+  const request = useRef<{ requestId: string; session: string } | undefined>(undefined);
+  const retryTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const timeoutTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const started = useRef(false);
+
+  const stopTimers = useCallback(() => {
+    if (retryTimer.current !== undefined) clearInterval(retryTimer.current);
+    if (timeoutTimer.current !== undefined) clearTimeout(timeoutTimer.current);
+    retryTimer.current = undefined;
+    timeoutTimer.current = undefined;
+  }, []);
+
+  const publish = useCallback(() => {
+    const pending = request.current;
+    if (pending === undefined) return;
+    const message: ControlMessage = { kind: 'start', ...pending };
     room.localParticipant
       .publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: CONTROL_TOPIC })
       .catch(() => undefined);
-    onStarted();
-  }, [room, onStarted]);
-  return <StartPrompt onStart={start} role={role} viewerName={viewerName} seatName={seatName} />;
+  }, [room]);
+
+  useEffect(() => {
+    const handler = (payload: Uint8Array, participant?: { identity: string }, _kind?: unknown, topic?: string) => {
+      if (topic !== NPC_STATE_TOPIC || participant === undefined) return;
+      const pending = request.current;
+      if (pending === undefined) return;
+      // Only the character the runner keeps in the room as its permanent listener may acknowledge.
+      const npcs = scenario?.npcs ?? [];
+      const listener = scenario === undefined ? undefined : aiCast(scenario)[0] ?? npcs.find((npc) => npc.role === 'host') ?? npcs[0];
+      if (listener === undefined || participant.identity !== listener.attendee) return;
+      let ack: NpcStateMessage;
+      try {
+        ack = JSON.parse(new TextDecoder().decode(payload)) as NpcStateMessage;
+      } catch {
+        return;
+      }
+      // Only the exact request from this visitor may open the meeting.
+      if (ack.kind !== 'started' || ack.requestId !== pending.requestId || ack.session !== pending.session) return;
+      if (started.current) return;
+      started.current = true;
+      stopTimers();
+      request.current = undefined;
+      setPhase('idle');
+      onStarted();
+    };
+    room.on(RoomEvent.DataReceived, handler);
+    return () => {
+      room.off(RoomEvent.DataReceived, handler);
+    };
+  }, [room, scenario, onStarted, stopTimers]);
+
+  useEffect(() => () => stopTimers(), [stopTimers]);
+
+  const start = useCallback(() => {
+    if (request.current !== undefined) return;
+    if (scenario === undefined) {
+      setError('The meeting is not ready yet. Wait a moment and try again.');
+      setPhase('failed');
+      return;
+    }
+    const session = room.localParticipant?.identity;
+    if (session === undefined || session.length === 0) {
+      setError('The meeting is not connected yet. Wait a moment and try again.');
+      setPhase('failed');
+      return;
+    }
+    started.current = false;
+    request.current = {
+      requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      session,
+    };
+    setError(undefined);
+    setPhase('waiting');
+    publish();
+    retryTimer.current = setInterval(publish, START_RETRY_MS);
+    timeoutTimer.current = setTimeout(() => {
+      stopTimers();
+      request.current = undefined;
+      setPhase('failed');
+      setError('The room did not confirm the start. Check your connection, then try again.');
+    }, START_TIMEOUT_MS);
+  }, [room, publish, stopTimers, scenario]);
+
+  return (
+    <StartPrompt
+      onStart={start}
+      role={role}
+      viewerName={viewerName}
+      seatName={seatName}
+      starting={phase === 'waiting'}
+      startError={error}
+    />
+  );
 }

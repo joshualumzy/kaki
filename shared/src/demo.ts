@@ -21,15 +21,28 @@ export type ControlMessage =
   | { kind: 'stop' }
   /** The person wants the AI attendees to resume after being paused. */
   | { kind: 'resume' }
-  /** The person has read their briefing and starts the meeting: until then the AI attendees stay silent. */
-  | { kind: 'start' };
+  /**
+   * The person has read their briefing and starts the meeting: until then the AI attendees stay silent.
+   * `requestId` and `session` let a retry be acknowledged once and only for the visitor who asked.
+   */
+  | { kind: 'start'; requestId?: string; session?: string };
 
 /** A control message from the wire, or `undefined` when it is not a valid one. */
 export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
-  const message = raw as { kind?: unknown; text?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume' || message.kind === 'start') {
+  const message = raw as { kind?: unknown; text?: unknown; requestId?: unknown; session?: unknown };
+  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume') {
     return { kind: message.kind };
+  }
+  if (message.kind === 'start') {
+    if (message.requestId === undefined && message.session === undefined) {
+      return { kind: 'start' };
+    }
+    if (typeof message.requestId === 'string' && message.requestId.trim().length > 0 &&
+        typeof message.session === 'string' && message.session.trim().length > 0) {
+      return { kind: 'start', requestId: message.requestId, session: message.session };
+    }
+    return undefined;
   }
   if (message.kind === 'text' && typeof message.text === 'string') {
     const text = message.text.trim().slice(0, MAX_TYPED_LENGTH);
@@ -49,7 +62,9 @@ export type NpcStateMessage =
   | { kind: 'idle'; yourTurn?: string }
   | { kind: 'thinking' }
   | { kind: 'speaking'; speaker: string }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  /** The NPC accepted a Start request: the browser can stop retrying and let the meeting open. */
+  | { kind: 'started'; requestId: string; session: string };
 
 /** The LiveKit room the live demo meeting of a scenario happens in. */
 export function demoRoomName(scenario: Scenario): string {
@@ -203,11 +218,46 @@ export function shuffleAgendaForRole(
   const key = visitorRole?.trim().toLowerCase();
   const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id === visitorRole || candidate.label.toLowerCase() === key);
 
+  const aiColleagues = new Set(
+    scenario.attendees
+      .filter((a) => {
+        const r = scenario.roles.find((candidate) => candidate.id === a.role);
+        return r?.facilitator !== true && (role === undefined || a.role !== role.id);
+      })
+      .map((a) => a.name),
+  );
+  const participantsOf = (item: AgendaItem | undefined): Set<string> => {
+    const names = new Set<string>();
+    const ownerName = scenario.attendees.find((a) => a.role === item?.ownerRole)?.name;
+    if (ownerName !== undefined) names.add(ownerName);
+    for (const view of item?.discussion?.openingViews ?? []) names.add(view.attendee);
+    for (const to of item?.discussion?.tradeOffs ?? []) names.add(to.attendee);
+    return names;
+  };
+  const coversAllColleagues = (first: AgendaItem | undefined, second: AgendaItem | undefined): boolean => {
+    if (aiColleagues.size === 0) return true;
+    const combined = new Set([...participantsOf(first), ...participantsOf(second)]);
+    for (const colleague of aiColleagues) {
+      if (!combined.has(colleague)) return false;
+    }
+    return true;
+  };
+
   // Always prefer starting the meeting with an item led by one of the AI colleagues on stage (not the visitor's own seat)
   // so an AI colleague kicks off the discussion and gives background first instead of putting the visitor on the spot cold!
-  const aiLedIdx = shuffled.findIndex(
-    (item) => (role === undefined || item.ownerRole !== role.id) && itemMode(scenario, item, visitorRole) !== 'observe',
+  const visitorOwnedItem = role === undefined ? undefined : shuffled.find((item) => item.ownerRole === role.id);
+  const fullCoverageAiLedIdx = shuffled.findIndex(
+    (item) =>
+      (role === undefined || item.ownerRole !== role.id) &&
+      itemMode(scenario, item, visitorRole) !== 'observe' &&
+      coversAllColleagues(item, visitorOwnedItem),
   );
+  const aiLedIdx =
+    fullCoverageAiLedIdx >= 0
+      ? fullCoverageAiLedIdx
+      : shuffled.findIndex(
+          (item) => (role === undefined || item.ownerRole !== role.id) && itemMode(scenario, item, visitorRole) !== 'observe',
+        );
   if (aiLedIdx > 0) {
     const [picked] = shuffled.splice(aiLedIdx, 1);
     shuffled.unshift(picked!);

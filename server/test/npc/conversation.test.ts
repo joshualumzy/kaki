@@ -530,19 +530,74 @@ describe('NpcConversation', () => {
     expect(calls[1]?.messages.slice(1).map((m) => m.role)).toEqual(['user', 'user']);
   });
 
-  it('reports a failed model call, then recovers on the next remark', async () => {
-    const { conversation, calls, playing, states, flush, say } = harness();
-    await say('Hello?');
-    calls[0]?.fail(new Error('HTTP 429'));
-    await conversation.settled();
-    expect(states.at(-1)).toEqual({ kind: 'error', message: 'HTTP 429' });
-    expect(conversation.busy).toBe(false);
+  it('retries a failed model call once, keeping the visitor request, then recovers when the retry answers', async () => {
+    const { conversation, calls, playing, states, flush, say, logs } = harness();
+    await say('Can we move the launch to Friday?');
+    calls[0]?.fail(new Error('LLM request failed: timed out after 20000 ms'));
+    await flush();
+    expect(calls).toHaveLength(2);
+    expect(states.some((state) => state.kind === 'error')).toBe(false);
+    expect(conversation.busy).toBe(true);
+    // The retry answers the same request: it is in the history once, and nothing new was invented.
+    const requestLines = calls[1]?.messages.filter((message) => message.role === 'user') ?? [];
+    expect(requestLines.map((message) => message.content)).toEqual(['Can we move the launch to Friday?']);
+    expect(logs.some((line) => line.includes('retrying the same request'))).toBe(true);
 
-    await say('Hello again?');
-    calls[1]?.push('Bao: Sorry about that.');
+    calls[1]?.push('Bao: Sorry about that. Friday works.');
     calls[1]?.end();
     await flush();
     expect(playing.map((p) => p.text)).toEqual(['Sorry about that.']);
+    playing[0]?.finish();
+    await flush();
+    expect(playing.map((p) => p.text)).toEqual(['Sorry about that.', 'Friday works.']);
+  });
+
+  it('speaks a natural recovery cue when the retry fails too, and does not retry again', async () => {
+    const { conversation, calls, playing, states, transcript, flush, say } = harness();
+    await say('Can we move the launch to Friday?');
+    calls[0]?.fail(new Error('LLM request failed: timed out after 20000 ms'));
+    await flush();
+    expect(calls).toHaveLength(2);
+    calls[1]?.fail(new Error('LLM request failed: timed out after 20000 ms'));
+    await flush();
+
+    // No raw error and no endless retry: the host asks the visitor to repeat their request.
+    expect(calls).toHaveLength(2);
+    expect(states.some((state) => state.kind === 'error')).toBe(false);
+    expect(playing).toHaveLength(1);
+    expect(playing[0]?.speaker).toBe('Ada');
+    expect(playing[0]?.text).toContain('say that again');
+    expect(transcript.at(-1)?.[1]).toContain('say that again');
+    playing[0]?.finish();
+    await conversation.settled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(2);
+
+    // Their original request is still in the history, so repeating it is answered with both lines in context.
+    await say('Can we move the launch to Friday?');
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.messages.filter((message) => message.role === 'user').map((message) => message.content)).toEqual([
+      'Can we move the launch to Friday?',
+      'Can we move the launch to Friday?',
+    ]);
+    expect(
+      calls[2]?.messages.some((message) => message.role === 'assistant' && message.content.includes('say that again')),
+    ).toBe(true);
+  });
+
+  it('drops the failed-request recovery when the person says something new during the retry', async () => {
+    const { conversation, calls, playing, flush, say } = harness();
+    await say('Can we move the launch to Friday?');
+    calls[0]?.fail(new Error('LLM request failed: timed out after 20000 ms'));
+    await flush();
+    expect(calls).toHaveLength(2);
+
+    conversation.humanTyped('Actually, second question.');
+    expect(calls[1]?.signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: 'Actually, second question.' });
+    expect(playing.some((entry) => entry.text.includes('say that again'))).toBe(false);
   });
 
   it('keeps what was said before a model failure part-way through', async () => {
@@ -554,6 +609,8 @@ describe('NpcConversation', () => {
     await flush();
     playing[0]?.finish();
     await conversation.settled();
+    // Something was heard, so it must not be repeated and no recovery cue is added.
+    expect(calls).toHaveLength(1);
     expect(states.at(-1)).toEqual({ kind: 'idle' });
     expect(playing.map((p) => p.text)).toEqual(['First part.']);
   });
@@ -1001,6 +1058,74 @@ describe('NpcConversation', () => {
       expect(advanced).toBe(1);
     });
 
+    function twoTopicHarness() {
+      const base = hostedScenario();
+      const second = {
+        title: 'Seating plan',
+        minutes: 5,
+        ownerRole: 'cashier' as const,
+        decision: 'how do we seat people?',
+        contested: true,
+      };
+      const twoItem = { ...base, agenda: [...base.agenda, second] };
+      const h = harness(twoItem);
+      let advanced = 0;
+      h.ports.advanceAgenda = () => {
+        advanced += 1;
+      };
+      return { ...h, base, second, twoItem, advanced: () => advanced };
+    }
+
+    async function scheduleCurrentTopicAdvance(h: ReturnType<typeof twoTopicHarness>) {
+      h.conversation.agendaMoved(h.second.title);
+      await h.say('Let us seat people in waves.');
+      h.calls.at(-1)?.push('Bao: Got it, we will seat people in waves. Josh, could you post that update in the team channel today?');
+      h.calls.at(-1)?.end();
+      await h.flush();
+      while (h.playing.some((entry) => !entry.finished)) {
+        for (const entry of h.playing) {
+          if (!entry.finished) entry.finish();
+        }
+        await h.flush();
+        await vi.advanceTimersByTimeAsync(600);
+      }
+      await h.conversation.settled();
+    }
+
+    it('ignores delayed previous-topic task events without cancelling or advancing the current topic', async () => {
+      const h = twoTopicHarness();
+      await scheduleCurrentTopicAdvance(h);
+
+      // A task claimed on the previous item sends its hold, sync, decline and completion callbacks late.
+      const oldTitle = h.base.agenda[0]!.title;
+      h.conversation.holdForHumanTask(25_000, oldTitle);
+      h.conversation.completeHumanTask(oldTitle);
+      h.conversation.taskAccepted(oldTitle);
+      h.conversation.cancelPendingDispatch(oldTitle);
+      // An external callback with no recorded origin must not advance the current topic either.
+      h.conversation.holdForHumanTask(25_000, null);
+      h.conversation.completeHumanTask(null);
+      h.conversation.taskAccepted(null);
+      h.conversation.cancelPendingDispatch(null);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(h.advanced()).toBe(0);
+      // The current topic's own scheduled advance still happens.
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(h.advanced()).toBe(1);
+    });
+
+    it('still holds and completes a task that belongs to the current topic', async () => {
+      const h = twoTopicHarness();
+      await scheduleCurrentTopicAdvance(h);
+
+      h.conversation.holdForHumanTask(25_000, h.second.title);
+      await vi.advanceTimersByTimeAsync(18_000);
+      expect(h.advanced()).toBe(0);
+      h.conversation.taskAccepted(h.second.title);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(h.advanced()).toBe(1);
+    });
   });
 
   describe('proposal readiness checks', () => {
@@ -1100,6 +1225,54 @@ describe('NpcConversation', () => {
       calls.at(-1)?.end();
     });
 
+    it('keeps the decision quote as evidence without telling the colleague to speak the visitor words', async () => {
+      const decision =
+        'Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.';
+      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, () => complete);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say(decision);
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(true);
+      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(prompt).toContain(decision);
+      expect(prompt).toContain('Confirm ONLY that decision');
+      expect(prompt).toMatch(/evidence/i);
+      expect(prompt).toMatch(/in your own voice/i);
+      expect(prompt).toMatch(/never speak as/i);
+      expect(prompt).toMatch(/first-person/i);
+      expect(prompt).not.toMatch(/using the words .* actually said/i);
+      calls.at(-1)?.end();
+    });
+
+    it('keeps a complete decision settled when the visitor then names themselves in a follow-up promise', async () => {
+      const followUp =
+        'Confirmed, that is my decision. I, Booth Playtest, will post the agreed plan in the team channel today. Please assign that Mattermost handover to me so I can review the draft.';
+      const { conversation, calls, assessments, say, flush, playing } = harness(
+        assessedScenario(),
+        0,
+        (_messages, call) =>
+          call === 0
+            ? complete
+            : JSON.stringify({ isProposal: false, readiness: 'open', resolved: [], unresolved: [] }),
+      );
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(true);
+      calls.at(-1)?.push('Bao: Great, that settles it.');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      await say(followUp);
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(true);
+      calls.at(-1)?.end();
+    });
+
     it('never assesses a question, side request or filler', async () => {
       const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, () => {
         throw new Error('a question, side request or filler must not be assessed');
@@ -1124,6 +1297,26 @@ describe('NpcConversation', () => {
       expect(conversation.canDispatchTask()).toBe(false);
     });
 
+    it('answers an explicit side request as asked without settling the item or inventing a task', async () => {
+      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, () => {
+        throw new Error('a side request must not be assessed');
+      });
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say('Could you draft a ticket for the kiosk trial?');
+      expect(assessments).toHaveLength(0);
+      expect(conversation.canDispatchTask()).toBe(false);
+      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(prompt).toContain('side request, not a proposal');
+      expect(prompt).toContain('Address exactly the deliverable Josh asked for');
+      expect(prompt).toContain('do not substitute a different follow-up');
+      expect(prompt).toContain('still open');
+      expect(prompt).toContain('do not say it is settled');
+      expect(prompt).toContain('prepare that requested item provisionally');
+      expect(prompt).not.toContain('do not ask for a follow-up task yet');
+      calls.at(-1)?.end();
+    });
+
     it('keeps the item open when the readiness check fails or is malformed', async () => {
       const replies = ['not json', complete];
       const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
@@ -1140,6 +1333,32 @@ describe('NpcConversation', () => {
       await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
       expect(assessments).toHaveLength(2);
       expect(conversation.canDispatchTask()).toBe(true);
+      calls.at(-1)?.end();
+    });
+
+    it('retries the same proposal line after a transient readiness failure', async () => {
+      const line = 'Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.';
+      const { conversation, calls, assessments, say, flush } = harness(assessedScenario(), 0, (_messages, call) => {
+        if (call === 0) throw new Error('gateway down');
+        return complete;
+      });
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say(line);
+      expect(assessments).toHaveLength(1);
+      expect(conversation.canDispatchTask()).toBe(false);
+      expect(String(calls.at(-1)?.messages.at(-1)?.content ?? '')).toContain('readiness check could not run');
+      calls.at(-1)?.end();
+      await flush();
+      await conversation.settled();
+
+      await say(line);
+      expect(assessments).toHaveLength(2);
+      expect(conversation.canDispatchTask()).toBe(true);
+      expect(String(calls.at(-1)?.messages.at(-1)?.content ?? '')).toContain('has made a complete proposal');
+      const secondContext = assessments[1]!.map((message) => message.content).join('\n');
+      // The line appears once in the proposal history and once as the latest line.
+      expect(secondContext.split(line)).toHaveLength(3);
       calls.at(-1)?.end();
     });
 
@@ -1175,6 +1394,80 @@ describe('NpcConversation', () => {
       expect(turn2Prompt).toContain('Let us rename all the buttons to plain English.');
       expect(turn2Prompt).toContain('Keep the kitchen docket in shorthand.');
       expect(turn2Prompt).toContain('has made a complete proposal');
+      calls.at(-1)?.end();
+    });
+
+    it('does not quote a superseded earlier proposal in the final decision summary', async () => {
+      const first = 'Let us rename all the buttons to plain English.';
+      const final = 'Actually, keep the Kopi names on screen and keep the kitchen docket in shorthand.';
+      const replies = [
+        shallow,
+        JSON.stringify({
+          isProposal: true,
+          readiness: 'complete',
+          decisionLines: [2],
+          resolved: [
+            { tradeOffId: 'T1', evidence: 'keep the kopi names on screen' },
+            { tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' },
+          ],
+          unresolved: [],
+        }),
+      ];
+      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say(first);
+      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      await say(final);
+      expect(assessments).toHaveLength(2);
+      // The assessment still sees the whole history, so it can judge the replacement in context.
+      const assessmentContext = String(assessments[1]?.[0]?.content ?? '');
+      expect(assessmentContext).toContain(first);
+      expect(assessmentContext).toContain(final);
+
+      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(prompt).toContain('has made a complete proposal');
+      expect(prompt).toContain(final);
+      expect(prompt).not.toContain(first);
+      expect(prompt).toContain('do not revive a superseded earlier proposal');
+      expect(prompt).toContain('base that follow-up on the final decision only');
+      calls.at(-1)?.end();
+    });
+
+    it('keeps a cumulative adjustment in the final decision summary', async () => {
+      const first = 'Let us rename all the buttons to plain English.';
+      const adjustment = 'Keep the kitchen docket in shorthand.';
+      const replies = [
+        shallow,
+        JSON.stringify({
+          isProposal: true,
+          readiness: 'complete',
+          decisionLines: [1, 2],
+          resolved: [{ tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' }],
+          unresolved: [],
+        }),
+      ];
+      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
+      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
+
+      await say(first);
+      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
+      calls.at(-1)?.end();
+      await flush();
+      playing.at(-1)?.finish();
+      await conversation.settled();
+
+      await say(adjustment);
+      expect(assessments).toHaveLength(2);
+      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
+      expect(prompt).toContain('has made a complete proposal');
+      expect(prompt).toContain(first);
+      expect(prompt).toContain(adjustment);
       calls.at(-1)?.end();
     });
 

@@ -11,11 +11,12 @@ export function App() {
     <div className="app-shell">
       <ScenarioProvider>
         <Routes>
+          <Route path="/" element={<Meeting />} />
           <Route path="/demo" element={<Meeting />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/screen" element={<ScreenPage />} />
           <Route path="/phone" element={<PhonePage />} />
-          <Route path="*" element={<Navigate to="/screen" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </ScenarioProvider>
     </div>

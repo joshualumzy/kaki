@@ -36,6 +36,33 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   return parts.join(' ');
 }
 
+export function cleanSpokenTopic(title: string): string {
+  return title
+    .replace(/^@/, '')
+    .replace(/\s*&\s*/g, ' and ')
+    .replace(/\s+vs\.?\s+/gi, ' and ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Converts written headline agenda titles into natural spoken phrases for a live team huddle. */
+export function spokenTopicLead(title: string): string {
+  const lower = title.toLowerCase();
+  if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('food safety')) {
+    return "tomorrow's SFA food safety inspection";
+  }
+  if (lower.includes('kiosk over kopi') || lower.includes('first-timers') || lower.includes('kopi names')) {
+    return 'the kiosk ordering issues';
+  }
+  if (lower.includes('seat crunch') || lower.includes('laptop')) {
+    return 'the morning seat crunch and laptop campers';
+  }
+  if (lower.includes('delivery platform') || lower.includes('commission') || lower.includes('squeeze')) {
+    return 'the delivery platform commission squeeze';
+  }
+  return cleanSpokenTopic(title);
+}
+
 /**
  * A warm, natural spoken welcome for the live AI host (`runner.ts`), combining clauses so TTS
  * flows like a real human colleague kicking off a quick team huddle rather than reading bullet points.
@@ -69,11 +96,12 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
     .replace(/,\s*and the team needs your call.*$/i, '')
     .replace(/\.$/, '');
 
+  const spokenLead = first === undefined ? '' : spokenTopicLead(first.title);
   const handoff =
     speakerName !== undefined && first !== undefined
-      ? ` ${speakerName}, let's start with you on ${first.title.toLowerCase()}. What's happening there?`
+      ? ` ${speakerName}, let's kick off with ${spokenLead} — walk us through what happened on the ground.`
       : first !== undefined
-        ? ` Let's start with ${first.title.toLowerCase()}.`
+        ? ` Let's start with ${spokenLead}.`
         : '';
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
@@ -93,8 +121,15 @@ export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Vi
   const ownerIsHost = item === undefined ? false : scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
   const speakerName =
     owner !== undefined && !ownerIsHost && visitor?.seat !== owner.name ? owner.name : undefined;
+  const spoken = spokenTopicLead(title);
   if (speakerName !== undefined) {
-    return `Alright team, let's move on to ${title.toLowerCase()}. ${speakerName}, walk us through it.`;
+    const intros = [
+      `Alright team, let's look at ${spoken}. ${speakerName}, walk us through what's happening.`,
+      `Next up is ${spoken}. ${speakerName}, take the floor.`,
+      `Right, moving on to ${spoken}. ${speakerName}, bring us up to speed.`,
+    ];
+    const index = Math.abs(title.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % intros.length;
+    return intros[index]!;
   }
-  return `Alright team, let's move on to ${title.toLowerCase()}.`;
+  return `Alright team, let's look at ${spoken}.`;
 }

@@ -93,13 +93,15 @@ export interface NpcRunner {
   /** The meeting moved to the next agenda item: the AI host will ask the person for the decision they own. */
   agendaMoved(title?: string): void;
   /** A follow-up task on the current agenda item was accepted: if the person already weighed in, move the meeting on. */
-  taskAccepted(): void;
+  taskAccepted(originAgendaTitle?: string | null): void;
   /** The visitor clicked "Let Kaki do it" on a task assigned to them: hold the advance timer so they can review the draft. */
-  holdForHumanTask(holdMs?: number): void;
+  holdForHumanTask(holdMs?: number, originAgendaTitle?: string | null): void;
   /** Cancel a queued or running task-dispatch announcement when the visitor already clicked Accept or Decline. */
-  cancelPendingDispatch(): void;
+  cancelPendingDispatch(originAgendaTitle?: string | null): void;
   /** Advance to the next agenda item (or end the meeting) once the visitor's task has been synced/declined. */
-  completeHumanTask(): void;
+  completeHumanTask(originAgendaTitle?: string | null): void;
+  /** True when `title` names the item the meeting is on now. */
+  onCurrentAgenda(title: string | undefined): boolean;
   /** The current human visitor's display name, if someone is in the room. */
   visitorName(): string | undefined;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
@@ -250,6 +252,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let castQueue: Promise<void> = Promise.resolve();
   /** The welcome is spoken once per visit: when the person arrives, not when they first speak. */
   let welcomed = false;
+  /** How many task dispatches have been voiced to the visitor so Sam can orient them on the first one and be brief after. */
+  let visitorTaskDispatches = 0;
   /**
    * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
    * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
@@ -278,23 +282,29 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           conversation = undefined;
           castNames = '';
           welcomed = false;
+          visitorTaskDispatches = 0;
           started = false;
           paused = false;
-        } else if (conversation === undefined || names !== castNames) {
+        } else if (conversation === undefined || names !== castNames || !started) {
           if (options.fetchScenario !== undefined) {
             const latest = await options.fetchScenario().catch(() => undefined);
             if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
               scenario.agenda.splice(0, scenario.agenda.length, ...latest.agenda);
             }
           }
-          conversation?.close();
-          conversation = makeConversation(wanted);
-          castNames = names;
+          if (conversation === undefined || names !== castNames) {
+            conversation?.close();
+            conversation = makeConversation(wanted);
+            castNames = names;
+          }
           const person = [...humans.values()].at(-1)!;
+          const role = scenario.roles.find(
+            (candidate) => candidate.id.toLowerCase() === person.role.trim().toLowerCase() || candidate.label.toLowerCase() === person.role.trim().toLowerCase(),
+          );
           conversation.setHuman({
             name: person.name,
             role: person.role,
-            transcriptName: humanAttendeeForRole(scenario, person.role)?.zoomDisplayName,
+            transcriptName: role === undefined ? person.name : `${person.name} (${role.label})`,
           });
         }
         // Sam welcomes the person once they press Start, before anyone else speaks (when a person hosts, the NPC co-host kicks off item 1's briefing).
@@ -433,10 +443,18 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       } else if (message.kind === 'typing') {
         typingUntil = Date.now() + TYPING_QUIET_MS;
       } else if (message.kind === 'start') {
+        const session = message.session ?? participant.identity;
+        if (session !== participant.identity) {
+          log(`ignored a Start for another session (${session})`);
+          return;
+        }
         if (!started) {
           started = true;
           log(`${participant.identity} started the meeting`);
           syncCast();
+        }
+        if (message.requestId !== undefined) {
+          publishState({ kind: 'started', requestId: message.requestId, session });
         }
       } else if (message.kind === 'stop') {
         paused = true;
@@ -501,29 +519,29 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       const escapedSeat = visitor.seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       spoken = spoken.replace(new RegExp(`\\b${escapedSeat}\\b`, 'g'), visitor.name);
     }
-    spoken = spoken
-      .replace(
-        /\bAccept or decline it on your phone\./gi,
-        'Check the Kaki panel on the right to accept and let Kaki draft it, or decline.',
-      )
-      .replace(
-        /\bHave a look on your phone and accept or decline\./gi,
-        'Check the Kaki panel on the right to accept and let Kaki draft it, or decline.',
-      )
-      .replace(
-        /\bIt's on your phone\./gi,
-        'Check the Kaki panel on the right to accept and let Kaki draft it, or decline.',
-      );
+    const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
+    if (isTaskDispatch) {
+      const guidance =
+        visitorTaskDispatches === 0
+          ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
+          : "Have a look on your screen on the right to review and confirm.";
+      visitorTaskDispatches += 1;
+      spoken = spoken
+        .replace(/\bAccept or decline it on your phone\./gi, guidance)
+        .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
+        .replace(/\bIt's on your phone\./gi, guidance);
+    }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
-      /^(.+?) is at (\d+) minutes, please wrap up\.$/i.exec(spoken.trim());
+      /^(.+?) is at (\d+) minutes, please wrap up\.$/i.exec(spoken.trim()) ??
+      /^Hey team, we're a bit past time on (.+?) — let's wrap this one up so we can move on\.$/i.exec(spoken.trim());
     if (timeoutMatch !== null) {
       const personName = person?.name;
       const itemTitle = timeoutMatch[1];
       spoken =
         personName !== undefined
-          ? `${personName}, we're a bit past time on ${itemTitle} — do you want another minute on this, or should we lock in a call and keep moving?`
-          : `We're a bit past time on ${itemTitle} — should we take another minute on this, or lock in a call and keep moving?`;
+          ? `${personName}, we're a bit past time on ${itemTitle} — do you want another minute on this, or should we make a decision and keep moving?`
+          : `We're a bit past time on ${itemTitle} — should we take another minute on this, or make a decision and keep moving?`;
     }
     if (isWelcome) welcomed = true;
     // After the welcome, the first agenda item begins: the person is asked, or the characters start talking it through.
@@ -556,17 +574,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     agendaMoved(title) {
       conversation?.agendaMoved(title);
     },
-    taskAccepted() {
-      conversation?.taskAccepted();
+    taskAccepted(originAgendaTitle) {
+      conversation?.taskAccepted(originAgendaTitle);
     },
-    holdForHumanTask(holdMs) {
-      conversation?.holdForHumanTask(holdMs);
+    holdForHumanTask(holdMs, originAgendaTitle) {
+      conversation?.holdForHumanTask(holdMs, originAgendaTitle);
     },
-    cancelPendingDispatch() {
-      conversation?.cancelPendingDispatch();
+    cancelPendingDispatch(originAgendaTitle) {
+      conversation?.cancelPendingDispatch(originAgendaTitle);
     },
-    completeHumanTask() {
-      conversation?.completeHumanTask();
+    completeHumanTask(originAgendaTitle) {
+      conversation?.completeHumanTask(originAgendaTitle);
+    },
+    onCurrentAgenda(title) {
+      return conversation?.onCurrentAgenda(title) ?? false;
     },
     visitorName() {
       return [...humans.values()].at(-1)?.name;

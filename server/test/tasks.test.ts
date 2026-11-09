@@ -143,6 +143,65 @@ describe('task store change handlers', () => {
     });
   });
 
+  it('stores trusted assignment evidence with the task and keeps plain suggestions unchanged', () => {
+    const assignmentEvidence = {
+      speaker: 'Ada',
+      quote: 'I will fix the oven this afternoon.',
+      scope: { title: 'Fix the oven', context: 'Trips the fuse.', actionKind: 'mattermost_post' as const },
+    };
+    const task = app.tasks.suggest(
+      { title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef', actionKind: 'mattermost_post' },
+      assignmentEvidence,
+    );
+    expect(app.tasks.get(task.id)?.assignmentEvidence).toEqual(assignmentEvidence);
+
+    const plain = app.tasks.suggest({ title: 'Book the engineer', context: 'Next week.', suggestedAssignee: 'chef' });
+    expect(app.tasks.get(plain.id)?.assignmentEvidence).toBeUndefined();
+  });
+
+  it('copies evidence so later mutation cannot change the stored task, and keeps it through transitions', () => {
+    const assignmentEvidence = {
+      speaker: 'Ada',
+      quote: 'I will fix the oven this afternoon.',
+      scope: { title: 'Fix the oven', context: 'Trips the fuse.' },
+    };
+    const task = app.tasks.suggest(
+      { title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' },
+      assignmentEvidence,
+    );
+
+    assignmentEvidence.quote = 'I never said that.';
+    assignmentEvidence.scope.title = 'Something else';
+    expect(app.tasks.get(task.id)?.assignmentEvidence).toEqual({
+      speaker: 'Ada',
+      quote: 'I will fix the oven this afternoon.',
+      scope: { title: 'Fix the oven', context: 'Trips the fuse.' },
+    });
+
+    const dispatched = app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    expect(dispatched.assignmentEvidence).toEqual({
+      speaker: 'Ada',
+      quote: 'I will fix the oven this afternoon.',
+      scope: { title: 'Fix the oven', context: 'Trips the fuse.' },
+    });
+    expect(dispatched.assignmentEvidence).not.toBe(assignmentEvidence);
+  });
+
+  it('rejects malformed trusted assignment evidence', () => {
+    expect(() =>
+      app.tasks.suggest(
+        { title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' },
+        { speaker: 'Ada', quote: '  ', scope: { title: 'Fix the oven', context: 'Trips the fuse.' } },
+      ),
+    ).toThrow(CommandError);
+    expect(() =>
+      app.tasks.suggest(
+        { title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' },
+        { speaker: 'Ada', quote: 'I will fix it.', scope: 'Fix the oven' as never },
+      ),
+    ).toThrow(CommandError);
+  });
+
   it('rejects an invalid suggestion with a CommandError', () => {
     expect(() =>
       app.tasks.suggest({

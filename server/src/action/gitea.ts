@@ -1,5 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -46,11 +47,19 @@ function issueEndpoint({ url, owner, repo }: GiteaSettings): string {
   return `${url.replace(/\/+$/, '')}/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`;
 }
 
-function giteaUsernameFor(scenario: Parameters<Parameters<typeof createActionModule>[0]['run']>[2], roleId: string | undefined): string | undefined {
+function giteaUsernameFor(
+  scenario: Parameters<Parameters<typeof createActionModule>[0]['run']>[2],
+  roleId: string | undefined,
+  speaker?: string,
+): { username: string; visitorName?: string } | undefined {
   if (roleId === undefined) return undefined;
   const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
   if (attendee === undefined || !scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) return undefined;
-  return attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const cleanSpeaker = speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  if (cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase()) {
+    return { username: 'demo', visitorName: cleanSpeaker };
+  }
+  return { username: attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') };
 }
 
 /** Create the module that drafts Gitea issues and posts them once the assignee approves. */
@@ -71,12 +80,12 @@ export function createGiteaModule({
 
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
-      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
       const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
-      const ownerLine =
-        attendee !== undefined && role !== undefined ? `\nOwner: ${attendee.name} (${role.label})` : '';
+      const ownerLine = role !== undefined ? `\nOwner role: ${role.label}` : '';
       const factsBlock =
-        knownFacts.length > 0 ? `\n\nKnown facts from ${attendee?.name ?? 'the owner'}:\n- ${knownFacts.join('\n- ')}` : '';
+        knownFacts.length > 0
+          ? `\n\nKnown facts for ${role !== undefined ? `the ${role.label} role` : 'the owner'}:\n- ${knownFacts.join('\n- ')}`
+          : '';
 
       const messages: ChatMessage[] = [
         {
@@ -84,11 +93,11 @@ export function createGiteaModule({
           content:
             'You turn a team task into a Gitea issue. Reply with one JSON object and nothing else: ' +
             '{"title": "...", "body": "..."}. The body may use Markdown, in a few plain sentences, not a template.' +
-            ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). When an Accepted decision is given, keep its time of day, who owns or enforces it, and how it will be measured; do not leave out a detail it gives. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. If the Context gives a time of day without AM or PM, keep it exactly as written; never choose AM or PM yourself. Never write "effective immediately" or another start date unless the Context explicitly states it. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
         },
       ];
 
@@ -103,6 +112,15 @@ export function createGiteaModule({
       if (draft === undefined) {
         throw new ActionError('The LLM did not return usable JSON with a title and body');
       }
+      const unsupported = unsupportedDraftDetails(
+        `${draft.title}\n${draft.body}`,
+        draftSourceText(task, knownFacts),
+      );
+      if (unsupported.length > 0) {
+        throw new ActionError(
+          `The draft adds details the task does not support: ${unsupported.join('; ')}. Edit the task or retry.`,
+        );
+      }
       return { target: `${gitea.owner}/${gitea.repo}`, subject: draft.title, body: draft.body };
     },
     async run(task, signal, scenario) {
@@ -110,11 +128,23 @@ export function createGiteaModule({
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
 
-      const sudoUser = giteaUsernameFor(scenario, task.assignee ?? task.suggestedAssignee);
+      const sudoTarget = giteaUsernameFor(
+        scenario,
+        task.assignee ?? task.suggestedAssignee,
+        task.assignmentEvidence?.speaker,
+      );
+      if (sudoTarget?.visitorName !== undefined) {
+        await fetchImpl(`${gitea.url.replace(/\/+$/, '')}/api/v1/admin/users/demo`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', authorization: `token ${gitea.token}` },
+          body: JSON.stringify({ full_name: sudoTarget.visitorName, login_name: 'demo' }),
+          signal,
+        }).catch(() => undefined);
+      }
       const headers: Record<string, string> = {
         'content-type': 'application/json',
         authorization: `token ${gitea.token}`,
-        ...(sudoUser === undefined ? {} : { Sudo: sudoUser }),
+        ...(sudoTarget === undefined ? {} : { Sudo: sudoTarget.username }),
       };
 
       const timeout = AbortSignal.timeout(timeoutMs);

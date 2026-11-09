@@ -33,11 +33,13 @@ npm run index:knowledge   # embeds and indexes all 5 data sources into pgvector
 | **PostgreSQL (`pgvector`)** | `postgres://kaki:kaki_dev_password@127.0.0.1:5433/kaki` | `5433` | Structured company tables + `knowledge_chunks` vector store |
 | **LiveKit** | `ws://127.0.0.1:7880` | `7880` | WebRTC audio room for `/demo` |
 
-## Dev Logins
+## Dev Logins (Unified `demo` / `demo`)
 
-- **Wiki.js:** `admin@nanyangkopitiam.example` / `kaki_wiki_dev`
-- **Gitea:** `wei-ling` / `kaki_gitea_dev`
-- **Mattermost:** `weiling` / `kaki_mattermost_dev`
+- **Wiki.js (`http://127.0.0.1:8081`):** `demo` / `demo`
+- **Gitea (`http://127.0.0.1:8082`):** `demo` / `demo` (or `wei-ling` / `demo`)
+- **Mattermost (`http://127.0.0.1:8083`):** `demo` / `demo` (or `weiling` / `demo`)
+- **Radicale CalDAV (`http://127.0.0.1:5232`):** `demo` / `demo` (no password required)
+- **Mailpit (`http://127.0.0.1:8084`):** Opens directly (no login required)
 
 ## Resetting the Stack
 

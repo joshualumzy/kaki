@@ -187,8 +187,8 @@ async function postgresData() {
     const counts = await client.query<{ table_name: string; count: number }>(
       `SELECT 'kiosk_trial_stats' AS table_name, count(*)::int AS count FROM kiosk_trial_stats
        UNION ALL SELECT 'floor_morning_counts', count(*)::int FROM floor_morning_counts
-       UNION ALL SELECT 'payment_walkouts', count(*)::int FROM payment_walkouts
-       UNION ALL SELECT 'butter_costing', count(*)::int FROM butter_costing
+       UNION ALL SELECT 'sfa_egg_batches', count(*)::int FROM sfa_egg_batches
+       UNION ALL SELECT 'delivery_commission_tiers', count(*)::int FROM delivery_commission_tiers
        UNION ALL SELECT 'launch_budget', count(*)::int FROM launch_budget`,
     );
     return {
@@ -268,7 +268,7 @@ check('Postgres has the knowledge_chunks table with a vector(1024) column and pu
 
 check('Postgres has the seeded company tables', async () => {
   const data = await once('postgres', postgresData);
-  for (const table of ['kiosk_trial_stats', 'floor_morning_counts', 'payment_walkouts', 'butter_costing', 'launch_budget']) {
+  for (const table of ['kiosk_trial_stats', 'floor_morning_counts', 'sfa_egg_batches', 'delivery_commission_tiers', 'launch_budget']) {
     assert((data.tableCounts[table] ?? 0) > 0, `${table} has no rows`);
   }
   return `${Object.values(data.tableCounts).reduce((sum, count) => sum + count, 0)} rows`;
@@ -300,40 +300,39 @@ check('Wiki floor page carries the seat crunch and Auntie Mary constraint', asyn
   return 'floor page present';
 });
 
-check('Wiki butter page carries the anchor price and budget', async () => {
+check('Wiki delivery and costing page carries the 32% commission and remaining budget', async () => {
   const pages = await once('wiki', wikiPages);
   const page = pages.get('kopitiam/mall-promo-rules');
-  assert(page, 'butter page is missing');
-  assert(/35%/.test(page) && /1,100|1100/.test(page), 'the butter margin numbers are missing');
+  assert(page, 'delivery & costing page is missing');
+  assert(/32%/.test(page) && /2,400|2400/.test(page), 'the delivery commission numbers are missing');
   assert(/750/.test(page), 'the remaining budget is missing');
-  return 'butter page present';
+  return 'delivery & costing page present';
 });
 
-check('Zack email carries the 90k views and $450 plushie rate', async () => {
+check('SFA inspection email carries the 9:00 AM inspection and 63°C holding requirement', async () => {
   const messages = await once('mail', mailMessages);
-  const email = messages.find((message) => /live re-taste/i.test(message.Subject));
-  assert(email, 'Zack email is missing');
-  assert(/90,000/.test(email.Text), 'the 90k views are missing');
-  assert(/\$?450/.test(email.Text), 'the $450 rate is missing');
-  return 'Zack email present';
+  const email = messages.find((message) => /Food Hygiene Inspection/i.test(message.Subject));
+  assert(email, 'SFA inspection email is missing');
+  assert(/63°C/.test(email.Text), 'the 63°C requirement is missing');
+  return 'SFA email present';
 });
 
-check('Fonterra email carries the 35% butter increase', async () => {
+check('GrabFood email carries the 32% commission tier notice', async () => {
   const messages = await once('mail', mailMessages);
-  const email = messages.find((message) => /Anchor Golden Salted Butter/i.test(message.Subject));
-  assert(email, 'Fonterra email is missing');
-  assert(/35%/.test(email.Text), 'the 35% increase is missing');
-  return 'Fonterra email present';
+  const email = messages.find((message) => /Commission Tier/i.test(message.Subject));
+  assert(email, 'GrabFood commission email is missing');
+  assert(/32%/.test(email.Text), 'the 32% commission is missing');
+  return 'GrabFood email present';
 });
 
-check('Mattermost has the undecided cash thread', async () => {
+check('Mattermost has the undecided SFA hygiene thread', async () => {
   const posts = await once('mattermost-posts', mattermostPosts);
-  const root = posts.find((post) => !post.root_id && /NO CASH/i.test(post.message));
-  assert(root, 'cash root post is missing');
+  const root = posts.find((post) => !post.root_id && /Heads up team: SFA just emailed an inspection notice/i.test(post.message));
+  assert(root, 'SFA hygiene root post is missing');
   const replies = posts.filter((post) => post.root_id === root.id);
-  assert(replies.length >= 1, `cash thread has only ${replies.length} replies`);
+  assert(replies.length >= 1, `SFA hygiene thread has only ${replies.length} replies`);
   const text = replies.map((post) => post.message).join('\n');
-  assert(/hygiene/i.test(text) && /still haven't decided|haven't agreed|not decided/i.test(text), 'the cash thread does not look undecided');
+  assert(/hygiene/i.test(text) && /still haven't decided|haven't agreed|not decided/i.test(text), 'the SFA hygiene thread does not look undecided');
   return `${replies.length} replies, no decision`;
 });
 

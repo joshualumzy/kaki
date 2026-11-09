@@ -55,6 +55,20 @@ describe('demo meeting helpers', () => {
     expect(parseControlMessage({ kind: 'stop' })).toEqual({ kind: 'stop' });
     expect(parseControlMessage({ kind: 'typing', extra: 1 })).toEqual({ kind: 'typing' });
     expect(parseControlMessage({ kind: 'start' })).toEqual({ kind: 'start' });
+    expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })).toEqual({
+      kind: 'start',
+      requestId: 'req-1',
+      session: 'visitor-1',
+    });
+    // Only a start with neither field is the legacy message; a partial or malformed pair is refused.
+    expect(parseControlMessage({ kind: 'start', requestId: '' })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', session: 'visitor-1' })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', requestId: 'req-1' })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', requestId: '', session: 'visitor-1' })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: '' })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', requestId: 1, session: 'visitor-1' })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', requestId: 'req-1', session: 1 })).toBeUndefined();
+    expect(parseControlMessage({ kind: 'start', requestId: '   ', session: 'visitor-1' })).toBeUndefined();
     expect(parseControlMessage({ kind: 'text', text: '  hello  ' })).toEqual({ kind: 'text', text: 'hello' });
     expect(parseControlMessage({ kind: 'text', text: 'x'.repeat(MAX_TYPED_LENGTH + 50) })).toEqual({
       kind: 'text',

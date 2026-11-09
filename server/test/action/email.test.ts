@@ -151,6 +151,35 @@ describe('email action module', () => {
     expect(ready.draft?.body).toBe('The oven is fixed.');
   });
 
+  it('refuses a draft that invents a time the task does not support', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() =>
+        JSON.stringify({
+          to: 'supplier@example.com',
+          subject: 'The booth rule',
+          body: 'The booth rule runs from 8 PM to 10:30 PM.',
+        }),
+      ),
+      email: settings,
+      sendMail: okSend(),
+      fetchImpl: okFetch(),
+    });
+    const task = tasks.suggest({
+      title: 'Email the supplier the booth rule',
+      context: 'The booth rule runs from 8 to 10:30 every morning.',
+      suggestedAssignee: 'chef',
+      actionKind: 'email',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    expect(failed.error).toMatch(/8 PM/);
+    expect(failed.error).toMatch(/does not support/);
+    expect(failed.draft).toBeUndefined();
+  });
+
   it('sends the approved draft on run and links to the Mailpit view', async () => {
     const sendMail = okSend();
     const fetchImpl = okFetch();

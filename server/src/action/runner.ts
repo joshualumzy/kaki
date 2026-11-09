@@ -73,7 +73,7 @@ export function relevantFactsForTask(
 export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
-    start({ tasks, scenario }: KakiContext) {
+    start({ tasks, scenario, draftOnly }: KakiContext) {
       const shutdown = new AbortController();
       let stopped = false;
 
@@ -120,6 +120,13 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
       }
 
       function runAction(task: Task): void {
+        if (draftOnly === true) {
+          fail(
+            task,
+            'Draft-only mode (KAKI_DRAFT_ONLY=1): nothing was sent. Unset it and approve again to run this action.',
+          );
+          return;
+        }
         background('running the action', async () => {
           let artifactUrl: string;
           try {

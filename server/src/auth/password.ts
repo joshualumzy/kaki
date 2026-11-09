@@ -23,6 +23,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const hashHex = parts[2];
   if (saltHex === undefined || hashHex === undefined) return false;
   if (!/^[0-9a-f]+$/.test(saltHex) || !/^[0-9a-f]+$/.test(hashHex)) return false;
+  if (saltHex.length !== SALT_BYTES * 2 || hashHex.length !== KEY_BYTES * 2) return false;
 
   const expected = Buffer.from(hashHex, 'hex');
   if (expected.length === 0) return false;

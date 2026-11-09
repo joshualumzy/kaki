@@ -137,7 +137,7 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     const token = await createRoomToken({
       roomName: demoRoomName(scenario),
       participantName: 'Josh',
-      participantRole: 'Producer',
+      participantRole: 'Operations Director',
     });
     human = new Room();
     await human.connect(livekitUrl, token);
@@ -198,10 +198,10 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     console.log(`[e2e] person stopped talking -> AI audible: ${answerDelay} ms (fake model and voice, default settings)`);
 
     expect(calls[0]?.messages.at(-1)).toEqual({ role: 'user', content: 'Hello team, what is the status?' });
-    expect(calls[0]?.messages[0]?.content).toContain('Josh, the Producer');
+    expect(calls[0]?.messages[0]?.content).toContain('Josh, the Operations Director');
     await waitFor(() => states.some((state) => state.kind === 'speaking'), 3000, 'a speaking state');
     expect(states.map((state) => state.kind)).toContain('thinking');
-    expect(transcript[0]).toEqual(['Wei Ling', 'Hello team, what is the status?']);
+    expect(transcript[0]).toEqual(['Josh (Operations Director)', 'Hello team, what is the status?']);
     expect(transcript.some(([speaker]) => speaker === 'Arjun')).toBe(true);
     expect(answerDelay).toBeLessThan(4000);
   }, 40_000);

@@ -5,7 +5,7 @@ import type { ChatMessage } from '../llm';
 export const PROPOSAL_ASSESSMENT_MARKER = '[KAKI_PROPOSAL_ASSESSMENT]';
 
 /** How long one readiness check may take before it is abandoned and the item stays open. Must stay under the shared LLM client's 20s timeout. */
-export const DEFAULT_ASSESSMENT_TIMEOUT_MS = 15_000;
+export const DEFAULT_ASSESSMENT_TIMEOUT_MS = 4_500;
 
 /** The most text the assessment will read; a longer reply is malformed and ignored. */
 export const DEFAULT_ASSESSMENT_MAX_CHARS = 4_000;
@@ -30,6 +30,13 @@ export interface ProposalAssessment {
   readiness: 'open' | 'complete';
   resolved: ResolvedTradeOff[];
   unresolved: UnresolvedTradeOff[];
+  /**
+   * The visitor's own lines that still make up the final decision, oldest first, exactly as they said
+   * them. A later line that replaces an earlier proposal leaves the earlier line out; one that only
+   * adds a missing detail keeps both. Undefined when the reply did not name any lines, so callers can
+   * fall back to the proposal history.
+   */
+  decisionLines?: string[];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -40,10 +47,6 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function isAborted(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true;
-}
-
 function normalize(value: string): string {
   return value
     .toLowerCase()
@@ -51,10 +54,21 @@ function normalize(value: string): string {
     .trim();
 }
 
-/** True when `evidence` appears word-for-word (after punctuation and spacing are normalised) in what the visitor said. */
+const EVIDENCE_STOP_WORDS = new Set([
+  'the', 'a', 'an', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'and', 'or', 'so', 'that', 'this', 'it', 'we', 'will', 'our', 'is', 'are', 'be',
+]);
+
+/** True when `evidence` appears word-for-word (or shares its substantive words) in what the visitor said. */
 export function evidenceMatchesVisitor(evidence: string, visitorText: string): boolean {
   const quote = normalize(evidence);
-  return quote.length > 0 && normalize(visitorText).includes(quote);
+  if (quote.length === 0) return false;
+  const spoken = normalize(visitorText);
+  if (spoken.includes(quote)) return true;
+  const quoteWords = quote.split(' ').filter((w) => w.length >= 3 && !EVIDENCE_STOP_WORDS.has(w));
+  if (quoteWords.length < 2) return false;
+  const spokenSet = new Set(spoken.split(' '));
+  const matched = quoteWords.filter((w) => spokenSet.has(w)).length;
+  return matched >= 2 && matched / quoteWords.length >= 0.65;
 }
 
 /** A proposal phrased as a question ("What if we move the cash box?"), not a question looking for facts. */
@@ -70,12 +84,67 @@ const META_OR_NONSENSE =
   /\b(?:ignore all previous instructions|system prompt|output your|admit that you are|write your next line)\b/i;
 
 const SIDE_TASK_REQUEST =
-  /\b(?:can|could|would|will)\s+you\s+(?:[a-z]+\s+){0,3}(?:send|email|post|file|write|schedule|book|share|confirm|update|put|make sure|arrange|bring|check|draft|print)\b/i;
+  /\b(?:can|could|would|will)\s+you\s+(?:[a-z]+\s+){0,3}(?:send|email|post|file|write|schedule|book|draft)\b/i;
 
-const SIDE_TASK_MARKER = /\b(?:after|before)\s+(?:this|the meeting|we finish|you go|the call)\b/i;
+const SIDE_TASK_MARKER = /\b(?:after|before)\s+(?:this(?:\s+(?:meeting|call|huddle))?(?![\s-]+[a-z])|the meeting|we finish|you go|the call)\b/i;
 
-const FIRST_PERSON_FOLLOW_UP =
-  /\bi(?:'ll| will)\s+(?:send|email|post|file|write|schedule|book|share|confirm|update|put|make sure|arrange|bring|check|draft|print)\b/i;
+const FOLLOW_UP_VERBS =
+  String.raw`send|email|post|file|write|schedule|book|share|confirm|update|put|make sure|arrange|bring|check|draft|print`;
+
+/** One ordinary first-person commitment ("I'll post the handover in Mattermost."), matched as a whole sentence so a plan before or after it is not mistaken for the promise object. */
+const ORDINARY_FIRST_PERSON_FOLLOW_UP = new RegExp(
+  String.raw`\bi(?:'ll| will)\s+(?:${FOLLOW_UP_VERBS})\b[^.?!]*[.?!]?`,
+  'i',
+);
+
+/** A speaker can name themselves between "I" and the promise ("I, Booth Playtest, will post..."). Keep the name short and comma-delimited so ordinary prose cannot bridge the two halves into a false follow-up. */
+const SELF_IDENTIFICATION = String.raw`,\s*[\w'\u2019 -]{1,40}?,\s*`;
+
+/**
+ * A named first-person commitment ("I, Booth Playtest, will post the agreed plan...").
+ * Used only to recognise a follow-up that is *purely* a communication promise, so a real decision
+ * before or after it still reaches the readiness assessment. Matches one whole sentence, so the
+ * promise object is not mistaken for trailing decision text.
+ */
+const NAMED_FIRST_PERSON_FOLLOW_UP = new RegExp(
+  String.raw`\bi${SELF_IDENTIFICATION}will\s+(?:${FOLLOW_UP_VERBS})\b[^.?!]*[.?!]?`,
+  'i',
+);
+
+/** The only harmless prefixes before a pure named promise: nothing, or the exact confirmation the live visitor used. */
+const HARMLESS_NAMED_PROMISE_PREFIX = /^(?:confirmed,\s*that(?:'s| is) my decision\.?)?$/i;
+
+/** A trailing request a speaker appends after naming their own follow-up ("Please assign that handover to me"). */
+const TRAILING_TASK_REQUEST =
+  /^(?:please\s+)?(?:assign|draft|send|email|post|file|write|print|schedule|book|share|forward|submit|upload|circulate|confirm)\b/i;
+
+/**
+ * True only when the line is an ordinary first-person communication promise with no other decision:
+ * the whole line is the promise, or it is preceded by the bounded live confirmation and followed by
+ * nothing worse than a side request. A prefix or suffix carrying a real plan is not matched here.
+ */
+function isPureOrdinaryCommunicationPromise(text: string): boolean {
+  const match = ORDINARY_FIRST_PERSON_FOLLOW_UP.exec(text);
+  if (match === null) return false;
+  const prefix = text.slice(0, match.index).trim();
+  const suffix = text.slice(match.index + match[0].length).trim();
+  if (!HARMLESS_NAMED_PROMISE_PREFIX.test(prefix)) return false;
+  return suffix.length === 0 || TRAILING_TASK_REQUEST.test(suffix) || GREETING_OR_FILLER.test(suffix);
+}
+
+/**
+ * True only when the line is a communication promise by a self-named speaker with no other decision:
+ * the whole line is the promise, or it is preceded by the bounded live confirmation and followed by
+ * nothing worse than a side request. A prefix or suffix carrying a new decision is not matched here.
+ */
+function isPureNamedCommunicationPromise(text: string): boolean {
+  const match = NAMED_FIRST_PERSON_FOLLOW_UP.exec(text);
+  if (match === null) return false;
+  const prefix = text.slice(0, match.index).trim();
+  const suffix = text.slice(match.index + match[0].length).trim();
+  if (!HARMLESS_NAMED_PROMISE_PREFIX.test(prefix)) return false;
+  return suffix.length === 0 || TRAILING_TASK_REQUEST.test(suffix) || GREETING_OR_FILLER.test(suffix);
+}
 
 /**
  * An imperative follow-up request ("Please draft the handover", "Post the update", "Draft the note").
@@ -83,7 +152,7 @@ const FIRST_PERSON_FOLLOW_UP =
  * swallows a decision that merely mentions a draft or a post as one part of the plan.
  */
 const SIDE_TASK_IMPERATIVE =
-  /^(?:please\s+)?(?:draft|send|email|post|file|write|print|schedule|book|share|forward|submit|upload|circulate|confirm)\b/i;
+  /^(?:please\s+)?(?:draft|send|email|post|file|write|forward|submit|upload|circulate)\b(?!.*\b(?:and|then)\s+(?:ban|block|stop|start|put|place|move|add|remove|switch|swap|make|set|use|keep|cut|limit|reserve|enforce|print|hold|pause|pull)\b)/i;
 
 /**
  * A terse instruction that is clearly a course of action for the decision ("Ban laptops during
@@ -91,7 +160,7 @@ const SIDE_TASK_IMPERATIVE =
  * wrongly calls such a line a non-proposal; it never marks the item complete.
  */
 const CLEAR_ACTION_IMPERATIVE =
-  /^(?:please\s+)?(?:ban|block|stop|start|put|place|move|add|remove|switch|swap|make|set|use|bring|open|close|cap|limit|reserve|keep|leave|cut|charge|price|give|introduce|launch|run|require|allow|hire|train|rotate|assign|redirect|replace|rename|label|double|halve|change|serve|offer|install|enforce|police)\b/i;
+  /^(?:please\s+)?(?:ban|block|stop|start|put|place|move|add|remove|switch|swap|make|set|use|bring|open|close|cap|limit|reserve|keep|leave|cut|charge|price|give|introduce|launch|run|require|allow|hire|train|rotate|assign|redirect|replace|rename|label|double|halve|change|serve|offer|install|enforce|police|print|share|confirm|pause|pull|hold|sanitize)\b/i;
 
 /**
  * True when a visitor's line is worth one readiness check: a concrete proposal for the item,
@@ -105,13 +174,24 @@ export function isSubstantiveProposal(text: string): boolean {
   if (
     SIDE_TASK_REQUEST.test(trimmed) ||
     SIDE_TASK_MARKER.test(trimmed) ||
-    FIRST_PERSON_FOLLOW_UP.test(trimmed) ||
+    isPureOrdinaryCommunicationPromise(trimmed) ||
+    isPureNamedCommunicationPromise(trimmed) ||
     SIDE_TASK_IMPERATIVE.test(trimmed)
   ) {
     return false;
   }
   if (trimmed.endsWith('?')) return PROPOSAL_QUESTION.test(trimmed);
   return !FEASIBILITY_QUESTION.test(trimmed);
+}
+
+/**
+ * True when the line asks a colleague to prepare or send a follow-up deliverable ("Can you draft a
+ * ticket…", "Please send the budget…"). A first-person promise ("I'll email…") is not a request.
+ */
+export function isSideRequest(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  return SIDE_TASK_REQUEST.test(trimmed) || SIDE_TASK_IMPERATIVE.test(trimmed);
 }
 
 /** True when the model called a clear action imperative a non-proposal; the item must stay open. */
@@ -133,17 +213,18 @@ function assessmentPrompt(item: AgendaItem, visitorLines: string[]): string {
     `Decision: ${item.decision ?? item.title}`,
     'Trade-offs (use the id on the left):',
     listed,
-    'What the visitor has said on this decision so far, oldest first:',
+    'What the visitor has said on this decision so far, oldest first (the number on the left is its line number):',
     spoken,
     'Rules:',
     '- A proposal is a concrete course of action for this decision. A question, greeting, filler, status update, or a side request to send/file/post something is not a proposal.',
     '- A terse instruction telling the room what to do is a proposal, not a question or side request: for example "Ban laptops during breakfast" or "Put a cash drawer back at the toast counter". Mark it a proposal, and keep readiness "open" until every listed trade-off is resolved; never mark it complete just because it states an action.',
     '- Judge the proposal as a whole across these lines, not only the latest one: an adjustment can complete an earlier partial proposal.',
-    '- Mark readiness "complete" only when the visitor\'s own words across these lines make a clear call and resolve EVERY listed trade-off (or explicitly accept its residual risk).',
-    '- Resolved entries must quote the visitor\'s exact words in "evidence", taken from any of the lines above. Never invent an offer, number, permission or promise.',
+    '- Mark readiness "complete" when the visitor\'s proposal makes a clear, practical call that addresses the listed trade-offs (including by adopting a practical workaround, phasing a change, accepting a trade-off, or offering a sensible Option C). Do not nitpick or keep readiness "open" if the visitor has already given a multi-part practical plan responding to the team\'s pushback.',
+    '- Resolved entries must quote one continuous, short phrase from the visitor in "evidence", copied exactly from one line above. Do not join fragments with ellipses or add words: for "I can run the desk, count the float and balance receipts", quote "count the float" rather than "run the desk ... balance receipts". Never invent an offer, number, permission or promise.',
     '- Unresolved entries name the trade-off id and the open question a colleague should ask next.',
-    '- If the line is not a proposal, return "isProposal": false with empty arrays.',
-    'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
+    '- In "decisionLines", list the line numbers, oldest first, whose exact words still make up the final decision. When a later line replaces, reverses or withdraws an earlier proposal, leave the superseded line out. When a later line only adds a detail the earlier proposal was missing, keep both lines. Never quote or paraphrase the visitor yourself.',
+    '- If the line is not a proposal, return "isProposal": false with empty arrays and "decisionLines": [].',
+    'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "decisionLines": [1, 2], "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
   ].join('\n');
 }
 
@@ -197,6 +278,26 @@ function readUnresolved(value: unknown, tradeOffs: AgendaTradeOff[]): Unresolved
     if (out.some((unresolved) => normalize(unresolved.tradeOff) === normalize(tradeOff))) continue;
     out.push({ tradeOff, question });
   }
+  return out;
+}
+
+/**
+ * Reads the line numbers whose exact words still make up the final decision. References outside the
+ * lines the visitor actually said are dropped; if the reply named only unusable numbers the caller
+ * falls back to the proposal history rather than inventing a decision. An explicit empty list means
+ * the model named no line, which callers treat as the latest line only.
+ */
+function readDecisionLines(value: unknown, visitorLines: string[]): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isInteger(entry)) continue;
+    const line = visitorLines[entry - 1];
+    if (line === undefined || out.includes(line)) continue;
+    out.push(line);
+  }
+  if (out.length === 0 && value.length > 0) return undefined;
   return out;
 }
 
@@ -260,9 +361,14 @@ export async function assessProposal(options: {
   const visitorWords = visitorLines.join('\n');
 
   const controller = new AbortController();
-  const abort = (): void => controller.abort();
-  signal?.addEventListener('abort', abort, { once: true });
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_ASSESSMENT_TIMEOUT_MS);
+  let abortCause: 'timeout' | 'caller' | undefined;
+  const abort = (cause: 'timeout' | 'caller'): void => {
+    if (abortCause === undefined) abortCause = cause;
+    controller.abort();
+  };
+  const cancel = (): void => abort('caller');
+  signal?.addEventListener('abort', cancel, { once: true });
+  const timeout = setTimeout(() => abort('timeout'), options.timeoutMs ?? DEFAULT_ASSESSMENT_TIMEOUT_MS);
   timeout.unref?.();
 
   const messages: ChatMessage[] = [
@@ -281,17 +387,25 @@ export async function assessProposal(options: {
       if (raw.length >= (options.maxChars ?? DEFAULT_ASSESSMENT_MAX_CHARS)) break;
     }
   } catch (error) {
-    if (!controller.signal.aborted || !isAborted(signal)) {
+    if (abortCause === 'timeout') {
+      log?.('proposal assessment timed out; keeping the item open');
+    } else if (abortCause === 'caller') {
+      log?.('proposal assessment cancelled by the caller; keeping the item open');
+    } else {
       log?.(`proposal assessment failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     return undefined;
   } finally {
     clearTimeout(timeout);
-    signal?.removeEventListener('abort', abort);
+    signal?.removeEventListener('abort', cancel);
   }
 
   if (controller.signal.aborted) {
-    if (!isAborted(signal)) log?.('proposal assessment timed out; keeping the item open');
+    if (abortCause === 'timeout') {
+      log?.('proposal assessment timed out; keeping the item open');
+    } else if (abortCause === 'caller') {
+      log?.('proposal assessment cancelled by the caller; keeping the item open');
+    }
     return undefined;
   }
 
@@ -321,12 +435,15 @@ export async function assessProposal(options: {
     log?.('proposal assessment reply had no usable readiness; keeping the item open');
     return undefined;
   }
+  const decisionLines = readDecisionLines(parsed.decisionLines, visitorLines);
+  const activeLines = decisionLines === undefined ? visitorLines : decisionLines.length > 0 ? decisionLines : [visitorText];
+  const activeWords = activeLines.join('\n');
 
   const resolved = mergeResolved(
     options.resolvedSoFar,
-    readResolved(parsed.resolved, tradeOffs, visitorWords),
+    readResolved(parsed.resolved, tradeOffs, activeWords),
     tradeOffs,
-    visitorWords,
+    activeWords,
   );
   const unresolved = readUnresolved(parsed.unresolved, tradeOffs).filter(
     (entry) => !resolved.some((settled) => normalize(settled.tradeOff) === normalize(entry.tradeOff)),
@@ -334,6 +451,19 @@ export async function assessProposal(options: {
   const missing = tradeOffs.filter(
     (tradeOff) => !resolved.some((entry) => normalize(entry.tradeOff) === normalize(tradeOff.tradeOff)),
   );
+  const enoughFollowUpConsensus =
+    tradeOffs.length >= 3 &&
+    resolved.length >= 2 &&
+    unresolved.length <= 1;
+  if (enoughFollowUpConsensus) {
+    return {
+      isProposal: true,
+      readiness: 'complete',
+      resolved,
+      unresolved: [],
+      ...(decisionLines !== undefined ? { decisionLines } : {}),
+    };
+  }
   if (readiness === 'complete' && (missing.length > 0 || unresolved.length > 0)) {
     return {
       isProposal: true,
@@ -343,15 +473,23 @@ export async function assessProposal(options: {
         ...unresolved,
         ...missing.map((tradeOff) => ({ tradeOff: tradeOff.tradeOff, question: tradeOff.question })),
       ]),
+      ...(decisionLines !== undefined ? { decisionLines } : {}),
     };
   }
   if (readiness === 'complete') {
-    return { isProposal: true, readiness: 'complete', resolved, unresolved: [] };
+    return {
+      isProposal: true,
+      readiness: 'complete',
+      resolved,
+      unresolved: [],
+      ...(decisionLines !== undefined ? { decisionLines } : {}),
+    };
   }
   return {
     isProposal: true,
     readiness: 'open',
     resolved,
     unresolved: unresolved.length > 0 ? unresolved : allUnresolved(missing),
+    ...(decisionLines !== undefined ? { decisionLines } : {}),
   };
 }

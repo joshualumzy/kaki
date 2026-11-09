@@ -190,6 +190,7 @@ const taskResponder = createTaskResponder({
     }),
   send: sendAs,
   log,
+  draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
   approveDelayMs: numberEnv('NPC_APPROVE_DELAY_MS', DEFAULT_APPROVE_DELAY_MS),
 });
 
@@ -230,13 +231,18 @@ function followHostCues(): void {
               assignee?: string;
               suggestedAssignee?: string;
               declinedBy?: string[];
+              agendaItemTitle?: string;
             };
           } | undefined
         )?.task;
         if (updatedTask?.title !== undefined && updatedTask.status !== undefined) {
           taskStatusByTitle.set(updatedTask.title.trim().toLowerCase(), updatedTask.status);
         }
-        if (updatedTask?.status === 'DISPATCHED' && !runner.canDispatchTask()) {
+        const taskOrigin = updatedTask?.agendaItemTitle ?? null;
+        const onCurrentAgenda = runner.onCurrentAgenda(updatedTask?.agendaItemTitle);
+        // A premature dispatch is only premature on the item it came from: an old task arriving after the
+        // meeting moved on must not be dismissed because the new item is not ready yet.
+        if (updatedTask?.status === 'DISPATCHED' && onCurrentAgenda && !runner.canDispatchTask()) {
           log(`dismissed premature task ${updatedTask.id ?? ''} before visitor spoke on this item`);
           if (updatedTask.id !== undefined) sendAs('screen', { type: 'DISMISS_TASK', taskId: updatedTask.id });
           return;
@@ -245,6 +251,7 @@ function followHostCues(): void {
         const assigneeRole = updatedTask?.assignee ?? updatedTask?.suggestedAssignee;
         const assigneeAttendee = scenario.attendees.find((a) => a.role === assigneeRole)?.name;
         const isHumanTask = assigneeAttendee !== undefined && !runner.plays(assigneeAttendee);
+        if (updatedTask?.id !== undefined && !onCurrentAgenda) activeHumanTaskIds.delete(updatedTask.id);
         const wasDeclinedByHuman =
           updatedTask?.status === 'SUGGESTED' &&
           Array.isArray(updatedTask.declinedBy) &&
@@ -253,10 +260,10 @@ function followHostCues(): void {
             return name !== undefined && !runner.plays(name);
           });
 
-        if (isHumanTask && updatedTask?.id !== undefined) {
+        if (isHumanTask && onCurrentAgenda && updatedTask?.id !== undefined) {
           if (updatedTask.status === 'DISPATCHED') {
             activeHumanTaskIds.add(updatedTask.id);
-            runner.holdForHumanTask(45_000);
+            runner.holdForHumanTask(45_000, taskOrigin);
           } else if (
             updatedTask.status === 'CLAIMED' ||
             updatedTask.status === 'DRAFT_READY' ||
@@ -264,41 +271,53 @@ function followHostCues(): void {
             updatedTask.status === 'FAILED'
           ) {
             activeHumanTaskIds.add(updatedTask.id);
-            runner.cancelPendingDispatch();
-            runner.holdForHumanTask(45_000);
+            runner.cancelPendingDispatch(taskOrigin);
+            runner.holdForHumanTask(45_000, taskOrigin);
           } else if (updatedTask.status === 'COMPLETED') {
             activeHumanTaskIds.add(updatedTask.id);
-            runner.cancelPendingDispatch();
-            runner.holdForHumanTask(25_000);
+            runner.cancelPendingDispatch(taskOrigin);
+            runner.holdForHumanTask(25_000, taskOrigin);
           } else if (updatedTask.status === 'SYNCED') {
             activeHumanTaskIds.delete(updatedTask.id);
-            runner.cancelPendingDispatch();
+            runner.cancelPendingDispatch(taskOrigin);
             if (!syncedTaskIds.has(updatedTask.id)) {
               syncedTaskIds.add(updatedTask.id);
               const who = runner.visitorName() ?? assigneeAttendee ?? 'team';
+              const acks = [
+                `Thanks ${who}, got that logged.`,
+                `Steady ${who}, got that sorted out.`,
+                `Awesome ${who}, that's logged in the record.`,
+              ];
+              const ack = acks[syncedTaskIds.size % acks.length]!;
               runner.announce(
-                `Thanks ${who}, I see that's synced to the meeting record.`,
-                () => runner.completeHumanTask(),
+                ack,
+                () => runner.completeHumanTask(taskOrigin),
               );
             }
           }
-        } else if (wasDeclinedByHuman && updatedTask?.id !== undefined && !declinedTaskIds.has(updatedTask.id)) {
+        } else if (
+          wasDeclinedByHuman &&
+          onCurrentAgenda &&
+          updatedTask?.id !== undefined &&
+          !declinedTaskIds.has(updatedTask.id)
+        ) {
           declinedTaskIds.add(updatedTask.id);
           activeHumanTaskIds.delete(updatedTask.id);
-          runner.cancelPendingDispatch();
+          runner.cancelPendingDispatch(taskOrigin);
           const who = runner.visitorName() ?? 'there';
           runner.announce(
             `No worries ${who}, we'll cover that follow-up after the call.`,
-            () => runner.completeHumanTask(),
+            () => runner.completeHumanTask(taskOrigin),
           );
         } else if (
           activeHumanTaskIds.size === 0 &&
+          onCurrentAgenda &&
           (updatedTask?.status === 'CLAIMED' ||
             updatedTask?.status === 'RUNNING' ||
             updatedTask?.status === 'COMPLETED' ||
             updatedTask?.status === 'DECLINED')
         ) {
-          runner.taskAccepted();
+          runner.taskAccepted(taskOrigin);
         }
       }
       // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
@@ -322,7 +341,10 @@ function followHostCues(): void {
         } else {
           runner.announce(payload.text);
         }
-        if (event.payload.text.startsWith('Next up:')) runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
+        if (event.payload.text.startsWith('Next up:')) {
+          activeHumanTaskIds.clear();
+          runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
+        }
       }
     } catch {
       /* not an event we understand */

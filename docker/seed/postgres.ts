@@ -1,7 +1,19 @@
+import { randomBytes, scryptSync } from 'node:crypto';
 import { Client } from 'pg';
 import type { Env } from './env';
 import { sleep } from './http';
 import type { ScenarioSeed } from './scenario';
+
+function hashDemoPassword(password: string): string {
+  const salt = randomBytes(16);
+  const derived = scryptSync(password.normalize('NFKC'), salt, 64, {
+    N: 16384,
+    r: 8,
+    p: 1,
+    maxmem: 32 * 1024 * 1024,
+  });
+  return `scrypt$16384$8$1$${salt.toString('hex')}$${derived.toString('hex')}`;
+}
 
 
 function clientOptions(env: Env) {
@@ -46,6 +58,21 @@ export async function seedPostgres(env: Env, seed: ScenarioSeed): Promise<void> 
     await client.query('CREATE EXTENSION IF NOT EXISTS vector');
     await client.query(seed.postgresSchema);
     await client.query(seed.postgresData);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id text primary key,
+        email text not null unique,
+        password_hash text not null,
+        created_at timestamptz not null default now()
+      )
+    `);
+    const demoHash = hashDemoPassword('demo');
+    await client.query(
+      `INSERT INTO users (id, email, password_hash)
+       VALUES ('user-demo', 'demo', $1), ('user-demo-email', 'demo@nanyangkopitiam.example', $1)
+       ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+      [demoHash],
+    );
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);

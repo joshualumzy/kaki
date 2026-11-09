@@ -5,7 +5,7 @@ import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
 import { createNotetaker } from './notetaker';
-import { openingLine } from './opening';
+import { cleanSpokenTopic, openingLine } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
 
 const TICK_MS = 1_000;
@@ -128,7 +128,7 @@ export function createMeetingModule({
           audience: { kind: 'screen' },
           payload: {
             kind: 'TIMEOUT',
-            text: `${item.title} is at ${item.minutes} minutes, please wrap up.`,
+            text: `Hey team, we're a bit past time on ${cleanSpokenTopic(item.title)} — let's wrap this one up so we can move on.`,
           },
         });
       });
@@ -177,7 +177,7 @@ export function createMeetingModule({
             hub.publish({
               type: 'HOST_SPEECH_TRIGGERED',
               audience: { kind: 'screen' },
-              payload: { kind: 'OPENING', text: `Next up: ${item.title}.` },
+              payload: { kind: 'OPENING', text: `Next up: ${cleanSpokenTopic(item.title)}.` },
             });
           }
         }
@@ -185,17 +185,18 @@ export function createMeetingModule({
 
       const unsubscribe = hub.subscribe((event) => {
         if (event.type === 'MEETING_RESET') {
-          if (clock.snapshot().started || clock.snapshot().ended) {
-            clock.reset();
-            notetaker.reset();
-            tasks.reset();
-            hub.clearRetained('record');
-            hub.clearRetained('host:opening');
-            hub.clearRetained('fact:');
-            hub.clearRetained('nudge:');
-            lastSignature = undefined;
-            lastPublishedAt = 0;
-            announcedAgendaIndex = -1;
+          const wasActive = clock.snapshot().started || clock.snapshot().ended;
+          clock.reset();
+          notetaker.reset();
+          tasks.reset();
+          hub.clearRetained('record');
+          hub.clearRetained('host:opening');
+          hub.clearRetained('fact:');
+          hub.clearRetained('nudge:');
+          lastSignature = undefined;
+          lastPublishedAt = 0;
+          announcedAgendaIndex = -1;
+          if (wasActive) {
             startTicker();
           }
           return;
@@ -244,7 +245,7 @@ export function createMeetingModule({
           audience: { kind: 'screen' },
           payload: {
             kind: 'CLOSING',
-            text: `That concludes our meeting. Kaki is syncing the final tasks.`,
+            text: `Alright team, that wraps up our huddle. Thanks everyone, let's get back to the floor.`,
           },
         });
         void runNotetaker();

@@ -4,15 +4,16 @@ INSERT INTO kiosk_trial_stats (trial_date, first_time_users, froze_at_kopi_o_kos
 INSERT INTO floor_morning_counts (captured_on, seats, booth_seats, laptop_campers, solo_diner_pct, lost_turnover_sgd, notes, updated_on) VALUES
   ('2026-11-11', 28, 16, 4, 60.00, 420.00, 'Four 4-seater booths held for 2 hours on a single $2.20 Kopi O; 60% of morning customers dine solo', '2026-11-11');
 
-INSERT INTO payment_walkouts (captured_on, regulars_walked_out, tiktok_views, carry_small_notes_pct, notes, updated_on) VALUES
-  ('2026-11-11', 14, 40000, 94.00, '14 retired regulars walked out over the NO CASH sign; 94% carry only $2 or $10 notes; 40k-view TikTok clip', '2026-11-11');
+INSERT INTO sfa_egg_batches (batch_code, holding_temp_c, extra_cost_per_day_sgd, notes, updated_on) VALUES
+  ('Batch #402 (Fresh Grade AA)', 63.0, 0.00, 'Linked to unconfirmed hospital salmonella case from 10 Nov trial; lab results take 48h; SFA inspects tomorrow at 9:00am', '2026-11-11'),
+  ('Batch #405 (Pasteurized Liquid / Shell Backup)', 63.0, 180.00, 'Pasteurized backup batch on standby; holding above 65C curdles yolks into hard-boiled eggs', '2026-11-11');
 
-INSERT INTO butter_costing (portion_grams, extra_cost_per_set_sgd, monthly_margin_impact_sgd, notes, updated_on) VALUES
-  (12, 0.00, 0.00, 'Current slab; stays thick on dine-in open plates but melts in a closed takeaway box with hot toast', '2026-11-11'),
-  (20, 0.42, 1100.00, 'Doubling every set after the 35% Anchor butter price rise wipes out monthly margin', '2026-11-11');
+INSERT INTO delivery_commission_tiers (channel, commission_pct, net_margin_per_set_sgd, notes, updated_on) VALUES
+  ('GrabFood / Foodpanda Single Set ($10)', 32.00, -0.40, '32% platform commission ($3.20) plus packaging leaves -$0.40 net loss per single set; drives 50% of morning volume ($2,400/morning)', '2026-11-11'),
+  ('GrabFood Corporate Platter Bundle (5+ sets)', 32.00, 1.85, 'Categorised as catering SKU; exempt from single-item price-parity search suppression', '2026-11-11'),
+  ('Direct Web QR Self-Pickup Link', 0.00, 3.10, '0% commission for express counter self-pickup; no rider dispatch integration', '2026-11-11');
 
 INSERT INTO launch_budget (item, planned_sgd, spent_sgd, notes, updated_on) VALUES
-  ('Storefront bunting and signage', 450.00, 450.00, 'Installed at Raffles Place #B1-14', '2026-11-11'),
-  ('300 Kaya Toast plushie keychains', 600.00, 600.00, 'Delivered to Raffles Place storeroom', '2026-11-11'),
-  ('TikTok Live Re-Taste (@MakanWithZack)', 450.00, 0.00, '$600 cash rate or $450 buddy rate + 20 plushies out of $750 remaining budget', '2026-11-11'),
-  ('Anchor Salted Butter & Cash Handling Contingency', 300.00, 0.00, 'Doubling butter to 20g costs $1,100/mo; nightly coin counting costs $380/mo', '2026-11-11');
+  ('Storefront bunting and bilingual table tent cards', 450.00, 450.00, 'Installed at Raffles Place #B1-14', '2026-11-11'),
+  ('Sous-vide water bath & digital temperature probes', 600.00, 600.00, 'Calibrated for 63C continuous holding ahead of SFA inspection', '2026-11-11'),
+  ('Pasteurized backup egg batch & launch promo reserve', 750.00, 0.00, '$750 unspent launch budget available for tomorrow ($180/day pasteurized backup batch and CBD office QR self-pickup flyers)', '2026-11-11');

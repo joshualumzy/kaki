@@ -36,10 +36,10 @@ function quietHub(): Hub {
   };
 }
 
-function setup(options: WikiModuleOptions): TaskStore & { hub: Hub } {
+function setup(options: WikiModuleOptions, draftOnly = false): TaskStore & { hub: Hub } {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createWikiModule(options).start({ hub, tasks, scenario: testScenario });
+  const stop = createWikiModule(options).start({ hub, tasks, scenario: testScenario, draftOnly });
   if (stop !== undefined) stops.push(stop);
   return Object.assign(tasks, { hub });
 }
@@ -170,5 +170,40 @@ describe('wiki action module', () => {
     );
     expect(minutesTask.artifactUrl).toMatch(/^http:\/\/wiki\.test\/en\/meetings\/2026-11-03-/);
     expect(minutesTask.assignee).toBeUndefined();
+  });
+
+  it('still drafts a wiki task in draftOnly mode without publishing', async () => {
+    const fetchImpl = wikiFetch();
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, today: () => '2026-11-03' },
+      true,
+    );
+    const task = startTask(tasks);
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
+    expect(ready.draft?.subject).toBe('Launch notes');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-publish end-of-meeting minutes in draftOnly mode', async () => {
+    const fetchImpl = wikiFetch();
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, minutesDelayMs: 10, today: () => '2026-11-03' },
+      true,
+    );
+    tasks.hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.', timestamp: '2026-11-03T10:00:00Z' },
+    });
+    tasks.hub.publish({
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(tasks.list().some((task) => /^Publish meeting minutes/i.test(task.title))).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

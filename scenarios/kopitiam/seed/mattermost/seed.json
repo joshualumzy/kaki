@@ -33,18 +33,18 @@
   "channels": [
     {
       "name": "kiosk-trials",
-      "display_name": "Kiosk & Cashless POS",
-      "purpose": "Kiosk 'Kopi O Kosong' UX, kitchen thermal docket labels, and cash-paying elderly regulars."
+      "display_name": "Kiosk & POS",
+      "purpose": "Kiosk 'Kopi O Kosong' UX, kitchen thermal docket labels, and SFA egg holding protocol."
     },
     {
       "name": "storefront",
       "display_name": "28-Seat Floor & Toast",
-      "purpose": "Tissue-packet chope-ing, laptop campers, Auntie Mary staffing, and Kaya Butter Toast SOP."
+      "purpose": "Tissue-packet chope-ing, laptop campers, Auntie Mary staffing, and soft-boiled egg SOP."
     },
     {
       "name": "kopitiam-launch",
-      "display_name": "TikTok PR & Launch",
-      "purpose": "@MakanWithZack 'shrinking butter' video, $750 remaining budget, and plushie giveaway."
+      "display_name": "CBD Delivery & Launch PR",
+      "purpose": "GrabFood 32% commission squeeze, Straits Times 8am press arrival, and launch ops."
     }
   ],
   "posts": [
@@ -84,32 +84,32 @@
       "text": "Those 12 booth wall plugs and the guest Wi-Fi router are wired to our smart relay breaker in the back room, and we still have the numbered table pucks in the storeroom. Let's bring it up in the meeting so we don't put Auntie Mary in the middle."
     },
     {
-      "key": "cash1",
+      "key": "sfa1",
       "channel": "kiosk-trials",
       "author": "daniel",
       "at": "2026-11-11T09:20:00+08:00",
-      "text": "Someone filmed a 74-year-old regular uncle getting turned away at our 'NO CASH ACCEPTED' kiosk sign yesterday and the TikTok clip just hit 40,000 views calling us anti-elderly. 94% of the regulars who walked out only carry $2 and $10 notes, so even a $2.20 Kopi needs change."
+      "text": "Heads up team: SFA just emailed an inspection notice for 9:00am tomorrow after a soft-trial diner was hospitalized with suspected salmonella (hospital lab results take 48 hours). Straits Times press arrives at 8:00am for our ribbon-cutting—should we pause soft-boiled eggs and put out a precautionary supplier batch #402 notice?"
     },
     {
       "channel": "kiosk-trials",
       "author": "weiling",
-      "replyToKey": "cash1",
+      "replyToKey": "sfa1",
       "at": "2026-11-11T09:24:00+08:00",
-      "text": "We can't run cash from the toast counter. Our internal counter hygiene SOP keeps money handling separate from ready-to-eat food: anyone who touches coins or notes has to change gloves and wash hands before slicing kaya toast (+40s per order), and counting cash at night costs $380/month in overtime. Both toast staff are flat out at the 8am queue, Auntie Mary is the only one seating solo diners with hot trays, and there is no spare till or cashier terminal at the front. Physical kiosk bill-acceptors take 3 weeks and $1,400 too. We still haven't decided who runs cash or how the float is counted."
+      "text": "Hold on—our sous-vide holding bath dipped to 58°C for 45 minutes during yesterday's rush, and SFA food hygiene officers will swab the tank and check our temperature log at 9am. Pulling soft-boiled eggs wipes out 60% of breakfast sets ($1,800/morning), and we have two unopened cartons of pasteurized backup eggs (Batch #405) in the storeroom that can hold at 63°C. We still haven't decided our 9am SFA protocol or what we tell the 8am press."
     },
     {
-      "key": "butter1",
+      "key": "delivery1",
       "channel": "kopitiam-launch",
-      "author": "mei",
+      "author": "daniel",
       "at": "2026-11-11T11:04:00+08:00",
-      "text": "I checked our takeaway packaging after @MakanWithZack's 'shrinking butter' TikTok (90k views). Our 12g butter weight didn't shrink at all — it stays thick on dine-in open plates, but sealing cold butter inside a closed takeaway box with hot toast steams and melts half the slab before customers open it."
+      "text": "GrabFood and Foodpanda just raised our CBD breakfast commission to 32%, so every $10 set delivered loses $0.40 after packaging. But platforms drive 50% of our morning sales ($2,400/morning) from CBD office towers—if we delist, those corporate orders go straight to Ya Kun."
     },
     {
       "channel": "kopitiam-launch",
       "author": "weiling",
-      "replyToKey": "butter1",
+      "replyToKey": "delivery1",
       "at": "2026-11-11T11:09:00+08:00",
-      "text": "Good catch, because Anchor salted butter jumped 35% last month and doubling our butter slab to 20g across all sets would wipe out $0.42 per set ($1,100/month in margin). Zack wants $600 cash or $450 + 20 Kaya Toast plushies for an 8:30am live re-taste tomorrow, and we only have $750 left in our launch budget. We haven't agreed what we show on camera or what we change permanently."
+      "text": "And Arjun checked the POS: raising our single-set price on GrabFood by 30% to $13 triggers platform price-parity ranking penalties, while our direct web QR link only supports express self-pickup with no rider dispatch. We also can't pull floor staff off the counter to hand-deliver orders in CBD morning rain because of injury liability. We haven't agreed how to restructure our delivery menu or self-pickup perks yet."
     }
   ]
 }

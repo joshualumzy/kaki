@@ -30,7 +30,9 @@ async function assigneeAfter(speaker: string, line: string, modelAssignee: strin
       JSON.stringify({
         newQuestions: [],
         answeredQuestionIds: [],
-        newTasks: [{ title: 'Send the update', context: 'c', suggestedAssignee: modelAssignee, actionKind: 'email', evidence: line }],
+        newTasks: [
+          { title: 'Email the venue confirmation', context: 'c', suggestedAssignee: modelAssignee, actionKind: 'email', evidence: line },
+        ],
       }),
     ),
     agendaIndex: () => 0,

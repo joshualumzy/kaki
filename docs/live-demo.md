@@ -60,6 +60,22 @@ press is not mistaken for a cut-in.
 - `NPC_DEBUG_VAD=1` adds a `[vad]` line twice a second while an AI talks. `NPC_DEBUG_AUDIO_DIR=npc-audio` saves what was sent to Azure
   (these files contain a person's voice; the folder is gitignored).
 
+## Safe playtesting (draft-only)
+
+To rehearse the whole meeting without touching Gitea, Mattermost, Mailpit, Wiki.js or the calendar, set
+`KAKI_DRAFT_ONLY=1` on **both** the API/dev server and the NPC process, with the same value. For example:
+
+```
+KAKI_DRAFT_ONLY=1 SCENARIO=kopitiam npm run live:up
+# or, when running the pieces separately:
+KAKI_DRAFT_ONLY=1 npm run dev
+KAKI_DRAFT_ONLY=1 npm run npc
+```
+
+Tasks are still drafted and can be reviewed. An action that reaches `RUNNING` (approved or retried) is refused before
+anything is sent and marked failed with a clear message, automatic end-of-meeting wiki minutes are skipped, and AI
+attendees stop auto-approving or retrying drafts. Unset it to run for real.
+
 ## Tuning
 
 If an AI cuts itself off, raise `NPC_VAD_LEAK_MARGIN` or `NPC_VAD_GUARDED_MIN_LEVEL`. If cutting in feels sluggish, lower

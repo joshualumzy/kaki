@@ -1,6 +1,6 @@
-# 28-Seat Floor Layout, Auntie Mary Staffing & Cashless Counter Notes
+# 28-Seat Floor Layout, Auntie Mary Staffing & SFA Egg Holding Protocol
 
-Owner: Wei Ling (Operations Director) & Arjun (Tech & POS Lead)
+Owner: Wei Ling (Operations Director) & Mei (Menu & Store Experience Lead)
 Last updated: 11 November 2026
 
 ## 1. 28-seat morning crunch (tissue packets and laptop campers)
@@ -13,12 +13,11 @@ Last updated: 11 November 2026
 
 Still open: who enforces any new seating rule, and where a solo diner with a hot tray sits while the queue clears.
 
-## 2. Cash-paying elderly regulars and counter hygiene
+## 2. SFA food safety inspection & 63°C soft-boiled egg holding bath
 
-- Yesterday 14 retired morning regulars walked out when told our kiosks only take PayNow and cards, and a TikTok clip of a 74-year-old uncle at our `NO CASH` sign hit 40,000 views.
-- Our internal counter hygiene SOP keeps money handling separate from ready-to-eat food: staff who handle coins or notes must change gloves and wash hands before slicing kaya toast or cracking soft-boiled eggs (+40s per order). Counting the cash float at night costs SGD 380/month in overtime.
-- The toast counter runs on two staff at the 8am rush, so there is no free pair of hands for cash and change. Auntie Mary (62) is the only floor staff who seats solo diners with hot trays and clears tables, so she cannot run cash either.
-- 94% of retired morning regulars carry only $2 or $10 notes, so a $2.20 Kopi always needs change, and they refused to buy a $20 minimum stored-value card.
-- Physical kiosk cash bill-acceptors cost SGD 1,400 and take 3 weeks to arrive, and there is no spare till or cashier terminal at the front.
+- A customer from yesterday's soft trial was hospitalized with suspected salmonella (hospital lab culture takes 48 hours to confirm). Straits Times journalists arrive at 8:00am tomorrow for the ribbon-cutting, and SFA inspectors arrive at 9:00am.
+- During yesterday's 8:30am peak rush, our sous-vide holding bath dipped to 58°C for 45 minutes when cold eggs were topped up too quickly. Continuous holding at 63°C is required to prevent salmonella enteritidis.
+- Soft-boiled eggs anchor 60% of our morning breakfast sets (SGD 1,800/morning in revenue). Pulling soft-boiled eggs completely wipes out morning set volume, while failing SFA's 9:00am swab and temperature log check triggers an immediate stop-work order.
+- Our storeroom holds two unopened backup cartons of pasteurized shell eggs (Batch #405, clean COA) that take 22 minutes per batch to bring up to 63°C without ruining runny yolk texture.
 
-Still open: where the cash point sits, who runs it, and how change and the float are counted at close.
+Still open: whether we pause eggs or sanitize the bath and run the 63°C pasteurized backup batch, and what we tell the 8:00am press.

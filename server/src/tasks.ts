@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   canTransition,
   isActionDraft,
+  isAssignmentEvidence,
   isRoleIn,
   isSuggestInput,
   type ActionDraft,
+  type AssignmentEvidence,
   type KakiCommand,
   type KakiEvent,
   type Role,
@@ -19,7 +21,11 @@ type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft'
 
 /** The single owner of task state; every other module changes tasks through it. */
 export interface TaskStore {
-  suggest(input: SuggestInput): Task;
+  /**
+   * Suggest a task. `assignmentEvidence` is a separate trusted argument, never part of the public SuggestInput body,
+   * so an API caller cannot forge a commitment and have the assignee's responder auto-accept it.
+   */
+  suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence): Task;
   get(id: string): Task | undefined;
   list(): Task[];
   transition(id: string, to: TaskStatus, patch?: TaskPatch): Task;
@@ -36,6 +42,19 @@ export interface TaskStore {
 
 function taskUpdated(task: Task, audience: KakiEvent['audience']): KakiEvent {
   return { type: 'TASK_UPDATED', audience, payload: { task } };
+}
+
+/** Copy evidence so a caller cannot mutate the stored task through the object it passed in, or vice versa. */
+function copyAssignmentEvidence(evidence: AssignmentEvidence): AssignmentEvidence {
+  return {
+    speaker: evidence.speaker,
+    quote: evidence.quote,
+    scope: {
+      title: evidence.scope.title,
+      context: evidence.scope.context,
+      ...(evidence.scope.actionKind === undefined ? {} : { actionKind: evidence.scope.actionKind }),
+    },
+  };
 }
 
 function assertPatch(patch: TaskPatch, scenario: Scenario): void {
@@ -98,6 +117,9 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     const next: Task = {
       ...current,
       ...rest,
+      ...(current.assignmentEvidence === undefined
+        ? {}
+        : { assignmentEvidence: copyAssignmentEvidence(current.assignmentEvidence) }),
       draft,
       status: to,
       updatedAt: new Date().toISOString(),
@@ -113,8 +135,11 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     return next;
   }
 
-  function suggest(input: SuggestInput): Task {
+  function suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence): Task {
     if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
+    if (assignmentEvidence !== undefined && !isAssignmentEvidence(assignmentEvidence)) {
+      throw new CommandError('Invalid assignment evidence');
+    }
 
     const task: Task = {
       id: `task-${randomUUID()}`,
@@ -122,6 +147,9 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       context: input.context,
       suggestedAssignee: input.suggestedAssignee,
       actionKind: input.actionKind,
+      ...(input.decisionSource === undefined ? {} : { decisionSource: input.decisionSource }),
+      ...(input.agendaItemTitle === undefined ? {} : { agendaItemTitle: input.agendaItemTitle }),
+      ...(assignmentEvidence === undefined ? {} : { assignmentEvidence: copyAssignmentEvidence(assignmentEvidence) }),
       status: 'SUGGESTED',
       updatedAt: new Date().toISOString(),
     };

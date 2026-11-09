@@ -1,5 +1,6 @@
 import { parseJsonReply, type LlmClient } from '../llm';
-import type { ActionDraft, KakiCommand, KakiEvent, NpcProfile, Role, Scenario, Task } from '@kaki/shared';
+import { isAssignmentEvidence, type ActionDraft, type KakiCommand, type KakiEvent, type NpcProfile, type Role, type Scenario, type Task } from '@kaki/shared';
+import { isHypotheticalProposal, isSelfVolunteerCommitment } from '../host/notetaker';
 
 /** What the responder needs from the rest of the NPC process; each is replaced in tests. */
 export interface TaskResponderPorts {
@@ -14,6 +15,8 @@ export interface TaskResponderPorts {
   log?(message: string): void;
   /** How long they "read" a draft before approving it; a person would not approve in the same instant. */
   approveDelayMs?: number;
+  /** When true, still claim and draft tasks, but never auto-approve or retry so nothing is sent. */
+  draftOnly?: boolean;
 }
 
 /** Default pause before an AI attendee approves a draft. */
@@ -28,6 +31,25 @@ function profileFor(scenario: Scenario, role: Role): { npc: NpcProfile; attendee
   const attendee = scenario.attendees.find((candidate) => candidate.role === role);
   const npc = (scenario.npcs ?? []).find((candidate) => candidate.attendee === attendee?.name);
   return attendee === undefined || npc === undefined ? undefined : { npc, attendee: attendee.name };
+}
+
+function baseSpeakerName(speaker: string): string {
+  return speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+}
+
+/**
+ * True only when the recorded evidence is the current assignee's own grounded commitment to exactly this task.
+ * A changed title, context or action is a different task, and a request, delegation, question or hypothetical
+ * (or evidence about someone else) never grants acceptance authority.
+ */
+function isTrustedCommitment(task: Task, attendee: string, scenario: Scenario): boolean {
+  const evidence = task.assignmentEvidence;
+  if (evidence === undefined || !isAssignmentEvidence(evidence)) return false;
+  if (baseSpeakerName(evidence.speaker) !== baseSpeakerName(attendee)) return false;
+  if (!isSelfVolunteerCommitment(evidence.quote, scenario, evidence.speaker)) return false;
+  if (isHypotheticalProposal(evidence.quote)) return false;
+  const { scope } = evidence;
+  return scope.title === task.title && scope.context === task.context && scope.actionKind === task.actionKind;
 }
 
 /** The model's accept-or-decline answer, or undefined when it is not usable. */
@@ -84,15 +106,33 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
     } catch (error) {
       log?.(`${npc.attendee}'s answer to "${task.title}" failed (${error instanceof Error ? error.message : String(error)}); accepting`);
     }
-    return { accept: true, line: "Sure, I'll take that one." };
+    const fallbackLines = [
+      "Sure, I'll take that one.",
+      "On it, I'll sort that out.",
+      "No problem, leave that with me.",
+      "Steady, I can handle that.",
+    ];
+    const line = fallbackLines[Math.abs(task.title.length) % fallbackLines.length]!;
+    return { accept: true, line };
+  }
+
+  function claimCommand(task: Task): KakiCommand {
+    return { type: 'CLAIM_TASK', taskId: task.id, mode: task.actionKind === undefined ? 'MANUAL' : 'ACTION_AGENT' };
   }
 
   async function respond(task: Task, role: Role, who: { npc: NpcProfile; attendee: string }): Promise<void> {
+    // The assignee already volunteered for this exact task in the transcript, so hold them to their own words
+    // instead of letting the model talk them out of it. Any change to the work, or any doubt about the evidence,
+    // falls back to the ordinary in-character decision.
+    if (isTrustedCommitment(task, who.attendee, scenario)) {
+      const line = "I said I'd take that on, so I'll do it.";
+      log?.(`${who.attendee} keeps their own commitment to "${task.title}": "${line}"`);
+      ports.say(who.attendee, line, () => ports.send(role, claimCommand(task)));
+      return;
+    }
     const decision = await decide(task, who.npc, role);
     log?.(`${who.attendee} ${decision.accept ? 'accepts' : 'declines'} "${task.title}": "${decision.line}"`);
-    const command: KakiCommand = decision.accept
-      ? { type: 'CLAIM_TASK', taskId: task.id, mode: task.actionKind === undefined ? 'MANUAL' : 'ACTION_AGENT' }
-      : { type: 'DECLINE_TASK', taskId: task.id };
+    const command: KakiCommand = decision.accept ? claimCommand(task) : { type: 'DECLINE_TASK', taskId: task.id };
     ports.say(who.attendee, decision.line, () => ports.send(role, command));
   }
 
@@ -109,12 +149,12 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
       if (task.status === 'DISPATCHED' && !answered.has(task.id)) {
         answered.add(task.id);
         void respond(task, role, who);
-      } else if (task.status === 'DRAFT_READY' && task.draft !== undefined && !approved.has(task.id)) {
+      } else if (!ports.draftOnly && task.status === 'DRAFT_READY' && task.draft !== undefined && !approved.has(task.id)) {
         approved.add(task.id);
         const draft: ActionDraft = task.draft;
         log?.(`${who.attendee} is reading the draft for "${task.title}"`);
         setTimeout(() => ports.send(role, { type: 'APPROVE_ACTION', taskId: task.id, draft }), ports.approveDelayMs ?? DEFAULT_APPROVE_DELAY_MS).unref();
-      } else if (task.status === 'FAILED' && !retried.has(task.id)) {
+      } else if (!ports.draftOnly && task.status === 'FAILED' && !retried.has(task.id)) {
         retried.add(task.id);
         log?.(`${who.attendee} is retrying failed task "${task.title}"`);
         setTimeout(

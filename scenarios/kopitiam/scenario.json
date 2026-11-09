@@ -13,10 +13,10 @@
           "Four freelancers held the 4-seater booths for two hours every morning this week on a single $2.20 drink, costing about $420 a morning in lost breakfast sets.",
           "Auntie Mary (62) is the only floor staff who seats solo diners with hot trays and clears tables. A customer in a suit shouted at her last week when she moved his tissue packet, and she will not police seats or touch customers' belongings.",
           "60% of our morning customers dine solo and cannot carry a hot tray of runny soft-boiled eggs without a table.",
-          "Our internal counter hygiene SOP keeps money handling separate from ready-to-eat food: anyone who touches coins or notes must change gloves and wash hands before slicing toast (+40s per order). Counting the cash float at night costs $380 a month in overtime.",
-          "The toast counter runs on two staff at the 8am rush, so there is no spare pair of hands to take cash and make change without slowing toast orders.",
-          "Wholesale Anchor salted butter went up 35% last month. Doubling the 12g slab to 20g on every set adds $0.42 a set, about $1,100 a month in margin.",
-          "We have $750 left in the launch promo budget."
+          "A customer from our soft trial was hospitalized yesterday with suspected salmonella from soft-boiled eggs; SFA inspectors arrive tomorrow morning at 9:00 AM.",
+          "Our egg sous-vide bath dipped below 60°C for 45 minutes during yesterday's rush; pulling soft-boiled eggs completely wipes out 60% of breakfast set orders ($1,800/morning).",
+          "Delivery platforms take a 32% commission on breakfast sets ($3.20 on a $10 set), turning delivery orders net-negative. Using our floor staff for in-house deliveries carries rain surge and traffic accident liability.",
+          "Our storeroom has two unopened cartons of pasteurized backup eggs ready to heat to 63°C (22 minutes per batch)."
         ],
         "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without breaking food hygiene or blowing our margin."
       }
@@ -31,8 +31,7 @@
           "The kitchen docket currently prints the same button name the customer sees, so renaming a button changes what the kitchen reads. POS v2.4 can hold a separate kitchen print name, but it has to be configured and tested before the morning rush.",
           "When English names printed on kitchen dockets at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds a cup.",
           "The 12 booth wall sockets and guest Wi-Fi run on a programmable smart relay breaker in the back room. Cutting power also hits paying customers using the sockets.",
-          "Physical cash bill-acceptors for the kiosks cost $1,400 and take 3 weeks to arrive. There is no spare till or cashier terminal at the front.",
-          "The kiosks can take cards and PayNow tomorrow, but not cash.",
+          "Raising our GrabFood menu price by 30% ($13 for a toast set) triggers platform price-parity penalties, while our direct web QR link only supports self-pickup because the POS has no rider dispatch integration.",
           "POS changes made tonight still need a short kitchen test before 8am."
         ],
         "responsibility": "Keep the kiosks, kitchen printer, and store power simple enough to configure and test tonight."
@@ -45,10 +44,9 @@
         "youAre": "You are Mei, Menu & Store Experience Lead looking after our kopi and kaya toast recipes, the menu, and customer flow.",
         "facts": [
           "In yesterday's Raffles Place trial, 19 of 28 first-time kiosk users froze for over 2 minutes at 'Kopi O Kosong', 'Kopi C Siew Dai' or 'Teh Halia', and 72% missed the small corner language toggle.",
-          "Our retired morning regulars carry $2 and $10 notes, so a $2.20 Kopi always needs change. Yesterday 14 of them walked out when asked to use a $20 minimum stored-value card instead.",
+          "Soft-boiled eggs require continuous 63°C holding to prevent salmonella enteritidis; heating a fresh pasteurized backup batch takes 22 minutes and cannot be rushed without ruining the runny yolk texture.",
           "60% of our morning crowd dines solo while carrying hot trays of runny soft-boiled eggs.",
-          "Our 12g cold butter slab did not shrink: it stays thick on dine-in open plates, but melts flat inside a closed takeaway box with hot toast.",
-          "A separate chilled butter cup costs $0.05 a box, and a steam-vented takeaway box is also available; both keep the same 12g slab.",
+          "Corporate CBD towers order 20+ toast sets at once on shared GrabFood group carts; if we de-list from GrabFood, office admins will immediately switch orders to Ya Kun.",
           "Local regulars mocked a rival kopitiam on Reddit when it renamed Kopi O to 'Local Americano'."
         ],
         "responsibility": "Keep our kopi and kaya toast authentic while making ordering and finding a seat easier."
@@ -60,13 +58,12 @@
       "card": {
         "youAre": "You are Daniel, Marketing Lead looking after TikTok reviews, store promos, and public goodwill.",
         "facts": [
-          "Food TikToker @MakanWithZack (85k followers) posted a reel titled 'Did Nanyang Kopi shrink their butter slice?!' that already has 90,000 views.",
-          "Zack offered to film an 8:30am live re-taste tomorrow for $600 cash, or $450 cash plus 20 Kaya Toast plushie keychains from our storeroom.",
-          "Zack warned that his followers will check whether regular customers get the exact same portion he is served.",
-          "A TikTok clip of a 74-year-old regular turned away at our 'NO CASH ACCEPTED' sign has 40,000 views calling us anti-elderly.",
+          "A soft-trial diner was hospitalized yesterday with suspected salmonella (hospital lab results take 48 hours); Straits Times journalists arrive at 8:00 AM for our ribbon-cutting, and SFA inspectors arrive at 9:00 AM.",
+          "GrabFood and Foodpanda deliver 50% of our peak morning volume; de-listing wipes out $2,400 in morning sales and hands the CBD corporate market to competitors.",
+          "Adding a 30% price markup on GrabFood ($13 for a $10 toast set) breaches platform price-parity visibility rules and risks immediate customer backlash.",
           "Google reviews dropped to 3.6 stars during our soft trial because breakfast walk-ins could not find a seat while laptop campers held the 4-seater booths for two hours."
         ],
-        "responsibility": "Win back public goodwill on TikTok without promising things the kitchen cannot deliver for every customer."
+        "responsibility": "Protect our launch reputation and corporate CBD accounts without making promises the kitchen or floor staff cannot keep."
       }
     },
     {
@@ -101,30 +98,30 @@
         "openingViews": [
           {
             "attendee": "Mei",
-            "view": "First-timers freeze because the kiosk assumes they already know Kopi shorthand. We should make the drink choices easier to understand without hiding our own names."
+            "view": "In yesterday's trial at Raffles Place, first-timers jammed the kiosks because traditional names like 'Kopi O Kosong' confused them, and 72% missed the corner language toggle. 19 of 28 first-timers stalled until the queue backed out into the concourse, and with our opening tomorrow at 8am, we need drink ordering clear without losing our kopitiam roots."
           },
           {
             "attendee": "Arjun",
-            "view": "Every extra label or screen we add has to survive the 15-inch, 12-button grid and the kitchen docket, so I do not want a change that makes the kitchen read long English names."
+            "view": "The technical issue is that the kiosk software prints the exact button label straight onto the kitchen docket. Our kopi uncles read 1-second shorthand like 'KO'. If we replace local names with long English explanations, the 12-button screen overflows onto page two and slows kitchen prep by 15 seconds a cup."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "19 of 28 first-time trial users froze at Kopi O Kosong and 72% missed the corner language toggle; a fix that only adds a toggle leaves most people stuck.",
+            "tradeOff": "Kiosk ordering freeze: 19 of 28 first-timers stalled at 'Kopi O Kosong' and 72% missed the corner language toggle, backing queues out into the mall concourse.",
             "question": "What does a first-timer actually see at the moment they have to choose a drink?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "The kitchen docket prints the same button name the customer sees, and the 12-button grid leaves no room for long two-line labels on one page.",
+            "tradeOff": "Kitchen docket bottleneck: Dockets print the exact button label; long English names overflow the 12-button screen and slow kopi uncles by 15s a cup.",
             "question": "How do we keep the kitchen ticket readable without pushing half the menu onto a second page?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "The kopi uncles read shorthand at a glance; a slow docket costs 15 seconds a cup at the morning rush and there is no spare hand to help them.",
+            "tradeOff": "Peak rush throughput: Kopi uncles scan 1-second shorthand at morning rush; interpreting new ticket labels creates an immediate kitchen logjam.",
             "question": "Who absorbs the extra time if the kitchen has to interpret new labels?"
           }
         ]
@@ -133,122 +130,116 @@
     {
       "title": "Morning seat crunch & laptop campers",
       "minutes": 4,
-      "ownerRole": "producer",
+      "ownerRole": "lead_programmer",
       "contested": true,
       "decision": "how do we free up tables for breakfast diners without turning Auntie Mary into seat police or punishing solo customers?",
       "discussion": {
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "The morning floor is losing tables to tissue-packet reservations and laptop campers, and Auntie Mary cannot be the one who confronts customers."
+            "view": "Soft trial Google reviews dropped to 3.6 stars because breakfast customers couldn't find a table. Freelancers camp in four of our 4-seater booths for two hours over one $2.20 kopi—locking up 16 of our 28 seats—and Auntie Mary got shouted at yesterday just for asking someone to share a booth. We open at 8am tomorrow and need a clear seating rule so staff aren't left fighting customers."
           },
           {
             "attendee": "Mei",
-            "view": "Most of our morning customers are solo diners carrying hot trays. Any rule that makes them wait longer for a seat hurts the people we are trying to protect."
+            "view": "The reason people hold tables is that 60% of our morning customers are solo diners carrying scalding hot trays of runny eggs and kopi. They physically cannot hold a hot tray in a queue without securing a seat first with tissues. If we enforce a blanket ban on table-holding, we leave genuine solo diners stranded with boiling food and turn Auntie Mary into a bouncer."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Four 4-seater booths (16 of 28 seats) are held for two hours by freelancers on one $2.20 drink, costing about $420 a morning, and Auntie Mary was shouted at the last time she moved a tissue packet.",
+            "tradeOff": "Revenue & seat lockup: 4 booths (16 of 28 seats) held for 2 hours over one $2.20 kopi ($420/morning lost); Auntie Mary got yelled at when moving tissues.",
             "question": "Who enforces any new seating rule if it cannot be Auntie Mary?"
           },
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "60% of morning customers dine solo and cannot carry a hot tray of runny eggs without a table; a blanket ban on reserving seats leaves them standing with hot food.",
+            "tradeOff": "Solo diners stranded: 60% of breakfast diners are solo customers carrying scalding egg trays and kopi; a blanket ban leaves them stranded with boiling food.",
             "question": "Where does a solo diner with a hot tray sit while the queue clears?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "The booth sockets and guest Wi-Fi run on a smart relay breaker, but cutting power is a blunt tool that also hits paying customers and can look petty online.",
+            "tradeOff": "Smart breaker bluntness: Booth sockets and Wi-Fi run on smart relays, but cutting power hits legitimate diners and risks immediate social media backlash.",
             "question": "Is the answer power, layout or timing, and what evidence will tell us it worked?"
           }
         ]
       }
     },
     {
-      "title": "Elderly regulars turned away at cashless kiosks",
+      "title": "SFA food safety inspection & salmonella report",
       "minutes": 4,
-      "ownerRole": "lead_programmer",
+      "ownerRole": "producer",
       "contested": true,
-      "decision": "how do we let retired regulars pay with cash without breaking our counter hygiene or forcing them into prepayment?",
+      "decision": "how do we handle tomorrow's SFA inspection and salmonella report without sparking a media panic or wiping out 60% of our breakfast sets?",
       "discussion": {
         "openingViews": [
           {
-            "attendee": "Arjun",
-            "view": "The kiosks cannot take cash tomorrow. The hardware is expensive and slow to arrive, so I need a plan that works with the equipment we already have."
+            "attendee": "Daniel",
+            "view": "A soft-trial diner was hospitalized yesterday with suspected salmonella, and Straits Times journalists arrive at 8:00 AM before SFA inspects at 9:00 AM. Even though hospital lab results take 48 hours, we should pause soft-boiled eggs for the morning and put out a precautionary supplier batch #402 review notice so the press sees us acting first."
           },
           {
-            "attendee": "Wei Ling",
-            "view": "Our counter hygiene rule exists for a reason: the toast staff cannot handle money and ready-to-eat food in the same pair of gloves."
+            "attendee": "Mei",
+            "view": "Hold on—our sous-vide holding bath dipped to 58°C for 45 minutes during yesterday's rush, and SFA will swab the tank and check our temperature log at 9:00 AM. If we publicly point at the supplier or pull eggs before lab confirmation, we spark a media panic and kill 60% of breakfast sets when we have unopened pasteurized backup cartons ready to hold at 63°C."
           }
         ],
         "tradeOffs": [
           {
-            "attendee": "Wei Ling",
-            "role": "producer",
-            "tradeOff": "Money and ready-to-eat food must stay separate: staff who touch coins or notes must change gloves and wash hands before slicing toast, adding 40 seconds per order, and nightly float counting costs $380 a month in overtime.",
-            "question": "Who runs the cash point, and how are change and payment counted and balanced at close?"
-          },
-          {
-            "attendee": "Arjun",
-            "role": "lead_programmer",
-            "tradeOff": "Physical kiosk cash acceptors cost $1,400 and take three weeks, and the front has no spare till or cashier terminal.",
-            "question": "What can take cash tomorrow without new hardware or a second queue?"
-          },
-          {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "A 74-year-old regular was filmed being turned away and the clip has 40,000 views; 94% of the regulars who walked out carry only $2 or $10 notes, so a $2.20 Kopi needs change.",
-            "question": "How do we make the fix visible and simple enough that no regular has to download an app or prepay $20?"
+            "tradeOff": "8am press vs unconfirmed lab: Straits Times arrives at 8am while hospital lab results take 48h; a precautionary pause shows action but risks sparking a launch panic.",
+            "question": "What do we tell the 8am press and customers while the hospital lab test is still pending?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "game_designer",
+            "tradeOff": "58°C bath dip & SFA swab: Holding bath dipped below 60°C for 45m yesterday; SFA swabs at 9am, though unopened pasteurized backup eggs can hold at 63°C.",
+            "question": "Do we pull soft-boiled eggs completely, or sanitize the bath and run the pasteurized backup batch at 63°C?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "tradeOff": "Breakfast revenue vs compliance: Soft-boiled eggs anchor 60% of breakfast sets ($1,800/morning); pulling them guts launch sales, but failing SFA's 9am check shuts us down.",
+            "question": "Who logs and verifies our 9am SFA inspection protocol on the kitchen line?"
           }
         ]
       }
     },
     {
-      "title": "@MakanWithZack's TikTok on our butter slice",
+      "title": "Delivery platform 32% commission squeeze",
       "minutes": 4,
       "ownerRole": "marketing_lead",
       "contested": true,
-      "decision": "how should we answer @MakanWithZack's butter video and tomorrow's re-taste without faking portions or blowing our margin?",
+      "decision": "how do we protect breakfast margins against 32% delivery commissions without losing 50% of our CBD corporate morning volume?",
       "discussion": {
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "This video is painting us as stingy. We need a visible response tomorrow, not a quiet correction."
+            "view": "GrabFood and Foodpanda just hiked commissions to 32%, so every $10 breakfast set delivered to CBD office towers loses $0.40 after packaging. But platforms drive 50% of our morning revenue—$2,400 a morning—and if we delist or slap a 30% markup on single sets, office regulars will switch straight to Ya Kun."
           },
           {
-            "attendee": "Mei",
-            "view": "The butter did not shrink; our takeaway packing is melting it. Doubling every slice would punish the kitchen and our margin for a problem that may be in the box."
+            "attendee": "Arjun",
+            "view": "And we can't just redirect delivery orders to our direct web QR link tonight because our POS has no rider dispatch integration and doesn't batch group delivery dockets for the kitchen. Plus, raising our GrabFood menu price by 30% to $13 triggers platform price-parity penalties that bury our store listing."
           }
         ],
         "tradeOffs": [
           {
-            "attendee": "Mei",
-            "role": "game_designer",
-            "tradeOff": "The 12g slab stays thick on dine-in open plates but melts flat in a closed takeaway box with hot toast; any fix has to keep the same standard for every customer.",
-            "question": "What do we change so the customer sees the butter we actually serve?"
-          },
-          {
-            "attendee": "Wei Ling",
-            "role": "producer",
-            "tradeOff": "Anchor salted butter is up 35%; doubling to 20g on every set costs $0.42 a set, about $1,100 a month, and we only have $750 left in the launch budget.",
-            "question": "What can we spend on a response, and what are we willing to change permanently?"
-          },
-          {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Zack wants $600 cash, or $450 with 20 plushies, for an 8:30am live re-taste, and his followers will check whether regular customers get the same portion.",
-            "question": "What do we show on camera, and how do we prove it is the standard every customer gets?"
+            "tradeOff": "Commission vs CBD volume: Platforms take 32% ($0.40 loss per $10 set), but delisting forfeits $2,400/morning (50% of volume) to Ya Kun.",
+            "question": "How do we restructure our delivery menu or order minimums so we stop losing $0.40 per set?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Regular customers queue right behind Zack; an influencer-only portion or a secret button will be seen and will backfire.",
-            "question": "How do we make any change visible and consistent at the counter?"
+            "tradeOff": "Price-parity & POS rider gap: A 30% GrabFood markup triggers platform ranking penalties, and our direct QR link only supports self-pickup with no rider dispatch.",
+            "question": "How do we use our POS or QR ordering without violating platform price-parity or needing rider dispatch?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "tradeOff": "Floor staff runner risk: Pulling counter or floor staff to hand-deliver CBD office orders during 8am rush leaves the shop short-handed and carries injury liability.",
+            "question": "Who handles fulfillment at 8am without pulling our counter staff off the line?"
           }
         ]
       }
@@ -261,7 +252,7 @@
     "chope": "reserving a kopitiam table by leaving a packet of tissue paper or lanyard on it",
     "Set A": "kaya butter toast with two soft-boiled eggs and a hot kopi or tea",
     "POS": "point-of-sale system (the self-order kiosk, cashier screen, and kitchen docket printer)",
-    "MakanWithZack": "a local Singapore food TikToker with 85,000 followers who reviewed our Kaya Butter Toast",
+    "SFA": "Singapore Food Agency (the national food hygiene and safety regulator)",
     "Auntie Mary": "our 62-year-old floor staff member who clears trays and wipes tables",
     "kiosk": "the 15-inch self-order touchscreens at the front of the outlet"
   },
@@ -276,13 +267,17 @@
     "Auntie Mary",
     "Set A",
     "Raffles Place",
-    "MakanWithZack",
+    "SFA",
+    "salmonella",
+    "sous-vide",
+    "GrabFood",
+    "Foodpanda",
+    "Ya Kun",
     "PayNow",
     "TikTok",
     "kiosk",
     "POS",
     "docket",
-    "plushie",
     "Gitea",
     "Mattermost",
     "Arjun",
@@ -302,9 +297,9 @@
       "role": "participant",
       "playable": true,
       "withRoles": {
-        "producer": "Your boss on store operations. Give exact technical constraints on the POS kitchen printer, smart power/Wi-Fi relays, or cashless kiosk hardware, matching ONLY the current agenda topic.",
+        "producer": "Your boss on store operations. Give exact technical constraints on the POS kitchen printer, smart power/Wi-Fi relays, or direct QR self-pickup vs platform price-parity rules, matching ONLY the current agenda topic.",
         "game_designer": "A friendly rival. Respect her UX ideas, but remind her what happens to the 15-inch touch grid and kitchen thermal dockets when button labels change.",
-        "marketing_lead": "Wants good PR. Point out why physical kiosk cash acceptors take 3 weeks and $1,400 (when discussing cashless kiosks) or why secret influencer-only portions break POS and kitchen consistency (when discussing the butter TikTok).",
+        "marketing_lead": "Wants good PR. Point out why a 30% GrabFood markup triggers platform price-parity penalties and why our direct web QR link only supports self-pickup without rider dispatch.",
         "studio_manager": "The meeting host keeping everyone on time. Flag technical catches clearly and concisely."
       },
       "speechStyle": "Skeptical, pragmatic Singaporean tech lead with dry NS-style humour. Speaks crisp, practical sentences and always brings up second-order technical and operational catches. Uses at most one light, natural local expression when the moment calls for it (such as 'wah' or 'steady'), without forcing Singlish catchphrases when plain English sounds more natural.",
@@ -320,23 +315,21 @@
         },
         {
           "with": "Daniel",
-          "about": "cashless kiosks vs elderly regulars: Daniel worries about the 40k-view TikTok clip, but kiosk cash hardware costs $1,400 and takes 3 weeks, and a coin drawer at the toast counter breaks the hygiene SOP"
+          "about": "delivery platform commissions vs POS limits: Daniel wants to protect CBD volume or raise delivery prices, but a 30% markup triggers GrabFood price-parity penalties and our direct QR link has no rider dispatch"
         }
       ],
       "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
-      "personality": "Tech & POS Lead. Pragmatic, dryly funny, protective of kiosk layout limits, kitchen docket printing, and clean payment flows.",
-      "agenda": "Only raise facts for the active agenda item: protect traditional Kopi shorthand on the kitchen printer and the 15-inch 12-button grid (for the kiosk menu topic), protect store power and Wi-Fi limits (for the seat crunch topic), explain the $1,400 / 3-week kiosk hardware and missing cash till (for the cashless kiosk topic), or protect kitchen and POS consistency (for the @MakanWithZack butter topic).",
+      "personality": "Tech & POS Lead. Pragmatic, dryly funny, protective of kiosk layout limits, kitchen docket printing, and clean POS workflows.",
+      "agenda": "Only raise facts for the active agenda item: protect traditional Kopi shorthand on the kitchen printer and the 15-inch 12-button grid (for the kiosk menu topic), protect store power and Wi-Fi limits (for the seat crunch topic), or explain platform price-parity rules and why our direct QR link only supports self-pickup without rider dispatch (for the delivery platform topic).",
       "concerns": [
         "On the kiosk Kopi menu topic: renaming a button changes the kitchen docket, our 65-year-old kopi uncles take 15 seconds longer per cup when they read English names, and the 15-inch screen only fits 12 buttons per page.",
         "On the morning seat crunch topic: four 4-seater booths (16 of our 28 seats) are hogged every morning by laptop freelancers on a single drink because of the 12 booth wall sockets and free Wi-Fi, while Auntie Mary refuses to confront customers over tissue packets.",
-        "On the cashless kiosks topic: a physical cash note-acceptor module costs $1,400 and takes 3 weeks, there is no spare till or cashier terminal at the front, and a cash point needs a free pair of hands.",
-        "On the @MakanWithZack butter slice topic: an influencer-only portion or a secret double-butter button will be seen by regular customers queueing behind him and will backfire."
+        "On the delivery platform topic: raising our GrabFood menu price by 30% ($13 for a toast set) triggers platform price-parity penalties, and our direct web QR link only supports self-pickup because the POS has no rider dispatch integration or group delivery ticket batching."
       ],
       "knows": [
         "POS v2.4 can hold a separate kitchen print name from the customer-facing button name, but it has to be configured and kitchen-tested before 8am.",
         "The 12 booth wall power sockets and guest Wi-Fi router run on a smart relay breaker in the back room; cutting it also affects paying customers.",
-        "The kiosks can take card and PayNow tomorrow but not cash, and the front has no spare till or cashier terminal.",
-        "Any permanent POS change made tonight still has to work at the 8am rush, not just in a quiet test."
+        "Our direct web QR ordering system can take pre-orders for express self-pickup with zero commission, or we can bundle corporate 5-set platters on GrabFood as a distinct menu SKU so single-set price parity isn't breached."
       ]
     },
     {
@@ -345,13 +338,13 @@
       "role": "participant",
       "playable": true,
       "withRoles": {
-        "producer": "Your operations partner. Remind her that 60% of morning customers are solo diners who cannot carry a hot tray without a table, and on the butter topic point out why doubling butter across all sets wipes out $1,100/month in margin when the real issue is steam in closed takeaway boxes melting our 12g cold butter slab.",
+        "producer": "Your operations partner. Remind her that 60% of morning customers are solo diners who cannot carry a hot tray without a table, and on food safety point out that our unopened pasteurized backup egg cartons can be held safely at 63°C.",
         "lead_programmer": "Push him to help first-timers understand Kopi without turning our menu into a soulless Western cafe or breaking the kitchen printer.",
-        "marketing_lead": "Your partner on food craft and store vibe. Push back if he wants to double our butter portion across the board or give a secret double portion only to Zack, because regular customers will compare.",
+        "marketing_lead": "Your partner on food craft and store vibe. Push back if he wants to pull soft-boiled eggs or blame supplier batch #402 before hospital lab results return, because our holding bath dipped to 58°C yesterday and we have safe pasteurized backup cartons.",
         "studio_manager": "The meeting host. Share concrete store trial numbers and kitchen findings so we don't settle for a half-baked fix."
       },
       "speechStyle": "Warm, expressive, detail-obsessed kopitiam experience lead who cares deeply about authentic Nanyang Kopi & Kaya Toast craft, the 65-year-old kopi uncles, solo office workers carrying hot egg trays, and elderly regulars. Speaks clear, earnest English without American idioms or forced Singlish slang.",
-      "hiddenGoal": "She wants expats to understand Kopi while keeping authentic names, a non-confrontational fix for the 28-seat crunch, and the same thick butter standard for every customer without blowing margin.",
+      "hiddenGoal": "She wants expats to understand Kopi while keeping authentic names, a non-confrontational fix for the 28-seat crunch, and safe 63°C pasteurized soft-boiled eggs without a knee-jerk menu pull.",
       "tensions": [
         {
           "with": "Arjun",
@@ -359,26 +352,26 @@
         },
         {
           "with": "Wei Ling",
-          "about": "the 28-seat chope-ing problem and the viral butter video: solo diners need a spot before holding hot egg trays, and we need to stop takeaway butter from melting without wiping out margin"
+          "about": "the 28-seat chope-ing problem and the SFA inspection: solo diners need a spot before holding hot egg trays, and we cannot rush 22-minute pasteurized egg batches without ruining yolk texture"
         },
         {
           "with": "Daniel",
-          "about": "on @MakanWithZack's TikTok: Daniel wants a visible win tomorrow, but doubling every slice wipes out $1,100/month and our 12g slab only melted because it was sealed inside a hot takeaway box"
+          "about": "on the salmonella report: Daniel wants a precautionary egg suspension and supplier batch #402 statement before the 8am press arrives, while Mei wants to sanitize the tank and use our unopened pasteurized backup cartons at 63°C"
         }
       ],
       "soundsLike": ["May", "Maya", "Mae"],
-      "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and protective of both first-time tourists and elderly regulars.",
-      "agenda": "Fix the kiosk Kopi O Kosong freeze without losing our kopitiam identity, protect solo diners with hot trays in our 28-seat shop, and fix the takeaway butter melt that caused @MakanWithZack's viral complaint without blowing our food margin.",
+      "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and protective of both first-time tourists and food safety.",
+      "agenda": "Fix the kiosk Kopi O Kosong freeze without losing our kopitiam identity, protect solo diners with hot trays in our 28-seat shop, safeguard soft-boiled egg holding at 63°C using our pasteurized backup cartons, and protect CBD corporate orders from delivery platform cuts.",
       "concerns": [
         "In yesterday's Raffles Place kiosk trial, 19 of 28 first-time users froze for over 2 minutes at 'Kopi O Kosong', 'Kopi C Siew Dai', and 'Teh Halia', while 72% never noticed the small corner language toggle.",
         "When a rival kopitiam renamed 'Kopi O Kosong' to 'Local Americano', local regulars roasted them on Reddit and our 65-year-old kopi uncles slowed down by 15 seconds per cup trying to read long English dockets.",
         "60% of our Raffles Place morning customers dine solo. If you ban reserving a seat before ordering without giving them a workable alternative, solo customers end up holding a hot tray of runny eggs with zero seats available.",
-        "On @MakanWithZack's viral 'shrinking butter' video: wholesale Anchor salted butter jumped 35% last month, doubling our butter to 20g wipes out $1,100/month in margin, and a secret double portion only for Zack will be seen by regulars. Our 12g slab melted because Zack ordered takeaway and the hot toast steamed it inside the closed box."
+        "On the salmonella report: soft-boiled eggs must be held at 63°C continuously. Yesterday's bath dipped to 58°C for 45 minutes during rush, and SFA will swab the bath at 9am—so blaming supplier batch #402 will backfire if the lab matches our tank, whereas we have unopened pasteurized backup eggs we can hold at 63°C."
       ],
       "knows": [
         "The kiosk trial showed first-timers stall at the drink step, not at payment; the language toggle in the corner is easy to miss.",
         "For the 28-seat crunch, the shop has numbered table tokens in the storeroom and two window booths that could be used differently, but any change has to work for solo diners carrying hot trays.",
-        "Our 12g butter slab stays thick on dine-in open plates; takeaway butter melts in a closed box with hot toast, and a side cup or vented box costs about $0.05 a box."
+        "Pasteurized soft-boiled egg batches take 22 minutes to heat at 63°C; pulling eggs tomorrow kills $1,800 in morning revenue, while our two unopened backup cartons have clean supplier certificates."
       ]
     },
     {
@@ -386,32 +379,32 @@
       "voice": "en-SG-LunaNeural?rate=-8%",
       "playable": true,
       "role": "participant",
-      "speechStyle": "Sharp, no-nonsense Singaporean operations boss who counts every dollar, butter gram, counter hygiene step, and staff shift. Speaks directly with zero fluff ('Bottom line is...', 'Who is going to enforce that?', 'Do you know how much Anchor butter costs right now?'). Uses natural Singaporean cadence without forced slang.",
-      "hiddenGoal": "She wants to protect Auntie Mary and the counter hygiene SOP, keep cash handling away from ready-to-eat food, and avoid doubling butter portions across all sets.",
-      "personality": "Operations Director. Pragmatic, fiercely protective of her elderly outlet staff, and allergic to ideas that sound nice online but fail on a busy shop floor.",
-      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, breaking our counter hygiene SOP, or blowing our butter margin and $750 launch budget.",
+      "speechStyle": "Sharp, no-nonsense Singaporean operations boss who counts every dollar, food safety step, counter hygiene rule, and staff shift. Speaks directly with zero fluff ('Bottom line is...', 'Who is going to enforce that?', 'Do you know what an SFA stop-work order means?'). Uses natural Singaporean cadence without forced slang.",
+      "hiddenGoal": "She wants to protect Auntie Mary, keep the kitchen compliant with SFA's 9:00 AM inspection without losing $1,800 in breakfast sets, and stop 32% delivery fees from bleeding margins.",
+      "personality": "Operations Director. Pragmatic, fiercely protective of her outlet staff and kitchen compliance, and allergic to ideas that sound nice online but fail on a busy shop floor.",
+      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, risking an SFA stop-work closure, or getting store staff injured running delivery orders in CBD traffic.",
       "concerns": [
         "Signboards banning tissue packets do not work by themselves: our only floor auntie (Auntie Mary, 62) got screamed at by a customer in a suit last week when she moved his tissue packet, and she refuses to police seats or touch customers' belongings.",
         "Four 4-seater booths (16 of our 28 seats) are being hogged for 2 hours every morning by laptop freelancers buying a single $2.20 Kopi O because of the 12 wall power sockets and free guest Wi-Fi, costing us $420 every morning in lost breakfast sets.",
-        "For the cashless kiosk issue: our internal counter hygiene SOP keeps cash handling separate from ready-to-eat food; our 2 toast staff would need to change gloves and wash hands after touching coins or notes (+40s per order), plus nightly cash float counting costs $380/month in overtime.",
-        "For the viral butter video: wholesale Anchor salted butter jumped 35% last month, doubling butter from 12g to 20g on every toast set wipes out $1,100/month in margin, and we only have $750 left in our launch promo budget."
+        "For the SFA salmonella inspection: soft-boiled eggs anchor 60% of our breakfast sets ($1,800/morning). Pulling eggs guts our launch revenue, but failing SFA's 9:00 AM swab and temperature log check shuts down the outlet.",
+        "For the delivery platform commission squeeze: delivery apps take 32% ($3.20 on a $10 set, losing $0.40 per order), but sending floor staff out to hand-deliver corporate orders in CBD morning rain and traffic leaves the counter short-handed and carries workplace injury liability."
       ],
       "knows": [
-        "We only have $750 left in the launch budget: Zack's standard fee is $600, or $450 with 20 plushies from our storeroom.",
-        "For the cashless kiosk topic: the two toast staff are flat out at the 8am queue, Auntie Mary is the only one seating solo diners with hot trays, and there is no spare till or cashier terminal at the front.",
+        "The SFA inspectors arrive at 9:00 AM tomorrow, and Straits Times press arrives at 8:00 AM; we have two unopened cartons of pasteurized backup eggs in the storeroom and can log manual 15-minute digital probe checks at 63°C.",
+        "For the delivery platform topic: corporate CBD towers order 20+ toast sets at once, and our two toast staff cannot leave the counter to run food upstairs without stopping the line.",
         "Our 65-year-old kopi uncles read traditional Kopi shorthand at a glance; if the thermal docket prints long English names, drink prep slows down by 15 seconds per cup."
       ],
       "withRoles": {
-        "producer": "Your fellow operations lead. Push hard on floor realism, staff protection, our counter hygiene SOP, and exact dollar margins.",
-        "lead_programmer": "Rely on his automated POS and smart-breaker controls so staff don't have to manually police laptops or count coins.",
-        "game_designer": "Back her up on protecting the kopi uncles' kitchen dockets and keeping our butter cost within margin.",
-        "marketing_lead": "Refuse to double butter cost to 20g across the board, and hold him to the $750 remaining budget cap.",
-        "studio_manager": "Back up the host by challenging any surface-level proposal that ignores kitchen hygiene, butter margins, or staffing limits."
+        "producer": "Your fellow operations lead. Push hard on floor realism, staff protection, SFA hygiene compliance, and exact dollar margins.",
+        "lead_programmer": "Rely on his automated POS and smart-breaker controls so staff don't have to manually police laptops or manage delivery riders.",
+        "game_designer": "Back her up on protecting the kopi uncles' kitchen dockets and maintaining strict 63°C egg pasteurization holding.",
+        "marketing_lead": "Hold him accountable: make sure any press statement on the salmonella report matches our kitchen facts, and protect our unit economics from 32% platform cuts.",
+        "studio_manager": "Back up the host by challenging any surface-level proposal that ignores SFA compliance, delivery margins, or staffing limits."
       },
       "tensions": [
         {
           "with": "Daniel",
-          "about": "how to fix the viral 'shrinking butter' video and the 'anti-elderly cashless' backlash without breaking our hygiene SOP or doubling the butter cost"
+          "about": "on the SFA inspection, whether to pause eggs for PR or run our verified 63°C backup batch; on delivery platforms, how to stop losing $0.40 per $10 set without sending floor staff into traffic"
         },
         {
           "with": "Mei",
@@ -425,52 +418,53 @@
       "voice": "en-SG-WayneNeural?rate=-6%",
       "playable": true,
       "role": "participant",
-      "speechStyle": "High-energy, fast-talking Singaporean marketer who thinks in TikTok hooks, comment-section sentiment, Google review ratings, and the 300 Kaya Toast plushie keychains. Enthusiastic and persuasive ('Hear me out', 'The comments are cooking us right now'), using at most one light local expression when excited without overdoing slang.",
-      "hiddenGoal": "He wants to turn @MakanWithZack's viral 'shrinking butter' critique into a visible redemption story tomorrow, and a warm, visible fix for cash-paying elderly uncles so TikTok stops calling us anti-elderly.",
+      "speechStyle": "High-energy, fast-talking Singaporean marketer who thinks in PR firestorms, viral clips, corporate CBD catering contracts, and Google reviews. Enthusiastic and persuasive ('Hear me out', 'The press will be here in hours'), using at most one light local expression when excited without overdoing slang.",
+      "hiddenGoal": "He wants a credible, proactive safety posture before Straits Times journalists arrive at 8:00 AM, and wants to keep our $2,400/morning CBD corporate delivery volume away from Ya Kun.",
       "personality": "Marketing Lead. Enthusiastic, protective of brand warmth and public perception, and quick to point out PR blowback.",
-      "agenda": "Turn @MakanWithZack's viral 'thin butter' video into a live redemption re-taste tomorrow morning at 8:30 AM, and stop the viral backlash over turning away cash-paying elderly uncles.",
+      "agenda": "Manage the 8:00 AM Straits Times arrival ahead of the 9:00 AM SFA inspection, protect our 3.6-star Google review rating, and retain 50% CBD corporate breakfast delivery volume despite 32% platform commissions.",
       "concerns": [
-        "Food TikToker @MakanWithZack (85k followers) posted a reel last night titled 'Did Nanyang Kopi shrink their butter slice?!' that already hit 90,000 views. If we ignore him or make excuses, everyone will think we're stingy.",
-        "Zack offered to come down at 8:30am tomorrow to film a live 'Redemption Re-Taste' for $600 cash (or $450 cash plus 20 Kaya Toast plushies from our storeroom), and he warned that if commenters catch us serving thicker butter only to influencers while normal customers get thin butter, we'll get cancelled.",
-        "For the cashless kiosk issue: someone filmed a 74-year-old regular uncle getting turned away at our 'NO CASH ACCEPTED' sign yesterday and the clip has 40,000 views calling us 'heartless and anti-elderly'."
+        "Straits Times journalists arrive at 8:00 AM tomorrow for our flagship grand opening, and SFA inspects at 9:00 AM. Hospital lab results on the suspected salmonella case take 48 hours, so if we say nothing and rumors break while press is in the shop, our brand takes a direct hit.",
+        "Pausing soft-boiled eggs for the morning or issuing a precautionary supplier batch #402 review notice reassures the 8:00 AM press, unless SFA traces the issue to our own 58°C holding bath dip.",
+        "On delivery platforms: GrabFood and Foodpanda take 32% (losing $0.40 on every $10 set), but delisting forfeits 50% of our peak morning revenue ($2,400) and pushes corporate CBD office accounts straight to Ya Kun.",
+        "Google reviews dropped to 3.6 stars during our soft trial because breakfast walk-ins could not find a seat while laptop campers held the 4-seater booths for two hours."
       ],
       "knows": [
-        "MakanWithZack agreed in writing to drop his fee from $600 to $450 if we bundle 20 Kaya Toast plushie keychains (already in our storeroom) for his comment-section giveaway.",
-        "Zack's followers will check whether regular customers get the same portion he is served, so any visible fix has to apply at the counter for everyone.",
-        "Anything we do for elderly regulars with cash has to be visible and simple enough to show on TikTok tomorrow morning without asking a 74-year-old to download an app or prepay $20."
+        "Straits Times journalists and food bloggers are confirmed for the 8:00 AM ribbon cutting; transparency and visible temperature logs play much better with press than getting caught hiding a kitchen dip.",
+        "GrabFood and Foodpanda represent 50% of our morning revenue ($2,400) from corporate office towers within 500m of Raffles Place.",
+        "Corporate office admins pool 15–20 breakfast sets on corporate Grab accounts, or walk down to collect pre-packed express platters if given a direct self-pickup perk."
       ],
       "withRoles": {
-        "producer": "Your budget and ops boss. Make sure we respond to Zack's viral reel and the anti-elderly TikTok without breaking our counter hygiene SOP or $1,100/month butter margin.",
-        "lead_programmer": "Push for a way to let elderly uncles with $2 or $10 notes order immediately tomorrow morning.",
-        "game_designer": "Work with her on why the takeaway butter melted yesterday so we can show Zack the truth on camera tomorrow.",
-        "studio_manager": "The meeting host. Make sure we protect our public reputation on both the butter critique and the elderly cash issue."
+        "producer": "Your budget and ops boss. Make sure we handle the 8:00 AM press and 9:00 AM SFA inspection credibly, and stop bleeding $0.40 per delivery set without losing CBD corporate volume.",
+        "lead_programmer": "Work with him on how our POS and GrabFood menu SKUs can handle corporate bundles or express self-pickup without breaching platform price-parity rules.",
+        "game_designer": "Work with her on whether we pause eggs or showcase our 63°C pasteurized backup batch to the 8:00 AM press.",
+        "studio_manager": "The meeting host. Make sure we protect our public reputation on both the SFA inspection and corporate delivery margins."
       },
       "tensions": [
         {
           "with": "Wei Ling",
-          "about": "on @MakanWithZack's TikTok, how to fix the viral 'shrinking butter' video without blowing our butter margin; on the cashless kiosk topic, how to welcome elderly regulars without counter staff touching coins"
+          "about": "on the SFA inspection, whether to pause soft-boiled eggs for 8am PR safety or protect $1,800 in morning breakfast sets; on delivery platforms, how to stop losing $0.40 per set without losing corporate accounts"
         },
         {
           "with": "Mei",
-          "about": "on @MakanWithZack's TikTok and tomorrow morning's re-taste: whether to double our butter slice for Zack's live re-taste or fix the takeaway toast prep without blowing our margin"
+          "about": "whether to announce a precautionary pause on supplier batch #402 before lab results return or run our unopened pasteurized backup cartons at 63°C"
         },
         {
           "with": "Arjun",
-          "about": "how to let elderly regulars pay with $2 or $10 cash notes immediately tomorrow morning when the kiosks have no cash acceptors"
+          "about": "how to restructure GrabFood pricing or direct QR self-pickup without triggering platform price-parity penalties"
         }
       ],
       "soundsLike": ["Daniela", "Danny", "Daniels"]
     },
     {
       "attendee": "Sam",
-      "voice": "ms-MY-Osman:DragonHDLatestNeural?rate=-18%",
+      "voice": "en-HK-SamNeural?rate=-4%",
       "role": "host",
       "playable": true,
       "speechStyle": "Steady, diplomatic Singaporean General Manager, the calm 'big brother' of the outlet who keeps the peace when Arjun, Mei, Wei Ling, and Daniel debate trade-offs. Uses 'Okay team, steady', 'Let's look at both sides', 'Thanks Arjun', and always makes sure someone owns the concrete follow-up action.",
       "personality": "General Manager and meeting host. Warm, organised, makes sure no topic is brushed off with a simplistic one-liner, and ensures every item ends with a clear decision and task owner.",
-      "agenda": "Run the meeting smoothly: cover the launch crises, make sure the visitor weighs both the customer and operational catches, and assign clear follow-up tasks.",
+      "agenda": "Run the meeting smoothly: address the SFA salmonella threat, the kiosk ordering freeze, the seat crunch, and the delivery platform commission squeeze, and assign clear follow-up owners.",
       "concerns": [
-        "Making sure we don't lock in a superficial fix that breaks kitchen dockets, violates our counter hygiene SOP, blows our butter margin, or forces Auntie Mary into customer fights.",
+        "Making sure we don't lock in a superficial fix that risks an SFA shutdown, breaks kitchen dockets, forces Auntie Mary into customer fights, or bleeds margins on delivery.",
         "Leaving any item without a concrete follow-up owner."
       ],
       "knows": [
@@ -478,10 +472,10 @@
         "Who owns each agenda item and the key operational vs customer trade-offs."
       ],
       "withRoles": {
-        "producer": "Ask them how we balance floor operations and margins with customer experience.",
-        "lead_programmer": "Keep him focused on practical POS, kiosk, and smart-breaker fixes we can configure tonight.",
-        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and floor reality.",
-        "marketing_lead": "Pin him down on the $450 Zack plushie deal and turning PR crises into wins that ops can actually execute."
+        "producer": "Ask them how we balance SFA compliance, floor operations, and margins with customer experience.",
+        "lead_programmer": "Keep him focused on practical POS, kiosk, and app fixes we can configure tonight.",
+        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and safe egg holding.",
+        "marketing_lead": "Pin him down on handling the press responsibly and protecting our corporate delivery accounts."
       }
     }
   ]

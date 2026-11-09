@@ -49,6 +49,7 @@ services:
       GITEA__server__SSH_LISTEN_PORT: 22
       GITEA__service__DISABLE_REGISTRATION: "true"
       GITEA__security__INSTALL_LOCK: "true"
+      GITEA__security__MIN_PASSWORD_LENGTH: "4"
       GITEA__openid__ENABLE_OPENID_SIGNIN: "false"
       GITEA__openid__ENABLE_OPENID_SIGNUP: "false"
     ports:

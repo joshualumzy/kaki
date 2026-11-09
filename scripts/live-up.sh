@@ -35,4 +35,4 @@ echo "Giving the AI attendees a few seconds to join..."; sleep 8
 
 bash scripts/live-preflight.sh
 echo
-echo "Open http://localhost:5173/demo and /screen. Watch the AI:  tail -f .live-logs/npc.log"
+echo "Open http://localhost:5173 (or http://localhost:5173/demo). Watch the AI:  tail -f .live-logs/npc.log"

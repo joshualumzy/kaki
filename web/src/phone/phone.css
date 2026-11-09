@@ -136,6 +136,27 @@
   font-size: 0.92rem;
 }
 
+.phone-task-decision {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--color-accent);
+}
+
+.phone-task-decision-label {
+  margin: 0 0 2px;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.phone-task-decision-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
 .phone-time {
   flex: none;
   color: var(--color-muted);
@@ -287,4 +308,40 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .phone .working-dots span { animation: none; opacity: 0.7; }
+}
+
+.phone-task-steps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.phone-task-step {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-raised, var(--color-surface));
+  color: var(--color-muted);
+}
+.phone-task-step[data-active="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong, var(--color-accent));
+}
+.phone-task-step[data-done="true"] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-muted);
+  opacity: 0.75;
+}
+.phone-task-step-sep {
+  color: var(--color-muted);
+  opacity: 0.55;
+  font-size: 0.65rem;
 }

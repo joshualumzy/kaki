@@ -50,7 +50,7 @@ describe('host meeting module', () => {
                 title: 'Call the oven repair man',
                 context: 'The oven trips the fuse.',
                 suggestedAssignee: 'chef',
-                evidence: 'The oven trips the fuse again.',
+                evidence: 'Ada, can you call the oven repair man today?',
               },
             ],
           })
@@ -64,6 +64,7 @@ describe('host meeting module', () => {
           replay: [
             { at: 0, speaker: 'Ada (Chef)', text: 'The oven trips the fuse again.' },
             { at: 0, speaker: 'Bao (Cashier)', text: 'Who services the oven?' },
+            { at: 0, speaker: 'Bao (Cashier)', text: 'Ada, can you call the oven repair man today?' },
           ],
         }),
       ],
@@ -96,7 +97,7 @@ describe('host meeting module', () => {
       payload: {
         agendaIndex: 0,
         openQuestions: [{ id: 'q-1', text: 'Who services the oven?', forRole: 'chef' }],
-        speakerTalkSeconds: { chef: 2, cashier: 2 },
+        speakerTalkSeconds: { chef: 2, cashier: 5 },
       },
     });
     // Phones never get the record, so it cannot pile up there.

@@ -85,20 +85,48 @@ function createUser(env: Env, username: string, email: string, admin = false): v
   }
 }
 
+function setUserPassword(username: string, password: string): void {
+  try {
+    execFileSync(
+      'docker',
+      [
+        'compose',
+        '-f',
+        COMPOSE_FILE,
+        'exec',
+        '-T',
+        '--user',
+        'git',
+        'gitea',
+        'sh',
+        '-c',
+        `grep -q "MIN_PASSWORD_LENGTH" /data/gitea/conf/app.ini || sed -i "/\\[security\\]/a MIN_PASSWORD_LENGTH = 4" /data/gitea/conf/app.ini; gitea admin user change-password --username ${username} --password ${password} --must-change-password=false`,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch {
+    // Best-effort password sync for existing users.
+  }
+}
+
 function createAdmin(env: Env): void {
   console.log('  creating the Gitea admin user');
   createUser(env, env.GITEA_ADMIN_USER, env.GITEA_ADMIN_EMAIL, true);
+  setUserPassword(env.GITEA_ADMIN_USER, env.GITEA_ADMIN_PASSWORD);
 }
 
 function ensureTeamUsers(env: Env): void {
   for (const [username, email] of [
+    ['demo', 'demo@nanyangkopitiam.example'],
     ['arjun', 'arjun@team.example'],
     ['mei', 'mei@team.example'],
     ['daniel', 'daniel@team.example'],
     ['sam', 'sam@team.example'],
   ] as const) {
     createUser(env, username, email, true);
+    setUserPassword(username, 'demo');
   }
+  setUserPassword(env.GITEA_ADMIN_USER, env.GITEA_ADMIN_PASSWORD);
 }
 
 async function ensureAdmin(env: Env): Promise<string> {
@@ -246,7 +274,16 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
   const auth = tokenAuth(token);
   const base = `/repos/${env.GITEA_ORG}/${repo}`;
   const existing = await api<GiteaIssue[]>(env, `${base}/issues?state=all&type=issues&limit=50`, auth);
-  const byTitle = new Map(existing.map((issue) => [issue.title, issue]));
+  const seedTitles = new Set(seed.issues.map((issue) => issue.title));
+  for (const stale of existing) {
+    if (!seedTitles.has(stale.title)) {
+      await request(`${env.GITEA_URL}/api/v1${base}/issues/${stale.number}`, {
+        method: 'DELETE',
+        headers: headers(auth),
+      }, `Gitea delete stale issue #${stale.number}`).catch(() => undefined);
+    }
+  }
+  const byTitle = new Map(existing.filter((issue) => seedTitles.has(issue.title)).map((issue) => [issue.title, issue]));
 
   for (const issue of seed.issues) {
     const ids = labelIds(issue.labels, labels, issue);

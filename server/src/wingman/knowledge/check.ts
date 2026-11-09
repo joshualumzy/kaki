@@ -180,12 +180,12 @@ async function main(): Promise<void> {
       },
       {
         role: 'producer',
-        text: 'What is our remaining launch budget and butter margin risk?',
-        expectedRef: /launch_budget|butter_costing|mall-promo-rules/,
+        text: 'What is our remaining launch budget and the delivery platform commission rate?',
+        expectedRef: /launch_budget|delivery_commission_tiers|mall-promo-rules/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
           assert(/\$?750|launch budget/i.test(text), `producer facts do not mention the remaining budget: ${text}`);
-          assert(/35%|1,?100|anchor/i.test(text), `producer facts do not mention the butter cost: ${text}`);
+          assert(/32%|0\.40|2,?400/i.test(text), `producer facts do not mention the delivery commission: ${text}`);
         },
       },
     ];

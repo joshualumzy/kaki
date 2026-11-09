@@ -77,14 +77,14 @@
       "actionKind": "gitea_issue"
     },
     {
-      "title": "Email Zack to confirm the 8:30am re-taste",
-      "context": "Confirm the re-taste time and the standard butter portion that every customer will get.",
+      "title": "Email SFA inspector with 63°C egg bath protocol",
+      "context": "Send our 63°C pasteurized backup batch and 15-minute probe logging protocol ahead of the 9:00am SFA inspection.",
       "suggestedAssignee": "marketing_lead",
       "actionKind": "email"
     },
     {
       "title": "Post the final launch plan in the team channel",
-      "context": "Post the agreed launch plan and owners in the team channel once the butter decision is settled.",
+      "context": "Post the agreed launch plan and owners in the team channel once the CBD delivery and SFA egg decisions are settled.",
       "suggestedAssignee": "producer",
       "actionKind": "mattermost_post"
     }

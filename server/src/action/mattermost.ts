@@ -1,5 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -55,13 +56,14 @@ export function createMattermostModule({
   async function request(
     settings: MattermostSettings,
     path: string,
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     body: string | undefined,
     signal: AbortSignal,
+    overrideToken?: string,
   ): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     const requestSignal = AbortSignal.any([timeout, signal]);
-    const headers: Record<string, string> = { authorization: `Bearer ${settings.token}` };
+    const headers: Record<string, string> = { authorization: `Bearer ${overrideToken ?? settings.token}` };
     if (body !== undefined) headers['content-type'] = 'application/json';
     try {
       return await fetchImpl(`${baseUrl(settings)}${path}`, {
@@ -116,12 +118,12 @@ export function createMattermostModule({
 
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
-      const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
       const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
-      const ownerLine =
-        attendee !== undefined && role !== undefined ? `\nSender: ${attendee.name} (${role.label})` : '';
+      const ownerLine = role !== undefined ? `\nSender role: ${role.label}` : '';
       const factsBlock =
-        knownFacts.length > 0 ? `\n\nKnown facts from ${attendee?.name ?? 'the sender'}:\n- ${knownFacts.join('\n- ')}` : '';
+        knownFacts.length > 0
+          ? `\n\nKnown facts for ${role !== undefined ? `the ${role.label} role` : 'the sender'}:\n- ${knownFacts.join('\n- ')}`
+          : '';
 
       const messages: ChatMessage[] = [
         {
@@ -129,11 +131,11 @@ export function createMattermostModule({
           content:
             'You turn a team task into a short Mattermost message announcing the agreed decision to the team. Reply with one JSON object and ' +
             'nothing else: {"message": "..."}. Keep it plain and short; Markdown is fine.' +
-            ' State the specific decision and action steps from the Context clearly. Only include Known facts below if they directly support the agreed solution — NEVER copy-paste background problem complaints or budget warnings as if they were the decision. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
+            ' State the specific decision and action steps from the Context clearly. When an Accepted decision is given, it is the authoritative wording: keep its time of day, who owns or enforces it, and how it will be measured; do not leave out a detail it gives. Only include Known facts below if they directly support the agreed solution — NEVER copy-paste background problem complaints or budget warnings as if they were the decision. Do not invent steps, locations, versions, names, dates, start times, or placeholders such as [Insert ...]; if something is not given, leave it out. If the Context gives a time of day without AM or PM, keep it exactly as written; never choose AM or PM yourself. Never write "effective immediately" or another start date unless the Context explicitly states it. Keep the words of the task title in the title.',
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
         },
       ];
 
@@ -148,9 +150,15 @@ export function createMattermostModule({
       if (message === undefined) {
         throw new ActionError('The LLM did not return usable JSON with a message');
       }
+      const unsupported = unsupportedDraftDetails(message, draftSourceText(task, knownFacts));
+      if (unsupported.length > 0) {
+        throw new ActionError(
+          `The draft adds details the task does not support: ${unsupported.join('; ')}. Edit the task or retry.`,
+        );
+      }
       return { target: `#${settings.channel}`, subject: task.title, body: message };
     },
-    async run(task, signal) {
+    async run(task, signal, scenario) {
       const settings = requireSettings();
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
@@ -165,12 +173,53 @@ export function createMattermostModule({
       await requireOk(lookup);
       const channelId = idOf(await jsonOf(lookup), 'channel');
 
+      let postToken: string | undefined;
+      const roleId = task.assignee ?? task.suggestedAssignee;
+      const attendee = roleId === undefined ? undefined : scenario.attendees.find((candidate) => candidate.role === roleId);
+      if (attendee !== undefined && scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) {
+        const cleanSpeaker = task.assignmentEvidence?.speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        const isVisitor =
+          cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase();
+        const loginId = isVisitor ? 'demo' : attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+        try {
+          const loginResp = await request(
+            settings,
+            '/api/v4/users/login',
+            'POST',
+            JSON.stringify({ login_id: loginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+            signal,
+          );
+          if (loginResp.ok) {
+            const sessionToken = loginResp.headers.get('Token') ?? undefined;
+            if (sessionToken !== undefined) {
+              postToken = sessionToken;
+              if (isVisitor && cleanSpeaker !== undefined) {
+                const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
+                if (userObj?.id !== undefined) {
+                  await request(
+                    settings,
+                    `/api/v4/users/${userObj.id}/patch`,
+                    'PUT',
+                    JSON.stringify({ first_name: cleanSpeaker, last_name: '', nickname: cleanSpeaker }),
+                    signal,
+                    sessionToken,
+                  ).catch(() => undefined);
+                }
+              }
+            }
+          }
+        } catch {
+          // Fall back to default token if per-user login is unavailable.
+        }
+      }
+
       const post = await request(
         settings,
         '/api/v4/posts',
         'POST',
         JSON.stringify({ channel_id: channelId, message: draft.body }),
         signal,
+        postToken,
       );
       await requireOk(post);
       const postId = idOf(await jsonOf(post), 'post');

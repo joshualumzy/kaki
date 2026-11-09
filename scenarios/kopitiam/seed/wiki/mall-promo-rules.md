@@ -1,21 +1,16 @@
-# Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget
+# Raffles Place Flagship - CBD Delivery Commissions & Launch Costing
 
-Owner: Daniel (Marketing Lead) & Mei (Menu & Store Experience Lead)
+Owner: Daniel (Marketing Lead) & Wei Ling (Operations Director)
 Last updated: 11 November 2026
 
-## 1. @MakanWithZack 'shrinking butter' video (90,000 views)
+## 1. Delivery platform 32% commission squeeze & CBD office accounts
 
-- Food TikToker `@MakanWithZack` (85k followers) posted a reel claiming our Kaya Butter Toast has "half as much cold butter as Ya Kun".
-- Wholesale Anchor Golden Salted Butter rose 35% this month. Doubling the butter slab from 12g to 20g across all sets adds SGD 0.42 per set (wiping out SGD 1,100/month in gross margin).
-- Our 12g butter portion did not shrink: it stays thick on dine-in open plates, but melts flat when packed inside a closed takeaway box with hot toast. A separate chilled side cup costs SGD 0.05 a box; a steam-vented box is also available.
-- Regular customers queue right behind Zack, so an influencer-only portion or a secret double-butter button will be seen.
+- GrabFood and Foodpanda raised breakfast commissions to 32% this week. On a SGD 10.00 breakfast set, platform fees (SGD 3.20) plus takeaway packaging leave a net loss of SGD 0.40 per single set delivered.
+- Delivery platforms drive 50% of our peak morning volume (SGD 2,400/morning) from corporate office towers within 500m of Raffles Place. Delisting forfeits those corporate accounts straight to Ya Kun.
+- Adding a 30% price markup on GrabFood (pricing a SGD 10 set at SGD 13) triggers platform price-parity ranking penalties and customer backlash, though multi-set corporate bundle platters (5+ sets) are treated as a separate menu SKU.
+- Our direct web QR ordering link has 0% commission, but only supports express self-pickup at the counter because our POS has no rider dispatch integration and pulling floor staff to run deliveries in CBD morning rain carries workplace injury liability.
 
-Still open: what we show on camera tomorrow, what we change permanently, and how the kitchen proves every customer gets the same portion.
+## 2. Emergency pasteurized egg backup & launch budget (SGD 750 remaining)
 
-## 2. Launch promo budget (SGD 750 remaining)
-
-| Item | Cost | Notes |
-| --- | --- | --- |
-| Remaining unspent launch budget | SGD 750 | Available for tomorrow |
-| `@MakanWithZack` standard live re-taste fee | SGD 600 | Cash only |
-| `@MakanWithZack` rate with 20 Kaya Toast plushies | SGD 450 | Uses 20 of the 300 plushies in the storeroom; leaves SGD 300 buffer |
+- Switching soft-boiled egg service to Pasteurized Backup Batch #405 ahead of the 9:00am SFA inspection adds SGD 180 per day in ingredient cost.
+- Remaining unspent launch promo budget: SGD 750 available for tomorrow's Raffles Place flagship opening.
