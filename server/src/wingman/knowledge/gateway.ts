@@ -6,6 +6,8 @@ const EMBED_BATCH_SIZE = 16;
 export interface GatewayConfig {
   baseUrl: string;
   apiKey: string;
+  embedBaseUrl?: string;
+  embedApiKey?: string;
   chatModel: string;
   embedModel: string;
 }
@@ -21,9 +23,15 @@ export function missingGatewayEnv(env: NodeJS.ProcessEnv = process.env): string[
 /** Read the gateway settings, or undefined when the keys are not configured. */
 export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayConfig | undefined {
   if (missingGatewayEnv(env).length > 0) return undefined;
+  const baseUrl = (env.KAKI_LLM_BASE_URL as string).replace(/\/+$/, '');
+  const apiKey = env.KAKI_LLM_API_KEY as string;
+  const fallbackUrl = env.KAKI_LLM_FALLBACK_BASE_URL?.replace(/\/+$/, '');
+  const fallbackKey = env.KAKI_LLM_FALLBACK_API_KEY;
   return {
-    baseUrl: (env.KAKI_LLM_BASE_URL as string).replace(/\/+$/, ''),
-    apiKey: env.KAKI_LLM_API_KEY as string,
+    baseUrl,
+    apiKey,
+    embedBaseUrl: env.KAKI_EMBED_BASE_URL?.replace(/\/+$/, '') || fallbackUrl || baseUrl,
+    embedApiKey: env.KAKI_EMBED_API_KEY || fallbackKey || apiKey,
     chatModel: env.KAKI_LLM_MODEL || DEFAULT_CHAT_MODEL,
     embedModel: env.KAKI_EMBED_MODEL || DEFAULT_EMBED_MODEL,
   };
@@ -91,11 +99,16 @@ export async function embedTexts(
   const config = requireConfig(rawConfig);
   if (texts.length === 0) return [];
 
+  const embedConfig: GatewayConfig = {
+    ...config,
+    baseUrl: config.embedBaseUrl ?? config.baseUrl,
+    apiKey: config.embedApiKey ?? config.apiKey,
+  };
   const result: number[][] = [];
   for (let start = 0; start < texts.length; start += EMBED_BATCH_SIZE) {
     const batch = texts.slice(start, start + EMBED_BATCH_SIZE);
     const response = await postJson<EmbeddingResponse>(
-      config,
+      embedConfig,
       '/embeddings',
       { model: config.embedModel, input: batch },
       'Company search embeddings',
