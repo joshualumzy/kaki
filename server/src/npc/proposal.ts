@@ -31,6 +31,11 @@ export interface ProposalAssessment {
   resolved: ResolvedTradeOff[];
   unresolved: UnresolvedTradeOff[];
   /**
+   * True when the model detects the visitor is expressing uncertainty ("I don't know", "not sure"),
+   * asking for missing facts/numbers, or asking what options exist, so their personal Kaki Wingman can glide in.
+   */
+  needsWingman?: boolean;
+  /**
    * The visitor's own lines that still make up the final decision, oldest first, exactly as they said
    * them. A later line that replaces an earlier proposal leaves the earlier line out; one that only
    * adds a missing detail keeps both. Undefined when the reply did not name any lines, so callers can
@@ -76,10 +81,10 @@ const PROPOSAL_QUESTION =
   /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
 
 const ENDORSEMENT_DECISION_RE =
-  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan))|i\s+agree\s+with\s+(?:you|arjun|mei|wei\s+ling|daniel|sam|that))\b/i;
+  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan))|i\s+agree(?:\s+with\s+(?:you|that|your\s+plan))?)\b/i;
 
 const FEASIBILITY_QUESTION =
-  /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?|what(?:'s| is) the (?:actual )?cost|how much (?:does|is|do)|what(?:'s| is) with the silence|say something|bullying me|are you (?:guys )?there|how am i supposed to know)\b[^.?!]*[.?!]*$/i;
+  /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
 
 /** A trailing incomplete conjunction where STT cut off mid-sentence ("We can probably sell more on Grab, but."). */
 const TRAILING_INCOMPLETE_CLAUSE = /\b(?:but|and|or|because|although|though|while|unless|whereas)[,.!\s]*$/i;
@@ -242,8 +247,9 @@ function assessmentPrompt(item: AgendaItem, visitorLines: string[], assistantCon
     '- Resolved entries must quote one continuous, short phrase from the visitor in "evidence", copied exactly from one line above. Do not join fragments with ellipses or add words: for "I can run the desk, count the float and balance receipts", quote "count the float" rather than "run the desk ... balance receipts". Never invent an offer, number, permission or promise.',
     '- Unresolved entries name the trade-off id and the open question a colleague should ask next.',
     '- In "decisionLines", list the line numbers, oldest first, whose exact words still make up the final decision. When a later line replaces, reverses or withdraws an earlier proposal, leave the superseded line out. When a later line only adds a detail the earlier proposal was missing, keep both lines. Never quote or paraphrase the visitor yourself.',
+    '- Set "needsWingman": true when the visitor expresses uncertainty ("I don\'t know", "how am I supposed to know", "not sure"), asks for missing facts/costs/numbers, or asks what options exist; otherwise false.',
     '- If the line is not a proposal, return "isProposal": false with empty arrays and "decisionLines": [].',
-    'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "decisionLines": [1, 2], "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
+    'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "needsWingman": true|false, "decisionLines": [1, 2], "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
   ].join('\n');
 }
 
@@ -439,20 +445,21 @@ export async function assessProposal(options: {
     return undefined;
   }
   const isProposal = parsed.isProposal;
+  const needsWingman = parsed.needsWingman === true;
   if (typeof isProposal !== 'boolean') {
     log?.('proposal assessment reply did not say whether this was a proposal; keeping the item open');
     return undefined;
   }
   if (!isProposal) {
     if (!isClearActionImperative(visitorText)) {
-      return { isProposal: false, readiness: 'open', resolved: [], unresolved: [] };
+      return { isProposal: false, readiness: 'open', resolved: [], unresolved: [], ...(needsWingman ? { needsWingman: true } : {}) };
     }
     log?.('proposal assessment called a clear action imperative a non-proposal; keeping the item open');
     const resolved = mergeResolved(options.resolvedSoFar, [], tradeOffs, visitorWords);
     const missing = tradeOffs.filter(
       (tradeOff) => !resolved.some((entry) => normalize(entry.tradeOff) === normalize(tradeOff.tradeOff)),
     );
-    return { isProposal: true, readiness: 'open', resolved, unresolved: allUnresolved(missing) };
+    return { isProposal: true, readiness: 'open', resolved, unresolved: allUnresolved(missing), ...(needsWingman ? { needsWingman: true } : {}) };
   }
   const readiness = parsed.readiness;
   if (readiness !== 'open' && readiness !== 'complete') {
@@ -520,5 +527,6 @@ export async function assessProposal(options: {
     resolved,
     unresolved: unresolved.length > 0 ? unresolved : allUnresolved(missing),
     ...(decisionLines !== undefined ? { decisionLines } : {}),
+    ...(needsWingman ? { needsWingman: true } : {}),
   };
 }

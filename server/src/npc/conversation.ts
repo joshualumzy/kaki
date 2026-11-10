@@ -263,10 +263,12 @@ export class NpcConversation<Clip> {
   /** The last sentence the room said, if it was a question: then it is the person's turn, and the screen says so. */
   private lastSpoken = '';
   private lastTranscriptEmit = '';
+  private wingmanHintActive = false;
 
   private idleState(): NpcUiState {
     const line = this.lastSpoken.trim();
-    return line.endsWith('?') ? { kind: 'idle', yourTurn: line } : { kind: 'idle' };
+    const hint = this.wingmanHintActive ? { wingmanHint: true } : {};
+    return line.endsWith('?') ? { kind: 'idle', yourTurn: line, ...hint } : { kind: 'idle', ...hint };
   }
 
   /** True while the AI is thinking or speaking. */
@@ -847,7 +849,13 @@ export class NpcConversation<Clip> {
     if (assessment !== undefined && assessment.isProposal) {
       this.resolvedTradeOffs = assessment.resolved;
     }
+    if (assessment !== undefined && assessment.needsWingman === true) {
+      this.wingmanHintActive = true;
+    }
     this.humanSettledOnCurrentItem = assessment?.isProposal === true && assessment.readiness === 'complete';
+    if (this.humanSettledOnCurrentItem) {
+      this.wingmanHintActive = false;
+    }
     if (assessment !== undefined) {
       this.ports.log?.(
         `proposal readiness: ${assessment.readiness} (${assessment.resolved.length} resolved, ${assessment.unresolved.length} open)`,
@@ -1071,6 +1079,7 @@ export class NpcConversation<Clip> {
     this.hadDecisionBeforeMove = this.humanSettledOnCurrentItem;
     this.movedAt = Date.now();
     this.humanSettledOnCurrentItem = false;
+    this.wingmanHintActive = false;
     this.proposalAssessment = undefined;
     this.assessedText = undefined;
     this.proposalLines = [];
@@ -1196,20 +1205,20 @@ export class NpcConversation<Clip> {
     const patternIndex = visitorOwnsItem ? 2 : itemIndex % 4;
     const patternInstruction =
       patternIndex === 0
-        ? `Conversational dynamic (Story + Innocent Question -> Colleague's Practical Catch):
-- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 tells the full story of what happened on the ground yesterday and why customers stalled; Sentence 2 asks ${other} or the room a genuine question floating the obvious surface fix from ${owner}'s context (e.g., "Can't we just rename the kiosk buttons to plain English like Black Coffee No Sugar for tomorrow?").
-- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 answers ${owner}'s question directly and states all the specific operational catches from ${other}'s context;`
+        ? `Conversational dynamic (Story + Casual Question -> Colleague's Practical Catch):
+- ${owner} speaks first in 2 short, casual spoken sentences with real personality (under 24 words per sentence): first share what happened on the ground yesterday in natural everyday words, then casually float the obvious fix as a question to ${other} or the room (e.g., "Can't we just rename the kiosk buttons to plain English like Black Coffee No Sugar for tomorrow?").
+- ${other} speaks second in 2 short, casual spoken sentences (under 24 words per sentence): react naturally to ${owner}'s idea and explain the practical catch on ${other}'s side in plain words;`
         : patternIndex === 1
-          ? `Conversational dynamic (Floor Clash -> Partial Agreement + Second Catch):
-- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 tells the full story of what happened on the shop floor yesterday with concrete numbers; Sentence 2 states the rule or fix ${owner} wants to enforce tomorrow morning from ${owner}'s context.
-- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 responds directly to ${owner}'s idea, acknowledging what makes sense while stating who gets hurt on ${other}'s side;`
+          ? `Conversational dynamic (Floor Frustration -> Partial Agreement + Practical Catch):
+- ${owner} speaks first in 2 short, casual spoken sentences with real personality (under 24 words per sentence): vent briefly like a real coworker about what happened on the shop floor yesterday and state the rule ${owner} wants to set tomorrow morning.
+- ${other} speaks second in 2 short, casual spoken sentences (under 24 words per sentence): agree with what makes sense in ${owner}'s idea, then point out who gets hurt on ${other}'s side if we do only that;`
           : patternIndex === 2
-            ? `Conversational dynamic (Urgent Lead Alert -> Competing Operational Reality):
-- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 flags the urgent situation and timeline on the ground; Sentence 2 shares ${owner}'s immediate instinct on what we should do tomorrow morning from ${owner}'s context.
-- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 pushes back directly on ${owner}'s instinct with the concrete operational and temperature/revenue facts from ${other}'s context;`
-            : `Conversational dynamic (Business Squeeze + Tempting Move -> Technical/Floor Catch):
-- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 explains the full squeeze we're facing with concrete examples and numbers; Sentence 2 floats the tempting move ${owner} is thinking of trying from ${owner}'s context.
-- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 reacts directly to ${owner}'s tempting move ("Hold on, ...") and states both the app price-parity / search penalty AND the QR self-pickup / floor catch from ${other}'s context;`;
+            ? `Conversational dynamic (Urgent Heads-Up -> Competing Operational Reality):
+- ${owner} speaks first in 2 short, casual spoken sentences with real personality (under 24 words per sentence): flag the urgent situation for tomorrow morning and share ${owner}'s gut instinct on what to do.
+- ${other} speaks second in 2 short, casual spoken sentences (under 24 words per sentence): push back warmly and directly on ${owner}'s instinct with the real-world catch on ${other}'s side;`
+            : `Conversational dynamic (Margin Headache + Tempting Move -> Real-World Catch):
+- ${owner} speaks first in 2 short, casual spoken sentences with real personality (under 24 words per sentence): explain the squeeze we're facing like a real coworker and float the tempting fix ${owner} is thinking of trying.
+- ${other} speaks second in 2 short, casual spoken sentences (under 24 words per sentence): jump in naturally ("Hold on, ...") and explain why that tempting move backfires on ${other}'s side;`;
     const handoffExamples = [
       `"How should we balance both sides tomorrow morning, ${this.human.name}?"`,
       `"${this.human.name}, what are your thoughts on your side, or how do you want to play this?"`,
@@ -1942,7 +1951,10 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
       }
       for await (const chunk of this.ports.stream(messages, signal)) {
         if (signal.aborted) break;
-        for (const utterance of parser.push(chunk)) enqueue(utterance);
+        if (/\[WINGMAN_NUDGE\]/i.test(chunk)) {
+          this.wingmanHintActive = true;
+        }
+        for (const utterance of parser.push(chunk.replace(/\s*\[WINGMAN_NUDGE\]\s*/gi, ' '))) enqueue(utterance);
       }
       if (!signal.aborted) {
         for (const utterance of parser.flush()) enqueue(utterance);

@@ -493,60 +493,77 @@ function CurrentTopicCard({
   return (
     <section className="kd-role kd-topic-card" aria-label="Current topic context">
       <p className="kd-role-eyebrow">Wingman · {roleBadge}</p>
-      {hasTradeOffList && visibleTradeOffs.length > 0 && (
-        <div style={{ marginTop: 6, marginBottom: 8 }}>
-          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>Both Sides of the Issue</p>
-          <ul className="kd-record-list" style={{ marginBottom: 0 }}>
-            {visibleTradeOffs.map((to) => {
-              const colonIndex = to.tradeOff.indexOf(':');
-              const hasHeadline = colonIndex > 0 && colonIndex < 45;
-              const headline = hasHeadline ? to.tradeOff.slice(0, colonIndex).trim() : null;
-              const detail = hasHeadline ? to.tradeOff.slice(colonIndex + 1).trim() : to.tradeOff;
-              return (
-                <li key={to.tradeOff} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span className="kd-record-source-pill" style={{ flexShrink: 0 }}>{to.attendee}</span>
-                  <span style={{ fontSize: 13, lineHeight: '1.4' }}>
-                    {headline !== null ? (
-                      <>
-                        <strong>{headline}:</strong> {detail}
-                      </>
-                    ) : (
-                      detail
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
       {myFacts.length > 0 && (!hasTradeOffList || visibleTradeOffs.length > 0) && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 6, marginBottom: 8 }}>
           <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>💡 Your Fact to Share ({role?.label ?? 'Your Role'})</p>
           <div className="kd-fact-chips" aria-label="Key facts for this topic">
             {myFacts.slice(0, 1).map((fact) => (
-              <div key={fact} className="kd-fact-chip">
+              <div key={fact} className="kd-fact-chip kd-fact-chip-hero">
                 {fact}
               </div>
             ))}
           </div>
         </div>
       )}
-      {companyFact !== undefined && companyFacts.length > 0 && (
-        <div style={{ marginTop: myFacts.length > 0 ? 10 : 0 }}>
-          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
-            From the company records · {companyFact.payload.question}
-          </p>
-          <ul className="kd-record-list" style={{ marginBottom: 0 }}>
-            {companyFacts.slice(0, 2).map((fact, index) => (
-              <li key={`${fact.source}-${fact.date}-${index}`}>
-                <span className="kd-record-source-pill">{sourceBadgeText(fact.source)}</span>
-                <span>{fact.text}</span>
-                <small>({fact.source} · {fact.date})</small>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {((hasTradeOffList && visibleTradeOffs.length > 0) || (companyFact !== undefined && companyFacts.length > 0)) && (
+        <details className="kd-topic-details">
+          <summary className="kd-topic-details-summary">
+            <span>
+              Supporting details ·{' '}
+              {hasTradeOffList && visibleTradeOffs.length > 0 ? 'Both sides' : ''}
+              {hasTradeOffList && visibleTradeOffs.length > 0 && companyFact !== undefined && companyFacts.length > 0
+                ? ' & '
+                : ''}
+              {companyFact !== undefined && companyFacts.length > 0 ? 'Company records' : ''}
+            </span>
+            <span className="kd-briefing-toggle">Details ▾</span>
+          </summary>
+          <div className="kd-topic-details-body">
+            {hasTradeOffList && visibleTradeOffs.length > 0 && (
+              <div style={{ marginTop: 6, marginBottom: 8 }}>
+                <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>Both Sides of the Issue</p>
+                <ul className="kd-record-list" style={{ marginBottom: 0 }}>
+                  {visibleTradeOffs.map((to) => {
+                    const colonIndex = to.tradeOff.indexOf(':');
+                    const hasHeadline = colonIndex > 0 && colonIndex < 45;
+                    const headline = hasHeadline ? to.tradeOff.slice(0, colonIndex).trim() : null;
+                    const detail = hasHeadline ? to.tradeOff.slice(colonIndex + 1).trim() : to.tradeOff;
+                    return (
+                      <li key={to.tradeOff} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <span className="kd-record-source-pill" style={{ flexShrink: 0 }}>{to.attendee}</span>
+                        <span style={{ fontSize: 13, lineHeight: '1.4' }}>
+                          {headline !== null ? (
+                            <>
+                              <strong>{headline}:</strong> {detail}
+                            </>
+                          ) : (
+                            detail
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {companyFact !== undefined && companyFacts.length > 0 && (
+              <div style={{ marginTop: hasTradeOffList && visibleTradeOffs.length > 0 ? 10 : 6 }}>
+                <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
+                  From the company records · {companyFact.payload.question}
+                </p>
+                <ul className="kd-record-list" style={{ marginBottom: 0 }}>
+                  {companyFacts.slice(0, 2).map((fact, index) => (
+                    <li key={`${fact.source}-${fact.date}-${index}`}>
+                      <span className="kd-record-source-pill">{sourceBadgeText(fact.source)}</span>
+                      <span>{fact.text}</span>
+                      <small>({fact.source} · {fact.date})</small>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </section>
   );
