@@ -20,7 +20,11 @@ export function resolveArtifactUrl(rawUrl: string): string {
       parsed.hostname = currentHost;
     }
     if (parsed.port === '8083' || parsed.pathname.includes('/nanyang-kopitiam/')) {
-      return `${window.location.origin}/api/mattermost/open?url=${encodeURIComponent(parsed.toString())}`;
+      const apiBase =
+        currentHost === 'localhost' || currentHost === '127.0.0.1'
+          ? `http://${currentHost}:3001`
+          : window.location.origin;
+      return `${apiBase}/api/mattermost/open?url=${encodeURIComponent(parsed.toString())}`;
     }
     return parsed.toString();
   } catch {

@@ -218,6 +218,7 @@ const activeHumanTaskIds = new Set<string>();
 const claimedAnnouncedTaskIds = new Set<string>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
+let lastVisitorDispatchSpokenAt = 0;
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
   const socket = new WebSocket(url);
@@ -315,7 +316,13 @@ function followHostCues(): void {
                 ack,
                 () => {
                   if (activeHumanTaskIds.size === 0) {
-                    runner.completeHumanTask(taskOrigin);
+                    setTimeout(() => {
+                      if (activeHumanTaskIds.size === 0) {
+                        runner.completeHumanTask(taskOrigin);
+                      }
+                    }, 9_000).unref();
+                  } else {
+                    runner.holdForHumanTask(45_000, taskOrigin);
                   }
                 },
               );
@@ -333,7 +340,11 @@ function followHostCues(): void {
           const who = runner.visitorName() ?? 'there';
           runner.announce(
             `No worries ${who}, we'll cover that follow-up after the call.`,
-            () => runner.completeHumanTask(taskOrigin),
+            () => {
+              if (activeHumanTaskIds.size === 0) {
+                runner.completeHumanTask(taskOrigin);
+              }
+            },
           );
         } else if (
           activeHumanTaskIds.size === 0 &&
@@ -359,6 +370,11 @@ function followHostCues(): void {
         if (colleague) {
           cueOrder.cue((done) => runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done));
         } else if (payload.kind === 'DISPATCH') {
+          const now = Date.now();
+          if (now - lastVisitorDispatchSpokenAt < 18_000) {
+            return;
+          }
+          lastVisitorDispatchSpokenAt = now;
           const titleKey = (payload.title ?? '').trim().toLowerCase();
           runner.announce(payload.text, undefined, () => {
             const currentStatus = taskStatusByTitle.get(titleKey);

@@ -439,6 +439,22 @@ const MIN_SENDING_MS = 1200;
  * Shows only the visitor's active task card (when a task assigned to `role` needs action or review)
  * and any latest company-record lookup, without the full PhonePage header, empty state, or history list.
  */
+function actionStepRank(task: Task): number {
+  switch (task.status) {
+    case 'DISPATCHED':
+    case 'DRAFT_READY':
+    case 'FAILED':
+    case 'CLAIMED':
+    case 'RUNNING':
+    case 'COMPLETED':
+      return 0;
+    case 'SYNCED':
+      return 1;
+    default:
+      return 2;
+  }
+}
+
 export function ActiveRoleCards({
   role,
   viewer,
@@ -454,7 +470,11 @@ export function ActiveRoleCards({
   const allTasks = [...tasks.values()];
   const currentTasks = allTasks
     .filter(needsAction)
-    .sort((left, right) => updatedAtMs(right) - updatedAtMs(left))
+    .sort((left, right) => {
+      const rankDiff = actionStepRank(left) - actionStepRank(right);
+      if (rankDiff !== 0) return rankDiff;
+      return updatedAtMs(right) - updatedAtMs(left);
+    })
     .slice(0, 2);
   const currentTask = currentTasks[0];
 

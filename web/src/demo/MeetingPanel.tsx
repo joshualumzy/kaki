@@ -93,18 +93,36 @@ export function MeetingPanel({
     return briefedOnTarget;
   }, [events, facilitatorName, record]);
 
-  const currentFact = useMemo<FactEvent | undefined>(() => {
-    if (record === undefined || !topicBriefingStarted) return undefined;
+  const { currentFact, liveWingmanBrief } = useMemo<{
+    currentFact: FactEvent | undefined;
+    liveWingmanBrief: string | undefined;
+  }>(() => {
+    if (record === undefined || !topicBriefingStarted) {
+      return { currentFact: undefined, liveWingmanBrief: undefined };
+    }
     let agendaIndex: number | undefined;
-    let latest: { event: FactEvent; agendaIndex: number | undefined } | undefined;
+    let latestRecordFact: { event: FactEvent; agendaIndex: number | undefined } | undefined;
+    let latestWingmanTip: { text: string; agendaIndex: number | undefined } | undefined;
     for (const event of events) {
       if (event.type === 'MEETING_RECORD_UPDATED') {
         agendaIndex = event.payload.agendaIndex;
       } else if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
-        latest = { event, agendaIndex };
+        if (event.payload.question.startsWith('Live Wingman Brief')) {
+          const tip = event.payload.facts[0]?.text;
+          if (tip !== undefined && tip.trim() !== '') {
+            latestWingmanTip = { text: tip, agendaIndex };
+          }
+        } else {
+          latestRecordFact = { event, agendaIndex };
+        }
       }
     }
-    return latest?.agendaIndex === record.payload.agendaIndex ? latest.event : undefined;
+    return {
+      currentFact:
+        latestRecordFact?.agendaIndex === record.payload.agendaIndex ? latestRecordFact.event : undefined,
+      liveWingmanBrief:
+        latestWingmanTip?.agendaIndex === record.payload.agendaIndex ? latestWingmanTip.text : undefined,
+    };
   }, [events, record, topicBriefingStarted]);
 
   useEffect(() => {
@@ -131,6 +149,7 @@ export function MeetingPanel({
             task.status === 'DRAFT_READY' ||
             task.status === 'RUNNING' ||
             task.status === 'COMPLETED' ||
+            task.status === 'SYNCED' ||
             task.status === 'FAILED'),
       ),
     [role, tasks],
@@ -252,6 +271,7 @@ export function MeetingPanel({
               role={role}
               viewer={viewer}
               companyFact={currentFact}
+              liveWingmanBrief={liveWingmanBrief}
               events={events}
               agendaIndex={record.payload.agendaIndex}
             />
@@ -404,6 +424,7 @@ function CurrentTopicCard({
   role,
   viewer,
   companyFact,
+  liveWingmanBrief,
   events,
   agendaIndex,
 }: {
@@ -412,6 +433,7 @@ function CurrentTopicCard({
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
   companyFact: FactEvent | undefined;
+  liveWingmanBrief?: string;
   events?: readonly KakiEvent[];
   agendaIndex?: number;
 }) {
@@ -479,13 +501,8 @@ function CurrentTopicCard({
     return filtered.slice(0, 3);
   }, [item, events, currentTopicSpeakers, viewer, role]);
 
-  const liveWingmanBrief =
-    companyFact?.payload.question.startsWith('Live Wingman Brief') === true
-      ? companyFact.payload.facts[0]?.text
-      : undefined;
-
   const companyFacts =
-    companyFact === undefined || liveWingmanBrief !== undefined
+    companyFact === undefined
       ? []
       : filterNonDuplicateCompanyFacts(companyFact.payload.facts, [
           ...myFacts,
