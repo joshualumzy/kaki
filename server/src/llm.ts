@@ -203,7 +203,9 @@ export function createFakeLlm(
 
 /**
  * Build the client from KAKI_LLM_BASE_URL, KAKI_LLM_API_KEY and KAKI_LLM_MODEL.
- * Returns undefined when any is missing, so callers can run without an LLM.
+ * If KAKI_LLM_FALLBACK_BASE_URL, KAKI_LLM_FALLBACK_API_KEY and KAKI_LLM_FALLBACK_MODEL are also set,
+ * automatically retries on the fallback LLM whenever the primary LLM fails (e.g. out of credits / HTTP 402/429/5xx).
+ * Returns undefined when any primary var is missing, so callers can run without an LLM.
  */
 export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | undefined {
   const baseUrl = env.KAKI_LLM_BASE_URL;
@@ -216,7 +218,46 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
   if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs <= 0)) {
     throw new Error(`Invalid KAKI_LLM_TIMEOUT_MS: ${rawTimeout}`);
   }
-  return createOpenAiLlm({ baseUrl, apiKey, model, timeoutMs });
+  const primary = createOpenAiLlm({ baseUrl, apiKey, model, timeoutMs });
+
+  const fallbackBaseUrl = env.KAKI_LLM_FALLBACK_BASE_URL;
+  const fallbackApiKey = env.KAKI_LLM_FALLBACK_API_KEY;
+  const fallbackModel = env.KAKI_LLM_FALLBACK_MODEL;
+  if (!fallbackBaseUrl || !fallbackApiKey || !fallbackModel) return primary;
+
+  const fallback = createOpenAiLlm({
+    baseUrl: fallbackBaseUrl,
+    apiKey: fallbackApiKey,
+    model: fallbackModel,
+    timeoutMs,
+  });
+
+  return {
+    async complete(messages, options) {
+      try {
+        return await primary.complete(messages, options);
+      } catch (error) {
+        if (options?.signal?.aborted === true) throw error;
+        return await fallback.complete(messages, options);
+      }
+    },
+    async *stream(messages, options) {
+      if (primary.stream === undefined) {
+        if (fallback.stream !== undefined) yield* fallback.stream(messages, options);
+        return;
+      }
+      let yieldedAny = false;
+      try {
+        for await (const chunk of primary.stream(messages, options)) {
+          yieldedAny = true;
+          yield chunk;
+        }
+      } catch (error) {
+        if (yieldedAny || options?.signal?.aborted === true || fallback.stream === undefined) throw error;
+        yield* fallback.stream(messages, options);
+      }
+    },
+  };
 }
 
 /**
