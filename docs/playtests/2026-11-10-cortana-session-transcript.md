@@ -1,0 +1,103 @@
+# Playtest Transcript — Cortana Extension Session (Operations Director — Kopitiam Scenario)
+
+- **Date:** 2026-11-10
+- **Timestamp (UTC):** 12:21:01 – 12:26:41 (~5 minutes 40 seconds)
+- **Timestamp (SGT):** 20:21:01 – 20:26:41
+- **Visitor:** Foo (`producer` — Operations Director)
+- **Scenario:** `kopitiam` (Nanyang Kopi & Toast)
+
+---
+
+## Cleaned Chronological Dialogue & Events
+
+- **[12:21:01.679]** Foo joined as Operations Director
+- **[12:21:01.827]** Arjun joined kaki-demo-kopitiam
+- **[12:21:02.008]** Mei joined kaki-demo-kopitiam
+- **[12:21:02.196]** Daniel joined kaki-demo-kopitiam
+- **[12:21:05.037]** Foo started the meeting
+- **[12:21:05.181]** Sam: Welcome to our Nanyang Kopi & Toast huddle, Foo.
+- **[12:21:07.629]** interrupted: the person kept talking
+- **[12:21:08.011]** speech recognition heard nothing in 2.1 s of audio
+- **[12:21:08.411]** the person cut in but said nothing recognisable: carrying on scripted cue
+- **[12:21:08.573]** Sam: Welcome to our Nanyang Kopi & Toast huddle, Foo.
+- **[12:21:13.193]** Sam: I'm Sam, your General Manager, and we're glad you're here as Operations Director.
+- **[12:21:19.533]** Sam: We reopen our refurbished flagship at Raffles Place tomorrow at 8:00 AM, and we've got 2 quick issues to settle today.
+- **[12:21:28.033]** Sam: Our first item is the morning seat crunch and laptop campers, which Arjun is leading — Arjun, walk us through what happened on the ground.
+- **[12:21:40.294]** Arjun: Yesterday our 28 seats jammed up because freelancers plugged into our booth sockets and camped two hours on one $2.20 drink.
+- **[12:21:40.499]** interrupted: the person kept talking
+- **[12:21:43.922] Foo:** "Hey, Cortana."
+- **[12:21:45.888]** Arjun: Cortana?
+- **[12:21:48.109]** Arjun: I wish.
+- **[12:21:50.330]** Arjun: I’m stuck with Arjun, who’s trying to fix the Wi-Fi switch.
+- **[12:22:15.690] Foo:** "Communication Uh, Arjun, can we use the smart switch in the backroom to turn off boot plugs and Wi-Fi from 8 to 10 M?"
+- **[12:22:18.364]** Arjun: I can schedule that switch to cut power and Wi-Fi from 8 to 10 AM tonight.
+- **[12:22:18]** `kaki notetaker: dropped task "Configure smart switch to cut boot plugs and Wi-Fi from 8 to 10 AM"; its evidence line does not assign or volunteer for it`
+- **[12:22:24.085]** Arjun: But we need clear signs telling customers the power is off, or Auntie Mary will just get confused.
+- **[12:22:26.502]** dismissed premature task task-4fb4e9ac-fbb0-42e6-bbbc-f52e7751362b before visitor spoke on this item
+- **[12:22:31.706]** Mei: From the menu side, cutting power stops the campers, but we still need to solve how solo diners get a guaranteed seat before carrying hot trays.
+- **[12:22:32]** `kaki notetaker: dropped task "Post signage requirement for power cut in team channel"; its evidence line does not assign or volunteer for it`
+- **[12:22:38]** `kaki notetaker: dropped rhetorical topic handoff "How do we ensure solo diners get a guaranteed seat before carrying hot trays?"`
+- **[12:22:41.108]** Mei: How should we balance keeping the booths open for diners with hot trays tomorrow morning, Foo?
+- **[12:22:45]** `kaki notetaker: dropped rhetorical topic handoff "How should we balance keeping the booths open for diners with hot trays tomorrow morning?"`
+- **[12:23:02.138]** Sam: Take your time, Foo.
+- **[12:23:05.119]** Sam: Do you want to jump in with your thoughts, or is there a question you'd like to ask first?
+- **[12:23:28.094]** Arjun: We could either keep the plugs on but give Auntie Mary a simple rule to clear tables after two hours, or switch them off at 8am and find a non-confrontational way to seat solo diners first?
+- **[12:23:35]** `kaki wingman: no company facts found for question q-1 (lead_programmer), attempt 1`
+- **[12:23:57.556]** dropped "Summers." as noise (confidence 0.08)
+- **[12:23:57.557] Foo:** "Cortana. Could you? Could you?"
+- **[12:23:58]** `kaki wingman: no company facts found for question q-1 (lead_programmer), attempt 2`
+- **[12:24:05.835] Foo:** "Then you could send uh, could you summarize the main options while choosing between right now?"
+- **[12:24:07.597]** Arjun: Cortana?
+- **[12:24:09.818]** Arjun: I think you might have the wrong number.
+- **[12:24:11.309]** interrupted: the person kept talking
+- **[12:24:11.948] Foo:** "Cortana."
+- **[12:24:12]** `kaki wingman: no company facts found for question q-1 (lead_programmer), attempt 3`
+- **[12:24:13.539]** interrupted: the person kept talking
+- **[12:24:13.541]** proposal assessment cancelled by the caller; keeping the item open
+- **[12:24:18.411] Foo:** "What is Cortana? It isn't that so. Which means now in this two hour."
+- **[12:24:20.981]** speech recognition heard nothing in 2.3 s of audio
+- **[12:24:22.429]** proposal readiness: open (0 resolved, 0 open)
+- **[12:24:23.687]** Arjun: The tech lead.
+- **[12:24:25.907]** Arjun: I do not know what Cortana is, but I am here to help with the Wi-Fi switch.
+- **[12:24:32.147]** Mei: From the menu side, we need to make sure solo diners with hot trays have a safe place to sit before the rush.
+- **[12:24:39.849]** Sam: Arjun, Mei, let us keep focused on the seating plan for tomorrow morning.
+- **[12:24:46.250]** Sam handed over to Arjun: Arjun answers
+- **[12:24:48.616]** Arjun: I can script the switch to cut power at 8 AM, but we must tell customers clearly or Auntie Mary will get stuck dealing with confused guests.
+- **[12:25:03.343] Foo:** "Then we just tell Auntie Mary."
+- **[12:25:05.159]** proposal readiness: open (0 resolved, 0 open)
+- **[12:25:07.456]** Arjun: That works if we write down exactly what she should say, so she doesn’t have to make it up on the spot.
+- **[12:25:08]** `kaki wingman: no company facts found for nudge on "SFA food safety inspection & salmonella report" (producer)`
+- **[12:25:11.263] Foo:** "Cool."
+- **[12:25:11.264]** interrupted: the person said something
+- **[12:25:13.679]** interrupted: the person kept talking
+- **[12:25:13.680]** proposal assessment cancelled by the caller; keeping the item open
+- **[12:25:14.463]** speech recognition heard nothing in 1.4 s of audio
+- **[12:25:17.975]** speech recognition heard nothing in 3.5 s of audio
+- **[12:25:18.375]** answering again: the last answer was cancelled before anything was said
+- **[12:25:18.689]** interrupted: the person kept talking
+- **[12:25:18.691]** proposal assessment cancelled by the caller; keeping the item open
+- **[12:25:21.121]** speech recognition heard nothing in 3 s of audio
+- **[12:25:21.521]** answering again: the last answer was cancelled before anything was said
+- **[12:25:23.461]** proposal readiness: open (0 resolved, 0 open)
+- **[12:25:25.348]** Arjun: Yes, I can draft that script and test the switch timing tonight.
+- **[12:25:34.017]** Sam: Does that script and switch plan work for you, Foo?
+- **[12:25:35]** `kaki notetaker: kept question q-1 open; the quoted line does not identify its topic`
+- **[12:25:35.281]** dismissed premature task task-fb96ebad-73f0-4134-90db-558dd6e2bffe before visitor spoke on this item
+- **[12:25:46.661] Foo:** "Yeah, it's works for me. You just do it, yes."
+- **[12:25:49.744]** proposal readiness: open (0 resolved, 0 open)
+- **[12:25:51.883]** Arjun: I will write down the script for Auntie Mary and test the switch timing tonight before we close.
+- **[12:25:56]** `kaki notetaker: kept question q-1 open; the quoted line does not identify its topic`
+- **[12:25:56.408]** dismissed premature task task-ac978b0f-6c0d-4fba-8e7c-5b9de3d054d4 before visitor spoke on this item
+- **[12:26:05]** `kaki host: agenda item 0 "Morning seat crunch & laptop campers" is over its 5 minutes`
+- **[12:26:05.853]** Sam: Foo, we're a bit past time on Morning seat crunch and laptop campers — do you want another minute on this, or should we make a decision and keep moving?
+- **[12:26:23.043]** moving on after "Morning seat crunch & laptop campers" decision was wrapped up
+- **[12:26:23.426]** Sam: Alright team, let's look at tomorrow's SFA food safety inspection — Foo, this one is yours to lead, so Daniel, walk Foo through what happened first.
+- **[12:26:26.214]** Foo pressed stop
+- **[12:26:26.214]** interrupted: the person pressed stop
+- **[12:26:41.101]** Foo left
+- **[12:26:41.101]** the room is empty; ending the meeting
+- **[12:26:41]** `kaki host: the meeting is over`
+- **[12:26:41]** `kaki host: a new meeting starts; the old record, questions and tasks are cleared`
+- **[12:26:41.143]** Arjun left kaki-demo-kopitiam
+- **[12:26:41.164]** Mei left kaki-demo-kopitiam
+- **[12:26:41.176]** Daniel left kaki-demo-kopitiam

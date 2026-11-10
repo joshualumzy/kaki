@@ -1,0 +1,344 @@
+# Cici Live Playtest Transcript (Operations Director & Tech Lead — Kopitiam Scenario)
+
+- **Date:** 2026-11-10
+- **Timestamp (UTC):** 11:48:52 – 12:16:50 (~28 minutes total across warmup + full 18m25s run)
+- **Timestamp (SGT):** 19:48:52 – 20:16:50
+- **Visitor:** Cici (`lead_programmer` warmup, then `producer` — Operations Director)
+- **Scenario:** `kopitiam` (Nanyang Kopi & Toast)
+
+---
+
+## Cleaned Chronological Dialogue & Events
+
+- **[11:48:52.892]** Cici joined as Tech & POS Lead
+- **[11:48:53.006]** Mei joined kaki-demo-kopitiam
+- **[11:48:53.233]** Wei Ling joined kaki-demo-kopitiam
+- **[11:48:53.483]** Daniel joined kaki-demo-kopitiam
+- **[11:54:13.881]** Cici started the meeting
+- **[11:54:14.337]** Sam: Welcome to our Nanyang Kopi & Toast huddle, Cici.
+- **[11:54:15.550]** interrupted: the person kept talking
+- **[11:54:15.956]** dropped "Quiet." as noise (confidence 0.08)
+- **[11:54:15.958]** speech recognition heard nothing in 2 s of audio
+- **[11:54:16.359]** the person cut in but said nothing recognisable: carrying on scripted cue
+- **[11:54:16.558]** Sam: Welcome to our Nanyang Kopi & Toast huddle, Cici.
+- **[11:54:21.359]** Sam: I'm Sam, your General Manager, and we're glad you're here as Tech & POS Lead.
+- **[11:54:22.099]** interrupted: the person kept talking
+- **[11:54:22.674] Cici:** "Oh."
+- **[11:54:24.574]** proposal readiness: open (0 resolved, 0 open)
+- **[11:54:25.438]** Sam: Steady, Cici.
+- **[11:54:27.250]** speech recognition heard nothing in 1.7 s of audio
+- **[11:54:28.561]** Sam: We're just getting started on the delivery fee squeeze.
+- **[11:54:33.144]** Sam: Daniel, you own this one, what's the situation on the ground?
+- **[11:54:38.965]** Sam handed over to Daniel: Daniel answers
+- **[11:54:40.313]** Daniel: GrabFood hiked the commission to 32%, so we lose 40 cents on every 10 dollar set.
+- **[11:54:44.885]** dropped "Oh." as noise (confidence 0.09)
+- **[11:54:44.886]** speech recognition heard nothing in 1.8 s of audio
+- **[11:54:48.175]** Daniel: If we leave the apps, our office clients go to Ya Kun and we lose 2,400 dollars a morning.
+- **[11:54:55.245]** speech recognition heard nothing in 1.3 s of audio
+- **[11:55:05.310]** speech recognition heard nothing in 8.2 s of audio
+- **[11:55:24.039]** dropped "This e-mail mute." as noise (confidence 0.22)
+- **[11:55:26.812]** dropped "Huh." as noise (confidence 0.10)
+- **[11:55:30.551]** speech recognition heard nothing in 25 s of audio
+- **[11:56:19]** `kaki wingman: no company facts found for nudge on "Delivery platform 32% commission squeeze" (marketing_lead)`
+- **[11:56:25.198] Cici:** "Mechanism."
+- **[11:56:59.112]** dropped "After." as noise (confidence 0.05)
+- **[11:57:11.509]** speech recognition heard nothing in 15.5 s of audio
+- **[11:57:15.203]** dropped "2000." as noise (confidence 0.24)
+- **[11:57:26.259] Cici:** "You're never controlling. You can mute."
+- **[11:57:51.323]** speech recognition heard nothing in 25 s of audio
+- **[11:58:10.492]** dropped "Hold on." as noise (confidence 0.08)
+- **[11:58:14.971]** Cici left
+- **[11:58:14.971]** the room is empty; ending the meeting
+- **[11:58:14]** `kaki host: the meeting is over`
+- **[11:58:14]** `kaki host: a new meeting starts; the old record, questions and tasks are cleared`
+- **[11:58:14.987]** Mei left kaki-demo-kopitiam
+- **[11:58:14.995]** Wei Ling left kaki-demo-kopitiam
+- **[11:58:15.003]** Daniel left kaki-demo-kopitiam
+- **[11:58:25.110]** Cici joined as Operations Director
+- **[11:58:25.223]** Arjun joined kaki-demo-kopitiam
+- **[11:58:25.388]** Mei joined kaki-demo-kopitiam
+- **[11:58:25.721]** Daniel joined kaki-demo-kopitiam
+- **[11:58:31.687]** Cici started the meeting
+- **[11:58:31.940]** Sam: Welcome to our Nanyang Kopi & Toast huddle, Cici.
+- **[11:58:36.741]** Sam: I'm Sam, your General Manager, and we're glad you're here as Operations Director.
+- **[11:58:43.081]** Sam: We reopen our refurbished flagship at Raffles Place tomorrow at 8:00 AM, and we've got 2 quick issues to settle today.
+- **[11:58:51.583]** Sam: Our first item is the morning seat crunch and laptop campers, which Arjun is leading — Arjun, walk us through what happened on the ground.
+- **[11:59:04.878]** Arjun: Yesterday our twenty-eight seats jammed because freelancers plugged into booth sockets and camped two hours on one drink.
+- **[11:59:13.238]** Arjun: Can't we just cut the booth power during the breakfast rush and stop table claiming before people get their food?
+- **[11:59:20.119]** Mei: From the menu side, cutting plugs works, but sixty percent of our morning diners are solo customers stuck carrying hot trays with nowhere to sit.
+- **[11:59:29.500]** Mei: How should we balance both sides tomorrow morning, Cici?
+- **[11:59:40]** `kaki notetaker: dropped rhetorical topic handoff "How should we balance booth power cuts for freelancers with seating for solo customers carrying hot trays tomorrow morning?"`
+- **[11:59:48.009]** Sam: Take your time, Cici.
+- **[11:59:51.170]** Sam: Would you like to ask a question first, or shall we hear more ideas?
+- **[12:00:01.280] Cici:** "Yeah, I want to know more about your idea."
+- **[12:00:04.511]** Arjun: I meant cutting the smart switch in the back room for two hours.
+- **[12:00:08.893]** Arjun: That kills the Wi-Fi and stops the laptop campers without us chasing them.
+- **[12:00:14.855]** Mei: From the floor side, that stops the campers, but solo diners still need a guaranteed seat before they pick up their hot trays.
+- **[12:00:21]** `kaki notetaker: dropped rhetorical topic handoff "How should we balance cutting booth power to stop laptop campers while ensuring solo diners have a guaranteed seat for their hot trays?"`
+- **[12:00:22.856]** Mei: What do you think, Cici?
+- **[12:00:39.717]** Sam: Take your time, Cici.
+- **[12:00:42.877]** Sam: Would you like to ask a question first, or shall we hear more ideas?
+- **[12:00:43]** `kaki wingman: no company facts found for nudge on "Morning seat crunch & laptop campers" (lead_programmer)`
+- **[12:01:04.270]** Arjun: Cici, would you prefer we cut the power to the booths, or should we use the table tokens for solo diners instead?
+- **[12:01:10]** `kaki wingman: no company facts found for question q-1 (producer), attempt 1`
+- **[12:01:40]** `kaki wingman: no company facts found for question q-1 (producer), attempt 2`
+- **[12:01:48.656] Cici:** "Why not we do both?"
+- **[12:01:50.335]** proposal readiness: open (0 resolved, 0 open)
+- **[12:01:52.364]** Arjun: We can switch off the power, but we still need to decide who gets the seats first.
+- **[12:01:52]** `kaki notetaker: kept question q-1 open; the quoted line is not an answer yet`
+- **[12:01:52]** `kaki wingman: no company facts found for question q-1 (producer), attempt 3`
+- **[12:01:58.586]** Mei: From the solo diner side, that leaves the hot tray crowd without a guaranteed spot to sit.
+- **[12:01:59]** `kaki wingman: no company facts found for question q-2 (lead_programmer), attempt 1`
+- **[12:02:04.967]** Mei: How do we handle the tokens, Cici?
+- **[12:02:13]** `kaki notetaker: dropped rhetorical topic handoff "How do we handle the table tokens for solo diners during the morning seat crunch?"`
+- **[12:02:22.424]** Sam: Take your time, Cici.
+- **[12:02:25.585]** Sam: Would you like to ask a question first, or shall we hear more ideas?
+- **[12:02:26]** `kaki wingman: no company facts found for question q-2 (lead_programmer), attempt 2`
+- **[12:02:45.854]** Arjun: Cici, would you prefer we cut the power to the booths, or should we use the table tokens for solo diners instead?
+- **[12:02:46]** `kaki wingman: no company facts found for nudge on "SFA food safety inspection & salmonella report" (producer)`
+- **[12:02:46]** `kaki wingman: no company facts found for question q-2 (lead_programmer), attempt 3`
+- **[12:03:10.128]** dropped "Worried about those methods?" as noise (confidence 0.40)
+- **[12:03:10.141] Cici:** "I think they are all for me, but umm, you think you are, uh, very."
+- **[12:03:11.643]** proposal readiness: open (0 resolved, 0 open)
+- **[12:03:13.002]** Arjun: No, nothing is for you to do alone.
+- **[12:03:16.303]** Arjun: We are just listing the options for you to choose from.
+- **[12:03:16]** `kaki notetaker: kept question q-1 open; the quoted line is not an answer yet`
+- **[12:03:16]** `kaki notetaker: kept question q-2 open; the quoted line does not identify its topic`
+- **[12:03:18.120]** interrupted: the person kept talking
+- **[12:03:19.079]** speech recognition heard nothing in 2.6 s of audio
+- **[12:03:19.478]** the person cut in but said nothing recognisable: carrying on
+- **[12:03:19.478]** answering again: the last answer was cancelled before anything was said
+- **[12:03:21.912]** Arjun: We can cut the power, but we still need a way for solo diners to grab a seat before their food gets cold.
+- **[12:03:29.532]** Arjun: Do you want to stick with cutting power, or should we use the table tokens instead?
+- **[12:03:32]** `kaki host: agenda item 0 "Morning seat crunch & laptop campers" is over its 5 minutes`
+- **[12:03:35.456]** Sam: Cici, we're a bit past time on Morning seat crunch and laptop campers — do you want another minute on this, or should we make a decision and keep moving?
+- **[12:03:51.586] Cici:** "Hmm, how do you think, Sam? You can give me a?"
+- **[12:03:52.833]** dropped "Pervas." as noise (confidence 0.04)
+- **[12:03:52.834]** speech recognition heard nothing in 1.2 s of audio
+- **[12:03:54.685]** Sam: I’m leaning toward cutting the power and using the table tokens, Cici.
+- **[12:04:00.386]** Sam: What do you think?
+- **[12:04:02.189]** interrupted: the person kept talking
+- **[12:04:02.623]** dropped "OK, I'm on you." as noise (confidence 0.33)
+- **[12:04:02.624]** speech recognition heard nothing in 2.2 s of audio
+- **[12:04:03.024]** the person cut in but said nothing recognisable: carrying on
+- **[12:04:03.024]** answering again: the last answer was cancelled before anything was said
+- **[12:04:04.278]** Sam: I think we cut the power and give the tokens to solo diners, Cici.
+- **[12:04:04.489]** interrupted: the person kept talking
+- **[12:04:05.691] Cici:** "I think you are right."
+- **[12:04:07.240]** proposal readiness: open (0 resolved, 0 open)
+- **[12:04:09.250]** Arjun: We can test the switch in the back room tonight to make sure it cuts cleanly.
+- **[12:04:13]** `kaki notetaker: kept question q-1 open; the quoted line is not an answer yet`
+- **[12:04:13]** `kaki notetaker: dropped task "Test the back room smart switch to ensure it cuts power cleanly"; its evidence line does not assign or volunteer for it`
+- **[12:04:14.252]** Arjun: Mei, how do you want the tokens to work for solo diners carrying hot trays?
+- **[12:04:19]** `kaki wingman: no company facts found for question q-3 (game_designer), attempt 1`
+- **[12:04:19.895]** Mei: From the floor side, we can have a host hand out tokens at the door before they order.
+- **[12:04:20]** `kaki wingman: no company facts found for question q-3 (game_designer), attempt 2`
+- **[12:04:25.536]** Mei: Does that sound workable for you, Cici?
+- **[12:04:30.895]** dropped "Yeah." as noise (confidence 0.14)
+- **[12:04:30.897]** speech recognition heard nothing in 1.4 s of audio
+- **[12:04:33]** `kaki notetaker: kept question q-3 open; the quoted line does not identify its topic`
+- **[12:04:34.486]** dropped "Yeah." as noise (confidence 0.36)
+- **[12:04:34.488]** speech recognition heard nothing in 1.4 s of audio
+- **[12:04:45.233] Cici:** "Oh yeah, it is very helpful."
+- **[12:04:46]** `kaki wingman: no company facts found for question q-3 (game_designer), attempt 3`
+- **[12:04:46.961]** proposal readiness: open (0 resolved, 0 open)
+- **[12:04:48.052]** Arjun: Great.
+- **[12:04:48]** `kaki notetaker: kept question q-1 open; the quoted line does not identify its topic`
+- **[12:04:48]** `kaki notetaker: kept question q-3 open; the quoted line does not identify its topic`
+- **[12:04:50.273]** Arjun: I will configure the smart switch to cut power and Wi-Fi from 7am to 9am tonight.
+- **[12:04:56]** `kaki notetaker: kept question q-1 open; the quoted line does not identify its topic`
+- **[12:04:56]** `kaki notetaker: dropped task "Configure smart switch to cut power and Wi-Fi from 7am to 9am tonight"; its evidence line does not assign or volunteer for it`
+- **[12:04:57.374]** Mei: From the floor side, I will prepare the table tokens and brief the host to hand them out at the door.
+- **[12:05:02]** `kaki notetaker: kept question q-3 open; the quoted line does not identify its topic`
+- **[12:05:02.324]** dismissed premature task task-7b1919c9-3ece-42fa-8b67-06931135c72e before visitor spoke on this item
+- **[12:05:04.295]** Sam: Sounds like a plan.
+- **[12:05:07.115]** Sam: We will keep this open until we see how it runs tomorrow morning, Cici?
+- **[12:05:21.798] Cici:** "MMM, OK."
+- **[12:05:24.247]** proposal readiness: open (0 resolved, 0 open)
+- **[12:05:26.275]** Arjun: The switch is ready to go tonight, so we can test it live tomorrow.
+- **[12:05:27.676]** dropped "Thank you." as noise (confidence 0.38)
+- **[12:05:27.677]** speech recognition heard nothing in 1.3 s of audio
+- **[12:05:31.495]** Mei: From the floor side, I will set up the token station near the door by seven.
+- **[12:05:36]** `kaki notetaker: kept question q-1 open; the quoted line does not identify its topic`
+- **[12:05:36]** `kaki notetaker: kept question q-2 open; the quoted line does not identify its topic`
+- **[12:05:36]** `kaki notetaker: kept question q-3 open; the quoted line does not identify its topic`
+- **[12:05:36]** `kaki notetaker: dropped task "Configure smart switch to cut power and Wi-Fi from 7am to 9am"; its evidence line does not assign or volunteer for it`
+- **[12:05:36.345]** dismissed premature task task-0810157a-7805-443e-a30d-f5787d1a27b1 before visitor spoke on this item
+- **[12:05:37.416]** Sam: We will watch how it runs tomorrow, Cici.
+- **[12:05:45]** `kaki notetaker: kept question q-3 open; the quoted line does not identify its topic`
+- **[12:05:45.100]** dismissed premature task task-287a58fc-8650-4b4f-b03a-09959f7409e7 before visitor spoke on this item
+- **[12:05:49.656]** moving on after "Morning seat crunch & laptop campers" decision was wrapped up
+- **[12:05:50.078]** Sam: Alright team, let's look at tomorrow's SFA food safety inspection — Cici, this one is yours to lead, so Daniel, walk Cici through what happened first.
+- **[12:06:03.629]** Daniel: A customer was hospitalized yesterday and reporters are here at eight.
+- **[12:06:09.429]** Daniel: Since the lab takes two days, I think we should pause soft-boiled eggs tomorrow.
+- **[12:06:12]** `kaki notetaker: dropped task "Pause soft-boiled eggs from tomorrow due to salmonella report"; its evidence line does not assign or volunteer for it`
+- **[12:06:16.150]** Mei: Pausing eggs wipes out eighteen hundred dollars, and our warmer dipped to fifty-eight degrees.
+- **[12:06:22.491]** Mei: We can use the sealed backup pasteurized eggs at sixty-three degrees.
+- **[12:06:27.912]** Mei: How do you want to play it, Cici?
+- **[12:06:31.832]** Cici pressed stop
+- **[12:08:47.464]** Cici pressed resume
+- **[12:08:54.373]** dropped "Is it that serious?" as noise (confidence 0.37)
+- **[12:08:54.374]** speech recognition heard nothing in 2.9 s of audio
+- **[12:08:57.348]** dropped "MMM." as noise (confidence 0.04)
+- **[12:08:57.349]** speech recognition heard nothing in 2.6 s of audio
+- **[12:08:58.884]** dropped "New mail post." as noise (confidence 0.09)
+- **[12:08:58.885]** speech recognition heard nothing in 1.6 s of audio
+- **[12:09:01.758] Cici:** "So what's the situation?"
+- **[12:09:04.003]** Daniel: A customer was hospitalized after eating our soft-boiled eggs yesterday.
+- **[12:09:04.189]** interrupted: the person kept talking
+- **[12:09:04.911]** dropped "Oh." as noise (confidence 0.58)
+- **[12:09:04.912]** speech recognition heard nothing in 1.3 s of audio
+- **[12:09:05.312]** the person cut in but said nothing recognisable: carrying on
+- **[12:09:05.312]** answering again: the last answer was cancelled before anything was said
+- **[12:09:06.402]** Daniel: A customer was hospitalized after eating our soft-boiled eggs yesterday.
+- **[12:09:07]** `kaki notetaker: kept question q-1 open; the quoted line does not identify its topic`
+- **[12:09:07]** `kaki notetaker: kept question q-2 open; the quoted line does not identify its topic`
+- **[12:09:07]** `kaki notetaker: kept question q-3 open; the quoted line does not identify its topic`
+- **[12:09:12.342]** Daniel: Since the lab takes two days, I think we should pause soft-boiled eggs tomorrow so the press sees us putting safety first.
+- **[12:09:14.499]** interrupted: the person kept talking
+- **[12:09:14.659] Cici:** "So."
+- **[12:09:16.475]** proposal readiness: open (0 resolved, 0 open)
+- **[12:09:17.843]** Daniel: A customer was hospitalized yesterday and the press are here at eight.
+- **[12:09:23.543]** Daniel: I think we pause eggs until the lab clears us so we stay safe.
+- **[12:09:29.283]** Mei: Pausing eggs loses eighteen hundred dollars, and our warmer dipped to fifty-eight.
+- **[12:09:35.203]** Mei: We can use the sealed backup eggs at sixty-three degrees, Cici.
+- **[12:09:44.127]** Sam: We have the safety angle and the sales angle on the table, Cici.
+- **[12:09:44.259]** interrupted: the person kept talking
+- **[12:09:56.251] Cici:** "What if the customer didn't doesn't trust you? They think your egg is really not safe? Even if you make it."
+- **[12:09:59.498] Cici:** "Higher degree."
+- **[12:10:00.710]** interrupted: the person kept talking
+- **[12:10:00.715]** proposal assessment cancelled by the caller; keeping the item open
+- **[12:10:02.162]** Cici pressed stop
+- **[12:10:05.446]** Cici pressed resume
+- **[12:10:07.331] Cici:** "San Francisco is a junction. What?"
+- **[12:10:10.334]** speech recognition heard nothing in 3.1 s of audio
+- **[12:10:21.034]** speech recognition heard nothing in 10.5 s of audio
+- **[12:10:26.900] Cici:** "Hi, are you all there?"
+- **[12:10:28.558] Cici:** "Hello. Hello."
+- **[12:10:30.093]** proposal readiness: open (0 resolved, 0 open)
+- **[12:10:31.821]** Daniel: We can show the live temperature logs to the reporters so they see the pasteurized eggs are at sixty-three degrees.
+- **[12:10:33]** `kaki wingman: no company facts found for nudge on "SFA food safety inspection & salmonella report" (producer)`
+- **[12:10:40.361]** Mei: We will keep the sealed backup eggs in the warmer and let the SFA swab them tomorrow morning.
+- **[12:10:40.859]** interrupted: the person kept talking
+- **[12:10:45]** `kaki notetaker: dropped task "Keep sealed backup eggs in warmer for SFA swabbing tomorrow morning"; its evidence line does not assign or volunteer for it`
+- **[12:10:54.617] Cici:** "I mean about the customer. Umm, they, they don't want to see the logs and they, they sync them. Uh, there is a customer that's, uh, being hospital because our."
+- **[12:10:57.317] Cici:** "I don't think it can address this problem."
+- **[12:11:00.483]** proposal readiness: open (0 resolved, 0 open)
+- **[12:11:01.468]** Daniel: I hear you, Cici.
+- **[12:11:02.519]** dropped Sam's meta/stage line: "[cut off]"
+- **[12:11:02.681]** dropped Sam's meta/stage line: "[Cici interrupted here; nothing after this was said aloud.]"
+- **[12:11:04.729]** Daniel: Showing logs might look like we are hiding something if people are already worried.
+- **[12:11:06.039]** interrupted: the person kept talking
+- **[12:11:06.252] Cici:** "I hear you."
+- **[12:11:09.354]** proposal readiness: open (0 resolved, 0 open)
+- **[12:11:10.607]** Daniel: I know, and that fear is exactly why the press will dig deeper if we just show numbers.
+- **[12:11:18.047]** Mei: We can remove the eggs from the menu tomorrow and just serve the backup pasteurized ones at sixty-three degrees.
+- **[12:11:25.529]** Mei: That keeps the safety visible without the risk, Cici?
+- **[12:11:27.379]** interrupted: the person kept talking
+- **[12:11:29.767] Cici:** "Umm, you didn't you Don't get me, OK?"
+- **[12:11:30.979]** interrupted: the person kept talking
+- **[12:11:35.996] Cici:** "Please read through my opinion and decide what you should say."
+- **[12:11:37.448]** proposal readiness: open (0 resolved, 0 open)
+- **[12:11:38.363]** Daniel: I get you.
+- **[12:11:40.683]** Daniel: You are worried that even with safe eggs, the news is about the hospitalization, not the temperature.
+- **[12:11:41.489]** interrupted: the person kept talking
+- **[12:11:42.371]** speech recognition heard nothing in 2.6 s of audio
+- **[12:11:42.770]** the person cut in but said nothing recognisable: carrying on
+- **[12:11:42.770]** answering again: the last answer was cancelled before anything was said
+- **[12:11:43.625]** Daniel: I get you.
+- **[12:11:43.775]** dropped Daniel's meta/stage line: "[cut off]"
+- **[12:11:43.931]** dropped Daniel's meta/stage line: "[Cici interrupted here; nothing after this was said aloud.]"
+- **[12:11:44.715]** dropped "Call." as noise (confidence 0.04)
+- **[12:11:44.716]** speech recognition heard nothing in 1.3 s of audio
+- **[12:11:45.946]** Daniel: You are worried that even with safe eggs, the news is about the hospitalization, not the temperature.
+- **[12:11:57.955]** Sam: We need to decide whether to pause the eggs or just use the backup ones for the press, Cici.
+- **[12:12:12.520] Cici:** "So based on my. Previous."
+- **[12:12:13.729]** interrupted: the person kept talking
+- **[12:12:13.730]** proposal assessment cancelled by the caller; keeping the item open
+- **[12:12:16.053] Cici:** "Saying, do you, Sam?"
+- **[12:12:19.620] Cici:** "Umm, what? What what Uh, uh."
+- **[12:12:22.257] Cici:** "Please give me up umm."
+- **[12:12:23.664] Cici:** "Decision."
+- **[12:12:25.181]** proposal readiness: open (0 resolved, 0 open)
+- **[12:12:26.273]** Sam: I just want to make sure we are on the same page, Cici.
+- **[12:12:31.114]** Sam: Do you want to pause the eggs, or use the backup pasteurized ones?
+- **[12:12:42.686] Cici:** "I'm a boss. I don't think I I should make this hard decision. What do you think, Sam?"
+- **[12:12:44.599]** Sam: We need a clear path forward, Cici.
+- **[12:12:48.519]** Sam: I cannot make this call for you without risking the wrong outcome.
+- **[12:12:49.681]** interrupted: the person kept talking
+- **[12:12:49.860]** dropped "Yeah, Aliya." as noise (confidence 0.32)
+- **[12:12:49.860]** speech recognition heard nothing in 1.9 s of audio
+- **[12:12:50.260]** the person cut in but said nothing recognisable: carrying on
+- **[12:12:50.260]** answering again: the last answer was cancelled before anything was said
+- **[12:12:51.243]** Sam: You are the Operations Director, and this is your call to make.
+- **[12:12:53.069]** interrupted: the person kept talking
+- **[12:12:59.419] Cici:** "Why? Because you are the general manager. I how you how are you for so many salaries, so semester, so much so much salaries."
+- **[12:13:01.940]** interrupted: the person kept talking
+- **[12:13:01.941]** proposal assessment cancelled by the caller; keeping the item open
+- **[12:13:03.472] Cici:** "OK, makes sense."
+- **[12:13:05.930] Cici:** "You just give me a solution, Sam."
+- **[12:13:07.501]** proposal readiness: open (0 resolved, 0 open)
+- **[12:13:08.439]** Sam: I can't make the safety call for you, Cici.
+- **[12:13:09]** `kaki host: agenda item 1 "SFA food safety inspection & salmonella report" is over its 5 minutes`
+- **[12:13:11]** `kaki notetaker: dropped task "Propose a solution for the salmonella/hospitalization incident and press presence"; its evidence line does not assign or volunteer for it`
+- **[12:13:12.720]** Sam: I need you to weigh the press risk against the sales hit and pick a direction.
+- **[12:13:13.940]** interrupted: the person kept talking
+- **[12:13:14.804] Cici:** "So what? What's your job?"
+- **[12:13:20.298] Cici:** "What to do? To do what? What is your responsibility?"
+- **[12:13:21.910]** interrupted: the person kept talking
+- **[12:13:22.571]** speech recognition heard nothing in 1.3 s of audio
+- **[12:13:22.971]** answering again: the last answer was cancelled before anything was said
+- **[12:13:23.871]** Sam: My job is to make sure we don't lose our license or our customers, Cici.
+- **[12:13:29.871]** Sam: I need you to decide if we pause the eggs or use the backup ones for the press.
+- **[12:13:31.375]** speech recognition heard nothing in 1.6 s of audio
+- **[12:13:35.821]** Sam: Cici, we're a bit past time on SFA food safety inspection and salmonella report — do you want another minute on this, or should we make a decision and keep moving?
+- **[12:13:37.079]** interrupted: the person kept talking
+- **[12:13:38.089] Cici:** "But what? What if I make some?"
+- **[12:13:39.687]** Sam: Then we back you up, Cici.
+- **[12:13:39.859]** interrupted: the person kept talking
+- **[12:14:00.339] Cici:** "Do you want another medalist? I think we should make decision right now. And I'm I'm, I'm a little worried that. Umm, uh, my decision will lose, will make us lose our license or our customers. So I think you are really good at that, so I want you to help me."
+- **[12:14:01.922]** proposal readiness: open (0 resolved, 0 open)
+- **[12:14:02.739]** Sam: We are here to support you, Cici.
+- **[12:14:03.071]** dropped Daniel's line after the handover: "It lets us show the press we are proactive without pausing the breakfast rush."
+- **[12:14:03.257]** dropped Sam's line after the handover: "That sounds like a solid plan to protect both safety and sales, Cici?"
+- **[12:14:07.100]** Mei: I recommend using the backup pasteurized eggs at sixty-three degrees to keep the menu open and safe.
+- **[12:14:07.149]** interrupted: the person kept talking
+- **[12:14:12.164]** speech recognition heard nothing in 6.7 s of audio
+- **[12:14:12.564]** the person cut in but said nothing recognisable: carrying on
+- **[12:14:12.564]** answering again: the last answer was cancelled before anything was said
+- **[12:14:13.525]** Mei: We can keep the menu open with the safe backup eggs, Cici?
+- **[12:14:34.121] Cici:** "I think you are really helpful me you are good you can. Promote. You get a promotion. Hi, Mei Mei."
+- **[12:14:36.960]** proposal readiness: open (0 resolved, 0 open)
+- **[12:14:38.278]** Mei: Thank you, Cici.
+- **[12:14:40.679]** Mei: I just want to make sure we keep the eggs safe for the morning rush.
+- **[12:14:45.199]** Mei: We can use the pasteurized ones to avoid any risk, Cici?
+- **[12:14:52.066] Cici:** "OK, sure."
+- **[12:14:53.644]** Sam: Okay, that is clear.
+- **[12:14:56.724]** Sam: We are using the backup pasteurized eggs to keep the menu open and safe, Cici.
+- **[12:14:57.357]** dropped "Screen." as noise (confidence 0.04)
+- **[12:14:57.357]** speech recognition heard nothing in 1.7 s of audio
+- **[12:15:03.264]** Sam: Can you please post a quick team channel message to confirm this so everyone knows?
+- **[12:15:12.423]** dismissed premature task task-9c5a5b08-233f-4548-b875-b36f1ae8e2c5 before visitor spoke on this item
+- **[12:15:17.297] Cici:** "MMM, maybe khaki can make this. Oh yeah, Oh yeah, khaki did mix."
+- **[12:15:20.593]** proposal readiness: open (0 resolved, 0 open)
+- **[12:15:21.562]** Sam: Kaki can help draft the message if you like, Cici.
+- **[12:15:26.322]** Sam: But we still need you to confirm the plan to use the backup pasteurized eggs for the morning rush.
+- **[12:15:35.984] Cici:** "Yeah, I confirm."
+- **[12:15:37.451]** Sam: Steady.
+- **[12:15:39.671]** Sam: Kaki will draft the team channel post about using the backup pasteurized eggs for tomorrow.
+- **[12:15:40.505]** dismissed premature task task-c3044797-1321-482b-95f6-0f39f3c86835 before visitor spoke on this item
+- **[12:15:46.451]** Sam: Cici, can you review the draft when it comes up and give the go-ahead?
+- **[12:15:53.611]** dismissed premature task task-97756a2f-cbc9-4cf5-9881-263812282813 before visitor spoke on this item
+- **[12:15:56.136]** dropped "MMM." as noise (confidence 0.06)
+- **[12:15:56.137] Cici:** "Yeah, you're just giving me."
+- **[12:15:58.010]** Sam: No pressure, Cici.
+- **[12:16:01.150]** Sam: Just a quick look to make sure the wording is right.
+- **[12:16:08.651]** moving on after "SFA food safety inspection & salmonella report" decision was wrapped up
+- **[12:16:08]** `kaki host: the meeting is over`
+- **[12:16:08.796]** Sam: Alright team, that wraps up our huddle.
+- **[12:16:12.676]** Sam: Thanks everyone, let's get back to the floor.
+- **[12:16:50.679]** Cici left
+- **[12:16:50.680]** the room is empty; ending the meeting
+- **[12:16:50.687]** Arjun left kaki-demo-kopitiam
+- **[12:16:50.695]** Mei left kaki-demo-kopitiam
+- **[12:16:50.703]** Daniel left kaki-demo-kopitiam
