@@ -24,7 +24,7 @@ try {
     port,
     scenario,
     modules: [...hostModules, ...wingmanModules, ...actionModules],
-    devRoutes: process.env.KAKI_DEV_ROUTES === '1',
+    devRoutes: process.env.KAKI_DEV_ROUTES !== '0',
     auth,
     calendar: calendarFromEnv(),
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
