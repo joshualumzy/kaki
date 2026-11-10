@@ -9,8 +9,8 @@ export class ActionError extends Error {}
 export interface ActionModuleOptions {
   name: string;
   kind: ActionKind;
-  draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario']): Promise<ActionDraft>;
-  run(task: Task, signal: AbortSignal, scenario: KakiContext['scenario']): Promise<string>;
+  draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string): Promise<ActionDraft>;
+  run(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string): Promise<string>;
 }
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
@@ -73,9 +73,31 @@ export function relevantFactsForTask(
 export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
-    start({ tasks, scenario, draftOnly }: KakiContext) {
+    start({ hub, tasks, scenario, draftOnly }: KakiContext) {
       const shutdown = new AbortController();
       let stopped = false;
+      const visitorNameByRole = new Map<string, string>();
+
+      const unsubscribeHub = hub.subscribe((event) => {
+        if (event.type === 'MEETING_RESET') {
+          visitorNameByRole.clear();
+          return;
+        }
+        if (event.type === 'TRANSCRIPT_CHUNK') {
+          const match = /^(.+?)\s*\(([^)]+)\)\s*$/.exec(event.payload.speaker.trim());
+          if (match !== null) {
+            const speakerName = match[1]!.trim();
+            const roleLabelText = match[2]!.trim().toLowerCase();
+            const matchedRole = scenario.roles.find((r) => r.label.toLowerCase() === roleLabelText);
+            if (matchedRole !== undefined) {
+              const seatAttendee = scenario.attendees.find((a) => a.role === matchedRole.id);
+              if (seatAttendee === undefined || seatAttendee.name.toLowerCase() !== speakerName.toLowerCase()) {
+                visitorNameByRole.set(matchedRole.id, speakerName);
+              }
+            }
+          }
+        }
+      });
 
       // A slow result is only applied when the task has not moved on since it was read.
       function isCurrent(task: Task): boolean {
@@ -105,11 +127,19 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
         });
       }
 
+      function visitorFor(task: Task): string | undefined {
+        const roleId = task.assignee ?? task.suggestedAssignee;
+        if (roleId !== undefined && visitorNameByRole.has(roleId)) {
+          return visitorNameByRole.get(roleId);
+        }
+        return task.assignmentEvidence?.speaker;
+      }
+
       function draftAction(task: Task): void {
         background('drafting the action', async () => {
           let result: ActionDraft;
           try {
-            result = await draft(task, shutdown.signal, scenario);
+            result = await draft(task, shutdown.signal, scenario, visitorFor(task));
           } catch (error) {
             fail(task, messageOf(error));
             return;
@@ -130,7 +160,7 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
         background('running the action', async () => {
           let artifactUrl: string;
           try {
-            artifactUrl = await run(task, shutdown.signal, scenario);
+            artifactUrl = await run(task, shutdown.signal, scenario, visitorFor(task));
           } catch (error) {
             fail(task, messageOf(error));
             return;
@@ -152,6 +182,7 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
       return () => {
         stopped = true;
         shutdown.abort();
+        unsubscribeHub();
         unsubscribe();
       };
     },

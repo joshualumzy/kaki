@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { confidenceFrom, keepRecognised } from '../../src/npc/sttFilter';
 
 describe('keepRecognised', () => {
-  it('drops a short, low-confidence result as noise', () => {
+  it('drops a short, low-confidence result or standalone hesitation filler as noise', () => {
     expect(keepRecognised('Dislocation.', 0.31)).toBe(false);
     expect(keepRecognised('You know.', 0.42)).toBe(false);
+    expect(keepRecognised('Uh.', 0.85)).toBe(false);
+    expect(keepRecognised('Um.', 0.92)).toBe(false);
   });
   it('keeps a short result that scored well, a 3-4 word phrase or confirmation above 0.4, a long one, and one with no score', () => {
     expect(keepRecognised('OK.', 0.9)).toBe(true);

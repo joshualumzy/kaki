@@ -181,9 +181,46 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const listener = characters.get(listenerProfile.attendee) as Character;
 
   // --- What the AI attendees send out: state to the browser, transcript lines to Kaki. ---
+  let lastConversationState: NpcStateMessage = { kind: 'idle' };
+  let sustainedHumanSpeaking = false;
+  let humanTranscribing = false;
+  let humanSpeakingTimer: ReturnType<typeof setTimeout> | undefined;
+  const HUMAN_SPEAKING_BADGE_MS = 350;
+
   function publishState(state: NpcStateMessage): void {
-    const data = new TextEncoder().encode(JSON.stringify(state));
+    const decorated: NpcStateMessage =
+      state.kind === 'idle' || state.kind === 'thinking' || state.kind === 'speaking'
+        ? {
+            ...state,
+            ...(sustainedHumanSpeaking ? { humanSpeaking: true } : {}),
+            ...(humanTranscribing ? { transcribing: true } : {}),
+          }
+        : state;
+    const data = new TextEncoder().encode(JSON.stringify(decorated));
     listener.room.localParticipant?.publishData(data, { reliable: true, topic: NPC_STATE_TOPIC }).catch(() => undefined);
+  }
+
+  function syncHumanMicState(anyTalking: boolean): void {
+    if (anyTalking) {
+      if (!sustainedHumanSpeaking && humanSpeakingTimer === undefined) {
+        humanSpeakingTimer = setTimeout(() => {
+          humanSpeakingTimer = undefined;
+          if (talking.size > 0 && !sustainedHumanSpeaking) {
+            sustainedHumanSpeaking = true;
+            publishState(lastConversationState);
+          }
+        }, HUMAN_SPEAKING_BADGE_MS);
+      }
+    } else {
+      if (humanSpeakingTimer !== undefined) {
+        clearTimeout(humanSpeakingTimer);
+        humanSpeakingTimer = undefined;
+      }
+      if (sustainedHumanSpeaking) {
+        sustainedHumanSpeaking = false;
+        publishState(lastConversationState);
+      }
+    }
   }
 
   // What the AI plays, so the voice detectors can tell how much of it their microphone hears.
@@ -217,6 +254,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           options.postTranscript(attendee?.zoomDisplayName ?? speaker, text);
         },
         emitState: (state) => {
+          lastConversationState = state;
           setGuard(state.kind === 'speaking');
           publishState(state);
         },
@@ -244,7 +282,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const humans = new Map<string, Person>();
   let closing = false;
   /** While keys are being pressed, a short sound in the microphone is more likely the keyboard than speech. */
-  const TYPING_QUIET_MS = 1500;
+  const TYPING_QUIET_MS = 500;
   let typingUntil = 0;
   const suppressed = new Set<string>();
 
@@ -349,6 +387,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             sampleRate: SAMPLE_RATE,
             log,
             onAudio: options.debugAudio,
+            onRecognizing: (active) => {
+              conversation?.humanRecognizing(active);
+              if (humanTranscribing !== active) {
+                humanTranscribing = active;
+                publishState(lastConversationState);
+              }
+            },
             onNothing: () => conversation?.humanNothing(),
             onText: (text) => {
               if (!meetingOpen()) {
@@ -377,6 +422,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             : `${identity} stopped talking`,
         );
         conversation?.humanSpeech(talking.size > 0);
+        syncHumanMicState(talking.size > 0);
         // Last, and guarded: a failure in speech recognition must never stop the conversation hearing the person.
         try {
           recorder?.speaking(speaking);
@@ -393,6 +439,18 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       for await (const frame of new AudioStream(track, SAMPLE_RATE, 1)) {
         if (!meetingOpen()) continue;
         vad.push(frame.data, frame.sampleRate);
+        if (suppressed.has(identity) && vad.isSpeaking && Date.now() >= typingUntil) {
+          suppressed.delete(identity);
+          talking.add(identity);
+          log(`${identity} kept speaking past keystroke window; unsuppressing mic`);
+          conversation?.humanSpeech(talking.size > 0);
+          syncHumanMicState(talking.size > 0);
+          try {
+            recorder?.speaking(true);
+          } catch (error) {
+            log(`speech recognition could not start: ${String(error)}`);
+          }
+        }
         try {
           recorder?.push(frame.data);
         } catch (error) {
@@ -419,6 +477,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   room.on(RoomEvent.ParticipantDisconnected, (participant) => {
     if (!humans.delete(participant.identity)) return;
     talking.delete(participant.identity);
+    syncHumanMicState(talking.size > 0);
+    if (humans.size === 0 && humanTranscribing) {
+      humanTranscribing = false;
+      publishState(lastConversationState);
+    }
     log(`${participant.identity} left`);
     reportHost();
     // With nobody left the conversation is closed, so the next person starts a fresh one.
@@ -442,6 +505,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         log('ignored a malformed control message');
       } else if (message.kind === 'typing') {
         typingUntil = Date.now() + TYPING_QUIET_MS;
+        conversation?.humanTyping();
       } else if (message.kind === 'start') {
         const session = message.session ?? participant.identity;
         if (session !== participant.identity) {
@@ -457,6 +521,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           publishState({ kind: 'started', requestId: message.requestId, session });
         }
       } else if (message.kind === 'stop') {
+        if (!started && !hostIsHuman()) {
+          log('ignored stop: the meeting has not started');
+          return;
+        }
         paused = true;
         options.onPauseChange?.(true);
         talking.clear();
@@ -464,6 +532,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         log(`${participant.identity} pressed stop`);
         conversation?.stop();
       } else if (message.kind === 'resume') {
+        if (!started && !hostIsHuman()) {
+          log('ignored resume: the meeting has not started');
+          return;
+        }
         paused = false;
         options.onPauseChange?.(false);
         log(`${participant.identity} pressed resume`);
@@ -615,6 +687,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     async stop() {
       closing = true;
       if (guardTimer !== undefined) clearTimeout(guardTimer);
+      if (humanSpeakingTimer !== undefined) clearTimeout(humanSpeakingTimer);
       await castQueue;
       conversation?.close();
       for (const vad of vads.values()) vad.close();

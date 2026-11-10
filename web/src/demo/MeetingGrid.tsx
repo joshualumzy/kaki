@@ -35,43 +35,43 @@ function starterChipsForItem(itemTitle: string | undefined, ownerRole: string): 
   const lower = (itemTitle ?? '').toLowerCase();
   if (lower.includes('kiosk') || lower.includes('kopi')) {
     return [
-      'Arjun, what happens in our POS if we change the drink names?',
-      'Mei, how would our regulars react if we change the Kopi menu?',
-      'Wei Ling, how does changing the drink names affect our kopi uncles in the kitchen?',
+      'Arjun, can the kiosk show plain-English drink names while still printing short Kopi names on the kitchen ticket?',
+      'Mei, what if we keep Kopi names on the buttons and add a simple 2-step Milk & Sugar popup for first-timers?',
+      'Wei Ling, if kitchen tickets keep the short Kopi names, can we test the new kiosk screen tonight before 8 AM?',
     ];
   }
   if (lower.includes('seat') || lower.includes('laptop') || lower.includes('chope')) {
     return [
-      'Wei Ling, what happens on the floor when people chope tables?',
-      'Arjun, why are laptop users staying in our booths all morning?',
-      'Mei, what happens to our solo breakfast customers if we ban reserving seats?',
+      'Arjun, can we use the smart switch in the back room to turn off booth plugs and Wi-Fi from 8 to 10 AM?',
+      'Mei, what if we save the 2-seater tables for solo diners using numbered table tokens from the kiosk?',
+      'Wei Ling, if we turn off booth plugs automatically and put up table signs, does that protect Auntie Mary?',
     ];
   }
   if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('inspection')) {
     return [
-      'Daniel, what happens if Straits Times arrives at 8 AM and sees us still serving soft-boiled eggs?',
-      'Mei, why did our egg holding bath dip to 58°C yesterday, and can we use the pasteurized backup cartons?',
-      'Wei Ling, how much morning revenue do we lose if we pull soft-boiled eggs off the menu today?',
+      'Mei, can we clean the egg warmer tonight and use our two sealed backup cartons of pasteurized eggs at 63°C tomorrow?',
+      'Wei Ling, can we log digital temperature checks at 63°C every 15 minutes tomorrow to show the 9 AM SFA inspector?',
+      'Daniel, if we use our pasteurized backup eggs at 63°C and show live temperature logs, what should we tell the 8 AM reporters?',
     ];
   }
   if (lower.includes('commission') || lower.includes('delivery') || lower.includes('platform')) {
     return [
-      'Wei Ling, what does the 32% delivery commission do to our margin on a $10 breakfast set?',
-      'Daniel, what happens to our CBD office accounts if we delist from GrabFood and Foodpanda today?',
-      'Arjun, why can’t we just mark up our GrabFood prices by 30% or dispatch riders through our direct QR link?',
+      'Arjun, since raising single-set prices gets our store hidden on GrabFood, can we add a 5-set Office Platter instead?',
+      'Wei Ling, how much profit do we make on a $55 5-set Office Platter on GrabFood compared to single $10 sets?',
+      'Daniel, can we give nearby office regulars a free drink upgrade if they order self-pickup on our website QR code?',
     ];
   }
   if (ownerRole === 'game_designer' || ownerRole === 'designer') {
     return [
-      'Arjun, what happens in our POS if we change the drink names?',
-      'Mei, how would our regulars react if we change the Kopi menu?',
-      'Wei Ling, how does changing the drink names affect our kopi uncles in the kitchen?',
+      'Arjun, can the kiosk show plain-English drink names while still printing short Kopi names on the kitchen ticket?',
+      'Mei, what if we keep Kopi names on the buttons and add a simple 2-step Milk & Sugar popup for first-timers?',
+      'Wei Ling, if kitchen tickets keep the short Kopi names, can we test the new kiosk screen tonight before 8 AM?',
     ];
   }
   return [
-    'Wei Ling, what happens on the floor when people chope tables?',
-    'Arjun, why are laptop users staying in our booths all morning?',
-    'Mei, what happens to our solo breakfast customers if we ban reserving seats?',
+    'Arjun, can we use the smart switch in the back room to turn off booth plugs and Wi-Fi from 8 to 10 AM?',
+    'Mei, what if we save the 2-seater tables for solo diners using numbered table tokens from the kiosk?',
+    'Wei Ling, if we turn off booth plugs automatically and put up table signs, does that protect Auntie Mary?',
   ];
 }
 
@@ -80,29 +80,62 @@ function reactionForColleague(
   chunks: readonly TranscriptChunk[],
   speaking: boolean,
   now: number,
+  activeItemOwnerRole?: string,
+  attendeeRole?: string,
 ): { emoji: string; label: string; tone: 'catch' | 'lock' | 'agree' } | undefined {
-  const recentWindow = chunks.slice(-3);
-  const latestByColleague = [...recentWindow]
-    .reverse()
-    .find((c) => c.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim() === attendeeName);
-  if (latestByColleague === undefined) return undefined;
-  const latestAt = Date.parse(latestByColleague.payload.timestamp);
-  const isFresh = speaking || (Number.isFinite(latestAt) && now - latestAt <= 8000);
-  if (!isFresh) return undefined;
+  // The person currently speaking never reacts to themselves with an emoji badge.
+  if (speaking || chunks.length === 0) return undefined;
+  const latest = chunks[chunks.length - 1]!;
+  const latestSpeaker = latest.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  if (latestSpeaker === attendeeName) return undefined;
 
-  const text = latestByColleague.payload.text.trim();
-  if (/\b(spot on|that works|lock(ed)? in|on it|got it|will do|works for me|sorted|solid plan|post that decision|i'll post|i'll email|i'll file|i'll draft|appreciate it|thanks boss)\b/i.test(text)) {
-    return { emoji: '🙌', label: 'Locked in', tone: 'lock' };
+  const latestAt = Date.parse(latest.payload.timestamp);
+  if (!Number.isFinite(latestAt) || now - latestAt > 8500) return undefined;
+
+  const text = latest.payload.text.trim();
+  const isItemOwner = activeItemOwnerRole !== undefined && attendeeRole === activeItemOwnerRole;
+  const mentionedByName = new RegExp(`\\b${attendeeName}\\b`, 'i').test(text);
+
+  // 1. Decision locked in / task accepted -> warm celebration from listening leads (item owner, Sam, or named colleague)
+  if (
+    /\b(lock(ed)? (?:that|this) in|solid plan|works for me|i'll post|i'll email|i'll file|i'll draft|i'll configure|i'll schedule|appreciate it|thanks boss|let's go with that|let's do that|let's do both|do both)\b/i.test(
+      text,
+    )
+  ) {
+    if (isItemOwner || attendeeName === 'Sam' || mentionedByName) {
+      return { emoji: '🙌', label: 'Locked in', tone: 'lock' };
+    }
+    return undefined;
   }
-  if (/\b(hold on|catch|careful|wait|problem|cannot|can't|forbid|refuse|wipe out|margin|docket|gloves|cancelled|risk|hospital|sfa|commission|lose|cost|confuse|queue|chope|hogging)\b/i.test(text)) {
-    return { emoji: '🤔', label: 'Flagged a trade-off', tone: 'catch' };
+
+  // 2. Constructive agreement, endorsement, or practical compromise -> supportive nod from listening colleagues
+  if (
+    /\b(that's a good call|good call|makes sense|that works|works for me|exactly right|spot on|fair point|good idea|sounds good|let's go with|we can use|we can configure|smart switch|pasteurized|office platter|table token|milk\s*(?:&|and)\s*sugar|i confirm|you(?:'re| are) right|very helpful)\b/i.test(
+      text,
+    )
+  ) {
+    if (isItemOwner || attendeeName === 'Sam' || mentionedByName) {
+      return { emoji: '👍', label: 'Supports this', tone: 'agree' };
+    }
+    return undefined;
   }
-  if (/\b(agree|makes sense|good call|smart|love that|fair point|solid|happy with|sounds good|good idea)\b/i.test(text)) {
-    return { emoji: '👍', label: 'Sounds good', tone: 'agree' };
+
+  // 3. Alarming ground crisis or hard operational blocker -> brief concern/shock from the item lead or GM
+  if (
+    /\b(hospitalized|yelled at|screamed at|backed into the walkway|32%|hides our shop|wipes out \$1,800|scalding hot tray|froze|stalled|58 degrees|58°C|slowed down|lose \$|losing \$)\b/i.test(
+      text,
+    )
+  ) {
+    if (isItemOwner || attendeeName === 'Sam' || mentionedByName) {
+      return { emoji: '😟', label: 'Concerned', tone: 'catch' };
+    }
   }
-  if (text.endsWith('?')) {
-    return { emoji: '💬', label: 'Asking the room', tone: 'agree' };
+
+  // 4. Open trade-off question or weighing options -> thoughtful consideration from the item owner or named colleague
+  if (text.endsWith('?') && (isItemOwner || mentionedByName)) {
+    return { emoji: '🤔', label: 'Thinking', tone: 'catch' };
   }
+
   return undefined;
 }
 
@@ -112,6 +145,7 @@ interface Stage {
   now: number;
   npcState: NpcStateMessage;
   waitingForHuman: boolean;
+  activeItemOwnerRole?: string;
 }
 
 const StageContext = createContext<Stage | null>(null);
@@ -123,12 +157,16 @@ function useStage(): Stage {
 }
 
 function CaptionedTile() {
-  const { scenario, chunks, now, npcState } = useStage();
+  const { scenario, chunks, now, npcState, activeItemOwnerRole } = useStage();
   const participant = useTrackRefContext().participant;
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
   const humanSpeaking = useIsSpeaking(participant);
-  const speaking = isAi ? npcState.kind === 'speaking' && npcState.speaker === participant.identity : humanSpeaking;
+  const serverHumanSpeaking = !isAi && 'humanSpeaking' in npcState && npcState.humanSpeaking === true;
+  const serverTranscribing = !isAi && 'transcribing' in npcState && npcState.transcribing === true;
+  const speaking = isAi
+    ? npcState.kind === 'speaking' && npcState.speaker === participant.identity
+    : humanSpeaking || serverHumanSpeaking;
   const speakerAliases = isAi
     ? []
     : [participant.name ?? '', participant.identity, 'Guest'].filter((s) => s.trim().length > 0);
@@ -136,11 +174,16 @@ function CaptionedTile() {
     chunks,
     transcriptNameFor(scenario, participant),
     now,
-    8000,
+    isAi ? 8000 : 10000,
     speaking,
     speakerAliases,
   );
-  const caption = recognizedCaption ?? (!isAi && humanSpeaking ? '🎙️ Speaking…' : null);
+  const caption =
+    !isAi && (humanSpeaking || serverHumanSpeaking)
+      ? '🎙️ Speaking…'
+      : !isAi && serverTranscribing
+        ? '⏳ Transcribing…'
+        : recognizedCaption;
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
   const attendee = isAi ? scenario.attendees.find((candidate) => candidate.name === participant.identity) : undefined;
@@ -149,7 +192,7 @@ function CaptionedTile() {
     : participant.metadata?.trim() || undefined;
   const stance = isAi && attendee?.role !== undefined ? COLLEAGUE_STANCE[attendee.role] : undefined;
   const reaction = isAi
-    ? reactionForColleague(participant.identity, chunks, speaking, now)
+    ? reactionForColleague(participant.identity, chunks, speaking, now, activeItemOwnerRole, attendee?.role)
     : undefined;
 
   return (
@@ -166,7 +209,12 @@ function CaptionedTile() {
         </div>
       </div>
       {reaction !== undefined && (
-        <div className="kd-reaction-badge" data-tone={reaction.tone} aria-label={`${participant.identity}: ${reaction.label}`}>
+        <div
+          className="kd-reaction-badge"
+          data-tone={reaction.tone}
+          style={{ ['--reaction-delay' as string]: `${(Math.max(0, aiIndex) % 3) * 240}ms` }}
+          aria-label={`${participant.identity}: ${reaction.label}`}
+        >
           <span className="kd-reaction-emoji">{reaction.emoji}</span>
         </div>
       )}
@@ -181,7 +229,15 @@ function CaptionedTile() {
 }
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
-export function MeetingGrid({ role }: { role: string }) {
+export function MeetingGrid({
+  role,
+  onOpenKaki,
+  onKakiBadgeChange,
+}: {
+  role: string;
+  onOpenKaki?: () => void;
+  onKakiBadgeChange?: (count: number) => void;
+}) {
   const scenario = useScenario();
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
@@ -249,20 +305,72 @@ export function MeetingGrid({ role }: { role: string }) {
   useEffect(() => {
     if (!waitingForHuman) setShowStarterIdeas(false);
   }, [waitingForHuman]);
-  const stage = useMemo(
-    () => ({ scenario, chunks, now, npcState, waitingForHuman }),
-    [scenario, chunks, now, npcState, waitingForHuman],
-  );
-
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
+  const stage = useMemo(
+    () => ({ scenario, chunks, now, npcState, waitingForHuman, activeItemOwnerRole: activeOwnerRole }),
+    [scenario, chunks, now, npcState, waitingForHuman, activeOwnerRole],
+  );
+
+  const currentItemTranscriptLower = useMemo(() => {
+    let idx = 0;
+    const texts: string[] = [];
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        idx = event.payload.agendaIndex;
+      } else if (event.type === 'TRANSCRIPT_CHUNK' && idx === activeAgendaIndex) {
+        texts.push(event.payload.text.toLowerCase());
+      }
+    }
+    return texts.join(' ');
+  }, [events, activeAgendaIndex]);
+
+  const wingmanFactPreview = useMemo(() => {
+    let factIdx = 0;
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const event = events[i]!;
+      if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
+        const text = event.payload.facts[0]?.text;
+        if (text !== undefined) return text;
+      }
+    }
+    const myRoleFacts = scenario.roles.find((r) => r.id === role)?.card?.facts ?? [];
+    if (myRoleFacts.length === 0 || activeItem === undefined) return undefined;
+    const topicText = `${activeItem.title} ${activeItem.decision ?? ''}`.toLowerCase();
+    const keywords = (topicText.match(/[a-z0-9]{4,}/g) ?? []).filter(
+      (w) => !['morning', 'tomorrow', 'without', 'before'].includes(w),
+    );
+    const matched = myRoleFacts.find((fact) => keywords.some((w) => fact.toLowerCase().includes(w)));
+    void factIdx;
+    return matched ?? myRoleFacts[0];
+  }, [events, scenario.roles, role, activeItem]);
 
   const starterChips = useMemo(() => {
     const raw = starterChipsForItem(activeItem?.title, activeOwnerRole);
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
-    if (viewerSeatName === undefined) return raw.slice(0, 2);
-    return raw.filter((chip) => !chip.toLowerCase().startsWith(viewerSeatName.toLowerCase())).slice(0, 2);
-  }, [activeItem?.title, activeOwnerRole, role, scenario.attendees]);
+    const roleFiltered =
+      viewerSeatName === undefined
+        ? [...raw]
+        : raw.filter((chip) => !chip.toLowerCase().startsWith(viewerSeatName.toLowerCase()));
+    const chipAlreadyCovered = (chip: string): boolean => {
+      const lower = chip.toLowerCase();
+      if (lower.includes('5-set') && /5-set|five-set|platter|bundle/.test(currentItemTranscriptLower)) return true;
+      if (lower.includes('free drink') && /free drink|drink upgrade/.test(currentItemTranscriptLower)) return true;
+      if (lower.includes('smart switch') && /smart switch/.test(currentItemTranscriptLower)) return true;
+      if (lower.includes('table token') && /table token|numbered token/.test(currentItemTranscriptLower)) return true;
+      if (lower.includes('pasteurized') && /pasteurized/.test(currentItemTranscriptLower)) return true;
+      if (lower.includes('plain-english') && /pos v2\.4|short kopi/.test(currentItemTranscriptLower)) return true;
+      if (lower.includes('milk & sugar') && /milk\s*(?:&|and)\s*sugar|two-step|2-step/.test(currentItemTranscriptLower))
+        return true;
+      return false;
+    };
+    const fresh = roleFiltered.filter((chip) => !chipAlreadyCovered(chip));
+    const fallbackChips = [
+      "Sam, could you summarize the main options we're choosing between right now?",
+      "That plan sounds solid to me — let's lock in both parts for tomorrow morning.",
+    ];
+    return [...fresh, ...fallbackChips].slice(0, 2);
+  }, [activeItem?.title, activeOwnerRole, role, scenario.attendees, currentItemTranscriptLower]);
 
   const sendQuickLine = useCallback(
     (text: string) => {
@@ -275,6 +383,19 @@ export function MeetingGrid({ role }: { role: string }) {
   );
 
   const [dismissedToastKey, setDismissedToastKey] = useState<string>('');
+  const actionableMyTasksCount = useMemo(() => {
+    const allTasks = [...screenTasks.values()];
+    return allTasks.filter(
+      (t) =>
+        (t.assignee ?? t.suggestedAssignee) === role &&
+        (t.status === 'DISPATCHED' || t.status === 'DRAFT_READY'),
+    ).length;
+  }, [screenTasks, role]);
+
+  useEffect(() => {
+    onKakiBadgeChange?.(actionableMyTasksCount);
+  }, [actionableMyTasksCount, onKakiBadgeChange]);
+
   const activeStageToast = useMemo(() => {
     const allTasks = [...screenTasks.values()];
     const myTask = allTasks
@@ -287,8 +408,8 @@ export function MeetingGrid({ role }: { role: string }) {
         badge: myTask.status === 'DRAFT_READY' ? 'Kaki Action · Draft Ready' : 'Kaki Action · Assigned to You',
         text:
           myTask.status === 'DRAFT_READY'
-            ? `"${myTask.title}" is drafted. Review and click Approve & publish in the Kaki panel on the right →`
-            : `"${myTask.title}": click "Let Kaki do it" in the Kaki panel on the right →`,
+            ? `"${myTask.title}" is drafted. Review and click Approve & publish in Kaki →`
+            : `"${myTask.title}": click "Let Kaki do it" in Kaki →`,
       };
     }
     const publishedTask = [...allTasks]
@@ -299,7 +420,7 @@ export function MeetingGrid({ role }: { role: string }) {
       return {
         key,
         badge: 'Kaki Action · Published',
-        text: `"${publishedTask.title}" is live. Open it in the Kaki panel on the right →`,
+        text: `"${publishedTask.title}" is live. Open it in Kaki →`,
       };
     }
     let factIdx = 0;
@@ -320,7 +441,7 @@ export function MeetingGrid({ role }: { role: string }) {
       return {
         key,
         badge: 'Kaki Wingman · Record Found',
-        text: `${latestFactOnCurrentTopic.payload.facts[0]?.text ?? latestFactOnCurrentTopic.payload.question} (see right panel →)`,
+        text: `${latestFactOnCurrentTopic.payload.facts[0]?.text ?? latestFactOnCurrentTopic.payload.question} (open Kaki →)`,
       };
     }
     return undefined;
@@ -340,14 +461,23 @@ export function MeetingGrid({ role }: { role: string }) {
           </div>
         )}
         {activeStageToast !== undefined && activeStageToast.key !== dismissedToastKey && (
-          <div className="kd-stage-toast" role="status" aria-live="polite">
+          <div
+            className="kd-stage-toast"
+            role="status"
+            aria-live="polite"
+            onClick={() => onOpenKaki?.()}
+            style={{ cursor: onOpenKaki ? 'pointer' : undefined }}
+          >
             <span className="kd-stage-toast-badge">{activeStageToast.badge}</span>
             <span className="kd-stage-toast-text">{activeStageToast.text}</span>
             <button
               type="button"
               className="kd-stage-toast-close"
               aria-label="Dismiss notification"
-              onClick={() => setDismissedToastKey(activeStageToast.key)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setDismissedToastKey(activeStageToast.key);
+              }}
             >
               ✕
             </button>
@@ -375,6 +505,22 @@ export function MeetingGrid({ role }: { role: string }) {
             </div>
             {showStarterIdeas && (
               <div className="kd-starter-chips">
+                {wingmanFactPreview !== undefined && (
+                  <div
+                    style={{
+                      flex: '1 1 100%',
+                      padding: '6px 10px',
+                      borderRadius: 10,
+                      background: 'var(--color-accent-soft)',
+                      border: '1px solid var(--color-accent)',
+                      fontSize: 12,
+                      lineHeight: 1.35,
+                      color: 'var(--color-text)',
+                    }}
+                  >
+                    <strong>📌 Kaki Wingman fact for your role:</strong> {wingmanFactPreview}
+                  </div>
+                )}
                 {starterChips.map((chip) => (
                   <button
                     key={chip}

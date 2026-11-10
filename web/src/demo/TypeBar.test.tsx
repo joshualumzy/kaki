@@ -41,12 +41,10 @@ describe('TypeBar', () => {
     vi.useRealTimers();
   });
 
-  it('pauses the AI attendees from the button, Escape, or Spacebar, and plays when clicked or Spacebar pressed again', () => {
+  it('pauses the AI attendees from the button or Spacebar, and plays when clicked or Spacebar pressed again', () => {
     const { send } = setup();
     fireEvent.click(screen.getByText(/Pause/));
     expect(send).toHaveBeenLastCalledWith({ kind: 'stop' });
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(send.mock.calls.filter(([message]) => message.kind === 'stop')).toHaveLength(2);
     fireEvent.click(screen.getByText(/Play/));
     expect(send).toHaveBeenLastCalledWith({ kind: 'resume' });
     fireEvent.keyDown(window, { key: ' ', code: 'Space' });

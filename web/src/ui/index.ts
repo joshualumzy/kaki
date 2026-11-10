@@ -1,3 +1,4 @@
+export { resolveArtifactUrl } from './artifactUrl';
 export { Button } from './Button';
 export { Card } from './Card';
 export { ConnectionBanner } from './ConnectionBanner';

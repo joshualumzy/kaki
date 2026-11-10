@@ -158,7 +158,7 @@ export function createMattermostModule({
       }
       return { target: `#${settings.channel}`, subject: task.title, body: message };
     },
-    async run(task, signal, scenario) {
+    async run(task, signal, scenario, visitorName) {
       const settings = requireSettings();
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
@@ -177,30 +177,46 @@ export function createMattermostModule({
       const roleId = task.assignee ?? task.suggestedAssignee;
       const attendee = roleId === undefined ? undefined : scenario.attendees.find((candidate) => candidate.role === roleId);
       if (attendee !== undefined && scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) {
-        const cleanSpeaker = task.assignmentEvidence?.speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        const speakerRaw = visitorName ?? task.assignmentEvidence?.speaker;
+        const cleanSpeaker = speakerRaw?.replace(/\s*\([^)]*\)\s*$/, '').trim();
         const isVisitor =
           cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase();
-        const loginId = isVisitor ? 'demo' : attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const loginIds = isVisitor
+          ? ['demo@nanyangkopitiam.example', 'demo']
+          : [attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '')];
         try {
-          const loginResp = await request(
-            settings,
-            '/api/v4/users/login',
-            'POST',
-            JSON.stringify({ login_id: loginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
-            signal,
-          );
-          if (loginResp.ok) {
+          let loginResp: Response | undefined;
+          for (const candidateLoginId of loginIds) {
+            const resp = await request(
+              settings,
+              '/api/v4/users/login',
+              'POST',
+              JSON.stringify({ login_id: candidateLoginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+              signal,
+            );
+            if (resp.ok) {
+              loginResp = resp;
+              break;
+            }
+          }
+          if (loginResp?.ok) {
             const sessionToken = loginResp.headers.get('Token') ?? undefined;
             if (sessionToken !== undefined) {
               postToken = sessionToken;
               if (isVisitor && cleanSpeaker !== undefined) {
                 const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
                 if (userObj?.id !== undefined) {
+                  const safeUsername = cleanSpeaker.toLowerCase().replace(/[^a-z0-9_-]/g, '');
                   await request(
                     settings,
                     `/api/v4/users/${userObj.id}/patch`,
                     'PUT',
-                    JSON.stringify({ first_name: cleanSpeaker, last_name: '', nickname: cleanSpeaker }),
+                    JSON.stringify({
+                      ...(safeUsername.length >= 3 ? { username: safeUsername } : {}),
+                      first_name: cleanSpeaker,
+                      last_name: '',
+                      nickname: cleanSpeaker,
+                    }),
                     signal,
                     sessionToken,
                   ).catch(() => undefined);
@@ -210,6 +226,21 @@ export function createMattermostModule({
           }
         } catch {
           // Fall back to default token if per-user login is unavailable.
+        }
+      }
+      // Ensure the posting user (e.g. 'demo' on an older unseeded channel) is a member of the target channel before posting!
+      if (postToken !== undefined) {
+        const meResp = await request(settings, '/api/v4/users/me', 'GET', undefined, signal, postToken).catch(() => undefined);
+        const meObj = (await meResp?.json().catch(() => undefined)) as { id?: string } | undefined;
+        if (meObj?.id !== undefined) {
+          await request(
+            settings,
+            `/api/v4/channels/${channelId}/members`,
+            'POST',
+            JSON.stringify({ user_id: meObj.id }),
+            signal,
+            settings.token,
+          ).catch(() => undefined);
         }
       }
 

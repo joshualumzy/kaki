@@ -7,7 +7,7 @@ Last updated: 11 November 2026
 
 - GrabFood and Foodpanda raised breakfast commissions to 32% this week. On a SGD 10.00 breakfast set, platform fees (SGD 3.20) plus takeaway packaging leave a net loss of SGD 0.40 per single set delivered.
 - Delivery platforms drive 50% of our peak morning volume (SGD 2,400/morning) from corporate office towers within 500m of Raffles Place. Delisting forfeits those corporate accounts straight to Ya Kun.
-- Adding a 30% price markup on GrabFood (pricing a SGD 10 set at SGD 13) triggers platform price-parity ranking penalties and customer backlash, though multi-set corporate bundle platters (5+ sets) are treated as a separate menu SKU.
+- Adding a 30% price markup on GrabFood (pricing a SGD 10 set at SGD 13) triggers platform price-parity ranking penalties and customer backlash, though a 5-set corporate Office Platter bundle (priced at SGD 55, or SGD 11/set, which nets SGD 37.40 after the 32% fee on SGD 32.50 of ingredients—making ~SGD 5.00 profit per platter) counts as a separate menu item.
 - Our direct web QR ordering link has 0% commission, but only supports express self-pickup at the counter because our POS has no rider dispatch integration and pulling floor staff to run deliveries in CBD morning rain carries workplace injury liability.
 
 ## 2. Emergency pasteurized egg backup & launch budget (SGD 750 remaining)

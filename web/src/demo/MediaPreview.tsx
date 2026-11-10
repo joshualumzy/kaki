@@ -66,6 +66,14 @@ function useMicrophoneLevel(on: boolean, fail: (message: string) => void): numbe
       failRef.current('This browser cannot use a microphone here.');
       return undefined;
     }
+    const audioSession = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+    if (audioSession !== undefined && audioSession.type === 'playback') {
+      try {
+        audioSession.type = 'auto';
+      } catch {
+        // Ignore if unsupported
+      }
+    }
     navigator.mediaDevices
       .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
       .then((s) => {

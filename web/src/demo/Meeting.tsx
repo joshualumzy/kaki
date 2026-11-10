@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { LiveKitRoom } from '@livekit/components-react';
+import { useEffect, useMemo, useState } from 'react';
+import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
 import { demoRoomName, hostRole, humanAttendeeForRole, humanRoles } from '@kaki/shared';
@@ -31,6 +31,30 @@ interface Session {
   meetingCode?: string;
 }
 
+/** Disconnects from LiveKit immediately when the browser tab refreshes or closes so the seat frees up right away. */
+function CleanDisconnectOnUnload() {
+  const room = useRoomContext();
+  useEffect(() => {
+    const onUnload = (): void => {
+      void room.disconnect().catch(() => undefined);
+    };
+    window.addEventListener('pagehide', onUnload);
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      window.removeEventListener('pagehide', onUnload);
+      window.removeEventListener('beforeunload', onUnload);
+    };
+  }, [room]);
+  return null;
+}
+
+interface HotMeetingData {
+  session?: Session;
+  pane?: 'meeting' | 'kaki';
+  started?: boolean;
+}
+const hotData = (import.meta as unknown as { hot?: { data: HotMeetingData } }).hot?.data;
+
 /** The live demo meeting: join with a name and role, then talk to the AI attendees. */
 export default function Meeting() {
   const scenario = useScenario();
@@ -40,13 +64,21 @@ export default function Meeting() {
     const host = hostRole(scenario);
     return host === undefined ? humanRoles(scenario) : [...humanRoles(scenario), host];
   }, [scenario]);
-  const [session, setSession] = useState<Session | undefined>();
+  const [session, setSession] = useState<Session | undefined>(() => hotData?.session);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [needsCode, setNeedsCode] = useState(false);
-  const [pane, setPane] = useState<'meeting' | 'kaki'>('meeting');
+  const [pane, setPane] = useState<'meeting' | 'kaki'>(() => hotData?.pane ?? 'meeting');
+  const [kakiBadgeCount, setKakiBadgeCount] = useState(0);
   // The AI attendees stay silent until the person has read their briefing and pressed Start.
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState<boolean>(() => hotData?.started ?? false);
+  useEffect(() => {
+    if (hotData !== undefined) {
+      hotData.session = session;
+      hotData.pane = pane;
+      hotData.started = started;
+    }
+  }, [session, pane, started]);
   const linkCode = useMemo(() => new URLSearchParams(window.location.search).get('code') ?? '', []);
 
   const hasAi = (scenario.npcs ?? []).length > 0;
@@ -65,7 +97,13 @@ export default function Meeting() {
       if (!response.ok || typeof body.token !== 'string') {
         throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
       }
-      await refreshScenario().catch(() => undefined);
+      try {
+        await refreshScenario();
+      } catch {
+        // Ignore refresh error if scenario already loaded
+      }
+      setPane('meeting');
+      setStarted(false);
       setSession({
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
@@ -74,8 +112,6 @@ export default function Meeting() {
         media,
         ...(typeof body.meetingCode === 'string' ? { meetingCode: body.meetingCode } : {}),
       });
-      setPane('meeting');
-      setStarted(false);
     } catch (joinError) {
       setError(joinError instanceof Error ? joinError.message : String(joinError));
     } finally {
@@ -102,7 +138,7 @@ export default function Meeting() {
   const needsStart = !started && seatRole?.facilitator !== true;
 
   return (
-    <div className="kd-meeting" data-pane={pane}>
+    <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart}>
       <div className="kd-stage">
         <LiveKitRoom
           video={session.media.camera}
@@ -120,9 +156,14 @@ export default function Meeting() {
           style={{ height: '100%' }}
         >
           <ErrorBoundary>
-            <MeetingGrid role={session.role} />
+            <MeetingGrid
+              role={session.role}
+              onOpenKaki={() => setPane('kaki')}
+              onKakiBadgeChange={setKakiBadgeCount}
+            />
           </ErrorBoundary>
           <LocalSpeechSTT />
+          <CleanDisconnectOnUnload />
           {needsStart && (
             <ConnectedStartPrompt
               role={seatRole}
@@ -148,6 +189,11 @@ export default function Meeting() {
         </button>
         <button type="button" aria-pressed={pane === 'kaki'} onClick={() => setPane('kaki')}>
           Kaki
+          {kakiBadgeCount > 0 && pane !== 'kaki' && (
+            <span className="kd-pane-badge" aria-label={`${kakiBadgeCount} action item waiting`}>
+              {kakiBadgeCount}
+            </span>
+          )}
         </button>
       </nav>
     </div>

@@ -13,7 +13,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { joinMeeting } from '../auth/api';
 import { useMe } from '../auth/useMe';
 import { useKaki, useScenario, type KakiRejection } from '../kaki';
-import { Button, Card, ConnectionBanner, RejectionBanner, StatusPill } from '../ui';
+import { Button, Card, ConnectionBanner, RejectionBanner, StatusPill, resolveArtifactUrl } from '../ui';
 import '../auth/auth.css';
 import './phone.css';
 
@@ -688,7 +688,7 @@ function TaskCardBody({
       {task.status === 'COMPLETED' ? (
         <div className="task-actions" aria-busy={pending}>
           {task.artifactUrl === undefined ? null : (
-            <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
+            <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl)} target="_blank" rel="noreferrer">
               Open artifact
             </a>
           )}

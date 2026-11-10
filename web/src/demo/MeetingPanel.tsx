@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   assigneeLabel,
-  itemMode,
   roleLabel,
   type AgendaItem,
   type KakiEvent,
@@ -11,6 +10,7 @@ import {
   type Task,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
+import { resolveArtifactUrl } from '../ui';
 import { MeetingRecordCard, isRecord, type RecordEvent } from '../screen/ScreenPage';
 import type { TranscriptViewer } from './captions';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
@@ -74,7 +74,6 @@ export function MeetingPanel({
 
   const topicBriefingStarted = useMemo(() => {
     const targetIdx = record?.payload.agendaIndex ?? 0;
-    if (targetIdx === 0 && record !== undefined && record.payload.elapsedSeconds >= 22) return true;
     let currentIdx = 0;
     let briefedOnTarget = false;
     for (const event of events) {
@@ -221,7 +220,7 @@ export function MeetingPanel({
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             {minutesTask?.artifactUrl !== undefined && (
-              <a className="artifact-link" href={minutesTask.artifactUrl} target="_blank" rel="noreferrer">
+              <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl)} target="_blank" rel="noreferrer">
                 Open meeting minutes in Wiki ↗
               </a>
             )}
@@ -283,7 +282,7 @@ export function MeetingPanel({
                   <small className="kd-task-decision">Accepted decision: {task.decisionSource}</small>
                 )}
                 {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') && (
-                  <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
+                  <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl)} target="_blank" rel="noreferrer">
                     {artifactLinkText(task)}
                   </a>
                 )}
@@ -415,24 +414,19 @@ function CurrentTopicCard({
   agendaIndex?: number;
 }) {
   if (item === undefined) return null;
-  const mode = itemMode(scenario, item, role?.id);
-  const myFacts = relevantFactsForItem(item, role?.card?.facts ?? [], mode === 'involve');
-  const companyFacts =
-    companyFact === undefined
-      ? []
-      : filterNonDuplicateCompanyFacts(companyFact.payload.facts, myFacts);
-  const roleBadge =
-    mode === 'involve'
-      ? 'Your item to lead'
-      : mode === 'decide'
-        ? 'Team needs your call'
-        : `Led by ${assigneeLabel(scenario, item.ownerRole, viewer)} · You can listen in or jump in`;
+  const isMyItem = role !== undefined && item.ownerRole === role.id;
+  const myFacts = relevantFactsForItem(item, role?.card?.facts ?? [], isMyItem);
+  const ownerName = assigneeLabel(scenario, item.ownerRole, viewer);
+  const roleBadge = isMyItem
+    ? `Your Item to Lead (${role?.label ?? 'Owner'})`
+    : `Topic Owner: ${ownerName}`;
 
   // Progressive Revelation: Only show a colleague's standoff card once they have actually
-  // delivered their point (at least 8 words or a full sentence), or when another speaker follows them.
-  // This prevents the "movie subtitle spoiler" where the card reveals their conclusion on syllable #1.
+  // finished delivering their point (at least 18 words spoken, or another speaker follows them),
+  // so a 5-word self-introduction ("I'm Arjun, Tech Lead.") does not prematurely pop up their trade-off!
   const currentTopicSpeakers = useMemo(() => {
     const wordCounts = new Map<string, number>();
+    const sentenceCounts = new Map<string, number>();
     const completedSpeakers = new Set<string>();
     if (events === undefined || events.length === 0) return completedSpeakers;
     let onCurrent = agendaIndex === undefined || agendaIndex === 0;
@@ -453,10 +447,12 @@ function CurrentTopicCard({
         lastSpeaker = raw;
         const words = event.payload.text.trim().split(/\s+/).filter(Boolean).length;
         const totalWords = (wordCounts.get(raw) ?? 0) + words;
+        const totalSentences = (sentenceCounts.get(raw) ?? 0) + 1;
         wordCounts.set(raw, totalWords);
+        sentenceCounts.set(raw, totalSentences);
 
-        // Reveal card once the speaker has delivered a complete thought (8+ words or completed sentence)
-        if (totalWords >= 8 || (totalWords >= 4 && /[.!?]\s*$/.test(event.payload.text.trim()))) {
+        // Reveal card once the speaker has delivered their actual point (18+ words or 2+ sentences)
+        if (totalWords >= 18 || totalSentences >= 2) {
           completedSpeakers.add(raw);
         }
       }
@@ -467,9 +463,6 @@ function CurrentTopicCard({
   const visibleTradeOffs = useMemo(() => {
     const tradeOffs = item.discussion?.tradeOffs ?? [];
     if (events === undefined || events.length === 0) return [];
-    // The Standoff displays competing views of AI colleagues as they speak.
-    // The visitor's own role constraints are shown in "Your Role Constraints & Numbers" below,
-    // so we exclude the visitor's seat to prevent duplicate cards and phantom seed names (like "Wei Ling").
     const isVisitorSeat = (to: (typeof tradeOffs)[number]) => {
       if (role?.id !== undefined && to.role === role.id) return true;
       if (to.attendee.toLowerCase() === viewer.name.toLowerCase()) return true;
@@ -484,55 +477,54 @@ function CurrentTopicCard({
     return filtered.slice(0, 3);
   }, [item, events, currentTopicSpeakers, viewer, role]);
 
-  if (item.decision === undefined && myFacts.length === 0 && companyFacts.length === 0) return null;
+  const companyFacts =
+    companyFact === undefined
+      ? []
+      : filterNonDuplicateCompanyFacts(companyFact.payload.facts, [
+          ...myFacts,
+          ...visibleTradeOffs.map((to) => to.tradeOff),
+        ]);
+
+  const hasTradeOffList = item.discussion?.tradeOffs !== undefined && item.discussion.tradeOffs.length > 0;
+  // Do not pop up the Wingman card at all while the first speaker is only saying their 5-word self-introduction!
+  if (hasTradeOffList && visibleTradeOffs.length === 0 && companyFacts.length === 0) return null;
+  if (!hasTradeOffList && myFacts.length === 0 && companyFacts.length === 0) return null;
 
   return (
     <section className="kd-role kd-topic-card" aria-label="Current topic context">
       <p className="kd-role-eyebrow">Wingman · {roleBadge}</p>
-      {item.decision !== undefined && (
-        <p style={{ marginBottom: myFacts.length > 0 || companyFacts.length > 0 ? 8 : 0 }}>
-          <strong>{mode === 'observe' ? 'On the table: ' : 'Your call to make: '}</strong>
-          {item.decision}
-        </p>
-      )}
-      {item.discussion?.tradeOffs !== undefined && item.discussion.tradeOffs.length > 0 && (
-        <div style={{ marginTop: 8, marginBottom: 8 }}>
-          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>The Standoff & Constraints</p>
-          {visibleTradeOffs.length === 0 ? (
-            <p style={{ fontStyle: 'italic', fontSize: 12, color: 'var(--color-text-dim)', margin: 0 }}>
-              Listening to the team's opening points…
-            </p>
-          ) : (
-            <ul className="kd-record-list" style={{ marginBottom: 0 }}>
-              {visibleTradeOffs.map((to) => {
-                const colonIndex = to.tradeOff.indexOf(':');
-                const hasHeadline = colonIndex > 0 && colonIndex < 45;
-                const headline = hasHeadline ? to.tradeOff.slice(0, colonIndex).trim() : null;
-                const detail = hasHeadline ? to.tradeOff.slice(colonIndex + 1).trim() : to.tradeOff;
-                return (
-                  <li key={to.tradeOff} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <span className="kd-record-source-pill" style={{ flexShrink: 0 }}>{to.attendee}</span>
-                    <span style={{ fontSize: 13, lineHeight: '1.4' }}>
-                      {headline !== null ? (
-                        <>
-                          <strong>{headline}:</strong> {detail}
-                        </>
-                      ) : (
-                        detail
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+      {hasTradeOffList && visibleTradeOffs.length > 0 && (
+        <div style={{ marginTop: 6, marginBottom: 8 }}>
+          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>Both Sides of the Issue</p>
+          <ul className="kd-record-list" style={{ marginBottom: 0 }}>
+            {visibleTradeOffs.map((to) => {
+              const colonIndex = to.tradeOff.indexOf(':');
+              const hasHeadline = colonIndex > 0 && colonIndex < 45;
+              const headline = hasHeadline ? to.tradeOff.slice(0, colonIndex).trim() : null;
+              const detail = hasHeadline ? to.tradeOff.slice(colonIndex + 1).trim() : to.tradeOff;
+              return (
+                <li key={to.tradeOff} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <span className="kd-record-source-pill" style={{ flexShrink: 0 }}>{to.attendee}</span>
+                  <span style={{ fontSize: 13, lineHeight: '1.4' }}>
+                    {headline !== null ? (
+                      <>
+                        <strong>{headline}:</strong> {detail}
+                      </>
+                    ) : (
+                      detail
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
-      {myFacts.length > 0 && (
+      {myFacts.length > 0 && (!hasTradeOffList || visibleTradeOffs.length > 0) && (
         <div style={{ marginTop: 8 }}>
-          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>Your Role Constraints & Numbers</p>
+          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>💡 Your Fact to Share ({role?.label ?? 'Your Role'})</p>
           <div className="kd-fact-chips" aria-label="Key facts for this topic">
-            {myFacts.map((fact) => (
+            {myFacts.slice(0, 1).map((fact) => (
               <div key={fact} className="kd-fact-chip">
                 {fact}
               </div>

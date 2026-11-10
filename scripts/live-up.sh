@@ -31,11 +31,19 @@ start() { # name command...
   echo "Started $name (pid $pid, log .live-logs/$name.log)"
 }
 
+start_respawn() { # name command...
+  local name="$1"; shift
+  local pid
+  pid=$(set -m; nohup bash -c 'while true; do "$@"; code=$?; echo "[supervisor] process exited ($code); restarting in 2s..."; sleep 2; done' _ "$@" >".live-logs/$name.log" 2>&1 </dev/null & echo $!)
+  echo "$pid" >> "$pids"
+  echo "Started $name with auto-respawn (pid $pid, log .live-logs/$name.log)"
+}
+
 start dev npm run dev
 echo -n "Waiting for the web app"
 for _ in $(seq 1 60); do curl -fsS -m 2 -o /dev/null http://localhost:5173/ 2>/dev/null && break; echo -n "."; sleep 1; done
 echo
-start npc npm run npc
+start_respawn npc npm run npc
 echo "Giving the AI attendees a few seconds to join..."; sleep 8
 
 bash scripts/live-preflight.sh

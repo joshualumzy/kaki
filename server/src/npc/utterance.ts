@@ -28,6 +28,8 @@ export interface UtteranceRecorderOptions {
   onAudio?(samples: Int16Array): void;
   /** A stretch of speech was recognised as containing nothing. */
   onNothing?(): void;
+  /** True while finished speech audio is waiting on the speech-to-text service to return words. */
+  onRecognizing?(active: boolean): void;
 }
 
 /**
@@ -47,6 +49,7 @@ export class UtteranceRecorder {
   private sentSamples = 0;
   private sent: Int16Array[] = [];
   private chain: Promise<void> = Promise.resolve();
+  private pendingRecognitions = 0;
 
   constructor(
     private readonly recognizer: Recognizer,
@@ -119,10 +122,20 @@ export class UtteranceRecorder {
       session.cancel();
       return;
     }
+    // Only report active recognition for stretches at least 500 ms long so short coughs or noise blips do not flash a transcribing badge.
+    const reportRecognizing = sentMs >= 500;
     // Results are handed over in the order the speech happened, even if one takes longer to come back.
+    if (reportRecognizing) {
+      this.pendingRecognitions += 1;
+      if (this.pendingRecognitions === 1) this.options.onRecognizing?.(true);
+    }
     this.chain = this.chain
       .then(() => session.finish())
       .then((text) => {
+        if (reportRecognizing) {
+          this.pendingRecognitions = Math.max(0, this.pendingRecognitions - 1);
+          if (this.pendingRecognitions === 0) this.options.onRecognizing?.(false);
+        }
         const heard = text.trim();
         if (heard.length > 0) this.options.onText(heard);
         else {
@@ -130,6 +143,12 @@ export class UtteranceRecorder {
           this.options.onNothing?.();
         }
       })
-      .catch((error: unknown) => this.options.log?.(`speech recognition failed: ${String(error)}`));
+      .catch((error: unknown) => {
+        if (reportRecognizing) {
+          this.pendingRecognitions = Math.max(0, this.pendingRecognitions - 1);
+          if (this.pendingRecognitions === 0) this.options.onRecognizing?.(false);
+        }
+        this.options.log?.(`speech recognition failed: ${String(error)}`);
+      });
   }
 }

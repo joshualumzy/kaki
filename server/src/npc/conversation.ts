@@ -62,12 +62,16 @@ export const DEFAULT_OBSERVE_DELAY_MS = 1500;
 /** How long after the characters finish talking through an observe-only item before moving to the next item. */
 export const DEFAULT_OBSERVE_ADVANCE_MS = 8500;
 /** How long the room waits in silence on the person's item before the host gently checks in by name. */
-export const DEFAULT_SILENCE_PROMPT_MS = 22_000;
+export const DEFAULT_SILENCE_PROMPT_MS = 28_000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
 /** How long the person must keep talking over the room before it stops; a shorter burst is probably noise or an echo. */
 export const DEFAULT_BARGE_IN_MS = 1400;
+
+/** Short listener backchannels ("Oh.", "So.", "Cool.") spoken while an AI colleague is mid-turn should not abort the colleague's turn. */
+const LISTENER_BACKCHANNEL_WHILE_SPEAKING_RE =
+  /^(?:oh|ah|uh-huh|mm-hmm|mhm|mm|hmm|so|cool|nice|wow|i see|gotcha)[,.!?\s]*$/i;
 
 function splitSentences(text: string): string[] {
   return (
@@ -212,6 +216,8 @@ export class NpcConversation<Clip> {
   /** The agenda item the meeting is on now (the first until the host announces another). */
   private agendaItem: string | undefined;
   private humanTalking = false;
+  private recognizingSpeech = false;
+  private recognizingTimer: ReturnType<typeof setTimeout> | undefined;
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
   private turn: Turn | undefined;
   private closed = false;
@@ -275,9 +281,12 @@ export class NpcConversation<Clip> {
     this.paused = false;
     this.pausedCutOff = false;
     this.pausedUtterances = undefined;
+    const abandonedScripted = this.pausedScripted;
     this.pausedScripted = undefined;
+    abandonedScripted?.onDone?.(false);
     this.ports.log?.(`typed "${typed}"`);
     this.chain = 0;
+    this.bridgedStatementOnTurn = false;
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
@@ -302,6 +311,7 @@ export class NpcConversation<Clip> {
             utterance: { speaker: this.turn.scriptedUtterance.speaker, text: remaining },
             onDone: this.turn.onScriptedDone,
           };
+          this.turn.onScriptedDone = undefined;
         }
       } else {
         const completedCount = this.turn.spoken.filter((entry) => entry.complete).length;
@@ -316,6 +326,7 @@ export class NpcConversation<Clip> {
     }
     this.paused = true;
     this.humanTalking = false;
+    this.humanRecognizing(false);
     this.gate.setHumanTalking(false);
     this.clearBargeTimer();
     this.clearRespondTimer();
@@ -377,9 +388,41 @@ export class NpcConversation<Clip> {
     this.scheduleSilencePrompt();
   }
 
+  /** The person is pressing keys in the chat input: push back any active silence timer so nobody cuts in while they type. */
+  humanTyping(): void {
+    if (this.closed || this.concluded || this.paused) return;
+    if (this.silenceTimer !== undefined) {
+      this.scheduleSilencePrompt();
+    }
+  }
+
+  /** Speech-to-text is currently transcribing a finished stretch of the person's microphone audio. */
+  humanRecognizing(active: boolean): void {
+    if (this.recognizingTimer !== undefined) {
+      clearTimeout(this.recognizingTimer);
+      this.recognizingTimer = undefined;
+    }
+    this.recognizingSpeech = active && !this.closed && !this.concluded;
+    if (this.recognizingSpeech) {
+      this.clearSilenceTimer();
+      this.recognizingTimer = setTimeout(() => {
+        this.recognizingTimer = undefined;
+        this.recognizingSpeech = false;
+      }, 4_500);
+      this.recognizingTimer.unref?.();
+    }
+  }
+
   /** Speech recognition heard nothing in the last stretch of the person's microphone: it was not words. */
   humanNothing(): void {
-    if (this.closed || this.concluded || this.paused || this.humanTalking || this.pending.length > 0 || !(this.cutOff || this.unanswered)) return;
+    this.humanRecognizing(false);
+    if (this.closed || this.concluded || this.paused || this.humanTalking || this.pending.length > 0) return;
+    if (!(this.cutOff || this.unanswered)) {
+      if (this.turn === undefined && this.respondTimer === undefined && this.advanceTimer === undefined && !this.decisionWrappedUpOnItem) {
+        this.scheduleSilencePrompt();
+      }
+      return;
+    }
     this.clearRespondTimer();
     this.respondTimer = setTimeout(() => {
       this.respondTimer = undefined;
@@ -407,7 +450,9 @@ export class NpcConversation<Clip> {
       // stutter and start again, so it is only cut off once the person has kept talking a while; a shorter burst waits for
       // recognised words (`humanText` interrupts then), and carries on if there were none.
       this.clearBargeTimer();
-      const waitMs = this.options.bargeInMs ?? DEFAULT_BARGE_IN_MS;
+      const baseWaitMs = this.options.bargeInMs ?? DEFAULT_BARGE_IN_MS;
+      const waitMs =
+        this.turn.spoken.length === 0 && !this.turn.scripted ? Math.min(baseWaitMs, 250) : baseWaitMs;
       if (waitMs <= 0) {
         this.interrupt('the person started talking');
         return;
@@ -424,6 +469,7 @@ export class NpcConversation<Clip> {
 
   /** The browser recognised some of the person's words. */
   humanText(text: string): void {
+    this.humanRecognizing(false);
     const heard = text.trim();
     if (this.closed || this.concluded || heard.length === 0) return;
     if (this.paused) {
@@ -439,10 +485,16 @@ export class NpcConversation<Clip> {
     }
 
     const accepted = decision.text ?? heard;
+    if (this.turn !== undefined && LISTENER_BACKCHANNEL_WHILE_SPEAKING_RE.test(accepted)) {
+      this.ports.log?.(`ignored listener backchannel "${accepted}" while an AI colleague is speaking`);
+      return;
+    }
     this.paused = false;
     this.pausedCutOff = false;
     this.pausedUtterances = undefined;
+    const abandonedScripted = this.pausedScripted;
     this.pausedScripted = undefined;
+    abandonedScripted?.onDone?.(false);
     if (decision.text !== undefined) {
       this.ports.log?.(`heard "${accepted}" (cut the AI's own words "${decision.removed ?? ''}" out of "${heard}")`);
     } else {
@@ -452,6 +504,8 @@ export class NpcConversation<Clip> {
     this.lastTranscriptEmit = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
     this.chain = 0;
+    this.bridgedStatementOnTurn = false;
+    this.clearSilenceTimer();
     this.pending.push(accepted);
     this.noteHumanLine(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
@@ -504,6 +558,7 @@ export class NpcConversation<Clip> {
         this.cutOff ||
         this.unanswered ||
         this.humanTalking ||
+        this.recognizingSpeech ||
         this.turn !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined;
@@ -529,12 +584,17 @@ export class NpcConversation<Clip> {
   private originIsCurrent(origin: string | null | undefined): boolean {
     if (origin === undefined) return true;
     if (origin === null) return false;
-    return origin === this.currentItem()?.title;
+    const current = this.currentItem()?.title;
+    if (current === undefined) return false;
+    return origin === current || cleanSpokenTopic(origin).toLowerCase() === cleanSpokenTopic(current).toLowerCase();
   }
 
   /** True when `title` names the item the meeting is on now; external task events use this to stay on their own topic. */
   onCurrentAgenda(title: string | undefined): boolean {
-    return title !== undefined && title === this.currentItem()?.title;
+    if (title === undefined) return false;
+    const current = this.currentItem()?.title;
+    if (current === undefined) return false;
+    return title === current || cleanSpokenTopic(title).toLowerCase() === cleanSpokenTopic(current).toLowerCase();
   }
 
   /** If the host is currently speaking a task-dispatch prompt and the visitor just clicked Accept/Decline, stop that prompt immediately. */
@@ -602,7 +662,10 @@ export class NpcConversation<Clip> {
       this.hadDecisionBeforeMove && Date.now() - this.movedAt < 3_500;
     return (
       !this.closed &&
-      (this.mode() === 'observe' || this.humanSettledOnCurrentItem || withinPreviousDecisionGrace)
+      (this.mode() === 'observe' ||
+        this.humanSettledOnCurrentItem ||
+        this.decisionWrappedUpOnItem ||
+        withinPreviousDecisionGrace)
     );
   }
 
@@ -613,6 +676,7 @@ export class NpcConversation<Clip> {
 
   close(): void {
     this.closed = true;
+    this.humanRecognizing(false);
     this.clearRespondTimer();
     this.clearBargeTimer();
     this.clearAdvanceTimer();
@@ -630,6 +694,7 @@ export class NpcConversation<Clip> {
   private observeTimer: ReturnType<typeof setTimeout> | undefined;
   private deferredFollowUpTimer: ReturnType<typeof setTimeout> | undefined;
   private silencePromptStage = 0;
+  private bridgedStatementOnTurn = false;
 
   private clearBargeTimer(): void {
     if (this.bargeTimer !== undefined) clearTimeout(this.bargeTimer);
@@ -755,6 +820,8 @@ export class NpcConversation<Clip> {
     const item = this.currentItem();
     if (item === undefined) return undefined;
     if (this.assessedText === text) return this.proposalAssessment;
+    const priorLines = this.proposalLines.filter((line) => line !== text);
+    if (!this.proposalLines.includes(text)) this.proposalLines.push(text);
     const assistantContext = this.history
       .filter((m) => m.role === 'assistant')
       .slice(-2)
@@ -763,7 +830,7 @@ export class NpcConversation<Clip> {
       scenario: this.options.scenario,
       item,
       visitorText: text,
-      visitorContext: this.proposalLines.filter((line) => line !== text),
+      visitorContext: priorLines,
       assistantContext,
       resolvedSoFar: this.resolvedTradeOffs,
       stream: (messages, innerSignal) => this.ports.stream(messages, innerSignal),
@@ -775,8 +842,8 @@ export class NpcConversation<Clip> {
       this.assessedText = text;
       this.proposalAssessment = assessment;
     }
-    if (assessment === undefined || assessment.isProposal) {
-      if (!this.proposalLines.includes(text)) this.proposalLines.push(text);
+    if (assessment !== undefined && !assessment.isProposal) {
+      this.proposalLines = this.proposalLines.filter((line) => line !== text);
     }
     if (assessment !== undefined && assessment.isProposal) {
       this.resolvedTradeOffs = assessment.resolved;
@@ -819,14 +886,29 @@ export class NpcConversation<Clip> {
       return `[${who} just made a proposal on "${title}". The readiness check could not run, so keep the item open. Still to settle: ${stillOpen}. Acknowledge what works in ${who}'s idea, then have the colleague whose trade-off is unresolved raise it from their own facts and ask ${who} the open question by name. Do not propose a workaround, do not say "I'll", and do not ask for a follow-up task yet.]`;
     }
     if (!assessment.isProposal) {
-      return `[${who}'s last line was a question, side request or filler, not a proposal on "${title}". Answer it directly and keep the item open. Do not say "I'll" and do not ask for a follow-up task yet.]`;
+      return `[${who}'s last line was a question, confirmation check, side request or filler, not a final proposal on "${title}". Answer it directly and concisely and keep the item open; do not say "I'll" and do not ask for a follow-up task yet.]`;
     }
     if (assessment.readiness === 'complete') {
+      const recentAssistant = this.history
+        .filter((m) => m.role === 'assistant')
+        .slice(-2)
+        .map((m) => m.content)
+        .join('\n');
+      const alreadyAskedForDeliverable =
+        /\b(?:can|could|would|will|do you want) (?:you|us) (?:to )?(?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|draft|arrange|book)\b/i.test(
+          recentAssistant,
+        ) &&
+        /^(?:(?:that's|that is|sounds|looks)\s+(?:good|fine|great|okay|ok)|(?:yes|yeah|yep|sure|ok|okay|let's do that|do that|go ahead|works for me)\b)[^?]*$/i.test(
+          text.trim(),
+        );
+      if (alreadyAskedForDeliverable) {
+        return `[${who} just confirmed the plan and follow-up on "${title}" ("${spokenDecision}"). Reply in ONE short, warm sentence confirming you are locking that in (e.g., "Great, let's lock that in — ${who}, could you post that update in the team channel so everyone has it?"), without repeating the whole plan or asking a second open-ended question.]`;
+      }
       return `[${who} has made a complete proposal on "${title}". The final decision in ${who}'s own words, across the lines that still stand on this item, was: "${spokenDecision}". Confirm ONLY that decision: treat that quote as evidence of what ${who} decided, not as words to repeat, and do not add new terms, numbers, equipment or promises. Never add new decisions, and do not revive a superseded earlier proposal as if it were adopted. Acknowledge it faithfully in your own voice as a colleague, addressing ${who} as "you" or by name, and never speak as ${who} or copy their first-person commitments. Then ask ${who} by name for the matching follow-up deliverable (team channel post, email, wiki page, calendar invite or issue tracker ticket) unless ${who} already volunteered, and base that follow-up on the final decision only. Nobody should reopen the trade-offs or raise a new catch.]`;
     }
     const stillOpen =
       assessment.unresolved.map((entry) => `${entry.tradeOff} (ask: ${entry.question})`).join('; ') || decideWords;
-    return `[${who} has not settled "${title}" yet. Still to settle: ${stillOpen}. Acknowledge what works in ${who}'s idea, then have the colleague whose trade-off is unresolved raise that specific trade-off from their own facts and ask ${who} the open question by name. Do not repeat a fact already said aloud, do not propose a workaround, do not say "I'll", and do not ask for a follow-up task yet.]`;
+    return `[${who} has not settled "${title}" yet. Still to settle: ${stillOpen}. Acknowledge what works in ${who}'s idea, then have the colleague whose trade-off is unresolved raise that specific trade-off from their own facts, share any practical option or capability from their "Knows" facts that could help bridge the gap, and ask ${who} the open question by name so ${who} can decide. Do not repeat a fact already said aloud, do not say "I'll", and NEVER ask about drafting, posting, emailing, or filing a follow-up task while trade-offs are still open.]`;
   }
 
   /**
@@ -846,7 +928,11 @@ export class NpcConversation<Clip> {
   /** The agenda item the meeting is on, and how this person takes part in it. */
   private currentItem() {
     const title = this.agendaItem ?? this.options.scenario.agenda[0]?.title;
-    return this.options.scenario.agenda.find((item) => item.title === title);
+    if (title === undefined) return undefined;
+    const cleanTitle = cleanSpokenTopic(title).toLowerCase();
+    return this.options.scenario.agenda.find(
+      (item) => item.title === title || cleanSpokenTopic(item.title).toLowerCase() === cleanTitle,
+    );
   }
 
   private mode() {
@@ -855,7 +941,8 @@ export class NpcConversation<Clip> {
 
   private advanceOrEnd(): void {
     const agenda = this.options.scenario.agenda;
-    const currentIdx = agenda.findIndex((item) => item.title === (this.agendaItem ?? agenda[0]?.title));
+    const current = this.currentItem();
+    const currentIdx = current === undefined ? -1 : agenda.findIndex((item) => item.title === current.title);
     if (currentIdx >= 0 && currentIdx + 1 >= agenda.length && this.ports.endMeeting !== undefined) {
       this.ports.endMeeting();
       return;
@@ -880,6 +967,7 @@ export class NpcConversation<Clip> {
       if (
         this.paused ||
         this.humanTalking ||
+        this.recognizingSpeech ||
         this.turn !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined ||
@@ -945,6 +1033,7 @@ export class NpcConversation<Clip> {
       if (
         this.paused ||
         this.humanTalking ||
+        this.recognizingSpeech ||
         this.turn !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined ||
@@ -970,8 +1059,13 @@ export class NpcConversation<Clip> {
     this.clearBriefTimer();
     this.clearObserveTimer();
     if (title !== undefined) {
-      this.agendaItem = title;
+      const cleanTitle = cleanSpokenTopic(title).toLowerCase();
+      const matched = this.options.scenario.agenda.find(
+        (candidate) => candidate.title === title || cleanSpokenTopic(candidate.title).toLowerCase() === cleanTitle,
+      );
+      this.agendaItem = matched?.title ?? title;
       this.silencePromptStage = 0;
+      this.bridgedStatementOnTurn = false;
     }
     if (this.closed || this.human === undefined) return;
     this.linesAtMove = this.humanLines;
@@ -1010,7 +1104,13 @@ export class NpcConversation<Clip> {
       this.briefTimer = undefined;
       if (this.closed || this.paused || this.briefed.has(title) || this.currentItem()?.title !== title) return;
       if (this.humanLines > this.linesAtMove) return;
-      if (this.turn !== undefined || this.humanTalking || this.pending.length > 0 || this.respondTimer !== undefined) {
+      if (
+        this.turn !== undefined ||
+        this.humanTalking ||
+        this.recognizingSpeech ||
+        this.pending.length > 0 ||
+        this.respondTimer !== undefined
+      ) {
         if (attempt < 12) this.briefLater(title, attempt + 1);
         return;
       }
@@ -1062,9 +1162,10 @@ export class NpcConversation<Clip> {
     const ownerProfile = npcs.find((npc) => npc.attendee === owner);
     const scoreTensionPair = (candidate: string): number => {
       if (candidate === owner) return -1;
-      const inOpening = discussionOpeningSpeakers.includes(candidate) ? 100 : 0;
+      const openingRank = discussionOpeningSpeakers.indexOf(candidate);
+      const inOpening = openingRank === 0 ? 140 : openingRank === 1 ? 120 : openingRank >= 2 ? 70 : 0;
       const inTradeOff = discussionTradeOffSpeakers.includes(candidate) ? 50 : 0;
-      const unintroducedBonus = !this.introduced.has(candidate) && (inOpening > 0 || inTradeOff > 0) ? 25 : 0;
+      const unintroducedBonus = !this.introduced.has(candidate) && (inOpening > 0 || inTradeOff > 0) ? 15 : 0;
       const candidateProfile = npcs.find((npc) => npc.attendee === candidate);
       const fromOwner = ownerProfile?.tensions?.find((t) => t.with === candidate)?.about ?? '';
       const toOwner = candidateProfile?.tensions?.find((t) => t.with === owner)?.about ?? '';
@@ -1076,30 +1177,54 @@ export class NpcConversation<Clip> {
         .sort((left, right) => scoreTensionPair(right) - scoreTensionPair(left))[0] ??
       others[0];
     if (owner === undefined || other === undefined || this.human === undefined) return undefined;
-    const ownerRoleLabel =
-      scenario.roles.find((r) => r.id === scenario.attendees.find((a) => a.name === owner)?.role)?.label ?? 'team member';
-    const otherRoleLabel =
-      scenario.roles.find((r) => r.id === scenario.attendees.find((a) => a.name === other)?.role)?.label ?? 'team member';
-    const ownerIntroNote = !this.introduced.has(owner)
-      ? ` Because this is ${owner}'s very first time speaking in this meeting, ${owner} starts with a quick 4–6 word self-introduction ("Hey ${this.human.name}, ${owner} here from ${ownerRoleLabel} — ...").`
-      : '';
-    const otherIntroNote = !this.introduced.has(other)
-      ? ` Because this is ${other}'s very first time speaking in this meeting, ${other} starts with a quick 4–6 word self-introduction ("And I'm ${other}, ${otherRoleLabel} — ...").`
-      : '';
-    const ownerView = discussion?.openingViews.find((view) => view.attendee === owner)?.view;
-    const otherView = discussion?.openingViews.find((view) => view.attendee === other)?.view;
     const ownerTradeOff = discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === owner);
     const otherTradeOff =
       discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === other) ?? ownerTradeOff;
+    const ownerView = discussion?.openingViews.find((view) => view.attendee === owner)?.view;
+    const otherView = discussion?.openingViews.find((view) => view.attendee === other)?.view;
     const discussionHint =
       discussion === undefined
         ? ''
-        : ` Use these as the colleagues' own starting points, in their own words, not a script and not a list: ${owner}'s perspective is "${ownerView ?? ownerTradeOff?.tradeOff ?? 'the item is still open'}"; ${other}'s perspective is "${otherView ?? otherTradeOff?.tradeOff ?? 'the item is still open'}". Never read this note aloud or prescribe an answer.`;
-    return `[We just started agenda item "${title}". Speak naturally like two real colleagues hashing this out in a live huddle with ${this.human.name}, using everyday words that someone visiting from outside this industry can follow right away (avoid unexplained technical or internal acronyms):
-- ${owner} speaks first in 2 short, natural spoken sentences: explain the situation from the beginning (what happened on the ground and why it matters today).${ownerIntroNote}
-- ${other} speaks second in 2 short sentences that follow directly from what ${owner} just said: add the competing practical catch from your side (without shooting down unmentioned solutions nobody has proposed yet), and end with one simple, open question directly to ${this.human.name} by name asking how they want to handle it (${item?.decision ?? 'how should we tackle this?'}).${otherIntroNote}
+        : ` Ground their turns in these real-world facts and examples in their own natural words (never read this note aloud, never recite a script, and make sure ${other} responds directly to what ${owner} actually says): ${owner}'s context is "${ownerView ?? ownerTradeOff?.tradeOff ?? 'the item is still open'}"; ${other}'s competing catch is "${otherView ?? otherTradeOff?.tradeOff ?? 'the item is still open'}".`;
+    const humanRoleId =
+      scenario.roles.find((r) => r.id === this.human?.role || r.label === this.human?.role)?.id ??
+      scenario.attendees.find((a) => a.name === this.human?.name)?.role;
+    const visitorOwnsItem = item?.ownerRole !== undefined && humanRoleId === item.ownerRole;
+    const itemIndex = Math.max(
+      0,
+      scenario.agenda.findIndex((candidate) => candidate.title === title),
+    );
+    const patternIndex = visitorOwnsItem ? 2 : itemIndex % 4;
+    const patternInstruction =
+      patternIndex === 0
+        ? `Conversational dynamic (Story + Innocent Question -> Colleague's Practical Catch):
+- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 tells the full story of what happened on the ground yesterday and why customers stalled; Sentence 2 asks ${other} or the room a genuine question floating the obvious surface fix from ${owner}'s context (e.g., "Can't we just rename the kiosk buttons to plain English like Black Coffee No Sugar for tomorrow?").
+- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 answers ${owner}'s question directly and states all the specific operational catches from ${other}'s context;`
+        : patternIndex === 1
+          ? `Conversational dynamic (Floor Clash -> Partial Agreement + Second Catch):
+- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 tells the full story of what happened on the shop floor yesterday with concrete numbers; Sentence 2 states the rule or fix ${owner} wants to enforce tomorrow morning from ${owner}'s context.
+- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 responds directly to ${owner}'s idea, acknowledging what makes sense while stating who gets hurt on ${other}'s side;`
+          : patternIndex === 2
+            ? `Conversational dynamic (Urgent Lead Alert -> Competing Operational Reality):
+- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 flags the urgent situation and timeline on the ground; Sentence 2 shares ${owner}'s immediate instinct on what we should do tomorrow morning from ${owner}'s context.
+- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 pushes back directly on ${owner}'s instinct with the concrete operational and temperature/revenue facts from ${other}'s context;`
+            : `Conversational dynamic (Business Squeeze + Tempting Move -> Technical/Floor Catch):
+- ${owner} speaks first in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 explains the full squeeze we're facing with concrete examples and numbers; Sentence 2 floats the tempting move ${owner} is thinking of trying from ${owner}'s context.
+- ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 reacts directly to ${owner}'s tempting move ("Hold on, ...") and states both the app price-parity / search penalty AND the QR self-pickup / floor catch from ${other}'s context;`;
+    const handoffExamples = [
+      `"How should we balance both sides tomorrow morning, ${this.human.name}?"`,
+      `"${this.human.name}, what does your Kaki Wingman say on your side, or how do you want to play this?"`,
+      `"What's your call on handling both catches, ${this.human.name}?"`,
+      `"${this.human.name}, how should we sort this out before doors open?"`,
+    ];
+    const handoffExample = handoffExamples[itemIndex % handoffExamples.length]!;
+    const handoffQuestionInstruction = visitorOwnsItem
+      ? `Sentence 2 MUST be one short, natural question asking ${this.human.name} by name (ending with a question mark "?") how they want to steer this as the lead (e.g., "Since you're leading this one, ${this.human.name}, what do your notes in Kaki say on your side, or how do you want to play it?")`
+      : `Sentence 2 MUST be one short, natural question to ${this.human.name} by name (ending with a question mark "?", such as ${handoffExample} — do NOT say "From your side as ${this.human.role}")`;
+    return `[We just started agenda item "${title}". Speak naturally like two real colleagues having a genuine cause-and-effect conversation with ${this.human.name}, using complete, grammatical sentences and everyday words (never use robotic fragments like "Hey ${this.human.name}, ${owner} from ..." or "From the ... side,", never chop off the setup clause of a sentence, and do not address ${owner} or ${other} by name at the start or end of a sentence):
+${patternInstruction} ${handoffQuestionInstruction}.
 ${discussionHint}
-Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 turns total and do not mention this note.]`;
+Keep every single sentence under 28 words so it flows naturally aloud. Keep it to 2 speakers total and do not mention this note.]`;
   }
 
   private observeLater(title: string, attempt: number): void {
@@ -1220,6 +1345,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
       if (
         this.paused ||
         this.humanTalking ||
+        this.recognizingSpeech ||
         this.turn !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined ||
@@ -1259,6 +1385,17 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     this.clearSilenceTimer();
     const linesBefore = this.humanLines;
     const stageAtSchedule = this.silencePromptStage;
+    const endedWithQuestion = /\?["')\]]*$/.test(this.lastSpoken.trim());
+    const shouldBridgeStatement =
+      !endedWithQuestion &&
+      !this.bridgedStatementOnTurn &&
+      stageAtSchedule === 0 &&
+      this.deferredFollowUpTimer === undefined &&
+      !this.decisionWrappedUpOnItem &&
+      !this.humanSettledOnCurrentItem &&
+      this.humanLines - this.linesAtMove <= 1;
+    const baseMs = this.options.silencePromptMs ?? DEFAULT_SILENCE_PROMPT_MS;
+    const delayMs = shouldBridgeStatement ? Math.min(baseMs, 10_000) : baseMs;
     this.silenceTimer = setTimeout(() => {
       this.silenceTimer = undefined;
       if (
@@ -1273,6 +1410,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
       }
       if (
         this.humanTalking ||
+        this.recognizingSpeech ||
         this.turn !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined ||
@@ -1280,6 +1418,19 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
       ) {
         this.scheduleSilencePrompt();
         return;
+      }
+      if (shouldBridgeStatement) {
+        this.bridgedStatementOnTurn = true;
+        const npcs = this.options.scenario.npcs ?? [];
+        const spokenTitle = cleanSpokenTopic(title);
+        if (npcs.length > 1) {
+          this.forcedSpeaker = { target: host, from: host };
+          this.pending.push(
+            `[${this.human.name} just heard the team's answer on "${spokenTitle}", and the colleague finished on a statement without passing the floor. Begin your reply with "${host}:". ${host} steps in as the meeting chair in ONE short, natural spoken sentence connecting what was just said back to the decision and asking ${this.human.name} by name (ending with a question mark "?") how they want to play this or if they want to lock a direction in — never prescribe an answer or mention this note.]`,
+          );
+          this.startTurn();
+          return;
+        }
       }
       this.silencePromptStage = stageAtSchedule + 1;
       if (this.silencePromptStage === 1) {
@@ -1290,8 +1441,9 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
           others[0];
         const spokenTitle = cleanSpokenTopic(title);
         if (owner !== undefined && npcs.length > 1) {
+          this.forcedSpeaker = { target: host, from: host };
           this.pending.push(
-            `[${this.human.name} is taking a moment to think on "${spokenTitle}". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence letting them know there is no rush and asking how they'd like to approach it or if they want to ask a question first — never prescribe an answer or mention this note.]`,
+            `[${this.human.name} is taking a moment to think on "${spokenTitle}". Begin your reply with "${host}:". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence letting them know there is no rush and reminding them they can glance at the Kaki Wingman notes on the right panel or tap a question idea if they want — never prescribe an answer or mention this note.]`,
           );
           this.startTurn();
         } else {
@@ -1311,13 +1463,14 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
           this.names[0];
         const decisionText = item?.decision ? ` (${item.decision})` : '';
         if (owner !== undefined && npcs.length > 1) {
+          this.forcedSpeaker = { target: owner, from: host };
           this.pending.push(
-            `[${this.human.name} is still thinking on "${title}"${decisionText}. ${owner} speaks in ONE short, plain-English sentence offering two simple everyday directions ${this.human.name} could pick between as a helpful question — do NOT solve the trade-offs yourself, do NOT use technical jargon, and wait for ${this.human.name}'s answer. Do not mention this note.]`,
+            `[${this.human.name} is still thinking on "${title}"${decisionText}. Begin your reply with "${owner}:". ${owner} speaks in ONE short, plain-English sentence offering two simple everyday directions ${this.human.name} could pick between as a helpful question — do NOT solve the trade-offs yourself, do NOT use technical jargon, and wait for ${this.human.name}'s answer. Do not mention this note.]`,
           );
           this.startTurn();
         }
       }
-    }, this.options.silencePromptMs ?? DEFAULT_SILENCE_PROMPT_MS).unref();
+    }, delayMs).unref();
   }
 
   /** A character handed over to another by name and nobody has answered yet: the named one answers, after a short pause. */
@@ -1444,7 +1597,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     this.finalize(turn);
     this.turn = undefined;
     this.gate.setAiAudible(false);
-    const handedTo = findHandover(turn.spoken.map((entry) => entry.utterance), this.names);
+    const handedTo = findHandover(turn.spoken.map((entry) => entry.utterance), this.names, this.human?.name);
     if (handedTo !== undefined) this.scheduleFollowUp(handedTo.from, handedTo.target);
     else if (turn.spoken.length > 0) {
       this.scheduleObserveAdvance();
@@ -1471,6 +1624,7 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     turn.done = this.runScripted(turn, utterance)
       .then(() => {
         if (!turn.aborted) onDone?.(true);
+        else if (!this.closed && !this.paused && turn.onScriptedDone !== undefined) turn.onScriptedDone(false);
       })
       .catch((error: unknown) => {
         this.ports.log?.(`cue failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -1531,7 +1685,24 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     const turn = this.turn;
     if (turn === undefined || turn.finalized) return;
     this.ports.log?.(`interrupted: ${reason}`);
-    if (turn.scripted !== true) {
+    if (turn.scripted === true) {
+      if (
+        (reason === 'the person started talking' || reason === 'the person kept talking') &&
+        turn.scriptedUtterance !== undefined
+      ) {
+        const allSentences = splitSentences(turn.scriptedUtterance.text);
+        const completedCount = turn.spoken.filter((entry) => entry.complete).length;
+        const remaining = allSentences.slice(completedCount).join(' ').trim();
+        if (remaining.length > 0) {
+          this.cutOff = true;
+          this.pausedScripted = {
+            utterance: { speaker: turn.scriptedUtterance.speaker, text: remaining },
+            onDone: turn.onScriptedDone,
+          };
+          turn.onScriptedDone = undefined;
+        }
+      }
+    } else {
       if (turn.spoken.length === 0) this.unanswered = true;
       else if (reason === 'the person started talking' || reason === 'the person kept talking') {
         this.cutOff = true;
@@ -1594,11 +1765,27 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     if (turn.finalized) return;
     turn.finalized = true;
 
+    const stripSelfIntro = (speaker: string, text: string): string => {
+      const escaped = speaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const cleaned = text
+        .replace(
+          new RegExp(
+            `^(?:(?:hey|hi|hello)\\s+[a-z]+,\\s*)?(?:and\\s+)?(?:(?:i'm|i am)\\s+${escaped}(?:\\s+here)?|${escaped}\\s+here|(?:i'm|i am)?\\s*${escaped}\\s+(?:from|on|in|your)\\s+[^,—–-]+)(?:\\s*[,—–-]\\s*[^,—–-]+(?:lead|director|manager)|\\s+(?:from|on|in|your)\\s+[^,—–-]+)?\\s*[,—–-]\\s*`,
+            'i',
+          ),
+          '',
+        )
+        .trim();
+      if (cleaned.length === 0) return text;
+      return cleaned[0]!.toUpperCase() + cleaned.slice(1);
+    };
+
     const lines = turn.spoken
       .filter(({ complete }) => complete || !this.paused || this.pausedUtterances === undefined)
-      .map(({ utterance, complete }) =>
-        complete ? `${utterance.speaker}: ${utterance.text}` : `${utterance.speaker}: ${utterance.text} [cut off]`,
-      );
+      .map(({ utterance, complete }) => {
+        const historyText = stripSelfIntro(utterance.speaker, utterance.text);
+        return complete ? `${utterance.speaker}: ${historyText}` : `${utterance.speaker}: ${historyText} [cut off]`;
+      });
     if (lines.length === 0) return;
     if (turn.aborted && (!this.paused || this.pausedUtterances === undefined)) {
       lines.push(`[${this.human?.name ?? 'The person'} interrupted here; nothing after this was said aloud.]`);
@@ -1640,12 +1827,36 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     this.ports.emitState({ kind: 'thinking' });
     const player = this.playAll(turn, queue);
 
-    const handover = new HandoverGuard(this.names);
+    const handover = new HandoverGuard(this.names, this.human?.name);
     let safetyRefusalDetected = false;
     const SAFETY_REFUSAL_RE =
       /\b(?:I cannot (?:continue|engage|simulate|proceed|discuss)|I can't (?:continue|proceed|engage)|I can no longer proceed|thoughts of (?:self-harm|suicide)|National Suicide Prevention Lifeline|Crisis Text Line|Samaritans of Singapore|National Care Hotline|professional helpline|call a friend or|step away from the screen|741741|1-800-273-TALK|1-?767|immediate danger|need someone to talk to|sorry to hear (?:that )?you are feeling this way|get the support you need right now|we can pause the meeting so you can take care of yourself|your well-?being is the most important thing)\b/i;
     const enqueue = (utterance: Utterance): void => {
-      const trimmed = utterance.text.trim();
+      let trimmed = utterance.text
+        .replace(/\s*\[(?:cut off|[^\]]*interrupted here[^\]]*)\]\s*/gi, ' ')
+        .replace(/^(?:from|on)\s+the\s+(?:menu|floor|kitchen|tech|pos|marketing|operations|ops|store)\s+side,\s*/i, '')
+        .trim();
+      if (trimmed.length === 0) return;
+      if (trimmed !== utterance.text.trim()) {
+        trimmed = trimmed[0]!.toUpperCase() + trimmed.slice(1);
+        utterance = { speaker: utterance.speaker, text: trimmed };
+      }
+      if (this.introduced.has(utterance.speaker)) {
+        const escaped = utterance.speaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const withoutRepeatIntro = trimmed
+          .replace(
+            new RegExp(
+              `^(?:(?:hey|hi|hello)\\s+[a-z]+,\\s*)?(?:and\\s+)?(?:(?:i'm|i am)\\s+${escaped}(?:\\s+here)?|${escaped}\\s+here|(?:i'm|i am)?\\s*${escaped}\\s+(?:from|on|in|your)\\s+[^,—–-]+)(?:\\s*[,—–-]\\s*[^,—–-]+(?:lead|director|manager)|\\s+(?:from|on|in|your)\\s+[^,—–-]+)?\\s*[,—–-]\\s*`,
+              'i',
+            ),
+            '',
+          )
+          .trim();
+        if (withoutRepeatIntro.length > 0 && withoutRepeatIntro !== trimmed) {
+          trimmed = withoutRepeatIntro[0]!.toUpperCase() + withoutRepeatIntro.slice(1);
+          utterance = { speaker: utterance.speaker, text: trimmed };
+        }
+      }
       if (SAFETY_REFUSAL_RE.test(trimmed)) {
         safetyRefusalDetected = true;
         this.ports.log?.(`dropped ${utterance.speaker}'s raw safety refusal line: "${utterance.text}"`);
@@ -1689,13 +1900,8 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
       const parser = new TurnParser(this.names, addressed ?? host, this.human?.name, seatNames);
       const alreadyAsked =
         this.human !== undefined && this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
-      const humanAskedForOptions =
-        /\b(?:what (?:do you|would you) (?:suggest|think|recommend|propose)|what options|any ideas|what can we do|how can we fix|pulled those numbers from kaki)\b/i.test(
-          this.lastText,
-        );
       const includeKnows =
-        this.human === undefined ||
-        (this.humanLines > this.linesAtMove && humanAskedForOptions);
+        this.human === undefined || this.humanLines > this.linesAtMove;
       const messages: ChatMessage[] = [
         {
           role: 'system',
@@ -1812,13 +2018,25 @@ Speak in natural, flowing spoken sentences under 25 words each. Keep it to 2 tur
     this.gate.setAiAudible(false);
     const handedTo =
       failure === undefined
-        ? findHandover(turn.spoken.map((entry) => entry.utterance), this.names)
+        ? findHandover(turn.spoken.map((entry) => entry.utterance), this.names, this.human?.name)
         : undefined;
     if (handedTo !== undefined) this.scheduleFollowUp(handedTo.from, handedTo.target);
     else if (failure === undefined && turn.spoken.length > 0) {
       this.scheduleDeferredFollowUp(turn);
       this.scheduleObserveAdvance();
-      if (!this.scheduleDecisionAdvance(turn)) this.scheduleSilencePrompt();
+      const decisionAdvancing = this.scheduleDecisionAdvance(turn);
+      if (!decisionAdvancing) {
+        if (!this.lastSpoken.trim().endsWith('?')) {
+          const finalSpeaker = turn.spoken.at(-1)?.utterance.speaker;
+          const questionFromFinalSpeaker = [...turn.spoken]
+            .reverse()
+            .find((entry) => entry.utterance.speaker === finalSpeaker && entry.utterance.text.trim().endsWith('?'));
+          if (questionFromFinalSpeaker !== undefined) {
+            this.lastSpoken = questionFromFinalSpeaker.utterance.text;
+          }
+        }
+        this.scheduleSilencePrompt();
+      }
     }
     if (failure !== undefined && turn.spoken.length === 0) {
       const message = failure instanceof Error ? failure.message : String(failure);

@@ -100,9 +100,9 @@ describe('StartPrompt', () => {
     const onStart = vi.fn();
     render(<StartPrompt onStart={onStart} />);
     fireEvent.click(screen.getByRole('tab', { name: /3\. Live Room Spotlight/i }));
-    expect(screen.getByText(/Highlighting Left Side · Meeting Stage/i)).toBeTruthy();
+    expect(screen.getByText(/Highlighting · Live Meeting Stage/i)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Next: Spotlight Kaki Wingman/i }));
-    expect(screen.getByText(/Highlighting Right Side · Kaki Wingman Dock/i)).toBeTruthy();
+    expect(screen.getByText(/Highlighting · Kaki Wingman Dock/i)).toBeTruthy();
   });
 });
 

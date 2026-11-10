@@ -35,7 +35,7 @@ export function dispatchLine(name: string, title: string, count: number): string
 export function colleagueLine(name: string, title: string, count: number): string {
   const phrased = inlineTitle(title);
   const lines = [
-    `${name}, can help us take ${phrased}? Are you good to handle that?`,
+    `${name}, can you help us take on ${phrased}? Are you good to handle that?`,
     `${name}, let's put that on your list: ${phrased}. Are you good to take it?`,
     `${name}, can you take the lead on this one: ${phrased}?`,
   ];

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
-import { DEFAULT_BARGE_IN_MS, DEFAULT_RESPONSE_DELAY_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
+import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
 import { colleagueLine } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
@@ -114,7 +114,7 @@ const vad: Partial<VadOptions> = {
   guardedMinLevel: numberEnv('NPC_VAD_GUARDED_MIN_LEVEL', DEFAULT_VAD_OPTIONS.guardedMinLevel),
   startMs: numberEnv('NPC_VAD_START_MS', DEFAULT_VAD_OPTIONS.startMs),
   guardedStartMs: numberEnv('NPC_VAD_GUARDED_START_MS', DEFAULT_VAD_OPTIONS.guardedStartMs),
-  hangoverMs: numberEnv('NPC_VAD_HANGOVER_MS', DEFAULT_VAD_OPTIONS.hangoverMs),
+  hangoverMs: numberEnv('NPC_VAD_HANGOVER_MS', 850),
   leakMargin: numberEnv('NPC_VAD_LEAK_MARGIN', DEFAULT_VAD_OPTIONS.leakMargin),
   leakCap: numberEnv('NPC_VAD_LEAK_CAP', DEFAULT_VAD_OPTIONS.leakCap),
 };
@@ -125,7 +125,7 @@ const runner = await startNpcRunner({
   stream: (messages, signal) => stream(messages, { signal, temperature }),
   synthesize,
   postTranscript,
-  responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', DEFAULT_RESPONSE_DELAY_MS),
+  responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),
   recognizer,
   debugAudio: debugAudioDir === undefined ? undefined : debugAudio,
   speakerGapMs: numberEnv('NPC_SPEAKER_GAP_MS', DEFAULT_SPEAKER_GAP_MS),
@@ -200,6 +200,7 @@ const taskResponder = createTaskResponder({
 let dispatchCount = 0;
 const taskStatusByTitle = new Map<string, string>();
 const activeHumanTaskIds = new Set<string>();
+const claimedAnnouncedTaskIds = new Set<string>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
 function followHostCues(): void {
@@ -216,6 +217,7 @@ function followHostCues(): void {
       if (event.type === 'MEETING_RESET') {
         taskStatusByTitle.clear();
         activeHumanTaskIds.clear();
+        claimedAnnouncedTaskIds.clear();
         syncedTaskIds.clear();
         declinedTaskIds.clear();
         return;
@@ -273,6 +275,11 @@ function followHostCues(): void {
             activeHumanTaskIds.add(updatedTask.id);
             runner.cancelPendingDispatch(taskOrigin);
             runner.holdForHumanTask(45_000, taskOrigin);
+            if (updatedTask.status === 'CLAIMED' && !claimedAnnouncedTaskIds.has(updatedTask.id)) {
+              claimedAnnouncedTaskIds.add(updatedTask.id);
+              const who = runner.visitorName() ?? assigneeAttendee ?? 'there';
+              runner.announce(`Nice one ${who} — Kaki is drafting that for you now, just review and send it whenever it's ready.`);
+            }
           } else if (updatedTask.status === 'COMPLETED') {
             activeHumanTaskIds.add(updatedTask.id);
             runner.cancelPendingDispatch(taskOrigin);

@@ -9,24 +9,24 @@
       "card": {
         "youAre": "You are Wei Ling, Operations Director looking after the shop floor, Auntie Mary, food hygiene, and the budget.",
         "facts": [
-          "Seat crunch & laptop campers: 4 freelancers camp at our four 4-seater booths (16 of 28 seats) for 2 hours every morning on a single $2.20 drink ($420/morning lost). Auntie Mary (62) got yelled at last week and refuses to police seats, while 60% of customers dine solo with hot egg trays.",
-          "SFA food safety inspection: A trial customer was hospitalized yesterday after eating our soft-boiled eggs; press arrives at 8 AM and SFA inspectors at 9 AM. Our egg bath dipped to 58°C yesterday, but we have 2 unopened cartons of safe pasteurized backup eggs we can run at 63°C (pulling eggs loses $1,800/morning).",
-          "Delivery 32% commission squeeze: Single $10 sets on GrabFood lose $0.40 after the 32% app fee, while a 5-set Office Platter at $55 ($11/set) nets $37.40 after fees on $32.50 of ingredients (~$5 profit per platter) without using our counter staff as riders.",
-          "Kiosk Kopi menu: When long English drink names printed on kitchen tickets at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds per cup during the 8 AM rush."
+          "Freelancers camp at our four 4-seater booths for two hours on a single drink, and Auntie Mary refuses to police tables after getting yelled at.",
+          "SFA inspectors arrive at 9 AM tomorrow after a customer from yesterday's trial was hospitalized; we have two sealed backup cartons of pasteurized eggs in the storeroom.",
+          "Delivery apps take a 32% fee on single $10 sets, and we cannot pull counter staff off the line to hand-deliver orders in morning traffic.",
+          "Our 65-year-old kopi uncles brew much faster when kitchen tickets print traditional local Kopi names instead of long English phrases."
         ],
-        "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without breaking food hygiene or blowing our margin."
+        "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without breaking food hygiene or losing money."
       }
     },
     {
       "id": "lead_programmer",
       "label": "Tech & POS Lead",
       "card": {
-        "youAre": "You are Arjun, Tech & POS Lead looking after the self-order kiosks, the kitchen docket printer, and store power.",
+        "youAre": "You are Arjun, Tech & POS Lead looking after the self-order kiosks, the kitchen ticket printer, and store power.",
         "facts": [
-          "Kiosk Kopi menu: The 15-inch kiosk screen fits 12 buttons per page (18 chars/line). POS v2.4 can show plain-English subtitles or a 2-step Milk & Sugar pop-up on the customer screen while still printing short traditional Kopi names on the kitchen ticket.",
-          "Seat crunch & laptop campers: Our 12 booth wall sockets and guest Wi-Fi run on a programmable smart switch in the back room that can automatically cut booth power and cap Wi-Fi during peak hours (8–10 AM).",
-          "Delivery 32% commission squeeze: Raising single-set prices by 30% on GrabFood gets our shop hidden in app search results, but listing a 5-set Office Platter ($55) counts as a new menu item—and our website QR code handles zero-commission express self-pickup.",
-          "SFA food safety inspection: Digital probe logs from our 63°C egg bath can be printed every 15 minutes for the 9 AM SFA inspector."
+          "The 15-inch kiosk screen fits 12 drink buttons per page, and by default the kitchen printer prints whatever label is on the button.",
+          "The 12 booth wall sockets and guest Wi-Fi run on a smart switch in the back room that we can schedule by time of day.",
+          "GrabFood hides shops that charge more online than in the shop, and our own website QR code only supports self-pickup.",
+          "Our digital temperature probe in the egg warmer logs readings every 15 minutes that we can print out for inspectors."
         ],
         "responsibility": "Keep the kiosks, kitchen printer, and store power simple enough to configure and test tonight."
       }
@@ -37,10 +37,10 @@
       "card": {
         "youAre": "You are Mei, Menu & Store Experience Lead looking after our kopi and kaya toast recipes, the menu, and customer flow.",
         "facts": [
-          "Kiosk Kopi menu: In yesterday's trial, 19 of 28 first-timers froze for 2+ minutes at 'Kopi O Kosong' and 'Siew Dai' (72% missed the corner language toggle). Renaming Kopi O to 'Local Americano' gets mocked by regulars, so we need plain-English descriptions alongside local names.",
-          "SFA food safety inspection: Soft-boiled eggs must stay at 63°C continuously; yesterday's water bath dipped to 58°C for 45 minutes. We can sanitize the bath tonight and heat our 2 unopened cartons of certified pasteurized backup eggs at 63°C (22 mins/batch) to save $1,800 in morning sales.",
-          "Seat crunch & laptop campers: 60% of our morning crowd dines solo carrying scalding hot trays of runny eggs—if we ban saving seats with tissue packets, solo diners need a fast counter table or numbered table token so they aren't stranded.",
-          "Delivery 32% commission squeeze: Nearby CBD offices order 20+ sets at once on GrabFood group carts; replacing single sets with a 5-set Office Platter ($55) or express self-pickup perk keeps those offices from switching to Ya Kun."
+          "In yesterday's trial, first-time kiosk users froze at 'Kopi O Kosong' and 'Siew Dai' and missed the small language button in the corner.",
+          "Soft-boiled eggs must stay at 63°C continuously; our egg warmer dipped to 58°C during yesterday's rush, though we have two sealed backup cartons of pasteurized eggs in the storeroom.",
+          "More than half of our morning customers come alone carrying hot trays of runny eggs and kopi.",
+          "Nearby offices usually order 20+ toast sets at once on shared GrabFood group carts."
         ],
         "responsibility": "Keep our kopi and kaya toast authentic while making ordering and finding a seat easier."
       }
@@ -51,12 +51,12 @@
       "card": {
         "youAre": "You are Daniel, Marketing Lead looking after TikTok reviews, store promos, and public goodwill.",
         "facts": [
-          "SFA food safety inspection: A trial diner was hospitalized yesterday with suspected food poisoning after eating our soft-boiled eggs (hospital lab results take 48 hrs). Straits Times reporters arrive at 8 AM and SFA inspectors at 9 AM—we need visible 63°C temperature logs and a transparent press note.",
-          "Delivery 32% commission squeeze: GrabFood & Foodpanda drive 50% of morning sales ($2,400/morning), but the 32% fee loses $0.40 on every $10 set. Switching apps to a 5-set Office Platter ($55) plus a free drink upgrade for website QR self-pickup protects both our margin and CBD office accounts.",
-          "Seat crunch & laptop campers: Google reviews dropped to 3.6 stars because walk-ins couldn't sit while laptop campers held the 4-seater booths for 2 hours.",
-          "Kiosk Kopi menu: Tourists and expats love authentic Nanyang Kopi names when paired with a simple visual guide or 2-step milk/sugar prompt."
+          "Straits Times reporters arrive at 8 AM tomorrow right before SFA inspectors come at 9 AM, while hospital lab results take 48 hours.",
+          "Half of our morning sales come from nearby office towers ordering on GrabFood and Foodpanda.",
+          "Our Google rating dipped to 3.6 stars during yesterday's trial because breakfast walk-ins couldn't find a seat while laptops held the booths.",
+          "First-time visitors love authentic Nanyang Kopi names when they have a quick guide explaining what the words mean."
         ],
-        "responsibility": "Protect our launch reputation and corporate CBD accounts without making promises the kitchen or floor staff cannot keep."
+        "responsibility": "Protect our launch reputation and nearby office orders without making promises the kitchen or floor staff cannot keep."
       }
     },
     {
@@ -83,7 +83,7 @@
   "agenda": [
     {
       "title": "First-timers stalling at the kiosk over Kopi names",
-      "minutes": 5,
+      "minutes": 8,
       "ownerRole": "game_designer",
       "contested": true,
       "decision": "how do we help first-time customers order Kopi confidently without slowing the kitchen or losing our kopitiam identity?",
@@ -91,24 +91,28 @@
         "openingViews": [
           {
             "attendee": "Mei",
-            "view": "In yesterday's trial at Raffles Place, 19 out of 28 first-time customers froze at our self-order kiosk because they didn't know what 'Kopi O Kosong' or 'Siew Dai' meant, and the queue backed out into the mall walkway. We open tomorrow at 8am, so we need to make ordering clear for newcomers without losing our kopitiam roots."
+            "view": "In yesterday's trial, our queue backed into the walkway because first-timers froze at the kiosk over 'Kopi O Kosong' and 'Siew Dai'. Can't we just rename the kiosk buttons to plain English like 'Black Coffee No Sugar' for tomorrow?"
           },
           {
             "attendee": "Arjun",
-            "view": "The catch is that whatever name we put on the kiosk button also prints straight onto the kitchen ticket, and our 65-year-old kopi uncles rely on short local names to brew fast during the morning rush. Plus, the 15-inch screen only fits 12 buttons on one page."
+            "view": "Whatever name is on the kiosk button prints straight onto the kitchen ticket, slowing our kopi uncles down, and the screen only fits 12 buttons."
+          },
+          {
+            "attendee": "Wei Ling",
+            "view": "And when long English drink names printed on the kitchen tickets at Tampines, our kopi uncles slowed down by 15 seconds a cup during rush."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Kiosk ordering freeze: 19 of 28 first-timers stalled at 'Kopi O Kosong' and 72% missed the corner language toggle, backing queues out into the mall walkway.",
+            "tradeOff": "Kiosk ordering freeze: 19 of 28 first-timers froze at 'Kopi O Kosong', backing queues out into the mall walkway.",
             "question": "How do we make the drink choices clear for a first-timer standing at the kiosk?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Kitchen ticket & screen space: The kitchen printer prints the button name, and the 15-inch screen only fits 12 buttons per page (18 characters per line).",
+            "tradeOff": "Kitchen ticket & screen space: Kiosk button names print straight onto the kitchen ticket, and the 15-inch screen only fits 12 buttons per page.",
             "question": "How do we keep the kitchen ticket fast for our kopi uncles without pushing half the drinks onto page two?"
           },
           {
@@ -122,38 +126,42 @@
     },
     {
       "title": "Morning seat crunch & laptop campers",
-      "minutes": 5,
+      "minutes": 8,
       "ownerRole": "lead_programmer",
       "contested": true,
       "decision": "how do we free up tables for breakfast diners without turning Auntie Mary into seat police or punishing solo customers?",
       "discussion": {
         "openingViews": [
           {
-            "attendee": "Wei Ling",
-            "view": "Our Google rating dropped to 3.6 stars during the trial because breakfast customers couldn't find a seat. Freelancers plug into our wall sockets and camp at our four 4-seater booths for two hours over a single $2.20 coffee—locking up 16 of our 28 seats—and Auntie Mary got yelled at yesterday just for asking someone to move their tissue packet."
+            "attendee": "Arjun",
+            "view": "Yesterday our 28 seats jammed up because freelancers plugged into our booth sockets and camped two hours on one $2.20 drink. I want to cut the booth power during breakfast rush and stop anyone from claiming a table before getting their food tray."
           },
           {
             "attendee": "Mei",
-            "view": "I want those tables freed up too, Wei Ling, but 60% of our morning customers come alone and carry scalding hot trays of runny eggs and kopi. If we just ban saving seats with tissue packets, solo customers have nowhere to put their hot tray while queuing."
+            "view": "Cutting booth plugs makes sense, but if diners can't claim a table first, 60% are solo customers stuck carrying hot trays with nowhere to sit."
+          },
+          {
+            "attendee": "Wei Ling",
+            "view": "And 62-year-old Auntie Mary got yelled at yesterday moving a customer's things, so whatever rule we set cannot rely on Auntie Mary policing tables."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Booth lockup & staff safety: 4 booths (16 of 28 seats) are held for 2 hours on a single $2.20 drink ($420/morning lost), and 62-year-old Auntie Mary refuses to police seats after getting yelled at.",
+            "tradeOff": "Booth lockup & staff safety: 4 booths (16 of 28 seats) are held for 2 hours on one $2.20 drink, and Auntie Mary refuses to police tables.",
             "question": "How do we stop people from camping at the booths for hours without making Auntie Mary confront customers?"
           },
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Solo diners with hot trays: 60% of morning customers dine solo carrying hot egg trays and kopi; a flat ban on saving tables leaves them stranded with hot food.",
-            "question": "How does a solo customer with a hot tray get a guaranteed spot to sit?"
+            "tradeOff": "Solo diners with hot trays: 60% of morning customers dine solo carrying hot trays of kopi and toast, needing a guaranteed seat before getting food.",
+            "question": "How does a solo customer carrying a hot tray get a guaranteed spot to sit?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Booth wall plugs & Wi-Fi: The 12 booth sockets and guest Wi-Fi run on a smart switch in the back room, so how we manage power and table layout determines whether people camp.",
+            "tradeOff": "Booth wall plugs & Wi-Fi: All 12 booth sockets and guest Wi-Fi run on a back-room smart switch that controls whether laptops camp.",
             "question": "What should we do with the booth power sockets, Wi-Fi, or table layout during the morning rush?"
           }
         ]
@@ -161,38 +169,42 @@
     },
     {
       "title": "SFA food safety inspection & salmonella report",
-      "minutes": 5,
+      "minutes": 8,
       "ownerRole": "producer",
       "contested": true,
       "decision": "how do we handle tomorrow's SFA inspection and salmonella report without sparking a media panic or wiping out 60% of our breakfast sets?",
       "discussion": {
         "openingViews": [
           {
+            "attendee": "Wei Ling",
+            "view": "A customer from yesterday's trial was hospitalized after eating our soft-boiled eggs, with Straits Times reporters arriving at 8am and SFA inspectors at 9am. Since our egg warmer dipped to 58 degrees yesterday, I want to clean the tank and use our sealed backup cartons of pasteurized eggs at 63 degrees."
+          },
+          {
             "attendee": "Daniel",
-            "view": "Here is what happened: a customer from yesterday's trial was hospitalized with suspected food poisoning after eating our soft-boiled eggs, and Straits Times reporters arrive tomorrow at 8am right before SFA food safety inspectors come at 9am. Even though hospital lab results take 48 hours, I think we should pause serving soft-boiled eggs tomorrow morning so the press sees us putting safety first."
+            "view": "A customer from yesterday's trial was hospitalized after eating our soft-boiled eggs, and Straits Times reporters arrive at 8am right before SFA inspects at 9am. Since lab results take 48 hours, I think we should pause soft-boiled eggs tomorrow morning so the press sees us putting safety first."
           },
           {
             "attendee": "Mei",
-            "view": "Pulling soft-boiled eggs wipes out 60% of our breakfast sets—about $1,800 tomorrow morning—and our egg warmer actually dipped to 58 degrees for 45 minutes during yesterday's rush instead of staying at 63 degrees. We have two unopened cartons of safe, pasteurized backup eggs in the storeroom that we can run at 63 degrees if we sanitize the tank tonight."
+            "view": "Hold on—pausing eggs wipes out $1,800 in sales, and since our egg warmer dipped to 58 degrees yesterday, we can use our sealed backup cartons of pasteurized eggs at 63 degrees."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "8am press arrival: Straits Times journalists arrive at 8am while the hospital lab test takes 48 hours; we need a clear, honest answer for reporters without causing a panic.",
+            "tradeOff": "8am press arrival: Straits Times reporters arrive at 8am while hospital lab tests take 48 hours, so we need a clear, honest response.",
             "question": "What do we tell the 8am reporters and customers while the hospital lab test is still pending?"
           },
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Egg warmer temperature dip: Our egg water bath dipped to 58°C yesterday (needs 63°C), and inspectors will swab it at 9am, though we have two unopened cartons of pasteurized backup eggs.",
-            "question": "Do we take soft-boiled eggs off the menu tomorrow, or clean the water bath and use our pasteurized backup eggs at 63°C?"
+            "tradeOff": "Egg warmer dip & backup batch: Our egg warmer dipped to 58°C yesterday (needs 63°C), though we have two sealed backup cartons of pasteurized eggs.",
+            "question": "Do we take soft-boiled eggs off the menu tomorrow, or clean the egg warmer and use our pasteurized backup eggs at 63°C?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "9am inspection & $1,800 breakfast sales: Soft-boiled eggs are in 60% of breakfast sets ($1,800/morning), and inspectors at 9am will check our temperature logbook.",
+            "tradeOff": "9am inspection & $1,800 sales: Soft-boiled eggs drive 60% of breakfast sets ($1,800/morning), and SFA inspectors check our temp log at 9am.",
             "question": "How do we make sure the kitchen passes the 9am inspection check without losing our morning breakfast sales?"
           }
         ]
@@ -200,39 +212,43 @@
     },
     {
       "title": "Delivery platform 32% commission squeeze",
-      "minutes": 5,
+      "minutes": 8,
       "ownerRole": "marketing_lead",
       "contested": true,
-      "decision": "how do we protect breakfast margins against 32% delivery commissions without losing 50% of our CBD corporate morning volume?",
+      "decision": "how do we protect breakfast profit against 32% delivery app fees without losing half of our nearby office breakfast orders?",
       "discussion": {
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "GrabFood and Foodpanda just raised their delivery fee to 32%, which means we lose 40 cents on every $10 breakfast set we deliver. The problem is that half of our morning sales—about $2,400 every morning—come from nearby office towers ordering on those apps, and if we pull off the apps, those offices will order from Ya Kun instead."
+            "view": "GrabFood and Foodpanda hiked fees from 25% to 32%, losing 40 cents per $10 kaya toast set while leaving hands $2,400 in office orders to Ya Kun. So I'm thinking we raise our set price to $13 on GrabFood or move offices to our website QR code."
           },
           {
             "attendee": "Arjun",
-            "view": "And we can't simply mark up our $10 set to $13 on GrabFood, Daniel, because the app penalizes shops that charge higher prices online than in-store by hiding them in search results. Plus, our own website QR code only lets customers order for self-pickup since we don't have delivery riders."
+            "view": "Hold on—charging $13 on GrabFood when it's $10 in the shop makes the app hide our store, and our website QR code only does customer self-pickup with no riders."
+          },
+          {
+            "attendee": "Wei Ling",
+            "view": "And on the shop floor, those office towers order 20+ sets at the 8am rush when our two toast staff cannot leave the counter line."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "32% app fee vs $2,400 office sales: Delivery apps take 32% (losing $0.40 on every $10 single set), but leaving the apps hands $2,400 every morning in nearby office orders to Ya Kun.",
+            "tradeOff": "32% app fee vs $2,400 sales: Apps hiked fees from 25% to 32% (losing $0.40 per $10 set), but leaving hands $2,400/morning to Ya Kun.",
             "question": "How do we stop losing money on single $10 delivery sets without losing our nearby office customers?"
           },
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "App price rules & no delivery riders: Raising single-set prices on GrabFood gets our shop hidden in search results (though multi-set office platters count as a separate menu item), and our own QR link only does self-pickup.",
-            "question": "How should we set up our GrabFood menu or our self-pickup QR option so we don't get penalized by the app?"
+            "tradeOff": "App price rules & QR pickup: Charging more for single sets on GrabFood hides our store in search, and our website QR only does self-pickup.",
+            "question": "How should we set up our GrabFood menu or our self-pickup QR option so the app doesn't hide our store?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Counter staffing during rush: We cannot pull our counter staff off the line to hand-deliver orders to office towers during the 8am rush.",
-            "question": "How do we fulfill these office orders tomorrow morning without pulling our shop staff off the counter?"
+            "tradeOff": "8am counter rush & bulk orders: Nearby offices order 20+ sets at the 8am rush when our two counter staff cannot leave the toast line.",
+            "question": "How do we structure these office orders so they stay profitable and manageable during the 8am rush?"
           }
         ]
       }
@@ -244,7 +260,7 @@
     "Teh C Siew Dai": "hot tea with evaporated milk and less sugar",
     "chope": "reserving a kopitiam table by leaving a packet of tissue paper or lanyard on it",
     "Set A": "kaya butter toast with two soft-boiled eggs and a hot kopi or tea",
-    "POS": "point-of-sale system (the self-order kiosk, cashier screen, and kitchen docket printer)",
+    "POS": "point-of-sale system (the self-order kiosk, cashier screen, and kitchen ticket printer)",
     "SFA": "Singapore Food Agency (the national food hygiene and safety regulator)",
     "Auntie Mary": "our 62-year-old floor staff member who clears trays and wipes tables",
     "kiosk": "the 15-inch self-order touchscreens at the front of the outlet"
@@ -273,6 +289,7 @@
     "docket",
     "Gitea",
     "Mattermost",
+    "Kaki",
     "Arjun",
     "Mei",
     "Daniel",
@@ -331,40 +348,40 @@
       "role": "participant",
       "playable": true,
       "withRoles": {
-        "producer": "Your operations partner. Remind her that 60% of morning customers are solo diners who cannot carry a hot tray without a table, and on food safety point out that our unopened pasteurized backup egg cartons can be held safely at 63°C.",
+        "producer": "Your operations partner. Remind her that 60% of morning customers are solo diners who cannot carry a hot tray without a table, and on food safety point out that our sealed backup cartons of pasteurized eggs can be held safely at 63°C.",
         "lead_programmer": "Push him to help first-timers understand Kopi without turning our menu into a soulless Western cafe or breaking the kitchen printer.",
-        "marketing_lead": "Your partner on food craft and store vibe. Push back if he wants to pull soft-boiled eggs or blame supplier batch #402 before hospital lab results return, because our holding bath dipped to 58°C yesterday and we have safe pasteurized backup cartons.",
+        "marketing_lead": "Your partner on food craft and store vibe. Push back if he wants to pull soft-boiled eggs or blame supplier batch #402 before hospital lab results return, because our egg warmer dipped to 58°C yesterday and we have sealed backup cartons of pasteurized eggs.",
         "studio_manager": "The meeting host. Share concrete store trial numbers and kitchen findings so we don't settle for a half-baked fix."
       },
-      "speechStyle": "Warm, expressive, detail-obsessed kopitiam experience lead who cares deeply about authentic Nanyang Kopi & Kaya Toast craft, the 65-year-old kopi uncles, solo office workers carrying hot egg trays, and elderly regulars. Speaks clear, earnest English without American idioms or forced Singlish slang.",
+      "speechStyle": "Warm, expressive, detail-obsessed kopitiam experience lead who cares deeply about authentic Nanyang Kopi & Kaya Toast craft, the 65-year-old kopi uncles, solo office workers carrying hot trays, and elderly regulars. Speaks clear, earnest English without American idioms or forced Singlish slang.",
       "hiddenGoal": "She wants expats to understand Kopi while keeping authentic names, a non-confrontational fix for the 28-seat crunch, and safe 63°C pasteurized soft-boiled eggs without a knee-jerk menu pull.",
       "tensions": [
         {
           "with": "Arjun",
-          "about": "how to fix the Kopi O Kosong confusion without overflowing the 15-inch screen or printing long English strings on the kitchen docket"
+          "about": "how to fix the Kopi O Kosong confusion without overflowing the 15-inch screen or printing long English phrases on the kitchen ticket"
         },
         {
           "with": "Wei Ling",
-          "about": "the 28-seat chope-ing problem and the SFA inspection: solo diners need a spot before holding hot egg trays, and we cannot rush 22-minute pasteurized egg batches without ruining yolk texture"
+          "about": "the 28-seat chope-ing problem and the SFA inspection: solo diners need a spot before holding hot trays, and we cannot rush 22-minute pasteurized egg batches without ruining yolk texture"
         },
         {
           "with": "Daniel",
-          "about": "on the salmonella report: Daniel wants a precautionary egg suspension and supplier batch #402 statement before the 8am press arrives, while Mei wants to sanitize the tank and use our unopened pasteurized backup cartons at 63°C"
+          "about": "on the salmonella report: Daniel wants to pause soft-boiled eggs for the morning and release a supplier batch #402 statement before the 8am press arrives, while Mei wants to clean the egg warmer and use our sealed backup cartons of pasteurized eggs at 63°C"
         }
       ],
       "soundsLike": ["May", "Maya", "Mae"],
-      "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and protective of both first-time tourists and food safety.",
-      "agenda": "Fix the kiosk Kopi O Kosong freeze without losing our kopitiam identity, protect solo diners with hot trays in our 28-seat shop, safeguard soft-boiled egg holding at 63°C using our pasteurized backup cartons, and protect CBD corporate orders from delivery platform cuts.",
+      "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and protective of both first-time visitors and food safety.",
+      "agenda": "Fix the kiosk Kopi O Kosong freeze without losing our kopitiam identity, protect solo diners with hot trays in our 28-seat shop, keep soft-boiled eggs safe at 63°C using our sealed backup cartons of pasteurized eggs, and protect nearby office orders from delivery app fees.",
       "concerns": [
-        "In yesterday's Raffles Place kiosk trial, 19 of 28 first-time users froze for over 2 minutes at 'Kopi O Kosong', 'Kopi C Siew Dai', and 'Teh Halia', while 72% never noticed the small corner language toggle.",
-        "When a rival kopitiam renamed 'Kopi O Kosong' to 'Local Americano', local regulars roasted them on Reddit and our 65-year-old kopi uncles slowed down by 15 seconds per cup trying to read long English dockets.",
-        "60% of our Raffles Place morning customers dine solo. If you ban reserving a seat before ordering without giving them a workable alternative, solo customers end up holding a hot tray of runny eggs with zero seats available.",
-        "On the salmonella report: soft-boiled eggs must be held at 63°C continuously. Yesterday's bath dipped to 58°C for 45 minutes during rush, and SFA will swab the bath at 9am—so blaming supplier batch #402 will backfire if the lab matches our tank, whereas we have unopened pasteurized backup eggs we can hold at 63°C."
+        "In yesterday's Raffles Place kiosk trial, 19 of 28 first-time users froze for over 2 minutes at 'Kopi O Kosong', 'Kopi C Siew Dai', and 'Teh Halia', while 72% never noticed the small corner language button.",
+        "When a rival kopitiam renamed 'Kopi O Kosong' to 'Local Americano', local regulars roasted them online and our 65-year-old kopi uncles slowed down by 15 seconds per cup trying to read long English kitchen tickets.",
+        "60% of our Raffles Place morning customers dine solo carrying hot trays of runny eggs and kopi, so any seating rule has to make sure solo customers have a guaranteed spot ready before they pick up their hot tray.",
+        "On the salmonella report: soft-boiled eggs must stay at 63°C continuously. Yesterday's egg warmer dipped to 58°C for 45 minutes during rush, and SFA will swab the tank at 9am—so blaming supplier batch #402 will backfire if the lab matches our tank, whereas we have sealed backup cartons of pasteurized eggs we can keep at 63°C."
       ],
       "knows": [
-        "The kiosk trial showed first-timers stall at the drink step, not at payment; the language toggle in the corner is easy to miss.",
+        "Yesterday's kiosk trial showed first-timers stall at the drink step, not at payment; the language button in the corner is easy to miss.",
         "For the 28-seat crunch, the shop has numbered table tokens in the storeroom and two window booths that could be used differently, but any change has to work for solo diners carrying hot trays.",
-        "Pasteurized soft-boiled egg batches take 22 minutes to heat at 63°C; pulling eggs tomorrow kills $1,800 in morning revenue, while our two unopened backup cartons have clean supplier certificates."
+        "Pasteurized soft-boiled egg batches take 22 minutes to heat at 63°C; pulling eggs tomorrow kills $1,800 in morning sales, while our two sealed backup cartons have clean supplier certificates."
       ]
     },
     {
@@ -373,31 +390,31 @@
       "playable": true,
       "role": "participant",
       "speechStyle": "Sharp, no-nonsense Singaporean operations boss who counts every dollar, food safety step, counter hygiene rule, and staff shift. Speaks directly with zero fluff ('Bottom line is...', 'Who is going to enforce that?', 'Do you know what an SFA stop-work order means?'). Uses natural Singaporean cadence without forced slang.",
-      "hiddenGoal": "She wants to protect Auntie Mary, keep the kitchen compliant with SFA's 9:00 AM inspection without losing $1,800 in breakfast sets, and stop 32% delivery fees from bleeding margins.",
+      "hiddenGoal": "She wants to protect Auntie Mary, keep the kitchen compliant with SFA's 9:00 AM inspection without losing $1,800 in breakfast sets, and stop 32% delivery fees from eating our profit.",
       "personality": "Operations Director. Pragmatic, fiercely protective of her outlet staff and kitchen compliance, and allergic to ideas that sound nice online but fail on a busy shop floor.",
-      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, risking an SFA stop-work closure, or getting store staff injured running delivery orders in CBD traffic.",
+      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, risking an SFA stop-work closure, or getting store staff injured running delivery orders in morning traffic.",
       "concerns": [
         "Signboards banning tissue packets do not work by themselves: our only floor auntie (Auntie Mary, 62) got screamed at by a customer in a suit last week when she moved his tissue packet, and she refuses to police seats or touch customers' belongings.",
         "Four 4-seater booths (16 of our 28 seats) are being hogged for 2 hours every morning by laptop freelancers buying a single $2.20 Kopi O because of the 12 wall power sockets and free guest Wi-Fi, costing us $420 every morning in lost breakfast sets.",
-        "For the SFA salmonella inspection: soft-boiled eggs anchor 60% of our breakfast sets ($1,800/morning). Pulling eggs guts our launch revenue, but failing SFA's 9:00 AM swab and temperature log check shuts down the outlet.",
-        "For the delivery platform commission squeeze: delivery apps take 32% ($3.20 on a $10 set, losing $0.40 per order), but sending floor staff out to hand-deliver corporate orders in CBD morning rain and traffic leaves the counter short-handed and carries workplace injury liability."
+        "For the SFA salmonella inspection: soft-boiled eggs drive 60% of our breakfast sets ($1,800/morning). Pulling eggs wipes out our launch sales, but failing SFA's 9:00 AM swab and temperature log check shuts down the shop.",
+        "For the delivery app fee squeeze: delivery apps take 32% ($3.20 on a $10 set, losing $0.40 per order), but sending floor staff out to hand-deliver office orders in morning rain and traffic leaves the counter short-handed and risks staff getting hurt."
       ],
       "knows": [
-        "The SFA inspectors arrive at 9:00 AM tomorrow, and Straits Times press arrives at 8:00 AM; we have two unopened cartons of pasteurized backup eggs in the storeroom and can log manual 15-minute digital probe checks at 63°C.",
-        "For the delivery platform topic: corporate CBD towers order 20+ toast sets at once, and a 5-set Office Platter at $55 ($11/set) nets $37.40 after the 32% app fee on $32.50 of ingredients (~$5 profit per platter), whereas our two toast staff cannot leave the counter to hand-deliver orders upstairs.",
-        "Our 65-year-old kopi uncles read traditional Kopi shorthand at a glance; if the thermal docket prints long English names, drink prep slows down by 15 seconds per cup."
+        "The SFA inspectors arrive at 9:00 AM tomorrow, and Straits Times press arrives at 8:00 AM; we have two sealed backup cartons of pasteurized eggs in the storeroom and can log 15-minute digital temperature checks at 63°C.",
+        "For the delivery app topic: nearby office towers order 20+ toast sets at once, and a 5-set Office Platter at $55 ($11/set) leaves $37.40 after the 32% app fee on $32.50 of ingredients (~$5 profit per platter), whereas our two toast staff cannot leave the counter to hand-deliver orders upstairs.",
+        "Our 65-year-old kopi uncles read traditional Kopi names at a glance; if the kitchen ticket prints long English names, drink prep slows down by 15 seconds per cup."
       ],
       "withRoles": {
-        "producer": "Your fellow operations lead. Push hard on floor realism, staff protection, SFA hygiene compliance, and exact dollar margins.",
-        "lead_programmer": "Rely on his automated POS and smart-breaker controls so staff don't have to manually police laptops or manage delivery riders.",
-        "game_designer": "Back her up on protecting the kopi uncles' kitchen dockets and maintaining strict 63°C egg pasteurization holding.",
-        "marketing_lead": "Hold him accountable: make sure any press statement on the salmonella report matches our kitchen facts, and protect our unit economics from 32% platform cuts.",
-        "studio_manager": "Back up the host by challenging any surface-level proposal that ignores SFA compliance, delivery margins, or staffing limits."
+        "producer": "Your fellow operations lead. Push hard on floor realism, staff protection, SFA hygiene compliance, and exact dollar profit.",
+        "lead_programmer": "Rely on his automated POS and smart-switch controls so staff don't have to manually police laptops or manage delivery riders.",
+        "game_designer": "Back her up on protecting the kopi uncles' kitchen tickets and keeping soft-boiled eggs at 63°C.",
+        "marketing_lead": "Hold him accountable: make sure any press statement on the salmonella report matches our kitchen facts, and protect our profit per set from 32% app fees.",
+        "studio_manager": "Back up the host by challenging any surface-level proposal that ignores SFA compliance, delivery profit, or staffing limits."
       },
       "tensions": [
         {
           "with": "Daniel",
-          "about": "on the SFA inspection, whether to pause eggs for PR or run our verified 63°C backup batch; on delivery platforms, how to stop losing $0.40 per $10 set without sending floor staff into traffic"
+          "about": "on the SFA inspection, whether to pause eggs for PR or use our sealed 63°C backup batch; on delivery apps, how to stop losing $0.40 per $10 set without sending floor staff into traffic"
         },
         {
           "with": "Mei",
@@ -411,25 +428,25 @@
       "voice": "en-SG-WayneNeural?rate=-6%",
       "playable": true,
       "role": "participant",
-      "speechStyle": "High-energy, fast-talking Singaporean marketer who thinks in PR firestorms, viral clips, corporate CBD catering contracts, and Google reviews. Enthusiastic and persuasive ('Hear me out', 'The press will be here in hours'), using at most one light local expression when excited without overdoing slang.",
-      "hiddenGoal": "He wants a credible, proactive safety posture before Straits Times journalists arrive at 8:00 AM, and wants to keep our $2,400/morning CBD corporate delivery volume away from Ya Kun.",
-      "personality": "Marketing Lead. Enthusiastic, protective of brand warmth and public perception, and quick to point out PR blowback.",
-      "agenda": "Manage the 8:00 AM Straits Times arrival ahead of the 9:00 AM SFA inspection, protect our 3.6-star Google review rating, and retain 50% CBD corporate breakfast delivery volume despite 32% platform commissions.",
+      "speechStyle": "High-energy, fast-talking Singaporean marketer who thinks in PR headlines, viral clips, nearby office orders, and Google reviews. Enthusiastic and persuasive ('Hear me out', 'The press will be here in hours'), using at most one light local expression when excited without overdoing slang.",
+      "hiddenGoal": "He wants a clear, honest safety plan before Straits Times journalists arrive at 8:00 AM, and wants to keep our $2,400/morning nearby office delivery orders away from Ya Kun.",
+      "personality": "Marketing Lead. Enthusiastic, protective of brand warmth and public trust, and quick to point out PR risks.",
+      "agenda": "Manage the 8:00 AM Straits Times arrival ahead of the 9:00 AM SFA inspection, protect our 3.6-star Google rating, and keep our nearby office breakfast orders despite 32% delivery app fees.",
       "concerns": [
-        "Straits Times journalists arrive at 8:00 AM tomorrow for our flagship grand opening, and SFA inspects at 9:00 AM. Hospital lab results on the suspected salmonella case take 48 hours, so if we say nothing and rumors break while press is in the shop, our brand takes a direct hit.",
-        "Pausing soft-boiled eggs for the morning or issuing a precautionary supplier batch #402 review notice reassures the 8:00 AM press, unless SFA traces the issue to our own 58°C holding bath dip.",
-        "On delivery platforms: GrabFood and Foodpanda take 32% (losing $0.40 on every $10 set), but delisting forfeits 50% of our peak morning revenue ($2,400) and pushes corporate CBD office accounts straight to Ya Kun.",
-        "Google reviews dropped to 3.6 stars during our soft trial because breakfast walk-ins could not find a seat while laptop campers held the 4-seater booths for two hours."
+        "Straits Times journalists arrive at 8:00 AM tomorrow for our flagship opening, and SFA inspects at 9:00 AM. Hospital lab results on the suspected salmonella case take 48 hours, so if we say nothing and rumors break while press is in the shop, our brand takes a direct hit.",
+        "Pausing soft-boiled eggs for the morning or sharing a supplier batch #402 check reassures the 8:00 AM press, unless SFA traces the issue to our own egg warmer dipping to 58°C.",
+        "On delivery apps: GrabFood and Foodpanda take 32% (losing $0.40 on every $10 set), but leaving the apps gives up half of our morning sales ($2,400) and sends nearby office orders straight to Ya Kun.",
+        "Google reviews dropped to 3.6 stars during yesterday's trial because breakfast walk-ins could not find a seat while laptop campers held the 4-seater booths for two hours."
       ],
       "knows": [
-        "Straits Times journalists and food bloggers are confirmed for the 8:00 AM ribbon cutting; transparency and visible temperature logs play much better with press than getting caught hiding a kitchen dip.",
-        "GrabFood and Foodpanda represent 50% of our morning revenue ($2,400) from corporate office towers within 500m of Raffles Place.",
-        "Corporate office admins pool 15–20 breakfast sets on corporate Grab accounts (where a 5-set Office Platter at $55 nets $37.40 after the 32% fee vs $32.50 cost, making ~$5 profit per platter), or walk down to collect pre-packed express platters if given a free drink upgrade on our website QR self-pickup."
+        "Straits Times journalists and food bloggers arrive at 8:00 AM for the opening; being honest and showing live temperature logs works much better with reporters than getting caught hiding an egg warmer dip.",
+        "GrabFood and Foodpanda bring in half of our morning sales ($2,400) from office towers within 500m of Raffles Place.",
+        "Office admins group 15–20 breakfast sets on shared Grab orders (where a 5-set Office Platter at $55 leaves $37.40 after the 32% fee vs $32.50 cost, making ~$5 profit per platter), or walk down to pick up pre-packed platters if given a free drink upgrade on our website QR self-pickup."
       ],
       "withRoles": {
-        "producer": "Your budget and ops boss. Make sure we handle the 8:00 AM press and 9:00 AM SFA inspection credibly, and stop losing $0.40 per delivery set without losing nearby office orders.",
+        "producer": "Your budget and ops boss. Make sure we handle the 8:00 AM press and 9:00 AM SFA inspection honestly, and stop losing $0.40 per delivery set without losing nearby office orders.",
         "lead_programmer": "Work with him on how our GrabFood menu or website QR code can handle 5-set office platters or express self-pickup without getting our shop hidden in the app.",
-        "game_designer": "Work with her on whether we pause eggs or showcase our 63°C pasteurized backup batch to the 8:00 AM press.",
+        "game_designer": "Work with her on whether we pause eggs or show our 63°C pasteurized backup batch to the 8:00 AM press.",
         "studio_manager": "The meeting host. Make sure we protect our public reputation on both the SFA inspection and office delivery orders."
       },
       "tensions": [
@@ -439,7 +456,7 @@
         },
         {
           "with": "Mei",
-          "about": "whether to announce a precautionary pause on supplier batch #402 before lab results return or run our unopened pasteurized backup cartons at 63°C"
+          "about": "whether to pause supplier batch #402 before lab results return or use our sealed backup cartons of pasteurized eggs at 63°C"
         },
         {
           "with": "Arjun",
@@ -455,9 +472,9 @@
       "playable": true,
       "speechStyle": "Steady, diplomatic Singaporean General Manager, the calm 'big brother' of the outlet who keeps the peace when Arjun, Mei, Wei Ling, and Daniel debate trade-offs. Uses 'Okay team, steady', 'Let's look at both sides', 'Thanks Arjun', and always makes sure someone owns the concrete follow-up action.",
       "personality": "General Manager and meeting host. Warm, organised, makes sure no topic is brushed off with a simplistic one-liner, and ensures every item ends with a clear decision and task owner.",
-      "agenda": "Run the meeting smoothly: address the SFA salmonella threat, the kiosk ordering freeze, the seat crunch, and the delivery platform commission squeeze, and assign clear follow-up owners.",
+      "agenda": "Run the meeting smoothly: address the SFA salmonella report, the kiosk ordering freeze, the seat crunch, and the 32% delivery app fee squeeze, and assign clear follow-up owners.",
       "concerns": [
-        "Making sure we don't lock in a superficial fix that risks an SFA shutdown, breaks kitchen dockets, forces Auntie Mary into customer fights, or bleeds margins on delivery.",
+        "Making sure we don't lock in a superficial fix that risks an SFA shutdown, slows down kitchen tickets, forces Auntie Mary into customer fights, or loses money on delivery.",
         "Leaving any item without a concrete follow-up owner."
       ],
       "knows": [
@@ -465,10 +482,10 @@
         "Who owns each agenda item and the key operational vs customer trade-offs."
       ],
       "withRoles": {
-        "producer": "Ask them how we balance SFA compliance, floor operations, and margins with customer experience.",
+        "producer": "Ask them how we balance SFA compliance, floor operations, and profit with customer experience.",
         "lead_programmer": "Keep him focused on practical POS, kiosk, and app fixes we can configure tonight.",
-        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and safe egg holding.",
-        "marketing_lead": "Pin him down on handling the press responsibly and protecting our corporate delivery accounts."
+        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and safe egg warming.",
+        "marketing_lead": "Pin him down on handling the press honestly and keeping our nearby office orders."
       }
     }
   ]

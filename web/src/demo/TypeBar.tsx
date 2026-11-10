@@ -19,12 +19,13 @@ export function TypeBar({ send }: TypeBarProps) {
   const [paused, setPaused] = useState(false);
   const lastSignal = useRef(0);
 
-  const stop = useCallback(() => {
-    setPaused(true);
-    send({ kind: 'stop' });
-  }, [send]);
-
   const togglePause = useCallback(() => {
+    if (
+      document.querySelector('.kd-start-backdrop') !== null ||
+      document.querySelector('.kd-meeting[data-needs-start="true"]') !== null
+    ) {
+      return;
+    }
     setPaused((prev) => {
       const next = !prev;
       send({ kind: next ? 'stop' : 'resume' });
@@ -34,8 +35,11 @@ export function TypeBar({ send }: TypeBarProps) {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        stop();
+      // Never let any key pressed during the tutorial / pre-start overlay impact the meeting.
+      if (
+        document.querySelector('.kd-start-backdrop') !== null ||
+        document.querySelector('.kd-meeting[data-needs-start="true"]') !== null
+      ) {
         return;
       }
       if (event.key === ' ' || event.code === 'Space') {
@@ -48,14 +52,13 @@ export function TypeBar({ send }: TypeBarProps) {
         ) {
           return;
         }
-        if (document.querySelector('.kd-start-backdrop') !== null) return;
         event.preventDefault();
         togglePause();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [stop, togglePause]);
+  }, [togglePause]);
 
   function submit(): void {
     const typed = text.trim();

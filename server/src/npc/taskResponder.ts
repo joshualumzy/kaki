@@ -125,7 +125,7 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
     // instead of letting the model talk them out of it. Any change to the work, or any doubt about the evidence,
     // falls back to the ordinary in-character decision.
     if (isTrustedCommitment(task, who.attendee, scenario)) {
-      const line = "I said I'd take that on, so I'll do it.";
+      const line = "Sure, I'll get right on that.";
       log?.(`${who.attendee} keeps their own commitment to "${task.title}": "${line}"`);
       ports.say(who.attendee, line, () => ports.send(role, claimCommand(task)));
       return;

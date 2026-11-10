@@ -72,7 +72,11 @@ export function evidenceMatchesVisitor(evidence: string, visitorText: string): b
 }
 
 /** A proposal phrased as a question ("What if we move the cash box?"), not a question looking for facts. */
-const PROPOSAL_QUESTION = /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b/i;
+const PROPOSAL_QUESTION =
+  /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
+
+const ENDORSEMENT_DECISION_RE =
+  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan))|i\s+agree\s+with\s+(?:you|arjun|mei|wei\s+ling|daniel|sam|that))\b/i;
 
 const FEASIBILITY_QUESTION =
   /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
@@ -169,7 +173,6 @@ const CLEAR_ACTION_IMPERATIVE =
 export function isSubstantiveProposal(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0) return false;
-  if (GREETING_OR_FILLER.test(trimmed)) return false;
   if (META_OR_NONSENSE.test(trimmed)) return false;
   if (
     SIDE_TASK_REQUEST.test(trimmed) ||
@@ -180,6 +183,10 @@ export function isSubstantiveProposal(text: string): boolean {
   ) {
     return false;
   }
+  if (ENDORSEMENT_DECISION_RE.test(trimmed)) {
+    return true;
+  }
+  if (GREETING_OR_FILLER.test(trimmed)) return false;
   if (trimmed.endsWith('?')) return PROPOSAL_QUESTION.test(trimmed);
   return !FEASIBILITY_QUESTION.test(trimmed);
 }
@@ -468,7 +475,12 @@ export async function assessProposal(options: {
     tradeOffs.length >= 3 &&
     resolved.length >= 2 &&
     unresolved.length <= 1;
-  if (enoughFollowUpConsensus) {
+  const endorsedColleagueOptions =
+    readiness === 'complete' &&
+    unresolved.length === 0 &&
+    (options.assistantContext ?? []).length > 0 &&
+    ENDORSEMENT_DECISION_RE.test(activeWords);
+  if (enoughFollowUpConsensus || endorsedColleagueOptions) {
     return {
       isProposal: true,
       readiness: 'complete',

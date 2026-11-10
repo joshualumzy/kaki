@@ -1,10 +1,12 @@
 /** Results this short are the ones Azure invents from room noise ("You know.", "Dislocation."). */
 export const SHORT_RESULT_WORDS = 4;
 export const DEFAULT_MIN_CONFIDENCE = 0.6;
-export const MULTI_WORD_MIN_CONFIDENCE = 0.4;
+export const MULTI_WORD_MIN_CONFIDENCE = 0.34;
 
 const CONFIRMATION_PHRASE_RE =
-  /\b(?:ok|okay|sure|yes|yeah|yep|no|nope|wait|hold on|stop|hello|hey|confirm|confirmed|agree|agreed|problem solved|sounds good|go ahead|let's do|let's go|approve|approved)\b/i;
+  /\b(?:ok|okay|sure|yes|yeah|yep|no|nope|wait|hold on|stop|hello|hey|confirm|confirmed|agree|agreed|problem solved|sounds good|go ahead|let's do|let's go|approve|approved|thank you|thanks|good idea|makes sense|do both|works for me)\b/i;
+
+const HESITATION_FILLER_RE = /^(?:uh+|um+|umm+|er+|erm+|ah+|hmm+)[,.!?\s]*$/i;
 
 /**
  * Whether a recognised piece of speech should be kept. Azure turns clicks, fans and distant voices into short,
@@ -14,6 +16,7 @@ const CONFIRMATION_PHRASE_RE =
  * are not dropped while 1–2 word room noises still require the strict 0.60 bar.
  */
 export function keepRecognised(text: string, confidence: number | undefined, minConfidence = DEFAULT_MIN_CONFIDENCE): boolean {
+  if (HESITATION_FILLER_RE.test(text.trim())) return false;
   if (confidence === undefined) return true;
   const words = text.trim().split(/\s+/).filter((word) => word.length > 0).length;
   if (words > SHORT_RESULT_WORDS) return true;

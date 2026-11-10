@@ -175,8 +175,9 @@ async function handleRequest(
       try {
         const npcNames = (context.scenario.npcs ?? []).map((npc) => npc.attendee);
         const joiningName = join.participantName.trim().toLowerCase();
-        const present = ((await context.roomRoster(join.roomName)) ?? []).filter(
-          (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()) && person.name.toLowerCase() !== joiningName,
+        const roster = await context.roomRoster(join.roomName);
+        const present = (roster ?? []).filter(
+          (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()),
         );
         const maxHumans = Number(process.env.NPC_MAX_HUMANS) || DEFAULT_MAX_HUMANS;
         const problem = seatProblem(context.scenario, present, join.participantRole, maxHumans);
@@ -186,7 +187,6 @@ async function handleRequest(
         }
         // The first person into an empty room starts a new meeting with a new code; later people must know it.
         // If LiveKit cannot be asked, nobody can be told apart from an empty room, so the gate stays open.
-        const roster = await context.roomRoster(join.roomName);
         if (roster !== undefined) {
           if (present.length === 0) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
@@ -210,6 +210,12 @@ async function handleRequest(
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
             sendJson(response, 403, { error: codeError, needsCode: true });
+            return;
+          }
+          if (present.some((person) => person.name.toLowerCase() === joiningName)) {
+            sendJson(response, 409, {
+              error: `"${join.participantName.trim()}" is already in the meeting. Pick another name.`,
+            });
             return;
           }
         }

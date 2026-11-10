@@ -1,0 +1,25 @@
+/**
+ * Rewrites `localhost` / `127.0.0.1` artifact URLs returned by the backend (from internal Docker/env
+ * endpoints like `http://localhost:8082/...` or `http://127.0.0.1:3001/api/calendar/...`) so that phones
+ * and remote browsers visiting a public hostname or LAN IP can open them directly.
+ */
+export function resolveArtifactUrl(rawUrl: string): string {
+  if (typeof window === 'undefined') return rawUrl;
+  const currentHost = window.location.hostname;
+  if (!currentHost || currentHost === 'localhost' || currentHost === '127.0.0.1') {
+    return rawUrl;
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+      return rawUrl;
+    }
+    if (parsed.port === '3001' || parsed.pathname.startsWith('/api/')) {
+      return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    parsed.hostname = currentHost;
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}

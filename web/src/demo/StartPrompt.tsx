@@ -22,27 +22,35 @@ export interface StartPromptProps {
 
 const STEP_LABELS = ['1. Story & Your Role', '2. Today’s 2 Topics', '3. Live Room Spotlight'] as const;
 
+const PRELOAD_SVGS = [
+  '/scenario/kopitiam-hero.svg',
+  '/scenario/crisis-seat-chope.svg',
+  '/scenario/crisis-sfa-salmonella.svg',
+  '/scenario/crisis-delivery-squeeze.svg',
+  '/scenario/crisis-kiosk-lingo.svg',
+] as const;
+
 function crisisArtForTitle(title: string): { src: string; badge: string; summary: string } {
   const lower = title.toLowerCase();
   if (lower.includes('chope') || lower.includes('seat') || lower.includes('laptop')) {
     return {
       src: '/scenario/crisis-seat-chope.svg',
       badge: 'Dine-in seating',
-      summary: 'Solo breakfast customers are stuck holding hot egg trays because office workers leave tissue packets on tables and laptop users camp at the booths all morning.',
+      summary: 'Solo breakfast customers are stuck holding hot trays because office workers leave tissue packets on tables and laptop users camp at the booths all morning.',
     };
   }
   if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('safety') || lower.includes('inspection')) {
     return {
       src: '/scenario/crisis-sfa-salmonella.svg',
       badge: 'Food safety',
-      summary: 'A soft-trial diner was hospitalized with suspected salmonella; Straits Times press arrives at 8:00 AM and SFA inspects our egg bath at 9:00 AM.',
+      summary: "A customer from yesterday's trial was hospitalized with suspected salmonella; Straits Times reporters arrive at 8:00 AM and SFA inspects our egg warmer at 9:00 AM.",
     };
   }
   if (lower.includes('commission') || lower.includes('delivery') || lower.includes('platform')) {
     return {
       src: '/scenario/crisis-delivery-squeeze.svg',
       badge: 'Delivery margins',
-      summary: 'GrabFood and Foodpanda hiked commissions to 32% (losing $0.40 per $10 set), but they drive 50% of our CBD corporate morning volume.',
+      summary: 'GrabFood and Foodpanda hiked fees to 32% (losing $0.40 per $10 set), but they bring in half of our nearby office breakfast orders.',
     };
   }
   if (lower.includes('kiosk') || lower.includes('kopi') || lower.includes('lingo')) {
@@ -75,6 +83,14 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
   const scenario = safeUseScenario();
   const [stepIndex, setStepIndex] = useState(0);
   const [spotlightStop, setSpotlightStop] = useState<'stage' | 'dock'>('stage');
+
+  useEffect(() => {
+    if (typeof Image === 'undefined') return;
+    for (const src of PRELOAD_SVGS) {
+      const img = new Image();
+      img.src = src;
+    }
+  }, []);
 
   const goPrev = useCallback(() => {
     if (stepIndex === 2 && spotlightStop === 'dock') {
@@ -156,7 +172,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
               data-active={spotlightStop === 'stage'}
               onClick={() => setSpotlightStop('stage')}
             >
-              1. Left: Stage &amp; Controls
+              1. Stage &amp; Controls
             </button>
             <button
               type="button"
@@ -164,20 +180,20 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
               data-active={spotlightStop === 'dock'}
               onClick={() => setSpotlightStop('dock')}
             >
-              2. Right: Kaki Wingman →
+              2. Kaki Wingman →
             </button>
           </div>
 
           {spotlightStop === 'stage' ? (
             <div className="kd-spotlight-body">
-              <span className="kd-spotlight-eyebrow">Highlighting Left Side · Meeting Stage</span>
+              <span className="kd-spotlight-eyebrow">Highlighting · Live Meeting Stage</span>
               <h3>Talking with the team</h3>
               <ul className="kd-spotlight-list">
                 <li>
-                  <b>1. Listen &amp; weigh in:</b> Your colleagues appear on the left tiles with live captions as they speak.
+                  <b>1. Listen &amp; weigh in:</b> Your colleagues appear on the video tiles with live captions as they speak.
                 </li>
                 <li>
-                  <b>2. Speak or type:</b> Talk on your mic, type in the bottom bar, or click a question idea when it is your turn.
+                  <b>2. Speak or type:</b> Talk on your mic, type in the bar, or tap a question idea when it is your turn.
                 </li>
                 <li>
                   <b>3. Pause anytime:</b> Hit <b>Pause</b> (or <code>Esc</code>) if you want the room to hold on for a second.
@@ -186,8 +202,8 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             </div>
           ) : (
             <div className="kd-spotlight-body">
-              <span className="kd-spotlight-eyebrow">Highlighting Right Side · Kaki Wingman Dock</span>
-              <h3>Your 3-step game plan in the dock</h3>
+              <span className="kd-spotlight-eyebrow">Highlighting · Kaki Wingman Dock</span>
+              <h3>Your 3-step game plan in Kaki</h3>
               <ul className="kd-spotlight-list">
                 <li>
                   <b>1. Check live shop records:</b> When someone mentions a kitchen rule, email, or ticket, Kaki pulls up the exact numbers here.
@@ -203,7 +219,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
           )}
 
           <p className="kd-start-quiet-note" style={{ marginTop: 8 }}>
-            Your colleagues are in the room, but they stay quiet until you start the meeting. <span style={{ opacity: 0.75 }}>(Tip: use <code>←</code> / <code>→</code> arrow keys to navigate)</span>
+            Your colleagues are in the room, but they stay quiet until you start the meeting.
           </p>
           {(starting || startError !== undefined) && (
             <p className="kd-start-quiet-note" role="status" aria-live="polite">
@@ -514,8 +530,19 @@ export function ConnectedStartPrompt({
     timeoutTimer.current = setTimeout(() => {
       stopTimers();
       request.current = undefined;
+      const npcs = scenario?.npcs ?? [];
+      const listener = scenario === undefined ? undefined : aiCast(scenario)[0] ?? npcs.find((npc) => npc.role === 'host') ?? npcs[0];
+      const remoteParticipants = (room as { remoteParticipants?: Map<string, { identity: string }> }).remoteParticipants;
+      const listenerPresent =
+        listener === undefined ||
+        remoteParticipants === undefined ||
+        [...remoteParticipants.values()].some((p) => p.identity === listener.attendee);
       setPhase('failed');
-      setError('The room did not confirm the start. Check your connection, then try again.');
+      setError(
+        listenerPresent
+          ? 'The room did not confirm the start. Check your connection, then try again.'
+          : 'Waiting for the AI attendees to join the room (run npm run npc or bash scripts/live-up.sh), then try again.',
+      );
     }, START_TIMEOUT_MS);
   }, [room, publish, stopTimers, scenario]);
 

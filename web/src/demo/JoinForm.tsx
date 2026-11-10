@@ -1,7 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
 import './demo.css';
+
+const PRELOAD_ONBOARDING_SVGS = [
+  '/scenario/kopitiam-hero.svg',
+  '/scenario/crisis-seat-chope.svg',
+  '/scenario/crisis-sfa-salmonella.svg',
+  '/scenario/crisis-delivery-squeeze.svg',
+  '/scenario/crisis-kiosk-lingo.svg',
+] as const;
 
 /** What the name box starts with: people can change it to anything. */
 export const DEFAULT_NAME = 'Foo';
@@ -45,6 +53,13 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
   const [code, setCode] = useState(initialCode);
   const showCode = askCode || initialCode.length > 0;
   const [problem, setProblem] = useState<string | undefined>();
+  useEffect(() => {
+    if (typeof Image === 'undefined') return;
+    for (const src of PRELOAD_ONBOARDING_SVGS) {
+      const img = new Image();
+      img.src = src;
+    }
+  }, []);
   const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy && (!askCode || code.trim().length > 0);
 
   return (
@@ -81,7 +96,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
               onChange={(event) => setName(event.target.value)}
               placeholder="Your name"
               maxLength={60}
-              autoFocus
+              autoFocus={typeof window === 'undefined' || window.innerWidth > 700}
               onFocus={(event) => event.currentTarget.select()}
             />
           </div>

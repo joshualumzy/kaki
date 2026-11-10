@@ -162,13 +162,18 @@ describe('MeetingPanel', () => {
     };
     mocks.useScenario.mockReturnValue(scenarioWithTradeOffs);
 
-    // Initial state: meeting started and welcoming finished (elapsed 25s), but neither Daniel nor Mei has spoken yet
+    // Initial state: Daniel has just uttered a 2-word greeting ("Hey team."), not enough (8+ words) to reveal his standoff card yet
     mocks.useKaki.mockReturnValue({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
           audience: { kind: 'all' },
           payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 25, speakerTalkSeconds: {} },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Daniel', text: 'Hey team', timestamp: '2026-11-08T10:00:01Z' },
         },
       ],
       tasks: new Map(),
@@ -181,18 +186,22 @@ describe('MeetingPanel', () => {
       <MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />,
     );
 
-    // No spoilers before anyone speaks!
-    expect(screen.getByText("Listening to the team's opening points…")).toBeTruthy();
+    // No spoilers before anyone finishes their point!
     expect(screen.queryByText('Zack video has 90k views calling butter transparent')).toBeNull();
     expect(screen.queryByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeNull();
 
-    // Daniel speaks
+    // Daniel delivers his opening point (2 sentences)
     mocks.useKaki.mockReturnValue({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
           audience: { kind: 'all' },
           payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 5, speakerTalkSeconds: {} },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Daniel', text: 'Hey team, Daniel here from Marketing.', timestamp: '2026-11-08T10:00:03Z' },
         },
         {
           type: 'TRANSCRIPT_CHUNK',
@@ -212,7 +221,7 @@ describe('MeetingPanel', () => {
     expect(screen.getByText('Zack video has 90k views calling butter transparent')).toBeTruthy();
     expect(screen.queryByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeNull();
 
-    // Mei speaks
+    // Mei delivers her point (2 sentences)
     mocks.useKaki.mockReturnValue({
       events: [
         {
@@ -223,7 +232,17 @@ describe('MeetingPanel', () => {
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
+          payload: { speaker: 'Daniel', text: 'Hey team, Daniel here from Marketing.', timestamp: '2026-11-08T10:00:03Z' },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
           payload: { speaker: 'Daniel', text: 'Zack posted a video calling our butter transparent.', timestamp: '2026-11-08T10:00:05Z' },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Mei', text: 'I am Mei from Menu & Store Experience.', timestamp: '2026-11-08T10:00:06Z' },
         },
         {
           type: 'TRANSCRIPT_CHUNK',
@@ -283,6 +302,11 @@ describe('MeetingPanel', () => {
           type: 'MEETING_RECORD_UPDATED',
           audience: { kind: 'all' },
           payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 30, speakerTalkSeconds: {} },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Daniel', text: 'Hey team, Daniel here from Marketing.', timestamp: '2026-11-08T10:00:03Z' },
         },
         {
           type: 'TRANSCRIPT_CHUNK',

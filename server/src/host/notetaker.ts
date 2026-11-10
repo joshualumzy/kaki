@@ -419,15 +419,17 @@ export function isHypotheticalProposal(text: string): boolean {
 // The kinds of deliverable someone can be asked for or volunteer to produce after the meeting. Routine product work
 // ("I can check", "I can try") is deliberately absent: the prompt keeps that out of tasks.
 const DELIVERABLE_VERB =
-  'file|post|email|send|write|draft|prepare|schedule|book|create|update|publish|announce|share|order|arrange|set up|confirm|call|submit|raise|log|print|circulate|distribute|organise|organize|review';
+  'file|post|email|send|write|draft|prepare|schedule|book|create|update|publish|announce|share|order|arrange|set up|confirm|call|submit|raise|log|print|circulate|distribute|organise|organize|review|configure|test|switch|turn off|cut|clean|sanitize|run|use|pause|brief|hand out|set|install|put up|keep|hold';
 
 // The same deliverables in the forms ordinary speech uses for assignments ("I'll be emailing", "get it published").
 const DELIVERABLE_FORM =
   `${DELIVERABLE_VERB}|filing|posting|emailing|sending|writing|drafting|preparing|scheduling|booking|creating|` +
   'updating|publishing|announcing|sharing|ordering|arranging|setting up|confirming|calling|submitting|raising|logging|' +
-  'printing|circulating|distributing|organising|organizing|reviewing|filed|posted|emailed|sent|written|drafted|' +
-  'prepared|scheduled|booked|created|updated|published|announced|shared|ordered|arranged|set up|confirmed|called|' +
-  'submitted|raised|logged|printed|circulated|distributed|organised|organized|reviewed';
+  'printing|circulating|distributing|organising|organizing|reviewing|configuring|testing|switching|turning off|cutting|' +
+  'cleaning|sanitizing|running|using|pausing|briefing|handing out|setting|installing|putting up|keeping|holding|' +
+  'filed|posted|emailed|sent|written|drafted|prepared|scheduled|booked|created|updated|published|announced|shared|' +
+  'ordered|arranged|set up|confirmed|called|submitted|raised|logged|printed|circulated|distributed|organised|organized|' +
+  'reviewed|configured|tested|switched|turned off|cut|cleaned|sanitized|ran|used|paused|briefed|handed out|installed|kept|held';
 
 const TASK_ASSIGNMENT = new RegExp(
   [
@@ -817,8 +819,9 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '  self-contained question ending in a question mark that explicitly names the current agenda topic (for example "What GrabFood and Foodpanda pricing do we need to confirm?" rather than just "What pricing do you need me to confirm?").',
     '  forRole is the role best placed to answer (always set forRole to one of the role ids listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of the current agenda item so Kaki can search company records for them; never omit forRole).',
     '  NEVER list a host opening handoff ("What\'s happening there?", "Can you walk us through...?") or the open-ended agenda decision question',
-    '  addressed to a colleague ("How do we fix this for our customers...?", "How should we handle...?", "What do you want to do?") in newQuestions —',
+    '  addressed to a colleague ("How do we fix this for our customers...?", "How should we handle...?", "What do you want to do?", "What do you think from your side?") in newQuestions —',
     '  those are discussion prompts, not factual lookups.',
+    '  NEVER invent a question out of a declarative statement: if a speaker is simply stating a fact or explaining a problem during the briefing (for example "raising prices by 30% triggers search suppression"), do NOT turn their statement into a question in newQuestions. A question in newQuestions must come from someone actually asking about an unknown figure, policy, or option.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up",',
     '  "I haven\'t looked", "not per hour", "that is still open") does not answer the question: it stays a question.',
     '  Neither does an answer its speaker doubts or contradicts.',

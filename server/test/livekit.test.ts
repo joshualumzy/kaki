@@ -93,6 +93,19 @@ describe('POST /api/livekit/token', () => {
     expect(again.status).toBe(200);
   });
 
+  it('refuses a duplicate join with the same name so a second tab cannot kick out or reset an active player', async () => {
+    const role = testScenario.roles[0]!;
+    const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    const scenario = {
+      ...testScenario,
+      npcs: testScenario.attendees.map((a) => ({ ...npc, attendee: `AI ${a.name}`, role: 'participant' as const, playable: true })),
+    };
+    const present: Array<{ name: string; role?: string }> = [{ name: 'Foo', role: role.label }];
+    app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });
+    const duplicate = await post({ roomName: 'room', participantName: 'foo', participantRole: role.label });
+    expect(duplicate.status).toBe(409);
+  });
+
   it('rejects the name of an AI attendee from the scenario', async () => {
     app = await createApp({
       devRoutes: false,

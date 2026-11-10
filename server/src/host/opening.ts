@@ -58,7 +58,7 @@ export function spokenTopicLead(title: string): string {
     return 'the morning seat crunch and laptop campers';
   }
   if (lower.includes('delivery platform') || lower.includes('commission') || lower.includes('squeeze')) {
-    return 'the delivery platform commission squeeze';
+    return 'the 32% delivery app fee';
   }
   return cleanSpokenTopic(title);
 }
@@ -97,12 +97,20 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
     .replace(/\.$/, '');
 
   const spokenLead = first === undefined ? '' : spokenTopicLead(first.title);
+  const visitorOwnsFirst = owner !== undefined && visitor?.seat === owner.name;
+  const firstBriefer = first?.discussion?.openingViews
+    ?.map((v) => v.attendee)
+    .find((name) => name !== visitor?.seat && name !== visitor?.name);
   const handoff =
-    speakerName !== undefined && first !== undefined
-      ? ` ${speakerName}, let's kick off with ${spokenLead} — walk us through what happened on the ground.`
-      : first !== undefined
-        ? ` Let's start with ${spokenLead}.`
-        : '';
+    visitorOwnsFirst && visitor !== undefined
+      ? firstBriefer !== undefined
+        ? ` Our first item is ${spokenLead}, which you're leading, ${visitor.name} — ${firstBriefer}, walk us through what happened first.`
+        : ` Our first item is ${spokenLead}, which you're leading, ${visitor.name}.`
+      : speakerName !== undefined && first !== undefined
+        ? ` Our first item is ${spokenLead}, which ${speakerName} is leading — ${speakerName}, walk us through what happened on the ground.`
+        : first !== undefined
+          ? ` Let's start with ${spokenLead}.`
+          : '';
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
     return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}. ${situationLead}, and we've got ${scenario.agenda.length} quick issues to settle today.${handoff}`;
@@ -116,7 +124,10 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
  * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`).
  */
 export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Visitor): string {
-  const item = scenario.agenda.find((candidate) => candidate.title === title);
+  const cleanTitle = cleanSpokenTopic(title).toLowerCase();
+  const item = scenario.agenda.find(
+    (candidate) => candidate.title === title || cleanSpokenTopic(candidate.title).toLowerCase() === cleanTitle,
+  );
   const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
   const ownerIsHost = item === undefined ? false : scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
   const visitorOwnsItem = owner !== undefined && visitor?.seat === owner.name;
@@ -128,15 +139,15 @@ export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Vi
       ?.map((v) => v.attendee)
       .find((name) => name !== visitor.seat && name !== visitor.name);
     if (firstBriefer !== undefined) {
-      return `Alright team, let's look at ${spoken} — ${visitor.name}, this one is yours to lead, so ${firstBriefer}, walk ${visitor.name} through what happened first.`;
+      return `Alright team, let's look at ${spoken} — ${visitor.name}, this one is yours to lead, so ${firstBriefer}, walk us through what happened first.`;
     }
     return `Alright team, let's look at ${spoken} — ${visitor.name}, this topic is yours to lead.`;
   }
   if (speakerName !== undefined) {
     const intros = [
-      `Alright team, let's look at ${spoken}. ${speakerName}, walk us through what's happening.`,
-      `Next up is ${spoken}. ${speakerName}, take the floor.`,
-      `Right, moving on to ${spoken}. ${speakerName}, bring us up to speed.`,
+      `Alright team, let's look at ${spoken}, which ${speakerName} is leading — ${speakerName}, walk us through what's happening.`,
+      `Next up is ${spoken}, led by ${speakerName} — ${speakerName}, take the floor.`,
+      `Right, moving on to ${spoken}, which ${speakerName} is leading — ${speakerName}, bring us up to speed.`,
     ];
     const index = Math.abs(title.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % intros.length;
     return intros[index]!;

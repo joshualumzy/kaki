@@ -42,8 +42,10 @@ const BANNED_PATTERNS = [
   { re: /\bthe catch on our side\b/i, reason: 'Used banned cliché "the catch on our side"' },
   { re: /\bour tiktok reviewer\b/i, reason: 'Referred to reviewer as "our TikTok reviewer"' },
   { re: /\bwith 85,?000 followers\b/i, reason: 'Recited verbatim press-release follower count' },
-  { re: /\bI'?m [A-Z][a-z]+, [A-Z][a-z]+ Lead\b/i, reason: 'Gave a canned resume job title introduction' },
-  { re: /\b[Ww]ei [Ll]ing\b/i, reason: 'Referred to Wei Ling (visitor holds this seat)' },
+  { re: /\bhere from [A-Z][a-z]+ (?:Lead|Director|Manager)\b/i, reason: 'Awkward grammar "here from <Title>"' },
+  { re: /^(?:(?:hey|hi|hello)\s+[a-z]+,\s*)?(?:and\s+)?(?:mei|arjun|daniel|wei ling)\s+from\s+[a-z]+,/i, reason: 'Broken comma-splice roll-call intro ("<Name> from <dept>, ...")' },
+  { re: /\bban(?:ning)? (?:saving seats|tissue packets)\b/i, reason: 'Argued against a phantom ban on tissue packets nobody proposed' },
+  { re: /\bpulling (?:our )?counter staff off the line to hand-deliver\b/i, reason: 'Argued against a phantom proposal to pull counter staff to hand-deliver' },
 ];
 
 function checkTranscriptQuality(item: AgendaItem, transcript: UtteranceRecord[]): string[] {
@@ -180,7 +182,9 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
         transcript.push({ speaker, text });
       },
       emitState: () => {},
-      log: () => {},
+      log: (msg) => {
+        if (msg.startsWith('proposal')) console.log(`    [assessment] ${msg}`);
+      },
       describeMic: () => undefined,
       advanceAgenda: () => {},
       endMeeting: () => {},
@@ -236,9 +240,59 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
   }
   // Allow trailing stream to finalize
   await new Promise((r) => setTimeout(r, 800));
+  const briefingTranscript = [...transcript];
+  const transcriptFailures = checkTranscriptQuality(item, briefingTranscript);
+
+  // Simulate multi-turn visitor proposal -> colleague response -> completion check on the first item
+  if (item.title.includes('kiosk')) {
+    await conversation.settled();
+    const preProposalLen = transcript.length;
+    const partialLine = 'What if we add English subtitles on the kiosk buttons for first-timers?';
+    conversation.humanSpeech(true);
+    conversation.humanSpeech(false);
+    conversation.humanText(partialLine);
+
+    const turn1Start = Date.now();
+    while (Date.now() - turn1Start < 15_000) {
+      const replies = transcript.slice(preProposalLen).filter((r) => r.speaker !== human.name);
+      if (replies.some((r) => r.text.includes('?'))) {
+        await new Promise((r) => setTimeout(r, 600));
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await conversation.settled();
+
+    const turn1Replies = transcript.slice(preProposalLen).filter((r) => r.speaker !== human.name);
+    if (turn1Replies.length === 0) {
+      transcriptFailures.push('Multi-turn check: Colleagues did not reply to visitor partial proposal');
+    }
+
+    const preTurn2Len = transcript.length;
+    const completeLine =
+      'Let us configure POS v2.4 tonight so the touchscreen shows English subtitles while the kitchen ticket still prints short Kopi names for the uncles.';
+    conversation.humanSpeech(true);
+    conversation.humanSpeech(false);
+    conversation.humanText(completeLine);
+
+    const turn2Start = Date.now();
+    while (Date.now() - turn2Start < 15_000) {
+      const replies = transcript.slice(preTurn2Len).filter((r) => r.speaker !== human.name);
+      if (replies.length > 0 && conversation.canDispatchTask()) {
+        await new Promise((r) => setTimeout(r, 600));
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await conversation.settled();
+
+    if (!conversation.canDispatchTask()) {
+      transcriptFailures.push('Multi-turn check: Visitor got stuck! Complete proposal did not unlock canDispatchTask()');
+    }
+  }
+
   conversation.close();
 
-  const transcriptFailures = checkTranscriptQuality(item, transcript);
   const wingmanFailures = checkWingmanTradeOffs(item, scenario);
 
   return {

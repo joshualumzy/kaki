@@ -306,6 +306,8 @@ describe('findHandover', () => {
   it('finds nothing when nobody is addressed, when named in passing, or when the colleague already spoke', () => {
     expect(findHandover([{ speaker: 'Ada', text: 'The oven is broken today.' }], names)).toBeUndefined();
     expect(findHandover([{ speaker: 'Ada', text: 'I talked to Bao yesterday about the oven.' }], names)).toBeUndefined();
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao is right about the margin hit, so how do you want to handle this, Foo?' }], names, 'Foo')).toBeUndefined();
+    expect(findHandover([{ speaker: 'Ada', text: 'Bao mentioned the oven yesterday.' }], names)).toBeUndefined();
     expect(findHandover([{ speaker: 'Ada', text: 'Foo, what do you think?' }], names)).toBeUndefined();
     expect(findHandover([{ speaker: 'Ada', text: 'Bao, what next?' }, { speaker: 'Bao', text: 'Fix the queue.' }], names)).toBeUndefined();
     expect(findHandover([], names)).toBeUndefined();

@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import './screen.css';
 import { useMe } from '../auth/useMe';
 import { useKaki, useScenario } from '../kaki';
-import { Button, Card, ConnectionBanner, RejectionBanner, StatusPill, summarizeEvent } from '../ui';
+import { Button, Card, ConnectionBanner, RejectionBanner, StatusPill, resolveArtifactUrl, summarizeEvent } from '../ui';
 import { JoinPhones } from './JoinPhones';
 
 /** Shared screen shell: asks the host to sign in when auth is on, then shows the meeting. */
@@ -102,7 +102,7 @@ function ScreenFeed() {
           <p style={{ margin: '4px 0 8px' }}>
             Full meeting notes (agenda items, action items, open questions, and transcript) are live on the team wiki.
           </p>
-          <a className="artifact-link" href={minutesTask.artifactUrl} target="_blank" rel="noreferrer">
+          <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl)} target="_blank" rel="noreferrer">
             Open meeting minutes in Wiki ↗
           </a>
         </section>
@@ -400,7 +400,7 @@ function ScreenTask({
       {task.error === undefined ? null : <p className="task-error">{task.error}</p>}
       {task.artifactUrl !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED') ? (
         <p>
-          <a className="artifact-link" href={task.artifactUrl} target="_blank" rel="noreferrer">
+          <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl)} target="_blank" rel="noreferrer">
             Open artifact
           </a>
           {task.actionKind === 'mattermost_post' ? ' (Mattermost may ask you to log in the first time.)' : ''}

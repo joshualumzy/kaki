@@ -104,15 +104,29 @@ async function signup(env: Env, user: MattermostUserSeed): Promise<MmUser> {
   return jsonResponse<MmUser>(response, `Mattermost signup for ${user.username}`);
 }
 
-async function findUser(env: Env, token: string, username: string): Promise<MmUser | undefined> {
+async function findUser(env: Env, token: string, username: string, email?: string): Promise<MmUser | undefined> {
   const response = await mmRequest(env, `/users/username/${encodeURIComponent(username)}`, token);
-  if (response.status === 404) return undefined;
-  return jsonResponse<MmUser>(response, `Mattermost user ${username}`);
+  if (response.ok) return jsonResponse<MmUser>(response, `Mattermost user ${username}`);
+  if (email !== undefined) {
+    const byEmail = await mmRequest(env, `/users/email/${encodeURIComponent(email)}`, token);
+    if (byEmail.ok) return jsonResponse<MmUser>(byEmail, `Mattermost user ${email}`);
+  }
+  return undefined;
 }
 
 async function ensureUser(env: Env, token: string, user: MattermostUserSeed): Promise<MmUser> {
-  const existing = await findUser(env, token, user.username);
-  if (existing) return existing;
+  const existing = await findUser(env, token, user.username, user.email);
+  if (existing) {
+    if (existing.username !== user.username) {
+      await mmRequest(
+        env,
+        `/users/${existing.id}/patch`,
+        token,
+        jsonBody('PUT', { username: user.username, first_name: user.first_name, last_name: user.last_name }),
+      ).catch(() => undefined);
+    }
+    return { ...existing, username: user.username };
+  }
   console.log(`  creating the Mattermost user ${user.username}`);
   const safePassword = env.MATTERMOST_PASSWORD.length >= 8 ? env.MATTERMOST_PASSWORD : 'demopassword';
   const response = await mmRequest(env, '/users', token, jsonBody('POST', {
@@ -154,7 +168,16 @@ async function ensureTeamMember(env: Env, token: string, teamId: string, userId:
 
 async function ensureChannel(env: Env, token: string, teamId: string, channel: MattermostSeed['channels'][number]): Promise<MmChannel> {
   const response = await mmRequest(env, `/teams/${teamId}/channels/name/${encodeURIComponent(channel.name)}`, token);
-  if (response.ok) return jsonResponse<MmChannel>(response, 'Mattermost channel');
+  if (response.ok) {
+    const existing = await jsonResponse<MmChannel>(response, 'Mattermost channel');
+    await mmRequest(
+      env,
+      `/channels/${existing.id}/patch`,
+      token,
+      jsonBody('PUT', { display_name: channel.display_name, purpose: channel.purpose }),
+    ).catch(() => undefined);
+    return existing;
+  }
   if (response.status !== 404) throw new Error(`Could not read Mattermost channel "${channel.name}" (HTTP ${response.status})`);
   console.log(`  creating the Mattermost channel #${channel.name}`);
   return mmJson<MmChannel>(
@@ -313,7 +336,7 @@ async function syncDemoPasswords(env: Env, token?: string): Promise<void> {
         '-d',
         'mattermost',
         '-c',
-        "CREATE EXTENSION IF NOT EXISTS pgcrypto; UPDATE users SET password = crypt('demo', gen_salt('bf', 10)) WHERE username IN ('demo', 'weiling', 'arjun', 'mei', 'daniel');",
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto; UPDATE users SET password = crypt('demo', gen_salt('bf', 10)) WHERE username IN ('demo', 'weiling', 'arjun', 'mei', 'daniel') OR email = 'demo@nanyangkopitiam.example';",
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );

@@ -123,7 +123,7 @@ export function createGiteaModule({
       }
       return { target: `${gitea.owner}/${gitea.repo}`, subject: draft.title, body: draft.body };
     },
-    async run(task, signal, scenario) {
+    async run(task, signal, scenario, visitorName) {
       if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
@@ -131,7 +131,7 @@ export function createGiteaModule({
       const sudoTarget = giteaUsernameFor(
         scenario,
         task.assignee ?? task.suggestedAssignee,
-        task.assignmentEvidence?.speaker,
+        visitorName ?? task.assignmentEvidence?.speaker,
       );
       if (sudoTarget?.visitorName !== undefined) {
         await fetchImpl(`${gitea.url.replace(/\/+$/, '')}/api/v1/admin/users/demo`, {
