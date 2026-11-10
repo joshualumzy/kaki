@@ -79,7 +79,10 @@ const ENDORSEMENT_DECISION_RE =
   /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan))|i\s+agree\s+with\s+(?:you|arjun|mei|wei\s+ling|daniel|sam|that))\b/i;
 
 const FEASIBILITY_QUESTION =
-  /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
+  /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?|what(?:'s| is) the (?:actual )?cost|how much (?:does|is|do)|what(?:'s| is) with the silence|say something|bullying me|are you (?:guys )?there|how am i supposed to know)\b[^.?!]*[.?!]*$/i;
+
+/** A trailing incomplete conjunction where STT cut off mid-sentence ("We can probably sell more on Grab, but."). */
+const TRAILING_INCOMPLETE_CLAUSE = /\b(?:but|and|or|because|although|though|while|unless|whereas)[,.!\s]*$/i;
 
 export const GREETING_OR_FILLER =
   /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+|ok|okay|sure|yes|no|yeah|yep|nope|right|fine|thanks|thank you|got it)\b[^.?!]*[.?!]*)+$/i;
@@ -187,6 +190,7 @@ export function isSubstantiveProposal(text: string): boolean {
     return true;
   }
   if (GREETING_OR_FILLER.test(trimmed)) return false;
+  if (TRAILING_INCOMPLETE_CLAUSE.test(trimmed)) return false;
   if (trimmed.endsWith('?')) return PROPOSAL_QUESTION.test(trimmed);
   return !FEASIBILITY_QUESTION.test(trimmed);
 }

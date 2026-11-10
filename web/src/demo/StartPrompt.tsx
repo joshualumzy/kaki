@@ -36,28 +36,28 @@ function crisisArtForTitle(title: string): { src: string; badge: string; summary
     return {
       src: '/scenario/crisis-seat-chope.svg',
       badge: 'Dine-in seating',
-      summary: 'Solo breakfast customers are stuck holding hot trays because office workers leave tissue packets on tables and laptop users camp at the booths all morning.',
+      summary: 'Laptop campers hold booths for 2 hours while solo diners have nowhere to put hot trays.',
     };
   }
   if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('safety') || lower.includes('inspection')) {
     return {
       src: '/scenario/crisis-sfa-salmonella.svg',
       badge: 'Food safety',
-      summary: "A customer from yesterday's trial was hospitalized with suspected salmonella; Straits Times reporters arrive at 8:00 AM and SFA inspects our egg warmer at 9:00 AM.",
+      summary: 'A customer was hospitalized; reporters arrive at 8 AM and SFA inspects our egg warmer at 9 AM.',
     };
   }
   if (lower.includes('commission') || lower.includes('delivery') || lower.includes('platform')) {
     return {
       src: '/scenario/crisis-delivery-squeeze.svg',
       badge: 'Delivery margins',
-      summary: 'GrabFood and Foodpanda hiked fees to 32% (losing $0.40 per $10 set), but they bring in half of our nearby office breakfast orders.',
+      summary: '32% app fees make single $10 sets lose $0.40, but nearby offices bring half our morning sales.',
     };
   }
   if (lower.includes('kiosk') || lower.includes('kopi') || lower.includes('lingo')) {
     return {
       src: '/scenario/crisis-kiosk-lingo.svg',
       badge: 'Kiosk menu',
-      summary: 'Newcomers keep freezing at the kiosk screen because they do not know what "Kopi O Kosong" or "Siew Dai" means.',
+      summary: 'First-timers freeze at "Kopi O Kosong" on the kiosk, backing queues into the walkway.',
     };
   }
   return {
@@ -187,32 +187,32 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
           {spotlightStop === 'stage' ? (
             <div className="kd-spotlight-body">
               <span className="kd-spotlight-eyebrow">Highlighting · Live Meeting Stage</span>
-              <h3>Talking with the team</h3>
+              <h3>How to talk with the team</h3>
               <ul className="kd-spotlight-list">
                 <li>
-                  <b>1. Listen &amp; weigh in:</b> Your colleagues appear on the video tiles with live captions as they speak.
+                  <b>1. Listen:</b> Colleagues speak with live captions on their tiles.
                 </li>
                 <li>
-                  <b>2. Speak or type:</b> Talk on your mic, type in the bar, or tap a question idea when it is your turn.
+                  <b>2. Reply:</b> Speak on mic, type below, or click a question idea.
                 </li>
                 <li>
-                  <b>3. Pause anytime:</b> Hit <b>Pause</b> (or <code>Esc</code>) if you want the room to hold on for a second.
+                  <b>3. Pause anytime:</b> Click <b>Pause</b> (or <code>Esc</code>) if you need a moment.
                 </li>
               </ul>
             </div>
           ) : (
             <div className="kd-spotlight-body">
               <span className="kd-spotlight-eyebrow">Highlighting · Kaki Wingman Dock</span>
-              <h3>Your 3-step game plan in Kaki</h3>
+              <h3>Your personal AI Wingman</h3>
               <ul className="kd-spotlight-list">
                 <li>
-                  <b>1. Check live shop records:</b> When someone mentions a kitchen rule, email, or ticket, Kaki pulls up the exact numbers here.
+                  <b>1. Instant facts:</b> Kaki glides in with store numbers whenever you need them.
                 </li>
                 <li>
-                  <b>2. Accept your follow-up task:</b> When the team agrees on an action for your role, click <b>Let Kaki do it</b>.
+                  <b>2. Auto-drafts:</b> Click <b>Let Kaki do it</b> when a follow-up task is assigned to you.
                 </li>
                 <li>
-                  <b>3. Review &amp; send:</b> Check Kaki’s draft and publish it straight to Gitea, Mattermost, Wiki, Mailpit, or Calendar.
+                  <b>3. One-click send:</b> Approve Kaki’s draft to post to Mattermost, Gitea, or Email.
                 </li>
               </ul>
             </div>
@@ -316,11 +316,11 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             </div>
 
             <div className="kd-story-role-box">
-              <p className="kd-role-eyebrow" style={{ marginBottom: 6 }}>
+              <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
                 Step 1 of 3 · Welcome to the shop · Read your briefing first
               </p>
               <p className="kd-story-shop-intro">
-                We run <strong>Nanyang Kopi &amp; Toast</strong>, a traditional Singapore coffee and kaya toast shop. Tomorrow at 8:00 AM we reopen our newly renovated <strong>Raffles Place outlet</strong> with self-order kiosks and a fresh floor layout, and the team is meeting now to sort out two headaches before doors open.
+                Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> reopens tomorrow at 8:00 AM. We have 8 minutes to settle 2 launch calls.
               </p>
               {role !== undefined && card !== undefined ? (
                 <div className="kd-story-seat-summary">
@@ -328,13 +328,13 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
                     <strong>🪑 {youAre}</strong>
                   </p>
                   <p className="kd-story-role-resp" style={{ marginBottom: 0 }}>
-                    <span>What you look after: </span>
+                    <span>Your goal: </span>
                     {card.responsibility}
                   </p>
                 </div>
               ) : (
                 <p style={{ margin: 0 }}>
-                  Your role card and the meeting situation are in the Kaki panel on the right. Take a quick look before starting.
+                  Your role card and store facts are in Kaki Wingman on the right.
                 </p>
               )}
             </div>

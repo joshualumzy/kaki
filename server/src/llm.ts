@@ -11,6 +11,8 @@ export interface CompleteOptions {
   signal?: AbortSignal;
   /** Sampling temperature; defaults to 0 so analysis is repeatable. Conversation wants more. */
   temperature?: number;
+  /** Optional reasoning effort override for models that support it (e.g. 'none' on DeepSeek for fast classification). */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 /** The shared LLM client every module uses; the fake one stands in for it in tests. */
@@ -118,7 +120,14 @@ export function createOpenAiLlm({
     async complete(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
-      const request = { model, messages, temperature: options.temperature ?? 0 };
+      const isDeepSeek = /deepseek/i.test(model);
+      const effort = options.reasoningEffort ?? (options.json === true && isDeepSeek ? 'none' : undefined);
+      const request = {
+        model,
+        messages,
+        temperature: options.temperature ?? 0,
+        ...(effort !== undefined && isDeepSeek ? { reasoning_effort: effort } : {}),
+      };
       const askForJson = options.json === true && jsonModeSupported;
 
       let response = await post(
@@ -150,7 +159,19 @@ export function createOpenAiLlm({
     async *stream(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
-      const request = { model, messages, temperature: options.temperature ?? 0, stream: true };
+      const isDeepSeek = /deepseek/i.test(model);
+      const isBoundedAssessment =
+        isDeepSeek &&
+        messages[0]?.role === 'system' &&
+        messages[0].content.includes('[KAKI_PROPOSAL_ASSESSMENT]');
+      const effort = options.reasoningEffort ?? (isBoundedAssessment ? 'none' : undefined);
+      const request = {
+        model,
+        messages,
+        temperature: options.temperature ?? 0,
+        stream: true,
+        ...(effort !== undefined && isDeepSeek ? { reasoning_effort: effort } : {}),
+      };
 
       const response = await post(request, signal, timeout);
       if (!response.ok) {
@@ -261,14 +282,29 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
 }
 
 /**
- * The notetaker's client. It runs in the background, so it can use a smarter, slower model than the
- * AI attendees: KAKI_NOTETAKER_LLM_MODEL (and KAKI_NOTETAKER_LLM_TIMEOUT_MS) override the shared
- * KAKI_LLM_MODEL (and KAKI_LLM_TIMEOUT_MS) for the notetaker only. Same gateway and key.
+ * The notetaker's client. It runs in the background, so it can use a dedicated model or gateway
+ * separate from the real-time voice NPCs: KAKI_NOTETAKER_LLM_BASE_URL, KAKI_NOTETAKER_LLM_API_KEY,
+ * KAKI_NOTETAKER_LLM_MODEL, and KAKI_NOTETAKER_LLM_TIMEOUT_MS override the shared KAKI_LLM_* settings.
+ * When KAKI_NOTETAKER_LLM_MODEL targets a non-DeepSeek model (such as qwen3.6:35b) and KAKI_LLM_FALLBACK_*
+ * is configured, it automatically routes the notetaker to the fallback gateway unless KAKI_NOTETAKER_LLM_BASE_URL is set.
  */
 export function notetakerLlmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | undefined {
+  const notetakerModel = env.KAKI_NOTETAKER_LLM_MODEL || env.KAKI_LLM_MODEL;
+  const useFallbackGatewayForNotetaker =
+    !env.KAKI_NOTETAKER_LLM_BASE_URL &&
+    notetakerModel !== undefined &&
+    !/deepseek/i.test(notetakerModel) &&
+    /deepseek/i.test(env.KAKI_LLM_BASE_URL ?? '') &&
+    Boolean(env.KAKI_LLM_FALLBACK_BASE_URL && env.KAKI_LLM_FALLBACK_API_KEY);
   return llmFromEnv({
     ...env,
-    KAKI_LLM_MODEL: env.KAKI_NOTETAKER_LLM_MODEL || env.KAKI_LLM_MODEL,
+    KAKI_LLM_BASE_URL:
+      env.KAKI_NOTETAKER_LLM_BASE_URL ||
+      (useFallbackGatewayForNotetaker ? env.KAKI_LLM_FALLBACK_BASE_URL : env.KAKI_LLM_BASE_URL),
+    KAKI_LLM_API_KEY:
+      env.KAKI_NOTETAKER_LLM_API_KEY ||
+      (useFallbackGatewayForNotetaker ? env.KAKI_LLM_FALLBACK_API_KEY : env.KAKI_LLM_API_KEY),
+    KAKI_LLM_MODEL: notetakerModel,
     KAKI_LLM_TIMEOUT_MS: env.KAKI_NOTETAKER_LLM_TIMEOUT_MS || env.KAKI_LLM_TIMEOUT_MS,
   });
 }

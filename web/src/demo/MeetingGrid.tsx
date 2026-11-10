@@ -302,8 +302,15 @@ export function MeetingGrid({
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
   const [showStarterIdeas, setShowStarterIdeas] = useState(false);
+  const [turnWaitStartAt, setTurnWaitStartAt] = useState<number | null>(null);
+  const [dismissedWingmanGlideKey, setDismissedWingmanGlideKey] = useState<string>('');
   useEffect(() => {
-    if (!waitingForHuman) setShowStarterIdeas(false);
+    if (!waitingForHuman) {
+      setShowStarterIdeas(false);
+      setTurnWaitStartAt(null);
+    } else {
+      setTurnWaitStartAt((prev) => prev ?? Date.now());
+    }
   }, [waitingForHuman]);
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
@@ -396,6 +403,42 @@ export function MeetingGrid({
     onKakiBadgeChange?.(actionableMyTasksCount);
   }, [actionableMyTasksCount, onKakiBadgeChange]);
 
+  const wingmanGlideNudge = useMemo(() => {
+    if (wingmanFactPreview === undefined) return undefined;
+    let idx = 0;
+    let latestVisitorLine = '';
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        idx = event.payload.agendaIndex;
+        latestVisitorLine = '';
+      } else if (event.type === 'TRANSCRIPT_CHUNK' && idx === activeAgendaIndex) {
+        const spk = event.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        if (!aiNames.has(spk)) {
+          latestVisitorLine = event.payload.text.trim();
+        }
+      }
+    }
+    const visitorAskedForHelp =
+      latestVisitorLine.length > 0 &&
+      /\b(?:i don'?t know|idk|not sure|no idea|how am i supposed to know|what(?:'s| is) the (?:actual )?cost|how much (?:does|is|do)|what is in|what's in|what are the|remind me|forgot|help me|what should (?:i|we) do|give me a solution|what options)\b/i.test(
+        latestVisitorLine,
+      );
+    const waitedLongEnough =
+      waitingForHuman && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000;
+    if (!visitorAskedForHelp && !waitedLongEnough) return undefined;
+    const key = visitorAskedForHelp
+      ? `glide-ask:${activeAgendaIndex}:${latestVisitorLine}`
+      : `glide-wait:${activeAgendaIndex}`;
+    return {
+      key,
+      reason: visitorAskedForHelp
+        ? '✨ Kaki Wingman · Here is the info you need'
+        : '✨ Kaki Wingman · Quick tip for your turn',
+      fact: wingmanFactPreview,
+      chip: starterChips[0],
+    };
+  }, [wingmanFactPreview, events, activeAgendaIndex, aiNames, waitingForHuman, turnWaitStartAt, now, starterChips]);
+
   const activeStageToast = useMemo(() => {
     const allTasks = [...screenTasks.values()];
     const myTask = allTasks
@@ -458,6 +501,50 @@ export function MeetingGrid({
         {!aiPresent && (
           <div className="kd-banner">
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.
+          </div>
+        )}
+        {wingmanGlideNudge !== undefined && wingmanGlideNudge.key !== dismissedWingmanGlideKey && (
+          <div
+            className="kd-wingman-glide"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="kd-wingman-glide-main" onClick={() => onOpenKaki?.()} style={{ cursor: onOpenKaki ? 'pointer' : undefined }}>
+              <span className="kd-wingman-glide-badge">{wingmanGlideNudge.reason}</span>
+              <p className="kd-wingman-glide-fact">{wingmanGlideNudge.fact}</p>
+            </div>
+            <div className="kd-wingman-glide-actions">
+              {wingmanGlideNudge.chip !== undefined && (
+                <button
+                  type="button"
+                  className="kd-wingman-glide-btn kd-wingman-glide-btn-say"
+                  onClick={() => {
+                    sendQuickLine(wingmanGlideNudge.chip!);
+                    setDismissedWingmanGlideKey(wingmanGlideNudge.key);
+                  }}
+                >
+                  💬 Say this
+                </button>
+              )}
+              <button
+                type="button"
+                className="kd-wingman-glide-btn"
+                onClick={() => {
+                  onOpenKaki?.();
+                  setDismissedWingmanGlideKey(wingmanGlideNudge.key);
+                }}
+              >
+                Check right panel →
+              </button>
+              <button
+                type="button"
+                className="kd-stage-toast-close"
+                aria-label="Dismiss Wingman tip"
+                onClick={() => setDismissedWingmanGlideKey(wingmanGlideNudge.key)}
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
         {activeStageToast !== undefined && activeStageToast.key !== dismissedToastKey && (

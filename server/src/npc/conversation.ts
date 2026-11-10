@@ -451,8 +451,7 @@ export class NpcConversation<Clip> {
       // recognised words (`humanText` interrupts then), and carries on if there were none.
       this.clearBargeTimer();
       const baseWaitMs = this.options.bargeInMs ?? DEFAULT_BARGE_IN_MS;
-      const waitMs =
-        this.turn.spoken.length === 0 && !this.turn.scripted ? Math.min(baseWaitMs, 250) : baseWaitMs;
+      const waitMs = baseWaitMs;
       if (waitMs <= 0) {
         this.interrupt('the person started talking');
         return;
@@ -1213,13 +1212,13 @@ export class NpcConversation<Clip> {
 - ${other} speaks second in 2 complete, natural spoken sentences (under 28 words per sentence, separated by a period): Sentence 1 reacts directly to ${owner}'s tempting move ("Hold on, ...") and states both the app price-parity / search penalty AND the QR self-pickup / floor catch from ${other}'s context;`;
     const handoffExamples = [
       `"How should we balance both sides tomorrow morning, ${this.human.name}?"`,
-      `"${this.human.name}, what does your Kaki Wingman say on your side, or how do you want to play this?"`,
+      `"${this.human.name}, what are your thoughts on your side, or how do you want to play this?"`,
       `"What's your call on handling both catches, ${this.human.name}?"`,
       `"${this.human.name}, how should we sort this out before doors open?"`,
     ];
     const handoffExample = handoffExamples[itemIndex % handoffExamples.length]!;
     const handoffQuestionInstruction = visitorOwnsItem
-      ? `Sentence 2 MUST be one short, natural question asking ${this.human.name} by name (ending with a question mark "?") how they want to steer this as the lead (e.g., "Since you're leading this one, ${this.human.name}, what do your notes in Kaki say on your side, or how do you want to play it?")`
+      ? `Sentence 2 MUST be one short, natural question asking ${this.human.name} by name (ending with a question mark "?") how they want to steer this as the lead (e.g., "Since you're leading this one, ${this.human.name}, what numbers or options do you have on your side, or how do you want to play it?")`
       : `Sentence 2 MUST be one short, natural question to ${this.human.name} by name (ending with a question mark "?", such as ${handoffExample} — do NOT say "From your side as ${this.human.role}")`;
     return `[We just started agenda item "${title}". Speak naturally like two real colleagues having a genuine cause-and-effect conversation with ${this.human.name}, using complete, grammatical sentences and everyday words (never use robotic fragments like "Hey ${this.human.name}, ${owner} from ..." or "From the ... side,", never chop off the setup clause of a sentence, and do not address ${owner} or ${other} by name at the start or end of a sentence):
 ${patternInstruction} ${handoffQuestionInstruction}.
@@ -1443,7 +1442,7 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: host, from: host };
           this.pending.push(
-            `[${this.human.name} is taking a moment to think on "${spokenTitle}". Begin your reply with "${host}:". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence letting them know there is no rush and reminding them they can glance at the Kaki Wingman notes on the right panel or tap a question idea if they want — never prescribe an answer or mention this note.]`,
+            `[${this.human.name} is taking a moment to think on "${spokenTitle}". Begin your reply with "${host}:". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence letting them know there is no rush and asking if they want a quick recap of the two options on the table — never prescribe an answer, never refer to "the right panel" or UI elements, and do not mention this note.]`,
           );
           this.startTurn();
         } else {

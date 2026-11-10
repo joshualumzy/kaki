@@ -11,7 +11,7 @@
         "facts": [
           "Freelancers camp at our four 4-seater booths for two hours on a single drink, and Auntie Mary refuses to police tables after getting yelled at.",
           "SFA inspectors arrive at 9 AM tomorrow after a customer from yesterday's trial was hospitalized; we have two sealed backup cartons of pasteurized eggs in the storeroom.",
-          "Delivery apps take a 32% fee on single $10 sets, and we cannot pull counter staff off the line to hand-deliver orders in morning traffic.",
+          "Delivery apps take a 32% fee ($3.20) on a single $10 Set A ($6.50 raw ingredients + $0.70 individual takeaway box & cup = $7.20 cost, losing $0.40 per order), whereas a 5-set Office Platter at $55 ($11/set, $37.40 kept after fee vs $32.50 shared-platter cost) makes ~$5 profit without pulling staff off the counter.",
           "Our 65-year-old kopi uncles brew much faster when kitchen tickets print traditional local Kopi names instead of long English phrases."
         ],
         "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without breaking food hygiene or losing money."
@@ -40,7 +40,7 @@
           "In yesterday's trial, first-time kiosk users froze at 'Kopi O Kosong' and 'Siew Dai' and missed the small language button in the corner.",
           "Soft-boiled eggs must stay at 63°C continuously; our egg warmer dipped to 58°C during yesterday's rush, though we have two sealed backup cartons of pasteurized eggs in the storeroom.",
           "More than half of our morning customers come alone carrying hot trays of runny eggs and kopi.",
-          "Nearby offices usually order 20+ toast sets at once on shared GrabFood group carts."
+          "Nearby offices usually order 20+ toast sets at once on shared GrabFood group carts, and a 5-set Office Platter at $55 ($11/set) keeps $37.40 after the 32% fee vs $32.50 cost (~$5 profit per platter)."
         ],
         "responsibility": "Keep our kopi and kaya toast authentic while making ordering and finding a seat easier."
       }
@@ -52,7 +52,7 @@
         "youAre": "You are Daniel, Marketing Lead looking after TikTok reviews, store promos, and public goodwill.",
         "facts": [
           "Straits Times reporters arrive at 8 AM tomorrow right before SFA inspectors come at 9 AM, while hospital lab results take 48 hours.",
-          "Half of our morning sales come from nearby office towers ordering on GrabFood and Foodpanda.",
+          "Half of our morning sales ($2,400) come from nearby office towers ordering on GrabFood and Foodpanda; single $10 sets lose $0.40 after the 32% fee ($6.80 kept vs $7.20 cost), while a $55 5-set Office Platter or website QR self-pickup with a free drink upgrade stays profitable.",
           "Our Google rating dipped to 3.6 stars during yesterday's trial because breakfast walk-ins couldn't find a seat while laptops held the booths.",
           "First-time visitors love authentic Nanyang Kopi names when they have a quick guide explaining what the words mean."
         ],
@@ -339,7 +339,7 @@
       "knows": [
         "Our kiosk software (POS v2.4) can show a friendly English name on the customer screen while still printing short local Kopi names on the kitchen ticket, if we configure and test it tonight before 8am.",
         "The 12 booth wall power sockets and guest Wi-Fi router run on a smart switch in the back room; turning them off during breakfast rush stops laptop campers, though we should warn diners clearly.",
-        "Our website QR code can take pre-orders for express self-pickup with zero commission, and on GrabFood we can list a 5-set Office Platter at $55 ($11/set, which leaves $37.40 after the 32% app fee vs $32.50 in ingredients—making ~$5 profit per platter) as a separate bundle so we don't get penalized for raising single-set prices."
+        "Our website QR code can take pre-orders for express self-pickup with zero commission, and on GrabFood we can list a 5-set Office Platter at $55 ($11/set, which leaves $37.40 after the 32% app fee vs $32.50 shared-platter cost—saving the $0.70/set single-box cost on top of $6.50/set raw ingredients and making ~$5 profit per platter) as a separate bundle so we don't get penalized for raising single-set prices."
       ]
     },
     {
@@ -397,11 +397,11 @@
         "Signboards banning tissue packets do not work by themselves: our only floor auntie (Auntie Mary, 62) got screamed at by a customer in a suit last week when she moved his tissue packet, and she refuses to police seats or touch customers' belongings.",
         "Four 4-seater booths (16 of our 28 seats) are being hogged for 2 hours every morning by laptop freelancers buying a single $2.20 Kopi O because of the 12 wall power sockets and free guest Wi-Fi, costing us $420 every morning in lost breakfast sets.",
         "For the SFA salmonella inspection: soft-boiled eggs drive 60% of our breakfast sets ($1,800/morning). Pulling eggs wipes out our launch sales, but failing SFA's 9:00 AM swab and temperature log check shuts down the shop.",
-        "For the delivery app fee squeeze: delivery apps take 32% ($3.20 on a $10 set, losing $0.40 per order), but sending floor staff out to hand-deliver office orders in morning rain and traffic leaves the counter short-handed and risks staff getting hurt."
+        "For the delivery app fee squeeze: delivery apps take 32% ($3.20 on a $10 Set A, so we keep $6.80 against our $7.20 single-set cost of $6.50 ingredients + $0.70 individual takeaway packaging, losing $0.40 per order), but sending floor staff out to hand-deliver office orders in morning rain and traffic leaves the counter short-handed and risks staff getting hurt."
       ],
       "knows": [
         "The SFA inspectors arrive at 9:00 AM tomorrow, and Straits Times press arrives at 8:00 AM; we have two sealed backup cartons of pasteurized eggs in the storeroom and can log 15-minute digital temperature checks at 63°C.",
-        "For the delivery app topic: nearby office towers order 20+ toast sets at once, and a 5-set Office Platter at $55 ($11/set) leaves $37.40 after the 32% app fee on $32.50 of ingredients (~$5 profit per platter), whereas our two toast staff cannot leave the counter to hand-deliver orders upstairs.",
+        "For the delivery app topic: a single $10 Set A costs $7.20 ($6.50 raw ingredients: two kampong eggs, thick artisanal kaya &SCS butter toast, and Nanyang kopi + $0.70 individual takeaway box/cup), whereas packing 5 sets together in one shared $55 Office Platter ($11/set) costs $32.50 total vs $37.40 kept after the 32% app fee (~$5 profit per platter), and our two toast staff cannot leave the counter to hand-deliver orders upstairs.",
         "Our 65-year-old kopi uncles read traditional Kopi names at a glance; if the kitchen ticket prints long English names, drink prep slows down by 15 seconds per cup."
       ],
       "withRoles": {
