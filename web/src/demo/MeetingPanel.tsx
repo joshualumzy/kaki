@@ -380,15 +380,17 @@ function actionKindBadge(task: Task): string | undefined {
 function artifactLinkText(task: Task): string {
   switch (task.actionKind) {
     case 'gitea_issue':
-      return 'Open ticket in Gitea ↗';
+      return 'Open live in Gitea ↗';
     case 'mattermost_post':
-      return 'Open post in Mattermost ↗';
+      return 'Open live in Mattermost ↗';
     case 'wiki_page':
-      return 'Open page in Wiki ↗';
+      return 'Open live in Wiki ↗';
     case 'email':
-      return 'Open email in Mailpit ↗';
+      return 'Open live in Mailpit ↗';
+    case 'calendar_event':
+      return 'Open live in Calendar ↗';
     default:
-      return 'Open artifact ↗';
+      return 'Open live artifact ↗';
   }
 }
 
@@ -477,27 +479,38 @@ function CurrentTopicCard({
     return filtered.slice(0, 3);
   }, [item, events, currentTopicSpeakers, viewer, role]);
 
+  const liveWingmanBrief =
+    companyFact?.payload.question.startsWith('Live Wingman Brief') === true
+      ? companyFact.payload.facts[0]?.text
+      : undefined;
+
   const companyFacts =
-    companyFact === undefined
+    companyFact === undefined || liveWingmanBrief !== undefined
       ? []
       : filterNonDuplicateCompanyFacts(companyFact.payload.facts, [
           ...myFacts,
           ...visibleTradeOffs.map((to) => to.tradeOff),
         ]);
 
+  const heroFacts = liveWingmanBrief !== undefined ? [liveWingmanBrief] : myFacts.slice(0, 1);
+
   const hasTradeOffList = item.discussion?.tradeOffs !== undefined && item.discussion.tradeOffs.length > 0;
   // Do not pop up the Wingman card at all while the first speaker is only saying their 5-word self-introduction!
-  if (hasTradeOffList && visibleTradeOffs.length === 0 && companyFacts.length === 0) return null;
-  if (!hasTradeOffList && myFacts.length === 0 && companyFacts.length === 0) return null;
+  if (hasTradeOffList && visibleTradeOffs.length === 0 && companyFacts.length === 0 && liveWingmanBrief === undefined) return null;
+  if (!hasTradeOffList && heroFacts.length === 0 && companyFacts.length === 0) return null;
 
   return (
     <section className="kd-role kd-topic-card" aria-label="Current topic context">
       <p className="kd-role-eyebrow">Wingman · {roleBadge}</p>
-      {myFacts.length > 0 && (!hasTradeOffList || visibleTradeOffs.length > 0) && (
+      {heroFacts.length > 0 && (!hasTradeOffList || visibleTradeOffs.length > 0 || liveWingmanBrief !== undefined) && (
         <div style={{ marginTop: 6, marginBottom: 8 }}>
-          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>💡 Your Fact to Share ({role?.label ?? 'Your Role'})</p>
+          <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
+            {liveWingmanBrief !== undefined
+              ? '✨ Live Wingman Brief (Adapted to Discussion)'
+              : `💡 Your Fact to Share (${role?.label ?? 'Your Role'})`}
+          </p>
           <div className="kd-fact-chips" aria-label="Key facts for this topic">
-            {myFacts.slice(0, 1).map((fact) => (
+            {heroFacts.map((fact) => (
               <div key={fact} className="kd-fact-chip kd-fact-chip-hero">
                 {fact}
               </div>

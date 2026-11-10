@@ -206,13 +206,12 @@ export function createMattermostModule({
               if (isVisitor && cleanSpeaker !== undefined) {
                 const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
                 if (userObj?.id !== undefined) {
-                  const safeUsername = cleanSpeaker.toLowerCase().replace(/[^a-z0-9_-]/g, '');
                   await request(
                     settings,
                     `/api/v4/users/${userObj.id}/patch`,
                     'PUT',
                     JSON.stringify({
-                      ...(safeUsername.length >= 3 ? { username: safeUsername } : {}),
+                      username: 'demo',
                       first_name: cleanSpeaker,
                       last_name: '',
                       nickname: cleanSpeaker,
@@ -221,6 +220,14 @@ export function createMattermostModule({
                     sessionToken,
                   ).catch(() => undefined);
                 }
+                await request(
+                  settings,
+                  '/api/v4/config/patch',
+                  'PUT',
+                  JSON.stringify({ TeamSettings: { TeammateNameDisplay: 'full_name', LockTeammateNameDisplay: true } }),
+                  signal,
+                  settings.token,
+                ).catch(() => undefined);
               }
             }
           }

@@ -27,6 +27,8 @@ export interface NpcPorts<Clip> {
   advanceAgenda?(): void;
   /** Wrap up the meeting once the final agenda item is complete. */
   endMeeting?(): void;
+  /** Emit a live 1-sentence Wingman coaching brief when the visitor's turn updates the discussion state. */
+  onWingmanTip?(tip: string, title: string): void;
 }
 
 /** Quiet needed after the person stops talking before the AI answers; on top of the voice detector's own hangover. */
@@ -234,6 +236,8 @@ export class NpcConversation<Clip> {
   private forcedSpeaker: { target: string; from: string } | undefined;
   private decisionWrappedUpOnItem = false;
   private refusalCount = 0;
+  /** Integrations already recommended on earlier agenda items in this session so Topic 2 showcases fresh platforms. */
+  private readonly usedActionKinds = new Set<string>();
 
   constructor(
     private readonly ports: NpcPorts<Clip>,
@@ -852,7 +856,14 @@ export class NpcConversation<Clip> {
     if (assessment !== undefined && assessment.needsWingman === true) {
       this.wingmanHintActive = true;
     }
+    if (assessment?.dynamicWingmanTip !== undefined && assessment.dynamicWingmanTip.trim() !== '') {
+      this.ports.onWingmanTip?.(assessment.dynamicWingmanTip.trim(), item.title);
+    }
     this.humanSettledOnCurrentItem = assessment?.isProposal === true && assessment.readiness === 'complete';
+    if (!this.humanSettledOnCurrentItem && this.proposalLines.length >= 3) {
+      // After 3+ unresolved substantive proposal attempts on the same topic, allow Sam to break the deadlock via a 10 AM follow-up meeting.
+      this.humanSettledOnCurrentItem = true;
+    }
     if (this.humanSettledOnCurrentItem) {
       this.wingmanHintActive = false;
     }
@@ -874,6 +885,62 @@ export class NpcConversation<Clip> {
     const named = assessment?.decisionLines;
     if (named === undefined) return history;
     return named.length > 0 ? named : [text];
+  }
+
+  /** Pick 1–2 distinct integration deliverables for the current item that prioritize platforms not yet showcased in this session. */
+  private recommendedDeliverablesForItem(title: string, spokenDecision: string): string {
+    const lowerTitle = title.toLowerCase();
+    const lowerDecision = spokenDecision.toLowerCase();
+    type Option = { kind: string; phrase: string };
+    const options: Option[] = [];
+
+    if (lowerTitle.includes('sfa') || lowerTitle.includes('hygiene') || lowerTitle.includes('chiller') || lowerTitle.includes('inspection')) {
+      options.push(
+        { kind: 'email', phrase: 'send an email to the hospitalized customer or SFA officer with our goodwill and disposal plan' },
+        { kind: 'wiki_page', phrase: 'write up the 6 AM chiller check & disposal rule on the team wiki' },
+        { kind: 'calendar_event', phrase: 'schedule a 10 AM legal and hygiene follow-up on the calendar' },
+        { kind: 'mattermost_post', phrase: 'post the morning inspection plan in the team channel' },
+      );
+    } else if (lowerTitle.includes('seat') || lowerTitle.includes('laptop') || lowerTitle.includes('crunch')) {
+      options.push(
+        { kind: 'wiki_page', phrase: 'write up the 8 to 10 AM window-bar and booth policy on the team wiki' },
+        { kind: 'mattermost_post', phrase: 'post the morning seating plan in the team channel for Auntie Mary and the floor crew' },
+        { kind: 'calendar_event', phrase: 'schedule a 10:30 AM floor review on the calendar' },
+      );
+    } else if (lowerTitle.includes('delivery') || lowerTitle.includes('commission') || lowerTitle.includes('grab')) {
+      options.push(
+        { kind: 'email', phrase: 'send an email to our GrabFood account manager or office catering partners about the $50 Office Platter and 10%-off pickup promo' },
+        { kind: 'gitea_issue', phrase: 'file a ticket in the issue tracker to add the $50 Office Platter bundle and pause single sets on delivery apps' },
+        { kind: 'mattermost_post', phrase: 'post the delivery and platter update in the team channel' },
+      );
+    } else if (lowerTitle.includes('kiosk') || lowerTitle.includes('kopi') || lowerTitle.includes('queue')) {
+      options.push(
+        { kind: 'gitea_issue', phrase: 'file a ticket in the issue tracker to enable Kiosk Subtitle Mode with Traditional Kopi kitchen dockets' },
+        { kind: 'email', phrase: 'send an email to the mall landlord confirming our queue fix so they waive the $2,000 fine' },
+        { kind: 'wiki_page', phrase: 'update the kiosk and docket guide on the team wiki' },
+      );
+    }
+
+    if (/\b(?:table|park|postpone|defer|follow-up meeting|10 am)\b/i.test(lowerDecision)) {
+      options.unshift({ kind: 'calendar_event', phrase: 'schedule a 10 AM follow-up session on the calendar' });
+    }
+    if (options.length === 0) {
+      options.push(
+        { kind: 'mattermost_post', phrase: 'post the final decision in the team channel' },
+        { kind: 'wiki_page', phrase: 'record the decision on the team wiki' },
+        { kind: 'email', phrase: 'send a confirmation email to the external partner' },
+        { kind: 'gitea_issue', phrase: 'file a ticket in the issue tracker' },
+        { kind: 'calendar_event', phrase: 'schedule a follow-up check-in on the calendar' },
+      );
+    }
+
+    const fresh = options.filter((opt) => !this.usedActionKinds.has(opt.kind));
+    const chosen = (fresh.length >= 2 ? fresh.slice(0, 2) : [...fresh, ...options].slice(0, 2));
+    for (const c of chosen) this.usedActionKinds.add(c.kind);
+    if (chosen.length >= 2 && chosen[0]!.kind !== chosen[1]!.kind) {
+      return `Specifically, ask ${this.human?.name ?? 'them'} if they are happy to take on these two follow-ups so Kaki can draft both on their screen right now: (1) ${chosen[0]!.phrase}, and (2) ${chosen[1]!.phrase}.`;
+    }
+    return `Specifically, ask ${this.human?.name ?? 'them'} if they are happy to ${chosen[0]!.phrase} so Kaki can draft it for them.`;
   }
 
   /** What the colleagues should do with the visitor's proposal on this item, from the readiness check. */
@@ -911,7 +978,13 @@ export class NpcConversation<Clip> {
       if (alreadyAskedForDeliverable) {
         return `[${who} just confirmed the plan and follow-up on "${title}" ("${spokenDecision}"). Reply in ONE short, warm sentence confirming you are locking that in (e.g., "Great, let's lock that in — ${who}, could you post that update in the team channel so everyone has it?"), without repeating the whole plan or asking a second open-ended question.]`;
       }
-      return `[${who} has made a complete proposal on "${title}". The final decision in ${who}'s own words, across the lines that still stand on this item, was: "${spokenDecision}". Confirm ONLY that decision: treat that quote as evidence of what ${who} decided, not as words to repeat, and do not add new terms, numbers, equipment or promises. Never add new decisions, and do not revive a superseded earlier proposal as if it were adopted. Acknowledge it faithfully in your own voice as a colleague, addressing ${who} as "you" or by name, and never speak as ${who} or copy their first-person commitments. Then ask ${who} by name for the matching follow-up deliverable (team channel post, email, wiki page, calendar invite or issue tracker ticket) unless ${who} already volunteered, and base that follow-up on the final decision only. Nobody should reopen the trade-offs or raise a new catch.]`;
+      const deliverableHint = this.recommendedDeliverablesForItem(title, spokenDecision);
+      return `[${who} has made a complete proposal on "${title}". The final decision in ${who}'s own words, across the lines that still stand on this item, was: "${spokenDecision}". Confirm ONLY that decision: treat that quote as evidence of what ${who} decided, not as words to repeat, and do not add new terms, numbers, equipment or promises. Never add new decisions, and do not revive a superseded earlier proposal as if it were adopted. Acknowledge it faithfully in your own voice as a colleague, addressing ${who} as "you" or by name, and never speak as ${who} or copy their first-person commitments. Then ask ${who} by name for the matching follow-up deliverable (team channel post, email, wiki page, calendar invite or issue tracker ticket) unless ${who} already volunteered, and base that follow-up on the final decision only. ${deliverableHint} Nobody should reopen the trade-offs or raise a new catch.]`;
+    }
+    if (this.proposalLines.length >= 3) {
+      const host = this.facilitatorOrCoHost() ?? 'Sam';
+      this.usedActionKinds.add('calendar_event');
+      return `[We have gone back and forth 3 times on "${title}" without a full consensus. Begin your reply with "${host}:". ${host} steps in warmly as the meeting chair to prevent a stalemate: acknowledge the remaining tension, propose parking "${title}" for a focused 15-minute working session at 10 AM today, and ask ${who} by name ("${who}, could you schedule that 10 AM follow-up on the calendar so we can keep the stand-up moving?") so Kaki can draft the calendar invite for ${who}.]`;
     }
     const stillOpen =
       assessment.unresolved.map((entry) => `${entry.tradeOff} (ask: ${entry.question})`).join('; ') || decideWords;
@@ -1317,7 +1390,9 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
    * never gets stuck even if the notetaker does not extract a task.
    */
   private scheduleDecisionAdvance(turn: Turn): boolean {
-    const title = this.currentItem()?.title;
+    const current = this.currentItem();
+    const title = current?.title;
+    const hasTradeOffs = (current?.discussion?.tradeOffs?.length ?? 0) > 0;
     if (
       this.closed ||
       this.paused ||
@@ -1325,6 +1400,7 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
       this.mode() === 'observe' ||
       this.advanced.has(title) ||
       this.humanLines <= this.linesAtMove ||
+      (hasTradeOffs && !this.humanSettledOnCurrentItem) ||
       (this.ports.advanceAgenda === undefined && this.ports.endMeeting === undefined)
     ) {
       return false;

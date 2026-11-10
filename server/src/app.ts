@@ -125,19 +125,35 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
   const mmUrl = process.env.MATTERMOST_URL?.trim();
   if (mmUrl) {
     try {
-      const loginResp = await fetch(`${mmUrl.replace(/\/+$/, '')}/api/v4/users/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ login_id: 'demo', password: process.env.MATTERMOST_PASSWORD || 'demo' }),
-      });
-      if (loginResp.ok) {
+      const baseMmUrl = mmUrl.replace(/\/+$/, '');
+      const mmAdminToken = process.env.MATTERMOST_TOKEN?.trim();
+      if (mmAdminToken) {
+        await fetch(`${baseMmUrl}/api/v4/config/patch`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${mmAdminToken}` },
+          body: JSON.stringify({ TeamSettings: { TeammateNameDisplay: 'full_name', LockTeammateNameDisplay: true } }),
+        }).catch(() => undefined);
+      }
+      let loginResp: Response | undefined;
+      for (const loginId of ['demo@nanyangkopitiam.example', 'demo']) {
+        const resp = await fetch(`${baseMmUrl}/api/v4/users/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ login_id: loginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+        });
+        if (resp.ok) {
+          loginResp = resp;
+          break;
+        }
+      }
+      if (loginResp?.ok) {
         const sessionToken = loginResp.headers.get('Token');
         const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
         if (sessionToken && userObj?.id) {
-          await fetch(`${mmUrl.replace(/\/+$/, '')}/api/v4/users/${userObj.id}/patch`, {
+          await fetch(`${baseMmUrl}/api/v4/users/${userObj.id}/patch`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionToken}` },
-            body: JSON.stringify({ first_name: cleanName, last_name: '', nickname: cleanName }),
+            body: JSON.stringify({ username: 'demo', first_name: cleanName, last_name: '', nickname: cleanName }),
           }).catch(() => undefined);
         }
       }
@@ -237,6 +253,69 @@ async function handleRequest(
 
     if (request.method === 'GET' && path === '/health') {
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'GET' && path === '/api/mattermost/open') {
+      const query = new URL(request.url ?? '/', 'http://localhost').searchParams;
+      const rawTarget = query.get('url')?.trim() ?? '';
+      let parsedTarget: URL;
+      try {
+        parsedTarget = new URL(rawTarget);
+      } catch {
+        sendJson(response, 400, { error: 'Valid target url is required' });
+        return;
+      }
+      if (
+        (parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') ||
+        (parsedTarget.port !== '8083' && !parsedTarget.pathname.includes('/nanyang-kopitiam/'))
+      ) {
+        sendJson(response, 400, { error: 'Target must be a Mattermost link' });
+        return;
+      }
+      const mmUrl = (process.env.MATTERMOST_URL?.trim() || 'http://127.0.0.1:8083').replace(/\/+$/, '');
+      const setCookies: string[] = [];
+      try {
+        let loginResp: Response | undefined;
+        for (const loginId of ['demo@nanyangkopitiam.example', 'demo']) {
+          const resp = await fetch(`${mmUrl}/api/v4/users/login`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-requested-with': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ login_id: loginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+          });
+          if (resp.ok) {
+            loginResp = resp;
+            break;
+          }
+        }
+        if (loginResp?.ok) {
+          const rawCookies = loginResp.headers.getSetCookie?.() ?? [];
+          for (const cookie of rawCookies) {
+            setCookies.push(cookie.replace(/;\s*Secure/gi, ''));
+          }
+          if (setCookies.length === 0) {
+            const sessionToken = loginResp.headers.get('Token');
+            const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
+            if (sessionToken) {
+              setCookies.push(`MMAUTHTOKEN=${sessionToken}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`);
+            }
+            if (userObj?.id) {
+              setCookies.push(`MMUSERID=${userObj.id}; Path=/; Max-Age=2592000; SameSite=Lax`);
+            }
+          }
+        }
+      } catch {
+        // Proceed with redirect even if auto-login fails.
+      }
+      response.writeHead(302, {
+        Location: parsedTarget.toString(),
+        'Cache-Control': 'no-store',
+        ...(setCookies.length > 0 ? { 'Set-Cookie': setCookies } : {}),
+      });
+      response.end();
       return;
     }
 

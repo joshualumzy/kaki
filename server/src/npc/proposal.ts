@@ -36,6 +36,11 @@ export interface ProposalAssessment {
    */
   needsWingman?: boolean;
   /**
+   * A live, context-adapted 1-sentence store fact or compromise tip (<= 22 words) tailored to whatever
+   * question, cost, or objection the visitor and colleagues are currently discussing.
+   */
+  dynamicWingmanTip?: string;
+  /**
    * The visitor's own lines that still make up the final decision, oldest first, exactly as they said
    * them. A later line that replaces an earlier proposal leaves the earlier line out; one that only
    * adds a missing detail keeps both. Undefined when the reply did not name any lines, so callers can
@@ -81,7 +86,7 @@ const PROPOSAL_QUESTION =
   /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
 
 const ENDORSEMENT_DECISION_RE =
-  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan))|i\s+agree(?:\s+with\s+(?:you|that|your\s+plan))?)\b/i;
+  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan)|do\s+that|go\s+ahead|compromise|table\s+(?:this|it)|park\s+(?:this|it))|i\s+agree(?:\s+with\s+(?:you|that|your\s+plan))?|(?:ok|okay|yes|yeah|yep)[,\s]+(?:sure|go\s+ahead|let'?s\s+do\s+(?:that|it)|do\s+that|works\s+for\s+me|please\s+do)|(?:do|pull|ban|cut|close)\s+it\s+anyway|i\s+insist|schedule\s+a\s+(?:10\s*am\s+)?follow[- ]?up)\b/i;
 
 const FEASIBILITY_QUESTION =
   /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
@@ -248,8 +253,9 @@ function assessmentPrompt(item: AgendaItem, visitorLines: string[], assistantCon
     '- Unresolved entries name the trade-off id and the open question a colleague should ask next.',
     '- In "decisionLines", list the line numbers, oldest first, whose exact words still make up the final decision. When a later line replaces, reverses or withdraws an earlier proposal, leave the superseded line out. When a later line only adds a detail the earlier proposal was missing, keep both lines. Never quote or paraphrase the visitor yourself.',
     '- Set "needsWingman": true when the visitor expresses uncertainty ("I don\'t know", "how am I supposed to know", "not sure"), asks for missing facts/costs/numbers, or asks what options exist; otherwise false.',
+    '- Set "dynamicWingmanTip" to ONE short, plain-English 1-sentence store fact or practical compromise tip (under 22 words) tailored to whatever angle, question, or objection the visitor and colleagues are currently discussing, consistent with the scenario facts.',
     '- If the line is not a proposal, return "isProposal": false with empty arrays and "decisionLines": [].',
-    'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "needsWingman": true|false, "decisionLines": [1, 2], "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
+    'Shape: {"isProposal": true|false, "readiness": "open"|"complete", "needsWingman": true|false, "dynamicWingmanTip": string, "decisionLines": [1, 2], "resolved": [{"tradeOffId": "T1", "evidence": string}], "unresolved": [{"tradeOffId": "T2", "question": string}]}',
   ].join('\n');
 }
 
@@ -446,20 +452,28 @@ export async function assessProposal(options: {
   }
   const isProposal = parsed.isProposal;
   const needsWingman = parsed.needsWingman === true;
+  const dynamicWingmanTip =
+    typeof parsed.dynamicWingmanTip === 'string' && parsed.dynamicWingmanTip.trim().length > 0
+      ? parsed.dynamicWingmanTip.trim()
+      : undefined;
+  const wingmanFields = {
+    ...(needsWingman ? { needsWingman: true } : {}),
+    ...(dynamicWingmanTip !== undefined ? { dynamicWingmanTip } : {}),
+  };
   if (typeof isProposal !== 'boolean') {
     log?.('proposal assessment reply did not say whether this was a proposal; keeping the item open');
     return undefined;
   }
   if (!isProposal) {
     if (!isClearActionImperative(visitorText)) {
-      return { isProposal: false, readiness: 'open', resolved: [], unresolved: [], ...(needsWingman ? { needsWingman: true } : {}) };
+      return { isProposal: false, readiness: 'open', resolved: [], unresolved: [], ...wingmanFields };
     }
     log?.('proposal assessment called a clear action imperative a non-proposal; keeping the item open');
     const resolved = mergeResolved(options.resolvedSoFar, [], tradeOffs, visitorWords);
     const missing = tradeOffs.filter(
       (tradeOff) => !resolved.some((entry) => normalize(entry.tradeOff) === normalize(tradeOff.tradeOff)),
     );
-    return { isProposal: true, readiness: 'open', resolved, unresolved: allUnresolved(missing), ...(needsWingman ? { needsWingman: true } : {}) };
+    return { isProposal: true, readiness: 'open', resolved, unresolved: allUnresolved(missing), ...wingmanFields };
   }
   const readiness = parsed.readiness;
   if (readiness !== 'open' && readiness !== 'complete') {
@@ -486,18 +500,21 @@ export async function assessProposal(options: {
     tradeOffs.length >= 3 &&
     resolved.length >= 2 &&
     unresolved.length <= 1;
-  const endorsedColleagueOptions =
+  const endorsedOrCompromisedAfterDiscussion =
     readiness === 'complete' &&
     unresolved.length === 0 &&
     (options.assistantContext ?? []).length > 0 &&
-    ENDORSEMENT_DECISION_RE.test(activeWords);
-  if (enoughFollowUpConsensus || endorsedColleagueOptions) {
+    (ENDORSEMENT_DECISION_RE.test(activeWords) ||
+      visitorLines.length >= 2 ||
+      /\b(?:table|park|follow[- ]?up|schedule|insist|anyway|accept the loss|take the hit)\b/i.test(activeWords));
+  if (enoughFollowUpConsensus || endorsedOrCompromisedAfterDiscussion) {
     return {
       isProposal: true,
       readiness: 'complete',
       resolved,
       unresolved: [],
       ...(decisionLines !== undefined ? { decisionLines } : {}),
+      ...(dynamicWingmanTip !== undefined ? { dynamicWingmanTip } : {}),
     };
   }
   if (readiness === 'complete' && (missing.length > 0 || unresolved.length > 0)) {
@@ -510,6 +527,7 @@ export async function assessProposal(options: {
         ...missing.map((tradeOff) => ({ tradeOff: tradeOff.tradeOff, question: tradeOff.question })),
       ]),
       ...(decisionLines !== undefined ? { decisionLines } : {}),
+      ...wingmanFields,
     };
   }
   if (readiness === 'complete') {
@@ -519,6 +537,7 @@ export async function assessProposal(options: {
       resolved,
       unresolved: [],
       ...(decisionLines !== undefined ? { decisionLines } : {}),
+      ...(dynamicWingmanTip !== undefined ? { dynamicWingmanTip } : {}),
     };
   }
   return {
@@ -527,6 +546,6 @@ export async function assessProposal(options: {
     resolved,
     unresolved: unresolved.length > 0 ? unresolved : allUnresolved(missing),
     ...(decisionLines !== undefined ? { decisionLines } : {}),
-    ...(needsWingman ? { needsWingman: true } : {}),
+    ...wingmanFields,
   };
 }

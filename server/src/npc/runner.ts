@@ -82,6 +82,8 @@ export interface RunnerOptions {
   onDisconnected?(): void;
   /** Fetch the latest scenario agenda order from the Kaki server when a new visitor session starts. */
   fetchScenario?(): Promise<Scenario | undefined>;
+  /** Emit a live 1-sentence Wingman coaching brief when the visitor's turn updates the discussion state. */
+  onWingmanTip?(tip: string, title: string): void;
 }
 
 export interface NpcRunner {
@@ -266,6 +268,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         },
         advanceAgenda: options.onAdvanceAgenda,
         endMeeting: options.onEndMeeting,
+        onWingmanTip: options.onWingmanTip,
       },
       { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs, bargeInMs: options.bargeInMs },
     );

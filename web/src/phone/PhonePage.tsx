@@ -61,12 +61,48 @@ function needsAction(task: Task): boolean {
     case 'FAILED':
     case 'COMPLETED':
       return true;
+    case 'SYNCED':
+      return task.artifactUrl !== undefined;
     case 'CLAIMED':
       return true;
     case 'RUNNING':
       return true;
     default:
       return false;
+  }
+}
+
+function openLivePlatformLabel(task: Task): string {
+  switch (task.actionKind) {
+    case 'mattermost_post':
+      return 'Open live in Mattermost ↗';
+    case 'gitea_issue':
+      return 'Open live in Gitea ↗';
+    case 'wiki_page':
+      return 'Open live in Wiki ↗';
+    case 'email':
+      return 'Open live in Mailpit ↗';
+    case 'calendar_event':
+      return 'Open live in Calendar ↗';
+    default:
+      return 'Open live artifact ↗';
+  }
+}
+
+function completedPlatformSummary(task: Task): string {
+  switch (task.actionKind) {
+    case 'mattermost_post':
+      return `✓ Published to ${task.draft?.target || 'team channel'} — open Mattermost to view the live post.`;
+    case 'gitea_issue':
+      return '✓ Issue created in Gitea — open Gitea to view the live ticket.';
+    case 'wiki_page':
+      return '✓ Page published to Team Wiki — open Wiki.js to read the live SOP.';
+    case 'email':
+      return `✓ Email sent to ${task.draft?.target || 'recipient'} — open Mailpit to view the live email.`;
+    case 'calendar_event':
+      return '✓ Meeting scheduled on Team Calendar — open Calendar to view the live invite.';
+    default:
+      return '✓ Published live — click below to view.';
   }
 }
 
@@ -416,9 +452,11 @@ export function ActiveRoleCards({
   const lastScrolledKey = useRef<string>('');
 
   const allTasks = [...tasks.values()];
-  const currentTask = allTasks
+  const currentTasks = allTasks
     .filter(needsAction)
-    .sort((left, right) => updatedAtMs(right) - updatedAtMs(left))[0];
+    .sort((left, right) => updatedAtMs(right) - updatedAtMs(left))
+    .slice(0, 2);
+  const currentTask = currentTasks[0];
 
   const actionableTaskKey =
     currentTask !== undefined &&
@@ -436,7 +474,7 @@ export function ActiveRoleCards({
     activeRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }, [scrollTriggerKey]);
 
-  if (currentTask === undefined && rejection === null) {
+  if (currentTasks.length === 0 && rejection === null) {
     return null;
   }
 
@@ -445,17 +483,21 @@ export function ActiveRoleCards({
       {rejection === null ? null : (
         <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />
       )}
-      {currentTask !== undefined && (
+      {currentTasks.length > 0 && (
         <section className="phone-current" aria-label="Needs you now">
-          <p className="eyebrow phone-section-eyebrow">Needs you now</p>
-          <TaskCard
-            key={taskKey(currentTask)}
-            task={currentTask}
-            scenario={scenario}
-            send={send}
-            rejection={rejection}
-            viewer={viewer}
-          />
+          <p className="eyebrow phone-section-eyebrow">
+            Needs you now{currentTasks.length > 1 ? ` (${currentTasks.length})` : ''}
+          </p>
+          {currentTasks.map((item) => (
+            <TaskCard
+              key={taskKey(item)}
+              task={item}
+              scenario={scenario}
+              send={send}
+              rejection={rejection}
+              viewer={viewer}
+            />
+          ))}
         </section>
       )}
     </div>
@@ -527,6 +569,14 @@ function TaskCardBody({
     busy.current = false;
     setPending(false);
   }, [rejection]);
+
+  useEffect(() => {
+    if (task.status !== 'COMPLETED') return;
+    const timer = setTimeout(() => {
+      send({ type: 'SYNC_TASK', taskId: task.id });
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [task.id, task.status, send]);
 
   function submit(command: KakiCommand): void {
     if (busy.current) return;
@@ -685,19 +735,16 @@ function TaskCardBody({
         </div>
       ) : null}
 
-      {task.status === 'COMPLETED' ? (
+      {task.status === 'COMPLETED' || task.status === 'SYNCED' ? (
         <div className="task-actions" aria-busy={pending}>
+          <p className="task-meta" style={{ width: '100%', margin: '0 0 6px', fontWeight: 500 }}>
+            {completedPlatformSummary(task)}
+          </p>
           {task.artifactUrl === undefined ? null : (
             <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl)} target="_blank" rel="noreferrer">
-              Open artifact
+              {openLivePlatformLabel(task)}
             </a>
           )}
-          {task.artifactUrl !== undefined && task.actionKind === 'mattermost_post' ? (
-            <p className="task-meta">Mattermost may ask you to log in the first time.</p>
-          ) : null}
-          <Button disabled={pending} onClick={() => submit({ type: 'SYNC_TASK', taskId: task.id })}>
-            Sync to meeting
-          </Button>
         </div>
       ) : null}
     </Card>

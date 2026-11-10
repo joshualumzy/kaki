@@ -281,14 +281,34 @@ export function MeetingGrid({
   const [showStarterIdeas, setShowStarterIdeas] = useState(false);
   const [turnWaitStartAt, setTurnWaitStartAt] = useState<number | null>(null);
   const [dismissedWingmanGlideKey, setDismissedWingmanGlideKey] = useState<string>('');
+  const [latchedSemanticWingmanIdx, setLatchedSemanticWingmanIdx] = useState<number | null>(null);
+  const [latchedWaitWingmanIdx, setLatchedWaitWingmanIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    setShowStarterIdeas(false);
+    setLatchedSemanticWingmanIdx(null);
+    setLatchedWaitWingmanIdx(null);
+  }, [activeAgendaIndex]);
+
+  useEffect(() => {
+    if ('wingmanHint' in npcState && npcState.wingmanHint === true) {
+      setLatchedSemanticWingmanIdx(activeAgendaIndex);
+    }
+  }, [npcState, activeAgendaIndex]);
+
   useEffect(() => {
     if (!waitingForHuman) {
-      setShowStarterIdeas(false);
       setTurnWaitStartAt(null);
     } else {
       setTurnWaitStartAt((prev) => prev ?? Date.now());
     }
   }, [waitingForHuman]);
+
+  useEffect(() => {
+    if (waitingForHuman && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) {
+      setLatchedWaitWingmanIdx(activeAgendaIndex);
+    }
+  }, [waitingForHuman, turnWaitStartAt, now, activeAgendaIndex]);
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
@@ -349,7 +369,9 @@ export function MeetingGrid({
 
   const wingmanGlideNudge = useMemo(() => {
     if (wingmanFactPreview === undefined) return undefined;
-    const semanticWingmanHint = 'wingmanHint' in npcState && npcState.wingmanHint === true;
+    const semanticWingmanHint =
+      ('wingmanHint' in npcState && npcState.wingmanHint === true) ||
+      latchedSemanticWingmanIdx === activeAgendaIndex;
     let factIdx = 0;
     let hasSemanticFactOrNudgeOnTopic = false;
     for (const event of events) {
@@ -364,7 +386,8 @@ export function MeetingGrid({
       }
     }
     const waitedLongEnough =
-      waitingForHuman && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000;
+      (waitingForHuman && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) ||
+      latchedWaitWingmanIdx === activeAgendaIndex;
     if (!semanticWingmanHint && !hasSemanticFactOrNudgeOnTopic && !waitedLongEnough) return undefined;
     const key = semanticWingmanHint
       ? `glide-semantic:${activeAgendaIndex}`
@@ -379,7 +402,7 @@ export function MeetingGrid({
       fact: wingmanFactPreview,
       chip: starterChips[0],
     };
-  }, [wingmanFactPreview, npcState, events, activeAgendaIndex, hasColleagueBriefed, waitingForHuman, turnWaitStartAt, now, starterChips]);
+  }, [wingmanFactPreview, npcState, latchedSemanticWingmanIdx, latchedWaitWingmanIdx, events, activeAgendaIndex, hasColleagueBriefed, waitingForHuman, turnWaitStartAt, now, starterChips]);
 
   const activeStageToast = useMemo(() => {
     const allTasks = [...screenTasks.values()];
@@ -519,11 +542,13 @@ export function MeetingGrid({
             <CaptionedTile />
           </GridLayout>
         </div>
-        {waitingForHuman && (
+        {(waitingForHuman || showStarterIdeas) && (
           <div className="kd-turn-bar" role="region" aria-label="Your turn and starter questions">
             <div className="kd-turn-row">
               <span className="kd-turn-pill">
-                🟢 Your turn — speak on mic or type below
+                {waitingForHuman
+                  ? '🟢 Your turn — speak on mic or type below'
+                  : '💡 Starter ideas — click any line to say it'}
               </span>
               <button
                 type="button"
@@ -565,6 +590,18 @@ export function MeetingGrid({
                     💬 {chip}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="kd-starter-chip"
+                  onClick={() => {
+                    sendQuickLine(
+                      "We're split on this — let's table it for now and have Kaki schedule a 10 AM follow-up meeting on the calendar.",
+                    );
+                    setShowStarterIdeas(false);
+                  }}
+                >
+                  ⏭️ Table topic &amp; schedule 10 AM follow-up
+                </button>
               </div>
             )}
           </div>

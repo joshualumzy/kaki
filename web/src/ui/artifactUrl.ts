@@ -6,18 +6,22 @@
 export function resolveArtifactUrl(rawUrl: string): string {
   if (typeof window === 'undefined') return rawUrl;
   const currentHost = window.location.hostname;
-  if (!currentHost || currentHost === 'localhost' || currentHost === '127.0.0.1') {
-    return rawUrl;
-  }
   try {
     const parsed = new URL(rawUrl);
-    if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
-      return rawUrl;
+    if (
+      currentHost &&
+      currentHost !== 'localhost' &&
+      currentHost !== '127.0.0.1' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+    ) {
+      if (parsed.port === '3001' || parsed.pathname.startsWith('/api/')) {
+        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+      parsed.hostname = currentHost;
     }
-    if (parsed.port === '3001' || parsed.pathname.startsWith('/api/')) {
-      return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (parsed.port === '8083' || parsed.pathname.includes('/nanyang-kopitiam/')) {
+      return `${window.location.origin}/api/mattermost/open?url=${encodeURIComponent(parsed.toString())}`;
     }
-    parsed.hostname = currentHost;
     return parsed.toString();
   } catch {
     return rawUrl;

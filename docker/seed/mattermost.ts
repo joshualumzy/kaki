@@ -375,6 +375,13 @@ export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<st
     throw new Error(`Mattermost user "${adminSeed.username}" is not a system admin; reset the stack volumes and seed again`);
   }
 
+  await mmRequest(
+    env,
+    '/config/patch',
+    adminSession.token,
+    jsonBody('PUT', { TeamSettings: { TeammateNameDisplay: 'full_name', LockTeammateNameDisplay: true } }),
+  ).catch(() => undefined);
+
   const sessions = new Map<string, Session>([[adminSeed.username, adminSession]]);
   const users = new Map<string, MmUser>([[adminSeed.username, adminSession.user]]);
 

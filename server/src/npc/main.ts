@@ -147,6 +147,21 @@ const runner = await startNpcRunner({
   onEndMeeting: () => {
     if (!runner.hostIsHuman()) sendAs('screen', { type: 'END_MEETING' });
   },
+  onWingmanTip: (tip, title) => {
+    const today = new Date().toISOString().slice(0, 10);
+    fetch(`${kakiUrl}/dev/emit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'FACT_FOUND',
+        audience: { kind: 'all' },
+        payload: {
+          question: `Live Wingman Brief · ${title}`,
+          facts: [{ text: tip, source: 'Live Wingman', date: today }],
+        },
+      }),
+    }).catch(() => undefined);
+  },
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);
@@ -291,14 +306,18 @@ function followHostCues(): void {
               syncedTaskIds.add(updatedTask.id);
               const who = runner.visitorName() ?? assigneeAttendee ?? 'team';
               const acks = [
-                `Thanks ${who}, got that logged.`,
-                `Steady ${who}, got that sorted out.`,
-                `Awesome ${who}, that's logged in the record.`,
+                `Thanks ${who}, that's live now — feel free to click Open live on your card to check it out before we move on.`,
+                `Steady ${who}, Kaki just published that — you can click Open live on your card if you want to see it in action.`,
+                `Awesome ${who}, that's published live — click Open live on your card anytime to see it on the platform.`,
               ];
               const ack = acks[syncedTaskIds.size % acks.length]!;
               runner.announce(
                 ack,
-                () => runner.completeHumanTask(taskOrigin),
+                () => {
+                  if (activeHumanTaskIds.size === 0) {
+                    runner.completeHumanTask(taskOrigin);
+                  }
+                },
               );
             }
           }
