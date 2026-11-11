@@ -219,6 +219,7 @@ const claimedAnnouncedTaskIds = new Set<string>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
 let lastVisitorDispatchSpokenAt = 0;
+let lastVerbalTaskAckAt = 0;
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
   const socket = new WebSocket(url);
@@ -229,7 +230,7 @@ function followHostCues(): void {
   socket.on('message', (data) => {
     if (Date.now() - openedAt.at < 1000) return;
     try {
-      const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
+      const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
       if (event.type === 'MEETING_RESET') {
         taskStatusByTitle.clear();
         activeHumanTaskIds.clear();
@@ -237,7 +238,13 @@ function followHostCues(): void {
         syncedTaskIds.clear();
         declinedTaskIds.clear();
         lastVisitorDispatchSpokenAt = 0;
+        lastVerbalTaskAckAt = 0;
         return;
+      }
+      if (event.type === 'TRANSCRIPT_CHUNK' && typeof event.payload?.text === 'string') {
+        if (/\bKaki (?:will draft|is drafting) that (?:on your screen|for you)\b/i.test(event.payload.text)) {
+          lastVerbalTaskAckAt = Date.now();
+        }
       }
       if (event.type === 'TASK_UPDATED') {
         const updatedTask = (
@@ -312,7 +319,7 @@ function followHostCues(): void {
             runner.holdForHumanTask(45_000, taskOrigin);
             if (updatedTask.status === 'CLAIMED' && !claimedAnnouncedTaskIds.has(updatedTask.id)) {
               claimedAnnouncedTaskIds.add(updatedTask.id);
-              if (claimedAnnouncedTaskIds.size === 1) {
+              if (claimedAnnouncedTaskIds.size === 1 && Date.now() - lastVerbalTaskAckAt > 12_000) {
                 const who = runner.visitorName() ?? assigneeAttendee ?? 'there';
                 runner.announce(
                   `Nice one ${who} — Kaki is drafting that for you now, just review and send it whenever it's ready.`,

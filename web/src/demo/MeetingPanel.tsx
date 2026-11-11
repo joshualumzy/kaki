@@ -713,7 +713,10 @@ const GENERIC_WORDS = new Set([
 /** Pick the most relevant facts from the visitor's own role card that match this agenda item's specific topic words. */
 function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwner: boolean): string[] {
   if (facts.length === 0) return [];
-  const text = `${item.title} ${item.decision ?? ''}`.toLowerCase();
+  const tradeOffWords = (item.discussion?.tradeOffs ?? [])
+    .map((t) => `${t.tradeOff} ${t.question}`)
+    .join(' ');
+  const text = `${item.title} ${item.decision ?? ''} ${tradeOffWords}`.toLowerCase();
   const keywords = (text.match(/[a-z0-9]+/g) ?? []).filter(
     (word) => (word.length >= 3 || /^\d+$/.test(word)) && !GENERIC_WORDS.has(word),
   );
@@ -730,7 +733,7 @@ function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwne
       return scored.slice(0, 2).map((entry) => entry.fact);
     }
   }
-  return isOwner ? facts.slice(0, 1) : [];
+  return isOwner ? facts.slice(0, 1) : facts.slice(0, 1);
 }
 
 /** Drop company-record bullets that repeat each other or the visitor's own role-card fact shown above in "Your call to make". */

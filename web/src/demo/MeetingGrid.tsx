@@ -276,6 +276,25 @@ export function MeetingGrid({
     }
     return sawCurrentItemBrief;
   }, [events, facilitatorName, activeAgendaIndex]);
+  const hasVisitorSpokenOnTopic = useMemo(() => {
+    const npcNameSet = new Set((scenario.npcs ?? []).map((n) => n.attendee.toLowerCase()));
+    let currentIdx = 0;
+    let spoken = false;
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        if (event.payload.agendaIndex !== currentIdx) {
+          currentIdx = event.payload.agendaIndex;
+          spoken = false;
+        }
+      } else if (event.type === 'TRANSCRIPT_CHUNK' && currentIdx === activeAgendaIndex) {
+        const cleanSpeaker = event.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+        if (cleanSpeaker.length > 0 && !npcNameSet.has(cleanSpeaker)) {
+          spoken = true;
+        }
+      }
+    }
+    return spoken;
+  }, [events, scenario.npcs, activeAgendaIndex]);
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
   const idleAfterBriefing = npcState.kind === 'idle' && hasColleagueBriefed;
@@ -618,18 +637,20 @@ export function MeetingGrid({
                     💬 {chip}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className="kd-starter-chip"
-                  onClick={() => {
-                    sendQuickLine(
-                      "We're split on this — let's table it for now and have Kaki schedule a 10 AM follow-up meeting on the calendar.",
-                    );
-                    setShowStarterIdeas(false);
-                  }}
-                >
-                  ⏭️ Table topic &amp; schedule 10 AM follow-up
-                </button>
+                {hasVisitorSpokenOnTopic && (
+                  <button
+                    type="button"
+                    className="kd-starter-chip"
+                    onClick={() => {
+                      sendQuickLine(
+                        "We're split on this — let's table it for now and have Kaki schedule a 10 AM follow-up meeting on the calendar.",
+                      );
+                      setShowStarterIdeas(false);
+                    }}
+                  >
+                    ⏭️ Table topic &amp; schedule 10 AM follow-up
+                  </button>
+                )}
               </div>
             )}
           </div>
