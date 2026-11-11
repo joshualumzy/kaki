@@ -887,60 +887,69 @@ export class NpcConversation<Clip> {
     return named.length > 0 ? named : [text];
   }
 
-  /** Pick 1–2 distinct integration deliverables for the current item that prioritize platforms not yet showcased in this session. */
+  /** Pick 1–2 distinct integration deliverables for the current item that prioritize platforms not yet showcased in this session, tailored dynamically to what the visitor actually decided. */
   private recommendedDeliverablesForItem(title: string, spokenDecision: string): string {
     const lowerTitle = title.toLowerCase();
     const lowerDecision = spokenDecision.toLowerCase();
+    const who = this.human?.name ?? 'them';
     type Option = { kind: string; phrase: string };
+
+    if (/\b(?:table|park|postpone|defer|follow[- ]?up\s+(?:session|meeting)|10\s*am\s+follow[- ]?up)\b/i.test(lowerDecision)) {
+      this.usedActionKinds.add('calendar_event');
+      return `Specifically, ask ${who} directly using "Could you..." (never say "are you happy to" or "do you want to") to schedule the 10 AM follow-up session on the calendar so Kaki can draft the calendar invite on their screen right now.`;
+    }
+
     const options: Option[] = [];
-
-    if (lowerTitle.includes('sfa') || lowerTitle.includes('hygiene') || lowerTitle.includes('chiller') || lowerTitle.includes('inspection')) {
-      options.push(
-        { kind: 'email', phrase: 'send an email to the hospitalized customer or SFA officer with our goodwill and disposal plan' },
-        { kind: 'wiki_page', phrase: 'write up the 6 AM chiller check & disposal rule on the team wiki' },
-        { kind: 'calendar_event', phrase: 'schedule a 10 AM legal and hygiene follow-up on the calendar' },
-        { kind: 'mattermost_post', phrase: 'post the morning inspection plan in the team channel' },
-      );
-    } else if (lowerTitle.includes('seat') || lowerTitle.includes('laptop') || lowerTitle.includes('crunch')) {
-      options.push(
-        { kind: 'wiki_page', phrase: 'write up the 8 to 10 AM window-bar and booth policy on the team wiki' },
-        { kind: 'mattermost_post', phrase: 'post the morning seating plan in the team channel for Auntie Mary and the floor crew' },
-        { kind: 'calendar_event', phrase: 'schedule a 10:30 AM floor review on the calendar' },
-      );
-    } else if (lowerTitle.includes('delivery') || lowerTitle.includes('commission') || lowerTitle.includes('grab')) {
-      options.push(
-        { kind: 'email', phrase: 'send an email to our GrabFood account manager or office catering partners about the $50 Office Platter and 10%-off pickup promo' },
-        { kind: 'gitea_issue', phrase: 'file a ticket in the issue tracker to add the $50 Office Platter bundle and pause single sets on delivery apps' },
-        { kind: 'mattermost_post', phrase: 'post the delivery and platter update in the team channel' },
-      );
-    } else if (lowerTitle.includes('kiosk') || lowerTitle.includes('kopi') || lowerTitle.includes('queue')) {
-      options.push(
-        { kind: 'gitea_issue', phrase: 'file a ticket in the issue tracker to enable Kiosk Subtitle Mode with Traditional Kopi kitchen dockets' },
-        { kind: 'email', phrase: 'send an email to the mall landlord confirming our queue fix so they waive the $2,000 fine' },
-        { kind: 'wiki_page', phrase: 'update the kiosk and docket guide on the team wiki' },
-      );
+    if (
+      /\b(?:customer|hospital|sfa|officer|inspector|grab|foodpanda|delivery|partner|vendor|supplier|landlord|media|press|voucher|apology|hamper|refund)\b/i.test(
+        `${lowerDecision} ${lowerTitle}`,
+      )
+    ) {
+      const recipientHint =
+        lowerTitle.includes('sfa') || lowerTitle.includes('hygiene') || lowerTitle.includes('inspection')
+          ? 'the hospitalized customer or SFA officer'
+          : lowerTitle.includes('delivery') || lowerTitle.includes('grab')
+            ? 'our GrabFood account manager or office partners'
+            : lowerTitle.includes('kiosk') || lowerTitle.includes('queue')
+              ? 'the mall landlord'
+              : 'the external partner';
+      options.push({
+        kind: 'email',
+        phrase: `send an email to ${recipientHint} with the plan we just agreed on`,
+      });
     }
-
-    if (/\b(?:table|park|postpone|defer|follow-up meeting|10 am)\b/i.test(lowerDecision)) {
-      options.unshift({ kind: 'calendar_event', phrase: 'schedule a 10 AM follow-up session on the calendar' });
+    if (
+      /\b(?:kiosk|screen|subtitle|button|app|pos|docket|printer|menu|bundle|promo|code|system|ticket|setup|signage)\b/i.test(
+        `${lowerDecision} ${lowerTitle}`,
+      )
+    ) {
+      options.push({
+        kind: 'gitea_issue',
+        phrase: 'file a ticket in the issue tracker to implement the system and menu changes we just agreed on',
+      });
     }
-    if (options.length === 0) {
-      options.push(
-        { kind: 'mattermost_post', phrase: 'post the final decision in the team channel' },
-        { kind: 'wiki_page', phrase: 'record the decision on the team wiki' },
-        { kind: 'email', phrase: 'send a confirmation email to the external partner' },
-        { kind: 'gitea_issue', phrase: 'file a ticket in the issue tracker' },
-        { kind: 'calendar_event', phrase: 'schedule a follow-up check-in on the calendar' },
-      );
-    }
+    options.push(
+      {
+        kind: 'wiki_page',
+        phrase: 'write up our agreed morning SOP and decision on the team wiki',
+      },
+      {
+        kind: 'mattermost_post',
+        phrase: 'post our agreed morning plan in the team channel so the floor crew is aligned',
+      },
+      {
+        kind: 'calendar_event',
+        phrase: 'schedule a quick 10 AM follow-up check-in on the calendar',
+      },
+    );
 
     const fresh = options.filter((opt) => !this.usedActionKinds.has(opt.kind));
     const chosen = (fresh.length >= 2 ? fresh.slice(0, 2) : [...fresh, ...options].slice(0, 2));
     for (const c of chosen) this.usedActionKinds.add(c.kind);
     if (chosen.length >= 2 && chosen[0]!.kind !== chosen[1]!.kind) {
-      return `Specifically, ask ${this.human?.name ?? 'them'} if they are happy to take on these two follow-ups so Kaki can draft both on their screen right now: (1) ${chosen[0]!.phrase}, and (2) ${chosen[1]!.phrase}.`;
+      return `Specifically, ask ${who} directly using "Could you..." (never say "are you happy to" or "do you want to") to take on these two follow-ups based strictly on what ${who} just decided so Kaki can draft both on their screen right now: (1) ${chosen[0]!.phrase}, and (2) ${chosen[1]!.phrase}.`;
     }
-    return `Specifically, ask ${this.human?.name ?? 'them'} if they are happy to ${chosen[0]!.phrase} so Kaki can draft it for them.`;
+    return `Specifically, ask ${who} directly using "Could you..." (never say "are you happy to" or "do you want to") to ${chosen[0]!.phrase} based strictly on what ${who} just decided so Kaki can draft it for them.`;
   }
 
   /** What the colleagues should do with the visitor's proposal on this item, from the readiness check. */
@@ -969,10 +978,10 @@ export class NpcConversation<Clip> {
         .map((m) => m.content)
         .join('\n');
       const alreadyAskedForDeliverable =
-        /\b(?:can|could|would|will|do you want) (?:you|us) (?:to )?(?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|draft|arrange|book)\b/i.test(
+        /\b(?:(?:can|could|would|will|do you want)\s+(?:you|us)\s+(?:to\s+)?|(?:are\s+you|would\s+you\s+be)\s+happy\s+to\s+)(?:[\w'-]+,?\s+){0,5}(?:take\s+on|handle|cover|post|send|email|file|write|schedule|draft|arrange|book|update|record|create)\b|\bso\s+kaki\s+can\s+draft\b/i.test(
           recentAssistant,
         ) &&
-        /^(?:(?:that's|that is|sounds|looks)\s+(?:good|fine|great|okay|ok)|(?:yes|yeah|yep|sure|ok|okay|let's do that|do that|go ahead|works for me)\b)[^?]*$/i.test(
+        /^(?:(?:that's|that is|sounds|looks)\s+(?:good|fine|great|okay|ok)|(?:yes|yeah|yep|sure|ok|okay|can|steady|happy to|let's do (?:that|it)|do that|go ahead|go for it|works for me)\b)[^?]*$/i.test(
           text.trim(),
         );
       if (alreadyAskedForDeliverable) {
@@ -1414,15 +1423,23 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
     if (!wrappedUp) return false;
     // Allow a wrap-up turn to advance even if the last sentence is a follow-up task request ("Guest, could you post that in the team channel today?"),
     // as long as it is not asking which option to choose.
-    const isTaskRequest = /\b(?:can|could|would|will) you (?:[a-z]+\s+){0,2}(?:post|send|email|file|write|schedule|draft|arrange|book)\b/i.test(lastText);
-    if (lastText.endsWith('?') && !isTaskRequest) return false;
+    const isTaskRequest = turn.spoken.some(({ utterance }) =>
+      /\b(?:can|could|would|will) you (?:[\w'-]+,?\s+){0,5}(?:post|send|email|file|write|schedule|draft|arrange|book|update|record|create|take on)\b/i.test(
+        utterance.text,
+      ),
+    );
+    const lastIsTaskRequest =
+      /\b(?:can|could|would|will) you (?:[\w'-]+,?\s+){0,5}(?:post|send|email|file|write|schedule|draft|arrange|book|update|record|create|take on)\b/i.test(
+        lastText,
+      );
+    if (lastText.endsWith('?') && !lastIsTaskRequest) return false;
     this.decisionWrappedUpOnItem = true;
     this.askDue = false;
     if (this.human !== undefined) this.asked.add(this.human.name);
     this.clearSilenceTimer();
     this.clearAdvanceTimer();
     const baseAdvanceMs = this.options.observeAdvanceMs ?? DEFAULT_OBSERVE_ADVANCE_MS;
-    const advanceDelayMs = isTaskRequest ? Math.max(baseAdvanceMs * 2, 16_000) : baseAdvanceMs;
+    const advanceDelayMs = isTaskRequest ? Math.max(baseAdvanceMs * 2, 18_000) : baseAdvanceMs;
     this.advanceTimer = setTimeout(() => {
       this.advanceTimer = undefined;
       if (this.closed || this.currentItem()?.title !== title || this.advanced.has(title)) return;
@@ -1526,8 +1543,13 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
         const spokenTitle = cleanSpokenTopic(title);
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: host, from: host };
+          const checkInContext = this.humanSettledOnCurrentItem
+            ? `asking warmly if they are good with that follow-up plan or ready to move on to the next item`
+            : this.proposalLines.length >= 1
+              ? `checking in warmly on the open question the team just raised and asking how they'd like to play it`
+              : `letting them know there is no rush and asking if they want a quick recap of the two options on the table`;
           this.pending.push(
-            `[${this.human.name} is taking a moment to think on "${spokenTitle}". Begin your reply with "${host}:". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence letting them know there is no rush and asking if they want a quick recap of the two options on the table — never prescribe an answer, never refer to "the right panel" or UI elements, and do not mention this note.]`,
+            `[${this.human.name} is taking a moment to think on "${spokenTitle}". Begin your reply with "${host}:". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence ${checkInContext} — never prescribe an answer, never refer to "the right panel" or UI elements, and do not mention this note.]`,
           );
           this.startTurn();
         } else {
@@ -1592,7 +1614,7 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
       .map((m) => m.content)
       .join('\n');
     const lastWasTaskRequest =
-      /\b(?:can|could|would|will) you (?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|draft|arrange|book)\b/i.test(
+      /\b(?:(?:can|could|would|will)\s+you|(?:are\s+you|would\s+you\s+be)\s+happy\s+to|(?:do\s+you\s+)?(?:want|like)\s+to|would\s+you\s+like\s+to)\s+(?:[\w'-]+,?\s+){0,5}(?:take\s+on|handle|cover|post|send|email|file|write|schedule|draft|arrange|book|update|record|create)\b|\bso\s+kaki\s+can\s+draft\b/i.test(
         `${lastAssistant}\n${recentAssistant}`,
       );
     if (retry) {
@@ -1601,26 +1623,33 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
           ? 'retrying the same request after the model said nothing'
           : 'answering again: the last answer was cancelled before anything was said',
       );
-    } else this.history.push({ role: 'user', content: text });
+    } else {
+      this.history.push({ role: 'user', content: text });
+    }
     if (
       !retry &&
       forced === undefined &&
       this.humanSettledOnCurrentItem &&
       lastWasTaskRequest &&
-      /^(?:(?:ok(?:ay)?|sure|sounds good|got it|will do|i(?:'ll| will)(?: do that| post(?: that| it)?| send(?: that| it)?| handle(?: that| it)?| take care of (?:that|it))?|no problem|yep|yeah|on it)(?:\s+in\s+the\s+team\s+channel|\s+today|\s+right\s+now)?[,.\s!]*)+$/i.test(
+      /^(?:(?:ok(?:ay)?|sure(?:\s+thing)?|yes(?:\s+please)?|yep|yeah|can|steady|happy\s+to(?:\s+do\s+(?:that|it))?|sounds\s+good|got\s+it|will\s+do|go\s+(?:ahead|for\s+it)|let'?s\s+do\s+(?:that|it)|let\s+kaki\s+(?:draft|do)\s+(?:it|that)|i(?:'ll| will)(?: do that| post(?: that| it)?| send(?: that| it)?| handle(?: that| it)?| take(?:\s+care\s+of|\s+on) (?:that|it))?|no\s+problem|on\s+it)(?:\s+in\s+the\s+team\s+channel|\s+today|\s+right\s+now)?[,.\s!]*)+$/i.test(
         text,
       )
     ) {
       const host = this.facilitatorOrCoHost() ?? 'Sam';
+      const speakerMatch = /^([A-Za-z][A-Za-z\s]{0,20}):/.exec(lastAssistant.trim());
+      const ackSpeaker =
+        speakerMatch?.[1] !== undefined && this.names.includes(speakerMatch[1].trim())
+          ? speakerMatch[1].trim()
+          : host;
       const acks = [
-        'Thanks, appreciate it!',
+        'Thanks, appreciate you taking that on!',
         'Steady, thanks for sorting that out.',
-        'Awesome, thanks boss.',
-        'Sounds good, appreciate you taking that.',
+        'Sounds good, appreciate you handling that.',
+        'Lovely, thanks for covering that follow-up.',
       ];
       const ackText = acks[this.humanLines % acks.length]!;
-      this.ports.log?.(`short-circuiting task acceptance ack with scripted "${host}: ${ackText}"`);
-      this.startScripted({ speaker: host, text: ackText }, () => {
+      this.ports.log?.(`short-circuiting task acceptance ack with scripted "${ackSpeaker}: ${ackText}"`);
+      this.startScripted({ speaker: ackSpeaker, text: ackText }, () => {
         this.taskAccepted();
       });
       return;
@@ -1808,7 +1837,7 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
   private scheduleDeferredFollowUp(turn: Turn): void {
     if (this.closed || this.concluded || this.paused) return;
     const DEFERRED_PROMISE_RE =
-      /\b(?:get back to you|come back to you|check (?:kaki|the numbers|the figures|our records)|pull (?:up )?the (?:numbers|figures)|give me)\b[^.?!]*\b(?:in\s+(?:a|one|two|1|2)\s+minutes?|(?:a|one|two|1|2)\s+minutes?)\b|\b(?:in\s+(?:a|one|two|1|2)\s+minutes?)\b[^.?!]*\b(?:get back|come back|share|update|have the (?:numbers|figures))\b/i;
+      /\b(?:get (?:right )?back to you|come back to you|check (?:kaki|the numbers|the figures|our records)|pull (?:up )?the (?:numbers|figures)|give me)\b[^.?!]*\b(?:in\s+(?:a|one|two|1|2)\s+(?:minutes?|moments?|seconds?)|(?:a|one|two|1|2)\s+(?:minutes?|moments?)|30\s+seconds?|shortly|right\s+back)\b|\b(?:in\s+(?:a|one|two|1|2)\s+(?:minutes?|moments?)|30\s+seconds?)\b[^.?!]*\b(?:get back|come back|share|update|have the (?:numbers|figures))\b/i;
     const promised = [...turn.spoken]
       .reverse()
       .find(({ utterance }) => DEFERRED_PROMISE_RE.test(utterance.text));
@@ -2008,7 +2037,13 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
             ...last,
             content: `${last.content}\n${this.sideRequestNote()}`,
           };
-        } else if (isSubstantiveProposal(freshHumanLine)) {
+        } else if (
+          isSubstantiveProposal(freshHumanLine) ||
+          ((this.proposalLines.length >= 1 || this.silencePromptStage >= 2) &&
+            /^(?:yes|yeah|yep|sure|ok|okay|alright|all right|fine|agreed|go ahead|please do|do it|let'?s do (?:it|that)|sounds good)\b/i.test(
+              freshHumanLine.trim(),
+            ))
+        ) {
           const assessment = await this.assessVisitorLine(freshHumanLine, signal);
           if (signal.aborted) throw new Error('the turn was interrupted during the readiness check');
           messages[messages.length - 1] = {
@@ -2036,6 +2071,9 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
         for (const utterance of parser.flush()) enqueue(utterance);
         if (safetyRefusalDetected) {
           if (this.history.at(-1)?.role === 'user') this.history.pop();
+          if (freshHumanLine !== undefined) {
+            this.proposalLines = this.proposalLines.filter((line) => line !== freshHumanLine);
+          }
           if (turn.enqueued.length === 0) {
             const host = this.facilitatorOrCoHost() ?? this.names[0]!;
             const who = this.human?.name ?? 'friend';

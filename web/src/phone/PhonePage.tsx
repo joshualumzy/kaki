@@ -463,13 +463,36 @@ export function ActiveRoleCards({
   viewer?: { name: string; seatName?: string };
 }) {
   const scenario = useScenario();
-  const { tasks, rejection, send } = useKaki(role);
+  const { events, tasks, rejection, send } = useKaki(role);
   const activeRef = useRef<HTMLDivElement>(null);
   const lastScrolledKey = useRef<string>('');
 
+  let currentAgendaTitle: string | undefined;
+  let meetingEnded = false;
+  for (const event of events) {
+    if (event.type === 'MEETING_RECORD_UPDATED') {
+      currentAgendaTitle = scenario.agenda[event.payload.agendaIndex]?.title;
+    } else if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') {
+      meetingEnded = true;
+    }
+  }
+
   const allTasks = [...tasks.values()];
   const currentTasks = allTasks
-    .filter(needsAction)
+    .filter((task) => {
+      if (!needsAction(task)) return false;
+      if (task.status === 'SYNCED') {
+        if (meetingEnded) return false;
+        if (
+          currentAgendaTitle !== undefined &&
+          task.agendaItemTitle !== undefined &&
+          task.agendaItemTitle !== currentAgendaTitle
+        ) {
+          return false;
+        }
+      }
+      return true;
+    })
     .sort((left, right) => {
       const rankDiff = actionStepRank(left) - actionStepRank(right);
       if (rankDiff !== 0) return rankDiff;
@@ -638,10 +661,13 @@ function TaskCardBody({
         <StatusPill status={task.status} />
         <span>{assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}</span>
       </p>
-      {task.context.trim() === '' ? null : (
+      {task.context.trim() === '' ||
+      (viewer !== undefined &&
+        (task.status === 'DRAFT_READY' || task.status === 'COMPLETED' || task.status === 'SYNCED')) ? null : (
         <p className="phone-task-context">{task.context}</p>
       )}
-      {task.decisionSource === undefined ? null : (
+      {task.decisionSource === undefined ||
+      (viewer !== undefined && (task.status === 'COMPLETED' || task.status === 'SYNCED')) ? null : (
         <div className="phone-task-decision">
           <p className="phone-task-decision-label">Accepted decision</p>
           <p className="phone-task-decision-text">{task.decisionSource}</p>
@@ -709,7 +735,7 @@ function TaskCardBody({
             <span>Draft body</span>
             <textarea
               className="draft-body"
-              rows={6}
+              rows={viewer !== undefined ? 4 : 6}
               value={body}
               onChange={(event) => setBody(event.target.value)}
             />

@@ -26,7 +26,7 @@ export function Dock({
   started?: boolean;
 }) {
   const scenario = useScenario();
-  const [briefingOpen, setBriefingOpen] = useState(false);
+  const [briefingOpen, setBriefingOpen] = useState(!started);
 
   useEffect(() => {
     if (started) setBriefingOpen(false);
@@ -66,7 +66,7 @@ export function Dock({
         </details>
         <ErrorBoundary>{role !== undefined && <ActiveRoleCards role={role.id} viewer={viewer} />}</ErrorBoundary>
         <ErrorBoundary>
-          <MeetingPanel viewer={viewer} role={role} isHost={role?.facilitator === true} />
+          <MeetingPanel viewer={viewer} role={role} isHost={role?.facilitator === true} started={started} />
         </ErrorBoundary>
       </div>
     </aside>

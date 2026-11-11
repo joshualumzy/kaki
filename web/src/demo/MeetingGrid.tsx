@@ -278,6 +278,7 @@ export function MeetingGrid({
   }, [events, facilitatorName, activeAgendaIndex]);
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
+  const idleAfterBriefing = npcState.kind === 'idle' && hasColleagueBriefed;
   const [showStarterIdeas, setShowStarterIdeas] = useState(false);
   const [turnWaitStartAt, setTurnWaitStartAt] = useState<number | null>(null);
   const [dismissedWingmanGlideKey, setDismissedWingmanGlideKey] = useState<string>('');
@@ -297,18 +298,18 @@ export function MeetingGrid({
   }, [npcState, activeAgendaIndex]);
 
   useEffect(() => {
-    if (!waitingForHuman) {
+    if (!idleAfterBriefing) {
       setTurnWaitStartAt(null);
     } else {
       setTurnWaitStartAt((prev) => prev ?? Date.now());
     }
-  }, [waitingForHuman]);
+  }, [idleAfterBriefing]);
 
   useEffect(() => {
-    if (waitingForHuman && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) {
+    if (idleAfterBriefing && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) {
       setLatchedWaitWingmanIdx(activeAgendaIndex);
     }
-  }, [waitingForHuman, turnWaitStartAt, now, activeAgendaIndex]);
+  }, [idleAfterBriefing, turnWaitStartAt, now, activeAgendaIndex]);
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
@@ -318,23 +319,32 @@ export function MeetingGrid({
 
   const wingmanFactPreview = useMemo(() => {
     let factIdx = 0;
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      const event = events[i]!;
-      if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
+    let latestFactText: string | undefined;
+    for (const event of events) {
+      if (event.type === 'MEETING_RECORD_UPDATED') {
+        factIdx = event.payload.agendaIndex;
+      } else if (
+        event.type === 'FACT_FOUND' &&
+        event.payload.facts.length > 0 &&
+        factIdx === activeAgendaIndex
+      ) {
         const text = event.payload.facts[0]?.text;
-        if (text !== undefined) return text;
+        if (text !== undefined) latestFactText = text;
       }
     }
+    if (latestFactText !== undefined) return latestFactText;
     const myRoleFacts = scenario.roles.find((r) => r.id === role)?.card?.facts ?? [];
     if (myRoleFacts.length === 0 || activeItem === undefined) return undefined;
-    const topicText = `${activeItem.title} ${activeItem.decision ?? ''}`.toLowerCase();
+    const tradeOffText = (activeItem.discussion?.tradeOffs ?? [])
+      .map((t) => `${t.tradeOff} ${t.question}`)
+      .join(' ');
+    const topicText = `${activeItem.title} ${activeItem.decision ?? ''} ${tradeOffText}`.toLowerCase();
     const keywords = (topicText.match(/[a-z0-9]{4,}/g) ?? []).filter(
       (w) => !['morning', 'tomorrow', 'without', 'before'].includes(w),
     );
     const matched = myRoleFacts.find((fact) => keywords.some((w) => fact.toLowerCase().includes(w)));
-    void factIdx;
-    return matched ?? myRoleFacts[0];
-  }, [events, scenario.roles, role, activeItem]);
+    return matched ?? myRoleFacts[activeAgendaIndex % myRoleFacts.length];
+  }, [events, scenario.roles, role, activeItem, activeAgendaIndex]);
 
   const starterChips = useMemo(() => {
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
@@ -345,6 +355,7 @@ export function MeetingGrid({
 
   const sendQuickLine = useCallback(
     (text: string) => {
+      window.dispatchEvent(new Event('kaki:quick-line'));
       const msg: ControlMessage = { kind: 'text', text };
       room.localParticipant
         .publishData(new TextEncoder().encode(JSON.stringify(msg)), { reliable: true, topic: CONTROL_TOPIC })
@@ -386,7 +397,7 @@ export function MeetingGrid({
       }
     }
     const waitedLongEnough =
-      (waitingForHuman && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) ||
+      (idleAfterBriefing && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) ||
       latchedWaitWingmanIdx === activeAgendaIndex;
     if (!semanticWingmanHint && !hasSemanticFactOrNudgeOnTopic && !waitedLongEnough) return undefined;
     const key = semanticWingmanHint
@@ -394,15 +405,19 @@ export function MeetingGrid({
       : hasSemanticFactOrNudgeOnTopic
         ? `glide-fact:${activeAgendaIndex}`
         : `glide-wait:${activeAgendaIndex}`;
+    const proposalChip = /^Consider proposing:\s*/i.test(wingmanFactPreview)
+      ? wingmanFactPreview.replace(/^Consider proposing:\s*/i, '').trim()
+      : undefined;
     return {
       key,
       reason: semanticWingmanHint || hasSemanticFactOrNudgeOnTopic
         ? '✨ Kaki Wingman · Store fact for this question'
         : '✨ Kaki Wingman · Quick tip for your turn',
       fact: wingmanFactPreview,
-      chip: starterChips[0],
+      chip: proposalChip ?? starterChips[0],
+      isDirectProposal: proposalChip !== undefined,
     };
-  }, [wingmanFactPreview, npcState, latchedSemanticWingmanIdx, latchedWaitWingmanIdx, events, activeAgendaIndex, hasColleagueBriefed, waitingForHuman, turnWaitStartAt, now, starterChips]);
+  }, [wingmanFactPreview, npcState, latchedSemanticWingmanIdx, latchedWaitWingmanIdx, events, activeAgendaIndex, hasColleagueBriefed, idleAfterBriefing, turnWaitStartAt, now, starterChips]);
 
   const activeStageToast = useMemo(() => {
     const allTasks = [...screenTasks.values()];
@@ -474,12 +489,19 @@ export function MeetingGrid({
             role="status"
             aria-live="polite"
           >
-            <div className="kd-wingman-glide-main" onClick={() => onOpenKaki?.()} style={{ cursor: onOpenKaki ? 'pointer' : undefined }}>
+            <div
+              className="kd-wingman-glide-main"
+              onClick={() => {
+                onOpenKaki?.();
+                document.querySelector('.kd-topic-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               <span className="kd-wingman-glide-badge">{wingmanGlideNudge.reason}</span>
               <p className="kd-wingman-glide-fact">{wingmanGlideNudge.fact}</p>
             </div>
             <div className="kd-wingman-glide-actions">
-              {wingmanGlideNudge.chip !== undefined && (
+              {wingmanGlideNudge.isDirectProposal && wingmanGlideNudge.chip !== undefined ? (
                 <button
                   type="button"
                   className="kd-wingman-glide-btn kd-wingman-glide-btn-say"
@@ -488,7 +510,18 @@ export function MeetingGrid({
                     setDismissedWingmanGlideKey(wingmanGlideNudge.key);
                   }}
                 >
-                  💬 Say this
+                  💬 Say this proposal
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="kd-wingman-glide-btn kd-wingman-glide-btn-say"
+                  onClick={() => {
+                    setShowStarterIdeas(true);
+                    setDismissedWingmanGlideKey(wingmanGlideNudge.key);
+                  }}
+                >
+                  💡 See what to say
                 </button>
               )}
               <button
@@ -496,6 +529,7 @@ export function MeetingGrid({
                 className="kd-wingman-glide-btn"
                 onClick={() => {
                   onOpenKaki?.();
+                  document.querySelector('.kd-topic-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                   setDismissedWingmanGlideKey(wingmanGlideNudge.key);
                 }}
               >
@@ -519,8 +553,16 @@ export function MeetingGrid({
             className="kd-stage-toast"
             role="status"
             aria-live="polite"
-            onClick={() => onOpenKaki?.()}
-            style={{ cursor: onOpenKaki ? 'pointer' : undefined }}
+            onClick={() => {
+              onOpenKaki?.();
+              const targetSelector = activeStageToast.key.startsWith('task:')
+                ? '.kd-role-active'
+                : activeStageToast.key.startsWith('published:')
+                  ? '.kd-role-active, .kd-tasks'
+                  : '.kd-topic-card';
+              document.querySelector(targetSelector)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }}
+            style={{ cursor: 'pointer' }}
           >
             <span className="kd-stage-toast-badge">{activeStageToast.badge}</span>
             <span className="kd-stage-toast-text">{activeStageToast.text}</span>
@@ -542,13 +584,15 @@ export function MeetingGrid({
             <CaptionedTile />
           </GridLayout>
         </div>
-        {(waitingForHuman || showStarterIdeas) && (
+        {(idleAfterBriefing || showStarterIdeas) && (
           <div className="kd-turn-bar" role="region" aria-label="Your turn and starter questions">
             <div className="kd-turn-row">
               <span className="kd-turn-pill">
-                {waitingForHuman
-                  ? '🟢 Your turn — speak on mic or type below'
-                  : '💡 Starter ideas — click any line to say it'}
+                {showStarterIdeas
+                  ? '🟢 Click any line below to say it immediately (or speak/type)'
+                  : waitingForHuman
+                    ? '🟢 Your turn — speak on mic or type below'
+                    : '💬 Jump in anytime — speak, type, or click Need an idea?'}
               </span>
               <button
                 type="button"
@@ -561,22 +605,6 @@ export function MeetingGrid({
             </div>
             {showStarterIdeas && (
               <div className="kd-starter-chips">
-                {wingmanFactPreview !== undefined && (
-                  <div
-                    style={{
-                      flex: '1 1 100%',
-                      padding: '6px 10px',
-                      borderRadius: 10,
-                      background: 'var(--color-accent-soft)',
-                      border: '1px solid var(--color-accent)',
-                      fontSize: 12,
-                      lineHeight: 1.35,
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    <strong>📌 Kaki Wingman fact for your role:</strong> {wingmanFactPreview}
-                  </div>
-                )}
                 {starterChips.map((chip) => (
                   <button
                     key={chip}

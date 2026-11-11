@@ -26,10 +26,12 @@ export function MeetingPanel({
   viewer,
   role,
   isHost = false,
+  started = false,
 }: {
   viewer: TranscriptViewer;
   role?: ScenarioRole;
   isHost?: boolean;
+  started?: boolean;
 }) {
   const scenario = useScenario();
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
@@ -148,8 +150,6 @@ export function MeetingPanel({
             task.status === 'CLAIMED' ||
             task.status === 'DRAFT_READY' ||
             task.status === 'RUNNING' ||
-            task.status === 'COMPLETED' ||
-            task.status === 'SYNCED' ||
             task.status === 'FAILED'),
       ),
     [role, tasks],
@@ -172,23 +172,6 @@ export function MeetingPanel({
   }, [entries.length, hasActiveVisitorTask]);
 
   const visibleTasks = useMemo(() => [...tasks.values()].filter((task) => task.status !== 'DISMISSED'), [tasks]);
-  const boardTasks = useMemo(
-    () =>
-      visibleTasks.filter(
-        (task) =>
-          !(
-            role !== undefined &&
-            task.assignee === role.id &&
-            (task.status === 'DISPATCHED' ||
-              task.status === 'CLAIMED' ||
-              task.status === 'DRAFT_READY' ||
-              task.status === 'RUNNING' ||
-              task.status === 'COMPLETED' ||
-              task.status === 'FAILED')
-          ),
-      ),
-    [visibleTasks, role],
-  );
   const minutesTask = useMemo(
     () =>
       visibleTasks.find(
@@ -205,6 +188,45 @@ export function MeetingPanel({
       events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
     [events, minutesTask],
   );
+  const currentAgendaTitle = record !== undefined ? scenario.agenda[record.payload.agendaIndex]?.title : undefined;
+  const boardTasks = useMemo(
+    () =>
+      visibleTasks.filter((task) => {
+        if (role === undefined || task.assignee !== role.id) return true;
+        if (
+          task.status === 'DISPATCHED' ||
+          task.status === 'CLAIMED' ||
+          task.status === 'DRAFT_READY' ||
+          task.status === 'RUNNING' ||
+          task.status === 'COMPLETED' ||
+          task.status === 'FAILED'
+        ) {
+          return false;
+        }
+        if (
+          task.status === 'SYNCED' &&
+          task.artifactUrl !== undefined &&
+          !meetingEnded &&
+          (currentAgendaTitle === undefined ||
+            task.agendaItemTitle === undefined ||
+            task.agendaItemTitle === currentAgendaTitle)
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [visibleTasks, role, meetingEnded, currentAgendaTitle],
+  );
+  const publishedDeliverables = useMemo(
+    () =>
+      visibleTasks.filter(
+        (task) =>
+          (task.status === 'COMPLETED' || task.status === 'SYNCED') &&
+          task.artifactUrl !== undefined &&
+          task.id !== minutesTask?.id,
+      ),
+    [visibleTasks, minutesTask],
+  );
 
   return (
     <div className="page kd-host kd-meeting-panel">
@@ -215,7 +237,7 @@ export function MeetingPanel({
           {rejection.commandType}: {rejection.reason}
         </p>
       )}
-      {isHost && (
+      {isHost ? (
         <div className="kd-host-controls">
           <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}>
             Next agenda item
@@ -224,17 +246,39 @@ export function MeetingPanel({
             End meeting
           </button>
         </div>
+      ) : (
+        record !== undefined &&
+        !meetingEnded && (
+          <div className="kd-host-controls" aria-label="Meeting controls">
+            {record.payload.agendaIndex + 1 < scenario.agenda.length && (
+              <button
+                type="button"
+                className="kd-chip"
+                onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
+              >
+                Skip to next topic →
+              </button>
+            )}
+            <button
+              type="button"
+              className="kd-chip"
+              onClick={() => send({ type: 'END_MEETING' })}
+            >
+              End meeting
+            </button>
+          </div>
+        )
       )}
       {meetingEnded && (
         <section className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">
             {minutesTask?.artifactUrl !== undefined
-              ? 'Kaki Host · Meeting Minutes Published'
-              : 'Kaki Host · Meeting Concluded'}
+              ? '🎉 Kaki Host · Meeting Minutes & Live Artifacts Ready'
+              : '🎉 Kaki Host · Meeting Concluded'}
           </p>
           <p style={{ marginBottom: 10 }}>
             {minutesTask?.artifactUrl !== undefined
-              ? 'Full meeting notes (agenda items, action items, open questions, and transcript) are live on the team wiki.'
+              ? 'Full meeting notes (agenda items, action items, open questions, and transcript) and your team deliverables are live:'
               : 'Syncing final action items and publishing meeting minutes to the team wiki…'}
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -243,6 +287,17 @@ export function MeetingPanel({
                 Open meeting minutes in Wiki ↗
               </a>
             )}
+            {publishedDeliverables.map((task) => (
+              <a
+                key={task.id}
+                className="artifact-link"
+                href={resolveArtifactUrl(task.artifactUrl!)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {artifactLinkText(task)}
+              </a>
+            ))}
             <button
               type="button"
               className="kd-chip"
@@ -256,13 +311,22 @@ export function MeetingPanel({
       {record === undefined ? (
         <>
           {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} />}
-          <p className="empty-state">The meeting has not started yet. The agenda clock begins with the first thing said.</p>
+          <p className="empty-state">
+            {started
+              ? `🎙️ ${facilitatorName} (Host) is opening the meeting — listen in, Kaki will cue you when it’s your turn.`
+              : 'The meeting has not started yet. The agenda clock begins with the first thing said.'}
+          </p>
         </>
       ) : (
         <>
           <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} showOpenQuestions={isHost} />
           {!meetingEnded && isHost && (
             <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started />
+          )}
+          {!meetingEnded && !topicBriefingStarted && (
+            <p className="empty-state" style={{ margin: '6px 0', fontSize: 12.5 }}>
+              🎧 Colleagues are sharing their opening stances — your Wingman fact &amp; starter lines will appear in a moment.
+            </p>
           )}
           {!meetingEnded && topicBriefingStarted && (
             <CurrentTopicCard
@@ -284,7 +348,17 @@ export function MeetingPanel({
           <h3 className="eyebrow">Live Kaki Actions ({boardTasks.length})</h3>
           <ul>
             {boardTasks.map((task) => (
-              <li key={task.id} className="kd-task-card" data-status={task.status}>
+              <li
+                key={task.id}
+                className="kd-task-card"
+                data-status={task.status}
+                data-highlight={
+                  (isHost && task.status === 'SUGGESTED') ||
+                  ((task.status === 'COMPLETED' || task.status === 'SYNCED') && task.artifactUrl !== undefined)
+                    ? 'true'
+                    : undefined
+                }
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <b style={{ flex: 1, minWidth: 0 }}>{task.title}</b>
                   <span style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>

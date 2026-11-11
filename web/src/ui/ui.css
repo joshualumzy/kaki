@@ -227,8 +227,24 @@ body {
 }
 
 .artifact-link {
-  color: var(--color-accent);
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--on-accent, #ffffff);
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-decoration: none;
+  box-shadow: 0 6px 16px -6px var(--color-accent);
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.artifact-link:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
 }
 
 .pill[data-status="DISMISSED"] {

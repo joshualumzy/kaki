@@ -596,15 +596,23 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
     if (isTaskDispatch) {
-      const guidance =
-        visitorTaskDispatches === 0
-          ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
-          : "Have a look on your screen on the right to review and confirm.";
+      const personName = person?.name;
       visitorTaskDispatches += 1;
-      spoken = spoken
-        .replace(/\bAccept or decline it on your phone\./gi, guidance)
-        .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
-        .replace(/\bIt's on your phone\./gi, guidance);
+      if (personName !== undefined) {
+        spoken =
+          visitorTaskDispatches === 1
+            ? `${personName}, I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it.`
+            : `${personName}, I've queued that next follow-up on your screen on the right to review and confirm.`;
+      } else {
+        const guidance =
+          visitorTaskDispatches === 1
+            ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
+            : "Have a look on your screen on the right to review and confirm.";
+        spoken = spoken
+          .replace(/\bAccept or decline it on your phone\./gi, guidance)
+          .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
+          .replace(/\bIt's on your phone\./gi, guidance);
+      }
     }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
@@ -612,7 +620,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       /^Hey team, we're a bit past time on (.+?) — let's wrap this one up so we can move on\.$/i.exec(spoken.trim());
     if (timeoutMatch !== null) {
       const personName = person?.name;
-      const itemTitle = timeoutMatch[1];
+      const itemTitle = spokenTopicLead(timeoutMatch[1] ?? 'this item');
       spoken =
         personName !== undefined
           ? `${personName}, we're a bit past time on ${itemTitle} — do you want another minute on this, or should we make a decision and keep moving?`

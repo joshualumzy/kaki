@@ -83,10 +83,10 @@ export function evidenceMatchesVisitor(evidence: string, visitorText: string): b
 
 /** A proposal phrased as a question ("What if we move the cash box?"), not a question looking for facts. */
 const PROPOSAL_QUESTION =
-  /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
+  /^(?:what if|why not|why don'?t we|how about|what about|shall we|let'?s)\b|^(?:(?:can|could|should|would)\s+we|would\s+it\s+work\s+if\s+we)\s+(?!(?:do\s+(?:that|this|it)|just\s+do\s+(?:that|this|it)|hear|move\s+on|end|stop|skip|wait|check)\b)(?:\S+\s+){3,}\S+|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
 
 const ENDORSEMENT_DECISION_RE =
-  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan)|do\s+that|go\s+ahead|compromise|table\s+(?:this|it)|park\s+(?:this|it))|i\s+agree(?:\s+with\s+(?:you|that|your\s+plan))?|(?:ok|okay|yes|yeah|yep)[,\s]+(?:sure|go\s+ahead|let'?s\s+do\s+(?:that|it)|do\s+that|works\s+for\s+me|please\s+do)|(?:do|pull|ban|cut|close)\s+it\s+anyway|i\s+insist|schedule\s+a\s+(?:10\s*am\s+)?follow[- ]?up)\b/i;
+  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|(?:go|run|roll)\s+with\s+(?:that|this|it|both|your\s+plan|[a-z]+'s\s+(?:idea|plan|option|suggestion|call)|what\s+[a-z]+\s+(?:said|suggested|proposed))|do\s+(?:that|it|what\s+[a-z]+\s+(?:said|suggested|proposed))|take\s+[a-z]+'s\s+(?:idea|plan|option)|go\s+ahead|go\s+for\s+it|compromise|table\s+(?:this|it)|park\s+(?:this|it))|lock\s+(?:it|that|this)\s+in|make\s+it\s+happen|i(?:'m|\s+am)\s+with\s+[a-z]+|i\s+back\s+[a-z]+|i\s+agree(?:\s+with\s+(?:you|that|this|your\s+plan|[a-z]+))?|(?:ok|okay|yes|yeah|yep|sure)[,\s]+(?:sure|please|thing|go\s+ahead|let'?s\s+do\s+(?:that|it)|do\s+that|works\s+for\s+me|please\s+do)|(?:do|pull|ban|cut|close)\s+it\s+anyway|i\s+insist|schedule\s+a\s+(?:10\s*am\s+)?follow[- ]?up)\b/i;
 
 const FEASIBILITY_QUESTION =
   /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
@@ -500,14 +500,19 @@ export async function assessProposal(options: {
     tradeOffs.length >= 3 &&
     resolved.length >= 2 &&
     unresolved.length <= 1;
+  const explicitTableOrDefer =
+    /\b(?:table|park|defer|postpone)\s+(?:this(?:\s+topic)?|it|the\s+topic|for\s+now)\b/i.test(activeWords);
   const endorsedOrCompromisedAfterDiscussion =
     readiness === 'complete' &&
     unresolved.length === 0 &&
     (options.assistantContext ?? []).length > 0 &&
     (ENDORSEMENT_DECISION_RE.test(activeWords) ||
       visitorLines.length >= 2 ||
+      /^(?:yes|yeah|yep|sure|ok|okay|alright|all right|fine|agreed|go ahead|please do|do it)\b/i.test(
+        visitorText.trim(),
+      ) ||
       /\b(?:table|park|follow[- ]?up|schedule|insist|anyway|accept the loss|take the hit)\b/i.test(activeWords));
-  if (enoughFollowUpConsensus || endorsedOrCompromisedAfterDiscussion) {
+  if (explicitTableOrDefer || enoughFollowUpConsensus || endorsedOrCompromisedAfterDiscussion) {
     return {
       isProposal: true,
       readiness: 'complete',

@@ -19,7 +19,11 @@ export function resolveArtifactUrl(rawUrl: string): string {
       }
       parsed.hostname = currentHost;
     }
-    if (parsed.port === '8083' || parsed.pathname.includes('/nanyang-kopitiam/')) {
+    if (
+      parsed.port === '8083' ||
+      parsed.pathname.includes('/nanyang-kopitiam/') ||
+      parsed.pathname.includes('/kopitiam/')
+    ) {
       const apiBase =
         currentHost === 'localhost' || currentHost === '127.0.0.1'
           ? `http://${currentHost}:3001`
