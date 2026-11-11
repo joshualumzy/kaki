@@ -4,7 +4,7 @@ import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
-import { createNotetaker, hasTaskAssignment } from './notetaker';
+import { createNotetaker } from './notetaker';
 import { cleanSpokenTopic, openingLine } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
 
@@ -221,9 +221,6 @@ export function createMeetingModule({
 
         clock.start();
         notetaker.addChunk(event.payload);
-        if (replay === undefined && hasTaskAssignment(event.payload.text)) {
-          setTimeout(() => void runNotetaker(), 250).unref();
-        }
 
         announceAgendaItem();
       });

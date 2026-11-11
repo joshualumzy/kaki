@@ -42,12 +42,6 @@ export function TypeBar({ send }: TypeBarProps) {
       ) {
         return;
       }
-      if (event.key === 'Escape') {
-        if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
-        event.preventDefault();
-        togglePause();
-        return;
-      }
       if (event.key === ' ' || event.code === 'Space') {
         if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
         const target = event.target;
@@ -62,13 +56,8 @@ export function TypeBar({ send }: TypeBarProps) {
         togglePause();
       }
     };
-    const onQuickLine = (): void => setPaused(false);
     window.addEventListener('keydown', onKey);
-    window.addEventListener('kaki:quick-line', onQuickLine);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('kaki:quick-line', onQuickLine);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [togglePause]);
 
   function submit(): void {

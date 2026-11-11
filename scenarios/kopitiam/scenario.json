@@ -369,7 +369,7 @@
           "about": "on the hospitalized customer: Daniel is worried about 8 AM reporters and the angry family, while Mei knows our head chef threw out all the old fridge stock at 6 AM with a signed receipt and restocked fresh supplies"
         }
       ],
-      "soundsLike": ["Maya", "Mae"],
+      "soundsLike": ["May", "Maya", "Mae"],
       "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and protective of both first-time visitors and food safety.",
       "agenda": "Clear the 25-person kiosk doorway queue without losing Uncle Lim, protect solo diners with hot trays in our 28-seat shop, keep the kitchen open safely using our fresh 6 AM supplies, and switch office delivery orders to $50 Office Platters.",
       "concerns": [
@@ -464,7 +464,7 @@
       "attendee": "Sam",
       "voice": "en-HK-SamNeural?rate=-4%",
       "role": "host",
-      "playable": false,
+      "playable": true,
       "speechStyle": "Steady, diplomatic Singaporean General Manager, the calm 'big brother' of the outlet who keeps the peace when Arjun, Mei, Wei Ling, and Daniel debate trade-offs. Uses 'Okay team, steady', 'Let's look at both sides', 'Thanks Arjun', and always makes sure someone owns the concrete follow-up action.",
       "personality": "General Manager and meeting host. Warm, organised, makes sure no topic is brushed off with a simplistic one-liner, and ensures every item ends with a clear decision and task owner.",
       "agenda": "Run the meeting smoothly: address the SFA salmonella report, the kiosk ordering freeze, the seat crunch, and the 32% delivery app fee squeeze, and assign clear follow-up owners.",
@@ -479,7 +479,7 @@
       "withRoles": {
         "producer": "Ask them how we balance SFA compliance, floor operations, and profit with customer experience.",
         "lead_programmer": "Keep him focused on practical POS, kiosk, and app fixes we can configure tonight.",
-        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and morning hygiene discipline.",
+        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and safe egg warming.",
         "marketing_lead": "Pin him down on handling the press honestly and keeping our nearby office orders."
       }
     }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createRoomToken, JoinError } from '../src/livekit';
 import { createApp } from '../src/app';
 import { testScenario } from './fixtures/scenario';
@@ -28,10 +28,7 @@ describe('createRoomToken', () => {
 
 describe('POST /api/livekit/token', () => {
   let app: Awaited<ReturnType<typeof createTestApp>>;
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    return app.close();
-  });
+  afterEach(() => app.close());
 
   async function post(body: unknown): Promise<Response> {
     return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
@@ -77,8 +74,6 @@ describe('POST /api/livekit/token', () => {
       npcs: ['A', 'B', 'C', 'D'].map((n) => ({ ...npc, attendee: `AI ${n}`, role: 'participant' as const, playable: true })),
     };
     let present: Array<{ name: string; role?: string }> = [];
-    // The booth default is one visitor; this test is about a second person joining, so it allows more.
-    vi.stubEnv('NPC_MAX_HUMANS', '3');
     app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });
     const first = await post({ roomName: 'room', participantName: 'One' });
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;

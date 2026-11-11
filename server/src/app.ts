@@ -268,9 +268,7 @@ async function handleRequest(
       }
       if (
         (parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') ||
-        (parsedTarget.port !== '8083' &&
-          !parsedTarget.pathname.includes('/nanyang-kopitiam/') &&
-          !parsedTarget.pathname.includes('/kopitiam/'))
+        (parsedTarget.port !== '8083' && !parsedTarget.pathname.includes('/nanyang-kopitiam/'))
       ) {
         sendJson(response, 400, { error: 'Target must be a Mattermost link' });
         return;
@@ -303,7 +301,6 @@ async function handleRequest(
             const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
             if (sessionToken) {
               setCookies.push(`MMAUTHTOKEN=${sessionToken}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`);
-              setCookies.push(`MMCSRF=${sessionToken}; Path=/; Max-Age=2592000; SameSite=Lax`);
             }
             if (userObj?.id) {
               setCookies.push(`MMUSERID=${userObj.id}; Path=/; Max-Age=2592000; SameSite=Lax`);

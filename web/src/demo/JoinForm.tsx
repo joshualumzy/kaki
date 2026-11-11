@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
-import { resolveArtifactUrl } from '../ui';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
 import './demo.css';
 
@@ -12,8 +11,8 @@ const PRELOAD_ONBOARDING_SVGS = [
   '/scenario/crisis-kiosk-lingo.svg',
 ] as const;
 
-/** What the name box starts with: empty so the visitor enters their own name. */
-export const DEFAULT_NAME = '';
+/** What the name box starts with: people can change it to anything. */
+export const DEFAULT_NAME = 'Foo';
 
 export interface JoinFormProps {
   meetingTitle: string;
@@ -151,7 +150,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
               const responsibility = selectedRole?.card?.responsibility;
               if (responsibility === undefined) return null;
               return (
-                <p className="kd-hint" style={{ marginTop: '8px', fontWeight: 600, minHeight: '2.6em' }}>
+                <p className="kd-hint" style={{ marginTop: '8px', fontWeight: 600 }}>
                   {responsibility}
                 </p>
               );
@@ -197,7 +196,7 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
             <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
             <a href={`http://${host}:8081/en/home`} target="_blank" rel="noreferrer">Wiki</a>
             <a href={`http://${host}:8082/kopitiam/kopitiam-pos/issues`} target="_blank" rel="noreferrer">Gitea</a>
-            <a href={resolveArtifactUrl(`http://${host}:8083/kopitiam/channels/kopitiam-launch`)} target="_blank" rel="noreferrer">Mattermost</a>
+            <a href={`http://${host}:8083/kopitiam/channels/kopitiam-launch`} target="_blank" rel="noreferrer">Mattermost</a>
             <a href={`http://${host}:8084`} target="_blank" rel="noreferrer">Mailpit</a>
             <a href="/api/calendar/seed-sfa-inspection" target="_blank" rel="noreferrer">Calendar</a>
           </nav>

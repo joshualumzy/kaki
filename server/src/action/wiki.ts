@@ -1,7 +1,6 @@
 import { roleLabel, type Question, type Scenario, type Task } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -126,7 +125,7 @@ export function createWikiModule({
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   minutesDelayMs = DEFAULT_MINUTES_DELAY_MS,
-  today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }),
+  today = () => new Date().toISOString().slice(0, 10),
 }: WikiModuleOptions = {}): KakiModule {
   async function graphql<T>(
     settings: WikiSettings,
@@ -238,10 +237,7 @@ export function createWikiModule({
             '{"title": "...", "body": "..."}. The body is Markdown: a few headings or bullet points, plain and short. ' +
             'Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). Do not invent decisions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. Keep the words of the task title in the title.',
         },
-        {
-          role: 'user',
-          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
-        },
+        { role: 'user', content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}` },
       ];
 
       let reply: string;

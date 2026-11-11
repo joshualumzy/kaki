@@ -68,14 +68,8 @@ export function installAutoDispatch({
 }): () => void {
   let sent = 0;
   const lastDispatchedAt = new Map<string, number>();
-  const unsubscribeReset = hub.subscribe((event) => {
-    if (event.type === 'MEETING_RESET') {
-      lastDispatchedAt.clear();
-      sent = 0;
-    }
-  });
-  const unsubscribeTasks = tasks.onChange((task, previous) => {
-    const dedupeKey = `${task.suggestedAssignee}:${task.actionKind ?? 'manual'}:${task.agendaItemTitle ?? ''}`;
+  return tasks.onChange((task, previous) => {
+    const dedupeKey = `${task.suggestedAssignee}:${task.actionKind ?? 'manual'}`;
     if (task.status === 'DISMISSED') {
       if (previous === 'DISPATCHED') {
         lastDispatchedAt.delete(dedupeKey);
@@ -110,8 +104,4 @@ export function installAutoDispatch({
     hub.publish(cue);
     sent += 1;
   });
-  return () => {
-    unsubscribeReset();
-    unsubscribeTasks();
-  };
 }

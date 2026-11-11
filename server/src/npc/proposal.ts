@@ -83,10 +83,10 @@ export function evidenceMatchesVisitor(evidence: string, visitorText: string): b
 
 /** A proposal phrased as a question ("What if we move the cash box?"), not a question looking for facts. */
 const PROPOSAL_QUESTION =
-  /^(?:what if|why not|why don'?t we|how about|what about|shall we|let'?s)\b|^(?:(?:can|could|should|would)\s+we|would\s+it\s+work\s+if\s+we)\s+(?!(?:do\s+(?:that|this|it)|just\s+do\s+(?:that|this|it)|hear|move\s+on|end|stop|skip|wait|check)\b)(?:\S+\s+){3,}\S+|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
+  /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b|\b(?:can we do both|why not (?:we )?do both|shall we do both|let'?s do both)\b/i;
 
 const ENDORSEMENT_DECISION_RE =
-  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|(?:go|run|roll)\s+with\s+(?:that|this|it|both|your\s+plan|[a-z]+'s\s+(?:idea|plan|option|suggestion|call)|what\s+[a-z]+\s+(?:said|suggested|proposed))|do\s+(?:that|it|what\s+[a-z]+\s+(?:said|suggested|proposed))|take\s+[a-z]+'s\s+(?:idea|plan|option)|go\s+ahead|go\s+for\s+it|compromise|table\s+(?:this|it)|park\s+(?:this|it))|lock\s+(?:it|that|this)\s+in|make\s+it\s+happen|i(?:'m|\s+am)\s+with\s+[a-z]+|i\s+back\s+[a-z]+|i\s+agree(?:\s+with\s+(?:you|that|this|your\s+plan|[a-z]+))?|(?:ok|okay|yes|yeah|yep|sure)[,\s]+(?:sure|please|thing|go\s+ahead|let'?s\s+do\s+(?:that|it)|do\s+that|works\s+for\s+me|please\s+do)|(?:do|pull|ban|cut|close)\s+it\s+anyway|i\s+insist|schedule\s+a\s+(?:10\s*am\s+)?follow[- ]?up)\b/i;
+  /\b(?:(?:why not|let'?s|we can|we should|i want to)\s+(?:we\s+)?do\s+both|both\s+(?:options?|parts?|ideas?|plans?|of\s+them)|i\s+think\s+you(?:'re|\s+are)\s+right|(?:that|it)\s+works\s+for\s+me|you\s+just\s+do\s+it|i\s+confirm|confirmed|sounds\s+good(?:\s+to\s+me)?|let'?s\s+(?:lock\s+(?:that|it|both)\s+in|go\s+with\s+(?:that|both|your\s+plan)|do\s+that|go\s+ahead|compromise|table\s+(?:this|it)|park\s+(?:this|it))|i\s+agree(?:\s+with\s+(?:you|that|your\s+plan))?|(?:ok|okay|yes|yeah|yep)[,\s]+(?:sure|go\s+ahead|let'?s\s+do\s+(?:that|it)|do\s+that|works\s+for\s+me|please\s+do)|(?:do|pull|ban|cut|close)\s+it\s+anyway|i\s+insist|schedule\s+a\s+(?:10\s*am\s+)?follow[- ]?up)\b/i;
 
 const FEASIBILITY_QUESTION =
   /\b(?:can (?:you|we) do (?:that|this|it)|could (?:you|we) do (?:that|this|it)|is that (?:possible|doable|okay)|would that work|does that work|why (?:can't|cannot) (?:we|you)(?: just)?)\b[^.?!]*\?$/i;
@@ -106,7 +106,7 @@ const SIDE_TASK_REQUEST =
 const SIDE_TASK_MARKER = /\b(?:after|before)\s+(?:this(?:\s+(?:meeting|call|huddle))?(?![\s-]+[a-z])|the meeting|we finish|you go|the call)\b/i;
 
 const FOLLOW_UP_VERBS =
-  String.raw`send|email|post|file|write|schedule|book|share|draft`;
+  String.raw`send|email|post|file|write|schedule|book|share|confirm|update|put|make sure|arrange|bring|check|draft|print`;
 
 /** One ordinary first-person commitment ("I'll post the handover in Mattermost."), matched as a whole sentence so a plan before or after it is not mistaken for the promise object. */
 const ORDINARY_FIRST_PERSON_FOLLOW_UP = new RegExp(
@@ -183,41 +183,23 @@ const CLEAR_ACTION_IMPERATIVE =
  * True when a visitor's line is worth one readiness check: a concrete proposal for the item,
  * not a question, greeting, filler, status update, or a side request to send/file/post something.
  */
-/** A greeting or acknowledgement is only filler when it is the whole (short) line, not the opening word of a decision. */
-const FILLER_MAX_WORDS = 4;
-function isFillerLine(text: string): boolean {
-  return text.split(/\s+/).length <= FILLER_MAX_WORDS && GREETING_OR_FILLER.test(text);
-}
-
-/** Verbs that always name a message to prepare; the others (send, post, file, write) also describe physical actions. */
-const MESSAGE_ONLY_VERB = /^(?:please\s+)?(?:draft|email|forward|submit|upload|circulate)\b|\b(?:can|could|would|will)\s+you\s+(?:[a-z]+\s+){0,3}(?:email|schedule|book|draft)\b/i;
-const DELIVERABLE_NOUN =
-  /\b(?:e-?mail|message|post|ticket|issue|note|notes|update|announcement|invite|invitation|page|summary|minutes|memo|handover|draft|channel|wiki|calendar|reminder|report|breakdown|figures|numbers|details|spreadsheet|document|link)\b/i;
-
-/** True when a line asks for a message, ticket, page or invite, not for a physical action ("Post a staff member at the door"). */
-function asksForDeliverable(text: string): boolean {
-  if (!(SIDE_TASK_REQUEST.test(text) || SIDE_TASK_IMPERATIVE.test(text))) return false;
-  if (MESSAGE_ONLY_VERB.test(text)) return true;
-  const afterVerb = text.replace(/^(?:please\s+)?\S+\s*/i, '');
-  return DELIVERABLE_NOUN.test(afterVerb);
-}
-
 export function isSubstantiveProposal(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0) return false;
   if (META_OR_NONSENSE.test(trimmed)) return false;
   if (
-    asksForDeliverable(trimmed) ||
+    SIDE_TASK_REQUEST.test(trimmed) ||
     SIDE_TASK_MARKER.test(trimmed) ||
     isPureOrdinaryCommunicationPromise(trimmed) ||
-    isPureNamedCommunicationPromise(trimmed)
+    isPureNamedCommunicationPromise(trimmed) ||
+    SIDE_TASK_IMPERATIVE.test(trimmed)
   ) {
     return false;
   }
   if (ENDORSEMENT_DECISION_RE.test(trimmed)) {
     return true;
   }
-  if (isFillerLine(trimmed)) return false;
+  if (GREETING_OR_FILLER.test(trimmed)) return false;
   if (TRAILING_INCOMPLETE_CLAUSE.test(trimmed)) return false;
   if (trimmed.endsWith('?')) return PROPOSAL_QUESTION.test(trimmed);
   return !FEASIBILITY_QUESTION.test(trimmed);
@@ -230,7 +212,7 @@ export function isSubstantiveProposal(text: string): boolean {
 export function isSideRequest(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0) return false;
-  return asksForDeliverable(trimmed);
+  return SIDE_TASK_REQUEST.test(trimmed) || SIDE_TASK_IMPERATIVE.test(trimmed);
 }
 
 /** True when the model called a clear action imperative a non-proposal; the item must stay open. */
@@ -518,19 +500,14 @@ export async function assessProposal(options: {
     tradeOffs.length >= 3 &&
     resolved.length >= 2 &&
     unresolved.length <= 1;
-  const explicitTableOrDefer =
-    /\b(?:table|park|defer|postpone)\s+(?:this(?:\s+topic)?|it|the\s+topic|for\s+now)\b/i.test(activeWords);
   const endorsedOrCompromisedAfterDiscussion =
     readiness === 'complete' &&
     unresolved.length === 0 &&
     (options.assistantContext ?? []).length > 0 &&
     (ENDORSEMENT_DECISION_RE.test(activeWords) ||
       visitorLines.length >= 2 ||
-      /^(?:yes|yeah|yep|sure|ok|okay|alright|all right|fine|agreed|go ahead|please do|do it)\b/i.test(
-        visitorText.trim(),
-      ) ||
       /\b(?:table|park|follow[- ]?up|schedule|insist|anyway|accept the loss|take the hit)\b/i.test(activeWords));
-  if (explicitTableOrDefer || enoughFollowUpConsensus || endorsedOrCompromisedAfterDiscussion) {
+  if (enoughFollowUpConsensus || endorsedOrCompromisedAfterDiscussion) {
     return {
       isProposal: true,
       readiness: 'complete',

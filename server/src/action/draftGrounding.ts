@@ -14,9 +14,9 @@ const RANGE =
 
 const COMPLETED_ACTION = new RegExp(
   [
-    '\\b(?:has|have|had)\\s+been\\s+(posted|announced|sent|shared|published|implemented|completed|done)\\b',
-    '\\b(?:we|i)\\s+(?:have\\s+)?(?:already\\s+)?(posted|announced|sent|shared|published|implemented|completed|done)\\b',
-    '\\b(?:is|are)\\s+now\\s+(done)\\b',
+    '\\b(?:has|have|had)\\s+been\\s+(posted|announced|sent|shared|published|implemented|completed|done|updated|replaced|fixed|moved|confirmed)\\b',
+    '\\b(?:we|i)\\s+(?:have\\s+)?(?:already\\s+)?(posted|announced|sent|shared|published|implemented|completed|done|updated|replaced|fixed|moved|confirmed)\\b',
+    '\\b(?:is|are)\\s+now\\s+(live|in\\s+place|done)\\b',
   ].join('|'),
   'gi',
 );

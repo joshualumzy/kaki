@@ -1,6 +1,5 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -325,7 +324,7 @@ export function createCalendarModule({
   calendar,
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-  today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }),
+  today = () => new Date().toISOString().slice(0, 10),
 }: CalendarModuleOptions = {}): KakiModule {
   async function call(url: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -358,10 +357,7 @@ export function createCalendarModule({
             'Work out the date from the task by looking it up in the list of days above, never by counting yourself (for a weekday such as "Friday", take the first one in the list after today). If no time is given use 10:00. ' +
             'The description is one or two plain sentences. Use only what is in the task and its context; do not invent names, places, attendees or details. Keep the words of the task title in the title.',
         },
-        {
-          role: 'user',
-          content: `Task: ${task.title}\n\nContext:\n${task.context}${acceptedDecisionBlock(task.decisionSource)}`,
-        },
+        { role: 'user', content: `Task: ${task.title}\n\nContext:\n${task.context}` },
       ];
 
       let reply: string;

@@ -433,10 +433,10 @@ const DELIVERABLE_FORM =
 
 const TASK_ASSIGNMENT = new RegExp(
   [
-    `${FIRST_PERSON_COMMITMENT_SOURCE}\\s+(?:be\\s+)?(?:[\\w'-]+,?\\s+){0,6}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
-    `\\b(?:can|could|would|will)\\s+you\\s+(?:[\\w'-]+,?\\s+){0,8}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
-    `\\bplease\\s+(?:[\\w'-]+,?\\s+){0,5}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
-    `\\blet'?s have\\s+[\\w'-]+\\s+(?:[\\w'-]+,?\\s+){0,4}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
+    `${FIRST_PERSON_COMMITMENT_SOURCE}\\s+(?:be\\s+)?(?:[\\w'-]+\\s+){0,4}(?:${DELIVERABLE_FORM})\\b`,
+    `\\b(?:can|could|would|will)\\s+you\\s+(?:[\\w'-]+\\s+){0,4}(?:${DELIVERABLE_FORM})\\b`,
+    `\\bplease\\s+(?:[\\w'-]+\\s+){0,3}(?:${DELIVERABLE_FORM})\\b`,
+    `\\blet'?s have\\s+[\\w'-]+\\s+(?:[\\w'-]+\\s+){0,2}(?:${DELIVERABLE_FORM})\\b`,
     `\\b(?:leave it (?:with|to) me|count on me|consider it done|I'll take care of it|I can handle it)\\b`,
   ].join('|'),
   'i',
@@ -502,7 +502,7 @@ const ASSIGNMENT_IGNORED_WORDS = new Set([
 function deliverableKeywords(text: string): Set<string> {
   return new Set(
     [...keywords(text, ASSIGNMENT_IGNORED_WORDS)].filter(
-      (word) => (word.length >= 3 || /^\d{2,}$/.test(word)) && !DELIVERABLE_WORD.test(word),
+      (word) => word.length >= 3 && !DELIVERABLE_WORD.test(word),
     ),
   );
 }
@@ -663,13 +663,6 @@ export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): bo
   const mine = keywords(candidate.title);
   return active.some((task) => {
     if (normalize(task.title) === title) return true;
-    if (
-      task.actionKind !== undefined &&
-      candidate.actionKind !== undefined &&
-      task.actionKind !== candidate.actionKind
-    ) {
-      return false;
-    }
     if (task.suggestedAssignee !== candidate.suggestedAssignee || mine.size < 2) return false;
     const theirs = keywords(task.title);
     if (theirs.size < 2) return false;
@@ -713,13 +706,6 @@ export function isDuplicateTarget(
   if (target.status === 'DISMISSED') return false;
   if (normalize(candidate.title) === normalize(target.title)) return true;
   if (isDuplicateAnnouncement(candidate, [target])) return true;
-  if (
-    target.actionKind !== undefined &&
-    candidate.actionKind !== undefined &&
-    target.actionKind !== candidate.actionKind
-  ) {
-    return false;
-  }
   if (target.suggestedAssignee !== candidate.suggestedAssignee) return false;
   const mine = keywords(candidate.title);
   const theirs = keywords(target.title);
@@ -1195,10 +1181,10 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       if (isFacilitator && facilitatorName !== undefined && speakerName === facilitatorName) {
         // When the AI facilitator explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
         // keep that line so the notetaker extracts the task even if the LLM put the task request on the facilitator's line.
-        const isTaskRequestFromSam = new RegExp(
-          `\\b(?:(?:can|could|would|will)\\s+you|(?:do\\s+you\\s+)?mind|let'?s\\s+have\\s+you)\\s+(?:[\\w'-]+,?\\s+){0,8}(?:${DELIVERABLE_FORM}|handle|handling|sort out|sorting out|take care of|taking care of|take on|taking on|take the lead on|taking the lead on)\\b`,
-          'i',
-        ).test(text);
+        const isTaskRequestFromSam =
+          /\b(?:(?:can|could|would|will)\s+you|(?:do\s+you\s+)?mind|let'?s\s+have\s+you)\s+(?:[a-z]+\s+){0,3}(?:post|send|email|file|write|schedule|put|share|confirm|draft|prepare|handle|sort out|organi[sz]e|take care of|take on|take the lead on|set up|order|create)\b/i.test(
+            text,
+          );
         if (!isTaskRequestFromSam) return;
       }
       const agendaItemTitle = scenario.agenda[agendaIndex()]?.title;
@@ -1227,7 +1213,6 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         agendaContext = [];
       }
 
-      let succeeded = false;
       try {
         const messages: ChatMessage[] = [
           { role: 'system', content: systemPrompt(scenario, [...recentGrounded, ...batch]) },
@@ -1241,7 +1226,6 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         apply(reply, batch);
         status = 'ok';
         lastError = undefined;
-        succeeded = true;
       } catch (error) {
         if (startedIn !== generation) return;
         // Keep the last good record and try these lines again on the next pass.
@@ -1251,9 +1235,6 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         console.warn(`kaki notetaker: keeping the last good record; ${lastError}`);
       } finally {
         running = false;
-      }
-      if (succeeded && startedIn === generation && pending.length > 0) {
-        void this.run();
       }
     },
 
