@@ -894,9 +894,20 @@ export class NpcConversation<Clip> {
     const who = this.human?.name ?? 'them';
     type Option = { kind: string; phrase: string };
 
+    const topicSubject =
+      lowerTitle.includes('sfa') || lowerTitle.includes('hygiene') || lowerTitle.includes('inspection')
+        ? 'hygiene and chiller inspection plan'
+        : lowerTitle.includes('chope') || lowerTitle.includes('seating') || lowerTitle.includes('table')
+          ? 'morning seating and booth policy'
+          : lowerTitle.includes('delivery') || lowerTitle.includes('grab') || lowerTitle.includes('commission')
+            ? 'delivery and catering menu plan'
+            : lowerTitle.includes('kiosk') || lowerTitle.includes('queue') || lowerTitle.includes('uncle')
+              ? 'kiosk queue and kitchen docket update'
+              : 'morning plan';
+
     if (/\b(?:table|park|postpone|defer|follow[- ]?up\s+(?:session|meeting)|10\s*am\s+follow[- ]?up)\b/i.test(lowerDecision)) {
       this.usedActionKinds.add('calendar_event');
-      return `Specifically, ask ${who} directly using "Could you..." (never say "are you happy to" or "do you want to") to schedule the 10 AM follow-up session on the calendar so Kaki can draft the calendar invite on their screen right now.`;
+      return `Specifically, ask ${who} directly using "Could you..." (never say "are you happy to" or "do you want to") to schedule the 10 AM follow-up session on the ${topicSubject} on the calendar so Kaki can draft the calendar invite on their screen right now.`;
     }
 
     const options: Option[] = [];
@@ -915,7 +926,7 @@ export class NpcConversation<Clip> {
               : 'the external partner';
       options.push({
         kind: 'email',
-        phrase: `send an email to ${recipientHint} with the plan we just agreed on`,
+        phrase: `send an email to ${recipientHint} with our agreed ${topicSubject}`,
       });
     }
     if (
@@ -925,21 +936,21 @@ export class NpcConversation<Clip> {
     ) {
       options.push({
         kind: 'gitea_issue',
-        phrase: 'file a ticket in the issue tracker to implement the system and menu changes we just agreed on',
+        phrase: `file a ticket in the issue tracker to implement our agreed ${topicSubject}`,
       });
     }
     options.push(
       {
         kind: 'wiki_page',
-        phrase: 'write up our agreed morning SOP and decision on the team wiki',
+        phrase: `write up our agreed ${topicSubject} SOP on the team wiki`,
       },
       {
         kind: 'mattermost_post',
-        phrase: 'post our agreed morning plan in the team channel so the floor crew is aligned',
+        phrase: `post our agreed ${topicSubject} in the team channel so the floor crew is aligned`,
       },
       {
         kind: 'calendar_event',
-        phrase: 'schedule a quick 10 AM follow-up check-in on the calendar',
+        phrase: `schedule a quick 10 AM follow-up check-in on the ${topicSubject} on the calendar`,
       },
     );
 

@@ -596,23 +596,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
     if (isTaskDispatch) {
-      const personName = person?.name;
       visitorTaskDispatches += 1;
-      if (personName !== undefined) {
-        spoken =
-          visitorTaskDispatches === 1
-            ? `${personName}, I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it.`
-            : `${personName}, I've queued that next follow-up on your screen on the right to review and confirm.`;
-      } else {
-        const guidance =
-          visitorTaskDispatches === 1
-            ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
-            : "Have a look on your screen on the right to review and confirm.";
-        spoken = spoken
-          .replace(/\bAccept or decline it on your phone\./gi, guidance)
-          .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
-          .replace(/\bIt's on your phone\./gi, guidance);
-      }
+      const guidance =
+        visitorTaskDispatches === 1
+          ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
+          : "Have a look on your screen on the right to review and confirm.";
+      spoken = spoken
+        .replace(/\bAccept or decline it on your phone\./gi, guidance)
+        .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
+        .replace(/\bIt's on your phone\./gi, guidance);
     }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??

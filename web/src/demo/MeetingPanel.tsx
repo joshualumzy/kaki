@@ -237,7 +237,7 @@ export function MeetingPanel({
           {rejection.commandType}: {rejection.reason}
         </p>
       )}
-      {isHost ? (
+      {isHost && (
         <div className="kd-host-controls">
           <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}>
             Next agenda item
@@ -246,28 +246,6 @@ export function MeetingPanel({
             End meeting
           </button>
         </div>
-      ) : (
-        record !== undefined &&
-        !meetingEnded && (
-          <div className="kd-host-controls" aria-label="Meeting controls">
-            {record.payload.agendaIndex + 1 < scenario.agenda.length && (
-              <button
-                type="button"
-                className="kd-chip"
-                onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
-              >
-                Skip to next topic →
-              </button>
-            )}
-            <button
-              type="button"
-              className="kd-chip"
-              onClick={() => send({ type: 'END_MEETING' })}
-            >
-              End meeting
-            </button>
-          </div>
-        )
       )}
       {meetingEnded && (
         <section className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
@@ -340,12 +318,32 @@ export function MeetingPanel({
               agendaIndex={record.payload.agendaIndex}
             />
           )}
+          {!isHost && !meetingEnded && (
+            <div className="kd-host-controls" aria-label="Meeting controls" style={{ marginTop: 6 }}>
+              {record.payload.agendaIndex + 1 < scenario.agenda.length && (
+                <button
+                  type="button"
+                  className="kd-chip"
+                  onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
+                >
+                  Skip to next topic →
+                </button>
+              )}
+              <button
+                type="button"
+                className="kd-chip"
+                onClick={() => send({ type: 'END_MEETING' })}
+              >
+                End meeting
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {boardTasks.length > 0 && (
         <div className="kd-tasks">
-          <h3 className="eyebrow">Live Kaki Actions ({boardTasks.length})</h3>
+          <h3 className="eyebrow">Team Action Board ({boardTasks.length})</h3>
           <ul>
             {boardTasks.map((task) => (
               <li

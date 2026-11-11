@@ -663,7 +663,9 @@ function TaskCardBody({
       </p>
       {task.context.trim() === '' ||
       (viewer !== undefined &&
-        (task.status === 'DRAFT_READY' || task.status === 'COMPLETED' || task.status === 'SYNCED')) ? null : (
+        ((task.status === 'DRAFT_READY' && task.decisionSource !== undefined) ||
+          task.status === 'COMPLETED' ||
+          task.status === 'SYNCED')) ? null : (
         <p className="phone-task-context">{task.context}</p>
       )}
       {task.decisionSource === undefined ||

@@ -12,8 +12,8 @@ const PRELOAD_ONBOARDING_SVGS = [
   '/scenario/crisis-kiosk-lingo.svg',
 ] as const;
 
-/** What the name box starts with: people can change it to anything. */
-export const DEFAULT_NAME = 'Foo';
+/** What the name box starts with: empty so the visitor enters their own name. */
+export const DEFAULT_NAME = '';
 
 export interface JoinFormProps {
   meetingTitle: string;
