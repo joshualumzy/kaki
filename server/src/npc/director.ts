@@ -152,9 +152,16 @@ export function buildSystemPrompt(
       (role) => role.facilitator === true && (role.id.toLowerCase() === humanRoleKey || role.label.toLowerCase() === humanRoleKey),
     );
   const now = new Date();
-  const hour = now.getHours();
+  const hour = Number(
+    now.toLocaleString('en-US', { timeZone: 'Asia/Singapore', hour: 'numeric', hour12: false }),
+  );
   const timeOfDay = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-  const localClock = now.toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const localClock = now.toLocaleTimeString('en-SG', {
+    timeZone: 'Asia/Singapore',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
   const unintroduced = names
     .filter((name) => name !== host?.attendee && !alreadyIntroduced.includes(name))
     .map((name) => {

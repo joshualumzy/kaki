@@ -52,6 +52,19 @@ function isAddress(value: string): boolean {
   return parts.length === 2 && parts[0] !== '' && parts[1] !== '';
 }
 
+function cleanRecipientPart(raw: string): string {
+  const trimmed = raw.trim();
+  const angleMatch = /<([^<>]+)>/.exec(trimmed);
+  return (angleMatch?.[1] ?? trimmed).trim();
+}
+
+function recipientsOf(target: string): string[] {
+  return target
+    .split(/[,;]/)
+    .map(cleanRecipientPart)
+    .filter((part) => isAddress(part));
+}
+
 // Strictly one JSON object with a non-empty subject and body; a bad address only empties the target.
 function parseDraft(reply: string): EmailDraft | undefined {
   let value: unknown;
@@ -65,14 +78,8 @@ function parseDraft(reply: string): EmailDraft | undefined {
   const body = typeof value.body === 'string' ? value.body.trim() : '';
   if (subject === '' || body === '') return undefined;
   const to = typeof value.to === 'string' ? value.to.trim() : '';
-  return { to: isAddress(to) ? to : '', subject, body };
-}
-
-function recipientsOf(target: string): string[] {
-  return target
-    .split(/[,;]/)
-    .map((part) => part.trim())
-    .filter((part) => isAddress(part));
+  const validTo = recipientsOf(to);
+  return { to: validTo.join(', '), subject, body };
 }
 
 function baseUrl({ mailpitUrl }: EmailSettings): string {
@@ -156,7 +163,7 @@ export function createEmailModule({
           content:
             'You turn a team task into a short, polite email. Reply with one JSON object and nothing else: ' +
             '{"to": "...", "subject": "...", "body": "..."}. Write the body as plain text and keep it short. ' +
-            'For "to", look up the matching recipient email address in the Known facts below when one is listed for the person or partner mentioned in the task or context; if the email is to an internal team or colleague with no listed address, use a sensible address at @example.com (such as team@example.com or dev@example.com).' +
+            'For "to", look up the matching recipient email address in the Known facts below when one is listed for the person or partner mentioned in the task or context; if no email address is listed for the recipient (including customers, officers, landlords, or internal colleagues), always provide a sensible address at @example.com (such as customer@example.com, sfa@example.com, landlord@example.com, or team@example.com) and never leave "to" empty.' +
             ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). When an Accepted decision is given, keep its time of day, who owns or enforces it, and how it will be measured; do not leave out a detail it gives. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. If the Context gives a time of day without AM or PM, keep it exactly as written; never choose AM or PM yourself. Never write "effective immediately" or another start date unless the Context explicitly states it. Keep the words of the task title in the title.',
         },
         {

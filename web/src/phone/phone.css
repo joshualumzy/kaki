@@ -69,7 +69,9 @@
 .phone .artifact-link {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  justify-content: center;
+  width: 100%;
+  min-height: 42px;
   overflow-wrap: anywhere;
 }
 

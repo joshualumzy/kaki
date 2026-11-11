@@ -219,6 +219,7 @@ const claimedAnnouncedTaskIds = new Set<string>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
 let lastVisitorDispatchSpokenAt = 0;
+let lastVerbalTaskAckAt = 0;
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
   const socket = new WebSocket(url);
@@ -229,14 +230,21 @@ function followHostCues(): void {
   socket.on('message', (data) => {
     if (Date.now() - openedAt.at < 1000) return;
     try {
-      const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown } };
+      const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
       if (event.type === 'MEETING_RESET') {
         taskStatusByTitle.clear();
         activeHumanTaskIds.clear();
         claimedAnnouncedTaskIds.clear();
         syncedTaskIds.clear();
         declinedTaskIds.clear();
+        lastVisitorDispatchSpokenAt = 0;
+        lastVerbalTaskAckAt = 0;
         return;
+      }
+      if (event.type === 'TRANSCRIPT_CHUNK' && typeof event.payload?.text === 'string') {
+        if (/\bKaki (?:will draft|is drafting) that (?:on your screen|for you)\b/i.test(event.payload.text)) {
+          lastVerbalTaskAckAt = Date.now();
+        }
       }
       if (event.type === 'TASK_UPDATED') {
         const updatedTask = (
@@ -258,13 +266,6 @@ function followHostCues(): void {
         }
         const taskOrigin = updatedTask?.agendaItemTitle ?? null;
         const onCurrentAgenda = runner.onCurrentAgenda(updatedTask?.agendaItemTitle);
-        // A premature dispatch is only premature on the item it came from: an old task arriving after the
-        // meeting moved on must not be dismissed because the new item is not ready yet.
-        if (updatedTask?.status === 'DISPATCHED' && onCurrentAgenda && !runner.canDispatchTask()) {
-          log(`dismissed premature task ${updatedTask.id ?? ''} before visitor spoke on this item`);
-          if (updatedTask.id !== undefined) sendAs('screen', { type: 'DISMISS_TASK', taskId: updatedTask.id });
-          return;
-        }
         taskResponder.handle(event as unknown as KakiEvent);
         const assigneeRole = updatedTask?.assignee ?? updatedTask?.suggestedAssignee;
         const assigneeAttendee = scenario.attendees.find((a) => a.role === assigneeRole)?.name;
@@ -278,57 +279,7 @@ function followHostCues(): void {
             return name !== undefined && !runner.plays(name);
           });
 
-        if (isHumanTask && onCurrentAgenda && updatedTask?.id !== undefined) {
-          if (updatedTask.status === 'DISPATCHED') {
-            activeHumanTaskIds.add(updatedTask.id);
-            runner.holdForHumanTask(45_000, taskOrigin);
-          } else if (
-            updatedTask.status === 'CLAIMED' ||
-            updatedTask.status === 'DRAFT_READY' ||
-            updatedTask.status === 'RUNNING' ||
-            updatedTask.status === 'FAILED'
-          ) {
-            activeHumanTaskIds.add(updatedTask.id);
-            runner.cancelPendingDispatch(taskOrigin);
-            runner.holdForHumanTask(45_000, taskOrigin);
-            if (updatedTask.status === 'CLAIMED' && !claimedAnnouncedTaskIds.has(updatedTask.id)) {
-              claimedAnnouncedTaskIds.add(updatedTask.id);
-              const who = runner.visitorName() ?? assigneeAttendee ?? 'there';
-              runner.announce(`Nice one ${who} — Kaki is drafting that for you now, just review and send it whenever it's ready.`);
-            }
-          } else if (updatedTask.status === 'COMPLETED') {
-            activeHumanTaskIds.add(updatedTask.id);
-            runner.cancelPendingDispatch(taskOrigin);
-            runner.holdForHumanTask(25_000, taskOrigin);
-          } else if (updatedTask.status === 'SYNCED') {
-            activeHumanTaskIds.delete(updatedTask.id);
-            runner.cancelPendingDispatch(taskOrigin);
-            if (!syncedTaskIds.has(updatedTask.id)) {
-              syncedTaskIds.add(updatedTask.id);
-              const who = runner.visitorName() ?? assigneeAttendee ?? 'team';
-              const acks = [
-                `Thanks ${who}, that's live now — feel free to click Open live on your card to check it out before we move on.`,
-                `Steady ${who}, Kaki just published that — you can click Open live on your card if you want to see it in action.`,
-                `Awesome ${who}, that's published live — click Open live on your card anytime to see it on the platform.`,
-              ];
-              const ack = acks[syncedTaskIds.size % acks.length]!;
-              runner.announce(
-                ack,
-                () => {
-                  if (activeHumanTaskIds.size === 0) {
-                    setTimeout(() => {
-                      if (activeHumanTaskIds.size === 0) {
-                        runner.completeHumanTask(taskOrigin);
-                      }
-                    }, 9_000).unref();
-                  } else {
-                    runner.holdForHumanTask(45_000, taskOrigin);
-                  }
-                },
-              );
-            }
-          }
-        } else if (
+        if (
           wasDeclinedByHuman &&
           onCurrentAgenda &&
           updatedTask?.id !== undefined &&
@@ -346,6 +297,60 @@ function followHostCues(): void {
               }
             },
           );
+        } else if (isHumanTask && onCurrentAgenda && updatedTask?.id !== undefined) {
+          if (updatedTask.status === 'DISPATCHED') {
+            activeHumanTaskIds.add(updatedTask.id);
+            runner.holdForHumanTask(45_000, taskOrigin);
+          } else if (
+            updatedTask.status === 'CLAIMED' ||
+            updatedTask.status === 'DRAFT_READY' ||
+            updatedTask.status === 'RUNNING' ||
+            updatedTask.status === 'FAILED'
+          ) {
+            activeHumanTaskIds.add(updatedTask.id);
+            runner.cancelPendingDispatch(taskOrigin);
+            runner.holdForHumanTask(45_000, taskOrigin);
+            if (updatedTask.status === 'CLAIMED' && !claimedAnnouncedTaskIds.has(updatedTask.id)) {
+              claimedAnnouncedTaskIds.add(updatedTask.id);
+              if (claimedAnnouncedTaskIds.size === 1 && Date.now() - lastVerbalTaskAckAt > 12_000) {
+                const who = runner.visitorName() ?? assigneeAttendee ?? 'there';
+                runner.announce(
+                  `Nice one ${who} — Kaki is drafting that for you now, just review and send it whenever it's ready.`,
+                );
+              }
+            }
+          } else if (updatedTask.status === 'COMPLETED') {
+            activeHumanTaskIds.add(updatedTask.id);
+            runner.cancelPendingDispatch(taskOrigin);
+            runner.holdForHumanTask(activeHumanTaskIds.size <= 1 ? 25_000 : 45_000, taskOrigin);
+          } else if (updatedTask.status === 'SYNCED') {
+            activeHumanTaskIds.delete(updatedTask.id);
+            runner.cancelPendingDispatch(taskOrigin);
+            if (!syncedTaskIds.has(updatedTask.id)) {
+              syncedTaskIds.add(updatedTask.id);
+              const who = runner.visitorName() ?? assigneeAttendee ?? 'team';
+              const ack =
+                syncedTaskIds.size === 1
+                  ? `Thanks ${who}, that's live now — feel free to click Open live on your card if you want to check it out before we move on.`
+                  : syncedTaskIds.size === 2
+                    ? `Steady ${who}, Kaki just published that follow-up as well.`
+                    : `Lovely ${who}, that's published live too.`;
+              runner.announce(
+                ack,
+                () => {
+                  if (activeHumanTaskIds.size === 0) {
+                    setTimeout(() => {
+                      if (activeHumanTaskIds.size === 0) {
+                        runner.completeHumanTask(taskOrigin);
+                      }
+                    }, 9_000).unref();
+                  } else {
+                    runner.holdForHumanTask(45_000, taskOrigin);
+                  }
+                },
+              );
+            }
+          }
         } else if (
           activeHumanTaskIds.size === 0 &&
           onCurrentAgenda &&
@@ -357,35 +362,43 @@ function followHostCues(): void {
           runner.taskAccepted(taskOrigin);
         }
       }
-      // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
-      if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string' && !runner.hostIsHuman()) {
-        const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
-        if (payload.kind === 'DISPATCH' && !runner.canDispatchTask()) return;
-        if (payload.kind === 'CLOSING') {
-          runner.announceClosing(payload.text);
-          return;
-        }
-        // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
-        const colleague = payload.kind === 'DISPATCH' && payload.assignee !== undefined && payload.title !== undefined && runner.plays(payload.assignee);
-        if (colleague) {
-          cueOrder.cue((done) => runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done));
-        } else if (payload.kind === 'DISPATCH') {
-          const now = Date.now();
-          if (now - lastVisitorDispatchSpokenAt < 18_000) {
-            return;
-          }
-          lastVisitorDispatchSpokenAt = now;
-          const titleKey = (payload.title ?? '').trim().toLowerCase();
-          runner.announce(payload.text, undefined, () => {
-            const currentStatus = taskStatusByTitle.get(titleKey);
-            return currentStatus === undefined || currentStatus === 'DISPATCHED';
-          });
-        } else {
-          runner.announce(payload.text);
-        }
+      if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string') {
         if (event.payload.text.startsWith('Next up:')) {
           activeHumanTaskIds.clear();
+          lastVisitorDispatchSpokenAt = 0;
           runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
+        }
+        // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
+        if (!runner.hostIsHuman()) {
+          const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
+          if (payload.kind === 'CLOSING') {
+            runner.announceClosing(payload.text);
+            return;
+          }
+          // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
+          const colleague =
+            payload.kind === 'DISPATCH' &&
+            payload.assignee !== undefined &&
+            payload.title !== undefined &&
+            runner.plays(payload.assignee);
+          if (colleague) {
+            cueOrder.cue((done) =>
+              runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done),
+            );
+          } else if (payload.kind === 'DISPATCH') {
+            const now = Date.now();
+            if (now - lastVisitorDispatchSpokenAt < 18_000) {
+              return;
+            }
+            lastVisitorDispatchSpokenAt = now;
+            const titleKey = (payload.title ?? '').trim().toLowerCase();
+            runner.announce(payload.text, undefined, () => {
+              const currentStatus = taskStatusByTitle.get(titleKey);
+              return currentStatus === undefined || currentStatus === 'DISPATCHED';
+            });
+          } else {
+            runner.announce(payload.text);
+          }
         }
       }
     } catch {

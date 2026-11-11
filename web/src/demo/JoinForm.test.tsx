@@ -90,21 +90,23 @@ describe('JoinForm', () => {
     expect(button.disabled).toBe(true);
   });
 
-  it('starts with a default name the person can change, not a real person\'s', () => {
-    const { name } = setup();
-    expect(name.value).toBe('Foo');
+  it('starts with an empty name box so the person fills in their own name', () => {
+    const { name, button } = setup();
+    expect(name.value).toBe('');
+    expect(button.disabled).toBe(true);
   });
 
   it('toggles the microphone and camera like a call, and joins with the choice', () => {
-    const { button, onJoin } = setup();
+    const { button, name, onJoin } = setup();
     const mic = screen.getByLabelText('Microphone');
     const camera = screen.getByLabelText('Camera');
     expect(mic.getAttribute('aria-pressed')).toBe('true');
     expect(camera.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.change(name, { target: { value: 'Josh' } });
     fireEvent.click(mic);
     expect(button.textContent).toBe('Join to type');
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Foo', 'Producer', { microphone: false, camera: false });
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: false, camera: false });
   });
 
   it('has no code box until a code is needed or came with the link', () => {
@@ -113,18 +115,20 @@ describe('JoinForm', () => {
   });
 
   it('requires the code once it is asked for, and sends it', () => {
-    const { button, onJoin } = setup({ askCode: true });
+    const { button, name, onJoin } = setup({ askCode: true });
+    fireEvent.change(name, { target: { value: 'Josh' } });
     expect(button.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Meeting code'), { target: { value: 'k7qx' } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Foo', 'Producer', { microphone: true, camera: false }, 'K7QX');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: true, camera: false }, 'K7QX');
   });
 
   it('fills the code from the link but does not insist on it', () => {
-    const { onJoin, button } = setup({ initialCode: 'ABCD' });
+    const { onJoin, name, button } = setup({ initialCode: 'ABCD' });
+    fireEvent.change(name, { target: { value: 'Josh' } });
     expect((screen.getByLabelText('Meeting code') as HTMLInputElement).value).toBe('ABCD');
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Foo', 'Producer', { microphone: true, camera: false }, 'ABCD');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: true, camera: false }, 'ABCD');
   });
 });

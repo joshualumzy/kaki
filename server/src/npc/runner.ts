@@ -22,7 +22,7 @@ import {
   type NpcStateMessage,
   type Scenario,
 } from '@kaki/shared';
-import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine } from '../host/opening';
+import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenTopicLead } from '../host/opening';
 import type { ChatMessage } from '../llm';
 import { createRoomToken } from '../livekit';
 import { NpcConversation } from './conversation';
@@ -596,11 +596,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
     if (isTaskDispatch) {
+      visitorTaskDispatches += 1;
       const guidance =
-        visitorTaskDispatches === 0
+        visitorTaskDispatches === 1
           ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
           : "Have a look on your screen on the right to review and confirm.";
-      visitorTaskDispatches += 1;
       spoken = spoken
         .replace(/\bAccept or decline it on your phone\./gi, guidance)
         .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
@@ -612,7 +612,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       /^Hey team, we're a bit past time on (.+?) — let's wrap this one up so we can move on\.$/i.exec(spoken.trim());
     if (timeoutMatch !== null) {
       const personName = person?.name;
-      const itemTitle = timeoutMatch[1];
+      const itemTitle = spokenTopicLead(timeoutMatch[1] ?? 'this item');
       spoken =
         personName !== undefined
           ? `${personName}, we're a bit past time on ${itemTitle} — do you want another minute on this, or should we make a decision and keep moving?`
