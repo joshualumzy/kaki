@@ -266,13 +266,6 @@ function followHostCues(): void {
         }
         const taskOrigin = updatedTask?.agendaItemTitle ?? null;
         const onCurrentAgenda = runner.onCurrentAgenda(updatedTask?.agendaItemTitle);
-        // A premature dispatch is only premature on the item it came from: an old task arriving after the
-        // meeting moved on must not be dismissed because the new item is not ready yet.
-        if (updatedTask?.status === 'DISPATCHED' && onCurrentAgenda && !runner.canDispatchTask()) {
-          log(`dismissed premature task ${updatedTask.id ?? ''} before visitor spoke on this item`);
-          if (updatedTask.id !== undefined) sendAs('screen', { type: 'DISMISS_TASK', taskId: updatedTask.id });
-          return;
-        }
         taskResponder.handle(event as unknown as KakiEvent);
         const assigneeRole = updatedTask?.assignee ?? updatedTask?.suggestedAssignee;
         const assigneeAttendee = scenario.attendees.find((a) => a.role === assigneeRole)?.name;
@@ -378,7 +371,6 @@ function followHostCues(): void {
         // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
         if (!runner.hostIsHuman()) {
           const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
-          if (payload.kind === 'DISPATCH' && !runner.canDispatchTask()) return;
           if (payload.kind === 'CLOSING') {
             runner.announceClosing(payload.text);
             return;

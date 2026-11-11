@@ -106,7 +106,7 @@ const SIDE_TASK_REQUEST =
 const SIDE_TASK_MARKER = /\b(?:after|before)\s+(?:this(?:\s+(?:meeting|call|huddle))?(?![\s-]+[a-z])|the meeting|we finish|you go|the call)\b/i;
 
 const FOLLOW_UP_VERBS =
-  String.raw`send|email|post|file|write|schedule|book|share|confirm|update|put|make sure|arrange|bring|check|draft|print`;
+  String.raw`send|email|post|file|write|schedule|book|share|draft`;
 
 /** One ordinary first-person commitment ("I'll post the handover in Mattermost."), matched as a whole sentence so a plan before or after it is not mistaken for the promise object. */
 const ORDINARY_FIRST_PERSON_FOLLOW_UP = new RegExp(
@@ -183,23 +183,41 @@ const CLEAR_ACTION_IMPERATIVE =
  * True when a visitor's line is worth one readiness check: a concrete proposal for the item,
  * not a question, greeting, filler, status update, or a side request to send/file/post something.
  */
+/** A greeting or acknowledgement is only filler when it is the whole (short) line, not the opening word of a decision. */
+const FILLER_MAX_WORDS = 4;
+function isFillerLine(text: string): boolean {
+  return text.split(/\s+/).length <= FILLER_MAX_WORDS && GREETING_OR_FILLER.test(text);
+}
+
+/** Verbs that always name a message to prepare; the others (send, post, file, write) also describe physical actions. */
+const MESSAGE_ONLY_VERB = /^(?:please\s+)?(?:draft|email|forward|submit|upload|circulate)\b|\b(?:can|could|would|will)\s+you\s+(?:[a-z]+\s+){0,3}(?:email|schedule|book|draft)\b/i;
+const DELIVERABLE_NOUN =
+  /\b(?:e-?mail|message|post|ticket|issue|note|notes|update|announcement|invite|invitation|page|summary|minutes|memo|handover|draft|channel|wiki|calendar|reminder|report|breakdown|figures|numbers|details|spreadsheet|document|link)\b/i;
+
+/** True when a line asks for a message, ticket, page or invite, not for a physical action ("Post a staff member at the door"). */
+function asksForDeliverable(text: string): boolean {
+  if (!(SIDE_TASK_REQUEST.test(text) || SIDE_TASK_IMPERATIVE.test(text))) return false;
+  if (MESSAGE_ONLY_VERB.test(text)) return true;
+  const afterVerb = text.replace(/^(?:please\s+)?\S+\s*/i, '');
+  return DELIVERABLE_NOUN.test(afterVerb);
+}
+
 export function isSubstantiveProposal(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0) return false;
   if (META_OR_NONSENSE.test(trimmed)) return false;
   if (
-    SIDE_TASK_REQUEST.test(trimmed) ||
+    asksForDeliverable(trimmed) ||
     SIDE_TASK_MARKER.test(trimmed) ||
     isPureOrdinaryCommunicationPromise(trimmed) ||
-    isPureNamedCommunicationPromise(trimmed) ||
-    SIDE_TASK_IMPERATIVE.test(trimmed)
+    isPureNamedCommunicationPromise(trimmed)
   ) {
     return false;
   }
   if (ENDORSEMENT_DECISION_RE.test(trimmed)) {
     return true;
   }
-  if (GREETING_OR_FILLER.test(trimmed)) return false;
+  if (isFillerLine(trimmed)) return false;
   if (TRAILING_INCOMPLETE_CLAUSE.test(trimmed)) return false;
   if (trimmed.endsWith('?')) return PROPOSAL_QUESTION.test(trimmed);
   return !FEASIBILITY_QUESTION.test(trimmed);
@@ -212,7 +230,7 @@ export function isSubstantiveProposal(text: string): boolean {
 export function isSideRequest(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0) return false;
-  return SIDE_TASK_REQUEST.test(trimmed) || SIDE_TASK_IMPERATIVE.test(trimmed);
+  return asksForDeliverable(trimmed);
 }
 
 /** True when the model called a clear action imperative a non-proposal; the item must stay open. */

@@ -68,6 +68,9 @@ export const DEFAULT_SILENCE_PROMPT_MS = 28_000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
+/** After the visitor says yes aloud to a follow-up, how long the topic stays open for its task card before moving on. */
+export const SPOKEN_ACCEPT_HOLD_MS = 25_000;
+
 /** How long the person must keep talking over the room before it stops; a shorter burst is probably noise or an echo. */
 export const DEFAULT_BARGE_IN_MS = 1400;
 
@@ -905,7 +908,7 @@ export class NpcConversation<Clip> {
               ? 'kiosk queue and kitchen docket update'
               : 'morning plan';
 
-    if (/\b(?:table|park|postpone|defer|follow[- ]?up\s+(?:session|meeting)|10\s*am\s+follow[- ]?up)\b/i.test(lowerDecision)) {
+    if (/\b(?:(?:table|park|postpone|defer)\s+(?:this|it|that|the\s+(?:topic|item|decision|discussion))|follow[- ]?up\s+(?:session|meeting)|10\s*am\s+follow[- ]?up)\b/i.test(lowerDecision)) {
       this.usedActionKinds.add('calendar_event');
       return `Specifically, ask ${who} directly using "Could you..." (never say "are you happy to" or "do you want to") to schedule the 10 AM follow-up session on the ${topicSubject} on the calendar so Kaki can draft the calendar invite on their screen right now.`;
     }
@@ -1661,7 +1664,8 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
       const ackText = acks[this.humanLines % acks.length]!;
       this.ports.log?.(`short-circuiting task acceptance ack with scripted "${ackSpeaker}: ${ackText}"`);
       this.startScripted({ speaker: ackSpeaker, text: ackText }, () => {
-        this.taskAccepted();
+        // Saying yes aloud is not finishing the task: leave time for the card to arrive and be opened.
+        this.holdForHumanTask(SPOKEN_ACCEPT_HOLD_MS);
       });
       return;
     }
@@ -1954,7 +1958,7 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
     const handover = new HandoverGuard(this.names, this.human?.name);
     let safetyRefusalDetected = false;
     const SAFETY_REFUSAL_RE =
-      /\b(?:I cannot (?:continue|engage|simulate|proceed|discuss)|I can't (?:continue|proceed|engage)|I can no longer proceed|thoughts of (?:self-harm|suicide)|National Suicide Prevention Lifeline|Crisis Text Line|Samaritans of Singapore|National Care Hotline|professional helpline|call a friend or|step away from the screen|741741|1-800-273-TALK|1-?767|immediate danger|need someone to talk to|sorry to hear (?:that )?you are feeling this way|get the support you need right now|we can pause the meeting so you can take care of yourself|your well-?being is the most important thing)\b/i;
+      /\b(?:I cannot (?:continue|engage|simulate|proceed|discuss)|I can't (?:continue|proceed|engage) (?:with )?(?:this|the) (?:conversation|role-?play|simulation|request)|I can no longer proceed|thoughts of (?:self-harm|suicide)|National Suicide Prevention Lifeline|Crisis Text Line|Samaritans of Singapore|National Care Hotline|professional helpline|call a friend or|step away from the screen|741741|1-800-273-TALK|1-?767|need someone to talk to|sorry to hear (?:that )?you are feeling this way|get the support you need right now|we can pause the meeting so you can take care of yourself|your well-?being is the most important thing)\b/i;
     const enqueue = (utterance: Utterance): void => {
       let trimmed = utterance.text
         .replace(/\s*\[(?:cut off|[^\]]*interrupted here[^\]]*)\]\s*/gi, ' ')
@@ -1991,7 +1995,6 @@ Keep every single sentence under 28 words so it flows naturally aloud. Keep it t
         (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
         /\bnext up\b/i.test(trimmed) ||
         /\blet's move on to\b/i.test(trimmed) ||
-        /\blet's talk about the\b/i.test(trimmed) ||
         /\blet's lock that in and move on\b/i.test(trimmed)
       ) {
         this.ports.log?.(`dropped ${utterance.speaker}'s meta/stage line: "${utterance.text}"`);

@@ -117,7 +117,7 @@ export function hostRole(scenario: Scenario): ScenarioRole | undefined {
 }
 
 /** How many people may be in the demo meeting at once (the rest of the cast stays AI). */
-export const DEFAULT_MAX_HUMANS = 3;
+export const DEFAULT_MAX_HUMANS = 1;
 
 /**
  * Why a person cannot take a seat right now, or `undefined` if they can. `present` are the people already in the room.
