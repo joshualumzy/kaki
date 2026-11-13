@@ -71,6 +71,7 @@ const events: KakiEvent[] = [
         { text: duplicateFact, source: 'gitea ticket', date: '2026-11-06' },
         { text: distinctFact, source: 'wiki SOP', date: '2026-11-06' },
       ],
+      agendaIndex: 0,
     },
   },
 ];

@@ -102,20 +102,17 @@ export function MeetingPanel({
     if (record === undefined || !topicBriefingStarted) {
       return { currentFact: undefined, liveWingmanBrief: undefined };
     }
-    let agendaIndex: number | undefined;
-    let latestRecordFact: { event: FactEvent; agendaIndex: number | undefined } | undefined;
-    let latestWingmanTip: { text: string; agendaIndex: number | undefined } | undefined;
+    let latestRecordFact: { event: FactEvent; agendaIndex: number } | undefined;
+    let latestWingmanTip: { text: string; agendaIndex: number } | undefined;
     for (const event of events) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        agendaIndex = event.payload.agendaIndex;
-      } else if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
+      if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
         if (event.payload.question.startsWith('Live Wingman Brief')) {
           const tip = event.payload.facts[0]?.text;
           if (tip !== undefined && tip.trim() !== '') {
-            latestWingmanTip = { text: tip, agendaIndex };
+            latestWingmanTip = { text: tip, agendaIndex: event.payload.agendaIndex };
           }
         } else {
-          latestRecordFact = { event, agendaIndex };
+          latestRecordFact = { event, agendaIndex: event.payload.agendaIndex };
         }
       }
     }

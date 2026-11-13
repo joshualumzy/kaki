@@ -72,7 +72,7 @@ describe('app', () => {
     app.hub.publish({
       type: 'NUDGE',
       audience: { kind: 'role', role: 'chef' },
-      payload: { text: 'Prep starts now.' },
+      payload: { text: 'Prep starts now.', agendaIndex: 0 },
     });
     await settle();
 

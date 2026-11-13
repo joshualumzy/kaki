@@ -17,7 +17,7 @@ const task = {
 const nudge = {
   type: 'NUDGE',
   audience: { kind: 'role', role: 'chef' },
-  payload: { text: 'Prep starts in one minute.' },
+  payload: { text: 'Prep starts in one minute.', agendaIndex: 0 },
 };
 
 const factFound = {
@@ -27,6 +27,7 @@ const factFound = {
     questionId: 'q-oven',
     question: 'When was the oven last serviced?',
     facts: [{ text: 'Last serviced in May.', source: 'Service log', date: '2026-05-02' }],
+    agendaIndex: 0,
   },
 };
 
@@ -81,6 +82,20 @@ describe('isKakiEvent', () => {
     expect(isKakiEvent({ ...nudge, audience: { kind: 'all' } }, testScenario)).toBe(false);
     expect(isKakiEvent({ ...factFound, audience: { kind: 'screen' } }, testScenario)).toBe(false);
     expect(isKakiEvent({ ...factFound, audience: { kind: 'all' } }, testScenario)).toBe(false);
+  });
+
+  it('requires a whole, non-negative agenda index on NUDGE and FACT_FOUND', () => {
+    expect(isKakiEvent({ ...nudge, payload: { ...nudge.payload, agendaIndex: 2 } }, testScenario)).toBe(true);
+    expect(isKakiEvent({ ...nudge, payload: { text: nudge.payload.text } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...nudge, payload: { ...nudge.payload, agendaIndex: -1 } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...nudge, payload: { ...nudge.payload, agendaIndex: 1.5 } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...factFound, payload: { ...factFound.payload, agendaIndex: '0' } }, testScenario)).toBe(false);
+    expect(
+      isKakiEvent(
+        { ...factFound, payload: { ...factFound.payload, agendaIndex: undefined } },
+        testScenario,
+      ),
+    ).toBe(false);
   });
 
   it('rejects unknown roles in every place', () => {

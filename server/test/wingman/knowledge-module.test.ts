@@ -62,12 +62,13 @@ function fakeHub(): {
 function recordUpdate(
   questionId = 'q-quit',
   forRole: 'game_designer' | 'producer' | null = 'game_designer',
+  agendaIndex = 0,
 ): KakiEvent {
   return {
     type: 'MEETING_RECORD_UPDATED',
     audience: { kind: 'all' },
     payload: {
-      agendaIndex: 0,
+      agendaIndex,
       openQuestions: [{ id: questionId, text: 'Where do players quit?', ...(forRole === null ? {} : { forRole }) }],
       elapsedSeconds: 1,
       speakerTalkSeconds: {},
@@ -116,10 +117,27 @@ describe('knowledge module', () => {
         {
           type: 'FACT_FOUND',
           audience: { kind: 'role', role: 'game_designer' },
-          payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact] },
+          payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact], agendaIndex: 0 },
         },
       ]);
       expect(fake.retainKeys).toEqual(['fact:q-quit']);
+    } finally {
+      stop();
+    }
+  });
+
+  it('tags the fact card with the agenda item the question belongs to', async () => {
+    const fake = fakeHub();
+    const stop = start(async () => [fact], fake.hub);
+
+    try {
+      fake.emit(recordUpdate('q-level-5', 'game_designer', 1));
+      await waitFor(() => fake.published.length > 0, 'the fact card');
+
+      expect(fake.published[0]).toMatchObject({
+        type: 'FACT_FOUND',
+        payload: { questionId: 'q-level-5', agendaIndex: 1 },
+      });
     } finally {
       stop();
     }
@@ -277,7 +295,7 @@ describe('knowledge module', () => {
       expect(search).toHaveBeenCalledWith('Where do players quit?', 'game_designer');
       expect(fake.published[0]).toMatchObject({
         type: 'FACT_FOUND',
-        payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact] },
+        payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact], agendaIndex: 0 },
       });
     } finally {
       stop();

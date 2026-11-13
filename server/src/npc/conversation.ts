@@ -27,8 +27,8 @@ export interface NpcPorts<Clip> {
   advanceAgenda?(): void;
   /** Wrap up the meeting once the final agenda item is complete. */
   endMeeting?(): void;
-  /** A fact the Director picked to help the visitor right now, for their Wingman. */
-  onWingmanTip?(tip: string, title: string): void;
+  /** A fact the Director picked to help the visitor right now, for their Wingman, on the agenda item it belongs to. */
+  onWingmanTip?(tip: string, title: string, agendaIndex: number): void;
   /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
   settleTopic?(followUp: SuggestInput): void | Promise<void>;
 }
@@ -1695,7 +1695,10 @@ export class NpcConversation<Clip> {
         const item = this.currentItem();
         if (control.wingmanNeeded) {
           this.wingmanHintActive = true;
-          if (control.wingmanTip !== undefined && item !== undefined) this.ports.onWingmanTip?.(control.wingmanTip, item.title);
+          if (control.wingmanTip !== undefined && item !== undefined) {
+            const agendaIndex = this.options.scenario.agenda.indexOf(item);
+            this.ports.onWingmanTip?.(control.wingmanTip, item.title, agendaIndex);
+          }
         }
         if (control.state !== 'open' && freshHumanLine !== undefined && this.decisionLines.length > 0) {
           turn.settle = { followUp: control.followUp };

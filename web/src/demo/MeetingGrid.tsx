@@ -205,6 +205,24 @@ function CaptionedTile() {
   );
 }
 
+/**
+ * The role-card fact that best fits a topic: the one sharing the most topic words (four letters or more). Taking the
+ * first loose match would show the same fact on every topic. Falls back to rotating by agenda position.
+ */
+export function pickCardFact(facts: readonly string[], topicText: string, agendaIndex: number): string | undefined {
+  if (facts.length === 0) return undefined;
+  const keywords = new Set((topicText.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter(
+    (w) => !['morning', 'tomorrow', 'without', 'before'].includes(w),
+  ));
+  let best: { fact: string; score: number } | undefined;
+  for (const fact of facts) {
+    const words = new Set(fact.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+    const score = [...keywords].filter((w) => words.has(w)).length;
+    if (score > 0 && (best === undefined || score > best.score)) best = { fact, score };
+  }
+  return best?.fact ?? facts[agendaIndex % facts.length];
+}
+
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
 export function MeetingGrid({
   role,
@@ -339,15 +357,12 @@ export function MeetingGrid({
   );
 
   const wingmanFactPreview = useMemo(() => {
-    let factIdx = 0;
     let latestFactText: string | undefined;
     for (const event of events) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        factIdx = event.payload.agendaIndex;
-      } else if (
+      if (
         event.type === 'FACT_FOUND' &&
         event.payload.facts.length > 0 &&
-        factIdx === activeAgendaIndex
+        event.payload.agendaIndex === activeAgendaIndex
       ) {
         const text = event.payload.facts[0]?.text;
         if (text !== undefined) latestFactText = text;
@@ -360,11 +375,7 @@ export function MeetingGrid({
       .map((t) => `${t.tradeOff} ${t.question}`)
       .join(' ');
     const topicText = `${activeItem.title} ${activeItem.decision ?? ''} ${tradeOffText}`.toLowerCase();
-    const keywords = (topicText.match(/[a-z0-9]{4,}/g) ?? []).filter(
-      (w) => !['morning', 'tomorrow', 'without', 'before'].includes(w),
-    );
-    const matched = myRoleFacts.find((fact) => keywords.some((w) => fact.toLowerCase().includes(w)));
-    return matched ?? myRoleFacts[activeAgendaIndex % myRoleFacts.length];
+    return pickCardFact(myRoleFacts, topicText, activeAgendaIndex);
   }, [events, scenario.roles, role, activeItem, activeAgendaIndex]);
 
   const starterChips = useMemo(() => {
@@ -404,14 +415,11 @@ export function MeetingGrid({
     const semanticWingmanHint =
       ('wingmanHint' in npcState && npcState.wingmanHint === true) ||
       latchedSemanticWingmanIdx === activeAgendaIndex;
-    let factIdx = 0;
     let hasSemanticFactOrNudgeOnTopic = false;
     for (const event of events) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        factIdx = event.payload.agendaIndex;
-      } else if (
+      if (
         (event.type === 'FACT_FOUND' || event.type === 'NUDGE') &&
-        factIdx === activeAgendaIndex &&
+        event.payload.agendaIndex === activeAgendaIndex &&
         hasColleagueBriefed
       ) {
         hasSemanticFactOrNudgeOnTopic = true;
@@ -467,15 +475,12 @@ export function MeetingGrid({
         text: `"${publishedTask.title}" is live. Open it in Kaki →`,
       };
     }
-    let factIdx = 0;
     let latestFactOnCurrentTopic: Extract<typeof events[number], { type: 'FACT_FOUND' }> | undefined;
     for (const event of events) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        factIdx = event.payload.agendaIndex;
-      } else if (
+      if (
         event.type === 'FACT_FOUND' &&
         event.payload.facts.length > 0 &&
-        factIdx === activeAgendaIndex
+        event.payload.agendaIndex === activeAgendaIndex
       ) {
         latestFactOnCurrentTopic = event;
       }

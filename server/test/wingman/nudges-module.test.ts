@@ -120,6 +120,7 @@ describe('nudge module', () => {
         audience: { kind: 'role', role: 'game_designer' },
         payload: {
           text: `Level 5 difficulty and playtest feedback starts in 1 min. ${fact.text} ${comment}`,
+          agendaIndex: 1,
         },
       });
     } finally {
@@ -141,7 +142,7 @@ describe('nudge module', () => {
       await waitFor(() => nudges(fake.published).length > 0, 'the coming-up nudge');
       expect(nudges(fake.published)[0]).toMatchObject({
         audience: { kind: 'role', role: 'producer' },
-        payload: { text: expect.stringContaining('Publisher milestone starts in 1 min.') },
+        payload: { text: expect.stringContaining('Publisher milestone starts in 1 min.'), agendaIndex: 2 },
       });
       expect(fake.retainKeys).toEqual(['nudge:coming_up:2']);
     } finally {
@@ -169,6 +170,7 @@ describe('nudge module', () => {
         audience: { kind: 'role', role: 'lead_programmer' },
         payload: {
           text: `Build and bugs has 8 min left. ${fact.text} ${comment}`,
+          agendaIndex: 0,
         },
       });
     } finally {

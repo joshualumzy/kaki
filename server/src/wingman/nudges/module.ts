@@ -73,7 +73,7 @@ function sendNudge(ctx: KakiContext, search: SearchCompanyData, request: NudgeRe
         {
           type: 'NUDGE',
           audience: { kind: 'role', role: request.role },
-          payload: { text: nudgeText(request, factText) },
+          payload: { text: nudgeText(request, factText), agendaIndex: request.agendaIndex },
         },
         { retainKey: `nudge:${request.kind}:${request.agendaIndex}` },
       );

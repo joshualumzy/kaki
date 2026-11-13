@@ -66,8 +66,8 @@ export type KakiEvent =
         title?: string;
       }
     >
-  | KakiEventOf<'NUDGE', { text: string }>
-  | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[] }>
+  | KakiEventOf<'NUDGE', { text: string; agendaIndex: number }>
+  | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[]; agendaIndex: number }>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
   /** A new meeting is starting: pages drop the old record, feed and tasks. */
   | KakiEventOf<'MEETING_RESET', Record<string, never>>
@@ -98,6 +98,11 @@ function isString(value: unknown): value is string {
 // True for a finite number that is zero or more.
 function isNonNegativeFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+// True for a whole-number agenda position, zero or more.
+function isAgendaIndex(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 // True when every key is a role in the scenario and every value is a finite, non-negative number.
@@ -156,12 +161,13 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
       payload.kind === 'CLOSING' ||
       payload.kind === 'DISPATCH') &&
     isString(payload.text),
-  NUDGE: (payload) => isString(payload.text),
+  NUDGE: (payload) => isString(payload.text) && isAgendaIndex(payload.agendaIndex),
   FACT_FOUND: (payload) =>
     isString(payload.questionId) &&
     isString(payload.question) &&
     Array.isArray(payload.facts) &&
-    payload.facts.every(isFact),
+    payload.facts.every(isFact) &&
+    isAgendaIndex(payload.agendaIndex),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_RESET: () => true,
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),

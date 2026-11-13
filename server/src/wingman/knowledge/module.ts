@@ -40,6 +40,7 @@ function handleEvent(
   }
   if (event.type !== 'MEETING_RECORD_UPDATED') return;
 
+  const { agendaIndex } = event.payload;
   for (const question of event.payload.openQuestions) {
     if (log.settled.has(question.id) || log.running.has(question.id)) continue;
     if (question.forRole === undefined) {
@@ -68,7 +69,7 @@ function handleEvent(
           {
             type: 'FACT_FOUND',
             audience: { kind: 'role', role },
-            payload: { questionId: question.id, question: question.text, facts },
+            payload: { questionId: question.id, question: question.text, facts, agendaIndex },
           },
           { retainKey: `fact:${question.id}` },
         );

@@ -13,7 +13,7 @@ import {
 const nudge: KakiEvent = {
   type: 'NUDGE',
   audience: { kind: 'role', role: 'chef' },
-  payload: { text: 'Prep starts in one minute.' },
+  payload: { text: 'Prep starts in one minute.', agendaIndex: 0 },
 };
 
 const opening: KakiEvent = {

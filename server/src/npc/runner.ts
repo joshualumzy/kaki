@@ -83,8 +83,8 @@ export interface RunnerOptions {
   onDisconnected?(): void;
   /** Fetch the latest scenario agenda order from the Kaki server when a new visitor session starts. */
   fetchScenario?(): Promise<Scenario | undefined>;
-  /** Emit a live 1-sentence Wingman coaching brief when the visitor's turn updates the discussion state. */
-  onWingmanTip?(tip: string, title: string): void;
+  /** Emit a live 1-sentence Wingman coaching brief for the current agenda item when the visitor's turn updates the discussion state. */
+  onWingmanTip?(tip: string, title: string, agendaIndex: number): void;
   /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
   onTopicSettled?(followUp: SuggestInput): void | Promise<void>;
 }
