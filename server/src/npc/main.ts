@@ -14,7 +14,7 @@ import { startNpcRunner } from './runner';
 import { colleagueLine } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
-import { postSettledTopic } from './settlement';
+import { postMeetingMemory, postSettledTopic } from './settlement';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
 /** `npm run npc`: the AI attendees of the live demo meeting, wired to the real model, Azure speech and Kaki. */
@@ -74,6 +74,7 @@ const recognizer =
       });
 
 const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
+let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
 /** Send one transcript line to Kaki, and say so (at most every ten seconds) if that does not work. */
@@ -170,7 +171,23 @@ const runner = await startNpcRunner({
       if (!response.ok) log(`Wingman tip rejected (HTTP ${response.status})`);
     }).catch((error: unknown) => log(`Wingman tip failed: ${String(error)}`));
   },
-  onTopicSettled: (followUp) => postSettledTopic(fetch, `${kakiUrl}/dev/settle-topic`, followUp, logError),
+  onMemoryChange: (entries) => {
+    memorySync = memorySync.catch(() => undefined).then(() =>
+      postMeetingMemory(fetch, `${kakiUrl}/dev/meeting-memory`, entries, logError));
+    void memorySync.catch(() => undefined);
+  },
+  onReaction: (who, emoji) => {
+    void fetch(`${kakiUrl}/dev/emit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'COLLEAGUE_REACTION', audience: { kind: 'all' },
+        payload: { who, emoji, timestamp: new Date().toISOString() } }),
+    }).then((response) => { if (!response.ok) logError(`[control] reaction POST rejected: HTTP ${response.status}`); })
+      .catch((error: unknown) => logError(`[control] reaction POST failed: ${String(error)}`));
+  },
+  onTopicSettled: async (followUp, reopened) => {
+    await memorySync;
+    await postSettledTopic(fetch, `${kakiUrl}/dev/settle-topic`, followUp, logError, reopened);
+  },
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);
@@ -237,6 +254,7 @@ function followHostCues(): void {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
       if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
       if (event.type === 'MEETING_RESET') {
+        runner.resetMemory();
         taskStatusByTitle.clear();
         syncedTaskIds.clear();
         declinedTaskIds.clear();

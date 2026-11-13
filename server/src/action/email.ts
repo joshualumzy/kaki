@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
+import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -140,7 +140,7 @@ export function createEmailModule({
   const actionModule = createActionModule({
     name: 'action-email',
     kind: 'email',
-    async draft(task, signal, scenario) {
+    async draft(task, signal, scenario, _visitorName, memory) {
       requireSettings();
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the email cannot be drafted');
@@ -164,7 +164,7 @@ export function createEmailModule({
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${senderLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
+          content: `Task: ${task.title}${senderLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}${memorySourceBlock(memory)}`,
         },
       ];
 
@@ -181,7 +181,7 @@ export function createEmailModule({
       }
       const unsupported = unsupportedDraftDetails(
         `${draft.subject}\n${draft.body}`,
-        draftSourceText(task, knownFacts),
+        draftSourceText(task, knownFacts, memory),
       );
       if (unsupported.length > 0) {
         throw new ActionError(

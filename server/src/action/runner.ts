@@ -1,4 +1,4 @@
-import type { ActionDraft, ActionKind, Scenario, Task, TaskStatus } from '@kaki/shared';
+import type { ActionDraft, ActionKind, MeetingMemoryEntry, Scenario, Task, TaskStatus } from '@kaki/shared';
 import type { KakiContext, KakiModule } from '../modules';
 import type { TaskStore } from '../tasks';
 
@@ -9,7 +9,7 @@ export class ActionError extends Error {}
 export interface ActionModuleOptions {
   name: string;
   kind: ActionKind;
-  draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string): Promise<ActionDraft>;
+  draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string, memory?: readonly MeetingMemoryEntry[]): Promise<ActionDraft>;
   run(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string): Promise<string>;
 }
 
@@ -55,7 +55,7 @@ export function factsForTask(
 export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
-    start({ hub, tasks, scenario, draftOnly }: KakiContext) {
+    start({ hub, tasks, scenario, memory, draftOnly }: KakiContext) {
       const shutdown = new AbortController();
       let stopped = false;
       const visitorNameByRole = new Map<string, string>();
@@ -121,7 +121,7 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
         background('drafting the action', async () => {
           let result: ActionDraft;
           try {
-            result = await draft(task, shutdown.signal, scenario, visitorFor(task));
+            result = await draft(task, shutdown.signal, scenario, visitorFor(task), memory);
           } catch (error) {
             fail(task, messageOf(error));
             return;

@@ -13,7 +13,7 @@ import {
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
-import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario } from '@kaki/shared';
+import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { Orb, orbPalette } from './Orb';
@@ -61,64 +61,23 @@ function starterChipsFromAgendaItem(
   return chips.slice(0, 2);
 }
 
-function reactionForColleague(
+export function reactionForColleague(
   attendeeName: string,
-  chunks: readonly TranscriptChunk[],
-  speaking: boolean,
+  events: readonly (KakiEvent & { receivedAt?: number })[],
   now: number,
-  activeItemOwnerRole?: string,
-  attendeeRole?: string,
-  hasActiveTaskOnItem?: boolean,
 ): { emoji: string; label: string; tone: 'catch' | 'lock' | 'agree' } | undefined {
-  // The person currently speaking never reacts to themselves with an emoji badge.
-  if (speaking || chunks.length === 0) return undefined;
-  const latest = chunks[chunks.length - 1]!;
-  const latestSpeaker = latest.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
-  if (latestSpeaker === attendeeName) return undefined;
-
-  const latestAt = Date.parse(latest.payload.timestamp);
-  if (!Number.isFinite(latestAt) || now - latestAt > 8500) return undefined;
-
-  const text = latest.payload.text.trim();
-  const isItemOwner = activeItemOwnerRole !== undefined && attendeeRole === activeItemOwnerRole;
-  const mentionedByName = new RegExp(`\\b${attendeeName}\\b`, 'i').test(text);
-
-  // 1. Semantic task/decision locked in -> warm celebration from listening leads
-  if (
-    hasActiveTaskOnItem ||
-    /\b(lock(ed)? (?:that|this) in|solid plan|works for me|i'll post|i'll email|i'll file|i'll draft|appreciate it|let's go with that|let's do that|let's do both|do both)\b/i.test(
-      text,
-    )
-  ) {
-    if (isItemOwner || attendeeName === 'Sam' || mentionedByName) {
-      return { emoji: '🙌', label: 'Locked in', tone: 'lock' };
-    }
-    return undefined;
-  }
-
-  // 2. Constructive agreement or endorsement -> supportive nod from listening colleagues
-  if (
-    /\b(good call|makes sense|that works|exactly right|spot on|fair point|good idea|sounds good|let's go with|i confirm|you(?:'re| are) right|helpful)\b/i.test(
-      text,
-    )
-  ) {
-    if (isItemOwner || attendeeName === 'Sam' || mentionedByName) {
-      return { emoji: '👍', label: 'Supports this', tone: 'agree' };
-    }
-    return undefined;
-  }
-
-  // 3. Open question -> thoughtful consideration from the item owner or named colleague
-  if (text.endsWith('?') && (isItemOwner || mentionedByName)) {
-    return { emoji: '🤔', label: 'Thinking', tone: 'catch' };
-  }
-
-  return undefined;
+  const latest = [...events].reverse().find((event) => event.type === 'COLLEAGUE_REACTION' &&
+    event.payload.who === attendeeName && event.receivedAt !== undefined &&
+    now - event.receivedAt < 4000);
+  if (latest?.type !== 'COLLEAGUE_REACTION') return undefined;
+  const tone = latest.payload.emoji === '🙌' ? 'lock' : latest.payload.emoji === '👍' ? 'agree' : 'catch';
+  return { emoji: latest.payload.emoji, label: 'Reacted', tone };
 }
 
 interface Stage {
   scenario: Scenario;
   chunks: TranscriptChunk[];
+  events: KakiEvent[];
   now: number;
   npcState: NpcStateMessage;
   waitingForHuman: boolean;
@@ -134,7 +93,7 @@ function useStage(): Stage {
 }
 
 function CaptionedTile() {
-  const { scenario, chunks, now, npcState, activeItemOwnerRole } = useStage();
+  const { scenario, chunks, events, now, npcState } = useStage();
   const participant = useTrackRefContext().participant;
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
@@ -169,7 +128,7 @@ function CaptionedTile() {
     : participant.metadata?.trim() || undefined;
   const stance = isAi && attendee?.role !== undefined ? COLLEAGUE_STANCE[attendee.role] : undefined;
   const reaction = isAi
-    ? reactionForColleague(participant.identity, chunks, speaking, now, activeItemOwnerRole, attendee?.role)
+    ? reactionForColleague(participant.identity, events, now)
     : undefined;
 
   return (
@@ -342,8 +301,8 @@ export function MeetingGrid({
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
-    () => ({ scenario, chunks, now, npcState, waitingForHuman, activeItemOwnerRole: activeOwnerRole }),
-    [scenario, chunks, now, npcState, waitingForHuman, activeOwnerRole],
+    () => ({ scenario, chunks, events, now, npcState, waitingForHuman, activeItemOwnerRole: activeOwnerRole }),
+    [scenario, chunks, events, now, npcState, waitingForHuman, activeOwnerRole],
   );
 
   const wingmanFactPreview = useMemo(() => {

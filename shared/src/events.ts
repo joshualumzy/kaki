@@ -32,6 +32,7 @@ export type KakiEventType =
   | 'TASK_UPDATED'
   | 'MEETING_RESET'
   | 'TOPIC_SETTLED'
+  | 'COLLEAGUE_REACTION'
   | 'COMMAND_REJECTED';
 
 type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: Audience };
@@ -73,6 +74,7 @@ export type KakiEvent =
   | KakiEventOf<'MEETING_RESET', Record<string, never>>
   /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
   | KakiEventOf<'TOPIC_SETTLED', { title: string; taskId?: string }>
+  | KakiEventOf<'COLLEAGUE_REACTION', { who: string; emoji: '👍' | '😬' | '🤔' | '😅' | '🙌' | '💸' | '🤨' | '⏰'; timestamp: string }>
   | KakiEventOf<'COMMAND_REJECTED', { commandType: string; reason: string }>;
 
 const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
@@ -84,6 +86,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'TASK_UPDATED',
   'MEETING_RESET',
   'TOPIC_SETTLED',
+  'COLLEAGUE_REACTION',
   'COMMAND_REJECTED',
 ];
 
@@ -171,6 +174,10 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_RESET: () => true,
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),
+  COLLEAGUE_REACTION: (payload, scenario) =>
+    isString(payload.who) && scenario.npcs?.some((npc) => npc.attendee === payload.who) === true &&
+    isString(payload.emoji) && ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'].includes(payload.emoji) &&
+    isString(payload.timestamp) && Number.isFinite(Date.parse(payload.timestamp)),
   COMMAND_REJECTED: (payload) => isString(payload.commandType) && isString(payload.reason),
 };
 
@@ -181,5 +188,6 @@ export function isKakiEvent(value: unknown, scenario: Scenario): value is KakiEv
   if (!isKnownEventType(type) || !isObject(payload) || !isAudience(audience, scenario)) return false;
   if (!PAYLOAD_CHECKS[type](payload, scenario)) return false;
   if ((type === 'NUDGE' || type === 'FACT_FOUND') && audience.kind !== 'role') return false;
+  if (type === 'COLLEAGUE_REACTION' && audience.kind !== 'all') return false;
   return true;
 }

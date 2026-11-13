@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
+import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -72,7 +72,7 @@ export function createGiteaModule({
   return createActionModule({
     name: 'action-gitea',
     kind: 'gitea_issue',
-    async draft(task, signal, scenario) {
+    async draft(task, signal, scenario, _visitorName, memory) {
       if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the issue cannot be drafted');
@@ -97,7 +97,7 @@ export function createGiteaModule({
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}${memorySourceBlock(memory)}`,
         },
       ];
 
@@ -114,7 +114,7 @@ export function createGiteaModule({
       }
       const unsupported = unsupportedDraftDetails(
         `${draft.title}\n${draft.body}`,
-        draftSourceText(task, knownFacts),
+        draftSourceText(task, knownFacts, memory),
       );
       if (unsupported.length > 0) {
         throw new ActionError(

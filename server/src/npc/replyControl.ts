@@ -6,7 +6,13 @@ export interface ReplyControl {
   wingmanNeeded: boolean;
   /** One fact that helps the visitor right now, shown on their Wingman; never spoken. */
   wingmanTip?: string;
+  newFacts?: string[];
+  reactions?: Array<{ who: string; emoji: ReactionEmoji }>;
+  reopen?: string;
 }
+
+export const REACTION_EMOJIS = ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'] as const;
+export type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
 export const OPEN_REPLY_CONTROL: ReplyControl = { state: 'open', wingmanNeeded: false };
 const CONTROL_HEADER = /^KAKI_CONTROL(?:\s+|$)/u;
@@ -21,7 +27,7 @@ export function couldBeReplyControlLine(line: string): boolean {
 }
 
 /** Only a valid first line can change topic state. Every other line is speech. */
-export function parseReplyControl(line: string): ReplyControl | undefined {
+export function parseReplyControl(line: string, log: (message: string) => void = console.error): ReplyControl | undefined {
   const header = CONTROL_HEADER.exec(line.trimStart());
   if (header === null) return undefined;
   try {
@@ -39,11 +45,35 @@ export function parseReplyControl(line: string): ReplyControl | undefined {
       followUp = { kind: proposed.kind as ActionKind, title: proposed.title.trim() };
     }
     const wingmanTip = typeof data.wingmanTip === 'string' && data.wingmanTip.trim().length > 0 ? data.wingmanTip.trim() : undefined;
+    let newFacts: string[] | undefined;
+    if (data.newFacts !== undefined) {
+      if (Array.isArray(data.newFacts) && data.newFacts.length <= 2 && data.newFacts.every((fact) =>
+        typeof fact === 'string' && fact.trim().length > 0 && fact.trim().length <= 160)) {
+        newFacts = data.newFacts.map((fact: string) => fact.trim());
+      } else log('[control] dropped newFacts: expected up to two nonempty strings of at most 160 characters');
+    }
+    let reactions: ReplyControl['reactions'];
+    if (data.reactions !== undefined) {
+      if (Array.isArray(data.reactions) && data.reactions.length <= 2 && data.reactions.every((reaction) =>
+        typeof reaction === 'object' && reaction !== null && !Array.isArray(reaction) &&
+        typeof reaction.who === 'string' && reaction.who.trim().length > 0 &&
+        (REACTION_EMOJIS as readonly unknown[]).includes(reaction.emoji))) {
+        reactions = data.reactions.map((reaction: { who: string; emoji: ReactionEmoji }) => ({ who: reaction.who.trim(), emoji: reaction.emoji }));
+      } else log('[control] dropped reactions: expected up to two named colleagues and allowed emoji');
+    }
+    let reopen: string | undefined;
+    if (data.reopen !== undefined) {
+      if (typeof data.reopen === 'string' && data.reopen.trim().length > 0 && data.reopen.length <= 160) reopen = data.reopen.trim();
+      else log('[control] dropped reopen: expected an agenda title');
+    }
     return {
       state: data.state,
       wingmanNeeded: data.wingmanNeeded,
       ...(followUp === undefined ? {} : { followUp }),
       ...(wingmanTip === undefined ? {} : { wingmanTip }),
+      ...(newFacts === undefined ? {} : { newFacts }),
+      ...(reactions === undefined ? {} : { reactions }),
+      ...(reopen === undefined ? {} : { reopen }),
     };
   } catch {
     return undefined;

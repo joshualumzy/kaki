@@ -1,9 +1,10 @@
-import { itemMode, type ActionKind, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
+import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic } from '../host/opening';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
+import { MeetingMemory } from './meetingMemory';
 
 /** What the people in the meeting should see the AI attendees doing. */
 export type NpcUiState = NpcStateMessage;
@@ -30,7 +31,9 @@ export interface NpcPorts<Clip> {
   /** A fact the Director picked to help the visitor right now, for their Wingman, on the agenda item it belongs to. */
   onWingmanTip?(tip: string, title: string, agendaIndex: number): void;
   /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
-  settleTopic?(followUp: SuggestInput): void | Promise<void>;
+  settleTopic?(followUp: SuggestInput, reopened?: boolean): void | Promise<void>;
+  onMemoryChange?(entries: MeetingMemoryEntry[]): void;
+  onReaction?(who: string, emoji: string): void;
 }
 
 /** Quiet needed after the person stops talking before the AI answers; on top of the voice detector's own hangover. */
@@ -126,6 +129,7 @@ export interface ConversationOptions {
   /** Random source for choosing an item opening; injectable for deterministic tests. */
   random?: () => number;
   gate?: SpeechGate;
+  memory?: MeetingMemory;
 }
 
 interface Turn {
@@ -149,6 +153,9 @@ interface Turn {
   recoveryRetry?: boolean;
   /** The Director marked this reply as settling the topic; it takes effect once the visitor has heard some of it. */
   settle?: { followUp?: { kind: ActionKind; title: string } };
+  control?: ReplyControl;
+  /** This reply's reactions have been sent; they go out with the first line, not when the reply ends. */
+  reactionsSent?: boolean;
 }
 
 /** Minimal async queue so playback can start on the first sentence while the rest is written. */
@@ -261,6 +268,10 @@ export class NpcConversation<Clip> {
   private chain = 0;
   private forcedSpeaker: { target: string; from: string } | undefined;
   private decisionWrappedUpOnItem = false;
+  private readonly memory: MeetingMemory;
+  private reopenedTitle: string | undefined;
+  private resumeAfterReopen: { lines: string[]; settled: boolean; wrapped: boolean } | undefined;
+  private memoryGeneration = 0;
 
   constructor(
     private readonly ports: NpcPorts<Clip>,
@@ -268,6 +279,8 @@ export class NpcConversation<Clip> {
   ) {
     this.gate = options.gate ?? new SpeechGate();
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
+    this.memory = options.memory ?? new MeetingMemory(options.scenario,
+      (entries) => this.ports.onMemoryChange?.(entries), (line) => this.ports.log?.(line));
     this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
     this.speakerGapMs = options.speakerGapMs ?? DEFAULT_SPEAKER_GAP_MS;
     this.sentenceGapMs = options.sentenceGapMs ?? DEFAULT_SENTENCE_GAP_MS;
@@ -286,6 +299,15 @@ export class NpcConversation<Clip> {
     if (this.human?.name !== human.name) this.humanLines = 0;
     this.human = { ...human, transcriptName: human.transcriptName ?? human.name };
   }
+
+  resetMemory(): void {
+    this.memoryGeneration += 1;
+    this.memory.reset();
+    this.reopenedTitle = undefined;
+    this.resumeAfterReopen = undefined;
+  }
+
+  memorySnapshot(): MeetingMemoryEntry[] { return this.memory.snapshot(); }
 
   /** The last sentence the room said, if it was a question: then it is the person's turn, and the screen says so. */
   private lastSpoken = '';
@@ -846,17 +868,35 @@ export class NpcConversation<Clip> {
     const kind = chosen?.kind ?? 'mattermost_post';
     const title = chosen?.title ?? `Share the decision on ${item.title}`;
     const decision = this.decisionLines.join(' ');
+    const reopening = this.reopenedTitle === item.title;
+    const generation = this.memoryGeneration;
+    const previousMemory = this.memory.snapshot();
+    this.memory.decision(item.title, decision);
     const input: SuggestInput = {
       title, context: `Agenda: ${item.title}. Visitor decision: ${decision}`,
       suggestedAssignee: role, actionKind: kind, agendaItemTitle: item.title,
       decisionSource: decision,
     };
     const succeeded = (): void => {
+      if (generation !== this.memoryGeneration) return;
       if (this.closed || this.currentItem()?.title !== item.title) return;
+      if (reopening) {
+        this.reopenedTitle = undefined;
+        this.decisionLines = this.resumeAfterReopen?.lines ?? [];
+        this.humanSettledOnCurrentItem = this.resumeAfterReopen?.settled ?? false;
+        this.decisionWrappedUpOnItem = this.resumeAfterReopen?.wrapped ?? false;
+        this.resumeAfterReopen = undefined;
+        const host = this.facilitatorOrCoHost();
+        if (host !== undefined && this.agendaItem !== undefined) this.announce(host, `Back to ${this.agendaItem}. What do you think?`);
+        this.ports.emitState(this.idleState());
+        return;
+      }
       this.startReviewWindow();
       this.checkTopicAdvance();
     };
     const failed = (error: unknown): void => {
+      if (generation !== this.memoryGeneration || this.closed) return;
+      this.memory.replace(previousMemory);
       this.ports.log?.(`ERROR: could not create follow-up for "${item.title}": ${String(error)}`);
       if (this.closed || this.currentItem()?.title !== item.title) return;
       this.humanSettledOnCurrentItem = false;
@@ -866,7 +906,7 @@ export class NpcConversation<Clip> {
     };
     try {
       if (this.ports.settleTopic === undefined) throw new Error('No follow-up task port');
-      const result = this.ports.settleTopic(input);
+      const result = this.ports.settleTopic(input, reopening);
       if (result === undefined) succeeded();
       else void result.then(succeeded, failed);
     } catch (error) { failed(error); }
@@ -1009,7 +1049,7 @@ export class NpcConversation<Clip> {
 
   /** The agenda item the meeting is on, and how this person takes part in it. */
   private currentItem() {
-    const title = this.agendaItem ?? this.options.scenario.agenda[0]?.title;
+    const title = this.reopenedTitle ?? this.agendaItem ?? this.options.scenario.agenda[0]?.title;
     if (title === undefined) return undefined;
     const cleanTitle = cleanSpokenTopic(title).toLowerCase();
     return this.options.scenario.agenda.find(
@@ -1038,6 +1078,8 @@ export class NpcConversation<Clip> {
    * between themselves, unless the person speaks first: a newcomer sees how the team works before being asked anything.
    */
   agendaMoved(title?: string): void {
+    this.reopenedTitle = undefined;
+    this.resumeAfterReopen = undefined;
     this.clearSilenceTimer();
     this.clearBriefTimer();
     this.pendingBrief = undefined;
@@ -1697,6 +1739,9 @@ export class NpcConversation<Clip> {
             alreadyAsked,
             includeKnows,
             [...this.introduced],
+            this.memory.snapshot(),
+            this.reopenedTitle,
+            this.memory.reopenedItems(),
           ),
         },
         ...this.history.slice(-this.maxHistory),
@@ -1715,7 +1760,34 @@ export class NpcConversation<Clip> {
       let firstLine = '';
       let firstResolved = false;
       // Only a reply to something the visitor just said on this topic may settle it.
+      let refuseReopen = false;
       const applyControl = (control: ReplyControl): void => {
+        if (control.reopen !== undefined) {
+          const agenda = this.options.scenario.agenda;
+          const actualIndex = agenda.findIndex((candidate) => candidate.title === (this.agendaItem ?? agenda[0]?.title));
+          const earlier = agenda.findIndex((candidate) => candidate.title === control.reopen);
+          if (this.memory.wasReopened(control.reopen)) {
+            this.ports.log?.(`[control] dropped reopen: ${control.reopen} was already reopened`);
+            if (freshHumanLine !== undefined) this.decisionLines = this.decisionLines.filter((line) => line !== freshHumanLine);
+            refuseReopen = true;
+            const host = this.facilitatorOrCoHost();
+            if (host !== undefined) enqueue({ speaker: host, text: `That earlier call stays as decided. Let's keep going with ${this.agendaItem ?? 'this item'}.` });
+            return;
+          }
+          if (this.concluded || earlier < 0 || earlier >= actualIndex ||
+              !this.memory.snapshot().some((entry) => entry.kind === 'decision' && entry.item === control.reopen)) {
+            this.ports.log?.(`[control] dropped reopen: title is not an earlier decided item in this meeting`);
+          } else {
+            this.resumeAfterReopen = { lines: this.decisionLines.filter((line) => line !== freshHumanLine),
+              settled: this.humanSettledOnCurrentItem, wrapped: this.decisionWrappedUpOnItem };
+            this.reopenedTitle = control.reopen;
+            this.memory.markReopened(control.reopen);
+            this.decisionLines = [];
+            if (freshHumanLine !== undefined) this.noteDecisionLine(freshHumanLine);
+            this.humanSettledOnCurrentItem = false;
+          }
+        }
+        turn.control = control;
         const item = this.currentItem();
         if (control.wingmanNeeded) {
           this.wingmanHintActive = true;
@@ -1730,6 +1802,7 @@ export class NpcConversation<Clip> {
       };
       let speechBuffer = '';
       const feedSpeech = (speech: string): void => {
+        if (refuseReopen) return;
         speechBuffer += speech;
         for (;;) {
           const newline = speechBuffer.indexOf('\n');
@@ -1753,7 +1826,7 @@ export class NpcConversation<Clip> {
           const newline = firstLine.indexOf('\n');
           if (newline < 0 && couldBeReplyControlLine(firstLine) && firstLine.length < 2048) continue;
           const head = newline < 0 ? firstLine : firstLine.slice(0, newline);
-          applyControl(parseReplyControl(head.trim()) ?? OPEN_REPLY_CONTROL);
+          applyControl(parseReplyControl(head.trim(), (line) => this.ports.log?.(line)) ?? OPEN_REPLY_CONTROL);
           firstResolved = true;
           const rest = newline < 0 ? '' : firstLine.slice(newline + 1);
           if (!isReplyControlLine(head)) feedSpeech(head + (newline < 0 ? '' : '\n'));
@@ -1766,7 +1839,7 @@ export class NpcConversation<Clip> {
       if (!signal.aborted) {
         if (!firstResolved && firstLine.length > 0) {
           if (!isReplyControlLine(firstLine)) feedSpeech(firstLine);
-          else applyControl(parseReplyControl(firstLine.trim()) ?? OPEN_REPLY_CONTROL);
+          else applyControl(parseReplyControl(firstLine.trim(), (line) => this.ports.log?.(line)) ?? OPEN_REPLY_CONTROL);
         }
         if (speechBuffer.trim().length > 0 && !isReplyControlLine(speechBuffer)) {
           for (const utterance of parser.push(speechBuffer)) enqueue(utterance);
@@ -1786,6 +1859,10 @@ export class NpcConversation<Clip> {
     queue.close();
     await player;
     if (turn.aborted) return;
+
+    if (turn.spoken.length > 0 && turn.topic !== undefined && turn.control !== undefined) {
+      this.memory.invented(this.reopenedTitle ?? turn.topic, turn.control.newFacts ?? []);
+    }
 
     this.finalize(turn);
     if (turn.settle !== undefined) this.lockDecision(turn.settle.followUp);
@@ -1823,6 +1900,24 @@ export class NpcConversation<Clip> {
     }
   }
 
+  /** Send this reply's reactions once, as its first line starts; a turn aborted before then sends none. */
+  private sendReactions(turn: Turn): void {
+    if (turn.reactionsSent === true || turn.control === undefined || turn.topic === undefined) return;
+    turn.reactionsSent = true;
+    for (const reaction of turn.control.reactions ?? []) {
+      if (!this.names.includes(reaction.who)) {
+        this.ports.log?.(`[control] dropped reaction: ${reaction.who} is not an AI attendee`);
+        continue;
+      }
+      if (this.currentItem()?.sensitive === true && !['🤔', '😬', '⏰'].includes(reaction.emoji)) {
+        this.ports.log?.(`[control] dropped reaction: ${reaction.emoji} is not allowed on a sensitive item`);
+        continue;
+      }
+      this.ports.log?.(`[control] reaction: ${reaction.who} ${reaction.emoji}`);
+      this.ports.onReaction?.(reaction.who, reaction.emoji);
+    }
+  }
+
   private async playAll(
     turn: Turn,
     queue: SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>,
@@ -1852,6 +1947,7 @@ export class NpcConversation<Clip> {
       this.ports.log?.(`${utterance.speaker}: ${utterance.text}`);
       this.introduced.add(utterance.speaker);
       turn.spoken.push(entry);
+      if (turn.spoken.length === 1) this.sendReactions(turn);
       this.gate.setAiAudible(true);
       this.gate.aiSaid(utterance.text);
       this.lastSpoken = utterance.text;
@@ -1871,6 +1967,7 @@ export class NpcConversation<Clip> {
       }
       if (signal.aborted) return;
       entry.complete = true;
+      if (turn.topic !== undefined) this.memory.spoken(this.reopenedTitle ?? turn.topic, utterance.text);
     }
   }
 }

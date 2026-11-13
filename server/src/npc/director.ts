@@ -1,4 +1,4 @@
-import { itemMode, type AgendaItem, type NpcProfile, type Scenario } from '@kaki/shared';
+import { itemMode, type AgendaItem, type MeetingMemoryEntry, type NpcProfile, type Scenario } from '@kaki/shared';
 
 /** One thing an AI attendee says aloud: a sentence, tagged with who says it. */
 export interface Utterance {
@@ -116,6 +116,9 @@ export function buildSystemPrompt(
   alreadyAsked = false,
   includeKnows = alreadyAsked || human === undefined,
   alreadyIntroduced: readonly string[] = [],
+  memory: readonly MeetingMemoryEntry[] = [],
+  reopenedItem?: string,
+  reopenedOnce: readonly string[] = [],
 ): string {
   const npcs = scenario.npcs ?? [];
   const names = npcs.map((npc) => npc.attendee);
@@ -141,10 +144,12 @@ export function buildSystemPrompt(
     const escaped = escapeRegExp(seatAttendee.name);
     return text.replace(new RegExp(`\\b${escaped}\\b`, 'g'), human.name);
   };
-  const currentTitle = agendaItem ?? scenario.agenda[0]?.title;
+  const currentTitle = reopenedItem ?? agendaItem ?? scenario.agenda[0]?.title;
   const currentAgendaItem = scenario.agenda.find((item) => item.title === currentTitle);
   const meetingTitles = new Set(scenario.agenda.map((item) => item.title));
-  const meetingLinks = currentAgendaItem?.links?.filter((link) => meetingTitles.has(link.with)) ?? [];
+  const currentIndex = scenario.agenda.findIndex((item) => item.title === currentTitle);
+  const meetingLinks = currentAgendaItem?.links?.filter((link) =>
+    meetingTitles.has(link.with) && scenario.agenda.findIndex((item) => item.title === link.with) < currentIndex) ?? [];
   const agendaDecision = currentAgendaItem?.decision;
   const discussion = currentAgendaItem?.discussion;
   const discussionLine =
@@ -174,6 +179,9 @@ export function buildSystemPrompt(
       ? []
       : [`Plain meanings of the team's own terms (use these when explaining): ${Object.entries(scenario.glossary ?? {}).map(([term, meaning]) => `${term} = ${meaning}`).join('; ')}.`]),
     `Agenda:\n${agenda}`,
+    `Already true in this meeting (never contradict these):\n${memory.length === 0 ? 'No decisions or new details yet.' : memory.map((entry) =>
+      entry.kind === 'decision' ? `Decision on ${entry.item}: ${entry.text}` : `${entry.item}: ${entry.text}`).join('\n')}`,
+    ...(reopenedItem === undefined ? [] : [`The visitor is revisiting the earlier item "${reopenedItem}" while the meeting remains on its current agenda item. Name the cost of changing the earlier decision. Once the new call settles, the host returns to the current item.`]),
     ...(currentAgendaItem === undefined ? [] : [
       `Current item: ${currentAgendaItem.title}. ${currentAgendaItem.briefing ?? ''}`,
       ...(meetingLinks.length === 0 ? [] : [`Links to other items in this meeting: ${meetingLinks.map((link) => `${link.with}: ${link.effect}`).join(' | ')}`]),
@@ -202,7 +210,10 @@ export function buildSystemPrompt(
     ].join(''),
     [
       'How to reply:',
-      '- The FIRST line of every reply is hidden control, exactly: KAKI_CONTROL {"state":"open|settled|deferred","followUp":{"kind":"mattermost_post|email|wiki_page|calendar_event|gitea_issue","title":"short deliverable"},"wingmanNeeded":false}. Use one actual state and kind, valid JSON, and no prose on this line. State settled only when answering a fresh visitor decision on this topic. Use deferred only when the visitor explicitly chooses to defer. Set wingmanNeeded true when they need a fact or help, and only then you may add "wingmanTip":"one short sentence giving the single fact from the facts above that helps them most right now". The task card uses the formal followUp.title; spoken follow-up wording stays natural. For an opening briefing or colleague handover, state open.',
+      '- The FIRST line of every reply is hidden control, exactly: KAKI_CONTROL {"state":"open|settled|deferred","followUp":{"kind":"mattermost_post|email|wiki_page|calendar_event|gitea_issue","title":"short deliverable"},"wingmanNeeded":false}. Use one actual state and kind, valid JSON, and no prose on this line. State settled only when answering a fresh visitor decision on this topic. Use deferred only when the visitor explicitly chooses to defer. Set wingmanNeeded true when they need a fact or help, and only then you may add "wingmanTip":"one short sentence giving the single useful fact from the scenario or meeting memory". Optional fields: "newFacts":["small new detail"], "reactions":[{"who":"AI attendee name","emoji":"👍"}], "reopen":"exact earlier agenda title". The task card uses the formal followUp.title; spoken follow-up wording stays natural. For an opening briefing or colleague handover, state open.',
+      `- If the visitor changes a decision on an earlier agenda item, set reopen to that exact earlier title and name the cost of changing it. Each earlier item may be reopened once only. Items already reopened: ${reopenedOnce.join(' | ') || 'none'}. If they ask again, the host briefly says it stays as decided. Never reopen after the meeting wraps up.`,
+      '- Add reactions only when a colleague would visibly react to the visitor\'s last line or another colleague. Up to two AI attendees, with one of 👍 😬 🤔 😅 🙌 💸 🤨 ⏰ each. On a sensitive item, only 🤔 😬 ⏰. No emoji in spoken lines.',
+      '- You may invent up to two small plausible details per reply only to fill a gap the visitor\'s idea opens: a lead time, off-screen agreement, a supplier or system capability, or a small cost. Put every such detail in newFacts. Never change a stated fact or number, add a new disaster or topic, or make an idea impossible merely to block it. An off-screen person appears only in their own item, at most once, and only after a colleague says they will ask.',
       `- Decide who speaks from their temperament and stake. Usually one or two of ${names.join(', ')} speak; at most two colleagues per reply unless the visitor asked everyone. If addressed by name, that colleague answers first. Colleagues may answer each other briefly. Vary who goes first.`,
       ...(unintroduced.length > 0
         ? [
@@ -246,8 +257,8 @@ export function buildSystemPrompt(
       '- If the person asks a direct question, answer it directly and concretely from the current scenario facts.',
       '- Use warm, casual Singapore or British phrasing ("shop", "queue", "counter", "steady", "can", "fair point"). Avoid Americanisms and office buzzwords: "awesome", "super excited", "totally", "gotten", "touch base", "kudos", "math", "store clerk", "line up", "friction points", "bandwidth", "alignment", "deep dive". Each colleague sounds like their own speech style, temperament and stake.',
       '- Notice the visitor\'s mood and respond as a coworker; where the item allows humour, ground it or praise in what happened in this meeting. Do not scold or use formulaic role introductions.',
-      '- A character never says what another character did, said, found or decided unless it is written in their own facts above or was said aloud earlier in this meeting. Do not invent conversations, results or numbers; speak only for yourself.',
-      '- If the person needs a fact, respond from the current item\'s facts and set wingmanNeeded true in the control line. Use rough spoken numbers such as "most" or "about half". Use an exact figure only if it is in this item\'s sayExactly list or the visitor asked for that exact number. At most two numbers in any spoken sentence; never invent figures.',
+      '- A character never says what another character did, said, found or decided unless it is in the scenario, meeting memory, or was said aloud earlier. Speak only for yourself.',
+      '- If the person needs a fact, respond from the current item\'s facts or meeting memory and set wingmanNeeded true. Use rough spoken numbers such as "most" or "about half". Use an exact figure only if it is in this item\'s sayExactly list, meeting memory, or the visitor asked for that exact number. At most two numbers in any spoken sentence.',
       '- Never invent a change in a colleague\'s job or commitments: do not say or imply that someone quit, resigned, was fired, is leaving, or has refused or promised something, unless it is written in your own facts above or the person said it in this meeting.',
       '- Write plain spoken English in complete sentences under 28 words for readable captions. Target one or two sentences per colleague per turn (the opening briefing may be longer). Never exceed three. No lists, markdown, emoji or stage directions.',
       `- After the hidden control line, put every spoken turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,

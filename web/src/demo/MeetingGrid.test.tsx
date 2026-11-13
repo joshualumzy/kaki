@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { KakiEvent } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cardFactForItem, MeetingGrid } from './MeetingGrid';
+import { cardFactForItem, MeetingGrid, reactionForColleague } from './MeetingGrid';
 
 const mocks = vi.hoisted(() => ({ screenEvents: [] as KakiEvent[], roleEvents: [] as KakiEvent[] }));
 
@@ -130,5 +130,29 @@ describe('cardFactForItem', () => {
     expect(cardFactForItem(item, 'lead_programmer')).toBe('The booth sockets share one timer switch.');
     expect(cardFactForItem(item, 'marketing_lead')).toBeUndefined();
     expect(cardFactForItem(undefined, 'producer')).toBeUndefined();
+  });
+});
+
+describe('AI colleague reactions', () => {
+  it('shows a live reaction for four seconds on the browser clock even when the server clock is far off', () => {
+    const receivedAt = Date.parse('2026-11-13T00:00:00.000Z');
+    const reaction: KakiEvent & { receivedAt: number } = { type: 'COLLEAGUE_REACTION', audience: { kind: 'all' },
+      payload: { who: 'Sam', emoji: '🤔', timestamp: '2020-01-01T00:00:00.000Z' }, receivedAt };
+    expect(reactionForColleague('Sam', [reaction], receivedAt)).toMatchObject({ emoji: '🤔' });
+    expect(reactionForColleague('Sam', [reaction], receivedAt + 3999)).toMatchObject({ emoji: '🤔' });
+    expect(reactionForColleague('Sam', [reaction], receivedAt + 4000)).toBeUndefined();
+    expect(reactionForColleague('Ada', [reaction], receivedAt)).toBeUndefined();
+  });
+
+  it('does not show a badge for a reaction that is not live in this browser, such as one replayed from history', () => {
+    const now = Date.parse('2026-11-13T00:00:00.000Z');
+    const reaction: KakiEvent & { receivedAt: number } = { type: 'COLLEAGUE_REACTION', audience: { kind: 'all' },
+      payload: { who: 'Sam', emoji: '🤔', timestamp: new Date(now).toISOString() }, receivedAt: now - 10_000 };
+    expect(reactionForColleague('Sam', [reaction], now)).toBeUndefined();
+  });
+
+  it('does not infer a badge from decision or agreement words in transcripts', () => {
+    const now = Date.now();
+    expect(reactionForColleague('Sam', [line('Visitor', 'Good call, let us lock that in.')], now)).toBeUndefined();
   });
 });

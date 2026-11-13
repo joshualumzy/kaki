@@ -44,6 +44,56 @@ describe('app', () => {
     return client;
   }
 
+  it('accepts a meeting memory snapshot through the dev route and clears it on reset', async () => {
+    const entries = [{ kind: 'invented', item: 'Prep', text: 'The supplier can come at 9 AM.' }];
+    const post = (value: unknown) => fetch(`http://127.0.0.1:${port}/dev/meeting-memory`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value),
+    });
+    expect((await post(entries)).status).toBe(200);
+    expect(app.memory).toEqual(entries);
+    expect((await post([{ kind: 'invented', item: 'Outside this meeting', text: 'No.' }])).status).toBe(400);
+    app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+    expect(app.memory).toEqual([]);
+  });
+
+  it.each(['CLAIMED', 'DRAFT_READY'] as const)('supersedes a %s card and creates a fresh card for a reopened decision', async (status) => {
+    const old = app.tasks.suggest({ title: 'First plan', context: 'Original call', suggestedAssignee: 'chef',
+      agendaItemTitle: 'Prep', actionKind: 'email', decisionSource: 'Use the first plan.' });
+    app.tasks.transition(old.id, 'DISPATCHED', { assignee: 'chef' });
+    app.tasks.transition(old.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    if (status === 'DRAFT_READY') app.tasks.transition(old.id, 'DRAFT_READY', {
+      draft: { target: 'team@example.com', subject: 'First', body: 'Use the first plan.' },
+    });
+    const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic?reopen=1`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Revised plan', context: 'Revised call', suggestedAssignee: 'chef',
+        agendaItemTitle: 'Prep', actionKind: 'mattermost_post', decisionSource: 'Use the revised plan.' }),
+    });
+    expect(response.status).toBe(200);
+    const fresh = await response.json() as { id: string; status: string };
+    expect(fresh.id).not.toBe(old.id);
+    expect(fresh.status).toBe('SUGGESTED');
+    expect(app.tasks.get(old.id)?.status).toBe('SUPERSEDED');
+  });
+
+  it('supersedes an accepted card for a reopened decision when only the deliverable changed', async () => {
+    const old = app.tasks.suggest({ title: 'First plan', context: 'Original call', suggestedAssignee: 'chef',
+      agendaItemTitle: 'Prep', actionKind: 'email', decisionSource: 'Use the first plan.' });
+    app.tasks.transition(old.id, 'DISPATCHED', { assignee: 'chef' });
+    app.tasks.transition(old.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic?reopen=1`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Post the same plan', context: 'Same call, different deliverable',
+        suggestedAssignee: 'chef', agendaItemTitle: 'Prep', actionKind: 'mattermost_post',
+        decisionSource: 'Use the first plan.' }),
+    });
+    expect(response.status).toBe(200);
+    const fresh = await response.json() as { id: string; status: string };
+    expect(fresh.id).not.toBe(old.id);
+    expect(fresh.status).toBe('SUGGESTED');
+    expect(app.tasks.get(old.id)?.status).toBe('SUPERSEDED');
+  });
+
   it('closes sockets with 1008 for an unknown or missing role', async () => {
     const unknown = await closeInfoFor(`ws://127.0.0.1:${port}/ws?role=waiter`);
     expect(unknown.code).toBe(1008);

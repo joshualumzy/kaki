@@ -21,7 +21,8 @@ export type TaskStatus =
   | 'RUNNING'
   | 'COMPLETED'
   | 'FAILED'
-  | 'SYNCED';
+  | 'SYNCED'
+  | 'SUPERSEDED';
 
 /**
  * The exact task the speaker committed to, captured when the commitment was recorded. Any later change to the work
@@ -97,6 +98,7 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   'COMPLETED',
   'FAILED',
   'SYNCED',
+  'SUPERSEDED',
 ];
 
 /** Every action kind Kaki knows how to draft. */
@@ -109,15 +111,16 @@ export const ACTION_KINDS: readonly ActionKind[] = [
 ];
 
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
-  SUGGESTED: ['DISPATCHED', 'DISMISSED'],
+  SUGGESTED: ['DISPATCHED', 'DISMISSED', 'SUPERSEDED'],
   DISMISSED: [],
-  DISPATCHED: ['CLAIMED', 'SUGGESTED', 'DISMISSED'],
-  CLAIMED: ['DRAFT_READY', 'COMPLETED', 'FAILED'],
-  DRAFT_READY: ['RUNNING'],
-  RUNNING: ['COMPLETED', 'FAILED'],
-  COMPLETED: ['SYNCED'],
-  FAILED: ['RUNNING', 'CLAIMED'],
-  SYNCED: [],
+  DISPATCHED: ['CLAIMED', 'SUGGESTED', 'DISMISSED', 'SUPERSEDED'],
+  CLAIMED: ['DRAFT_READY', 'COMPLETED', 'FAILED', 'SUPERSEDED'],
+  DRAFT_READY: ['RUNNING', 'SUPERSEDED'],
+  RUNNING: ['COMPLETED', 'FAILED', 'SUPERSEDED'],
+  COMPLETED: ['SYNCED', 'SUPERSEDED'],
+  FAILED: ['RUNNING', 'CLAIMED', 'SUPERSEDED'],
+  SYNCED: ['SUPERSEDED'],
+  SUPERSEDED: [],
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {

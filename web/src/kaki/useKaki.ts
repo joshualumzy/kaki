@@ -98,7 +98,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
           return;
         }
 
-        setEvents((previous) => [...previous, parsed].slice(-50));
+        setEvents((previous) => [...previous, Object.assign(parsed, { receivedAt: Date.now() })].slice(-50));
       });
 
       current.addEventListener('close', () => {

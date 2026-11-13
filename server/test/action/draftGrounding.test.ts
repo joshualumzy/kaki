@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { clockTimes, unsupportedDraftDetails } from '../../src/action/draftGrounding';
+import { clockTimes, draftSourceText, unsupportedDraftDetails } from '../../src/action/draftGrounding';
 
 describe('draft grounding', () => {
+  it('allows a detail recorded in meeting memory and rejects an absent detail', () => {
+    const task = { title: 'Send the plan', context: 'Tell the team the decision.' };
+    const draft = 'The supplier will arrive at 9 AM.';
+    expect(unsupportedDraftDetails(draft, draftSourceText(task, [], [
+      { kind: 'invented', item: 'Prep', text: 'The supplier can arrive at 9 AM.' },
+    ]))).toEqual([]);
+    expect(unsupportedDraftDetails(draft, draftSourceText(task))).toContain('"9 AM" is not in the task context');
+  });
   it('reads explicit times and infers the AM/PM shared by a range', () => {
     expect(clockTimes('The booth rule runs from 8 to 10:30 AM.')).toEqual([
       { hour: 10, minute: 30, meridiem: 'am' },

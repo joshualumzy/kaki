@@ -1,7 +1,7 @@
 import { roleLabel, type Question, type Scenario, type Task } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock } from './draftGrounding';
+import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -217,7 +217,7 @@ export function createWikiModule({
   const baseModule = createActionModule({
     name: 'action-wiki',
     kind: 'wiki_page',
-    async draft(task, signal, scenario) {
+    async draft(task, signal, scenario, _visitorName, memory) {
       if (wiki === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the page cannot be drafted');
 
@@ -240,7 +240,7 @@ export function createWikiModule({
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}${memorySourceBlock(memory)}`,
         },
       ];
 

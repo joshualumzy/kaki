@@ -1,4 +1,4 @@
-import type { Scenario } from '@kaki/shared';
+import type { MeetingMemoryEntry, Scenario } from '@kaki/shared';
 import type { Hub } from './hub';
 import type { TaskStore } from './tasks';
 
@@ -7,6 +7,7 @@ export interface KakiContext {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
+  memory?: readonly MeetingMemoryEntry[];
   /** When true, actions may be drafted and reviewed but never sent to external services. */
   draftOnly?: boolean;
 }

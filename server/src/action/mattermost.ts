@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
+import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -110,7 +110,7 @@ export function createMattermostModule({
   return createActionModule({
     name: 'action-mattermost',
     kind: 'mattermost_post',
-    async draft(task, signal, scenario) {
+    async draft(task, signal, scenario, _visitorName, memory) {
       const settings = requireSettings();
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the message cannot be drafted');
@@ -135,7 +135,7 @@ export function createMattermostModule({
         },
         {
           role: 'user',
-          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}`,
+          content: `Task: ${task.title}${ownerLine}\n\nContext:\n${task.context}${factsBlock}${acceptedDecisionBlock(task.decisionSource)}${memorySourceBlock(memory)}`,
         },
       ];
 
@@ -150,7 +150,7 @@ export function createMattermostModule({
       if (message === undefined) {
         throw new ActionError('The LLM did not return usable JSON with a message');
       }
-      const unsupported = unsupportedDraftDetails(message, draftSourceText(task, knownFacts));
+      const unsupported = unsupportedDraftDetails(message, draftSourceText(task, knownFacts, memory));
       if (unsupported.length > 0) {
         throw new ActionError(
           `The draft adds details the task does not support: ${unsupported.join('; ')}. Edit the task or retry.`,

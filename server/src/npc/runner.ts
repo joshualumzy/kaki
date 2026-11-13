@@ -23,11 +23,13 @@ import {
   type NpcStateMessage,
   type Scenario,
   type SuggestInput,
+  type MeetingMemoryEntry,
 } from '@kaki/shared';
 import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenTopicLead } from '../host/opening';
 import type { ChatMessage } from '../llm';
 import { createRoomToken } from '../livekit';
 import { NpcConversation } from './conversation';
+import { MeetingMemory } from './meetingMemory';
 import type { Utterance } from './director';
 import { playPcm } from './playback';
 import { PlaybackReference } from './reference';
@@ -87,7 +89,9 @@ export interface RunnerOptions {
   /** Emit a live 1-sentence Wingman coaching brief for the current agenda item when the visitor's turn updates the discussion state. */
   onWingmanTip?(tip: string, title: string, agendaIndex: number): void;
   /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
-  onTopicSettled?(followUp: SuggestInput): void | Promise<void>;
+  onTopicSettled?(followUp: SuggestInput, reopened?: boolean): void | Promise<void>;
+  onMemoryChange?(entries: MeetingMemoryEntry[]): void;
+  onReaction?(who: string, emoji: string): void;
 }
 
 export interface NpcRunner {
@@ -118,6 +122,7 @@ export interface NpcRunner {
   announceClosing(text: string): void;
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
+  resetMemory(): void;
 }
 
 interface Character {
@@ -133,6 +138,7 @@ interface Character {
 export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner> {
   const { scenario, livekitUrl } = options;
   const log = options.log ?? (() => undefined);
+  const memory = new MeetingMemory(scenario, (entries) => options.onMemoryChange?.(entries), log);
   const npcs = scenario.npcs ?? [];
   if (npcs.length === 0) throw new Error(`Scenario "${scenario.id}" defines no npcs, so there is nobody to run`);
   const npcNames = new Set(npcs.map((npc) => npc.attendee));
@@ -268,8 +274,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         endMeeting: options.onEndMeeting,
         onWingmanTip: options.onWingmanTip,
         settleTopic: options.onTopicSettled,
+        onReaction: options.onReaction,
       },
-      { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs, bargeInMs: options.bargeInMs },
+      { scenario: { ...scenario, npcs: cast }, memory, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs, bargeInMs: options.bargeInMs },
     );
   }
 
@@ -646,6 +653,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   return {
     announce,
+    resetMemory() {
+      if (conversation !== undefined) conversation.resetMemory();
+      else memory.reset();
+    },
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
     },

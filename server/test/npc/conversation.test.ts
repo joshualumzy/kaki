@@ -116,6 +116,99 @@ describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('reopens one earlier meeting item, replaces its decision, and returns to the current item', async () => {
+    const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
+      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
+    const h = harness(twoItems);
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+    await h.say('Use the first plan.');
+    h.calls.at(-1)?.push('Ada: I hear you.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    h.conversation.lockDecision();
+    await h.flush();
+    expect(h.conversation.memorySnapshot()).toContainEqual({ kind: 'decision', item: 'Prep', text: 'Use the first plan.' });
+    h.conversation.agendaMoved('Service');
+    await h.say('Actually, change the Prep plan.');
+    h.calls.at(-1)?.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\nAda: Changing that means extra setup.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.onCurrentAgenda('Prep')).toBe(true);
+    h.conversation.humanTyped('Use the revised plan.');
+    h.conversation.lockDecision();
+    await h.flush();
+    expect(settleTopic).toHaveBeenLastCalledWith(expect.objectContaining({ agendaItemTitle: 'Prep' }), true);
+    expect(h.conversation.memorySnapshot().filter((entry) => entry.kind === 'decision')).toEqual([
+      { kind: 'decision', item: 'Prep', text: 'Actually, change the Prep plan. Use the revised plan.' },
+    ]);
+    expect(h.conversation.onCurrentAgenda('Service')).toBe(true);
+    await h.say('Actually, change Prep again.');
+    h.calls.at(-1)?.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\nAda: I will change it again.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.logs).toContainEqual(expect.stringContaining('[control] dropped reopen: Prep was already reopened'));
+    expect(h.playing.at(-1)?.text).toContain('stays as decided');
+    expect(h.conversation.onCurrentAgenda('Service')).toBe(true);
+    h.conversation.close();
+  });
+
+  it('records invented and spoken facts but drops a playful reaction on a sensitive item', async () => {
+    const sensitive = { ...scenario, agenda: [{ ...scenario.agenda[0]!, sensitive: true }] };
+    const h = harness(sensitive);
+    const reaction = vi.fn();
+    h.ports.onReaction = reaction;
+    await h.say('Can we get help?');
+    h.calls.at(-1)?.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"newFacts":["Help takes 12 minutes."],"reactions":[{"who":"Ada","emoji":"🙌"},{"who":"Bao","emoji":"😬"}]}\nAda: It will cost $37.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.memorySnapshot()).toContainEqual({ kind: 'invented', item: 'Prep', text: 'Help takes 12 minutes.' });
+    expect(h.conversation.memorySnapshot()).toContainEqual({ kind: 'saidAloud', item: 'Prep', text: 'said aloud: It will cost $37.' });
+    expect(reaction).toHaveBeenCalledTimes(1);
+    expect(reaction).toHaveBeenCalledWith('Bao', '😬');
+    expect(h.logs).toContainEqual(expect.stringContaining('[control] dropped reaction'));
+    h.conversation.close();
+  });
+
+  it('sends a reaction as the reply starts, once, before it finishes playing', async () => {
+    const h = harness();
+    const reaction = vi.fn();
+    h.ports.onReaction = reaction;
+    await h.say('Can we get help?');
+    h.calls.at(-1)?.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reactions":[{"who":"Ada","emoji":"🙌"}]}\nAda: It will cost $37.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.playing).toHaveLength(1);
+    expect(h.playing[0]?.finished).toBe(false);
+    expect(reaction).toHaveBeenCalledTimes(1);
+    expect(reaction).toHaveBeenCalledWith('Ada', '🙌');
+    h.playing[0]?.finish();
+    await h.flush();
+    expect(reaction).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('sends no reaction when the turn is aborted before any line plays', async () => {
+    const h = harness();
+    const reaction = vi.fn();
+    h.ports.onReaction = reaction;
+    await h.say('Can we get help?');
+    h.calls.at(-1)?.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reactions":[{"who":"Ada","emoji":"🙌"}]}\n');
+    await h.flush();
+    h.conversation.humanText('Never mind.');
+    await h.flush();
+    expect(h.playing).toHaveLength(0);
+    expect(reaction).not.toHaveBeenCalled();
+    h.conversation.close();
+  });
+
   it.each([
     [0, 'the host briefly states the news'],
     [0.4, 'jumps in with the news'],

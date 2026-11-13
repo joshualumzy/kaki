@@ -22,6 +22,36 @@ function parseWithLogs(pieces: string[]): { lines: Utterance[]; logs: string[] }
   return { lines: [...pieces.flatMap((piece) => parser.push(piece)), ...parser.flush()], logs };
 }
 
+describe('meeting carry-over prompt', () => {
+  it('shows an earlier decision and only an actual link to that earlier agenda item', () => {
+    const scenario = { ...npcScenario, agenda: [
+      { title: 'Prep', minutes: 5, ownerRole: 'chef' },
+      { title: 'Service', minutes: 5, ownerRole: 'cashier', links: [{ with: 'Prep', effect: 'The earlier call reduces available staff.' }] },
+    ] };
+    const memory = [{ kind: 'decision' as const, item: 'Prep', text: 'Use one person on setup.' }];
+    const linked = buildSystemPrompt(scenario, undefined, 'Service', false, false, [], memory);
+    expect(linked).toContain('Decision on Prep: Use one person on setup.');
+    expect(linked).toContain('fact from the scenario or meeting memory');
+    expect(linked).toContain('Prep: The earlier call reduces available staff.');
+    const unlinked = buildSystemPrompt({ ...scenario, agenda: [scenario.agenda[0]!,
+      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] }, undefined, 'Service', false, false, [], memory);
+    expect(unlinked).toContain('Decision on Prep: Use one person on setup.');
+    expect(unlinked).not.toContain('The earlier call reduces available staff.');
+    expect(unlinked).not.toContain('Links to other items in this meeting:');
+    const reopened = buildSystemPrompt(scenario, undefined, 'Service', false, false, [], memory, 'Prep', ['Prep']);
+    expect(reopened).toContain('Current item: Prep.');
+    expect(reopened).toContain('while the meeting remains on its current agenda item');
+  });
+
+  it('does not expose a link to a topic outside this meeting', () => {
+    const scenario = { ...npcScenario, agenda: [
+      { title: 'Prep', minutes: 5, ownerRole: 'chef' },
+      { title: 'Service', minutes: 5, ownerRole: 'cashier', links: [{ with: 'Other', effect: 'Do a hidden action.' }] },
+    ] };
+    expect(buildSystemPrompt(scenario, undefined, 'Service')).not.toContain('Do a hidden action.');
+  });
+});
+
 describe('TurnParser', () => {
   it('cuts whole sentences after three per speaker turn and logs each cut', () => {
     const logs: string[] = [];
@@ -211,12 +241,13 @@ describe('addressedCharacter', () => {
 
 describe('buildSystemPrompt', () => {
   it('mentions links only to items in the active meeting', () => {
-    const first = { ...npcScenario.agenda[0]!, links: [
+    const first = { ...npcScenario.agenda[0]!, title: 'Present' };
+    const later = { ...npcScenario.agenda[1]!, title: 'Later', links: [
       { with: 'Present', effect: 'present effect' },
       { with: 'Absent', effect: 'absent effect' },
     ] };
-    const present = { ...npcScenario.agenda[1]!, title: 'Present' };
-    const prompt = buildSystemPrompt({ ...npcScenario, agenda: [first, present] }, undefined, first.title);
+    const prompt = buildSystemPrompt({ ...npcScenario, agenda: [first, later] }, undefined, later.title,
+      false, false, [], [{ kind: 'decision', item: 'Present', text: 'Earlier call.' }]);
     expect(prompt).toContain('Present: present effect');
     expect(prompt).not.toContain('Absent');
     expect(prompt).not.toContain('absent effect');

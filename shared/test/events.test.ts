@@ -43,6 +43,14 @@ const recordUpdate = {
 };
 
 describe('isKakiEvent', () => {
+  it('accepts only an allowed all-audience reaction from an AI attendee', () => {
+    const scenario = { ...testScenario, npcs: [{ attendee: 'Ada', voice: 'v1', personality: 'Calm', agenda: 'Prep', concerns: [] }] };
+    const reaction = { type: 'COLLEAGUE_REACTION', audience: { kind: 'all' },
+      payload: { who: 'Ada', emoji: '👍', timestamp: '2026-11-13T00:00:00.000Z' } };
+    expect(isKakiEvent(reaction, scenario)).toBe(true);
+    expect(isKakiEvent({ ...reaction, audience: { kind: 'screen' } }, scenario)).toBe(false);
+    expect(isKakiEvent({ ...reaction, payload: { ...reaction.payload, who: 'Visitor' } }, scenario)).toBe(false);
+  });
   it('accepts well-formed events for the scenario', () => {
     expect(isKakiEvent(nudge, testScenario)).toBe(true);
     expect(isKakiEvent(factFound, testScenario)).toBe(true);

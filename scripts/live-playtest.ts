@@ -586,13 +586,14 @@ async function main(): Promise<void> {
     await check('No control text leaked', control.length === 0, control.length ? control.map((line) => `${line.at} ${line.source}: ${line.text}`).join(' / ') : 'No control or JSON text in captions/transcript');
     const duplicates = new Map<string, string[]>();
     for (const task of tasks.values()) {
-      if (task.status === 'DISMISSED' || task.agendaItemTitle === undefined) continue;
-      const key = `${task.agendaItemTitle}|${task.actionKind ?? 'none'}`;
+      if (task.status === 'DISMISSED' || task.status === 'SUPERSEDED' || task.agendaItemTitle === undefined) continue;
+      // Same rule as the server: one card per agenda item, deliverable and owner (a colleague may own their own).
+      const key = `${task.agendaItemTitle}|${task.actionKind ?? 'none'}|${task.assignee ?? task.suggestedAssignee}`;
       duplicates.set(key, [...(duplicates.get(key) ?? []), task.id]);
     }
     const repeated = [...duplicates].filter(([, ids]) => ids.length > 1);
     await check('No duplicate follow-up cards', repeated.length === 0,
-      repeated.length ? repeated.map(([key, ids]) => `${key}: ${ids.join(', ')}`).join(' / ') : 'At most one active card per agenda item and kind');
+      repeated.length ? repeated.map(([key, ids]) => `${key}: ${ids.join(', ')}`).join(' / ') : 'At most one active card per agenda item, kind and owner');
     const stale = transcript.filter((line) => {
       if (line.agendaIndex <= 0 || /robot visitor/i.test(line.speaker)) return false;
       const current = scenario?.agenda[line.agendaIndex]?.title ?? '';

@@ -25,6 +25,8 @@ export function summarizeEvent(event: KakiEvent): string {
       return `${event.payload.task.title} — ${event.payload.task.status.toLowerCase()}`;
     case 'TOPIC_SETTLED':
       return `Decision locked on “${event.payload.title}”`;
+    case 'COLLEAGUE_REACTION':
+      return `${event.payload.who} reacted ${event.payload.emoji}`;
     case 'MEETING_RESET':
       return 'A new meeting started';
     case 'COMMAND_REJECTED':

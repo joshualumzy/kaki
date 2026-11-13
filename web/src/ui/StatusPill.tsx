@@ -10,6 +10,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   COMPLETED: 'Completed',
   FAILED: 'Failed',
   SYNCED: 'Synced',
+  SUPERSEDED: 'Superseded',
 };
 
 /** Small coloured pill for a task status. */

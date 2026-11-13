@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -29,12 +29,14 @@ export interface KakiApp {
   server: Server;
   hub: Hub;
   tasks: TaskStore;
+  memory: readonly MeetingMemoryEntry[];
   close(): Promise<void>;
 }
 
 interface RequestContext {
   hub: Hub;
   tasks: TaskStore;
+  memory: MeetingMemoryEntry[];
   scenario: Scenario;
   fullScenario: Scenario;
   /** A fixed agenda order from KAKI_AGENDA_PICK, used instead of the random draw. */
@@ -366,11 +368,13 @@ async function handleRequest(
         return;
       }
 
-      // Transcript lines are live-only: replaying them to a page that opens later shows ghost speech.
-      // Everything else a demo emits (nudges, facts, tasks) stays available to phones that join later.
+      // Transcript lines and reactions are live-only: replaying them to a page that opens later shows ghost speech
+      // or a stale reaction badge. Everything else a demo emits (nudges, facts, tasks) stays available to phones
+      // that join later.
+      const liveOnly = body.value.type === 'TRANSCRIPT_CHUNK' || body.value.type === 'COLLEAGUE_REACTION';
       context.hub.publish(
         body.value,
-        body.value.type === 'TRANSCRIPT_CHUNK' ? undefined : { retainKey: `dev:${JSON.stringify(body.value)}` },
+        liveOnly ? undefined : { retainKey: `dev:${JSON.stringify(body.value)}` },
       );
       sendJson(response, 200, { ok: true });
       return;
@@ -390,6 +394,17 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === 'POST' && path === '/dev/meeting-memory' && devRoutesOpen(request, context)) {
+      const body = await readJsonBody(request);
+      if (!body.ok) { sendJson(response, body.status, { error: body.error }); return; }
+      if (!isMeetingMemoryEntries(body.value, context.scenario.agenda.map((item) => item.title))) {
+        sendJson(response, 400, { error: 'Invalid meeting memory' }); return;
+      }
+      context.memory.splice(0, context.memory.length, ...body.value);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
     // The live demo's engine locked the visitor's decision on an agenda item: create its follow-up and release
     // whatever was held for that item, in one request so the two can never disagree.
     if (request.method === 'POST' && path === '/dev/settle-topic' && devRoutesOpen(request, context)) {
@@ -403,6 +418,7 @@ async function handleRequest(
         return;
       }
       const followUp = body.value;
+      const reopening = new URL(request.url ?? '/', 'http://localhost').searchParams.get('reopen') === '1';
       const agendaTitle = followUp.agendaItemTitle;
       if (agendaTitle === undefined) {
         sendJson(response, 400, { error: 'Body must be a valid task suggestion with an agendaItemTitle' });
@@ -415,11 +431,16 @@ async function handleRequest(
       // deliverable or owner stay untouched.
       const sameTopic = (task: Task): boolean =>
         task.agendaItemTitle === followUp.agendaItemTitle &&
-        task.suggestedAssignee === followUp.suggestedAssignee && task.actionKind === followUp.actionKind;
-      const matching = context.tasks.list().filter(sameTopic);
+        task.suggestedAssignee === followUp.suggestedAssignee && (reopening || task.actionKind === followUp.actionKind);
+      const matching = context.tasks.list().filter((task) => sameTopic(task) && task.status !== 'SUPERSEDED');
       const settled = matching.find((task) => task.status !== 'SUGGESTED' && task.status !== 'DISMISSED');
       const suggested = matching.filter((task) => task.status === 'SUGGESTED');
-      const task = settled ??
+      const sameDecision = settled !== undefined && settled.decisionSource === followUp.decisionSource &&
+        settled.actionKind === followUp.actionKind;
+      if (settled !== undefined && reopening && !sameDecision) {
+        context.tasks.supersede(settled.id);
+      }
+      const task = settled !== undefined && (!reopening || sameDecision) ? settled :
         (suggested[0] === undefined
           ? context.tasks.suggest(followUp)
           : context.tasks.reviseSuggested(suggested[0].id, followUp));
@@ -486,12 +507,14 @@ export async function createApp({
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
+  const memory: MeetingMemoryEntry[] = [];
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
+  hub.subscribe((event) => { if (event.type === 'MEETING_RESET') memory.splice(0); });
 
   async function closeAuth(): Promise<void> {
     if (auth === undefined) return;
@@ -513,7 +536,7 @@ export async function createApp({
 
   for (const feature of modules) {
     try {
-      const stop = feature.start({ hub, tasks, scenario, draftOnly });
+      const stop = feature.start({ hub, tasks, scenario, memory, draftOnly });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {
       for (const cleanup of cleanups.reverse()) {
@@ -541,6 +564,7 @@ export async function createApp({
     server,
     hub,
     tasks,
+    memory,
     close: async () => {
       if (closed) return;
       closed = true;

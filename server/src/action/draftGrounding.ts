@@ -1,3 +1,5 @@
+import type { MeetingMemoryEntry } from '@kaki/shared';
+
 /** A clock time that carries an explicit AM/PM in the text. */
 export interface ClockTime {
   hour: number;
@@ -90,10 +92,16 @@ export function acceptedDecisionBlock(decisionSource: string | undefined): strin
 export function draftSourceText(
   task: { title: string; context: string; decisionSource?: string },
   facts: readonly string[] = [],
+  memory: readonly MeetingMemoryEntry[] = [],
 ): string {
-  return [task.title, task.context, task.decisionSource, ...facts]
+  return [task.title, task.context, task.decisionSource, ...facts, ...memory.map((entry) => entry.text)]
     .filter((part): part is string => part !== undefined && part.trim() !== '')
     .join('\n');
+}
+
+export function memorySourceBlock(memory: readonly MeetingMemoryEntry[] = []): string {
+  return memory.length === 0 ? '' : `\n\nAlready true in this meeting:\n${memory.map((entry) =>
+    `${entry.kind === 'decision' ? `Decision on ${entry.item}` : entry.item}: ${entry.text}`).join('\n')}`;
 }
 
 /**

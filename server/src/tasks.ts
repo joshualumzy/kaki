@@ -28,6 +28,7 @@ export interface TaskStore {
   suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence): Task;
   /** Replace an early suggestion with the visitor's final wording before dispatch. */
   reviseSuggested(id: string, input: SuggestInput): Task;
+  supersede(id: string): Task;
   get(id: string): Task | undefined;
   list(): Task[];
   transition(id: string, to: TaskStatus, patch?: TaskPatch): Task;
@@ -250,6 +251,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
   return {
     suggest,
     reviseSuggested,
+    supersede: (id) => transition(id, 'SUPERSEDED'),
     get: (id) => tasks.get(id),
     list: () => [...tasks.values()],
     transition,

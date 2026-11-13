@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SuggestInput } from '@kaki/shared';
-import { postSettledTopic } from '../../src/npc/settlement';
+import { postMeetingMemory, postSettledTopic } from '../../src/npc/settlement';
 
 const followUp: SuggestInput = {
   title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
@@ -25,5 +25,16 @@ describe('postSettledTopic', () => {
       .rejects.toThrow('connection refused');
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(log).toHaveBeenCalledWith(expect.stringContaining('ERROR'));
+  });
+});
+
+describe('postMeetingMemory', () => {
+  it('retries the snapshot POST once and sends the complete ledger', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response('Unavailable', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const entries = [{ kind: 'decision' as const, item: 'Prep', text: 'Use fresh stock.' }];
+    await postMeetingMemory(fetcher, 'http://localhost/dev/meeting-memory', entries, vi.fn());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetcher.mock.calls[1]![1].body)).toEqual(entries);
   });
 });

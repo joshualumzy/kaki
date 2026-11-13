@@ -17,6 +17,8 @@ const LEGAL_MOVES: ReadonlyArray<[TaskStatus, TaskStatus]> = [
   ['FAILED', 'RUNNING'],
   ['FAILED', 'CLAIMED'],
   ['COMPLETED', 'SYNCED'],
+  ...(['SUGGESTED', 'DISPATCHED', 'CLAIMED', 'DRAFT_READY', 'RUNNING', 'COMPLETED', 'FAILED', 'SYNCED'] as const)
+    .map((from): [TaskStatus, TaskStatus] => [from, 'SUPERSEDED']),
 ];
 
 const LEGAL = new Set(LEGAL_MOVES.map(([from, to]) => `${from}>${to}`));

@@ -1,6 +1,6 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
-import { acceptedDecisionBlock } from './draftGrounding';
+import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -343,7 +343,7 @@ export function createCalendarModule({
   return createActionModule({
     name: 'action-calendar',
     kind: 'calendar_event',
-    async draft(task, signal) {
+    async draft(task, signal, _scenario, _visitorName, memory) {
       if (calendar === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the event cannot be drafted');
 
@@ -360,7 +360,7 @@ export function createCalendarModule({
         },
         {
           role: 'user',
-          content: `Task: ${task.title}\n\nContext:\n${task.context}${acceptedDecisionBlock(task.decisionSource)}`,
+          content: `Task: ${task.title}\n\nContext:\n${task.context}${acceptedDecisionBlock(task.decisionSource)}${memorySourceBlock(memory)}`,
         },
       ];
 
