@@ -375,7 +375,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
               </div>
             ) : (
               <p>
-                On each agenda item, Kaki Wingman highlights the exact decision on the table and your key numbers at the top of the right panel.
+                On each agenda item, Kaki Wingman highlights the exact decision on the table and your key numbers at the top of the Kaki panel.
               </p>
             )}
           </div>

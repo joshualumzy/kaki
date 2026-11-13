@@ -493,7 +493,7 @@ export function MeetingGrid({
 
   return (
     <StageContext.Provider value={stage}>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+      <div className="kd-stage-col">
         {npcState.kind === 'error' && (
           <div role="alert" className="kd-banner" data-tone="error">
             The AI attendees hit a problem: {npcState.message}
@@ -554,7 +554,7 @@ export function MeetingGrid({
                   setDismissedWingmanGlideKey(wingmanGlideNudge.key);
                 }}
               >
-                Check right panel →
+                Open Kaki panel →
               </button>
               <button
                 type="button"
@@ -600,7 +600,7 @@ export function MeetingGrid({
             </button>
           </div>
         )}
-        <div style={{ flex: 1, padding: '10px', minHeight: 0 }}>
+        <div className="kd-grid-wrap">
           <GridLayout tracks={tracks} style={{ height: '100%' }}>
             <CaptionedTile />
           </GridLayout>

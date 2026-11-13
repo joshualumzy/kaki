@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, devices, type Browser, type Page } from 'playwright';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 
 const BASE = 'http://localhost:5173';
@@ -17,17 +17,19 @@ type Check = { at: string; name: string; status: 'PASS' | 'FAIL'; detail: string
 type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
-function options(): { role?: string; maxMinutes: number } {
+function options(): { role?: string; maxMinutes: number; phone: boolean } {
   let role: string | undefined;
+  let phone = false;
   let maxMinutes = 25;
   for (let i = 2; i < process.argv.length; i += 1) {
     const arg = process.argv[i];
     if (arg === '--role' && process.argv[i + 1]) role = process.argv[++i];
     else if (arg === '--max-minutes' && process.argv[i + 1]) maxMinutes = Number(process.argv[++i]);
+    else if (arg === '--phone') phone = true;
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
-  return { role, maxMinutes };
+  return { role, maxMinutes, phone };
 }
 
 function decisionFor(title: string): string {
@@ -67,6 +69,7 @@ async function main(): Promise<void> {
   let scenario: Scenario | undefined;
   let page: Page | undefined;
   let browser: Browser | undefined;
+  let phoneMode = false;
   let agendaIndex = 0;
   let lastAiLineAt = Date.now();
   let lastProgressAt = Date.now();
@@ -80,6 +83,17 @@ async function main(): Promise<void> {
   const localUrl = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//;
   const strictModeSocketClose = /closed before the connection is established/i;
   const nearNavigation = (): boolean => lastNavigationAt > 0 && Date.now() - lastNavigationAt <= 5_000;
+
+  /** Phone mode: the page must never scroll sideways; always keeps a screenshot so a person can eyeball the layout. */
+  async function checkPhoneLayout(when: string): Promise<void> {
+    if (!phoneMode || page === undefined || page.isClosed()) return;
+    const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+    await check(`Phone layout ${when}`, scrollWidth <= innerWidth, `page width ${scrollWidth}px in a ${innerWidth}px screen`);
+    await mkdir(shotDir, { recursive: true });
+    const shot = join(shotDir, `${stem}-phone-${when.replace(/\W+/g, '-')}.png`);
+    await page.screenshot({ path: shot, timeout: 4_000 }).then(() => { const last = checks.at(-1); if (last !== undefined) last.shot ??= shot; })
+      .catch((error: unknown) => notes.push(`Phone screenshot failed (${when}): ${String(error)}`));
+  }
 
   async function check(name: string, ok: boolean, detail: string): Promise<void> {
     const item: Check = { at: stamp(), name, status: ok ? 'PASS' : 'FAIL', detail };
@@ -167,6 +181,8 @@ async function main(): Promise<void> {
     try {
       await input.fill(text, { timeout: 5_000 });
       await input.press('Enter', { timeout: 5_000 });
+      // A person on a phone closes the keyboard after sending; the app hides the Kaki panel while the box has focus.
+      if (phoneMode) await input.blur();
       notes.push(`${stamp()} Robot Visitor typed: ${text}`);
       return true;
     } catch (error) {
@@ -315,7 +331,8 @@ async function main(): Promise<void> {
     browser = await chromium.launch({ channel: 'chrome', headless: false, args: [
       '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
     ] });
-    const context = await browser.newContext({ permissions: ['microphone', 'camera'] });
+    phoneMode = parsed.phone;
+    const context = await browser.newContext({ ...(phoneMode ? devices['Pixel 7'] : {}), permissions: ['microphone', 'camera'] });
     page = await context.newPage();
     page.setDefaultTimeout(5_000);
     page.on('framenavigated', (frame) => { if (frame === page!.mainFrame()) lastNavigationAt = Date.now(); });
@@ -402,6 +419,7 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: 'Join to type' }).click();
     if (await waitFor('Join meeting', () => page!.locator('.kd-meeting').count().then((n) => n > 0), 25_000)) {
       await check('Join role', true, `${role.id} as Robot Visitor, microphone muted`);
+      await checkPhoneLayout('after join');
     }
     const activeResponse = await page.request.get(`${BASE}/api/scenario`, { timeout: 10_000 });
     if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario returned HTTP ${activeResponse.status()}`);
@@ -506,6 +524,7 @@ async function main(): Promise<void> {
         }
       }
       await check(`Topic ${i + 1} settled`, await waitFor(`Topic ${i + 1} settlement event`, () => settled.has(title), 20_000), title);
+      await checkPhoneLayout(`topic ${i + 1} settled`);
       if (settled.has(title)) {
         await check(`Topic ${i + 1} follow-up card`, await waitFor(`Topic ${i + 1} task card`, () =>
           [...tasks.values()].some((task) => task.agendaItemTitle === title), 20_000),
@@ -554,6 +573,7 @@ async function main(): Promise<void> {
 
     if (!closing) await waitFor('Meeting wrap-up', () => closing, 75_000);
     await check('Meeting reached wrap-up', closing, closing ? 'HOST_SPEECH_TRIGGERED CLOSING received' : 'No closing event');
+    await checkPhoneLayout('at wrap-up');
     const storedUiLines = await page.evaluate('window.__playtestLines ?? []') as UiLine[];
     uiLines.push(...storedUiLines);
     uiTaskCards = await page.locator('.kd-task-card, .kd-role-active .card-title').allTextContents();
@@ -605,7 +625,7 @@ async function main(): Promise<void> {
     const lines = [
       `# Kopitiam live playtest — ${startedAt.toISOString()}`,
       '',
-      `Role: ${visitorRole || '(not joined)'} · Name: Robot Visitor · Duration: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}s`,
+      `Role: ${visitorRole || '(not joined)'} · Name: Robot Visitor · Device: ${phoneMode ? 'Pixel 7 emulation' : 'desktop'} · Duration: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}s`,
       `Result: **${checks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS'}**`,
       '',
       '| Time (UTC) | Check | Result | Detail | Screenshot |',
