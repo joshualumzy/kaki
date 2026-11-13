@@ -322,7 +322,7 @@ export class NpcConversation<Clip> {
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
     this.noteHumanLine();
-    this.decisionLines.push(typed);
+    this.noteDecisionLine(typed);
     this.interrupt('the person typed something');
     this.unanswered = false;
     this.cutOff = false;
@@ -547,7 +547,7 @@ export class NpcConversation<Clip> {
     this.clearSilenceTimer();
     this.pending.push(accepted);
     this.noteHumanLine();
-    this.decisionLines.push(accepted);
+    this.noteDecisionLine(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
     this.unanswered = false;
@@ -991,6 +991,18 @@ export class NpcConversation<Clip> {
     this.graceTimer = undefined;
     this.reviewNudged = false;
     this.reviewWarned = false;
+  }
+
+  /**
+   * Keep a visitor line as part of their decision on this item. A repeat of an earlier line adds nothing, and a line
+   * that is only a question asks rather than decides; both would otherwise show up in the task's accepted decision.
+   */
+  private noteDecisionLine(line: string): void {
+    const text = line.trim();
+    const key = text.toLowerCase().replace(/\s+/g, ' ');
+    if (text === '' || /^[^.!?]*\?$/.test(text)) return;
+    if (this.decisionLines.some((kept) => kept.toLowerCase().replace(/\s+/g, ' ') === key)) return;
+    this.decisionLines.push(text);
   }
 
   /** The agenda item the meeting is on, and how this person takes part in it. */

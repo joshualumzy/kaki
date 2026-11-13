@@ -275,7 +275,7 @@ describe('NpcConversation', () => {
 
   it('stops talking the moment the person talks over it, and remembers only what was heard', async () => {
     const { conversation, calls, playing, states, flush, say } = harness();
-    await say('Status?');
+    await say('Give me the status.');
     calls[0]?.push('Ada: The build is red. We have a crash.\nBao: I can help with that.');
     calls[0]?.end();
     await flush();
@@ -295,7 +295,7 @@ describe('NpcConversation', () => {
 
     const messages = calls[1]?.messages ?? [];
     expect(messages.slice(1)).toEqual([
-      { role: 'user', content: 'Status?' },
+      { role: 'user', content: 'Give me the status.' },
       {
         role: 'assistant',
         content:
@@ -505,7 +505,7 @@ describe('NpcConversation', () => {
 
   it('keeps what was said before a model failure part-way through', async () => {
     const { conversation, calls, playing, states, flush, say } = harness();
-    await say('Hello?');
+    await say('Hello, I am here.');
     calls[0]?.push('Ada: First part. Seco');
     await flush();
     calls[0]?.fail(new Error('boom'));

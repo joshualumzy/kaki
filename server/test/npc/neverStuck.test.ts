@@ -166,6 +166,20 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
+  it('records the decision once: repeated lines and plain questions are left out', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role, []);
+    await h.say('Use the window bar.');
+    await h.say('Before I call it, what is the practical catch for the team?');
+    await h.say('My call stands: it frees seats.');
+    await h.say('  my call stands: it frees seats. ');
+    h.conversation.lockDecision();
+    expect(h.tasks).toHaveLength(1);
+    expect(h.tasks[0]!.decisionSource).toBe('Use the window bar. My call stands: it frees seats.');
+    h.conversation.close();
+  });
+
   it('parses a control line split across chunks without speaking it', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
