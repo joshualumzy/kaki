@@ -44,8 +44,38 @@ export interface AgendaItem {
   discussion?: AgendaDiscussion;
   /** Neutral problem statement for the opening briefing, independent of who plays the owner. */
   briefing?: string;
+  /** Artwork for this item, if the scenario provides it. */
+  art?: string;
+  /** Hidden possible directions for this topic: background for the AI, never a menu read aloud. */
+  directions?: string[];
+  /** Facts tied to this topic that every colleague may use, such as established facts. */
+  background?: string[];
+  /** A person outside the meeting who can answer once in this topic, when a colleague says they will ask. */
+  offScreen?: AgendaOffScreen;
+  /** Each seat's one fact for this topic, keyed by role id. */
+  seatFacts?: Record<string, string>;
+  /** Other topics this one links to, with one sentence on what carries across. */
+  links?: AgendaLink[];
+  /** Figures that may be spoken exactly; other numbers are spoken loosely. */
+  sayExactly?: string[];
   /** Default follow-up when the Director does not suggest a valid one. */
   followUp?: { kind: ActionKind; hint: string };
+}
+
+/** Someone outside the meeting who answers at most once in their topic. */
+export interface AgendaOffScreen {
+  name: string;
+  role: string;
+  /** How they answer, and the one condition that shapes it. */
+  howTheyAnswer: string;
+}
+
+/** A link from this agenda item to another one. */
+export interface AgendaLink {
+  /** The title of the other agenda item. */
+  with: string;
+  /** What carries from one topic to the other. */
+  effect: string;
 }
 
 /**
@@ -110,6 +140,10 @@ export interface NpcProfile {
   role?: NpcRole;
   /** How they sound: sentence length, verbal habits, how they hedge or push back. */
   speechStyle?: string;
+  /** How they meet a cost or a push, such as giving way on people but not on untested systems. */
+  temperament?: string;
+  /** What they personally stand to lose or protect this morning. */
+  stake?: string;
   /** What they want but would not say outright. */
   hiddenGoal?: string;
   /** Standing disagreements with other characters, which give them a reason to answer each other. */
@@ -138,6 +172,10 @@ export interface Scenario {
   agenda: AgendaItem[];
   /** What is going on and what the meeting is for, told to the AI attendees; optional. */
   situation?: string;
+  /** Shared background every colleague knows, usable for invented details; optional. */
+  background?: string[];
+  /** Agenda titles that must never be drawn together in one meeting; optional. */
+  excludedPairs?: [string, string][];
   /** Words and names likely to come up, so the AI attendees can tell what a misheard word was meant to be; optional. */
   vocabulary?: string[];
   /** Plain meanings of the team's own terms, so the characters can explain them to someone new; optional. */
@@ -165,6 +203,15 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
+}
+
+function readOptionalStringArray(value: unknown, label: string, problems: string[]): void {
+  if (value === undefined) return;
+  if (!isStringArray(value)) problems.push(`${label} must be a non-empty array of non-empty strings when present`);
 }
 
 function readRoles(value: unknown, problems: string[]): Set<string> {
@@ -278,7 +325,7 @@ function readNpcs(value: unknown, attendees: unknown, roleIds: Set<string>, prob
     for (const field of ['voice', 'personality', 'agenda'] as const) {
       if (!isNonEmptyString(npc[field])) problems.push(`npcs[${index}].${field} must be a non-empty string`);
     }
-    for (const field of ['speechStyle', 'hiddenGoal'] as const) {
+    for (const field of ['speechStyle', 'hiddenGoal', 'temperament', 'stake'] as const) {
       if (npc[field] !== undefined && !isNonEmptyString(npc[field])) {
         problems.push(`npcs[${index}].${field} must be a non-empty string`);
       }
@@ -329,6 +376,7 @@ function readAgenda(
   value: unknown,
   roleIds: Set<string>,
   attendeeNames: Set<string>,
+  agendaTitles: Set<string>,
   problems: string[],
 ): void {
   if (!Array.isArray(value)) {
@@ -360,9 +408,54 @@ function readAgenda(
     if (item.briefing !== undefined && !isNonEmptyString(item.briefing)) {
       problems.push(`agenda[${index}].briefing must be a non-empty string when present`);
     }
+    if (item.art !== undefined && !isNonEmptyString(item.art)) {
+      problems.push(`agenda[${index}].art must be a non-empty string when present`);
+    }
     if (item.followUp !== undefined &&
         (!isObject(item.followUp) || !ACTION_KINDS.includes(item.followUp.kind as ActionKind) || !isNonEmptyString(item.followUp.hint))) {
       problems.push(`agenda[${index}].followUp must have a valid kind and non-empty hint`);
+    }
+    readOptionalStringArray(item.directions, `agenda[${index}].directions`, problems);
+    readOptionalStringArray(item.background, `agenda[${index}].background`, problems);
+    readOptionalStringArray(item.sayExactly, `agenda[${index}].sayExactly`, problems);
+    if (item.offScreen !== undefined) {
+      const offScreen = item.offScreen;
+      if (
+        !isObject(offScreen) ||
+        !isNonEmptyString(offScreen.name) ||
+        !isNonEmptyString(offScreen.role) ||
+        !isNonEmptyString(offScreen.howTheyAnswer)
+      ) {
+        problems.push(`agenda[${index}].offScreen must have a non-empty "name", "role" and "howTheyAnswer"`);
+      }
+    }
+    if (item.seatFacts !== undefined) {
+      if (!isObject(item.seatFacts) || Object.keys(item.seatFacts).length === 0) {
+        problems.push(`agenda[${index}].seatFacts must be a non-empty object keyed by role id`);
+      } else {
+        for (const [roleId, fact] of Object.entries(item.seatFacts)) {
+          if (!roleIds.has(roleId)) problems.push(`agenda[${index}].seatFacts has unknown role "${roleId}"`);
+          else if (!isNonEmptyString(fact)) problems.push(`agenda[${index}].seatFacts.${roleId} must be a non-empty string`);
+        }
+      }
+    }
+    if (item.links !== undefined) {
+      if (!Array.isArray(item.links) || item.links.length === 0) {
+        problems.push(`agenda[${index}].links must be a non-empty array when present`);
+      } else {
+        item.links.forEach((link, linkIndex) => {
+          const where = `agenda[${index}].links[${linkIndex}]`;
+          if (!isObject(link) || !isNonEmptyString(link.with) || !isNonEmptyString(link.effect)) {
+            problems.push(`${where} must have a non-empty "with" and "effect"`);
+            return;
+          }
+          if (!agendaTitles.has(link.with)) {
+            problems.push(`${where}.with "${link.with}" is not an agenda title`);
+          } else if (isNonEmptyString(item.title) && link.with === item.title) {
+            problems.push(`${where}.with cannot be the agenda item itself`);
+          }
+        });
+      }
     }
     if (!isNonEmptyString(item.ownerRole)) {
       problems.push(`agenda[${index}].ownerRole must be a non-empty string`);
@@ -453,7 +546,34 @@ export function parseScenario(value: unknown): Scenario {
         )
       : [],
   );
-  readAgenda(value.agenda, roleIds, attendeeNames, problems);
+  const agendaTitles = new Set<string>(
+    Array.isArray(value.agenda)
+      ? value.agenda.flatMap((item) => (isObject(item) && isNonEmptyString(item.title) ? [item.title] : []))
+      : [],
+  );
+  readAgenda(value.agenda, roleIds, attendeeNames, agendaTitles, problems);
+  readOptionalStringArray(value.background, 'background', problems);
+  if (value.excludedPairs !== undefined) {
+    if (!Array.isArray(value.excludedPairs) || value.excludedPairs.length === 0) {
+      problems.push('excludedPairs must be a non-empty array of agenda-title pairs when present');
+    } else {
+      value.excludedPairs.forEach((pair, index) => {
+        if (
+          !Array.isArray(pair) ||
+          pair.length !== 2 ||
+          !isNonEmptyString(pair[0]) ||
+          !isNonEmptyString(pair[1])
+        ) {
+          problems.push(`excludedPairs[${index}] must be a pair of two non-empty agenda titles`);
+          return;
+        }
+        for (const title of pair) {
+          if (!agendaTitles.has(title)) problems.push(`excludedPairs[${index}] title "${title}" is not an agenda title`);
+        }
+        if (pair[0] === pair[1]) problems.push(`excludedPairs[${index}] must name two different agenda titles`);
+      });
+    }
+  }
   if (value.hostBrief !== undefined) {
     if (!isObject(value.hostBrief) || !isNonEmptyString(value.hostBrief.goal) || !isNonEmptyString(value.hostBrief.decision)) {
       problems.push('hostBrief must have a non-empty "goal" and "decision" when present');

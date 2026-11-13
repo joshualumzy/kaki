@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200" fill="none">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="400" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f3d36"/>
+      <stop offset=".55" stop-color="#145349"/>
+      <stop offset="1" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fde68a"/>
+      <stop offset=".55" stop-color="#d97706"/>
+      <stop offset="1" stop-color="#92400e"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#071f1d" flood-opacity=".42"/>
+    </filter>
+  </defs>
+  <rect width="400" height="200" fill="url(#wall)"/>
+  <g stroke="#fff" stroke-opacity=".06">
+    <path d="M0 40h400M0 80h400M0 120h400M0 160h400M50 0v200M100 0v200M150 0v200M200 0v200M250 0v200M300 0v200M350 0v200"/>
+  </g>
+  <ellipse cx="200" cy="179" rx="158" ry="13" fill="#041b19" opacity=".38"/>
+  <g filter="url(#shadow)">
+    <path d="M48 117h304v48H48z" fill="#8b5e36"/>
+    <path d="M43 111h314v14H43z" fill="url(#brass)"/>
+    <path d="M71 126h258v29H71z" fill="#523a2a"/>
+  </g>
+  <g filter="url(#shadow)">
+    <ellipse cx="145" cy="105" rx="61" ry="13" fill="#f6e4bd"/>
+    <path d="M90 76h110l-7 31c-3 15-92 15-96 0z" fill="#f3e8cf"/>
+    <ellipse cx="145" cy="76" rx="55" ry="11" fill="#fcf0d7"/>
+    <ellipse cx="145" cy="77" rx="45" ry="7" fill="#653b26"/>
+    <path d="M198 82h13c15 0 14 23-9 24" stroke="#f3e8cf" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="233" y="46" width="112" height="65" rx="7" fill="#f5e6be"/>
+    <path d="M246 63h85M246 76h63M246 89h76" stroke="#b18950" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="328" cy="95" r="18" fill="url(#brass)"/>
+    <path d="M320 95h16" stroke="#fff4d6" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <path d="M121 55c-4-8 5-13 1-21M146 53c-4-8 5-13 1-21M170 55c-4-8 5-13 1-21" stroke="#f5e6be" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/>
+</svg>

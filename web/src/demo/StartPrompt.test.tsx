@@ -81,6 +81,15 @@ beforeEach(() => {
 });
 
 describe('StartPrompt', () => {
+  it('uses agenda artwork rather than guessing from a title', () => {
+    mocks.useScenario.mockReturnValue({ ...scenario, agenda: [
+      { title: 'A neutral title', minutes: 5, ownerRole: 'producer', art: '/scenario/current.svg' },
+    ] });
+    render(<StartPrompt onStart={vi.fn()} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Today’s 1 Topics/i }));
+    expect((screen.getByAltText('A neutral title') as HTMLImageElement).getAttribute('src')).toBe('/scenario/current.svg');
+  });
+
   it('tells the person to read their briefing and waits for the button', () => {
     const onStart = vi.fn();
     render(<StartPrompt onStart={onStart} />);

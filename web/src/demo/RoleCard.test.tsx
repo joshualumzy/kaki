@@ -16,6 +16,8 @@ describe('RoleCard', () => {
           label: 'Producer',
           card: { youAre: 'You are Wei Ling.', facts: ['The build crashes.', 'The deadline moved.'], responsibility: 'You decide what ships.' },
         }}
+        agenda={[{ title: 'Build', minutes: 5, ownerRole: 'producer', seatFacts: { producer: 'The build crashes.' } },
+          { title: 'Deadline', minutes: 5, ownerRole: 'producer', seatFacts: { producer: 'The deadline moved.' } }]}
       />,
     );
     expect(screen.getByLabelText('Your role: Producer')).toBeTruthy();
@@ -42,5 +44,24 @@ describe('RoleCard', () => {
       />,
     );
     expect(screen.getByText('You are Yoo, the producer.')).toBeTruthy();
+  });
+
+  it('shows only seat facts from the selected meeting items', () => {
+    render(<RoleCard
+      role={{ id: 'producer', label: 'Director', card: {
+        youAre: 'You lead operations.', responsibility: 'Keep the floor running.', facts: ['Foreign topic fact'],
+      } }}
+      agenda={[{ title: 'Current', minutes: 5, ownerRole: 'producer',
+        seatFacts: { producer: 'Current seat fact' } }]}
+    />);
+    expect(screen.getByText('Current seat fact')).toBeTruthy();
+    expect(screen.queryByText('Foreign topic fact')).toBeNull();
+  });
+
+  it('does not show a role-card fact when the selected items have no fact for that role', () => {
+    render(<RoleCard role={{ id: 'producer', label: 'Director', card: {
+      youAre: 'You lead operations.', responsibility: 'Keep the floor running.', facts: ['Foreign topic fact'],
+    } }} agenda={[{ title: 'Current', minutes: 5, ownerRole: 'cashier', seatFacts: { cashier: 'Another fact' } }]} />);
+    expect(screen.queryByText('Foreign topic fact')).toBeNull();
   });
 });

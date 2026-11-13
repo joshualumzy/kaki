@@ -14,18 +14,18 @@ import {
 describe('knowledge chunk dates and headers', () => {
   it('reads a wiki page date and puts it in every section header', () => {
     const chunks = wikiChunks({
-      path: 'kopitiam/mall-promo-rules',
-      title: 'Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget',
-      content: `# Butter costing\n\nLast updated: 10 November 2026\n\n## Butter cost\n\nDoubling butter to 20g costs SGD 1,100/month.\n\n## Notes\n\nCheck email.`,
+      path: 'kopitiam/delivery-pricing',
+      title: 'Nanyang Kopi & Toast - Delivery Pricing',
+      content: `# Delivery pricing\n\nLast updated: 10 November 2026\n\n## Commission\n\nThe delivery app takes 32% of every order.\n\n## Notes\n\nCheck email.`,
     });
 
     expect(chunks).toHaveLength(3);
-    expect(chunks.every((chunk) => chunk.text.startsWith('[Wiki: Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget, updated 10 Nov 2026]'))).toBe(true);
+    expect(chunks.every((chunk) => chunk.text.startsWith('[Wiki: Nanyang Kopi & Toast - Delivery Pricing, updated 10 Nov 2026]'))).toBe(true);
     expect(chunks.every((chunk) => chunk.publishedAt === '2026-11-10')).toBe(true);
     expect(chunks.map((chunk) => chunk.ref)).toEqual([
-      'kopitiam/mall-promo-rules#1-overview',
-      'kopitiam/mall-promo-rules#2-butter-cost',
-      'kopitiam/mall-promo-rules#3-notes',
+      'kopitiam/delivery-pricing#1-overview',
+      'kopitiam/delivery-pricing#2-commission',
+      'kopitiam/delivery-pricing#3-notes',
     ]);
   });
 
@@ -59,14 +59,14 @@ describe('knowledge chunk dates and headers', () => {
     expect(() => parseMattermostSentAt({})).toThrow(/props.sent_at/);
 
     const chunk = mattermostThreadChunk(
-      'kiosk-trials',
-      { id: 'root', user_id: 'u1', message: 'Kiosk trial spike', props, create_at: 1 },
+      'shop-floor',
+      { id: 'root', user_id: 'u1', message: 'Trial price notes', props, create_at: 1 },
       [
         {
           id: 'reply',
           root_id: 'root',
           user_id: 'u2',
-          message: 'That is the point, the toggle is too small',
+          message: 'The uncles saw the new price and walked out',
           props: { sent_at: '2026-11-10T09:15:00+08:00' },
           create_at: 2,
         },
@@ -76,10 +76,10 @@ describe('knowledge chunk dates and headers', () => {
         ['u2', 'arjun'],
       ]),
     );
-    expect(chunk.text.startsWith('[Mattermost: #kiosk-trials thread, 10 Nov 2026]')).toBe(true);
-    expect(chunk.text).toContain('mei: Kiosk trial spike');
-    expect(chunk.text).toContain('arjun: That is the point, the toggle is too small');
-    expect(chunk.ref).toBe('#kiosk-trials/root');
+    expect(chunk.text.startsWith('[Mattermost: #shop-floor thread, 10 Nov 2026]')).toBe(true);
+    expect(chunk.text).toContain('mei: Trial price notes');
+    expect(chunk.text).toContain('arjun: The uncles saw the new price and walked out');
+    expect(chunk.ref).toBe('#shop-floor/root');
   });
 
   it('reads the Mailpit Date header', () => {
@@ -100,22 +100,23 @@ describe('knowledge chunk dates and headers', () => {
 
   it('puts Postgres dates and column values in a row chunk', () => {
     const chunk = postgresRowChunk(
-      'kiosk_trial_stats',
+      'regulars_pricing',
       {
         id: 1,
-        trial_date: '2026-11-10',
-        first_time_users: 28,
-        froze_at_kopi_o_kosong: 19,
-        missed_language_toggle_pct: '72.00',
-        notes: 'First-time users froze on Step 2',
+        effective_on: '2026-11-10',
+        old_kopi_price_sgd: '1.30',
+        new_kopi_price_sgd: '2.40',
+        cost_per_cup_sgd: '1.60',
+        regulars_most_mornings: 40,
+        notes: 'Old shop kopi price and cost per cup',
         updated_on: '2026-11-10',
       },
       'updated_on',
     );
-    expect(chunk.text.startsWith('[Postgres: kiosk_trial_stats, updated 10 Nov 2026]')).toBe(true);
-    expect(chunk.text).toContain('first_time_users: 28');
-    expect(chunk.text).toContain('missed_language_toggle_pct: 72.00');
-    expect(chunk.ref).toBe('kiosk_trial_stats/1');
+    expect(chunk.text.startsWith('[Postgres: regulars_pricing, updated 10 Nov 2026]')).toBe(true);
+    expect(chunk.text).toContain('old_kopi_price_sgd: 1.30');
+    expect(chunk.text).toContain('cost_per_cup_sgd: 1.60');
+    expect(chunk.ref).toBe('regulars_pricing/1');
     expect(chunk.publishedAt).toBe('2026-11-10');
   });
 });

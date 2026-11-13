@@ -87,7 +87,7 @@ describe('closing a question needs the line that answers it', () => {
   });
 
   it.each([
-    "The trial sheet has that split, but I haven't looked at it since last week.",
+    "The trial sheet has that split, but I haven't looked at it since the trial.",
     'Not per hour. The trial sheet has the split, but I would have to check it.',
     'That is still open. Nothing we have can take cash tomorrow without a free pair of hands.',
     'Right, keep the portion open for now.',
@@ -166,7 +166,7 @@ describe('an affirmative answer states the fact', () => {
     "Okay, let's not decide blind. Put the per-hour solo diner number on the list.",
     "I can pull the socket usage from the relay, but that won't tell us who is a camper.",
     'Right, keep the portion open for now.',
-    "The trial sheet has that split, but I haven't looked at it since last week.",
+    "The trial sheet has that split, but I haven't looked at it since the trial.",
     'That is still open. Nothing we have can take cash tomorrow without a free pair of hands.',
     "I don't know if it fits the twelve-button grid.",
   ])('rejects: %s', (line) => {

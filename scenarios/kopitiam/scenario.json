@@ -1,62 +1,42 @@
 {
   "id": "kopitiam",
   "organisation": "Nanyang Kopi & Toast",
-  "meetingTitle": "Raffles Place Flagship & App Promo Launch",
+  "meetingTitle": "Raffles Place Flagship Opening Day",
   "roles": [
     {
       "id": "producer",
       "label": "Operations Director",
       "card": {
-        "youAre": "You are Wei Ling, Operations Director looking after the shop floor, Auntie Mary, food hygiene, and the budget.",
-        "facts": [
-          "We have 10 stools in the storeroom to set up a Laptop & Solo Window Bar, and we can switch off booth wall plugs from 8–10 AM with table signs so 62-year-old Auntie Mary never has to confront anyone.",
-          "Our head chef caught the unplugged fridge at 6 AM, threw out all the old food with a signed disposal receipt, and restocked with fresh supplies delivered this morning.",
-          "We only lose $0.50 on single $10 delivery sets—switching GrabFood to $50 Office Platters (5-set bundles) makes $5 profit per platter even after the 32% fee without pulling staff off the counter.",
-          "The kiosk has a 'Subtitle Mode' that shows plain English ('Black Coffee, No Sugar') on screen for customers while still printing traditional Kopi names on the kitchen ticket for Uncle Lim."
-        ],
-        "responsibility": "Make sure our plans work for Auntie Mary and the counter staff without breaking food hygiene or losing money."
+        "youAre": "You are Wei Ling, Operations Director. You protect the floor team and count every dollar.",
+        "facts": [],
+        "responsibility": "Make sure the floor and the money hold up this morning."
       }
     },
     {
       "id": "lead_programmer",
       "label": "Tech & POS Lead",
       "card": {
-        "youAre": "You are Arjun, Tech & POS Lead looking after the self-order kiosks, the kitchen ticket printer, and store power.",
-        "facts": [
-          "The kiosk has a 'Subtitle Mode' we can turn on in 2 minutes—it shows plain English ('Black Coffee, No Sugar') on screen while still printing 'Kopi O Kosong' on Uncle Lim's kitchen ticket.",
-          "The booth wall sockets run on a back-room switch we can auto-turn off from 8–10 AM, while keeping power on at the 10-stool window bar for laptop users.",
-          "GrabFood hides shops that raise single-item prices online, but adding a $50 Office Platter (5-set bundle) keeps our store visible and makes $5 profit per platter.",
-          "Our head chef caught the unplugged fridge at 6 AM, logged the disposal receipt, and loaded fresh morning supplies."
-        ],
-        "responsibility": "Keep the kiosks, kitchen printer, and store power simple enough to configure and test tonight."
+        "youAre": "You are Arjun, Tech & POS Lead. You have one hour before doors open, and every system change comes out of it.",
+        "facts": [],
+        "responsibility": "Keep the shop systems working for opening and weigh each change against the time left."
       }
     },
     {
       "id": "game_designer",
       "label": "Menu & Store Experience Lead",
       "card": {
-        "youAre": "You are Mei, Menu & Store Experience Lead looking after our kopi and kaya toast recipes, the menu, and customer flow.",
-        "facts": [
-          "The kiosk has a 'Subtitle Mode' that shows plain English ('Black Coffee, No Sugar') under 'Kopi O Kosong' on screen while still printing traditional Kopi names in the kitchen.",
-          "Our head chef caught the warm fridge at 6 AM, threw out all the old stock with a signed receipt, and loaded fresh morning supplies so we don't have to pull breakfast sets.",
-          "We have 10 stools in the storeroom to open a Window Bar for laptop users and solo diners carrying hot trays, plus table signs for the main dining booths.",
-          "Switching GrabFood to $50 Office Platters (5-set bundles) uses shared trays and makes $5 profit per platter even after Grab's 32% fee."
-        ],
-        "responsibility": "Keep our kopi and kaya toast authentic while making ordering and finding a seat easier."
+        "youAre": "You are Mei, Menu & Store Experience Lead. You designed the new menu and fought to keep the old shop's heritage in the brand.",
+        "facts": [],
+        "responsibility": "Keep the menu and the shop's heritage right while customers are looked after."
       }
     },
     {
       "id": "marketing_lead",
       "label": "Marketing Lead",
       "card": {
-        "youAre": "You are Daniel, Marketing Lead looking after TikTok reviews, store promos, and public goodwill.",
-        "facts": [
-          "Our store insurance covers up to $3,000 in immediate no-fault medical goodwill for the hospitalized customer's family, and our head chef has the 6 AM disposal receipt for the old fridge stock.",
-          "12 nearby Raffles Place offices asked for a 10%-off direct self-pickup code, and switching GrabFood to $50 Office Platters (5-set bundles) makes $5 profit per platter even after the 32% fee.",
-          "Moving laptop users to the 10-stool window bar with table signs protects our Google reviews without forcing Auntie Mary to police tables.",
-          "Turning on Kiosk 'Subtitle Mode' clears the doorway queue before the landlord fines us $2,000, while keeping traditional Kopi names on Uncle Lim's kitchen tickets."
-        ],
-        "responsibility": "Protect our launch reputation and nearby office orders without making promises the kitchen or floor staff cannot keep."
+        "youAre": "You are Daniel, Marketing Lead. You are responsible for customer promises on opening day.",
+        "facts": [],
+        "responsibility": "Protect the opening-day reputation and the office customers without promising what the shop cannot deliver."
       }
     },
     {
@@ -65,205 +45,398 @@
       "facilitator": true,
       "card": {
         "youAre": "You are Sam, General Manager chairing the huddle.",
-        "facts": [
-          "Call on the lead for each topic and let the team hash out the practical catches.",
-          "Make sure each topic wraps up with a clear call and someone owning the follow-up."
-        ],
-        "responsibility": "Chair the huddle, hear both sides out, and assign a follow-up owner for each topic."
+        "facts": [],
+        "responsibility": "Chair the huddle, keep time, and sum up each decision in one sentence."
       }
     }
   ],
   "attendees": [
-    { "name": "Wei Ling", "role": "producer", "zoomDisplayName": "Wei Ling" },
-    { "name": "Arjun", "role": "lead_programmer", "zoomDisplayName": "Arjun" },
-    { "name": "Mei", "role": "game_designer", "zoomDisplayName": "Mei" },
-    { "name": "Daniel", "role": "marketing_lead", "zoomDisplayName": "Daniel" },
-    { "name": "Sam", "role": "studio_manager", "zoomDisplayName": "Sam" }
+    {
+      "name": "Wei Ling",
+      "role": "producer",
+      "zoomDisplayName": "Wei Ling"
+    },
+    {
+      "name": "Arjun",
+      "role": "lead_programmer",
+      "zoomDisplayName": "Arjun"
+    },
+    {
+      "name": "Mei",
+      "role": "game_designer",
+      "zoomDisplayName": "Mei"
+    },
+    {
+      "name": "Daniel",
+      "role": "marketing_lead",
+      "zoomDisplayName": "Daniel"
+    },
+    {
+      "name": "Sam",
+      "role": "studio_manager",
+      "zoomDisplayName": "Sam"
+    }
   ],
   "agenda": [
     {
-      "title": "First-timers stalling at the kiosk over Kopi names",
-      "minutes": 8,
-      "ownerRole": "game_designer",
-      "contested": true,
-      "decision": "how do we clear the 25-person kiosk line before the building landlord fines us $2,000, without making 65-year-old Uncle Lim walk out of the kitchen?",
-      "discussion": {
-        "openingViews": [
-          {
-            "attendee": "Mei",
-            "view": "The building landlord just threatened to fine us $2,000 because 25 newcomers are blocking the entrance lobby staring at 'Kopi O Kosong' on the kiosk. Can't we just change the screen buttons to plain English like 'Black Coffee' and 'Latte' right now?"
-          },
-          {
-            "attendee": "Wei Ling",
-            "view": "Hold on—65-year-old Uncle Lim in the kitchen said if his order tickets start printing 'Latte' instead of 'Kopi', he's taking off his apron and walking out!"
-          },
-          {
-            "attendee": "Arjun",
-            "view": "Yeah, whatever button name we put on the screen prints straight onto Uncle Lim's ticket by default, and our screen only fits 12 buttons unless we turn on Subtitle Mode or change how people queue."
-          }
-        ],
-        "tradeOffs": [
-          {
-            "attendee": "Mei",
-            "role": "game_designer",
-            "tradeOff": "$2,000 landlord fine & lobby jam: 25 tourists and office newcomers are blocking the building doorway because they freeze at 'Kopi O Kosong'.",
-            "question": "How do we help newcomers order fast and clear the doorway before the landlord fines us $2,000?"
-          },
-          {
-            "attendee": "Wei Ling",
-            "role": "producer",
-            "tradeOff": "Uncle Lim threatening to walk out: 65-year-old Uncle Lim refuses to read 'Latte' on kitchen tickets and slows down by 15 seconds a cup on English tickets.",
-            "question": "How do we keep traditional Kopi names on Uncle Lim's kitchen tickets so he doesn't walk out?"
-          },
-          {
-            "attendee": "Arjun",
-            "role": "lead_programmer",
-            "tradeOff": "Kiosk screen & ticket setup: Renaming buttons changes the kitchen ticket too, unless we enable Kiosk Subtitle Mode or put a staff member at the door.",
-            "question": "Should we enable Kiosk Subtitle Mode, station a queue-buster at the door, or split the line?"
-          }
-        ]
-      }
-    },
-    {
-      "title": "Morning seat crunch & laptop campers",
-      "minutes": 8,
-      "ownerRole": "lead_programmer",
-      "contested": true,
-      "decision": "how do we free up tables for breakfast customers and stop 62-year-old Auntie Mary from quitting on the spot, without triggering 1-star Google reviews?",
-      "discussion": {
-        "openingViews": [
-          {
-            "attendee": "Arjun",
-            "view": "Half our tables are blocked for two hours by people on laptops who only bought a $2 coffee, and 62-year-old Auntie Mary is crying in the back threatening to quit after a guy in a suit screamed at her! I say we ban laptops and cut all power plugs during breakfast!"
-          },
-          {
-            "attendee": "Daniel",
-            "view": "Whoa, hold on—half those laptop users work in the offices upstairs, so if we kick them out rudely on Opening Day, they'll tank our Google rating with 1-star reviews."
-          },
-          {
-            "attendee": "Mei",
-            "view": "Plus 60% of our paying walk-ins come alone carrying scalding hot trays of eggs and kopi—they need a guaranteed spot to sit without Auntie Mary having to police anyone."
-          }
-        ],
-        "tradeOffs": [
-          {
-            "attendee": "Wei Ling",
-            "role": "producer",
-            "tradeOff": "Auntie Mary threatening to quit: 62-year-old Auntie Mary is in tears after a customer in a suit yelled at her, and she will quit today if forced to police tables.",
-            "question": "How do we protect Auntie Mary so she never has to confront laptop campers again?"
-          },
-          {
-            "attendee": "Mei",
-            "role": "game_designer",
-            "tradeOff": "16 blocked seats & hot trays: Laptop campers hold 16 of 28 seats on one $2 drink while solo diners carrying hot trays walk out.",
-            "question": "Where do we put laptop users and solo diners so paying breakfast customers have seats?"
-          },
-          {
-            "attendee": "Daniel",
-            "role": "marketing_lead",
-            "tradeOff": "Office regular backlash: Kicking upstairs office workers out rudely risks a wave of 1-star Google reviews on launch day.",
-            "question": "Do we move laptops to the 10-stool window bar with table signs, set a minimum spend, or cut booth plugs from 8–10 AM?"
-          }
-        ]
-      }
-    },
-    {
-      "title": "SFA food safety inspection & salmonella report",
-      "minutes": 8,
+      "title": "One counter staff short for the opening rush",
+      "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
-      "decision": "how do we handle the hospitalized customer, the part-time cleaner who unplugged the fridge, and the 9 AM health inspection?",
+      "briefing": "One of our counter staff texted at quarter to seven with a fever, so we're one short for the opening rush. Daniel's free-kopi flyers went to the whole building.",
+      "decision": "how do we run the counter from 8 to 10 one person short?",
+      "directions": [
+        "Ask Auntie Mary to come in. Rest-day work is double pay and she can say no. If asked, she answers once, in character: she may agree, refuse, or agree with a condition such as only from 9. Decide her answer from how the guest asks.",
+        "An agency temp. Needs notice and a till login from Arjun (15 minutes of his hour), and does not know the menu.",
+        "A manager covers the counter. Whoever it is drops their own opening-day job.",
+        "Cut the counter menu to drinks and toast only, or push ordering to the kiosk.",
+        "Scale back the free-kopi offer."
+      ],
+      "background": [
+        "The free-kopi crowd is expected from 8 to 9, and the counter has two staff before anyone is added."
+      ],
+      "offScreen": {
+        "name": "Auntie Mary",
+        "role": "floor staff",
+        "howTheyAnswer": "Auntie Mary answers once, in character. She may agree, refuse, or agree with a condition such as starting at 9. A warm, fair ask is more likely to get a yes; decide her answer from how the guest asks."
+      },
+      "seatFacts": {
+        "producer": "I signed the opening-day staffing plan. Auntie Mary is on her rest day, so asking her in means double pay, and she is free to say no.",
+        "lead_programmer": "Anyone new on the till needs a login, which takes me about a quarter of an hour before opening.",
+        "game_designer": "Toast sets are the slowest thing at the counter; drinks ordered at the kiosk barely touch it.",
+        "marketing_lead": "The free-kopi flyers went to every office in the building, about two hundred of them."
+      },
+      "links": [
+        {
+          "with": "Old regulars and the new kopi prices",
+          "effect": "An old-price hour or a regulars' queue lands on a counter that is already one short."
+        },
+        {
+          "with": "Laptop campers and the breakfast seat crunch",
+          "effect": "With nobody free to walk the floor, any seat rule must work without staff."
+        }
+      ],
       "discussion": {
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "A customer from yesterday's trial is in the hospital with food poisoning because our new part-time night cleaner unplugged the fridge for three hours to charge his phone! Health inspectors arrive at 9 AM—do we fire the cleaner, and how do we pass inspection without losing $1,800 in morning sales?"
+            "view": "We're one short at the counter for the rush, and I won't leave one person alone there."
           },
           {
             "attendee": "Daniel",
-            "view": "The customer's angry family is threatening to blast us online and Straits Times reporters arrive at 8 AM—we need to decide if we pay their hospital bill right now or shut the kitchen down for the morning!"
-          },
-          {
-            "attendee": "Mei",
-            "view": "Wait—our head chef caught the warm fridge at 6 AM, threw out all the old food with a signed disposal receipt, and loaded fresh morning supplies, so we don't have to close if we're upfront!"
+            "view": "The free-kopi crowd is coming at opening, and going quiet now would be worse."
           }
         ],
         "tradeOffs": [
           {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "tradeOff": "One on the counter: leaving someone alone through the opening rush is not safe or fair.",
+            "question": "How do we cover the counter without leaving one person alone?"
+          },
+          {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Hospitalized customer & 8 AM press: The patient's family is furious and reporters arrive at 8 AM; our insurance covers up to $3,000 in medical goodwill.",
-            "question": "How do we take care of the hospitalized customer's family and answer the 8 AM reporters?"
+            "tradeOff": "Whole building invited: the free-kopi flyers went to every office, about two hundred of them.",
+            "question": "Do we go quiet on the free kopi, or find the hands to keep it?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-counter.svg"
+    },
+    {
+      "title": "Old regulars and the new kopi prices",
+      "minutes": 5,
+      "ownerRole": "game_designer",
+      "contested": true,
+      "briefing": "Our regulars from the old shop have had kopi here every morning for years. At yesterday's trial a few of the uncles saw the new prices and walked out, and one of their nephews posted on Facebook that Nanyang has forgotten its roots.",
+      "decision": "what do we do for the old regulars without losing money on every cup?",
+      "directions": [
+        "An old-price hour for kopi before the rush: it loses money per cup and keeps the counter busy.",
+        "A regulars' card or a regulars' price on the till. Arjun can add a price button in about 10 minutes of his hour, but someone must decide who counts as a regular. If the guest proposes a list of names, a colleague may ask Uncle Lim, who answers once: he may offer to vouch for them, or say he will not be the one turning people away.",
+        "A seniors' discount checked against a seniors' card: simple to check, but not every regular is a senior, and office workers' parents qualify too.",
+        "Hold the price and explain it: a note at the counter, a reply on Facebook, a free first kopi for regulars this week."
+      ],
+      "background": [
+        "This flagship is the refurbished old Nanyang shop; many morning regulars have come here for years."
+      ],
+      "offScreen": {
+        "name": "Uncle Lim",
+        "role": "kopi bar",
+        "howTheyAnswer": "Uncle Lim answers once, in character. He may offer to vouch for the regulars, or say he will not be the one turning people away. Decide his answer from how the guest asks."
+      },
+      "seatFacts": {
+        "producer": "On this rent a cup of kopi costs us about $1.60, so anything at the old price loses money on every cup.",
+        "lead_programmer": "The till can take a regulars' price button in about ten minutes, but it needs a clear rule for who gets it.",
+        "game_designer": "Kopi used to be $1.30 here and the new menu charges $2.40; the old shop's story is on our menu boards.",
+        "marketing_lead": "The nephew's Facebook post has been shared a few hundred times since last night, and the food blogger reads local Facebook groups."
+      },
+      "links": [
+        {
+          "with": "One counter staff short for the opening rush",
+          "effect": "An old-price hour or a regulars' queue lands on a counter that is already one short."
+        },
+        {
+          "with": "Food safety complaint before the 9 AM inspection",
+          "effect": "The regulars' Facebook post and the customer's review tonight mean two public complaints on day one; Daniel feels it."
+        }
+      ],
+      "sayExactly": [
+        "$1.30",
+        "$2.40"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Mei",
+            "view": "The regulars walked out over the new price, and I won't brush off the people who gave this shop its name."
           },
           {
             "attendee": "Wei Ling",
-            "role": "producer",
-            "tradeOff": "Unplugged fridge & 9 AM health inspection: A part-time cleaner unplugged the fridge for 3 hours, and health inspectors arrive at 9 AM.",
-            "question": "What do we do about the part-time cleaner, and what do we show the 9 AM health inspector?"
-          },
+            "view": "The regulars are upset, but I won't sell every cup at a loss on this rent."
+          }
+        ],
+        "tradeOffs": [
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Kitchen opening vs $1,800 sales: Closing the kitchen loses $1,800 this morning, while the chef already replaced the spoiled stock with fresh 6 AM supplies.",
-            "question": "Do we stay open using this morning's fresh delivery and 6 AM disposal receipt, or pause the kitchen?"
-          }
-        ]
-      }
-    },
-    {
-      "title": "Delivery platform 32% commission squeeze",
-      "minutes": 8,
-      "ownerRole": "marketing_lead",
-      "contested": true,
-      "decision": "how do we stop losing $0.50 on every GrabFood order when 40 rainy-day orders are queued and riders are blocking the counter?",
-      "discussion": {
-        "openingViews": [
-          {
-            "attendee": "Daniel",
-            "view": "GrabFood hiked their commission to 32% overnight so we're losing 50 cents on every $10 breakfast set—and because it's pouring rain, 40 office orders just came in at once! We can't just cancel 40 orders on Opening Day or those offices will boycott us!"
-          },
-          {
-            "attendee": "Arjun",
-            "view": "If we raise single-set prices on GrabFood, their app hides our store in search—and 15 wet delivery riders are already jamming our walk-in counter!"
+            "tradeOff": "Old shop's name: kopi was $1.30 here and the new menu charges $2.40, and the regulars' story is on our menu boards.",
+            "question": "What keeps the old regulars while the new menu pays its way?"
           },
           {
             "attendee": "Wei Ling",
-            "view": "We can't bleed 50 cents per order all morning, and my two counter staff can't leave the toast line—unless we switch the app to $50 Office Platters that actually make $5 profit!"
+            "role": "producer",
+            "tradeOff": "Every cup costs us: on this rent a cup of kopi costs about $1.60, so the old price loses money on every cup.",
+            "question": "How do we help the regulars without losing on every cup?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-regulars.svg"
+    },
+    {
+      "title": "Laptop campers and the breakfast seat crunch",
+      "minutes": 5,
+      "ownerRole": "lead_programmer",
+      "contested": true,
+      "briefing": "At yesterday's trial laptop users held about half our seats for a couple of hours on one kopi, and breakfast customers with trays walked out. One of the floor staff got shouted at for asking someone to move, and nobody wants to police tables.",
+      "decision": "how do we free up seats for breakfast without anyone having to confront customers?",
+      "directions": [
+        "Booth power off and Wi-Fi limited from 8 to 10: the socket timer and Wi-Fi codes take about 10 minutes of Arjun's hour. Many of the laptop users work upstairs.",
+        "A laptop zone on the 10 window-bar stools with power, and breakfast-table signs on the booths.",
+        "A minimum spend per hour for laptop seats, shown on a time-stamped receipt, so staff have to check.",
+        "A deal for the offices upstairs, which is Daniel's angle."
+      ],
+      "background": [
+        "Many laptop users work in the offices upstairs."
+      ],
+      "seatFacts": {
+        "producer": "The blocked seats cost us real breakfast sales at the trial, about $420.",
+        "lead_programmer": "The booth sockets are on one timer switch, and the Wi-Fi can give each receipt a code that lasts about three quarters of an hour.",
+        "game_designer": "Most morning customers come alone carrying a hot tray, and there are about ten stools in the storeroom.",
+        "marketing_lead": "More than half of the laptop users wore lanyards from the offices upstairs, and a couple of those offices have asked about bulk orders."
+      },
+      "links": [
+        {
+          "with": "One counter staff short for the opening rush",
+          "effect": "With nobody free to walk the floor, any seat rule must work without staff."
+        },
+        {
+          "with": "Delivery app commission squeeze",
+          "effect": "How the laptop users from upstairs were treated changes how keen the offices are on a direct order code."
+        }
+      ],
+      "sayExactly": [
+        "about $420"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Arjun",
+            "view": "Breakfast customers walked out because the seats were full. I want a seat rule that works without staff policing tables."
+          },
+          {
+            "attendee": "Daniel",
+            "view": "The laptop crowd held breakfast seats, but I don't want to turn away offices I've spent weeks winning over."
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Arjun",
+            "role": "lead_programmer",
+            "tradeOff": "Booth power and Wi-Fi: one timer switch runs the booth sockets, and a receipt code can last about three quarters of an hour.",
+            "question": "What seat rule works without anyone policing tables?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "tradeOff": "Offices upstairs: more than half the laptop users wore lanyards from upstairs, and a couple of offices have asked about bulk orders.",
+            "question": "How do we free seats without turning those offices away?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-laptop.svg"
+    },
+    {
+      "title": "Food safety complaint before the 9 AM inspection",
+      "minutes": 5,
+      "ownerRole": "producer",
+      "contested": true,
+      "briefing": "A customer from yesterday's trial emailed last night: she was sick after eating here and saw a doctor. This morning we found the prep fridge had been unplugged for about three hours overnight. The food agency officer comes soon after opening.",
+      "decision": "do we open at 8, and what do we tell the customer and the inspector?",
+      "directions": [
+        "Open at 8 without Set A until the 10 o'clock delivery.",
+        "Open at 10 after the inspection, with a big loss of morning sales and the free-kopi crowd.",
+        "Open with an honest note at the counter.",
+        "For the customer: apology and refund, and cover her clinic bill, which is $85, or offer something more.",
+        "A socket cover and a fridge temperature alert, which cost 10 minutes of Arjun's hour."
+      ],
+      "background": [
+        "The night cleaner unplugged the fridge to use the socket.",
+        "The head chef found it at 6:10, threw out everything in it and signed a disposal log.",
+        "The customer is recovering at home. Nobody is being fired; the cleaner gets retraining and the socket gets a cover.",
+        "The eggs and kaya are gone until the 10 o'clock delivery.",
+        "If Set A is off until 10, it comes off the kiosk and the till too, which costs Arjun minutes."
+      ],
+      "seatFacts": {
+        "producer": "I signed the hygiene sign-off for HQ. The chef's disposal log is signed and the fridge log shows the gap from overnight; the officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
+        "lead_programmer": "The fridge has no alarm; a temperature alert on the POS takes about ten minutes, and I was asked for one last month.",
+        "game_designer": "I designed Set A. It is our biggest breakfast seller and needs the eggs and kaya.",
+        "marketing_lead": "The customer's email is polite but says she will post her review tonight, and the food blogger is booked for later this morning."
+      },
+      "links": [
+        {
+          "with": "Old regulars and the new kopi prices",
+          "effect": "The regulars' Facebook post and the customer's review tonight mean two public complaints on day one; Daniel feels it."
+        },
+        {
+          "with": "Delivery app commission squeeze",
+          "effect": "No Set A until 10 means no Set A on the app or in platters until 10."
+        }
+      ],
+      "sayExactly": [
+        "$85"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Wei Ling",
+            "view": "The fridge was off overnight. I won't assume we can open until we know what the officer will need."
+          },
+          {
+            "attendee": "Daniel",
+            "view": "The customer says she'll post a review tonight, and I want to answer her first."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Losing $0.50 per single order: Grab's 32% cut makes single $10 sets lose $0.50, while $50 Office Platters (5-set bundles) make $5 profit per platter.",
-            "question": "Do we switch the app to $50 Office Platters, turn off GrabFood, or eat the loss on single sets today?"
+            "tradeOff": "Signed logs and a sign-off: the disposal log is signed, the fridge log shows the gap, and our insurance allows goodwill without admitting fault.",
+            "question": "What do we open with, and what do we tell the officer?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "40 rainy-day orders & $2,400 office sales: Cancelling queued orders in the rain triggers an office boycott, while 12 nearby offices want a 10%-off direct pickup code.",
-            "question": "How do we handle the 40 queued rainy-day orders and keep the nearby offices ordering from us?"
-          },
-          {
-            "attendee": "Arjun",
-            "role": "lead_programmer",
-            "tradeOff": "Riders jamming the walk-in counter: 15 delivery riders are blocking walk-in customers, and raising single-set prices on Grab hides our shop.",
-            "question": "How do we update the online menu and keep delivery riders from blocking our walk-in counter?"
+            "tradeOff": "Review tonight: the customer's email is polite but says she will post tonight, and the blogger is booked for later this morning.",
+            "question": "How do we answer the customer before her review goes up?"
           }
         ]
-      }
+      },
+      "art": "/scenario/crisis-food-safety.svg"
+    },
+    {
+      "title": "Delivery app commission squeeze",
+      "minutes": 5,
+      "ownerRole": "marketing_lead",
+      "contested": true,
+      "briefing": "From today GrabFood takes a bigger cut of every order, and we now lose 50 cents on each breakfast set delivered. The offices nearby ordered a couple of hundred sets through the app at yesterday's trial.",
+      "decision": "how do we stop losing money on delivery without losing the office customers?",
+      "directions": [
+        "Raise the app price. GrabFood hides shops priced more than 10% above in-store.",
+        "Office Platters for five or more, limited by the large trays.",
+        "A direct pickup code for offices. Someone has to come down; a pickup shelf sits by the side door.",
+        "Pause single sets on the app from 8 to 10. Daniel's launch deal gives a featured banner only while the full menu is live.",
+        "Any app menu change takes 15 minutes to go live and comes out of Arjun's hour."
+      ],
+      "background": [
+        "Commission is 32%: $10.00 less 32% leaves $6.80, and a delivered set costs $7.30 to make and pack, so the loss is $0.50 per set.",
+        "At 240 sets a morning that is $2,400 of sales and a $120 loss.",
+        "A five-set Office Platter at $50 costs $29 with shared packaging, keeps $34 and makes $5 profit.",
+        "Direct pickup with 10% off takes $9.00 in, costs $7.00 with no delivery packaging, and makes $2 profit."
+      ],
+      "seatFacts": {
+        "producer": "A delivered set costs a little over seven dollars; a five-set platter costs about thirty because the packaging is shared.",
+        "lead_programmer": "GrabFood hides shops priced more than 10% above in-store, and an app menu change takes about a quarter of an hour to go live.",
+        "game_designer": "Platters need the large trays and we have about thirty.",
+        "marketing_lead": "A dozen office managers have asked for a direct order code, and most office orders are for several sets. The launch deal's banner needs the full menu live."
+      },
+      "links": [
+        {
+          "with": "Laptop campers and the breakfast seat crunch",
+          "effect": "How the laptop users from upstairs were treated changes how keen the offices are on a direct order code."
+        },
+        {
+          "with": "Food safety complaint before the 9 AM inspection",
+          "effect": "No Set A until 10 means no Set A on the app or in platters until 10."
+        }
+      ],
+      "sayExactly": [
+        "50 cents",
+        "10%"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Daniel",
+            "view": "We lose money on the delivered sets, but I won't give up the office orders on opening day."
+          },
+          {
+            "attendee": "Wei Ling",
+            "view": "The app brings in orders, but I won't lose money on every set all morning."
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "tradeOff": "Office orders: a dozen office managers have asked for a direct code, and most office orders are for several sets.",
+            "question": "How do we keep the office orders while the app takes more?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "tradeOff": "Margin on every set: delivered sets cost more than the app returns, while a platter shares packaging across several sets.",
+            "question": "How do we keep the office orders without losing money on every delivery?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-delivery.svg"
     }
   ],
-  "situation": "We reopen our refurbished Nanyang Kopi & Toast flagship at Raffles Place tomorrow at 8:00 AM.",
+  "situation": "It's 7 AM on opening day at our refurbished Raffles Place flagship, and doors open at 8. Yesterday's trial day and this morning have left us a few things to sort out first.",
+  "background": [
+    "The shop has booths and tables, a kiosk, a kopi bar and a kitchen. The team has an hour before doors open.",
+    "The till, kiosk, power sockets and Wi-Fi all need Arjun for changes. Nothing he changes this morning has been tested yet.",
+    "The offices upstairs are customers. The shop has worked with a staffing agency before.",
+    "People in the rush, Arjun's time before opening and the menu are shared resources."
+  ],
+  "excludedPairs": [
+    [
+      "One counter staff short for the opening rush",
+      "Food safety complaint before the 9 AM inspection"
+    ],
+    [
+      "Laptop campers and the breakfast seat crunch",
+      "Old regulars and the new kopi prices"
+    ]
+  ],
   "glossary": {
+    "Kopi": "coffee brewed the Nanyang way, usually with condensed milk unless you ask otherwise",
     "Kopi O Kosong": "black coffee with no sugar and no milk",
-    "Teh C Siew Dai": "hot tea with evaporated milk and less sugar",
-    "chope": "reserving a kopitiam table by leaving a packet of tissue paper or lanyard on it",
     "Set A": "kaya butter toast with two soft-boiled eggs and a hot kopi or tea",
-    "POS": "point-of-sale system (the self-order kiosk, cashier screen, and kitchen ticket printer)",
-    "SFA": "Singapore Food Agency (the national food hygiene and safety regulator)",
-    "Auntie Mary": "our 62-year-old floor staff member who clears trays and wipes tables",
-    "kiosk": "the 15-inch self-order touchscreens at the front of the outlet"
+    "kiosk": "the self-order screen with 24 drinks at the front of the shop",
+    "POS": "point-of-sale system (the till, the kiosk and the kitchen tickets)",
+    "kopi bar": "the counter where Uncle Lim pulls kopi and knows the regulars by name"
   },
   "vocabulary": [
     "Kopi",
@@ -271,22 +444,11 @@
     "Siew Dai",
     "Teh C",
     "Kaya Toast",
-    "chope",
-    "tissue packet",
-    "Auntie Mary",
-    "Set A",
     "Raffles Place",
-    "SFA",
-    "salmonella",
-    "sous-vide",
+    "food agency",
     "GrabFood",
-    "Foodpanda",
-    "Ya Kun",
-    "PayNow",
-    "TikTok",
     "kiosk",
     "POS",
-    "docket",
     "Gitea",
     "Mattermost",
     "Kaki",
@@ -297,8 +459,8 @@
     "Sam"
   ],
   "hostBrief": {
-    "goal": "Hear out the team on today's four launch problems, stress-test surface-level ideas, and lock in a follow-up owner for each.",
-    "decision": "Every topic has competing kitchen, tech, customer, and staff catches. Weigh both sides before locking in the call."
+    "goal": "Settle the two opening-day topics the team brings this morning, with the visitor as opening-day lead.",
+    "decision": "Each topic ends with one clear call, owned by the person who has to make it happen."
   },
   "npcs": [
     {
@@ -306,40 +468,42 @@
       "voice": "en-IN-ArjunNeural?rate=-8%",
       "role": "participant",
       "playable": true,
+      "personality": "Tech & POS Lead. Dry, gives way easily on people questions, stubborn about untested changes to the till or kiosk.",
+      "speechStyle": "Crisp, practical and dry. Uses plain words and explains the time a proposed system change would take when it matters.",
+      "temperament": "Dry, gives way easily on people questions, stubborn about untested changes to the till or kiosk.",
+      "stake": "He has one hour before doors open, and every system change comes out of it.",
+      "hiddenGoal": "Protect the untested systems and his one hour before opening.",
+      "agenda": "Keep shop systems dependable and explain what any change asks of the time before opening.",
+      "concerns": [
+        "Untested changes to the till or kiosk close to opening."
+      ],
+      "knows": [],
       "withRoles": {
-        "producer": "Your boss on store operations. Give clear practical catches on Kiosk Subtitle Mode vs Uncle Lim's kitchen tickets, booth power plugs, or GrabFood pricing rules, matching ONLY the current agenda topic.",
-        "game_designer": "A friendly rival. Respect her UX ideas, but remind her what happens to the 15-inch touch screen and Uncle Lim's kitchen tickets when button labels change.",
-        "marketing_lead": "Wants good PR. Point out why raising our GrabFood price for single sets causes the app to hide our shop, and why our website QR code only works for customer self-pickup.",
-        "studio_manager": "The meeting host keeping everyone on time. Flag technical catches clearly and concisely."
+        "producer": "Your boss on operations. Explain system constraints and time clearly.",
+        "game_designer": "Respect her care for customers and say what a change asks of the till or kiosk.",
+        "marketing_lead": "Hear his case for the offices and explain what the systems can support.",
+        "studio_manager": "The host keeping time. Flag technical catches briefly."
       },
-      "speechStyle": "Skeptical, pragmatic Singaporean tech lead with dry NS-style humour. Speaks crisp, practical sentences in plain everyday words (avoiding tech/industry jargon) and always brings up second-order operational catches. Uses at most one light, natural local expression when the moment calls for it (such as 'wah' or 'steady'), without forcing Singlish catchphrases when plain English sounds more natural.",
-      "hiddenGoal": "He wants a change that can be configured and tested in 2 minutes, without new hardware and without slowing the kitchen or the kiosk.",
       "tensions": [
         {
           "with": "Mei",
-          "about": "the kiosk menu: Mei wants to clear the 25-person doorway queue before the landlord fines us $2,000, while Arjun knows changing button names changes Uncle Lim's kitchen ticket unless we turn on Subtitle Mode"
+          "about": "She focuses on customer experience while he weighs whether systems can support a change."
         },
         {
           "with": "Wei Ling",
-          "about": "the morning seat crunch: how to stop two-hour laptop campers without forcing crying 62-year-old Auntie Mary to police tables"
+          "about": "She needs a reliable opening, while he needs time to check system changes."
         },
         {
           "with": "Daniel",
-          "about": "delivery app fees vs counter riders: Daniel wants to keep 40 rainy-day orders, while Arjun knows raising single-set prices gets our store hidden on GrabFood and 15 riders are blocking the walk-in counter"
+          "about": "He wants to keep office customers while Arjun weighs the work on shop systems."
         }
       ],
-      "soundsLike": ["Archer", "Audrey", "Arjan", "Argon", "Arjin"],
-      "personality": "Tech & Ordering Systems Lead. Pragmatic, dryly funny, protective of kiosk screen space, kitchen ticket printing, and simple ordering workflows.",
-      "agenda": "Only raise facts for the active agenda item: protect Uncle Lim's kitchen printer and Kiosk Subtitle Mode (for the kiosk menu topic), control booth power plugs and the 10-stool window bar (for the seat crunch topic), or explain why raising single-set GrabFood prices gets our shop hidden and how $50 Office Platters solve it (for the delivery app topic).",
-      "concerns": [
-        "On the kiosk Kopi menu topic: renaming a button changes Uncle Lim's kitchen ticket too, 65-year-old Uncle Lim threatened to walk out if tickets print 'Latte', and the 15-inch screen only fits 12 buttons.",
-        "On the morning seat crunch topic: 16 of our 28 seats are hogged for 2 hours by laptop users on a single $2 coffee while 62-year-old Auntie Mary is crying in the back threatening to quit after getting screamed at.",
-        "On the delivery platform topic: raising single-set prices on GrabFood causes the app to hide our shop, and 15 wet delivery riders are blocking our walk-in counter."
-      ],
-      "knows": [
-        "The kiosk has a 'Subtitle Mode' we can turn on in 2 minutes—it shows plain English ('Black Coffee, No Sugar') on screen for customers while still printing 'Kopi O Kosong' on Uncle Lim's kitchen ticket.",
-        "The booth wall sockets run on a back-room switch we can turn off from 8–10 AM, while keeping power on at the 10-stool window bar for laptop users.",
-        "Listing a $50 Office Platter (5-set bundle) on GrabFood avoids single-item price penalties and makes $5 profit per platter even after the 32% fee, while our website QR code handles 10%-off express self-pickup."
+      "soundsLike": [
+        "Archer",
+        "Audrey",
+        "Arjan",
+        "Argon",
+        "Arjin"
       ]
     },
     {
@@ -347,140 +511,137 @@
       "voice": "zh-CN-XiaoxiaoMultilingualNeural?rate=-8%",
       "role": "participant",
       "playable": true,
+      "personality": "Menu & Store Experience Lead. Warm and quick to feel; gives way if customers are looked after, resists cutting signature items.",
+      "speechStyle": "Warm, quick and concrete. Talks about what a customer sees and how the menu feels.",
+      "temperament": "Warm and quick to feel; gives way if customers are looked after, resists cutting signature items.",
+      "stake": "She designed the new menu and fought to keep the old shop's heritage in the brand.",
+      "hiddenGoal": "Keep the menu and the old shop's heritage while customers are looked after.",
+      "agenda": "Protect the menu, the customer experience and the old shop's character.",
+      "concerns": [
+        "Customers being left out or made uncomfortable.",
+        "Cutting the shop's signature food too readily."
+      ],
+      "knows": [],
       "withRoles": {
-        "producer": "Your operations partner. Remind her that 60% of morning customers are solo diners carrying hot trays, and on food safety point out that the head chef already replaced the warm fridge stock at 6 AM with fresh supplies and a disposal receipt.",
-        "lead_programmer": "Push him to help newcomers order fast so the landlord doesn't fine us $2,000, without making Uncle Lim walk out.",
-        "marketing_lead": "Your partner on food craft and store vibe. Remind him that closing the kitchen loses $1,800 when our head chef already threw out the old food at 6 AM and restocked with fresh supplies.",
-        "studio_manager": "The meeting host. Share concrete store numbers and kitchen findings so we find a practical compromise."
+        "producer": "Your operations partner. Speak for customers and the shop's character.",
+        "lead_programmer": "Ask how system changes will feel to customers.",
+        "marketing_lead": "Keep customer experience in the picture.",
+        "studio_manager": "The host. Share customer and menu concerns plainly."
       },
-      "speechStyle": "Warm, expressive, detail-obsessed kopitiam experience lead who cares deeply about authentic Nanyang Kopi & Kaya Toast craft, 65-year-old Uncle Lim, solo office workers carrying hot trays, and elderly regulars. Speaks clear, earnest English without American idioms or forced Singlish slang.",
-      "hiddenGoal": "She wants newcomers to order fast before the landlord fines us $2,000, a safe seat for solo diners with hot trays, and to stay open using our fresh 6 AM kitchen supplies.",
       "tensions": [
         {
           "with": "Arjun",
-          "about": "how to clear the 25-person kiosk doorway queue before the landlord fines us $2,000 without printing 'Latte' on Uncle Lim's kitchen ticket"
+          "about": "She wants the customer experience to work while he guards untested systems."
         },
         {
           "with": "Wei Ling",
-          "about": "the 28-seat crunch and the food poisoning crisis: solo diners need a seat before holding hot trays, and the chef already replaced the warm fridge stock at 6 AM"
+          "about": "She protects the menu and heritage while Wei Ling weighs the cost."
         },
         {
           "with": "Daniel",
-          "about": "on the hospitalized customer: Daniel is worried about 8 AM reporters and the angry family, while Mei knows our head chef threw out all the old fridge stock at 6 AM with a signed receipt and restocked fresh supplies"
+          "about": "They both care how the shop is seen, but notice different customer needs."
         }
       ],
-      "soundsLike": ["Maya", "Mae"],
-      "personality": "Menu & Store Experience Lead. Warm, observant, proud of traditional kopitiam craft and protective of both first-time visitors and food safety.",
-      "agenda": "Clear the 25-person kiosk doorway queue without losing Uncle Lim, protect solo diners with hot trays in our 28-seat shop, keep the kitchen open safely using our fresh 6 AM supplies, and switch office delivery orders to $50 Office Platters.",
-      "concerns": [
-        "The building landlord threatened a $2,000 fine if we don't clear the 25-person doorway queue in 15 minutes because newcomers freeze at 'Kopi O Kosong' and 'Siew Dai'.",
-        "65-year-old Uncle Lim threatened to take off his apron and walk out if his kitchen tickets print 'Latte' or 'Americano' instead of traditional Kopi names.",
-        "60% of our morning customers come alone carrying scalding hot trays of runny eggs and kopi, so they need a guaranteed spot to sit.",
-        "Closing the kitchen today loses $1,800 in morning sales, even though the head chef already threw out the unplugged fridge batch at 6 AM and loaded fresh supplies."
-      ],
-      "knows": [
-        "The kiosk has a 'Subtitle Mode' that shows plain English ('Black Coffee, No Sugar') under 'Kopi O Kosong' on screen while printing traditional Kopi names in the kitchen.",
-        "We have 10 stools in the storeroom to set up a Window Bar for laptop users and solo diners, plus table signs for the main booths so Auntie Mary never has to confront anyone.",
-        "Our head chef caught the warm fridge at 6 AM, threw out all the old food with a signed disposal receipt, and loaded fresh morning supplies."
+      "soundsLike": [
+        "Maya",
+        "Mae"
       ]
     },
     {
       "attendee": "Wei Ling",
       "voice": "en-SG-LunaNeural?rate=-8%",
-      "playable": true,
       "role": "participant",
-      "speechStyle": "Sharp, no-nonsense Singaporean operations boss who counts every dollar, food safety step, counter hygiene rule, and staff shift. Speaks directly with zero fluff ('Bottom line is...', 'Who is going to enforce that?', 'Do you know what an SFA shutdown means?'). Uses natural Singaporean cadence without forced slang.",
-      "hiddenGoal": "She wants to keep 62-year-old Auntie Mary from quitting, pass the 9:00 AM health inspection without losing $1,800 in breakfast sales, and stop losing $0.50 per GrabFood order.",
-      "personality": "Operations Director. Pragmatic, fiercely protective of her outlet staff and kitchen compliance, and allergic to ideas that sound nice online but fail on a busy shop floor.",
-      "agenda": "Make sure every decision works on the shop floor without forcing Auntie Mary to fight customers, risking a 9 AM health inspector shutdown, or losing $0.50 on every delivery order.",
+      "playable": true,
+      "personality": "Operations Director. Protective of floor staff, counts every dollar, and holds her ground until she hears a costed plan, then gives way cleanly.",
+      "speechStyle": "Direct and practical. Uses short sentences, weighs costs, and asks who will carry out a rule.",
+      "temperament": "Holds her ground until she hears a costed plan, then gives way cleanly. Protective of floor staff, counts every dollar.",
+      "stake": "She is answerable to HQ for the opening-day operation.",
+      "hiddenGoal": "Get through opening with the floor supported and the operation sound.",
+      "agenda": "Keep the opening practical for floor staff and financially sound.",
       "concerns": [
-        "62-year-old Auntie Mary got screamed at by a laptop camper in a suit yesterday and is crying in the back, so she refuses to police seats or touch customers' belongings.",
-        "16 of our 28 seats are blocked for 2 hours every morning by laptop users who only bought a $2 coffee, costing us $420 in lost breakfast sales.",
-        "A customer is in the hospital because last night's new part-time cleaner unplugged the fridge for 3 hours to charge his phone; health inspectors arrive at 9:00 AM and closing the kitchen loses $1,800.",
-        "GrabFood's 32% fee makes us lose $0.50 on every single $10 breakfast set, and our two counter staff cannot leave the toast line to run orders upstairs in the rain."
+        "Leaving floor staff without workable cover.",
+        "Making a promise that the shop cannot afford or uphold."
       ],
-      "knows": [
-        "Our head chef caught the unplugged fridge at 6:00 AM, threw out 100% of the old food with a signed disposal receipt, and restocked with fresh morning supplies—and our insurance covers $3,000 in medical goodwill for the customer.",
-        "Single $10 delivery sets lose $0.50 after Grab's 32% cut, whereas a $50 Office Platter (5-set bundle) uses shared packaging and makes $5 profit per platter.",
-        "65-year-old Uncle Lim and our kopi uncles read traditional Kopi names at a glance and threatened to walk out if kitchen tickets print 'Latte'."
-      ],
+      "knows": [],
       "withRoles": {
-        "producer": "Your fellow operations lead. Push hard on floor realism, protecting Auntie Mary, passing the 9 AM health inspection, and exact dollar profit.",
-        "lead_programmer": "Rely on his Kiosk Subtitle Mode and back-room power switch so staff don't have to manually police laptops or fight the kiosk queue.",
-        "game_designer": "Back her up on protecting Uncle Lim's kitchen tickets and using our 6 AM fresh kitchen supplies.",
-        "marketing_lead": "Hold him accountable: make sure we handle the hospitalized customer's family and 8 AM reporters without losing $1,800 in kitchen sales, and stop losing $0.50 per Grab order.",
-        "studio_manager": "Back up the host by challenging any surface-level proposal that ignores the 9 AM health inspection, Auntie Mary's wellbeing, or delivery margins."
+        "producer": "The floor and the money are yours. Ask for a costed plan, then decide cleanly.",
+        "lead_programmer": "Rely on him for systems and ask what a change needs.",
+        "game_designer": "Back her on customers and heritage when the cost works.",
+        "marketing_lead": "Hold him to promises the shop can keep.",
+        "studio_manager": "Back the host by keeping every call practical and owned."
       },
       "tensions": [
         {
           "with": "Daniel",
-          "about": "on the food poisoning crisis, how to handle the hospitalized customer's family, the part-time cleaner, and 8 AM press without losing $1,800 in morning sales; on GrabFood, how to stop losing $0.50 per order without cancelling 40 rainy-day orders"
+          "about": "He protects public promises while she checks whether the shop can afford and deliver them."
         },
         {
           "with": "Mei",
-          "about": "how to clear the laptop campers and protect crying 62-year-old Auntie Mary while still seating solo diners carrying hot trays"
+          "about": "They both want customers looked after, but Wei Ling must account for the cost."
         }
       ],
-      "soundsLike": ["Way Ling", "Wailing", "Wayling"]
+      "soundsLike": [
+        "Way Ling",
+        "Wailing",
+        "Wayling"
+      ]
     },
     {
       "attendee": "Daniel",
       "voice": "en-SG-WayneNeural?rate=-6%",
-      "playable": true,
       "role": "participant",
-      "speechStyle": "High-energy, fast-talking Singaporean marketer who thinks in PR headlines, viral clips, nearby office orders, and Google reviews. Enthusiastic and persuasive ('Hear me out', 'Reporters will be here at 8 AM'), using at most one light local expression when excited without overdoing slang.",
-      "hiddenGoal": "He wants to take care of the hospitalized customer's family before 8:00 AM reporters arrive, protect our Google rating, and keep $2,400 in nearby office breakfast orders.",
-      "personality": "Marketing Lead. Enthusiastic, protective of brand warmth and public trust, and quick to point out PR risks.",
-      "agenda": "Handle the hospitalized customer's family and 8:00 AM Straits Times reporters, prevent 1-star Google reviews from upstairs office workers, and keep our $2,400 morning office orders despite GrabFood's 32% hike.",
+      "playable": true,
+      "personality": "Marketing Lead. Agrees fast, then worries out loud a beat later.",
+      "speechStyle": "Fast, warm and persuasive. Thinks about customers and public promises, then doubles back to the worry.",
+      "temperament": "Agrees fast, then worries out loud a beat later.",
+      "stake": "He is answerable for opening-day customer promises and publicity.",
+      "hiddenGoal": "Keep customer trust and opening-day goodwill.",
+      "agenda": "Protect customer trust and the shop's opening-day reputation.",
       "concerns": [
-        "A customer is in the hospital with food poisoning, their angry family is posting online, and Straits Times reporters arrive at 8:00 AM right before the 9:00 AM health inspection.",
-        "On GrabFood: cancelling 40 queued orders in the pouring rain or shutting off the app hands $2,400 in morning office sales straight to Ya Kun.",
-        "Half the laptop users in our booths work in the offices upstairs—kicking them out rudely on Opening Day will trigger a wave of 1-star Google reviews."
+        "Losing customer trust on opening day.",
+        "Public promises the shop cannot keep."
       ],
-      "knows": [
-        "Our store insurance covers up to $3,000 in immediate no-fault medical goodwill for the hospitalized customer's family, and showing the 8 AM reporters our 6 AM disposal receipt and fresh delivery builds trust.",
-        "12 nearby Raffles Place office managers asked for a 10%-off direct self-pickup promo code, and $50 Office Platters (5-set bundles) make $5 profit per platter even on GrabFood.",
-        "Moving laptop users to the 10-stool window bar with friendly 8–10 AM table signs keeps office regulars happy while freeing booths for diners."
-      ],
+      "knows": [],
       "withRoles": {
-        "producer": "Your budget and ops boss. Make sure we take care of the hospitalized customer's family and 8 AM press, and stop losing $0.50 per Grab set without cancelling 40 rainy-day orders.",
-        "lead_programmer": "Work with him on switching GrabFood to $50 Office Platters and sending our 10%-off direct pickup code to nearby offices.",
-        "game_designer": "Work with her on showing our 6 AM fresh kitchen delivery and keeping solo diners and laptop users happy.",
-        "studio_manager": "The meeting host. Make sure we protect our public reputation with the hospitalized family, the press, and nearby offices."
+        "producer": "Your budget and ops boss. Make the customer case, then listen to the cost.",
+        "lead_programmer": "Work with him on what the shop systems can support.",
+        "game_designer": "Work with her on the shop's warmth and customers.",
+        "studio_manager": "The host. Protect the shop's public reputation without overpromising."
       },
       "tensions": [
         {
           "with": "Wei Ling",
-          "about": "how to handle the hospitalized customer's family, the cleaner who unplugged the fridge, and 8 AM reporters, plus how to handle 40 rainy-day GrabFood orders without losing $0.50 each"
+          "about": "She weighs cost and operating capacity while he worries about customer trust."
         },
         {
           "with": "Arjun",
-          "about": "how to stop laptop hoggers without triggering 1-star Google reviews from upstairs office workers, and how to update GrabFood without getting hidden in search"
+          "about": "He wants customer promises met while Arjun weighs the time systems need."
         }
       ],
-      "soundsLike": ["Daniela", "Danny", "Daniels"]
+      "soundsLike": [
+        "Daniela",
+        "Danny",
+        "Daniels"
+      ]
     },
     {
       "attendee": "Sam",
       "voice": "en-HK-SamNeural?rate=-4%",
       "role": "host",
       "playable": false,
-      "speechStyle": "Steady, diplomatic Singaporean General Manager, the calm 'big brother' of the outlet who keeps the peace when Arjun, Mei, Wei Ling, and Daniel debate trade-offs. Uses 'Okay team, steady', 'Let's look at both sides', 'Thanks Arjun', and always makes sure someone owns the concrete follow-up action.",
-      "personality": "General Manager and meeting host. Warm, organised, makes sure no topic is brushed off with a simplistic one-liner, and ensures every item ends with a clear decision and task owner.",
-      "agenda": "Run the meeting smoothly: address the SFA salmonella report, the kiosk ordering freeze, the seat crunch, and the 32% delivery app fee squeeze, and assign clear follow-up owners.",
-      "concerns": [
-        "Making sure we don't lock in a superficial fix that risks an SFA shutdown, slows down kitchen tickets, forces Auntie Mary into customer fights, or loses money on delivery.",
-        "Leaving any item without a concrete follow-up owner."
-      ],
-      "knows": [
-        "The agenda and how long each item has.",
-        "Who owns each agenda item and the key operational vs customer trade-offs."
-      ],
+      "personality": "General Manager and meeting host. Calm, brief, keeps time, and sums up each decision in one sentence.",
+      "speechStyle": "Calm, brief and even. Opens plainly, sums decisions briefly, and steadies the room when people disagree.",
+      "temperament": "Calm, brief, keeps time, sums up decisions in one sentence.",
+      "stake": "Wants the doors open on time with a team that still likes each other.",
+      "hiddenGoal": "Get the doors open on time with the team intact.",
+      "agenda": "Chair the meeting, keep time, and help the team land a clear call on each item.",
+      "concerns": [],
+      "knows": [],
       "withRoles": {
-        "producer": "Ask them how we balance SFA compliance, floor operations, and profit with customer experience.",
-        "lead_programmer": "Keep him focused on practical POS, kiosk, and app fixes we can configure tonight.",
-        "game_designer": "Help her balance authentic food & menu craft with kitchen speed and morning hygiene discipline.",
-        "marketing_lead": "Pin him down on handling the press honestly and keeping our nearby office orders."
+        "producer": "Ask for the cost and the owner behind each call.",
+        "lead_programmer": "Keep him on what can be done before 8.",
+        "game_designer": "Help her balance customers, the menu and time.",
+        "marketing_lead": "Pin him down on what the shop can actually deliver."
       }
     }
   ]

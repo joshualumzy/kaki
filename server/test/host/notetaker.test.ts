@@ -71,30 +71,27 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
   it('suggests the scripted tasks and records the scripted questions', async () => {
     const { tasks, llm, notetaker, feed } = setup((messages) => {
       const text = newLines(messages);
-      if (text.includes('file a ticket for the kiosk label experiment')) {
+      if (text.includes("draft the regulars' note")) {
         return reply({
-          newQuestions: [{ text: 'Do tourists or locals struggle more at the kiosk?', forRole: 'game_designer' }],
+          newQuestions: [
+            { text: 'Who counts as a regular?', forRole: 'producer' },
+            { text: 'Where does a solo diner sit while the queue clears?', forRole: 'producer' },
+          ],
           newTasks: [
             {
-              title: 'File the kiosk label experiment ticket',
-              context: 'Track the kiosk label experiment with the 19 of 28 trial numbers.',
+              title: 'Draft the regulars note',
+              context: 'Draft the regulars note with the old price explained at the counter.',
               suggestedAssignee: 'game_designer',
               actionKind: 'gitea_issue',
-              evidence: 'Mei, can you file a ticket for the kiosk label experiment so it is tracked with the trial numbers?',
+              evidence: "Mei, can you draft the regulars' note for the counter and Facebook?",
             },
           ],
         });
       }
-      if (text.includes('How many solo diners actually need a table')) {
-        return reply({
-          agendaIndex: 1,
-          newQuestions: [{ text: 'How many solo diners need a table between eight and ten?', forRole: 'producer' }],
-        });
-      }
-      if (text.includes('who logs the water bath')) {
+      if (text.includes('set the booth socket timer')) {
         return reply({
           agendaIndex: 2,
-          newQuestions: [{ text: 'Who logs the water bath temperatures, and how are batch certificates checked at close?', forRole: 'producer' }],
+          newQuestions: [{ text: 'Who sets the booth socket timer before 8?', forRole: 'producer' }],
         });
       }
       if (text.includes('email GrabFood')) {
@@ -106,14 +103,14 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
               context: 'Confirm the five-set platter listing for tomorrow.',
               suggestedAssignee: 'marketing_lead',
               actionKind: 'email',
-              evidence: "Yes, I'll email GrabFood tonight and confirm the details.",
+              evidence: "Yes, I'll email GrabFood to confirm the platter listing, and I'll send the pickup code to the offices.",
             },
             {
               title: 'Post the final plan in the team channel',
               context: 'Post the agreed launch plan in the team channel once the delivery decision is settled.',
               suggestedAssignee: 'producer',
               actionKind: 'mattermost_post',
-              evidence: "I'll post the final plan in the team channel once we settle the delivery decision.",
+              evidence: "I'll post the final plan in the team channel once we settle the pickup code.",
             },
           ],
         });
@@ -138,9 +135,9 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
       ['producer', 'mattermost_post', 'SUGGESTED'],
     ]);
     expect(notetaker.state().openQuestions).toEqual([
-      { id: 'q-1', text: 'Do tourists or locals struggle more at the kiosk?', forRole: 'game_designer' },
-      { id: 'q-2', text: 'How many solo diners need a table between eight and ten?', forRole: 'producer' },
-      { id: 'q-3', text: 'Who logs the water bath temperatures, and how are batch certificates checked at close?', forRole: 'producer' },
+      { id: 'q-1', text: 'Who counts as a regular?', forRole: 'producer' },
+      { id: 'q-2', text: 'Where does a solo diner sit while the queue clears?', forRole: 'producer' },
+      { id: 'q-3', text: 'Who sets the booth socket timer before 8?', forRole: 'producer' },
     ]);
     expect(notetaker.state().status).toBe('ok');
   });
@@ -149,13 +146,13 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
     const { llm, notetaker, feed } = setup((_messages, call) =>
       call === 0
         ? reply({
-            newQuestions: [{ text: 'Do tourists or locals struggle more at the kiosk?' }],
+            newQuestions: [{ text: 'Who counts as a regular?' }],
             newTasks: [
               {
-                title: 'File the kiosk label experiment ticket',
-                context: 'Track the kiosk label experiment.',
+                title: 'Draft the regulars note',
+                context: 'Draft the regulars note with the old price explained at the counter.',
                 suggestedAssignee: 'game_designer',
-                evidence: 'Mei, can you file a ticket for the kiosk label experiment tonight?',
+                evidence: "Mei, can you draft the regulars' note for the counter and Facebook?",
               },
             ],
           })
@@ -163,43 +160,43 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
     );
 
     feed(slice(0, 100));
-    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Mei, can you file a ticket for the kiosk label experiment tonight?' });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: "Mei, can you draft the regulars' note for the counter and Facebook?" });
     await notetaker.run();
     feed(slice(100, 200));
     await notetaker.run();
 
     const [system, user] = llm.calls[1]!;
     expect(system!.content).toContain('lead_programmer: Tech & POS Lead (Arjun)');
-    expect(system!.content).toContain('1. Morning seat crunch & laptop campers');
-    expect(user!.content).toContain('- q-1: Do tourists or locals struggle more at the kiosk?');
-    expect(user!.content).toMatch(/- task-[\w-]+: File the kiosk label experiment ticket \(owner: game_designer\) — Track the kiosk label experiment\./);
-    expect(user!.content).toContain('[Arjun (Tech & POS Lead)] When we tested that at Tampines');
+    expect(system!.content).toContain(scenario.agenda[0]!.title);
+    expect(user!.content).toContain('- q-1: Who counts as a regular?');
+    expect(user!.content).toMatch(/- task-[\w-]+: Draft the regulars note \(owner: game_designer\) — Draft the regulars note with the old price explained at the counter\./);
+    expect(user!.content).toContain('[Arjun (Tech & POS Lead)] Anyone new on the till needs a login');
     // Earlier lines travel as context, while the new-lines section still carries only the batch since the last pass.
-    expect(user!.content).toContain('[Mei (Menu & Store Experience Lead)] Yesterday');
-    expect(user!.content.split('New transcript lines:')[1] ?? '').not.toContain('Yesterday');
+    expect(user!.content).toContain('[Wei Ling (Operations Director)] First topic');
+    expect(user!.content.split('New transcript lines:')[1] ?? '').not.toContain('First topic');
   });
 });
 
 describe('notetaker record keeping', () => {
   it('does not repeat a task or question the meeting already has, and drops answered questions', async () => {
     const task = {
-      title: 'Review the kiosk trial',
+      title: 'Review the trial numbers',
       context: 'c',
       suggestedAssignee: 'game_designer',
-      evidence: "I'll review the kiosk trial numbers tonight.",
+      evidence: "I'll review the trial numbers tonight.",
     };
     const { tasks, notetaker, feed } = setup((_messages, call) =>
       [
-        reply({ newTasks: [task], newQuestions: [{ text: 'Kiosk trial split?' }] }),
-        reply({ newTasks: [{ ...task, title: 'review the kiosk trial' }], newQuestions: [{ text: 'kiosk trial split' }] }),
+        reply({ newTasks: [task], newQuestions: [{ text: 'Who covers the counter?' }] }),
+        reply({ newTasks: [{ ...task, title: 'review the trial numbers' }], newQuestions: [{ text: 'Who covers the counter?' }] }),
         reply({
-          answeredQuestions: [{ id: 'q-1', evidence: 'The kiosk trial split was twenty tourists to eight locals.' }],
+          answeredQuestions: [{ id: 'q-1', evidence: 'Mei covers the counter with two staff and one off.' }],
         }),
       ][call]!,
     );
 
-    notetaker.addChunk({ speaker: 'Wei Ling', text: "I'll review the kiosk trial numbers tonight." });
-    notetaker.addChunk({ speaker: 'Mei', text: 'The kiosk trial split was twenty tourists to eight locals.' });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: "I'll review the trial numbers tonight." });
+    notetaker.addChunk({ speaker: 'Mei', text: 'Mei covers the counter with two staff and one off.' });
     for (let pass = 0; pass < 3; pass += 1) {
       feed(slice(0, 40));
       await notetaker.run();
@@ -231,18 +228,18 @@ describe('notetaker record keeping', () => {
   it('keeps the cash owner and change/float questions as separate open questions', async () => {
     const { notetaker, feed } = setup((_messages, call) =>
       [
-        reply({ newQuestions: [{ text: 'Who runs cash at the kiosk?' }] }),
+        reply({ newQuestions: [{ text: 'Who runs the counter at 8?' }] }),
         reply({ newQuestions: [{ text: 'How is change counted and balanced at close?' }] }),
       ][call]!,
     );
 
-    feed(slice(1000, 1100));
+    feed(slice(900, 1000));
     await notetaker.run();
-    feed(slice(1100, 1200));
+    feed(slice(1000, 1100));
     await notetaker.run();
 
     expect(notetaker.state().openQuestions.map((question) => question.text)).toEqual([
-      'Who runs cash at the kiosk?',
+      'Who runs the counter at 8?',
       'How is change counted and balanced at close?',
     ]);
   });
@@ -266,7 +263,7 @@ describe('notetaker record keeping', () => {
     let down = false;
     const { llm, notetaker, feed } = setup(() => {
       if (down) throw new Error('gateway unreachable');
-      return reply({ newQuestions: [{ text: 'Kiosk trial split?' }] });
+      return reply({ newQuestions: [{ text: 'Who covers the counter?' }] });
     });
 
     feed(slice(0, 30));
@@ -278,7 +275,7 @@ describe('notetaker record keeping', () => {
     expect(notetaker.state()).toMatchObject({
       status: 'stale',
       lastError: 'gateway unreachable',
-      openQuestions: [{ id: 'q-1', text: 'Kiosk trial split?' }],
+      openQuestions: [{ id: 'q-1', text: 'Who covers the counter?' }],
     });
 
     down = false;
@@ -286,8 +283,8 @@ describe('notetaker record keeping', () => {
     await notetaker.run();
     expect(notetaker.state().status).toBe('ok');
     const resent = userMessage(llm.calls[2]!);
-    expect(resent).toContain('Nineteen of them froze');
-    expect(resent).toContain('Seventy-two percent');
+    expect(resent).toContain('free-kopi flyers');
+    expect(resent).toContain('double pay');
   });
 
   it('treats a reply that is not JSON as a failed pass', async () => {
@@ -337,62 +334,61 @@ describe('task precision', () => {
 
   it('drops a task whose evidence nobody said', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { tasks, notetaker, feed } = setup(() =>
+    const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
           candidate('Order new office chairs', 'producer', 'Wei Ling promised to order new chairs for everyone'),
           candidate(
-            'File the kiosk label experiment ticket',
+            'Draft the regulars note',
             'game_designer',
-            'Mei, can you file a ticket for the kiosk label experiment so it is tracked with the trial numbers?',
+            "Mei, can you draft the regulars' note for the counter and Facebook?",
           ),
         ],
       }),
     );
 
-    feed(slice(120, 300));
+    notetaker.addChunk({ speaker: 'Wei Ling', text: "Mei, can you draft the regulars' note for the counter and Facebook?" });
     await notetaker.run();
 
-    expect(tasks.list().map((task) => task.title)).toEqual(['File the kiosk label experiment ticket']);
+    expect(tasks.list().map((task) => task.title)).toEqual(['Draft the regulars note']);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Order new office chairs'));
   });
 
   it('skips tasks the LLM marks as duplicates and reworded duplicates for the same role', async () => {
-    const kioskTask = "Mei, can you review the kiosk trial numbers tonight?";
+    const trialTask = "Mei, can you review the trial numbers tonight?";
     const butterTask = 'Wei Ling, can you review the butter margin figures tonight?';
-    const { tasks, notetaker, feed } = setup((_messages, call) => {
+    const { tasks, notetaker } = setup((_messages, call) => {
       if (call === 0) {
         return reply({
           newTasks: [
-            candidate('Review kiosk trial numbers', 'game_designer', kioskTask),
+            candidate('Review trial numbers', 'game_designer', trialTask),
             candidate('Review the butter margin', 'producer', butterTask),
           ],
         });
       }
       return reply({
         newTasks: [
-          candidate('Review the kiosk trial freeze', 'game_designer', kioskTask),
-          candidate('Track the kiosk trial freeze', 'game_designer', kioskTask, {
+          candidate('Review the trial numbers', 'game_designer', trialTask),
+          candidate('Track the seat trial numbers', 'game_designer', trialTask, {
             duplicateOf: tasks.list()[0]?.id ?? 'missing-task',
           }),
           candidate(
             'Post the butter plan in the team channel',
             'producer',
-            "I'll post the final plan in the team channel",
+            "I'll post the final plan in the team channel once we settle the pickup code.",
           ),
         ],
       });
     });
 
-    feed([...slice(0, 100), ...slice(1450, 1460)]);
-    notetaker.addChunk({ speaker: 'Wei Ling', text: kioskTask });
-    notetaker.addChunk({ speaker: 'Daniel', text: butterTask });
+    notetaker.addChunk({ speaker: 'Mei', text: trialTask });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: butterTask });
     await notetaker.run();
-    feed([...slice(100, 200), ...slice(1970, 1990)]);
+    notetaker.addChunk({ speaker: 'Wei Ling', text: "I'll post the final plan in the team channel once we settle the pickup code." });
     await notetaker.run();
 
     expect(tasks.list().map((task) => task.title)).toEqual([
-      'Review kiosk trial numbers',
+      'Review trial numbers',
       'Review the butter margin',
       'Post the butter plan in the team channel',
     ]);
@@ -400,26 +396,27 @@ describe('task precision', () => {
 
   it('does not invent a partner-terms task from a price quote or reuse the final-plan post for it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { tasks, notetaker, feed } = setup(() =>
+    const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
           candidate(
             'Confirm GrabFood platter promotion terms (rate and vouchers)',
             'studio_manager',
-            'They will feature our five-set corporate bundle platter tomorrow for six hundred cash, or four-fifty plus twenty self-pickup vouchers from our storeroom.',
+            'GrabFood takes a bigger cut from today, and we lose about 50 cents on each $10 breakfast set delivered.',
             { actionKind: 'mattermost_post' },
           ),
           candidate(
             'Confirm GrabFood platter promotion terms (rate and vouchers)',
             'studio_manager',
-            "And I'll post the final plan in the team channel once we settle the delivery decision.",
+            "I'll post the final plan in the team channel once we settle the pickup code.",
             { actionKind: 'mattermost_post' },
           ),
         ],
       }),
     );
 
-    feed(slice(1450, 2000));
+    notetaker.addChunk({ speaker: 'Daniel', text: 'GrabFood takes a bigger cut from today, and we lose about 50 cents on each $10 breakfast set delivered.' });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: "I'll post the final plan in the team channel once we settle the pickup code." });
     await notetaker.run();
 
     expect(tasks.list()).toEqual([]);
@@ -457,23 +454,24 @@ describe('task precision', () => {
   });
 
   it('keeps the conditional final-plan post and the GrabFood email when they are explicitly committed', async () => {
-    const { tasks, notetaker, feed } = setup(() =>
+    const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Email GrabFood to confirm the five-set platter listing', 'marketing_lead', "Yes, I'll email GrabFood tonight and confirm the details.", {
+          candidate('Email GrabFood to confirm the five-set platter listing', 'marketing_lead', "Yes, I'll email GrabFood to confirm the platter listing, and I'll send the pickup code to the offices.", {
             actionKind: 'email',
           }),
           candidate(
             'Post the final plan in the team channel',
             'producer',
-            "And I'll post the final plan in the team channel once we settle the delivery decision.",
+            "I'll post the final plan in the team channel once we settle the pickup code.",
             { actionKind: 'mattermost_post' },
           ),
         ],
       }),
     );
 
-    feed(slice(1900, 2000));
+    notetaker.addChunk({ speaker: 'Daniel', text: "Yes, I'll email GrabFood to confirm the platter listing, and I'll send the pickup code to the offices." });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: "I'll post the final plan in the team channel once we settle the pickup code." });
     await notetaker.run();
 
     expect(tasks.list().map((task) => [task.title, task.suggestedAssignee, task.actionKind])).toEqual([
@@ -532,11 +530,11 @@ describe('task precision', () => {
   });
 
   it('snapshots the final cleaned task, including its action kind, as the commitment scope', async () => {
-    const line = "I'll post the kiosk plan in the team channel today.";
+    const line = "I'll post the opening plan in the team channel today.";
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Post the kiosk plan in the team channel', 'producer', line, {
+          candidate('Post the opening plan in the team channel', 'producer', line, {
             actionKind: 'mattermost_post',
           }),
         ],
@@ -550,8 +548,8 @@ describe('task precision', () => {
       speaker: 'Mei',
       quote: line,
       scope: {
-        title: 'Post the kiosk plan in the team channel',
-        context: 'Post the kiosk plan in the team channel',
+        title: 'Post the opening plan in the team channel',
+        context: 'Post the opening plan in the team channel',
         actionKind: 'mattermost_post',
       },
     });
@@ -683,7 +681,7 @@ describe('task precision', () => {
       reply({
         newTasks: [
           candidate(
-            'Post kiosk English subtitles decision in team channel',
+            'Post the regulars price decision in team channel',
             'game_designer',
             'Feifei Li, could you post that decision in the team channel today so everyone has it?',
             { actionKind: 'mattermost_post' },
@@ -692,10 +690,10 @@ describe('task precision', () => {
       }),
     );
     const notetaker = createNotetaker({ scenario: kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
-    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us add the Simple English toggle on the kiosk.' });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us add the regulars price on the till.' });
     notetaker.addChunk({
       speaker: 'Mei',
-      text: 'Got it, we will build the Simple English toggle tonight. Feifei Li, could you post that decision in the team channel today so everyone has it?',
+      text: 'Got it, we will add the regulars price on the till tonight. Feifei Li, could you post that decision in the team channel today so everyone has it?',
     });
     await notetaker.run();
     expect(tasks.list()).toHaveLength(1);
@@ -1037,11 +1035,11 @@ describe('duplicate handling across batches', () => {
   const cashAssignment = 'Mei, can you post the cash decision in the team channel today so everyone has it?';
 
   it('keeps a task when duplicateOf names no existing task', async () => {
-    const assignment = 'Mei, can you review the kiosk trial freeze tonight?';
+    const assignment = 'Mei, can you review the trial numbers tonight?';
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Review the kiosk trial freeze', 'game_designer', assignment, { duplicateOf: 'task-invented' }),
+          candidate('Review the trial numbers', 'game_designer', assignment, { duplicateOf: 'task-invented' }),
         ],
       }),
     );
@@ -1049,7 +1047,7 @@ describe('duplicate handling across batches', () => {
     notetaker.addChunk({ speaker: 'Mei', text: assignment });
     await notetaker.run();
 
-    expect(tasks.list().map((task) => task.title)).toEqual(['Review the kiosk trial freeze']);
+    expect(tasks.list().map((task) => task.title)).toEqual(['Review the trial numbers']);
   });
 
   it('ignores duplicateOf when it points at a different decision', async () => {
@@ -1249,8 +1247,8 @@ describe('talk time', () => {
     notetaker.addChunk({ speaker: 'Kaki', text: 'Not an attendee, so not counted.' });
 
     const state = notetaker.state();
-    expect(Object.keys(state.talkSecondsFor(1)).sort()).toEqual(['game_designer', 'lead_programmer', 'producer']);
-    expect(state.talkSecondsFor(1).producer).toBeGreaterThan(state.talkSecondsFor(1).game_designer!);
+    expect(Object.keys(state.talkSecondsFor(1)).sort()).toEqual(['game_designer', 'lead_programmer', 'marketing_lead', 'producer', 'studio_manager']);
+    expect(state.talkSecondsFor(1).producer).toBeGreaterThan(0);
     expect(state.talkSecondsFor(3).marketing_lead).toBeGreaterThan(0);
   });
 
@@ -1323,7 +1321,7 @@ describe('hasTaskAssignment', () => {
     "I'll be emailing Zack the details tonight.",
     'Can you get that published before Friday?',
     "I'll do the posting tonight.",
-    'Mei, can you file a ticket for the kiosk label experiment?',
+    'Mei, can you file a ticket for the counter cover plan?',
     'I, Booth Playtest, will post the agreed plan in the team channel today.',
     'I, Wei Ling, am going to email Zack tonight.',
     'Count on me to email Zack tonight.',
@@ -1415,7 +1413,7 @@ describe('isLikelyDuplicateQuestion', () => {
   });
 
   it('keeps distinct unknowns on one topic apart instead of merging them on shared words', () => {
-    const cashOwner = 'Who runs cash at the kiosk?';
+    const cashOwner = 'Who runs the counter at 8?';
     const cashFloat = 'How is change counted and balanced at close?';
     const perHour = 'How many solo diners need a table between eight and ten?';
     expect(isLikelyDuplicateQuestion(cashFloat, [cashOwner])).toBe(false);
@@ -1432,17 +1430,17 @@ describe('task agenda origin', () => {
       return reply({
         newTasks: [
           {
-            title: 'Post the kiosk plan',
-            context: 'Share the agreed kiosk plan with the team.',
+            title: 'Post the opening plan',
+            context: 'Share the agreed opening plan with the team.',
             suggestedAssignee: 'producer',
             actionKind: 'mattermost_post',
-            evidence: "Mei: I'll post the kiosk plan in the team channel today.",
+            evidence: "Mei: I'll post the opening plan in the team channel today.",
           },
         ],
       });
     });
 
-    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the kiosk plan in the team channel today." });
+    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the opening plan in the team channel today." });
     await notetaker.run();
 
     expect(tasks.list()).toHaveLength(1);
@@ -1454,17 +1452,17 @@ describe('task agenda origin', () => {
       reply({
         newTasks: [
           {
-            title: 'Post the kiosk plan',
-            context: 'Share the agreed kiosk plan with the team.',
+            title: 'Post the opening plan',
+            context: 'Share the agreed opening plan with the team.',
             suggestedAssignee: 'producer',
             actionKind: 'mattermost_post',
-            evidence: "Mei: I'll post the kiosk plan in the team channel today.",
+            evidence: "Mei: I'll post the opening plan in the team channel today.",
           },
         ],
       }),
     );
 
-    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the kiosk plan in the team channel today." });
+    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the opening plan in the team channel today." });
     // The meeting moves on before the queued line is analysed.
     setAgendaIndex(1);
     await notetaker.run();
@@ -1477,8 +1475,8 @@ describe('task agenda origin', () => {
     const handover = 'Wei Ling, can you post this plan in Mattermost today?';
     const seatingPlan =
       'We will run the booth rule from 8 to 10:30 AM, the floor managers enforce it, and we measure table turnover every morning.';
-    const kioskPlan =
-      'We will add Simple English labels to the kiosk, keep the Kopi names, and Mei will test the 12-button grid tonight.';
+    const regularsPlan =
+      'We will add a regulars price on the till, keep the old kopi price explained at the counter, and Mei will test the rule tonight.';
     const { tasks, notetaker, setAgendaIndex } = setup(
       (_messages, call) =>
         call === 0
@@ -1486,12 +1484,12 @@ describe('task agenda origin', () => {
           : reply({
               newTasks: [
                 {
-                  title: 'Post kiosk label decision in Mattermost',
-                  context: 'Share the kiosk label decision with the team.',
+                  title: 'Post the regulars price decision in Mattermost',
+                  context: 'Share the regulars price decision with the team.',
                   suggestedAssignee: 'producer',
                   actionKind: 'mattermost_post',
                   evidence: handover,
-                  decisionEvidence: kioskPlan,
+                  decisionEvidence: regularsPlan,
                 },
               ],
             }),
@@ -1502,14 +1500,14 @@ describe('task agenda origin', () => {
     notetaker.addChunk({ speaker: 'Wei Ling', text: handover });
     await notetaker.run();
     setAgendaIndex(0);
-    notetaker.addChunk({ speaker: 'Arjun', text: kioskPlan });
+    notetaker.addChunk({ speaker: 'Arjun', text: regularsPlan });
     notetaker.addChunk({ speaker: 'Wei Ling', text: handover });
     await notetaker.run();
 
     expect(tasks.list()).toHaveLength(1);
     expect(tasks.list()[0]).toMatchObject({
       suggestedAssignee: 'producer',
-      decisionSource: kioskPlan,
+      decisionSource: regularsPlan,
       agendaItemTitle: scenario.agenda[0]?.title,
     });
   });
@@ -1519,11 +1517,11 @@ describe('task agenda origin', () => {
       reply({
         newTasks: [
           {
-            title: 'Post the kiosk plan',
-            context: 'Share the agreed kiosk plan with the team.',
+            title: 'Post the opening plan',
+            context: 'Share the agreed opening plan with the team.',
             suggestedAssignee: 'producer',
             actionKind: 'mattermost_post',
-            evidence: "Mei: I'll post the kiosk plan in the team channel today.",
+            evidence: "Mei: I'll post the opening plan in the team channel today.",
           },
           {
             title: 'Email the seating plan',
@@ -1536,7 +1534,7 @@ describe('task agenda origin', () => {
       }),
     );
 
-    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the kiosk plan in the team channel today." });
+    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the opening plan in the team channel today." });
     setAgendaIndex(1);
     notetaker.addChunk({ speaker: 'Daniel', text: "I'll email the seating plan to the team tomorrow." });
     await notetaker.run();

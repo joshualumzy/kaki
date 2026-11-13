@@ -61,7 +61,7 @@ export function Dock({
             <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
             <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
           </summary>
-          <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
+          <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} agenda={scenario.agenda} />
           <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
         </details>
         <ErrorBoundary>{role !== undefined && <ActiveRoleCards role={role.id} viewer={viewer} />}</ErrorBoundary>

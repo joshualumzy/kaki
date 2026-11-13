@@ -3,7 +3,7 @@ import { createTransport, type Transporter } from 'nodemailer';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, draftSourceText, unsupportedDraftDetails } from './draftGrounding';
-import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -148,11 +148,7 @@ export function createEmailModule({
 
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
-      const allFacts = [
-        ...(role?.card?.facts ?? []),
-        ...scenario.roles.flatMap((r) => (r.id === roleId ? [] : r.card?.facts ?? [])),
-      ];
-      const knownFacts = relevantFactsForTask(task, allFacts, true);
+      const knownFacts = factsForTask(task, scenario, roleId, true);
       const senderLine = role !== undefined ? `\nSender role: ${role.label}` : '';
       const factsBlock =
         knownFacts.length > 0 ? `\n\nKnown facts from the team:\n- ${knownFacts.join('\n- ')}` : '';
@@ -163,7 +159,7 @@ export function createEmailModule({
           content:
             'You turn a team task into a short, polite email. Reply with one JSON object and nothing else: ' +
             '{"to": "...", "subject": "...", "body": "..."}. Write the body as plain text and keep it short. ' +
-            'For "to", look up the matching recipient email address in the Known facts below when one is listed for the person or partner mentioned in the task or context; if no email address is listed for the recipient (including customers, officers, landlords, or internal colleagues), always provide a sensible address at @example.com (such as customer@example.com, sfa@example.com, landlord@example.com, or team@example.com) and never leave "to" empty.' +
+            'For "to", look up the matching recipient email address in the Known facts below when one is listed for the person or partner mentioned in the task or context; if no email address is listed for the recipient (including customers, officers, suppliers, or internal colleagues), always provide a sensible address at @example.com (such as customer@example.com, agency@example.com, supplier@example.com, or team@example.com) and never leave "to" empty.' +
             ' Use only what is in the task, its context, and any known facts below that are directly about the same topic as the task (ignore known facts about unrelated issues or other agenda items). When an Accepted decision is given, keep its time of day, who owns or enforces it, and how it will be measured; do not leave out a detail it gives. Do not invent steps, versions, names, dates, numbers or placeholders such as [Insert ...]; if something is not given, leave it out. If the Context gives a time of day without AM or PM, keep it exactly as written; never choose AM or PM yourself. Never write "effective immediately" or another start date unless the Context explicitly states it. Keep the words of the task title in the title.',
         },
         {

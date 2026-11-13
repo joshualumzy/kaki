@@ -1,16 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { ScenarioRole } from '@kaki/shared';
+import type { AgendaItem, ScenarioRole } from '@kaki/shared';
 import { resolveArtifactUrl } from '../ui';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
 import './demo.css';
 
-const PRELOAD_ONBOARDING_SVGS = [
-  '/scenario/kopitiam-hero.svg',
-  '/scenario/crisis-seat-chope.svg',
-  '/scenario/crisis-sfa-salmonella.svg',
-  '/scenario/crisis-delivery-squeeze.svg',
-  '/scenario/crisis-kiosk-lingo.svg',
-] as const;
+const HERO_ART = '/scenario/kopitiam-hero.svg';
 
 /** What the name box starts with: empty so the visitor enters their own name. */
 export const DEFAULT_NAME = '';
@@ -19,6 +13,7 @@ export interface JoinFormProps {
   meetingTitle: string;
   /** The roles a person can take: those no AI attendee plays. */
   roles: readonly ScenarioRole[];
+  agenda?: readonly AgendaItem[];
   busy?: boolean;
   /** Why the last attempt failed, or why joining is impossible. */
   error?: string;
@@ -40,14 +35,14 @@ function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
     case 'game_designer':
       return { icon: '☕', tag: 'Kopi, Toast & Customer UX' };
     case 'marketing_lead':
-      return { icon: '📱', tag: 'TikTok PR & Brand Buzz' };
+      return { icon: '📱', tag: 'Offices & Opening Buzz' };
     default:
       return { icon: '✨', tag: 'Team Lead' };
   }
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
-export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = false, initialCode = '', onJoin }: JoinFormProps) {
+export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, initialCode = '', onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [roleLabel, setRoleLabel] = useState(roles[0]?.label ?? '');
   const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
@@ -56,11 +51,11 @@ export function JoinForm({ meetingTitle, roles, busy = false, error, askCode = f
   const [problem, setProblem] = useState<string | undefined>();
   useEffect(() => {
     if (typeof Image === 'undefined') return;
-    for (const src of PRELOAD_ONBOARDING_SVGS) {
+    for (const src of [HERO_ART, ...(agenda?.map((item) => item.art ?? HERO_ART) ?? [])]) {
       const img = new Image();
       img.src = src;
     }
-  }, []);
+  }, [agenda]);
   const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy && (!askCode || code.trim().length > 0);
 
   return (

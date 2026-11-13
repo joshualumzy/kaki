@@ -51,11 +51,11 @@
     <g class="fee-pill">
       <rect x="16" y="38" width="144" height="36" rx="6" fill="#450a0a" stroke="#ef4444" stroke-width="1.8"/>
       <text x="88" y="53" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="8" font-weight="800">PLATFORM COMMISSION</text>
-      <text x="88" y="68" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="10.5" font-weight="900">32% FEE (-$0.40/set)</text>
+      <text x="88" y="68" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="10.5" font-weight="900">32% FEE (-$0.50/set)</text>
     </g>
 
-    <text x="20" y="92" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">• 50% CBD office volume</text>
-    <text x="20" y="108" fill="#fde68a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">• Direct QR: Pickup only</text>
+    <text x="20" y="92" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">• Office platters: $5 profit</text>
+    <text x="20" y="108" fill="#fde68a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700">• Direct pickup: $2 profit</text>
   </g>
 
   <!-- Right: CBD Office Takeaway Bundles & Thermal Carrier Bags -->

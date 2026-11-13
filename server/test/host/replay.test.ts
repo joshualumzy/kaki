@@ -33,7 +33,7 @@ describe('replay script', () => {
     const scenario = await loadScenario('kopitiam');
     const loaded = await loadReplay(scenario, 'kopitiam');
     expect(loaded.length).toBeGreaterThan(20);
-    expect(loaded.flatMap((line) => line.agendaIndex ?? [])).toEqual([1, 2, 3]);
+    expect(loaded.flatMap((line) => line.agendaIndex ?? [])).toEqual([1, 2, 3, 4]);
   });
 
   it('rejects unknown speakers, lines out of order and empty text', () => {

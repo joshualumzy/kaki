@@ -1,69 +1,128 @@
 {
   "emails": [
     {
-      "from": { "name": "Singapore Food Agency (SFA) Central Regional Office", "address": "inspections@sfa.gov.example" },
+      "from": {
+        "name": "Priya Nair",
+        "address": "priya.nair@example.com"
+      },
       "to": [
-        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
-        { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" }
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        },
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
       ],
-      "subject": "Notice of On-Site Food Hygiene Inspection - Raffles Place #B1-14 (Tomorrow 9:00am)",
-      "date": "2026-11-11T14:05:00+08:00",
-      "messageId": "<sfa-inspection-notice-20261111@sfa.gov.example>",
-      "text": "Dear Licensee (Nanyang Kopi & Toast - Raffles Place #B1-14),\n\nFollowing a hospital notification regarding a suspected salmonella enteritidis case linked to soft-boiled eggs consumed during your 10 November soft trial (hospital lab culture confirmation pending 48 hours), SFA officers will conduct an on-site kitchen inspection tomorrow at 9:00 AM.\n\nInspectors will swab the egg sous-vide holding bath, review your water bath temperature logs (minimum 63°C continuous holding), and verify egg batch supplier certificates (Batch #402 and backup Batch #405).\n\nRegards,\nSFA Central Regional Inspection Team"
+      "subject": "Today's breakfast at your Raffles Place shop",
+      "date": "2026-11-10T21:40:00+08:00",
+      "messageId": "<customer-complaint-20261110@example.com>",
+      "text": "Dear Nanyang Kopi & Toast team,\n\nI ate breakfast at your Raffles Place shop during today's trial and was sick afterwards. I saw a doctor, and the clinic bill came to $85. I am recovering at home now.\n\nI am not writing to make a scene. I liked the shop, and I would like to know what happened and what you are doing about it. I plan to post a review tomorrow night after I have heard from you.\n\nRegards,\nPriya Nair"
     },
     {
-      "from": { "name": "GrabFood Merchant Partnerships SG", "address": "merchants@grabfood.example" },
+      "from": {
+        "name": "Lion City Insurance",
+        "address": "claims@lioncityinsurance.example"
+      },
       "to": [
-        { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" },
-        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        }
       ],
-      "subject": "Updated CBD Breakfast Commission Tier (32%) & Menu Price-Parity Policy",
-      "date": "2026-11-10T11:20:00+08:00",
-      "messageId": "<grabfood-commission-notice-20261110@grabfood.example>",
-      "text": "Dear Nanyang Kopi & Toast Team,\n\nEffective this week, your Raffles Place CBD Zone 1 commission tier for morning breakfast delivery orders is 32%. On a SGD 10.00 breakfast set, platform commission is SGD 3.20 (leaving a net margin impact of -SGD 0.40 per single set after packaging).\n\nPlease note our Merchant Price-Parity Policy: marking up single-set menu prices by 30% on the platform triggers automated search ranking suppression. Multi-set corporate platter bundles (5+ sets) are categorised as distinct catering SKUs and are exempt from single-item price parity.\n\nRegards,\nGrabFood Key Accounts Singapore"
+      "subject": "Goodwill payment cover for the Raffles Place opening",
+      "date": "2026-11-11T06:50:00+08:00",
+      "messageId": "<goodwill-cover-20261111@lioncityinsurance.example>",
+      "text": "Dear Wei Ling,\n\nFor the customer who reported feeling unwell after the trial, your policy allows a goodwill payment of up to $3,000 without any admission of fault. Keep the signed disposal log and the fridge log with the claim.\n\nRegards,\nLion City Insurance Claims"
     },
     {
-      "from": { "name": "Seng Choon Farm Wholesale SG", "address": "orders@sengchoonfarm.example" },
+      "from": {
+        "name": "Raffles Place Community Page",
+        "address": "moderator@rafflesplacecommunity.example"
+      },
       "to": [
-        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" },
-        { "name": "Mei", "address": "mei@nanyangkopitiam.example" }
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
       ],
-      "subject": "Batch #405 Pasteurized Egg Certificate & Emergency Standby Rate (SGD 180/day)",
-      "date": "2026-11-11T15:10:00+08:00",
-      "messageId": "<sengchoon-pasteurized-batch405-20261111@sengchoonfarm.example>",
-      "text": "Dear Nanyang Kopi & Toast Purchasing,\n\nAttached is the SFA Veterinary Public Health laboratory clearance certificate for Pasteurized Egg Batch #405. Switching your Raffles Place morning service to Batch #405 adds SGD 180 per day in ingredient cost, which can be billed against your launch contingency account.\n\nRegards,\nKey Accounts Team\nSeng Choon Farm Singapore"
+      "subject": "Post about Nanyang Kopi & Toast is being shared",
+      "date": "2026-11-11T06:20:00+08:00",
+      "messageId": "<facebook-post-20261111@rafflesplacecommunity.example>",
+      "text": "Hi Daniel,\n\nA nephew of one of the old regulars posted that Nanyang has forgotten its roots after seeing the new kopi prices. The post has been shared a few hundred times since last night, about 300 shares, and it is still moving in the local groups.\n\nWe thought you should know before the shop opens.\n\nRaffles Place Community Page"
     },
     {
-      "from": { "name": "Straits Times Life! Food Desk", "address": "fooddesk@straitstimes.example" },
+      "from": {
+        "name": "One Raffles Place Offices",
+        "address": "office.managers@onerafflesplace.example"
+      },
       "to": [
-        { "name": "Daniel", "address": "daniel@nanyangkopitiam.example" },
-        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
       ],
-      "subject": "Confirmed: 8:00 AM Ribbon-Cutting & Heritage Set A Feature (Tomorrow)",
-      "date": "2026-11-11T13:15:00+08:00",
-      "messageId": "<straitstimes-fooddesk-rsvp-20261111@straitstimes.example>",
-      "text": "Hi Daniel and Wei Ling,\n\nConfirming that our food correspondent and photographer will arrive at Raffles Place #B1-14 tomorrow at 8:00 AM sharp for the flagship opening feature.\n\nWe plan to shoot the self-order kiosk flow, Uncle Lim pulling kopi at the traditional brass spout station, and your signature Set A (charcoal-grilled kaya toast with 63°C soft-boiled eggs).\n\nSee you tomorrow morning,\nStraits Times Food Desk"
+      "subject": "Direct order code for our offices",
+      "date": "2026-11-10T17:15:00+08:00",
+      "messageId": "<office-direct-code-20261110@onerafflesplace.example>",
+      "text": "Hi Daniel,\n\n12 office managers in the building have asked for a direct order code so our teams can collect breakfast without going through the delivery app. Most of our orders are for five sets or more.\n\nPlease let us know what you decide for opening day.\n\nOne Raffles Place Offices"
     },
     {
-      "from": { "name": "One Raffles Place Concourse Management", "address": "tenancy@onerafflesplace.example" },
+      "from": {
+        "name": "Food Agency Central Regional Office",
+        "address": "inspections@foodagency.gov.example"
+      },
       "to": [
-        { "name": "Wei Ling", "address": "wei.ling@nanyangkopitiam.example" }
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        },
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
       ],
-      "subject": "Unit #B1-14 Morning Queue Line & Concourse Fire Corridor Reminder",
-      "date": "2026-11-10T16:40:00+08:00",
-      "messageId": "<orp-concourse-queue-20261110@onerafflesplace.example>",
-      "text": "Dear Tenant (#B1-14 Nanyang Kopi & Toast),\n\nDuring Tuesday morning's soft trial between 8:15 AM and 9:15 AM, your self-order kiosk queue extended 4 metres past your lease boundary line into the MRT walkway.\n\nFor tomorrow's Grand Opening, please ensure kiosk dwell time and table seating turnover are actively managed so the queue stays within your yellow stanchion markers.\n\nThank you,\nCentre Management — One Raffles Place"
+      "subject": "Notice of on-site food hygiene inspection - Raffles Place (11 November, 9:00 AM)",
+      "date": "2026-11-11T06:30:00+08:00",
+      "messageId": "<food-agency-inspection-20261110@foodagency.gov.example>",
+      "text": "Dear Licensee (Nanyang Kopi & Toast - Raffles Place),\n\nFollowing a report from a customer who became unwell after eating at your shop on 10 November, an officer will conduct an on-site kitchen inspection on 11 November at 9:00 AM.\n\nThe officer will ask for the signed disposal log, the fridge temperature log, and the order details for the replacement eggs and kaya.\n\nRegards,\nFood Agency Central Regional Inspection Team"
     },
     {
-      "from": { "name": "Nanyang POS Systems Support", "address": "releases@nanyangpos.example" },
+      "from": {
+        "name": "Jia Hui Food Journal",
+        "address": "hello@jiahui-food.example"
+      },
       "to": [
-        { "name": "Arjun", "address": "arjun@nanyangkopitiam.example" },
-        { "name": "Mei", "address": "mei@nanyangkopitiam.example" }
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
       ],
-      "subject": "POS Firmware v2.4.1 — Separate Customer Display vs Kitchen Thermal Docket Labels",
-      "date": "2026-11-09T18:00:00+08:00",
-      "messageId": "<nanyangpos-v241-notes-20261109@nanyangpos.example>",
-      "text": "Hi Arjun,\n\nFirmware v2.4.1 is now staged on your Raffles Place kiosk cluster. Key notes for your launch:\n\n1. Dual-Label Routing: You can now decouple `display_label` (shown on the 15-inch customer kiosk) from `docket_label` (printed on the 80mm kitchen thermal slip in traditional Kopitiam dialect + Mandarin).\n2. Screen Grid Constraint: The 15-inch touch grid remains capped at 12 drink tiles per page (max 18 characters per line).\n3. Backroom Smart Relay API: Booth power circuits (Sockets #1-#12) and Guest Wi-Fi SSID throttling can be scheduled via the local breaker controller.\n\nCheers,\nNanyang POS Engineering"
+      "subject": "Confirmed: visit at 10:30 on 11 November",
+      "date": "2026-11-10T18:00:00+08:00",
+      "messageId": "<blogger-booking-20261110@jiahui-food.example>",
+      "text": "Hi Daniel,\n\nConfirmed for 10:30 tomorrow morning at the Raffles Place shop. I would like to photograph Set A, the kopi bar and the breakfast crowd. I read the local Facebook groups, so I have seen the post about the old regulars; I will ask about it.\n\nSee you at 10:30,\nJia Hui"
+    },
+    {
+      "from": {
+        "name": "GrabFood Merchant Partnerships SG",
+        "address": "merchants@grabfood.example"
+      },
+      "to": [
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        },
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Launch deal: featured banner while the full menu is live",
+      "date": "2026-11-10T19:10:00+08:00",
+      "messageId": "<grabfood-launch-deal-20261110@grabfood.example>",
+      "text": "Dear Nanyang Kopi & Toast team,\n\nYour opening-day launch deal includes a featured banner on the breakfast page. The banner stays only while the full menu is live.\n\nCommission from 11 November is 32%, so a $10 set delivered returns $6.80 before the $7.30 cost of making and packing it. Please also note that shops priced more than 10% above in-store are hidden from search; five-set platters are treated as a separate catering item.\n\nGrabFood Key Accounts Singapore"
     }
   ]
 }

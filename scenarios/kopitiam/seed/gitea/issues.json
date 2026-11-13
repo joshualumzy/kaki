@@ -1,67 +1,109 @@
 {
   "repository": {
     "name": "kopitiam-pos",
-    "description": "Nanyang Kopi & Toast - Self-Order Kiosk, Kitchen Docket Printer & Payment POS",
+    "description": "Nanyang Kopi & Toast - Till, Self-Order Kiosk & Kitchen Tickets",
     "private": false
   },
   "labels": [
-    { "name": "bug", "color": "d73a4a", "description": "App or kiosk bug" },
-    { "name": "pos", "color": "b60205", "description": "Cashier POS and kitchen printer" },
-    { "name": "kiosk", "color": "fbca04", "description": "Self-order kiosk menu UX" },
-    { "name": "promo", "color": "5319e7", "description": "Vouchers and launch promotions" },
-    { "name": "marketing", "color": "0e8a16", "description": "TikTok reviews and campaign logistics" },
-    { "name": "ops", "color": "006b75", "description": "Seating, hygiene and outlet operations" }
+    {
+      "name": "bug",
+      "color": "d73a4a",
+      "description": "App or kiosk bug"
+    },
+    {
+      "name": "pos",
+      "color": "b60205",
+      "description": "Till and kitchen tickets"
+    },
+    {
+      "name": "kiosk",
+      "color": "fbca04",
+      "description": "Self-order kiosk"
+    },
+    {
+      "name": "promo",
+      "color": "5319e7",
+      "description": "Launch promotions"
+    },
+    {
+      "name": "marketing",
+      "color": "0e8a16",
+      "description": "Public posts and the delivery app"
+    },
+    {
+      "name": "ops",
+      "color": "006b75",
+      "description": "Seating, hygiene and outlet operations"
+    }
   ],
   "issues": [
     {
-      "title": "Kiosk Step 2 'Kopi O Kosong' freeze & kitchen docket label coupling",
+      "title": "Regulars' price button on the till needs an eligibility rule",
       "date": "2026-11-10",
       "state": "open",
-      "labels": ["kiosk", "pos"],
-      "createdAt": "2026-11-10T10:05:00+08:00",
-      "body": "In yesterday's Raffles Place kiosk trial, 19 of 28 first-time users (68%) froze for over 2 minutes on Step 2 ('Kopi O Kosong', 'Kopi C Siew Dai', 'Teh Halia'), and 72% missed the small top-right language toggle.\n\nWhy renaming the buttons to 'Black Coffee No Sugar' failed at Tampines:\n- The kitchen docket currently prints the same name the customer sees. When English names printed on kitchen dockets at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds per cup.\n- POS v2.4 can hold a separate kitchen print name, but it has to be configured and kitchen-tested before the morning rush.\n- The 15-inch screen only fits 12 buttons per page (about 18 characters per line). Adding two-line subtitles pushes half the drinks onto Page 2.\n\nNot decided: which change helps a first-timer without slowing the kitchen or pushing the menu onto a second page."
+      "labels": [
+        "pos",
+        "ops"
+      ],
+      "createdAt": "2026-11-10T15:10:00+08:00",
+      "body": "At the trial a few regulars saw the new kopi price and walked out. The till can take a regulars' price button in about 10 minutes, but it needs a clear rule for who gets it. No eligibility rule has been agreed."
     },
     {
-      "title": "28-seat morning crunch: tissue-packet chope-ing & laptop wall-socket campers",
-      "date": "2026-11-11",
+      "title": "Fridge temperature alert requested last month is still open",
+      "date": "2026-11-10",
       "state": "open",
-      "labels": ["ops"],
-      "createdAt": "2026-11-11T08:45:00+08:00",
-      "body": "Our Raffles Place shop has only 28 seats. Between 8:00am and 10:00am, office workers leave tissue packets on empty tables before joining the 15-minute queue, while freelancers buy one $2.20 Kopi O and camp at our four 4-seater booths (16 seats) for 2 hours using the 12 wall power sockets and free Wi-Fi. That costs us about $420 every morning in lost breakfast turnover.\n\nFloor notes from Wei Ling & Mei:\n- Auntie Mary (62) got yelled at by a customer in a suit when she moved his tissue packet last week, and she will not play seat police or touch customer belongings.\n- 60% of our morning customers dine solo and cannot carry a hot tray of runny soft-boiled eggs without a table.\n- The 12 booth wall sockets and guest Wi-Fi router run on a programmable smart relay breaker in the back room; cutting power also affects paying customers using the sockets.\n\nNot decided: who enforces any new seating rule, and how a solo diner with a hot tray still gets a table."
+      "labels": [
+        "pos",
+        "ops"
+      ],
+      "createdAt": "2026-11-10T16:05:00+08:00",
+      "body": "The prep fridge has no alarm. A temperature alert on the POS takes about 10 minutes to wire up. It was requested last month and has not been built. A lockable socket cover costs $15."
     },
     {
-      "title": "SFA 9am food safety inspection & 58°C sous-vide egg bath dip",
-      "date": "2026-11-11",
+      "title": "Till login for new staff takes 15 minutes",
+      "date": "2026-11-10",
       "state": "open",
-      "labels": ["ops"],
-      "createdAt": "2026-11-11T09:15:00+08:00",
-      "body": "A diner from yesterday's soft trial was hospitalized with suspected salmonella (hospital lab culture takes 48 hours). Straits Times journalists arrive tomorrow at 8:00am for our ribbon-cutting, and SFA inspectors arrive at 9:00am.\n\nKitchen & operations constraints:\n- During yesterday's 8:30am rush, our sous-vide holding bath dipped to 58°C for 45 minutes when cold eggs were added too quickly. Soft-boiled eggs require continuous 63°C holding.\n- Soft-boiled eggs anchor 60% of our breakfast sets ($1,800/morning); pulling eggs completely wipes out morning set sales, while failing SFA's 9:00am swab and temperature log check triggers an immediate stop-work order.\n- We have two unopened cartons of pasteurized backup eggs (Batch #405) in the storeroom that take 22 minutes per batch to heat to 63°C.\n\nNot decided: whether to pause soft-boiled eggs or sanitize the bath and run the 63°C pasteurized backup batch with 15-minute probe logs, and what statement we give at 8:00am."
+      "labels": [
+        "pos",
+        "ops"
+      ],
+      "createdAt": "2026-11-10T14:20:00+08:00",
+      "body": "Any new person on the till needs a login before they can take an order. Creating one takes Arjun about 15 minutes before 8. No new login has been requested yet."
     },
     {
-      "title": "GrabFood/Foodpanda 32% commission squeeze vs CBD corporate morning volume",
-      "date": "2026-11-11",
+      "title": "Delivery app menu change takes 15 minutes to go live",
+      "date": "2026-11-10",
       "state": "open",
-      "labels": ["marketing", "pos", "ops"],
-      "createdAt": "2026-11-11T09:30:00+08:00",
-      "body": "GrabFood and Foodpanda raised breakfast commissions to 32% this week, meaning every $10 breakfast set delivered loses $0.40 after packaging. However, delivery platforms drive 50% of our morning revenue ($2,400/morning) from CBD corporate office towers.\n\nPOS, pricing & staffing constraints:\n- Delisting from GrabFood/Foodpanda hands $2,400/morning in CBD office orders straight to Ya Kun.\n- Raising our single-set GrabFood price by 30% to $13 triggers platform price-parity ranking penalties, though 5-set corporate bundle platters count as a separate SKU.\n- Our direct web QR link has 0% commission, but only supports express self-pickup because the POS has no rider dispatch integration, and sending floor staff out as delivery runners in CBD morning traffic leaves the counter short-handed and carries injury liability.\n\nNot decided: how we restructure our delivery menu, corporate bundles, or express self-pickup without losing CBD volume or pulling floor staff off the line."
+      "labels": [
+        "pos",
+        "marketing"
+      ],
+      "createdAt": "2026-11-10T17:30:00+08:00",
+      "body": "Any app menu change takes about 15 minutes to go live and comes out of Arjun's hour before opening. GrabFood hides shops priced more than 10% above in-store. No opening-day menu change has been submitted."
     },
     {
-      "title": "PayNow SGQR dynamic timeout on Kiosk #2 during concurrent checkout",
+      "title": "PayNow SGQR dynamic timeout on kiosk during concurrent checkout",
       "date": "2026-11-08",
       "state": "closed",
-      "labels": ["bug", "pos"],
+      "labels": [
+        "bug",
+        "pos"
+      ],
       "createdAt": "2026-11-08T11:20:00+08:00",
       "closedAt": "2026-11-09T15:40:00+08:00",
-      "body": "When two customers scanned PayNow SGQR within 3 seconds on Kiosk #1 and Kiosk #2, webhook callback acknowledgements collided on the local gateway.\n\nResolution: Upgraded payment webhook listener to key by `terminal_id + order_seq` in POS v2.4. Verified across 50 test transactions with zero dropped receipts."
+      "body": "When two customers scanned PayNow SGQR within 3 seconds on two kiosks, webhook callback acknowledgements collided on the local gateway.\n\nResolution: keyed the payment webhook listener by terminal id and order sequence. Verified across 50 test transactions with no dropped receipts."
     },
     {
-      "title": "Install 16 numbered RFID table pucks & backroom smart relay breaker for Booths 1-4",
+      "title": "Opening-day checklist: counter drawer, card terminal, receipt rolls",
       "date": "2026-11-09",
       "state": "closed",
-      "labels": ["ops", "kiosk"],
+      "labels": [
+        "ops",
+        "pos"
+      ],
       "createdAt": "2026-11-09T14:00:00+08:00",
       "closedAt": "2026-11-10T17:10:00+08:00",
-      "body": "Wired the 12 booth wall power outlets and guest Wi-Fi router to the programmable smart relay breaker in the back room, and boxed 28 numbered order buzzers/table pucks at the cashier counter ready for morning rush deployment."
+      "body": "Counted the counter drawer, seated the card terminal, loaded receipt rolls at both tills and the kiosk, and left the opening-day checklist at the counter."
     }
   ]
 }

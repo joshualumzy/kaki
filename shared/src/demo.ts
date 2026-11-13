@@ -187,7 +187,8 @@ export function itemMode(scenario: Scenario, item: AgendaItem | undefined, visit
  * Reorder a scenario's agenda for a new visitor so every visitor gets a fresh opening topic
  * and an item they actively participate in (`involve` or `decide`) comes first.
  * When `maxItems` is given, trims the returned agenda to a crisp subset (for example 2 items:
- * 1 AI-colleague-led item + 1 item owned by the visitor's role).
+ * 1 AI-colleague-led item + 1 item owned by the visitor's role). A subset never contains a pair
+ * listed in the scenario's `excludedPairs`: the next allowed item is picked instead.
  */
 export function shuffleAgendaForRole(
   scenario: Scenario,
@@ -195,10 +196,20 @@ export function shuffleAgendaForRole(
   random: () => number = Math.random,
   maxItems?: number,
 ): AgendaItem[] {
-  const cap = (list: AgendaItem[]): AgendaItem[] =>
-    maxItems !== undefined && maxItems > 0 ? list.slice(0, maxItems) : list;
+  const excluded = scenario.excludedPairs ?? [];
+  const conflicts = (a: string, b: string): boolean =>
+    excluded.some(([left, right]) => (left === a && right === b) || (left === b && right === a));
+  const select = (list: AgendaItem[]): AgendaItem[] => {
+    if (maxItems === undefined || maxItems <= 0) return list;
+    const chosen: AgendaItem[] = [];
+    for (const item of list) {
+      if (chosen.length >= maxItems) break;
+      if (chosen.every((earlier) => !conflicts(earlier.title, item.title))) chosen.push(item);
+    }
+    return chosen;
+  };
   const items = [...scenario.agenda];
-  if (items.length <= 1) return cap(items);
+  if (items.length <= 1) return select(items);
 
   const previousFirstTitle = items[0]?.title;
   const shuffle = (list: AgendaItem[]): AgendaItem[] => {
@@ -272,7 +283,7 @@ export function shuffleAgendaForRole(
       const [visitorItem] = shuffled.splice(visitorOwnedIdx, 1);
       shuffled.splice(1, 0, visitorItem!);
     }
-    return cap(shuffled);
+    return select(shuffled);
   }
 
   // Fallback: pull an item the visitor owns ('involve') or decides on ('decide') into the opening slot.
@@ -280,14 +291,61 @@ export function shuffleAgendaForRole(
   if (involveIdx > 0) {
     const [picked] = shuffled.splice(involveIdx, 1);
     shuffled.unshift(picked!);
-    return cap(shuffled);
+    return select(shuffled);
   }
-  if (involveIdx === 0) return cap(shuffled);
+  if (involveIdx === 0) return select(shuffled);
 
   const decideIdx = shuffled.findIndex((item) => itemMode(scenario, item, visitorRole) === 'decide');
   if (decideIdx > 0) {
     const [picked] = shuffled.splice(decideIdx, 1);
     shuffled.unshift(picked!);
   }
-  return cap(shuffled);
+  return select(shuffled);
+}
+
+/**
+ * Resolve `KAKI_AGENDA_PICK` (comma-separated agenda titles or 0-based canon indexes) to an
+ * ordered agenda subset for repeatable playtests. Unknown titles, out-of-range indexes,
+ * duplicates and excluded pairs are refused with a clear error.
+ */
+export function resolveAgendaPick(scenario: Scenario, spec: string): AgendaItem[] {
+  const parts = spec.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    throw new Error('KAKI_AGENDA_PICK must name at least one agenda title or 0-based index');
+  }
+  const titles = scenario.agenda.map((item) => item.title);
+  const picked = parts.map((part) => {
+    if (/^\d+$/.test(part)) {
+      const index = Number(part);
+      const item = scenario.agenda[index];
+      if (item === undefined) {
+        throw new Error(
+          `KAKI_AGENDA_PICK index ${index} is out of range; the agenda has ${scenario.agenda.length} items (0-${scenario.agenda.length - 1})`,
+        );
+      }
+      return item;
+    }
+    const wanted = part.toLowerCase();
+    const item = scenario.agenda.find((candidate) => candidate.title.toLowerCase() === wanted);
+    if (item === undefined) {
+      throw new Error(`KAKI_AGENDA_PICK has unknown agenda title "${part}". Known titles: ${titles.join(' | ')}`);
+    }
+    return item;
+  });
+  const seen = new Set<string>();
+  for (const item of picked) {
+    if (seen.has(item.title)) throw new Error(`KAKI_AGENDA_PICK names "${item.title}" more than once`);
+    seen.add(item.title);
+  }
+  const excluded = scenario.excludedPairs ?? [];
+  for (let index = 0; index < picked.length; index += 1) {
+    for (let other = index + 1; other < picked.length; other += 1) {
+      const a = picked[index]!.title;
+      const b = picked[other]!.title;
+      if (excluded.some(([left, right]) => (left === a && right === b) || (left === b && right === a))) {
+        throw new Error(`KAKI_AGENDA_PICK cannot draw "${a}" with "${b}": they are an excluded pair`);
+      }
+    }
+  }
+  return picked;
 }

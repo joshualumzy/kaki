@@ -70,7 +70,8 @@ describe('never-stuck visitor path', () => {
         { name: 'Visitor', role: role.id }, item.title);
       const debaters = prompt.match(/Two of them \(([^)]+)\)/)?.[1] ?? '';
       expect(debaters).not.toContain(seat);
-      expect(debaters.split(', ')).toHaveLength(2);
+      const availableOpeners = item.discussion!.openingViews.filter((view) => view.attendee !== seat);
+      expect(debaters.split(', ')).toHaveLength(Math.min(2, availableOpeners.length));
       for (const name of debaters.split(', ')) {
         expect([...item.discussion!.openingViews, ...item.discussion!.tradeOffs].map((entry) => entry.attendee)).toContain(name);
       }
@@ -114,11 +115,11 @@ describe('never-stuck visitor path', () => {
   }
 
   const decisions = [
-    "Okay, so let's turn on subtitle mode.", 'Right, turn on subtitle mode.',
+    "Okay, so let's open the window bar.", 'Right, open the window bar.',
     'No, we keep the kitchen open with fresh stock.', 'Hmm, I think we should use the window bar.',
     "I'll put the stools at the window bar.", 'I will make sure the chef shows the receipt.',
     'Post a staff member at the door.', 'Send the family an apology and pay the bill.',
-    'Put table signs on the booths.', 'Open the car park for delivery riders.',
+    'Put table signs on the booths.', 'Open the side door for deliveries.',
     'Keep the ten booths for diners.', 'Switch the wall sockets off during breakfast.',
     'Give solo diners the window seats.', 'Use both counters for the morning rush.',
     'Let the chef check each fresh tray.', 'I choose the smaller menu.',
@@ -133,7 +134,7 @@ describe('never-stuck visitor path', () => {
     'Wait, use fresh stock instead.', 'Thanks, I choose the office bundle.',
     'File the receipt with the inspection notes.', 'Write the seating policy today.',
     'We can absorb this cost once.', 'Give the hospital a goodwill payment.',
-    'Let us use subtitles and retain kitchen names.', 'The staff should lead the rollout.',
+    'Let us hold the kopi price and explain it at the counter.', 'The staff should lead the rollout.',
   ];
   it('settles forty differently worded decisions when the streamed control says settled', async () => {
     vi.useFakeTimers();

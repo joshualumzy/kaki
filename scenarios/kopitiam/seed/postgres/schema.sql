@@ -1,16 +1,17 @@
 DROP TABLE IF EXISTS knowledge_chunks CASCADE;
 DROP TABLE IF EXISTS launch_budget CASCADE;
 DROP TABLE IF EXISTS delivery_commission_tiers CASCADE;
-DROP TABLE IF EXISTS sfa_egg_batches CASCADE;
+DROP TABLE IF EXISTS food_safety_incident CASCADE;
 DROP TABLE IF EXISTS floor_morning_counts CASCADE;
-DROP TABLE IF EXISTS kiosk_trial_stats CASCADE;
+DROP TABLE IF EXISTS regulars_pricing CASCADE;
 
-CREATE TABLE kiosk_trial_stats (
+CREATE TABLE regulars_pricing (
   id serial PRIMARY KEY,
-  trial_date date NOT NULL UNIQUE,
-  first_time_users integer NOT NULL,
-  froze_at_kopi_o_kosong integer NOT NULL,
-  missed_language_toggle_pct numeric(5, 2) NOT NULL,
+  effective_on date NOT NULL UNIQUE,
+  old_kopi_price_sgd numeric(6, 2) NOT NULL,
+  new_kopi_price_sgd numeric(6, 2) NOT NULL,
+  cost_per_cup_sgd numeric(6, 2) NOT NULL,
+  regulars_most_mornings integer NOT NULL,
   notes text,
   updated_on date NOT NULL
 );
@@ -27,11 +28,15 @@ CREATE TABLE floor_morning_counts (
   updated_on date NOT NULL
 );
 
-CREATE TABLE sfa_egg_batches (
+CREATE TABLE food_safety_incident (
   id serial PRIMARY KEY,
-  batch_code text NOT NULL UNIQUE,
-  holding_temp_c numeric(4, 1) NOT NULL,
-  extra_cost_per_day_sgd numeric(10, 2) NOT NULL,
+  incident_on date NOT NULL UNIQUE,
+  fridge_off_hours numeric(4, 1) NOT NULL,
+  disposal_logged_at time NOT NULL,
+  delivery_eta time NOT NULL,
+  officer_eta time NOT NULL,
+  goodwill_cap_sgd numeric(10, 2) NOT NULL,
+  socket_cover_sgd numeric(10, 2) NOT NULL,
   notes text,
   updated_on date NOT NULL
 );

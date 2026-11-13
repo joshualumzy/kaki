@@ -1,22 +1,34 @@
 {
   "pages": [
     {
-      "path": "kopitiam/kiosk-menu-sop",
-      "title": "Nanyang Kopi & Toast - Kiosk Menu & Kitchen Printer Notes",
-      "description": "Self-order kiosk 'Kopi O Kosong' tourist checkout stats, 15-inch screen grid limits, and kitchen docket label coupling.",
-      "file": "kiosk-menu-sop.md"
+      "path": "kopitiam/staffing-plan",
+      "title": "Nanyang Kopi & Toast - Opening-Day Staffing Plan",
+      "description": "Counter cover for the 8 to 10 rush, rest-day double pay, agency notice and the till login a new starter needs.",
+      "file": "staffing-plan.md"
     },
     {
-      "path": "kopitiam/supplier-contingency",
-      "title": "28-Seat Floor Layout, Auntie Mary Staffing & SFA Egg Holding Protocol",
-      "description": "28-seat floor layout, booth wall sockets, Auntie Mary staffing, and 63°C soft-boiled egg holding bath & SFA inspection SOP.",
-      "file": "supplier-contingency.md"
+      "path": "kopitiam/kopi-pricing",
+      "title": "Nanyang Kopi & Toast - Kopi Pricing",
+      "description": "Old and new kopi prices, the cost per cup including rent share, and the regulars from the old shop.",
+      "file": "kopi-pricing.md"
     },
     {
-      "path": "kopitiam/mall-promo-rules",
-      "title": "Raffles Place Flagship - CBD Delivery Commissions & Launch Costing",
-      "description": "GrabFood/Foodpanda 32% commission margins, price-parity rules, and Raffles Place flagship launch breakdown.",
-      "file": "mall-promo-rules.md"
+      "path": "kopitiam/seating-house-rules",
+      "title": "Nanyang Kopi & Toast - Seating Trial Notes",
+      "description": "28 seats, the 10 window-bar stools, laptop use at the trial, the booth socket timer and the 45-minute Wi-Fi code.",
+      "file": "seating-house-rules.md"
+    },
+    {
+      "path": "kopitiam/food-safety-incident-log",
+      "title": "Nanyang Kopi & Toast - Food Safety Incident Log",
+      "description": "The prep fridge unplugged overnight, the 6:10 disposal log, the 10:00 delivery and the 9:00 officer visit.",
+      "file": "food-safety-incident-log.md"
+    },
+    {
+      "path": "kopitiam/delivery-pricing",
+      "title": "Nanyang Kopi & Toast - Delivery Pricing",
+      "description": "The 32% delivery commission, single-set loss, Office Platter and direct pickup margins, the 10% price rule and tray stock.",
+      "file": "delivery-pricing.md"
     }
   ]
 }

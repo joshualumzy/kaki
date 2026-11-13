@@ -20,52 +20,7 @@ export interface StartPromptProps {
   startError?: string;
 }
 
-const STEP_LABELS = ['1. Story & Your Role', '2. Today’s 2 Topics', '3. Live Room Spotlight'] as const;
-
-const PRELOAD_SVGS = [
-  '/scenario/kopitiam-hero.svg',
-  '/scenario/crisis-seat-chope.svg',
-  '/scenario/crisis-sfa-salmonella.svg',
-  '/scenario/crisis-delivery-squeeze.svg',
-  '/scenario/crisis-kiosk-lingo.svg',
-] as const;
-
-function crisisArtForTitle(title: string): { src: string; badge: string; summary: string } {
-  const lower = title.toLowerCase();
-  if (lower.includes('chope') || lower.includes('seat') || lower.includes('laptop')) {
-    return {
-      src: '/scenario/crisis-seat-chope.svg',
-      badge: 'Dine-in seating',
-      summary: 'Laptop campers hold booths for 2 hours while solo diners have nowhere to put hot trays.',
-    };
-  }
-  if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('safety') || lower.includes('inspection')) {
-    return {
-      src: '/scenario/crisis-sfa-salmonella.svg',
-      badge: 'Food safety',
-      summary: 'A customer was hospitalized; reporters arrive at 8 AM and SFA inspects our egg warmer at 9 AM.',
-    };
-  }
-  if (lower.includes('commission') || lower.includes('delivery') || lower.includes('platform')) {
-    return {
-      src: '/scenario/crisis-delivery-squeeze.svg',
-      badge: 'Delivery margins',
-      summary: '32% app fees make single $10 sets lose $0.40, but nearby offices bring half our morning sales.',
-    };
-  }
-  if (lower.includes('kiosk') || lower.includes('kopi') || lower.includes('lingo')) {
-    return {
-      src: '/scenario/crisis-kiosk-lingo.svg',
-      badge: 'Kiosk menu',
-      summary: 'First-timers freeze at "Kopi O Kosong" on the kiosk, backing queues into the walkway.',
-    };
-  }
-  return {
-    src: '/scenario/kopitiam-hero.svg',
-    badge: 'Agenda item',
-    summary: title,
-  };
-}
+const HERO_ART = '/scenario/kopitiam-hero.svg';
 
 function safeUseScenario(): Scenario | undefined {
   try {
@@ -86,11 +41,11 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
 
   useEffect(() => {
     if (typeof Image === 'undefined') return;
-    for (const src of PRELOAD_SVGS) {
+    for (const src of [HERO_ART, ...(scenario?.agenda.map((item) => item.art ?? HERO_ART) ?? [])]) {
       const img = new Image();
       img.src = src;
     }
-  }, []);
+  }, [scenario]);
 
   const goPrev = useCallback(() => {
     if (stepIndex === 2 && spotlightStop === 'dock') {
@@ -134,6 +89,15 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
       : card?.youAre;
 
   const agendaItems: readonly AgendaItem[] = scenario?.agenda ?? [];
+  const topicCount = agendaItems.length > 0 ? agendaItems.length : 2;
+  const totalMinutes = agendaItems.length > 0
+    ? agendaItems.reduce((sum, item) => sum + (Number.isFinite(item.minutes) ? item.minutes : 0), 0)
+    : topicCount * 5;
+  const stepLabels = [
+    '1. Story & Your Role',
+    `2. Today’s ${topicCount} Topics`,
+    '3. Live Room Spotlight',
+  ];
 
   if (stepIndex === 2) {
     return (
@@ -151,7 +115,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
 
         <div className="kd-spotlight-popover" data-target={spotlightStop}>
           <div className="kd-start-steps" role="tablist" aria-label="Quick tour" style={{ marginBottom: 10 }}>
-            {STEP_LABELS.map((label, idx) => (
+            {stepLabels.map((label, idx) => (
               <button
                 key={label}
                 type="button"
@@ -282,7 +246,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
     <div className="kd-start" role="region" aria-label="Before the meeting starts">
       <div className="kd-start-card kd-start-card-wide">
         <div className="kd-start-steps" role="tablist" aria-label="Quick tour">
-          {STEP_LABELS.map((label, idx) => (
+          {stepLabels.map((label, idx) => (
             <button
               key={label}
               type="button"
@@ -309,9 +273,9 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
               />
               <div className="kd-story-hero-overlay">
                 <span className="kd-story-badge">
-                  {scenario?.organisation ?? 'Nanyang Kopi & Toast'} · Tomorrow 8:00 AM Launch
+                  {scenario?.organisation ?? 'Nanyang Kopi & Toast'} · Opening day
                 </span>
-                <h2>{scenario?.meetingTitle ?? 'Raffles Place Flagship & App Promo Launch'}</h2>
+                <h2>{scenario?.meetingTitle ?? 'Raffles Place Flagship Opening Day'}</h2>
               </div>
             </div>
 
@@ -320,7 +284,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
                 Step 1 of 3 · Welcome to the shop · Read your briefing first
               </p>
               <p className="kd-story-shop-intro">
-                Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> reopens tomorrow at 8:00 AM. We have 8 minutes to settle 2 launch calls.
+                Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> is opening this morning. We have {totalMinutes} minutes to settle {topicCount} opening-day calls, and you’re opening-day lead, so the calls are yours.
               </p>
               {role !== undefined && card !== undefined ? (
                 <div className="kd-story-seat-summary">
@@ -346,19 +310,19 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
               Step 2 of 3 · On the agenda today
             </p>
-            <h2 style={{ marginBottom: 4 }}>Today’s 2 Topics</h2>
+            <h2 style={{ marginBottom: 4 }}>Today’s {topicCount} Topics</h2>
             <p style={{ marginBottom: 10 }}>
-              We have 8 minutes to hear the team out and settle these two calls:
+              We have {totalMinutes} minutes to hear the team out and settle these calls:
             </p>
             {agendaItems.length > 0 ? (
               <div className="kd-crisis-grid">
                 {agendaItems.map((item, idx) => {
-                  const art = crisisArtForTitle(item.title);
+                  const art = item.art ?? HERO_ART;
                   const owner = scenario ? roleLabel(scenario, item.ownerRole) : item.ownerRole;
                   const isYours = role !== undefined && item.ownerRole === role.id;
                   return (
                     <article key={item.title} className="kd-crisis-card" data-yours={isYours}>
-                      <img src={art.src} alt={item.title} className="kd-crisis-img" />
+                      <img src={art} alt={item.title} className="kd-crisis-img" />
                       <div className="kd-crisis-body">
                         <div className="kd-crisis-meta">
                           <span className="kd-crisis-pill">Item {idx + 1} · {item.minutes}m</span>
@@ -367,7 +331,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
                           </span>
                         </div>
                         <h3>{item.title}</h3>
-                        <p>{art.summary}</p>
+                        <p>{item.briefing ?? item.decision ?? item.title}</p>
                       </div>
                     </article>
                   );
@@ -413,7 +377,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             }}
             autoFocus
           >
-            {stepIndex === 0 ? 'Next: Today’s 2 Topics →' : 'Next: Live Room Spotlight →'}
+            {stepIndex === 0 ? `Next: Today’s ${topicCount} Topics →` : 'Next: Live Room Spotlight →'}
           </button>
           <button
             type="button"

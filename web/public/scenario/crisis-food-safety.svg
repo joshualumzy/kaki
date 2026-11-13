@@ -46,13 +46,13 @@
   <rect x="0" y="162" width="400" height="38" fill="#cbd5e1"/>
   <path d="M0 162 H400" stroke="#94a3b8" stroke-width="3"/>
 
-  <!-- Left: Stainless Steel Sous-Vide Egg Holding Bath -->
+  <!-- Left: Prep Fridge Unplugged Overnight -->
   <g transform="translate(18, 42)">
     <!-- Digital Temp Readout Header -->
     <g class="temp-alert">
       <rect x="18" y="0" width="144" height="34" rx="8" fill="#0f172a" stroke="#ef4444" stroke-width="2"/>
-      <text x="90" y="14" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="7.5" font-weight="800" letter-spacing="0.04em">HOLDING BATH DIP</text>
-      <text x="90" y="27" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="10.5" font-weight="900">58.0°C (45m) ⚠</text>
+      <text x="90" y="14" text-anchor="middle" fill="#fca5a5" font-family="system-ui, sans-serif" font-size="7.5" font-weight="800" letter-spacing="0.04em">FRIDGE UNPLUGGED</text>
+      <text x="90" y="27" text-anchor="middle" fill="#f87171" font-family="monospace" font-size="10.5" font-weight="900">3 HOURS ⚠</text>
     </g>
 
     <!-- Water Bath Tank -->
@@ -71,7 +71,7 @@
     <path class="bath-steam" d="M130 46 Q134 38 130 30" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round"/>
   </g>
 
-  <!-- Right: SFA 9:00 AM Inspection Clipboard & Press 8:00 AM Alert -->
+  <!-- Right: Food Agency Inspection Clipboard and Opening Alert -->
   <g transform="translate(206, 20)">
     <!-- Clipboard -->
     <rect x="6" y="12" width="164" height="132" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="2.5"/>
@@ -79,15 +79,15 @@
 
     <!-- SFA Header -->
     <rect x="18" y="28" width="140" height="22" rx="5" fill="#dc2626"/>
-    <text x="88" y="43" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="8.5" font-weight="900" letter-spacing="0.03em">SFA INSPECTION · 9AM</text>
+    <text x="88" y="43" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="8.5" font-weight="900" letter-spacing="0.03em">FOOD AGENCY · 9AM</text>
 
     <!-- Checklist Lines -->
-    <text x="22" y="66" fill="#0f172a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• 8:00 AM: Press at door</text>
-    <text x="22" y="84" fill="#0f172a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• 9:00 AM: SFA swab test</text>
-    <text x="22" y="102" fill="#b45309" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• Lab culture: 48 hrs</text>
+    <text x="22" y="66" fill="#0f172a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• 8:00 AM: Doors open</text>
+    <text x="22" y="84" fill="#0f172a" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• 9:00 AM: Officer visit</text>
+    <text x="22" y="102" fill="#b45309" font-family="system-ui, sans-serif" font-size="8.5" font-weight="800">• Customer: review tonight</text>
 
     <!-- Pasteurized Backup Badge -->
     <rect x="18" y="112" width="140" height="22" rx="5" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
-    <text x="88" y="126" text-anchor="middle" fill="#047857" font-family="system-ui, sans-serif" font-size="8" font-weight="800">2 Pasteurized Cartons (63°C)</text>
+    <text x="88" y="126" text-anchor="middle" fill="#047857" font-family="system-ui, sans-serif" font-size="8" font-weight="800">2 Crates (10:00 delivery)</text>
   </g>
 </svg>

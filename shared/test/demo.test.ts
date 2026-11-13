@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, shuffleAgendaForRole, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -172,5 +172,40 @@ describe('itemMode', () => {
     expect(capped).toHaveLength(2);
     expect(capped[0]?.title).toBe('Item B');
     expect(capped[1]?.title).toBe('Item C');
+  });
+});
+
+describe('agenda pair rules', () => {
+  const scenario: Scenario = {
+    ...testScenario,
+    roles: [
+      { id: 'producer', label: 'Producer' },
+      { id: 'lead', label: 'Lead Programmer' },
+      { id: 'marketing', label: 'Marketing Lead' },
+    ],
+    agenda: [
+      { title: 'Item A', minutes: 5, ownerRole: 'lead', contested: true },
+      { title: 'Item B', minutes: 5, ownerRole: 'lead', contested: true },
+      { title: 'Item C', minutes: 5, ownerRole: 'marketing' },
+    ],
+  };
+
+  it('never draws a pair listed in excludedPairs', () => {
+    const withExcluded: Scenario = { ...scenario, excludedPairs: [['Item B', 'Item C']] };
+    const picked = shuffleAgendaForRole(withExcluded, 'Marketing Lead', () => 0.1, 2);
+    expect(picked.map((item) => item.title)).toEqual(['Item B', 'Item A']);
+    const wide = shuffleAgendaForRole(withExcluded, undefined, () => 0.1, 5);
+    const titles = wide.map((item) => item.title);
+    expect(titles.includes('Item B') && titles.includes('Item C')).toBe(false);
+  });
+
+  it('fixes the picked items and order from titles or indexes, and fails loudly on bad input', () => {
+    expect(resolveAgendaPick(scenario, 'Item C, 0').map((item) => item.title)).toEqual(['Item C', 'Item A']);
+    expect(resolveAgendaPick(scenario, 'item a').map((item) => item.title)).toEqual(['Item A']);
+    expect(() => resolveAgendaPick(scenario, '')).toThrow(/at least one/);
+    expect(() => resolveAgendaPick(scenario, 'Dinner')).toThrow(/unknown agenda title "Dinner".*Known titles/);
+    expect(() => resolveAgendaPick(scenario, '7')).toThrow(/out of range/);
+    expect(() => resolveAgendaPick(scenario, 'Item A,Item A')).toThrow(/more than once/);
+    expect(() => resolveAgendaPick({ ...scenario, excludedPairs: [['Item A', 'Item C']] }, 'Item C,Item A')).toThrow(/excluded pair/);
   });
 });

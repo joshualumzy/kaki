@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, seatProblem, shuffleAgendaForRole, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, shuffleAgendaForRole, type Scenario, type Task } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -37,6 +37,8 @@ interface RequestContext {
   tasks: TaskStore;
   scenario: Scenario;
   fullAgenda: Scenario['agenda'];
+  /** A fixed agenda order from KAKI_AGENDA_PICK, used instead of the random draw. */
+  pickedAgenda?: Scenario['agenda'];
   devRoutes: boolean;
   auth?: Auth;
   calendar?: CalendarSettings;
@@ -213,7 +215,7 @@ async function handleRequest(
               context.hub.clearRetained('fact:');
               context.hub.clearRetained('nudge:');
               const maxAgendaItems = Number(process.env.KAKI_AGENDA_ITEMS) || 2;
-              const reordered = shuffleAgendaForRole(
+              const reordered = context.pickedAgenda ?? shuffleAgendaForRole(
                 { ...context.scenario, agenda: context.fullAgenda },
                 join.participantRole,
                 Math.random,
@@ -481,9 +483,11 @@ export async function createApp({
 }: CreateAppOptions): Promise<KakiApp> {
   const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
+  const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
+  const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullAgenda = [...scenario.agenda];
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, fullAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
+    void handleRequest(request, response, { hub, tasks, scenario, fullAgenda, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

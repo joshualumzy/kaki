@@ -34,18 +34,20 @@ function options(): { role?: string; maxMinutes: number; phone: boolean } {
 
 function decisionFor(title: string): string {
   const name = title.toLowerCase();
-  if (name.includes('kiosk')) return 'I would enable Kiosk Subtitle Mode tonight: newcomers see plain English while Uncle Lim still gets traditional Kopi names on kitchen tickets. Arjun can test both screens before opening.';
-  if (name.includes('seat')) return 'I would set up the 10-stool window bar and turn off booth wall plugs from 8 to 10 AM, with friendly signs. That frees breakfast seats without asking Auntie Mary to confront laptop customers.';
-  if (name.includes('sfa')) return 'I would keep breakfast service on the fresh 6 AM stock, retain the signed disposal receipt for the 9 AM inspector, and offer the hospitalized family the $3,000 no-fault medical goodwill through insurance. We must be direct with the press.';
-  if (name.includes('delivery')) return 'I would keep the 40 queued orders, replace loss-making single sets with $50 Office Platters that earn $5 after GrabFood fees, and direct nearby offices to the 10%-off self-pickup code so riders stop blocking the counter.';
+  if (name.includes('counter staff')) return 'I would ask Auntie Mary in on double pay only if she agrees, and have a manager cover the counter if she says no. We keep the free-kopi crowd moving by pushing drinks to the kiosk.';
+  if (name.includes('regulars')) return 'I would hold the kopi price and explain it at the counter, reply to the Facebook post, and have Arjun add a regulars price button only once we agree who counts as a regular.';
+  if (name.includes('laptop')) return 'I would put a laptop zone on the 10 window-bar stools, add breakfast-table signs and set the booth socket timer, without asking staff to confront anyone.';
+  if (name.includes('food safety')) return 'I would open at 8 without Set A until the 10 o clock delivery, give the officer both logs, and answer the customer before her review tonight.';
+  if (name.includes('delivery')) return 'I would keep the office orders, price the $50 Office Platter and the 10%-off direct pickup code, and check the app change against the time Arjun has.';
   throw new Error(`No scenario decision prepared for: ${title}`);
 }
 
 const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
-  { matches: /kiosk/i, markers: /kiosk|subtitle mode|uncle lim|kopi o kosong|landlord fine/i },
-  { matches: /seat/i, markers: /laptop|auntie mary|window bar|booth plugs|stools|28 seats/i },
-  { matches: /sfa/i, markers: /fridge|salmonella|sfa|health inspect|disposal receipt|hospitalized customer/i },
-  { matches: /delivery/i, markers: /grabfood|office platter|delivery rider|32%|pickup code|rainy.day orders/i },
+  { matches: /counter staff/i, markers: /counter|rest day|double pay|till login|free kopi|toast/i },
+  { matches: /regulars/i, markers: /regulars|kopi|price|till|facebook|share/i },
+  { matches: /laptop/i, markers: /laptop|stool|socket|wifi|timer|tray|solo/i },
+  { matches: /food safety/i, markers: /fridge|disposal log|officer|delivery|review|customer|eggs/i },
+  { matches: /delivery/i, markers: /grabfood|platter|pickup|commission|margin|tray|10%/i },
 ];
 
 function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }
@@ -294,10 +296,11 @@ async function main(): Promise<void> {
 
   function reasonFor(title: string): string {
     const name = title.toLowerCase();
-    if (name.includes('kiosk')) return 'it keeps kitchen tickets in the names Uncle Lim knows while newcomers still understand the menu.';
-    if (name.includes('seat')) return 'it frees the breakfast seats without putting Auntie Mary in a confrontation.';
-    if (name.includes('sfa')) return 'it keeps us straight with the inspector, the family, and the press.';
-    if (name.includes('delivery')) return 'it protects margin and clears the counter without dropping the queued orders.';
+    if (name.includes('counter staff')) return 'it covers the counter without spending more than the rush is worth.';
+    if (name.includes('regulars')) return 'it keeps the old regulars while the new menu pays its way.';
+    if (name.includes('laptop')) return 'it frees breakfast seats without putting staff in a confrontation.';
+    if (name.includes('food safety')) return 'it keeps us straight with the officer and the customer.';
+    if (name.includes('delivery')) return 'it protects margin while keeping the office orders.';
     throw new Error(`No scenario reason prepared for: ${title}`);
   }
 
@@ -424,8 +427,8 @@ async function main(): Promise<void> {
     const activeResponse = await page.request.get(`${BASE}/api/scenario`, { timeout: 10_000 });
     if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario returned HTTP ${activeResponse.status()}`);
     scenario = await activeResponse.json() as Scenario;
-    await check('Four agenda topics', scenario.agenda.length === 4,
-      `API returned ${scenario.agenda.length}; start the stack with KAKI_AGENDA_ITEMS=4 for the full playtest`);
+    await check('Two agenda topics for the session', scenario.agenda.length === 2,
+      `API returned ${scenario.agenda.length}; each meeting draws two of the five topics`);
     await check('Event API connection', await waitFor('Screen event stream', async () =>
       screenSocketSeen && await page!.locator('.kd-meeting-panel').count() > 0 &&
       await page!.locator('.kd-meeting-panel .connection-banner').count() === 0, 10_000),

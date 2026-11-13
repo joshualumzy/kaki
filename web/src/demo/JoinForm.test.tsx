@@ -43,6 +43,13 @@ function setup(props: Partial<Parameters<typeof JoinForm>[0]> = {}) {
 }
 
 describe('JoinForm', () => {
+  it('preloads the art supplied by selected agenda items', () => {
+    const loaded: string[] = [];
+    vi.stubGlobal('Image', class { set src(value: string) { loaded.push(value); } });
+    setup({ agenda: [{ title: 'Current', minutes: 5, ownerRole: 'producer', art: '/scenario/current.svg' }] });
+    expect(loaded).toContain('/scenario/current.svg');
+  });
+
   it('shows the meeting and offers exactly the roles it was given', () => {
     const { role } = setup();
     expect(screen.getByText('Launch readiness')).toBeTruthy();

@@ -207,6 +207,78 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/tradeOffs must be a non-empty array/);
   });
 
+  it('accepts the v2 story fields and rejects bad ones', () => {
+    const scenario = cloneScenario();
+    scenario.background = ['The shop has 28 seats.'];
+    scenario.excludedPairs = [['Prep', 'Lunch']];
+    scenario.agenda = [
+      {
+        title: 'Prep',
+        minutes: 5,
+        ownerRole: 'chef',
+        contested: true,
+        briefing: 'The oven is cold.',
+        art: '/scenario/prep.svg',
+        directions: ['Ask the baker to start earlier.'],
+        background: ['The bakery opens at six.'],
+        offScreen: { name: 'Nadia', role: 'baker', howTheyAnswer: 'She can start early for double pay.' },
+        seatFacts: { chef: 'The oven takes twenty minutes.', cashier: 'The till cannot relabel the menu.' },
+        links: [{ with: 'Lunch', effect: 'A late prep pushes lunch back.' }],
+        sayExactly: ['6:00'],
+      },
+      { title: 'Lunch', minutes: 5, ownerRole: 'cashier' },
+    ];
+    const parsed = parseScenario(scenario);
+    expect(parsed.background).toEqual(['The shop has 28 seats.']);
+    expect(parsed.excludedPairs).toEqual([['Prep', 'Lunch']]);
+    expect(parsed.agenda[0]?.directions).toEqual(['Ask the baker to start earlier.']);
+    expect(parsed.agenda[0]?.art).toBe('/scenario/prep.svg');
+    expect(parsed.agenda[0]?.seatFacts?.cashier).toBe('The till cannot relabel the menu.');
+    expect(parsed.agenda[0]?.links?.[0]?.with).toBe('Lunch');
+    expect(parsed.agenda[0]?.sayExactly).toEqual(['6:00']);
+
+    scenario.background = [];
+    scenario.excludedPairs = [['Prep', 'Dinner'], ['Prep', 'Prep'] as [string, string]];
+    scenario.agenda = [
+      {
+        title: 'Prep',
+        minutes: 5,
+        ownerRole: 'chef',
+        art: ' ',
+        directions: [''],
+        background: [],
+        offScreen: { name: '', role: 'baker', howTheyAnswer: ' ' },
+        seatFacts: { waiter: 'A fact.' },
+        links: [{ with: 'Dinner', effect: 'Nothing.' }, { with: 'Prep', effect: 'Self.' }],
+        sayExactly: [7 as never],
+      },
+    ];
+    for (const message of [
+      /background must be a non-empty array/,
+      /excludedPairs\[0\] title "Dinner" is not an agenda title/,
+      /directions must be a non-empty array/,
+      /art must be a non-empty string/,
+      /background must be a non-empty array/,
+      /offScreen must have a non-empty/,
+      /seatFacts has unknown role "waiter"/,
+      /links\[0\]\.with "Dinner" is not an agenda title/,
+      /links\[1\]\.with cannot be the agenda item itself/,
+      /sayExactly must be a non-empty array/,
+    ]) {
+      expect(() => parseScenario(scenario)).toThrow(message);
+    }
+  });
+
+  it('accepts a temperament and stake on an AI attendee, and rejects empty ones', () => {
+    const scenario = cloneScenario();
+    const npc = { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    scenario.npcs = [{ ...npc, temperament: 'Holds her ground until a costed plan.', stake: 'She signed the plan.' }];
+    expect(parseScenario(scenario).npcs?.[0]?.temperament).toBe('Holds her ground until a costed plan.');
+    scenario.npcs = [{ ...npc, temperament: ' ', stake: ' ' }];
+    expect(() => parseScenario(scenario)).toThrow(/temperament must be a non-empty string/);
+    expect(() => parseScenario(scenario)).toThrow(/stake must be a non-empty string/);
+  });
+
   it('rejects an agenda item with an unknown owner role', () => {
     const scenario = cloneScenario();
     scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'waiter' }];

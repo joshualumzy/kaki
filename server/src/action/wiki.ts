@@ -2,7 +2,7 @@ import { roleLabel, type Question, type Scenario, type Task } from '@kaki/shared
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock } from './draftGrounding';
-import { ActionError, createActionModule, isObject, messageOf, plainReason, relevantFactsForTask } from './runner';
+import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MINUTES_DELAY_MS = 1_500;
@@ -223,7 +223,7 @@ export function createWikiModule({
 
       const roleId = task.assignee ?? task.suggestedAssignee;
       const role = scenario.roles.find((candidate) => candidate.id === roleId);
-      const knownFacts = relevantFactsForTask(task, role?.card?.facts ?? []);
+      const knownFacts = factsForTask(task, scenario, roleId);
       const ownerLine = role !== undefined ? `\nAuthor role: ${role.label}` : '';
       const factsBlock =
         knownFacts.length > 0

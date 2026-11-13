@@ -508,7 +508,7 @@ function CurrentTopicCard({
 }) {
   if (item === undefined) return null;
   const isMyItem = role !== undefined && item.ownerRole === role.id;
-  const myFacts = relevantFactsForItem(item, role?.card?.facts ?? [], isMyItem);
+  const myFacts = role !== undefined && item.seatFacts?.[role.id] !== undefined ? [item.seatFacts[role.id]!] : [];
   const ownerName = assigneeLabel(scenario, item.ownerRole, viewer);
   const roleBadge = isMyItem
     ? `Your Item to Lead (${role?.label ?? 'Owner'})`
@@ -703,35 +703,9 @@ const GENERIC_WORDS = new Set([
   'have', 'has', 'had', 'not', 'but', 'what', 'when', 'who', 'how', 'why', 'where',
   'your', 'you', 'our', 'their', 'they', 'will', 'can', 'just', 'more', 'first',
   'build', 'game', 'launch', 'team', 'time', 'open', 'issue', 'issues', 'before',
-  'order', 'morning', 'counter', 'toast', 'staff', 'regulars',
+  'order', 'morning', 'staff',
   'customers', 'handle', 'without', 'make', 'keep', 'turn', 'turned', 'away',
 ]);
-
-/** Pick the most relevant facts from the visitor's own role card that match this agenda item's specific topic words. */
-function relevantFactsForItem(item: AgendaItem, facts: readonly string[], isOwner: boolean): string[] {
-  if (facts.length === 0) return [];
-  const tradeOffWords = (item.discussion?.tradeOffs ?? [])
-    .map((t) => `${t.tradeOff} ${t.question}`)
-    .join(' ');
-  const text = `${item.title} ${item.decision ?? ''} ${tradeOffWords}`.toLowerCase();
-  const keywords = (text.match(/[a-z0-9]+/g) ?? []).filter(
-    (word) => (word.length >= 3 || /^\d+$/.test(word)) && !GENERIC_WORDS.has(word),
-  );
-  if (keywords.length > 0) {
-    const scored = facts
-      .map((fact) => {
-        const lower = fact.toLowerCase();
-        const hits = keywords.filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(lower)).length;
-        return { fact, hits };
-      })
-      .filter((entry) => entry.hits > 0)
-      .sort((a, b) => b.hits - a.hits);
-    if (scored.length > 0) {
-      return scored.slice(0, 2).map((entry) => entry.fact);
-    }
-  }
-  return isOwner ? facts.slice(0, 1) : facts.slice(0, 1);
-}
 
 /** Drop company-record bullets that repeat each other or the visitor's own role-card fact shown above in "Your call to make". */
 function filterNonDuplicateCompanyFacts<T extends { text: string }>(

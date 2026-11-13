@@ -388,15 +388,17 @@ describe('app', () => {
       'marketing_lead',
       'studio_manager',
     ]);
-    expect(scenario.agenda).toHaveLength(4);
+    expect(scenario.agenda).toHaveLength(5);
+    expect(scenario.excludedPairs).toHaveLength(2);
   });
 
   it('keeps the shipped Auntie Mary facts to what the records say', async () => {
     const scenario = await loadScenario('kopitiam');
-    const weiLing = scenario.npcs?.find((npc) => npc.attendee === 'Wei Ling');
-    const concerns = weiLing?.concerns.join(' ') ?? '';
-    expect(concerns).toContain('got screamed at');
-    expect(concerns).toContain('refuses to police seats or touch customers\' belongings');
-    expect(concerns).not.toMatch(/\b(?:quit|resigned|fired|leaving)\b/i);
+    const noShow = scenario.agenda.find((item) => item.title === 'One counter staff short for the opening rush');
+    const fact = noShow?.seatFacts?.producer ?? '';
+    expect(fact).toContain('rest day');
+    expect(fact).toContain('double pay');
+    expect(fact).toContain('free to say no');
+    expect(noShow?.offScreen?.name).toBe('Auntie Mary');
   });
 });

@@ -124,6 +124,7 @@ export default function Meeting() {
       <JoinForm
         meetingTitle={scenario.meetingTitle}
         roles={hasAi ? roles : []}
+        agenda={scenario.agenda}
         busy={busy}
         error={hasAi ? error : `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`}
         askCode={needsCode}

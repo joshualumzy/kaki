@@ -15,8 +15,8 @@ const chunks: RetrievedChunk[] = [
   },
   {
     source: 'wiki',
-    ref: 'kopitiam/mall-promo-rules#1-butter-costing',
-    text: '[Wiki: Raffles Place Flagship - Kaya Butter Toast Costing & Launch Budget, updated 10 Nov 2026]\n\nDoubling butter to 20g costs SGD 1,100/month in margin.',
+    ref: 'kopitiam/delivery-pricing#1-commission',
+    text: '[Wiki: Nanyang Kopi & Toast - Delivery Pricing, updated 10 Nov 2026]\n\nThe delivery app takes 32% of every order.',
     publishedAt: '2026-11-10',
   },
 ];
@@ -28,8 +28,8 @@ function deps(overrides: Partial<SearchDeps> = {}): SearchDeps {
       JSON.stringify({
         facts: [
           {
-            text: 'The Anchor butter email (16 Nov) says 35%; the wiki costing page (10 Nov) says doubling costs SGD 1,100/month. Both matter.',
-            source: 'Anchor butter email and wiki costing page',
+            text: 'The Anchor butter email (16 Nov) says 35%; the delivery pricing page says the app takes 32%. Both matter.',
+            source: 'Anchor butter email and delivery pricing page',
             date: '2026-11-16',
           },
         ],
@@ -59,8 +59,8 @@ describe('company search', () => {
           return JSON.stringify({
             facts: [
               {
-                text: 'Anchor butter email (16 Nov) says 35%; the wiki costing page (10 Nov) says doubling costs SGD 1,100/month. Both matter.',
-                source: 'Anchor butter email; wiki costing page',
+                text: 'Anchor butter email (16 Nov) says 35%; the delivery pricing page says the app takes 32%. Both matter.',
+                source: 'Anchor butter email; delivery pricing page',
                 date: '2026-11-16',
               },
             ],
@@ -69,9 +69,9 @@ describe('company search', () => {
       }),
     );
 
-    const facts = await search('How much margin does doubling the butter cost?', 'producer');
+    const facts = await search('How much does delivery commission cost us?', 'producer');
 
-    expect(embedded).toBe('How much margin does doubling the butter cost?');
+    expect(embedded).toBe('How much does delivery commission cost us?');
     expect(retrievedLimit).toBe(8);
     expect(requests[0]).toContain('producer');
     expect(requests[0]).toContain('Anchor butter price notice');

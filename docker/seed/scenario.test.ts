@@ -39,7 +39,7 @@ describe('seed manifests', () => {
   it('accepts a valid wiki manifest', () => {
     expect(
       parseWikiManifest({
-        pages: [{ path: 'kopitiam/kiosk-menu-sop', title: 'Design', description: 'Doc', file: 'design.md' }],
+        pages: [{ path: 'kopitiam/kopi-pricing', title: 'Design', description: 'Doc', file: 'design.md' }],
       }).pages,
     ).toHaveLength(1);
   });

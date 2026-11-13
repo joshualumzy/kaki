@@ -13,7 +13,7 @@ import {
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
-import { CONTROL_TOPIC, NPC_STATE_TOPIC, type ControlMessage, type NpcStateMessage, type Scenario } from '@kaki/shared';
+import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { Orb, orbPalette } from './Orb';
@@ -206,21 +206,11 @@ function CaptionedTile() {
 }
 
 /**
- * The role-card fact that best fits a topic: the one sharing the most topic words (four letters or more). Taking the
- * first loose match would show the same fact on every topic. Falls back to rotating by agenda position.
+ * The fact this seat holds for this topic, when the scenario gives each seat one. This is the
+ * source of truth for the Wingman card.
  */
-export function pickCardFact(facts: readonly string[], topicText: string, agendaIndex: number): string | undefined {
-  if (facts.length === 0) return undefined;
-  const keywords = new Set((topicText.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter(
-    (w) => !['morning', 'tomorrow', 'without', 'before'].includes(w),
-  ));
-  let best: { fact: string; score: number } | undefined;
-  for (const fact of facts) {
-    const words = new Set(fact.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
-    const score = [...keywords].filter((w) => words.has(w)).length;
-    if (score > 0 && (best === undefined || score > best.score)) best = { fact, score };
-  }
-  return best?.fact ?? facts[agendaIndex % facts.length];
+export function cardFactForItem(item: AgendaItem | undefined, role: string): string | undefined {
+  return item?.seatFacts?.[role];
 }
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
@@ -357,6 +347,8 @@ export function MeetingGrid({
   );
 
   const wingmanFactPreview = useMemo(() => {
+    const seatFact = cardFactForItem(activeItem, role);
+    if (seatFact !== undefined) return seatFact;
     let latestFactText: string | undefined;
     for (const event of events) {
       if (
@@ -369,14 +361,8 @@ export function MeetingGrid({
       }
     }
     if (latestFactText !== undefined) return latestFactText;
-    const myRoleFacts = scenario.roles.find((r) => r.id === role)?.card?.facts ?? [];
-    if (myRoleFacts.length === 0 || activeItem === undefined) return undefined;
-    const tradeOffText = (activeItem.discussion?.tradeOffs ?? [])
-      .map((t) => `${t.tradeOff} ${t.question}`)
-      .join(' ');
-    const topicText = `${activeItem.title} ${activeItem.decision ?? ''} ${tradeOffText}`.toLowerCase();
-    return pickCardFact(myRoleFacts, topicText, activeAgendaIndex);
-  }, [events, scenario.roles, role, activeItem, activeAgendaIndex]);
+    return undefined;
+  }, [events, role, activeItem, activeAgendaIndex]);
 
   const starterChips = useMemo(() => {
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;

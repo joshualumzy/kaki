@@ -1,15 +1,16 @@
 {
   "tasks": [
-    { "name": "kiosk label experiment ticket", "assignee": "game_designer", "keywords": ["kiosk", "label"] },
-    { "name": "GrabFood platter email", "assignee": "marketing_lead", "keywords": ["grabfood", "platter"] },
-    { "name": "final plan post", "assignee": "producer", "keywords": ["plan", "channel"] }
+    { "name": "regulars' note", "assignee": "game_designer", "keywords": ["regulars", "note"] },
+    { "name": "booth socket timer", "assignee": "lead_programmer", "keywords": ["socket", "timer"] },
+    { "name": "customer email and logs", "assignee": "producer", "keywords": ["customer", "logs"] },
+    { "name": "GrabFood platter email", "assignee": "marketing_lead", "keywords": ["grabfood", "platter"] }
   ],
   "acceptedTasks": [],
   "questions": [
-    { "name": "tourist vs local split", "keywords": ["tourists", "locals"] },
-    { "name": "per-hour solo diners", "keywords": ["solo", "diners"] },
-    { "name": "water bath log owner", "keywords": ["who", "water", "bath"] },
-    { "name": "batch certificates at close", "keywords": ["batch", "close"] }
+    { "name": "who covers the counter if Auntie Mary says no", "keywords": ["auntie", "counter"] },
+    { "name": "who counts as a regular", "keywords": ["regular", "rule"] },
+    { "name": "customer clinic bill", "keywords": ["clinic", "bill"] },
+    { "name": "which office orders move to direct pickup", "keywords": ["office", "pickup"] }
   ],
   "quietRoles": []
 }

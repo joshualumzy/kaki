@@ -44,7 +44,7 @@ const BANNED_PATTERNS = [
   { re: /\bwith 85,?000 followers\b/i, reason: 'Recited verbatim press-release follower count' },
   { re: /\bhere from [A-Z][a-z]+ (?:Lead|Director|Manager)\b/i, reason: 'Awkward grammar "here from <Title>"' },
   { re: /^(?:(?:hey|hi|hello)\s+[a-z]+,\s*)?(?:and\s+)?(?:mei|arjun|daniel|wei ling)\s+from\s+[a-z]+,/i, reason: 'Broken comma-splice roll-call intro ("<Name> from <dept>, ...")' },
-  { re: /\bban(?:ning)? (?:saving seats|tissue packets)\b/i, reason: 'Argued against a phantom ban on tissue packets nobody proposed' },
+  { re: /\bban(?:ning)? (?:laptop users|window stools)\b/i, reason: 'Argued against a phantom ban on laptop users nobody proposed' },
   { re: /\bpulling (?:our )?counter staff off the line to hand-deliver\b/i, reason: 'Argued against a phantom proposal to pull counter staff to hand-deliver' },
 ];
 
@@ -110,29 +110,25 @@ function checkTranscriptQuality(item: AgendaItem, transcript: UtteranceRecord[])
     }
 
     // Topic-specific causal diagnostic checks
-    if (item.title.includes('salmonella') || item.title.includes('SFA')) {
-      if (!/holding|bath|temp|dip|swab|60|63|tank|trace/i.test(allSpeaker2Text)) {
-        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain holding bath temperature dip or SFA swab risk`);
+    if (item.title.includes('Food safety')) {
+      if (!/fridge|disposal|officer|delivery|review|eggs|kaya/i.test(allSpeaker2Text)) {
+        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the fridge, the disposal log or the officer visit`);
       }
-    } else if (item.title.includes('commission') || item.title.includes('platform')) {
-      if (!/parity|markup|qr|pickup|rider|dispatch|runner|margin|bundle/i.test(allSpeaker2Text)) {
-        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain platform price-parity / QR self-pickup constraint or runner risk`);
+    } else if (item.title.includes('Delivery')) {
+      if (!/grabfood|platter|pickup|commission|margin|tray|10%/i.test(allSpeaker2Text)) {
+        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the commission, platter or pickup margin`);
       }
-    } else if (item.title.includes('butter')) {
-      if (!/takeaway|steam|melt/i.test(allSpeaker2Text)) {
-        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain takeaway steam melting butter`);
+    } else if (item.title.includes('Laptop')) {
+      if (!/solo|tray|stool|socket|wifi|code|timer/i.test(allSpeaker2Text)) {
+        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the solo diners, stools or socket timer`);
       }
-    } else if (item.title.includes('cashless')) {
-      if (!/hardware|app|weeks|hygiene|glove|terminal/i.test(allSpeaker2Text)) {
-        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain hardware lead time, terminal shortage, or elderly app constraint`);
+    } else if (item.title.includes('regulars')) {
+      if (!/price|kopi|till|facebook|share|note/i.test(allSpeaker2Text)) {
+        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the old price, the till button or the public post`);
       }
-    } else if (item.title.includes('kiosk') || item.title.includes('Kopi')) {
-      if (!/docket|ticket|uncle|print/i.test(allSpeaker2Text)) {
-        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain kitchen dockets/printing`);
-      }
-    } else if (item.title.includes('seat')) {
-      if (!/solo|tray|egg/i.test(allSpeaker2Text)) {
-        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain solo diners with hot trays`);
+    } else if (item.title.includes('counter staff')) {
+      if (!/rest day|double pay|login|temp|manager|toast|kiosk/i.test(allSpeaker2Text)) {
+        failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the counter cover options`);
       }
     }
   }
@@ -246,10 +242,10 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
   const transcriptFailures = checkTranscriptQuality(item, briefingTranscript);
 
   // Simulate multi-turn visitor proposal -> colleague response -> completion check on the first item
-  if (item.title.includes('kiosk')) {
+  if (item.title.includes('regulars')) {
     await conversation.settled();
     const preProposalLen = transcript.length;
-    const partialLine = 'What if we add English subtitles on the kiosk buttons for first-timers?';
+    const partialLine = 'What if we add a regulars price on the till for the old uncles?';
     conversation.humanSpeech(true);
     conversation.humanSpeech(false);
     conversation.humanText(partialLine);
@@ -272,7 +268,7 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
 
     const preTurn2Len = transcript.length;
     const completeLine =
-      'Let us configure POS v2.4 tonight so the touchscreen shows English subtitles while the kitchen ticket still prints short Kopi names for the uncles.';
+      'Let us add a regulars price on the till tonight, keep the old kopi price explained at the counter, and Mei will test the rule before 8.';
     conversation.humanSpeech(true);
     conversation.humanSpeech(false);
     conversation.humanText(completeLine);

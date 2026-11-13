@@ -32,84 +32,91 @@
   ],
   "channels": [
     {
-      "name": "kiosk-trials",
-      "display_name": "Kiosk & POS",
-      "purpose": "Kiosk 'Kopi O Kosong' UX, kitchen thermal docket labels, and SFA egg holding protocol."
+      "name": "shop-floor",
+      "display_name": "Shop Floor",
+      "purpose": "Counter cover, seating, the till and everything the shop floor needs for opening."
     },
     {
-      "name": "storefront",
-      "display_name": "28-Seat Floor & Toast",
-      "purpose": "Tissue-packet chope-ing, laptop campers, Auntie Mary staffing, and soft-boiled egg SOP."
+      "name": "opening-day",
+      "display_name": "Opening Day",
+      "purpose": "Opening-morning notes, food safety and the first rush."
     },
     {
       "name": "kopitiam-launch",
-      "display_name": "CBD Delivery & Launch PR",
-      "purpose": "GrabFood 32% commission squeeze, Straits Times 8am press arrival, and launch ops."
+      "display_name": "Delivery & Launch",
+      "purpose": "Delivery app margins, office orders and opening-day public posts."
     }
   ],
   "posts": [
     {
-      "key": "kiosk1",
-      "channel": "kiosk-trials",
-      "author": "mei",
-      "at": "2026-11-10T09:05:00+08:00",
-      "text": "Just finished the morning kiosk trial at Raffles Place (28 first-time users). 19 of them froze for over 2 minutes on Step 2 trying to guess 'Kopi O Kosong' vs 'Kopi C Siew Dai', and 72% missed the tiny language toggle in the corner."
-    },
-    {
-      "channel": "kiosk-trials",
-      "author": "arjun",
-      "replyToKey": "kiosk1",
-      "at": "2026-11-10T09:12:00+08:00",
-      "text": "Careful with renaming the POS buttons to English though. The kitchen docket currently prints the same button name the customer sees. When we tested 'Black Coffee No Sugar' at Tampines, our 65-year-old kopi uncles slowed down by 15 seconds a cup trying to read the docket. POS v2.4 can hold a separate kitchen print name, but it needs configuring and a kitchen test before 8am."
-    },
-    {
-      "channel": "kiosk-trials",
-      "author": "mei",
-      "replyToKey": "kiosk1",
-      "at": "2026-11-10T09:18:00+08:00",
-      "text": "Yeah, and Reddit roasted our rival down the street when they renamed Kopi O to 'Local Americano'. Plus the 15-inch screen only fits 12 buttons per page. Let's figure out what to change at the huddle."
-    },
-    {
-      "key": "seat1",
-      "channel": "storefront",
+      "key": "trial1",
+      "channel": "opening-day",
       "author": "weiling",
-      "at": "2026-11-11T08:50:00+08:00",
-      "text": "Our 28 seats were jammed again this morning. Office workers left tissue packets on empty tables before joining the 15-min queue, and 4 laptop freelancers sat across our four 4-seater booths (16 seats) for 2 hours on a single $2.20 Kopi O. That's $420 in lost breakfast sets, and Auntie Mary (62) is still shaken after that guy in a suit yelled at her last week."
+      "at": "2026-11-11T06:50:00+08:00",
+      "text": "Morning all. One of the two counter staff texted at 6:45 with a fever, so we are one short on the counter for the 8 to 10 rush. Auntie Mary is on her rest day. Daniel's free-kopi flyers went out to about 200 offices for 8 to 9, so the crowd is coming either way. How we cover the counter is open for the meeting."
     },
     {
-      "channel": "storefront",
-      "author": "arjun",
-      "replyToKey": "seat1",
-      "at": "2026-11-11T09:02:00+08:00",
-      "text": "Those 12 booth wall plugs and the guest Wi-Fi router are wired to our smart relay breaker in the back room, and we still have the numbered table pucks in the storeroom. Let's bring it up in the meeting so we don't put Auntie Mary in the middle."
-    },
-    {
-      "key": "sfa1",
-      "channel": "kiosk-trials",
+      "channel": "opening-day",
       "author": "daniel",
-      "at": "2026-11-11T09:20:00+08:00",
-      "text": "Heads up team: SFA just emailed an inspection notice for 9:00am tomorrow after a soft-trial diner was hospitalized with suspected salmonella (hospital lab results take 48 hours). Straits Times press arrives at 8:00am for our ribbon-cutting—should we pause soft-boiled eggs and put out a precautionary supplier batch #402 notice?"
+      "replyToKey": "trial1",
+      "at": "2026-11-11T06:54:00+08:00",
+      "text": "The flyers went to every office in the building, about 200 of them, and the first crowd will be at the door for 8. I would rather not go quiet on the free kopi this morning."
     },
     {
-      "channel": "kiosk-trials",
+      "key": "trial2",
+      "channel": "shop-floor",
+      "author": "mei",
+      "at": "2026-11-11T06:10:00+08:00",
+      "text": "Notes from yesterday's trial. At the old shop kopi was $1.30; the new menu is $2.40, and a few of the uncles saw the new price and walked out. One nephew posted on Facebook that Nanyang has forgotten its roots, and the post has about 300 shares since last night."
+    },
+    {
+      "channel": "shop-floor",
       "author": "weiling",
-      "replyToKey": "sfa1",
-      "at": "2026-11-11T09:24:00+08:00",
-      "text": "Hold on—our sous-vide holding bath dipped to 58°C for 45 minutes during yesterday's rush, and SFA food hygiene officers will swab the tank and check our temperature log at 9am. Pulling soft-boiled eggs wipes out 60% of breakfast sets ($1,800/morning), and we have two unopened cartons of pasteurized backup eggs (Batch #405) in the storeroom that can hold at 63°C. We still haven't decided our 9am SFA protocol or what we tell the 8am press."
+      "replyToKey": "trial2",
+      "at": "2026-11-11T06:12:00+08:00",
+      "text": "On this rent a cup costs us about $1.60, so the old price loses money on every cup. We have not decided what we do for the regulars. Uncle Lim at the kopi bar knows them by name."
+    },
+    {
+      "key": "trial3",
+      "channel": "shop-floor",
+      "author": "arjun",
+      "at": "2026-11-10T10:05:00+08:00",
+      "text": "Seating notes: laptop users held 16 of our 28 seats for about two hours on one kopi at the trial. Breakfast customers with trays walked out, and the blocked seats cost about $420 in lost breakfast sales. One of the floor staff got shouted at for asking someone to move. The booth sockets share one timer switch, and a Wi-Fi code can last 45 minutes."
+    },
+    {
+      "channel": "shop-floor",
+      "author": "daniel",
+      "replyToKey": "trial3",
+      "at": "2026-11-10T10:12:00+08:00",
+      "text": "More than half of the laptop users wore lanyards from the offices upstairs, 9 of 16, and two of those offices have asked about bulk orders. We have 10 window-bar stools in the storeroom and no agreed rule yet."
+    },
+    {
+      "key": "safety1",
+      "channel": "opening-day",
+      "author": "weiling",
+      "at": "2026-11-11T06:25:00+08:00",
+      "text": "Food safety note before the meeting. The night cleaner unplugged the prep fridge to use the socket and it was off about three hours. The head chef found it at 6:10, threw out everything in it and signed the disposal log. The eggs and kaya are gone until the 10 o'clock delivery, and the food agency officer comes at 9. Set A is about 40% of breakfast sales."
+    },
+    {
+      "channel": "opening-day",
+      "author": "daniel",
+      "replyToKey": "safety1",
+      "at": "2026-11-11T06:31:00+08:00",
+      "text": "The customer from the trial emailed last night. She was sick and saw a doctor; she is recovering at home and her clinic bill is $85. The email is polite but she says she will post her review tonight, and the food blogger is booked for 10:30. We have not agreed what we tell her or the officer."
     },
     {
       "key": "delivery1",
       "channel": "kopitiam-launch",
       "author": "daniel",
-      "at": "2026-11-11T11:04:00+08:00",
-      "text": "GrabFood and Foodpanda just raised our CBD breakfast commission to 32%, so every $10 set delivered loses $0.40 after packaging. But platforms drive 50% of our morning sales ($2,400/morning) from CBD office towers—if we delist, those corporate orders go straight to Ya Kun."
+      "at": "2026-11-11T06:40:00+08:00",
+      "text": "GrabFood takes 32% from today. A $10 set delivered loses $0.50 after packaging, and at 240 sets a morning that is $2,400 of sales and a $120 loss. We have 12 office managers asking for a direct order code, and about 60% of office orders are five sets or more."
     },
     {
       "channel": "kopitiam-launch",
       "author": "weiling",
       "replyToKey": "delivery1",
-      "at": "2026-11-11T11:09:00+08:00",
-      "text": "And Arjun checked the POS: raising our single-set price on GrabFood by 30% to $13 triggers platform price-parity ranking penalties, while our direct web QR link only supports express self-pickup with no rider dispatch. We also can't pull floor staff off the counter to hand-deliver orders in CBD morning rain because of injury liability. We haven't agreed how to restructure our delivery menu or self-pickup perks yet."
+      "at": "2026-11-11T06:44:00+08:00",
+      "text": "A five-set Office Platter at $50 costs $29 with shared packaging and makes $5 profit. We have 30 large trays. Nothing is decided yet."
     }
   ]
 }

@@ -14,7 +14,7 @@ import {
 const scenario: Scenario = {
   id: 'kopitiam',
   organisation: 'Nanyang Kopi & Toast',
-  meetingTitle: 'Raffles Place Flagship & App Promo Launch',
+  meetingTitle: 'Raffles Place Flagship Opening Day',
   roles: [
     { id: 'producer', label: 'Operations Director' },
     { id: 'lead_programmer', label: 'Tech & POS Lead' },
@@ -27,7 +27,7 @@ const scenario: Scenario = {
     { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
     { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
   ],
-  agenda: [{ title: 'Kiosk menu language', minutes: 10, ownerRole: 'game_designer' }],
+  agenda: [{ title: 'Old regulars and the new kopi prices', minutes: 5, ownerRole: 'game_designer' }],
 };
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -170,22 +170,22 @@ async function main(): Promise<void> {
     }> = [
       {
         role: 'game_designer',
-        text: 'What did the kiosk trial show about first-time users?',
-        expectedRef: /kiosk_trial_stats\/|kiosk-menu-sop|kiosk-trials/,
+        text: 'What do the records say about the old regulars and the new kopi prices?',
+        expectedRef: /regulars_pricing\/|kopi-pricing|kopi-prices/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/kiosk|kopi o kosong/i.test(text), `designer facts do not mention the kiosk: ${text}`);
-          assert(/19\s*(of|\/)\s*28|72%|first-time/i.test(text), `designer facts do not mention the trial numbers: ${text}`);
+          assert(/kopi|regular/i.test(text), `designer facts do not mention the regulars or kopi: ${text}`);
+          assert(/1\.30|2\.40|1\.60/i.test(text), `designer facts do not mention the prices: ${text}`);
         },
       },
       {
         role: 'producer',
-        text: 'What is our remaining launch budget and the delivery platform commission rate?',
-        expectedRef: /launch_budget|delivery_commission_tiers|mall-promo-rules/,
+        text: 'What is the delivery commission margin and the food-safety goodwill limit?',
+        expectedRef: /delivery_commission_tiers\/|food_safety_incident\/|delivery-pricing/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/\$?750|launch budget/i.test(text), `producer facts do not mention the remaining budget: ${text}`);
-          assert(/32%|0\.40|2,?400/i.test(text), `producer facts do not mention the delivery commission: ${text}`);
+          assert(/32%|0\.50|2,?400/i.test(text), `producer facts do not mention the delivery commission: ${text}`);
+          assert(/3,?000|goodwill/i.test(text), `producer facts do not mention the goodwill limit: ${text}`);
         },
       },
     ];

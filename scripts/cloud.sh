@@ -33,7 +33,7 @@ case "$cmd" in
       sleep 2
     done
     echo ""
-    echo "VM started, but $URL/health is still warming up. Try opening $URL in 15 seconds."
+    echo "VM started, but $URL/health is still warming up. Try opening $URL in a moment."
     ;;
   down|stop)
     echo "Deallocating Azure VM ($VM in $RG) so compute billing stops..."

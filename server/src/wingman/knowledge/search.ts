@@ -66,7 +66,7 @@ Rules:
 - Include a fact only if it directly helps answer that question or topic. A record about a different topic or agenda item (even from the same shop or project, such as seating/booths when the topic is the Kopi menu, or cash hygiene when the topic is butter) is not a fact: strictly leave it out. Return {"facts":[]} when nothing answers the question.
 - Return the 1 to ${MAX_FACTS} most useful facts, best first. Write each as one short, crystal-clear sentence in plain everyday English that a participant can immediately understand and quote aloud to the room (for example: "Our POS system lets us keep short traditional names on kitchen tickets (1 hr setup) while showing plain-English descriptions or a 2-step Milk & Sugar pop-up on the customer screen (1.5 hr setup)."). Always include the exact numbers, dollar amounts, or setup times from the record, and avoid raw code variable names. NEVER phrase a fact as first-person advice or a pre-made meeting decision ("We can...", "We should...", "You can..."). No ids, no repeating the question.
 - Use only the records. Never invent or round numbers, names or dates, and do not take numbers from the question itself.
-- "source" is the short label in the record's first line, in plain words (for example "Wiki: Kiosk Menu & Kitchen Printer Notes" or "Mattermost: #kiosk-trials"). Never write ids or "ref".
+- "source" is the short label in the record's first line, in plain words (for example "Wiki: Opening-Day Staffing Plan" or "Mattermost: #shop-floor"). Never write ids or "ref".
 - "date" is the record's published date.
 - Only when two records disagree about the same thing, say so in one sentence, naming both sources and dates, and say which is newer and so more likely right.
 

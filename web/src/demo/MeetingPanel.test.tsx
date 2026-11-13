@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 
@@ -38,6 +38,7 @@ const scenario: Scenario = {
       minutes: 4,
       ownerRole: 'producer',
       decision: 'how do we take cash without putting a coin drawer at the counter?',
+      seatFacts: { producer: roleFact },
     },
   ],
 };
@@ -90,6 +91,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('MeetingPanel', () => {
+  it('uses the active item seat fact instead of a role-card fact from another topic', () => {
+    scenario.agenda[0]!.seatFacts = { producer: 'Current topic fact' };
+    mocks.useKaki.mockReturnValue({ events: events.filter((event) => event.type !== 'FACT_FOUND'),
+      tasks: new Map(), connected: true, rejection: null, send: vi.fn() });
+    try {
+      render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+      expect(screen.getByText('Current topic fact')).toBeTruthy();
+      expect(within(screen.getByLabelText('Current topic context')).queryByText(roleFact)).toBeNull();
+    } finally {
+      scenario.agenda[0]!.seatFacts = { producer: roleFact };
+    }
+  });
+
   it('shows one current-topic surface and drops the company fact that repeats the role card', () => {
     render(
       <MeetingPanel

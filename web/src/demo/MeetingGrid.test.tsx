@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { KakiEvent } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MeetingGrid, pickCardFact } from './MeetingGrid';
+import { cardFactForItem, MeetingGrid } from './MeetingGrid';
 
 const mocks = vi.hoisted(() => ({ screenEvents: [] as KakiEvent[], roleEvents: [] as KakiEvent[] }));
 
@@ -118,19 +118,17 @@ describe('MeetingGrid starter ideas', () => {
   });
 });
 
-describe('pickCardFact', () => {
-  const facts = [
-    'We have 10 stools in the storeroom for a laptop window bar.',
-    'The head chef threw out the old food with a signed disposal receipt for the inspection.',
-  ];
-
-  it('picks the card fact that shares the most words with the topic, not the first loose match', () => {
-    expect(pickCardFact(facts, 'Food safety inspection: show the disposal receipt to the inspector', 1)).toBe(facts[1]);
-    expect(pickCardFact(facts, 'Laptop campers: move them to the window bar stools', 0)).toBe(facts[0]);
-  });
-
-  it('rotates by agenda position when no fact shares a word with the topic', () => {
-    expect(pickCardFact(facts, 'Delivery commission', 3)).toBe(facts[1]);
-    expect(pickCardFact([], 'Anything', 0)).toBeUndefined();
+describe('cardFactForItem', () => {
+  it('shows exactly the seat fact the current topic gives that seat', () => {
+    const item = {
+      title: 'Laptop campers and the breakfast seat crunch',
+      minutes: 5,
+      ownerRole: 'lead_programmer',
+      seatFacts: { producer: 'The blocked seats cost about $420.', lead_programmer: 'The booth sockets share one timer switch.' },
+    };
+    expect(cardFactForItem(item, 'producer')).toBe('The blocked seats cost about $420.');
+    expect(cardFactForItem(item, 'lead_programmer')).toBe('The booth sockets share one timer switch.');
+    expect(cardFactForItem(item, 'marketing_lead')).toBeUndefined();
+    expect(cardFactForItem(undefined, 'producer')).toBeUndefined();
   });
 });

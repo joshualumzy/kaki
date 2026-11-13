@@ -2,52 +2,68 @@
   "events": [
     {
       "type": "HOST_SPEECH_TRIGGERED",
-      "audience": { "kind": "screen" },
+      "audience": {
+        "kind": "screen"
+      },
       "payload": {
         "kind": "OPENING",
-        "text": "Welcome to the Nanyang Kopi and Toast launch check."
+        "text": "Welcome to the Nanyang Kopi and Toast opening-day huddle."
       }
     },
     {
       "type": "NUDGE",
-      "audience": { "kind": "role", "role": "game_designer" },
+      "audience": {
+        "kind": "role",
+        "role": "producer"
+      },
       "payload": {
-        "text": "Your kiosk menu topic is next."
+        "agendaIndex": 0,
+        "text": "Your counter-cover topic is next."
       }
     },
     {
       "type": "FACT_FOUND",
-      "audience": { "kind": "role", "role": "game_designer" },
+      "audience": {
+        "kind": "role",
+        "role": "producer"
+      },
       "payload": {
-        "questionId": "q-kiosk-trial",
-        "question": "What did the kiosk trial show about first-time users?",
+        "agendaIndex": 0,
+        "questionId": "q-counter-rest-day",
+        "question": "What does asking Auntie Mary in cost us?",
         "facts": [
           {
-            "text": "19 of 28 first-time users froze for over two minutes at Kopi O Kosong, Kopi C Siew Dai or Teh Halia, and 72% missed the language toggle.",
-            "source": "Gitea issue: Kiosk Step 2 Kopi O Kosong freeze",
-            "date": "2026-11-10"
+            "text": "Auntie Mary is on her rest day, so asking her in means double pay, and she is free to say no.",
+            "source": "Wiki: Opening-Day Staffing Plan",
+            "date": "2026-11-11"
           }
         ]
       }
     },
     {
       "type": "HOST_SPEECH_TRIGGERED",
-      "audience": { "kind": "screen" },
+      "audience": {
+        "kind": "screen"
+      },
       "payload": {
         "kind": "TIMEOUT",
-        "text": "Kiosk menu language is at 10 minutes, please wrap up."
+        "text": "The counter item is at five minutes, please wrap up."
       }
     },
     {
       "type": "FACT_FOUND",
-      "audience": { "kind": "role", "role": "producer" },
+      "audience": {
+        "kind": "role",
+        "role": "game_designer"
+      },
       "payload": {
-        "questionId": "q-solo-diners",
-        "question": "How many solo diners need a table between 8 and 10?",
+        "agendaIndex": 1,
+        "questionId": "q-regulars-pricing",
+        "question": "What were the old and new kopi prices?",
         "facts": [
           {
-            "text": "60% of morning customers dine solo, and laptop campers cost about $420 every morning in lost breakfast sets.",
-            "source": "Floor morning counts",
+            "text": "Kopi used to be $1.30 here and the new menu charges $2.40; the old shop's story is on our menu boards.",
+            "source": "Wiki: Kopi Pricing",
             "date": "2026-11-11"
           }
         ]
@@ -55,38 +71,40 @@
     },
     {
       "type": "NUDGE",
-      "audience": { "kind": "role", "role": "marketing_lead" },
+      "audience": {
+        "kind": "role",
+        "role": "marketing_lead"
+      },
       "payload": {
+        "agendaIndex": 1,
         "text": "You haven't spoken in a while. Would you like to add anything?"
       }
     },
     {
       "type": "HOST_SPEECH_TRIGGERED",
-      "audience": { "kind": "screen" },
+      "audience": {
+        "kind": "screen"
+      },
       "payload": {
         "kind": "CLOSING",
-        "text": "That covers all 4 agenda items. We have 3 action items assigned. See you tomorrow."
+        "text": "That covers the two opening-day topics. We have two follow-ups assigned."
       }
     }
   ],
   "tasks": [
     {
-      "title": "File a ticket for the kiosk label experiment",
-      "context": "The Raffles Place kiosk trial froze 19 of 28 first-time users at Kopi O Kosong, and any label change needs a kitchen test before 8am.",
-      "suggestedAssignee": "game_designer",
-      "actionKind": "gitea_issue"
-    },
-    {
-      "title": "Email SFA inspector with 63°C egg bath protocol",
-      "context": "Send our 63°C pasteurized backup batch and 15-minute probe logging protocol ahead of the 9:00am SFA inspection.",
-      "suggestedAssignee": "marketing_lead",
-      "actionKind": "email"
-    },
-    {
-      "title": "Post the final launch plan in the team channel",
-      "context": "Post the agreed launch plan and owners in the team channel once the CBD delivery and SFA egg decisions are settled.",
+      "title": "Check counter cover for the rush",
+      "context": "One counter staff called in sick before opening, leaving the counter one short for the rush. Confirm who is available and what the cover would cost.",
       "suggestedAssignee": "producer",
-      "actionKind": "mattermost_post"
+      "actionKind": "mattermost_post",
+      "agendaItemTitle": "One counter staff short for the opening rush"
+    },
+    {
+      "title": "Record the regulars price decision",
+      "context": "A few old regulars walked out after seeing the new kopi price, and a nephew posted a complaint. Record the opening-day lead's decision once the team settles it.",
+      "suggestedAssignee": "game_designer",
+      "actionKind": "gitea_issue",
+      "agendaItemTitle": "Old regulars and the new kopi prices"
     }
   ]
 }

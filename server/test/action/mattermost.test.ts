@@ -443,6 +443,10 @@ describe('mattermost action module', () => {
             }
           : role,
       ),
+      agenda: [
+        { title: 'Prep', minutes: 5, ownerRole: 'chef', seatFacts: { chef: 'The booth demo runs on generator power.' } },
+        { title: 'Oven', minutes: 5, ownerRole: 'chef', seatFacts: { chef: 'The pastry oven needs a new fuse.' } },
+      ],
     };
     const decision = 'Booth Playtest approved the booth demo: it runs from 9 to 11 AM and the Chef owns setup.';
     const llm = createFakeLlm(() => messageReply);
@@ -454,6 +458,7 @@ describe('mattermost action module', () => {
       suggestedAssignee: 'chef',
       actionKind: 'mattermost_post',
       decisionSource: decision,
+      agendaItemTitle: 'Prep',
     });
     tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
 

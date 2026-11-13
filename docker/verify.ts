@@ -179,15 +179,16 @@ async function postgresData() {
     const chunkColumns = await client.query<{ column_name: string; is_nullable: string }>(
       "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'knowledge_chunks'",
     );
-    const kiosk = await client.query<{
-      first_time_users: number;
-      froze_at_kopi_o_kosong: number;
-      missed_language_toggle_pct: string;
-    }>('SELECT first_time_users, froze_at_kopi_o_kosong, missed_language_toggle_pct FROM kiosk_trial_stats ORDER BY trial_date DESC LIMIT 1');
+    const pricing = await client.query<{
+      old_kopi_price_sgd: string;
+      new_kopi_price_sgd: string;
+      cost_per_cup_sgd: string;
+      regulars_most_mornings: number;
+    }>('SELECT old_kopi_price_sgd, new_kopi_price_sgd, cost_per_cup_sgd, regulars_most_mornings FROM regulars_pricing ORDER BY effective_on DESC LIMIT 1');
     const counts = await client.query<{ table_name: string; count: number }>(
-      `SELECT 'kiosk_trial_stats' AS table_name, count(*)::int AS count FROM kiosk_trial_stats
+      `SELECT 'regulars_pricing' AS table_name, count(*)::int AS count FROM regulars_pricing
        UNION ALL SELECT 'floor_morning_counts', count(*)::int FROM floor_morning_counts
-       UNION ALL SELECT 'sfa_egg_batches', count(*)::int FROM sfa_egg_batches
+       UNION ALL SELECT 'food_safety_incident', count(*)::int FROM food_safety_incident
        UNION ALL SELECT 'delivery_commission_tiers', count(*)::int FROM delivery_commission_tiers
        UNION ALL SELECT 'launch_budget', count(*)::int FROM launch_budget`,
     );
@@ -196,7 +197,7 @@ async function postgresData() {
       chunkCount: chunks.rows[0]?.count ?? -1,
       embeddingType: embedding.rows[0]?.udt_name ?? 'missing',
       chunkColumns: chunkColumns.rows,
-      kiosk: kiosk.rows[0],
+      pricing: pricing.rows[0],
       tableCounts: Object.fromEntries(counts.rows.map((row) => [row.table_name, row.count])),
     };
   } finally {
@@ -268,71 +269,73 @@ check('Postgres has the knowledge_chunks table with a vector(1024) column and pu
 
 check('Postgres has the seeded company tables', async () => {
   const data = await once('postgres', postgresData);
-  for (const table of ['kiosk_trial_stats', 'floor_morning_counts', 'sfa_egg_batches', 'delivery_commission_tiers', 'launch_budget']) {
+  for (const table of ['regulars_pricing', 'floor_morning_counts', 'food_safety_incident', 'delivery_commission_tiers', 'launch_budget']) {
     assert((data.tableCounts[table] ?? 0) > 0, `${table} has no rows`);
   }
   return `${Object.values(data.tableCounts).reduce((sum, count) => sum + count, 0)} rows`;
 });
 
-check('Postgres shows the kiosk trial freeze and missed toggle', async () => {
+check('Postgres shows the old and new kopi prices and the cost per cup', async () => {
   const data = await once('postgres', postgresData);
-  assert(data.kiosk, 'kiosk trial row is missing');
-  assert(data.kiosk.froze_at_kopi_o_kosong === 19, `kiosk freeze count is ${data.kiosk.froze_at_kopi_o_kosong}`);
-  assert(Number(data.kiosk.missed_language_toggle_pct) > 70, `missed toggle rate is ${data.kiosk.missed_language_toggle_pct}`);
-  return `${data.kiosk.froze_at_kopi_o_kosong} of ${data.kiosk.first_time_users} froze`;
+  assert(data.pricing, 'regulars pricing row is missing');
+  assert(Number(data.pricing.old_kopi_price_sgd) === 1.3, `old kopi price is ${data.pricing.old_kopi_price_sgd}`);
+  assert(Number(data.pricing.new_kopi_price_sgd) === 2.4, `new kopi price is ${data.pricing.new_kopi_price_sgd}`);
+  assert(Number(data.pricing.cost_per_cup_sgd) === 1.6, `cost per cup is ${data.pricing.cost_per_cup_sgd}`);
+  return `${data.pricing.regulars_most_mornings} regulars, $1.30 to $2.40`;
 });
 
-check('Wiki kiosk page carries the trial numbers and docket constraint', async () => {
+check('Wiki staffing page carries the counter cover and rest-day rule', async () => {
   const pages = await once('wiki', wikiPages);
-  const page = pages.get('kopitiam/kiosk-menu-sop');
-  assert(page, 'kiosk menu page is missing');
-  assert(/(?:19\s+of\s+28|28[^\n]{0,180}\b19\b)/.test(page) && /72%/.test(page), 'the kiosk trial numbers are missing');
-  assert(/kitchen (thermal )?docket/i.test(page), 'the kitchen docket constraint is missing');
-  return 'kiosk page present';
+  const page = pages.get('kopitiam/staffing-plan');
+  assert(page, 'staffing page is missing');
+  assert(/two counter staff/i.test(page) && /double pay/i.test(page), 'the counter cover or rest-day rule is missing');
+  assert(/Auntie Mary/.test(page) && /15 minutes/.test(page), 'Auntie Mary or the till login is missing');
+  return 'staffing page present';
 });
 
-check('Wiki floor page carries the seat crunch and Auntie Mary constraint', async () => {
+check('Wiki seating page carries the seat crunch and laptop facts', async () => {
   const pages = await once('wiki', wikiPages);
-  const page = pages.get('kopitiam/supplier-contingency');
-  assert(page, 'floor page is missing');
-  assert(/28 seats/.test(page) && /420/.test(page), 'the seat crunch numbers are missing');
-  assert(/Auntie Mary/.test(page), 'Auntie Mary is missing');
-  return 'floor page present';
+  const page = pages.get('kopitiam/seating-house-rules');
+  assert(page, 'seating page is missing');
+  assert(/28 seats/.test(page) && /16 of the 28/.test(page) && /420/.test(page), 'the seat crunch numbers are missing');
+  assert(/10 window-bar stools/.test(page) && /45 minutes/.test(page), 'the stools or Wi-Fi code is missing');
+  return 'seating page present';
 });
 
-check('Wiki delivery and costing page carries the 32% commission and remaining budget', async () => {
+check('Wiki delivery page carries the 32% commission, margins and tray stock', async () => {
   const pages = await once('wiki', wikiPages);
-  const page = pages.get('kopitiam/mall-promo-rules');
-  assert(page, 'delivery & costing page is missing');
-  assert(/32%/.test(page) && /2,400|2400/.test(page), 'the delivery commission numbers are missing');
-  assert(/750/.test(page), 'the remaining budget is missing');
-  return 'delivery & costing page present';
+  const page = pages.get('kopitiam/delivery-pricing');
+  assert(page, 'delivery page is missing');
+  assert(/32%/.test(page) && /0\.50/.test(page) && /2,400|2400/.test(page), 'the delivery commission numbers are missing');
+  assert(/\$5 profit/.test(page) && /30 trays/.test(page), 'the platter margin or tray stock is missing');
+  assert(/10%/.test(page), 'the 10% price rule is missing');
+  return 'delivery page present';
 });
 
-check('SFA inspection email carries the 9:00 AM inspection and 63°C holding requirement', async () => {
+check('Food-agency email carries the 9:00 AM inspection and the logs', async () => {
   const messages = await once('mail', mailMessages);
   const email = messages.find((message) => /Food Hygiene Inspection/i.test(message.Subject));
-  assert(email, 'SFA inspection email is missing');
-  assert(/63°C/.test(email.Text), 'the 63°C requirement is missing');
-  return 'SFA email present';
+  assert(email, 'inspection email is missing');
+  assert(/9:00 AM/.test(email.Text) && /disposal log/i.test(email.Text), 'the inspection time or disposal log is missing');
+  return 'inspection email present';
 });
 
-check('GrabFood email carries the 32% commission tier notice', async () => {
+check('GrabFood email carries the 32% commission and launch banner terms', async () => {
   const messages = await once('mail', mailMessages);
-  const email = messages.find((message) => /Commission Tier/i.test(message.Subject));
-  assert(email, 'GrabFood commission email is missing');
-  assert(/32%/.test(email.Text), 'the 32% commission is missing');
-  return 'GrabFood email present';
+  const email = messages.find((message) => /featured banner/i.test(message.Subject));
+  assert(email, 'GrabFood launch email is missing');
+  assert(/32%/.test(email.Text) && /10%/.test(email.Text), 'the commission or price rule is missing');
+  return 'GrabFood launch email present';
 });
 
-check('Mattermost has the undecided SFA hygiene thread', async () => {
+check('Mattermost has the undecided opening-morning thread', async () => {
   const posts = await once('mattermost-posts', mattermostPosts);
-  const root = posts.find((post) => !post.root_id && /Heads up team: SFA just emailed an inspection notice/i.test(post.message));
-  assert(root, 'SFA hygiene root post is missing');
+  const root = posts.find((post) => !post.root_id && /counter staff texted at 6:45/i.test(post.message));
+  assert(root, 'opening-morning root post is missing');
   const replies = posts.filter((post) => post.root_id === root.id);
-  assert(replies.length >= 1, `SFA hygiene thread has only ${replies.length} replies`);
+  assert(replies.length >= 1, `opening-morning thread has only ${replies.length} replies`);
   const text = replies.map((post) => post.message).join('\n');
-  assert(/hygiene/i.test(text) && /still haven't decided|haven't agreed|not decided/i.test(text), 'the SFA hygiene thread does not look undecided');
+  assert(/free kopi|200/i.test(text), 'the opening-morning thread does not carry the flyer fact');
   return `${replies.length} replies, no decision`;
 });
 
