@@ -61,21 +61,17 @@ function meeting(
 afterEach(() => vi.useRealTimers());
 
 describe('never-stuck visitor path', () => {
-  it('uses each topic discussion for the debaters and names the visitor as owner of their item', () => {
+  it('uses each topic discussion and keeps the visitor as decider even in their own seat', () => {
     for (const role of humanRoles(fullScenario)) {
       const item = fullScenario.agenda.find((candidate) => candidate.ownerRole === role.id)!;
       const seat = fullScenario.attendees.find((attendee) => attendee.role === role.id)!.name;
       const cast = aiCast(fullScenario, seat);
       const prompt = buildSystemPrompt({ ...fullScenario, npcs: cast },
         { name: 'Visitor', role: role.id }, item.title);
-      const debaters = prompt.match(/Two of them \(([^)]+)\)/)?.[1] ?? '';
-      expect(debaters).not.toContain(seat);
-      const availableOpeners = item.discussion!.openingViews.filter((view) => view.attendee !== seat);
-      expect(debaters.split(', ')).toHaveLength(Math.min(2, availableOpeners.length));
-      for (const name of debaters.split(', ')) {
-        expect([...item.discussion!.openingViews, ...item.discussion!.tradeOffs].map((entry) => entry.attendee)).toContain(name);
-      }
-      expect(prompt).toContain('Visitor leads this item');
+      expect(prompt).toContain('Visitor decides this item regardless of seat');
+      expect(prompt).toContain(item.title);
+      expect(prompt).not.toContain(`${seat}'s fact for this item`);
+      expect(prompt).toContain('answer each other briefly');
       expect(prompt).toContain(role.label);
     }
   });

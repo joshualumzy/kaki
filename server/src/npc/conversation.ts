@@ -1,7 +1,7 @@
 import { itemMode, type ActionKind, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic } from '../host/opening';
-import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
+import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
 
@@ -123,6 +123,8 @@ export interface ConversationOptions {
   resumeMs?: number;
   /** How many past messages the Director sees. */
   maxHistory?: number;
+  /** Random source for choosing an item opening; injectable for deterministic tests. */
+  random?: () => number;
   gate?: SpeechGate;
 }
 
@@ -1141,18 +1143,28 @@ export class NpcConversation<Clip> {
       ...(item.discussion?.openingViews ?? []).map((view) => view.attendee),
       ...(item.discussion?.tradeOffs ?? []).map((tradeOff) => tradeOff.attendee),
     ])].filter((name) => name !== seat && name !== host && this.names.includes(name));
-    const speakers = [...candidates, ...this.names.filter((name) => name !== seat && name !== host && !candidates.includes(name))];
+    const pushing = pushingColleague(this.options.scenario, item, human.role, this.names, host);
+    const speakers = [...new Set([
+      ...(pushing === undefined ? [] : [pushing]),
+      ...candidates,
+      ...this.names.filter((name) => name !== seat && name !== host),
+    ])];
     const [first, second] = speakers;
     if (first === undefined || second === undefined) return undefined;
     const firstView = item.discussion?.openingViews.find((view) => view.attendee === first)?.view ??
       item.discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === first)?.tradeOff;
     const secondView = item.discussion?.openingViews.find((view) => view.attendee === second)?.view ??
       item.discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === second)?.tradeOff;
-    const owns = seat !== undefined && this.options.scenario.attendees.find((attendee) => attendee.name === seat)?.role === item.ownerRole;
     const problem = item.briefing ??
       item.discussion?.openingViews.find((view) => view.attendee === seat)?.view ??
       item.decision ?? title;
-    return `[We just started "${title}". First explain the problem in neutral terms using: "${problem}". ${first} explains their side from "${firstView ?? title}". ${second} responds from "${secondView ?? title}" and asks ${human.name} for a call. ${owns ? `${human.name} owns this topic and leads the decision.` : ''} Only these two colleagues speak; do not settle the topic for the visitor.]`;
+    const openingStyle = Math.min(2, Math.max(0, Math.floor((this.options.random?.() ?? Math.random()) * 3)));
+    const styles = [
+      `Opening style: the host briefly states the news, then hands to ${pushing}.`,
+      `Opening style: ${pushing} jumps in with the news before the host speaks.`,
+      `Opening style: ${first} and ${second} are already mid-disagreement as the host's cue brings ${human.name} in; only these two speak in this reply.`,
+    ];
+    return `[We just started "${title}". ${styles[openingStyle]} The briefing facts are: "${problem}". State the problem and positions, not a fix. ${first}'s view: "${firstView ?? title}". ${second}'s view: "${secondView ?? title}". ${human.name} decides.${pushing === undefined ? '' : ` ${pushing} pushes hardest.`} Only two colleagues speak unless ${human.name} asked everyone. Leave the decision open.]`;
   }
 
   /**
@@ -1670,7 +1682,7 @@ export class NpcConversation<Clip> {
       const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
       const seatNames = this.options.scenario.attendees.map((attendee) => attendee.name);
-      const parser = new TurnParser(this.names, addressed ?? host, this.human?.name, seatNames);
+      const parser = new TurnParser(this.names, addressed ?? host, this.human?.name, seatNames, (line) => this.ports.log?.(line));
       const alreadyAsked =
         this.human !== undefined && this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
       const includeKnows =

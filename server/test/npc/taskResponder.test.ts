@@ -54,6 +54,7 @@ describe('task responder for an AI attendee', () => {
     const withFacts = {
       ...scenario,
       roles: scenario.roles.map((role) => (role.id === 'chef' ? { ...role, card: { youAre: 'You are the chef.', facts: ['The oven trips the fuse twice a week.'], responsibility: 'The kitchen.' } } : role)),
+      agenda: [{ ...scenario.agenda[0]!, seatFacts: { chef: 'The current item has a late delivery.' } }],
     };
     const responder = createTaskResponder({
       scenario: withFacts,
@@ -62,11 +63,24 @@ describe('task responder for an AI attendee', () => {
       say: () => undefined,
       send: () => undefined,
     });
-    responder.handle(updated(task({})));
+    responder.handle(updated(task({ agendaItemTitle: 'Prep' })));
     await tick();
-    expect(prompt).toContain('Things you know: The oven trips the fuse twice a week.');
+    expect(prompt).toContain('Things you know: The current item has a late delivery.');
+    expect(prompt).not.toContain('The oven trips the fuse twice a week.');
     expect(prompt).toContain('concrete detail');
     expect(prompt).toContain('never ask a question');
+  });
+
+  it('never pulls a fact from an agenda item absent from this meeting', async () => {
+    let prompt = '';
+    const responder = createTaskResponder({
+      scenario: { ...scenario, agenda: [{ ...scenario.agenda[0]!, seatFacts: { chef: 'present item fact' } }] },
+      llm: { complete: async (messages) => { prompt = messages.map((m) => m.content).join('\n'); return '{"accept": true, "line": "I will take it."}'; } },
+      plays: () => true, say: () => undefined, send: () => undefined,
+    });
+    responder.handle(updated(task({ agendaItemTitle: 'Absent' })));
+    await tick();
+    expect(prompt).not.toContain('present item fact');
   });
 
   it('speaks first, then accepts, so the screen follows the words', async () => {

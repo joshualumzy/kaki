@@ -78,16 +78,16 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
   const retried = new Set<string>();
 
   async function decide(task: Task, npc: NpcProfile, role: Role): Promise<Decision> {
-    const facts = scenario.roles.find((candidate) => candidate.id === role)?.card?.facts ?? [];
+    const fact = scenario.agenda.find((item) => item.title === task.agendaItemTitle)?.seatFacts?.[role];
     const system = [
       `You are ${npc.attendee} in a work meeting. ${npc.personality}`,
       `What you want: ${npc.agenda}`,
       npc.concerns.length > 0 ? `You worry about: ${npc.concerns.join('; ')}.` : '',
-      facts.length > 0 ? `Things you know: ${facts.join(' | ')}` : '',
+      fact === undefined ? '' : `Things you know: ${fact}`,
       'The meeting host has just handed you a task. Decide, as this character, whether to take it.',
       'Accept it (`"accept": true`) if it is a follow-up ticket, post, email or note for your role or something your role talked about. Only decline (`"accept": false`) if the task clearly belongs to a completely different role.',
       'Reply with one JSON object: {"accept": true or false, "line": what you say aloud, in your own voice}.',
-      'When accepting (`"accept": true`), the line MUST clearly say you will take or do the task (for example "Sure, I\'ll get that filed today so we lock in the one-per-person limit." or "On it, I\'ll post that update in the team channel right after the call."), plus one brief concrete detail from the things you know above (never invent numbers, facts, drafts, or prerequisites, and never sound like you are arguing with or refusing a task you are accepting). Statements only: never ask a question. Plain everyday words, as you would say it to a colleague, no jargon or office-speak.',
+      `When accepting ("accept": true), clearly say you will take the task${fact === undefined ? '' : ', with one brief concrete detail from the things you know above'}. Never invent numbers, facts, drafts or prerequisites. Make a statement, never ask a question. Use plain everyday words, without office-speak.`,
     ]
       .filter((part) => part !== '')
       .join('\n');

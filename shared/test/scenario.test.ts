@@ -130,6 +130,14 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/contested must be true or false/);
   });
 
+  it('accepts a sensitive item flag and rejects non-boolean values', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', sensitive: true }];
+    expect(parseScenario(scenario).agenda[0]?.sensitive).toBe(true);
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', sensitive: 'yes' as never }];
+    expect(() => parseScenario(scenario)).toThrow(/sensitive must be true or false/);
+  });
+
   it('accepts validated opening views and trade-offs on an agenda item', () => {
     const scenario = cloneScenario();
     scenario.agenda = [

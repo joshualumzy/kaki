@@ -278,6 +278,7 @@
     },
     {
       "title": "Food safety complaint before the 9 AM inspection",
+      "sensitive": true,
       "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
@@ -487,15 +488,15 @@
       "tensions": [
         {
           "with": "Mei",
-          "about": "She focuses on customer experience while he weighs whether systems can support a change."
+          "about": "how much the customer experience should ask of systems that may not support the change"
         },
         {
           "with": "Wei Ling",
-          "about": "She needs a reliable opening, while he needs time to check system changes."
+          "about": "a reliable opening versus time to check any system change"
         },
         {
           "with": "Daniel",
-          "about": "He wants to keep office customers while Arjun weighs the work on shop systems."
+          "about": "keeping office customers versus the work that puts on shop systems"
         }
       ],
       "soundsLike": [
@@ -531,15 +532,15 @@
       "tensions": [
         {
           "with": "Arjun",
-          "about": "She wants the customer experience to work while he guards untested systems."
+          "about": "a smooth customer experience versus leaving untested systems alone"
         },
         {
           "with": "Wei Ling",
-          "about": "She protects the menu and heritage while Wei Ling weighs the cost."
+          "about": "protecting the menu and the old shop's heritage versus what it costs"
         },
         {
           "with": "Daniel",
-          "about": "They both care how the shop is seen, but notice different customer needs."
+          "about": "which customers come first, though both care how the shop is seen"
         }
       ],
       "soundsLike": [
@@ -573,11 +574,11 @@
       "tensions": [
         {
           "with": "Daniel",
-          "about": "He protects public promises while she checks whether the shop can afford and deliver them."
+          "about": "public promises versus whether the shop can afford and deliver them"
         },
         {
           "with": "Mei",
-          "about": "They both want customers looked after, but Wei Ling must account for the cost."
+          "about": "how far to go for customers once the cost is counted"
         }
       ],
       "soundsLike": [
@@ -611,11 +612,11 @@
       "tensions": [
         {
           "with": "Wei Ling",
-          "about": "She weighs cost and operating capacity while he worries about customer trust."
+          "about": "customer trust versus cost and what the floor can handle"
         },
         {
           "with": "Arjun",
-          "about": "He wants customer promises met while Arjun weighs the time systems need."
+          "about": "keeping customer promises versus the time system changes need"
         }
       ],
       "soundsLike": [

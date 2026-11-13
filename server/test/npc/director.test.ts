@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressedCharacter, buildSystemPrompt, cleanSpoken, findHandover, TurnParser, type Utterance } from '../../src/npc/director';
+import { addressedCharacter, buildSystemPrompt, cleanSpoken, findHandover, pushingColleague, TurnParser, type Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
 const npcScenario = {
@@ -16,7 +16,55 @@ function parse(pieces: string[], names = ['Ada', 'Bao']): Utterance[] {
   return [...pieces.flatMap((piece) => parser.push(piece)), ...parser.flush()];
 }
 
+function parseWithLogs(pieces: string[]): { lines: Utterance[]; logs: string[] } {
+  const logs: string[] = [];
+  const parser = new TurnParser(['Ada', 'Bao'], undefined, 'Visitor', [], (line) => logs.push(line));
+  return { lines: [...pieces.flatMap((piece) => parser.push(piece)), ...parser.flush()], logs };
+}
+
 describe('TurnParser', () => {
+  it('cuts whole sentences after three per speaker turn and logs each cut', () => {
+    const logs: string[] = [];
+    const parser = new TurnParser(['Ada', 'Bao'], undefined, 'Visitor', [], (line) => logs.push(line));
+    const reply = 'Ada: One. Two. Three. Four. Five. Bao: Six.';
+    expect([...parser.push(reply), ...parser.flush()].map((line) => `${line.speaker}: ${line.text}`)).toEqual([
+      'Ada: One.', 'Ada: Two.', 'Ada: Three.', 'Bao: Six.',
+    ]);
+    expect(logs).toEqual([
+      '[length-backstop] Ada: dropped sentence 4 of turn',
+      '[length-backstop] Ada: dropped sentence 5 of turn',
+    ]);
+  });
+
+  it('keeps a final question addressed to the visitor after the third sentence', () => {
+    const logs: string[] = [];
+    const parser = new TurnParser(['Ada'], undefined, 'Visitor', [], (line) => logs.push(line));
+    expect([...parser.push('Ada: One. Two. Three. Four. Visitor, what do you think?'), ...parser.flush()].map((line) => line.text)).toEqual([
+      'One.', 'Two.', 'Three.', 'Visitor, what do you think?',
+    ]);
+    expect(logs).toEqual(['[length-backstop] Ada: dropped sentence 4 of turn']);
+  });
+  it('keeps the same cuts and logs across mid-word, mid-sentence and speaker-label splits', () => {
+    const reply = 'Ada: One. Two. Three. Four. Five. Bao: Six.';
+    const whole = parseWithLogs([reply]);
+    expect(whole.lines.map((line) => `${line.speaker}: ${line.text}`)).toEqual([
+      'Ada: One.', 'Ada: Two.', 'Ada: Three.', 'Bao: Six.',
+    ]);
+    expect(whole.logs).toEqual([
+      '[length-backstop] Ada: dropped sentence 4 of turn',
+      '[length-backstop] Ada: dropped sentence 5 of turn',
+    ]);
+    expect(parseWithLogs(['Ad', 'a: One. Tw', 'o. Three. Fo', 'ur. Five. Ba', 'o: Six.'])).toEqual(whole);
+    expect(parseWithLogs(['Ada: One. Two. Three. Four. Five. ', 'Bao:', ' Six.'])).toEqual(whole);
+  });
+
+  it('holds a split final visitor question and logs only the dropped earlier sentence', () => {
+    const reply = 'Ada: One. Two. Three. Four. Visitor, what do you think?';
+    const whole = parseWithLogs([reply]);
+    expect(whole.lines.map((line) => line.text)).toEqual(['One.', 'Two.', 'Three.', 'Visitor, what do you think?']);
+    expect(whole.logs).toEqual(['[length-backstop] Ada: dropped sentence 4 of turn']);
+    expect(parseWithLogs(['Ada: One. Tw', 'o. Three. Four. Vis', 'itor, what do you th', 'ink?'])).toEqual(whole);
+  });
   it('yields one utterance per sentence, tagged with the speaker', () => {
     expect(parse(['Ada: Hello there. How are you?\nBao: Fine, thanks.'])).toEqual([
       { speaker: 'Ada', text: 'Hello there.' },
@@ -92,6 +140,53 @@ describe('TurnParser', () => {
   });
 });
 
+describe('pushingColleague', () => {
+  const scenario = {
+    ...testScenario,
+    roles: [...testScenario.roles, { id: 'host', label: 'Host' }],
+    attendees: [...testScenario.attendees, { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' }],
+  };
+  const item = {
+    ...testScenario.agenda[0]!,
+    discussion: {
+      openingViews: [{ attendee: 'Hal', view: 'Host view' }, { attendee: 'Bao', view: 'Other view' }],
+      tradeOffs: [],
+    },
+  };
+  const present = ['Hal', 'Ada', 'Bao'];
+
+  it('chooses the owner when present and eligible', () => {
+    expect(pushingColleague(scenario, item, 'Guest', present, 'Hal')).toBe('Ada');
+  });
+  it('skips an owner occupying the visitor seat', () => {
+    expect(pushingColleague(scenario, item, 'Chef', present, 'Hal')).toBe('Bao');
+  });
+  it('skips an owner absent from the meeting', () => {
+    expect(pushingColleague(scenario, item, 'Guest', ['Hal', 'Bao'], 'Hal')).toBe('Bao');
+  });
+  it('skips a host owner and uses the first eligible opening view', () => {
+    expect(pushingColleague(scenario, { ...item, ownerRole: 'host' }, 'Guest', present, 'Hal')).toBe('Bao');
+  });
+  it('uses trade-offs, then any present colleague, then no name', () => {
+    const fallback = { ...item, ownerRole: 'host', discussion: {
+      openingViews: [{ attendee: 'Hal', view: 'Host view' }],
+      tradeOffs: [{ attendee: 'Bao', role: 'cashier', tradeOff: 'A cost', question: 'Which cost?' }],
+    } };
+    expect(pushingColleague(scenario, fallback, 'Guest', present, 'Hal')).toBe('Bao');
+    expect(pushingColleague(scenario, { ...fallback, discussion: undefined }, 'Guest', present, 'Hal')).toBe('Ada');
+    expect(pushingColleague(scenario, fallback, 'Chef', ['Hal', 'Ada'], 'Hal')).toBeUndefined();
+  });
+  it('omits the pushing sentence when only the host is present', () => {
+    const prompt = buildSystemPrompt({
+      ...scenario,
+      agenda: [{ ...item, contested: true }],
+      npcs: [{ attendee: 'Hal', role: 'host', voice: 'v', personality: 'Calm', agenda: 'Help', concerns: [] }],
+    }, { name: 'Visitor', role: 'Chef' });
+    expect(prompt).toContain('Visitor decides this item regardless of seat.');
+    expect(prompt).not.toContain('presses the issue hardest');
+  });
+});
+
 describe('addressedCharacter', () => {
   const cast = [
     { attendee: 'Sam', voice: 'v', personality: 'p', agenda: 'a', concerns: [], soundsLike: ['Some'] },
@@ -115,6 +210,46 @@ describe('addressedCharacter', () => {
 });
 
 describe('buildSystemPrompt', () => {
+  it('renders only the current meeting item facts and hidden directions', () => {
+    const [ada, bao] = npcScenario.npcs;
+    const first = { title: 'First', minutes: 5, ownerRole: 'chef', contested: true,
+      background: ['current established fact'], directions: ['current possible direction'],
+      seatFacts: { chef: 'current chef fact', cashier: 'current cashier fact' },
+      sayExactly: ['42 tickets'], sensitive: true,
+      offScreen: { name: 'Pat', role: 'supplier', howTheyAnswer: 'They can confirm once.' } };
+    const missing = { title: 'Missing', minutes: 5, ownerRole: 'chef', background: ['forbidden absent fact'],
+      directions: ['forbidden absent direction'], seatFacts: { chef: 'forbidden absent seat fact' } };
+    const scenario = { ...npcScenario, agenda: [first, missing], npcs: [{ ...ada!, role: 'host' as const }, bao!] };
+    const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Cashier' }, 'First');
+    expect(prompt).toContain('current established fact');
+    expect(prompt).toContain('current possible direction');
+    expect(prompt).toContain("Ada's fact for this item: current chef fact");
+    expect(prompt).not.toContain('current cashier fact');
+    expect(prompt).toContain('Pat (supplier)');
+    expect(prompt).toContain('They can confirm once.');
+    expect(prompt).toContain('no jokes, no blame');
+    expect(prompt).toContain('42 tickets');
+    expect(prompt).not.toContain('forbidden absent');
+    const nextPrompt = buildSystemPrompt({ ...scenario, agenda: [missing] }, { name: 'Visitor', role: 'Cashier' }, 'Missing');
+    expect(nextPrompt).not.toContain('current established fact');
+    expect(nextPrompt).not.toContain('Pat (supplier)');
+  });
+
+  it('uses one story clock, rough spoken numbers and no forced question or exact spoken title', () => {
+    const [ada, bao] = npcScenario.npcs;
+    const scenario = { ...npcScenario, npcs: [{ ...ada!, role: 'host' as const, temperament: 'Gives way slowly', stake: 'Protects the team' }, bao!] };
+    const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Chef' });
+    expect(prompt).toContain('Temperament: Gives way slowly');
+    expect(prompt).toContain('Stake: Protects the team');
+    expect(prompt).toContain('Story time comes only from the scenario situation');
+    expect(prompt).not.toContain('current local time:');
+    expect(prompt).not.toContain('time of day (');
+    expect(prompt).toContain('At most two numbers in any spoken sentence');
+    expect(prompt).not.toContain('last line of the reply is a short question');
+    expect(prompt).not.toContain('Every reply while this item is open');
+    expect(prompt).not.toContain('ask for the exact followUp.title');
+    expect(prompt).not.toContain('Propose practical choices so the person can simply pick');
+  });
   it('uses the visitor role label in item and colleague framing', () => {
     const scenario = {
       ...npcScenario,
@@ -125,7 +260,7 @@ describe('buildSystemPrompt', () => {
         withRoles: { seat_42: 'Relies on their call.' } })),
     };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'seat_42' }, 'Prep');
-    expect(prompt).toContain('Kitchen Lead leads this topic');
+    expect(prompt).toContain('Visitor decides this item regardless of seat');
     expect(prompt).toContain('Towards Visitor (Kitchen Lead)');
     expect(prompt).not.toContain('seat_42');
   });
@@ -151,7 +286,7 @@ describe('buildSystemPrompt', () => {
   it('asks for direct answers and a warm, human tone, without naming anything from one scenario', () => {
     const prompt = buildSystemPrompt(npcScenario);
     expect(prompt).toContain('answer it directly and concretely from the current scenario facts');
-    expect(prompt).toContain('Notice how the person seems');
+    expect(prompt).toContain("Notice the visitor's mood");
     expect(prompt).toContain('Ada: Yeah, I hear you.');
     expect(prompt).not.toMatch(/crash|Arjun|Hawker/);
   });
@@ -174,7 +309,7 @@ describe('buildSystemPrompt', () => {
         { ...bao!, role: 'observer' },
       ],
     });
-    for (const text of ['Part: the host', 'Sounds like: Brisk and dry', 'Quietly wants (does not say outright): Finish early', 'Disagrees with: Bao about the menu', 'Part: quiet observer', 'answer the other directly']) {
+    for (const text of ['Part: the host', 'Sounds like: Brisk and dry', 'Quietly wants (does not say outright): Finish early', 'Disagrees with: Bao about the menu', 'Part: quiet observer', 'answer each other briefly']) {
       expect(prompt).toContain(text);
     }
     expect(buildSystemPrompt(npcScenario)).not.toMatch(/Sounds like:|Disagrees with:|Part:/);
@@ -188,7 +323,7 @@ describe('buildSystemPrompt', () => {
       npcs: [{ ...ada!, role: 'host' }, bao!],
     });
     expect(prompt).toContain('likely to come up in this meeting: oven, lunch rush');
-    expect(prompt).toContain('Ada is the host. When the person greets the room');
+    expect(prompt).toContain('Ada is the host. On greetings, wrap-ups and quiet moments');
     expect(prompt).toContain("Never start a line with the person's name");
     const plain = buildSystemPrompt(npcScenario);
     expect(plain).not.toContain('likely to come up');
@@ -219,19 +354,19 @@ describe('buildSystemPrompt', () => {
 
     it('hands the item to them when it is theirs, whichever role they picked', () => {
       const prompt = buildSystemPrompt(build({}), { name: 'Josh', role: 'Chef' });
-      expect(prompt).toContain("This item is Josh's");
+      expect(prompt).toContain('Josh decides this item regardless of seat');
       expect(prompt).toContain('do we hold the build?');
-      expect(prompt).toContain('says it back in one sentence');
-      expect(prompt).toContain('addressed directly to Josh by name');
+      expect(prompt).toContain('briefly confirms only the decision Josh actually spoke');
+      expect(prompt).not.toContain('Every reply while this item is open');
     });
 
     it('asks them to settle a contested item, whoever they are, and stops repeating the opening question once asked', () => {
       const prompt = buildSystemPrompt(build({ contested: true }), { name: 'Josh', role: 'Producer' });
-      expect(prompt).toContain('disagree on this item and Josh is the one to settle it');
-      expect(prompt).toContain('The characters never settle it among themselves');
+      expect(prompt).toContain('Josh decides this item regardless of seat');
+      expect(prompt).toContain('Ask Josh a question only when their input or a decision is really needed');
       const afterAsked = buildSystemPrompt(build({ contested: true }), { name: 'Josh', role: 'Producer' }, undefined, true);
-      expect(afterAsked).toContain('never repeat the opening summary word-for-word');
-      expect(afterAsked).not.toContain('do we hold the build?');
+      expect(afterAsked).toContain('Do not repeat the opening summary word-for-word');
+      expect(afterAsked).not.toContain('The decision on the table is: do we hold the build?');
     });
   });
 
@@ -303,10 +438,9 @@ describe('the director prompt', () => {
     const [ada, bao] = npcScenario.npcs ?? [];
     const scenario = { ...npcScenario, npcs: [{ ...ada!, role: 'host' as const }, bao!] };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Chef' });
-    expect(prompt).toContain('Once Visitor agrees to send the follow-up');
-    expect(prompt).toContain('points them to their card');
-    expect(prompt).toContain('Kaki has the draft on your card');
-    expect(prompt).toContain('nobody says they will draft, post, send or email it themselves');
+    expect(prompt).toContain('The visitor owns this follow-up card and its draft');
+    expect(prompt).toContain('point them to their card');
+    expect(prompt).toContain('no colleague says they will draft, post, send or email it themselves');
   });
 
   it('forbids inventing an unsupported change in a colleague\'s job or commitments', () => {

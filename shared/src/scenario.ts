@@ -50,6 +50,8 @@ export interface AgendaItem {
   directions?: string[];
   /** Facts tied to this topic that every colleague may use, such as established facts. */
   background?: string[];
+  /** A sensitive item calls for a serious, respectful tone. */
+  sensitive?: boolean;
   /** A person outside the meeting who can answer once in this topic, when a colleague says they will ask. */
   offScreen?: AgendaOffScreen;
   /** Each seat's one fact for this topic, keyed by role id. */
@@ -401,6 +403,9 @@ function readAgenda(
     }
     if (item.contested !== undefined && typeof item.contested !== 'boolean') {
       problems.push(`agenda[${index}].contested must be true or false when present`);
+    }
+    if (item.sensitive !== undefined && typeof item.sensitive !== 'boolean') {
+      problems.push(`agenda[${index}].sensitive must be true or false when present`);
     }
     if (item.decision !== undefined && !isNonEmptyString(item.decision)) {
       problems.push(`agenda[${index}].decision must be a non-empty string when present`);

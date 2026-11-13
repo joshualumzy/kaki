@@ -116,6 +116,68 @@ describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it.each([
+    [0, 'the host briefly states the news'],
+    [0.4, 'jumps in with the news'],
+    [0.9, 'already mid-disagreement'],
+  ])('passes seeded opening style %s and the same briefing facts to the prompt', async (seed, style) => {
+    const withThree = {
+      ...scenario,
+      agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.' }],
+      npcs: [
+        { ...scenario.npcs[0]!, role: 'host' as const },
+        scenario.npcs[1]!,
+        { attendee: 'Cai', voice: 'v3', personality: 'Practical', agenda: 'Open on time', concerns: ['Supplies'] },
+      ],
+      attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai (Cashier)' }],
+    };
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, random: () => seed, observeDelayMs: 1, responseDelayMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Prep');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain(style);
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('The stock arrived late.');
+  });
+
+  it.each([0, 0.4, 0.9])('names the prompt colleague among the two opening speakers at seed %s', async (seed) => {
+    const withOwner = {
+      ...scenario,
+      agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.', discussion: {
+        openingViews: [{ attendee: 'Bao', view: 'One concern' }, { attendee: 'Cai', view: 'Another concern' }],
+        tradeOffs: [],
+      } }],
+      attendees: [
+        ...scenario.attendees,
+        { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai (Cashier)' },
+        { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' },
+      ],
+      roles: [...scenario.roles, { id: 'host', label: 'Host' }],
+      npcs: [
+        { attendee: 'Hal', role: 'host' as const, voice: 'v0', personality: 'Calm', agenda: 'Keep time', concerns: [] },
+        ...scenario.npcs,
+        { attendee: 'Cai', voice: 'v3', personality: 'Practical', agenda: 'Open on time', concerns: [] },
+      ],
+    };
+    const h = harness(withOwner);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withOwner, random: () => seed, observeDelayMs: 1, responseDelayMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Prep');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0]?.messages[0]?.content).toContain('Ada presses the issue hardest');
+    const cue = h.calls[0]?.messages.at(-1)?.content;
+    expect(cue).toContain('Ada pushes hardest');
+    expect(cue).toContain('Ada\'s view:');
+    expect(cue).toContain('Bao\'s view:');
+    if (seed === 0.9) expect(cue).toContain('Ada and Bao are already mid-disagreement');
+  });
+
   it('does not cut the room off for a short burst of noise, but does for a person who keeps talking', async () => {
     const { conversation, calls, playing, flush, say } = harness(scenario, 900);
     await say('Hello.');
