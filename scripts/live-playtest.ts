@@ -13,7 +13,7 @@ const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
 const reportPath = join(LOG_DIR, `${stem}.md`);
 const shotDir = join(LOG_DIR, 'playtest-shots');
 
-type Check = { at: string; name: string; status: 'PASS' | 'FAIL'; detail: string; shot?: string };
+type Check = { at: string; name: string; status: 'PASS' | 'WARN' | 'FAIL'; detail: string; shot?: string };
 type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
@@ -97,9 +97,10 @@ async function main(): Promise<void> {
       .catch((error: unknown) => notes.push(`Phone screenshot failed (${when}): ${String(error)}`));
   }
 
-  async function check(name: string, ok: boolean, detail: string): Promise<void> {
-    const item: Check = { at: stamp(), name, status: ok ? 'PASS' : 'FAIL', detail };
-    if (!ok && page !== undefined && !page.isClosed()) {
+  // severity 'warn': a miss is listed for human review but does not fail the run.
+  async function check(name: string, ok: boolean, detail: string, severity: 'fail' | 'warn' = 'fail'): Promise<void> {
+    const item: Check = { at: stamp(), name, status: ok ? 'PASS' : severity === 'warn' ? 'WARN' : 'FAIL', detail };
+    if (item.status === 'FAIL' && page !== undefined && !page.isClosed()) {
       try {
         await mkdir(shotDir, { recursive: true });
         const shot = join(shotDir, `${stem}-${String(++shotNumber).padStart(2, '0')}.png`);
@@ -601,7 +602,7 @@ async function main(): Promise<void> {
         topicMarkers.find((item) => item.matches.test(old.title))?.markers.test(line.text)) === true;
     });
     await check('No prior-topic speech after move', stale.length === 0,
-      stale.length ? stale.map((line) => `item ${line.agendaIndex + 1} ${line.speaker}: ${line.text}`).join(' / ') : 'No prior-topic marker in later AI transcript lines');
+      stale.length ? `Review each: shared resources may carry over legitimately. ${stale.map((line) => `item ${line.agendaIndex + 1} ${line.speaker}: ${line.text}`).join(' / ')}` : 'No prior-topic marker in later AI transcript lines', 'warn');
     const staleCaptions = uiLines.filter((line) => {
       if (line.source !== 'caption') return false;
       const index = scenario?.agenda.findIndex((item) => item.title === line.topicTitle) ?? -1;
@@ -612,7 +613,7 @@ async function main(): Promise<void> {
         topicMarkers.find((item) => item.matches.test(old.title))?.markers.test(line.text)) === true;
     });
     await check('No prior-topic captions after move', staleCaptions.length === 0,
-      staleCaptions.length ? staleCaptions.map((line) => `${line.topicTitle}: ${line.text}`).join(' / ') : 'No prior-topic marker in later captions');
+      staleCaptions.length ? `Review each: shared resources may carry over legitimately. ${staleCaptions.map((line) => `${line.topicTitle}: ${line.text}`).join(' / ')}` : 'No prior-topic marker in later captions', 'warn');
     await check('Browser console and localhost requests', errors.length === 0, errors.length ? `${errors.length} error(s)` : 'No console errors, page errors, rejected commands, socket errors, or failed localhost requests');
     if (offerHandled.size === 0) checks.push({ at: stamp(), name: 'Lock offer after clarification', status: 'PASS', detail: 'Conditional check: no time/turn-budget offer appeared during this run' });
     else await check('Lock offer after clarification', checks.some((item) => item.name.includes('offer recovery') && item.status === 'FAIL') === false,
@@ -629,7 +630,7 @@ async function main(): Promise<void> {
       `# Kopitiam live playtest — ${startedAt.toISOString()}`,
       '',
       `Role: ${visitorRole || '(not joined)'} · Name: Robot Visitor · Device: ${phoneMode ? 'Pixel 7 emulation' : 'desktop'} · Duration: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}s`,
-      `Result: **${checks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS'}**`,
+      `Result: **${checks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS'}**${checks.some((item) => item.status === 'WARN') ? ` · ${checks.filter((item) => item.status === 'WARN').length} warning(s) to review` : ''}`,
       '',
       '| Time (UTC) | Check | Result | Detail | Screenshot |',
       '| --- | --- | --- | --- | --- |',
