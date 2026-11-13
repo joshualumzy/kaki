@@ -643,12 +643,12 @@ export function MeetingGrid({
                     className="kd-starter-chip"
                     onClick={() => {
                       sendQuickLine(
-                        "We're split on this — let's table it for now and have Kaki schedule a 10 AM follow-up meeting on the calendar.",
+                        "We're split on this — let's table it for now and set up a follow-up to settle it later.",
                       );
                       setShowStarterIdeas(false);
                     }}
                   >
-                    ⏭️ Table topic &amp; schedule 10 AM follow-up
+                    ⏭️ Table topic &amp; set a follow-up
                   </button>
                 )}
               </div>

@@ -14,6 +14,15 @@ function setup() {
 }
 
 describe('TypeBar', () => {
+  it('enables the lock button only after the server reports a visitor line on this topic', () => {
+    const send = vi.fn();
+    const view = render(<TypeBar send={send} canLock={false} />);
+    const button = screen.getByRole('button', { name: 'Lock in my decision' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    view.rerender(<TypeBar send={send} canLock />);
+    fireEvent.click(button);
+    expect(send).toHaveBeenCalledWith({ kind: 'lock' });
+  });
   it('sends what is typed on Enter, trimmed, and clears the box', () => {
     const { send, input } = setup();
     fireEvent.change(input, { target: { value: '  What is the status?  ' } });

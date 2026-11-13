@@ -26,6 +26,8 @@ export interface TaskStore {
    * so an API caller cannot forge a commitment and have the assignee's responder auto-accept it.
    */
   suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence): Task;
+  /** Replace an early suggestion with the visitor's final wording before dispatch. */
+  reviseSuggested(id: string, input: SuggestInput): Task;
   get(id: string): Task | undefined;
   list(): Task[];
   transition(id: string, to: TaskStatus, patch?: TaskPatch): Task;
@@ -159,6 +161,19 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     return task;
   }
 
+  function reviseSuggested(id: string, input: SuggestInput): Task {
+    if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
+    const current = requireTask(id);
+    if (current.status !== 'SUGGESTED') throw new CommandError('Only a suggested task can be revised');
+    // Evidence for the old scope cannot authorise a changed deliverable.
+    const { assignmentEvidence: _oldEvidence, ...base } = current;
+    const revised: Task = { ...base, ...input, updatedAt: new Date().toISOString() };
+    tasks.set(id, revised);
+    publishTask(revised);
+    notifyChange(revised, current.status);
+    return revised;
+  }
+
   function requireScreen(sender: ClientAudience): void {
     if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
   }
@@ -234,6 +249,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
 
   return {
     suggest,
+    reviseSuggested,
     get: (id) => tasks.get(id),
     list: () => [...tasks.values()],
     transition,

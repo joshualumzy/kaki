@@ -9,6 +9,9 @@ const withAi: Scenario = {
 };
 
 describe('demo meeting helpers', () => {
+  it('accepts the explicit decision lock control', () => {
+    expect(parseControlMessage({ kind: 'lock' })).toEqual({ kind: 'lock' });
+  });
   it('names the room after the scenario', () => {
     expect(demoRoomName(testScenario)).toBe('kaki-demo-test-kitchen');
   });

@@ -115,6 +115,20 @@ describe('addressedCharacter', () => {
 });
 
 describe('buildSystemPrompt', () => {
+  it('uses the visitor role label in item and colleague framing', () => {
+    const scenario = {
+      ...npcScenario,
+      roles: npcScenario.roles.map((role) => role.id === 'chef' ? { ...role, id: 'seat_42', label: 'Kitchen Lead' } : role),
+      attendees: npcScenario.attendees.map((attendee) => attendee.role === 'chef' ? { ...attendee, role: 'seat_42' } : attendee),
+      agenda: npcScenario.agenda.map((item) => ({ ...item, ownerRole: 'seat_42' })),
+      npcs: npcScenario.npcs.map((npc, index) => ({ ...npc, ...(index === 0 ? { role: 'host' as const } : {}),
+        withRoles: { seat_42: 'Relies on their call.' } })),
+    };
+    const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'seat_42' }, 'Prep');
+    expect(prompt).toContain('Kitchen Lead leads this topic');
+    expect(prompt).toContain('Towards Visitor (Kitchen Lead)');
+    expect(prompt).not.toContain('seat_42');
+  });
   it('has the characters follow the person when that person is the host', () => {
     const scenario = {
       ...npcScenario,
@@ -136,7 +150,7 @@ describe('buildSystemPrompt', () => {
 
   it('asks for direct answers and a warm, human tone, without naming anything from one scenario', () => {
     const prompt = buildSystemPrompt(npcScenario);
-    expect(prompt).toContain('answer it directly and concretely first');
+    expect(prompt).toContain('answer it directly and concretely from the current scenario facts');
     expect(prompt).toContain('Notice how the person seems');
     expect(prompt).toContain('Ada: Yeah, I hear you.');
     expect(prompt).not.toMatch(/crash|Arjun|Hawker/);

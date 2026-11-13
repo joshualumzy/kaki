@@ -14,6 +14,7 @@ import { startNpcRunner } from './runner';
 import { colleagueLine } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
+import { postSettledTopic } from './settlement';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 
 /** `npm run npc`: the AI attendees of the live demo meeting, wired to the real model, Azure speech and Kaki. */
@@ -33,6 +34,7 @@ function requireEnv(name: string, hint: string): string {
 }
 
 const log = (message: string): void => console.log(`[npc ${new Date().toISOString().slice(11, 23)}] ${message}`);
+const logError = (message: string): void => console.error(`[npc ${new Date().toISOString().slice(11, 23)}] ${message}`);
 
 const scenario = await loadScenario();
 const npcs = scenario.npcs ?? [];
@@ -149,19 +151,25 @@ const runner = await startNpcRunner({
   },
   onWingmanTip: (tip, title) => {
     const today = new Date().toISOString().slice(0, 10);
+    const role = runner.visitorRole();
+    if (role === undefined) return;
     fetch(`${kakiUrl}/dev/emit`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         type: 'FACT_FOUND',
-        audience: { kind: 'all' },
+        audience: { kind: 'role', role },
         payload: {
+          questionId: `live-${Date.now()}`,
           question: `Live Wingman Brief · ${title}`,
           facts: [{ text: tip, source: 'Live Wingman', date: today }],
         },
       }),
-    }).catch(() => undefined);
+    }).then((response) => {
+      if (!response.ok) log(`Wingman tip rejected (HTTP ${response.status})`);
+    }).catch((error: unknown) => log(`Wingman tip failed: ${String(error)}`));
   },
+  onTopicSettled: (followUp) => postSettledTopic(fetch, `${kakiUrl}/dev/settle-topic`, followUp, logError),
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);
@@ -214,12 +222,8 @@ const taskResponder = createTaskResponder({
 // Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
 let dispatchCount = 0;
 const taskStatusByTitle = new Map<string, string>();
-const activeHumanTaskIds = new Set<string>();
-const claimedAnnouncedTaskIds = new Set<string>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
-let lastVisitorDispatchSpokenAt = 0;
-let lastVerbalTaskAckAt = 0;
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
   const socket = new WebSocket(url);
@@ -228,144 +232,40 @@ function followHostCues(): void {
     openedAt.at = Date.now();
   });
   socket.on('message', (data) => {
-    if (Date.now() - openedAt.at < 1000) return;
     try {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
+      if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
       if (event.type === 'MEETING_RESET') {
         taskStatusByTitle.clear();
-        activeHumanTaskIds.clear();
-        claimedAnnouncedTaskIds.clear();
         syncedTaskIds.clear();
         declinedTaskIds.clear();
-        lastVisitorDispatchSpokenAt = 0;
-        lastVerbalTaskAckAt = 0;
         return;
       }
-      if (event.type === 'TRANSCRIPT_CHUNK' && typeof event.payload?.text === 'string') {
-        if (/\bKaki (?:will draft|is drafting) that (?:on your screen|for you)\b/i.test(event.payload.text)) {
-          lastVerbalTaskAckAt = Date.now();
-        }
-      }
       if (event.type === 'TASK_UPDATED') {
-        const updatedTask = (
-          event.payload as {
-            task?: {
-              id?: string;
-              title?: string;
-              status?: string;
-              mode?: string;
-              assignee?: string;
-              suggestedAssignee?: string;
-              declinedBy?: string[];
-              agendaItemTitle?: string;
-            };
-          } | undefined
-        )?.task;
-        if (updatedTask?.title !== undefined && updatedTask.status !== undefined) {
-          taskStatusByTitle.set(updatedTask.title.trim().toLowerCase(), updatedTask.status);
-        }
-        const taskOrigin = updatedTask?.agendaItemTitle ?? null;
-        const onCurrentAgenda = runner.onCurrentAgenda(updatedTask?.agendaItemTitle);
-        taskResponder.handle(event as unknown as KakiEvent);
-        const assigneeRole = updatedTask?.assignee ?? updatedTask?.suggestedAssignee;
-        const assigneeAttendee = scenario.attendees.find((a) => a.role === assigneeRole)?.name;
-        const isHumanTask = assigneeAttendee !== undefined && !runner.plays(assigneeAttendee);
-        if (updatedTask?.id !== undefined && !onCurrentAgenda) activeHumanTaskIds.delete(updatedTask.id);
-        const wasDeclinedByHuman =
-          updatedTask?.status === 'SUGGESTED' &&
-          Array.isArray(updatedTask.declinedBy) &&
-          updatedTask.declinedBy.some((r) => {
-            const name = scenario.attendees.find((a) => a.role === r)?.name;
-            return name !== undefined && !runner.plays(name);
-          });
-
-        if (
-          wasDeclinedByHuman &&
-          onCurrentAgenda &&
-          updatedTask?.id !== undefined &&
-          !declinedTaskIds.has(updatedTask.id)
-        ) {
-          declinedTaskIds.add(updatedTask.id);
-          activeHumanTaskIds.delete(updatedTask.id);
-          runner.cancelPendingDispatch(taskOrigin);
-          const who = runner.visitorName() ?? 'there';
-          runner.announce(
-            `No worries ${who}, we'll cover that follow-up after the call.`,
-            () => {
-              if (activeHumanTaskIds.size === 0) {
-                runner.completeHumanTask(taskOrigin);
-              }
-            },
-          );
-        } else if (isHumanTask && onCurrentAgenda && updatedTask?.id !== undefined) {
-          if (updatedTask.status === 'DISPATCHED') {
-            activeHumanTaskIds.add(updatedTask.id);
-            runner.holdForHumanTask(45_000, taskOrigin);
-          } else if (
-            updatedTask.status === 'CLAIMED' ||
-            updatedTask.status === 'DRAFT_READY' ||
-            updatedTask.status === 'RUNNING' ||
-            updatedTask.status === 'FAILED'
-          ) {
-            activeHumanTaskIds.add(updatedTask.id);
-            runner.cancelPendingDispatch(taskOrigin);
-            runner.holdForHumanTask(45_000, taskOrigin);
-            if (updatedTask.status === 'CLAIMED' && !claimedAnnouncedTaskIds.has(updatedTask.id)) {
-              claimedAnnouncedTaskIds.add(updatedTask.id);
-              if (claimedAnnouncedTaskIds.size === 1 && Date.now() - lastVerbalTaskAckAt > 12_000) {
-                const who = runner.visitorName() ?? assigneeAttendee ?? 'there';
-                runner.announce(
-                  `Nice one ${who} — Kaki is drafting that for you now, just review and send it whenever it's ready.`,
-                );
-              }
-            }
-          } else if (updatedTask.status === 'COMPLETED') {
-            activeHumanTaskIds.add(updatedTask.id);
-            runner.cancelPendingDispatch(taskOrigin);
-            runner.holdForHumanTask(activeHumanTaskIds.size <= 1 ? 25_000 : 45_000, taskOrigin);
-          } else if (updatedTask.status === 'SYNCED') {
-            activeHumanTaskIds.delete(updatedTask.id);
-            runner.cancelPendingDispatch(taskOrigin);
-            if (!syncedTaskIds.has(updatedTask.id)) {
-              syncedTaskIds.add(updatedTask.id);
-              const who = runner.visitorName() ?? assigneeAttendee ?? 'team';
-              const ack =
-                syncedTaskIds.size === 1
-                  ? `Thanks ${who}, that's live now — feel free to click Open live on your card if you want to check it out before we move on.`
-                  : syncedTaskIds.size === 2
-                    ? `Steady ${who}, Kaki just published that follow-up as well.`
-                    : `Lovely ${who}, that's published live too.`;
-              runner.announce(
-                ack,
-                () => {
-                  if (activeHumanTaskIds.size === 0) {
-                    setTimeout(() => {
-                      if (activeHumanTaskIds.size === 0) {
-                        runner.completeHumanTask(taskOrigin);
-                      }
-                    }, 9_000).unref();
-                  } else {
-                    runner.holdForHumanTask(45_000, taskOrigin);
-                  }
-                },
-              );
-            }
+        const task = (event.payload as { task?: {
+          id?: string; title?: string; status?: string; assignee?: string; suggestedAssignee?: string;
+          declinedBy?: string[]; agendaItemTitle?: string;
+        } } | undefined)?.task;
+        if (task?.id === undefined || task.status === undefined) return;
+        if (task.title !== undefined) taskStatusByTitle.set(task.title.trim().toLowerCase(), task.status);
+        taskResponder.handle(event as KakiEvent);
+        const role = task.assignee ?? task.suggestedAssignee;
+        const isVisitorTask = role !== undefined && role === runner.visitorRole();
+        const declined = task.declinedBy?.includes(role ?? '') === true;
+        runner.taskStatus(task.id, task.agendaItemTitle, task.status, isVisitorTask, declined);
+        if (isVisitorTask && runner.onCurrentAgenda(task.agendaItemTitle)) {
+          if (declined && !declinedTaskIds.has(task.id)) {
+            declinedTaskIds.add(task.id);
+            runner.cancelPendingDispatch(task.agendaItemTitle);
+            runner.announce(`No worries ${runner.visitorName() ?? 'there'}, we'll cover that follow-up after the call.`);
+          } else if (task.status === 'SYNCED' && !syncedTaskIds.has(task.id)) {
+            syncedTaskIds.add(task.id);
+            runner.announce(`Thanks ${runner.visitorName() ?? 'there'}, that's live now. You can click Open live on your card before we move on.`);
           }
-        } else if (
-          activeHumanTaskIds.size === 0 &&
-          onCurrentAgenda &&
-          (updatedTask?.status === 'CLAIMED' ||
-            updatedTask?.status === 'RUNNING' ||
-            updatedTask?.status === 'COMPLETED' ||
-            updatedTask?.status === 'DECLINED')
-        ) {
-          runner.taskAccepted(taskOrigin);
         }
       }
       if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string') {
         if (event.payload.text.startsWith('Next up:')) {
-          activeHumanTaskIds.clear();
-          lastVisitorDispatchSpokenAt = 0;
           runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
         }
         // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
@@ -386,11 +286,6 @@ function followHostCues(): void {
               runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done),
             );
           } else if (payload.kind === 'DISPATCH') {
-            const now = Date.now();
-            if (now - lastVisitorDispatchSpokenAt < 18_000) {
-              return;
-            }
-            lastVisitorDispatchSpokenAt = now;
             const titleKey = (payload.title ?? '').trim().toLowerCase();
             runner.announce(payload.text, undefined, () => {
               const currentStatus = taskStatusByTitle.get(titleKey);

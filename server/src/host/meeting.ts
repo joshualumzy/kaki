@@ -28,7 +28,7 @@ export interface MeetingModuleOptions {
 /**
  * The meeting record: agenda clock, notetaker and (optionally) the replay feed.
  * The clock starts on the first transcript line, live or replayed. A replay moves the agenda on
- * its own markers and ends the meeting after its last line; live, the notetaker moves the agenda.
+ * its own markers and ends the meeting after its last line; live, only the screen command moves the agenda.
  */
 export function createMeetingModule({
   llm,
@@ -45,20 +45,13 @@ export function createMeetingModule({
         tasks,
         llm,
         agendaIndex: () => clock.snapshot().agendaIndex,
-        onAgendaIndex:
-          replay === undefined
-            ? (index) => {
-                clock.advanceTo(index);
-                publishRecord();
-                announceAgendaItem();
-              }
-            : undefined,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
       let humanHost = false;
       // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
       const stopAutoDispatch =
-        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario, hostIsHuman: () => humanHost });
+        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario,
+          hostIsHuman: () => humanHost, holdUntilSettled: replay === undefined && (scenario.npcs?.length ?? 0) > 0 });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;

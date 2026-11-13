@@ -42,14 +42,10 @@ export function colleagueLine(name: string, title: string, count: number): strin
   return lines[count % lines.length]!;
 }
 
-/** How long after a task is dispatched to a role before another task of the same actionKind for the same role is allowed. */
-const SAME_ROLE_ACTION_COOLDOWN_MS = 45_000;
-
 /**
  * Sam (the host) hands each newly suggested task straight to the role the notetaker named, and says so aloud.
  * The recipient is the human step: they accept it (claim) or decline it, which puts it back on the shared screen.
- * If the notetaker suggests a duplicate task for the same role and action kind right after one was already dispatched
- * (e.g. from two halves of the same discussion turn), Sam silently dismisses the duplicate so the room is not interrupted twice.
+ * In the live NPC meeting, suggestions wait until the Director locks or closes their topic.
  * A task is left for a person to dispatch from the screen when nobody present can own it: the facilitator's role
  * (Sam himself) or a role nobody in this meeting plays. A role played by an AI attendee has no phone: the NPC process
  * (`npc/taskResponder.ts`) answers for them, aloud, and sends their Accept or Decline.
@@ -59,58 +55,75 @@ export function installAutoDispatch({
   tasks,
   scenario,
   hostIsHuman = () => false,
+  holdUntilSettled = false,
 }: {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
   /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
   hostIsHuman?: () => boolean;
+  holdUntilSettled?: boolean;
 }): () => void {
   let sent = 0;
-  const lastDispatchedAt = new Map<string, number>();
-  const unsubscribeReset = hub.subscribe((event) => {
-    if (event.type === 'MEETING_RESET') {
-      lastDispatchedAt.clear();
-      sent = 0;
-    }
-  });
-  const unsubscribeTasks = tasks.onChange((task, previous) => {
-    const dedupeKey = `${task.suggestedAssignee}:${task.actionKind ?? 'manual'}:${task.agendaItemTitle ?? ''}`;
-    if (task.status === 'DISMISSED') {
-      if (previous === 'DISPATCHED') {
-        lastDispatchedAt.delete(dedupeKey);
-      }
-      return;
-    }
-    if (previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
+  let active = true;
+  const settledTopics = new Set<string>();
+  const held = new Map<string, Task>();
+  const dispatch = (task: Task): void => {
+    if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return;
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
     if (role === undefined || role.facilitator === true || !present) return;
-
-    const lastAt = lastDispatchedAt.get(dedupeKey);
-    const now = Date.now();
-    if (lastAt !== undefined && now - lastAt < SAME_ROLE_ACTION_COOLDOWN_MS) {
-      tasks.transition(task.id, 'DISMISSED');
-      return;
-    }
-    lastDispatchedAt.set(dedupeKey, now);
-
     tasks.transition(task.id, 'DISPATCHED', { assignee: task.suggestedAssignee });
     const cue: KakiEvent = {
-      type: 'HOST_SPEECH_TRIGGERED',
-      audience: { kind: 'screen' },
-      payload: {
-        kind: 'DISPATCH',
-        // The same words for everyone: nobody in the room can tell which attendees are AI.
-        text: dispatchLine(addressee(scenario, task), task.title, sent),
-        assignee: addressee(scenario, task),
-        title: task.title,
-      },
+      type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' },
+      payload: { kind: 'DISPATCH', text: dispatchLine(addressee(scenario, task), task.title, sent),
+        assignee: addressee(scenario, task), title: task.title },
     };
     hub.publish(cue);
     sent += 1;
+  };
+  const release = (title?: string, priorityId?: string): void => {
+    const candidates = [...held.values()].filter((task) => title === undefined || task.agendaItemTitle === title);
+    candidates.sort((left, right) => Number(right.id === priorityId) - Number(left.id === priorityId));
+    const released: Task[] = [];
+    for (const task of candidates) {
+      held.delete(task.id);
+      const current = tasks.get(task.id);
+      if (current?.status !== 'SUGGESTED') continue;
+      if (released.some((earlier) => earlier.agendaItemTitle === task.agendaItemTitle &&
+          earlier.suggestedAssignee === current.suggestedAssignee && earlier.actionKind === current.actionKind &&
+          earlier.title.trim().toLowerCase() === current.title.trim().toLowerCase())) {
+        tasks.transition(task.id, 'DISMISSED');
+        continue;
+      }
+      dispatch(current);
+      released.push(current);
+    }
+  };
+  const unsubscribeReset = hub.subscribe((event) => {
+    if (event.type === 'MEETING_RESET') {
+      sent = 0;
+      settledTopics.clear();
+      held.clear();
+    } else if (event.type === 'TOPIC_SETTLED') {
+      settledTopics.add(event.payload.title);
+      release(event.payload.title, event.payload.taskId);
+    }
+  });
+  hub.onCommand((command, sender) => {
+    if (!active || sender !== 'screen') return;
+    if (command.type === 'NEXT_AGENDA_ITEM' || command.type === 'END_MEETING') release();
+  });
+  const unsubscribeTasks = tasks.onChange((task, previous) => {
+    if (!active || previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
+    if (holdUntilSettled && task.agendaItemTitle !== undefined && !settledTopics.has(task.agendaItemTitle)) {
+      held.set(task.id, task);
+      return;
+    }
+    dispatch(task);
   });
   return () => {
+    active = false;
     unsubscribeReset();
     unsubscribeTasks();
   };

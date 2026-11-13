@@ -17,6 +17,7 @@ export type ControlMessage =
   | { kind: 'text'; text: string }
   /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
   | { kind: 'typing' }
+  | { kind: 'lock' }
   /** The person wants the AI attendees to pause or stop talking now. */
   | { kind: 'stop' }
   /** The person wants the AI attendees to resume after being paused. */
@@ -31,7 +32,7 @@ export type ControlMessage =
 export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const message = raw as { kind?: unknown; text?: unknown; requestId?: unknown; session?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume') {
+  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume' || message.kind === 'lock') {
     return { kind: message.kind };
   }
   if (message.kind === 'start') {
@@ -59,9 +60,9 @@ export interface SttMessage {
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
   /** `yourTurn`: the last thing the room said was a question for the person; it is the question. `wingmanHint`: true when the semantic layer detects the visitor is unsure or asking for figures that Kaki Wingman has. */
-  | { kind: 'idle'; yourTurn?: string; wingmanHint?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
-  | { kind: 'thinking'; wingmanHint?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
-  | { kind: 'speaking'; speaker: string; wingmanHint?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
+  | { kind: 'idle'; yourTurn?: string; wingmanHint?: boolean; canLock?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
+  | { kind: 'thinking'; wingmanHint?: boolean; canLock?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
+  | { kind: 'speaking'; speaker: string; wingmanHint?: boolean; canLock?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
   | { kind: 'error'; message: string }
   /** The NPC accepted a Start request: the browser can stop retrying and let the meeting open. */
   | { kind: 'started'; requestId: string; session: string };

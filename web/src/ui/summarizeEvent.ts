@@ -23,6 +23,8 @@ export function summarizeEvent(event: KakiEvent): string {
     }
     case 'TASK_UPDATED':
       return `${event.payload.task.title} — ${event.payload.task.status.toLowerCase()}`;
+    case 'TOPIC_SETTLED':
+      return `Decision locked on “${event.payload.title}”`;
     case 'MEETING_RESET':
       return 'A new meeting started';
     case 'COMMAND_REJECTED':

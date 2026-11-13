@@ -384,8 +384,49 @@ async function handleRequest(
         sendJson(response, 400, { error: 'Body must be a valid task suggestion' });
         return;
       }
-
       sendJson(response, 200, context.tasks.suggest(body.value));
+      return;
+    }
+
+    // The live demo's engine locked the visitor's decision on an agenda item: create its follow-up and release
+    // whatever was held for that item, in one request so the two can never disagree.
+    if (request.method === 'POST' && path === '/dev/settle-topic' && devRoutesOpen(request, context)) {
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      if (!isSuggestInput(body.value, context.scenario)) {
+        sendJson(response, 400, { error: 'Body must be a valid task suggestion with an agendaItemTitle' });
+        return;
+      }
+      const followUp = body.value;
+      const agendaTitle = followUp.agendaItemTitle;
+      if (agendaTitle === undefined) {
+        sendJson(response, 400, { error: 'Body must be a valid task suggestion with an agendaItemTitle' });
+        return;
+      }
+      const existing = followUp.decisionSource === undefined ? undefined : context.tasks.list().find((task) =>
+        task.agendaItemTitle === followUp.agendaItemTitle && task.suggestedAssignee === followUp.suggestedAssignee &&
+        task.decisionSource === followUp.decisionSource && task.actionKind === followUp.actionKind);
+      if (existing !== undefined) {
+        sendJson(response, 200, existing);
+        return;
+      }
+      const candidates = context.tasks.list().filter((task) =>
+        task.status === 'SUGGESTED' && task.agendaItemTitle === followUp.agendaItemTitle &&
+        task.suggestedAssignee === followUp.suggestedAssignee && task.actionKind === followUp.actionKind &&
+        (task.decisionSource === undefined || followUp.decisionSource === undefined ||
+          followUp.decisionSource.toLowerCase().includes(task.decisionSource.trim().toLowerCase())));
+      const task = candidates.length === 1
+        ? context.tasks.reviseSuggested(candidates[0]!.id, followUp)
+        : context.tasks.suggest(followUp);
+      context.hub.publish({
+        type: 'TOPIC_SETTLED',
+        audience: { kind: 'screen' },
+        payload: { title: agendaTitle, taskId: task.id },
+      });
+      sendJson(response, 200, context.tasks.get(task.id));
       return;
     }
 

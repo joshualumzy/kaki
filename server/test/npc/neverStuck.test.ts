@@ -1,0 +1,372 @@
+import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { aiCast, humanRoles, parseScenario, shuffleAgendaForRole, type Scenario, type SuggestInput } from '@kaki/shared';
+import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
+import { buildSystemPrompt, type Utterance } from '../../src/npc/director';
+
+const fullScenario = parseScenario(JSON.parse(readFileSync(new URL('../../../scenarios/kopitiam/scenario.json', import.meta.url), 'utf8')));
+const control = (state: 'open' | 'settled' | 'deferred', title = 'Share the agreed decision') =>
+  `KAKI_CONTROL ${JSON.stringify({ state, followUp: { kind: 'mattermost_post', title }, wingmanNeeded: false })}`;
+
+function meeting(scenario: Scenario, role: string, replies: Array<string | string[] | (() => AsyncIterable<string>)>, overrides: Partial<ConversationOptions> = {}) {
+  const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+  const cast = aiCast(scenario, seat);
+  const tasks: SuggestInput[] = [];
+  const spoken: string[] = [];
+  const captions: string[] = [];
+  const logs: string[] = [];
+  const states: NpcUiState[] = [];
+  let reply = 0;
+  let index = 0;
+  let ended = 0;
+  let conversation: NpcConversation<Utterance>;
+  const ports: NpcPorts<Utterance> = {
+    async *stream() {
+      const chunks = replies[reply++] ?? `${control('open')}\n${cast[0]!.attendee}: Tell me more.`;
+      if (typeof chunks === 'function') { yield* chunks(); return; }
+      for (const chunk of Array.isArray(chunks) ? chunks : [chunks]) yield chunk;
+    },
+    async synthesize(utterance) { return utterance; },
+    async play(_speaker, clip) { spoken.push(clip.text); },
+    emitTranscript(_speaker, text) { captions.push(text); },
+    emitState(state) { states.push(state); },
+    log(message) { logs.push(message); },
+    settleTopic(input) { tasks.push(input); },
+    advanceAgenda() { index += 1; conversation.agendaMoved(scenario.agenda[index]?.title); },
+    endMeeting() { ended += 1; },
+  };
+  conversation = new NpcConversation(ports, {
+    scenario: { ...scenario, npcs: cast }, responseDelayMs: 0,
+    speakerGapMs: 0, sentenceGapMs: 0, openLiveGraceMs: 1,
+    observeDelayMs: 60_000, silencePromptMs: 60_000,
+    ...overrides,
+  });
+  conversation.setHuman({ name: 'Visitor', role });
+  conversation.agendaMoved(scenario.agenda[0]!.title);
+  const say = async (line: string) => {
+    conversation.humanTyped(line);
+    await vi.advanceTimersByTimeAsync(0);
+    await conversation.settled();
+  };
+  return { conversation, tasks, spoken, captions, logs, states, say, index: () => index, ended: () => ended, replies: () => reply };
+}
+
+afterEach(() => vi.useRealTimers());
+
+describe('never-stuck visitor path', () => {
+  it('uses each topic discussion for the debaters and names the visitor as owner of their item', () => {
+    for (const role of humanRoles(fullScenario)) {
+      const item = fullScenario.agenda.find((candidate) => candidate.ownerRole === role.id)!;
+      const seat = fullScenario.attendees.find((attendee) => attendee.role === role.id)!.name;
+      const cast = aiCast(fullScenario, seat);
+      const prompt = buildSystemPrompt({ ...fullScenario, npcs: cast },
+        { name: 'Visitor', role: role.id }, item.title);
+      const debaters = prompt.match(/Two of them \(([^)]+)\)/)?.[1] ?? '';
+      expect(debaters).not.toContain(seat);
+      expect(debaters.split(', ')).toHaveLength(2);
+      for (const name of debaters.split(', ')) {
+        expect([...item.discussion!.openingViews, ...item.discussion!.tradeOffs].map((entry) => entry.attendee)).toContain(name);
+      }
+      expect(prompt).toContain('Visitor leads this item');
+      expect(prompt).toContain(role.label);
+    }
+  });
+  for (const role of humanRoles(fullScenario)) {
+    it(`sends a follow-up on both topics and ends for ${role.label}`, async () => {
+      vi.useFakeTimers();
+      const agenda = shuffleAgendaForRole(fullScenario, role.id, () => 0.1, 2);
+      const scenario = { ...fullScenario, agenda };
+      const seat = scenario.attendees.find((attendee) => attendee.role === role.id)!.name;
+      const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+      const replies = agenda.flatMap((_item, n) => [
+        `${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`,
+        `${control('settled', `Post decision ${n + 1}`)}\n${colleagues[0]!.attendee}: Could you Post decision ${n + 1}?`,
+      ]);
+      const h = meeting(scenario, role.id, replies, { observeDelayMs: 1500 });
+      h.conversation.announce('Sam', 'Welcome to the huddle.');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.spoken).toContain('Welcome to the huddle.');
+      for (let n = 0; n < 2; n += 1) {
+        await vi.advanceTimersByTimeAsync(1500);
+        await h.conversation.settled();
+        expect(h.spoken).toContain('Here is the problem.');
+        expect(h.spoken).toContain('What is your call?');
+        await h.say(`I choose a workable plan for ${agenda[n]!.title}.`);
+        expect(h.tasks[n]).toMatchObject({ agendaItemTitle: agenda[n]!.title, suggestedAssignee: role.id });
+        expect(h.tasks[n]!.context).toContain(`I choose a workable plan for ${agenda[n]!.title}.`);
+        expect(h.spoken).toContain(`Could you Post decision ${n + 1}?`);
+        h.conversation.taskStatus(`task-${n}`, agenda[n]!.title, 'DISPATCHED', true);
+        h.conversation.taskStatus(`task-${n}`, agenda[n]!.title, 'SYNCED', true);
+        await vi.advanceTimersByTimeAsync(2);
+      }
+      expect(h.index()).toBe(1);
+      expect(h.ended()).toBe(1);
+      expect(h.tasks).toHaveLength(2);
+      h.conversation.close();
+    });
+  }
+
+  const decisions = [
+    "Okay, so let's turn on subtitle mode.", 'Right, turn on subtitle mode.',
+    'No, we keep the kitchen open with fresh stock.', 'Hmm, I think we should use the window bar.',
+    "I'll put the stools at the window bar.", 'I will make sure the chef shows the receipt.',
+    'Post a staff member at the door.', 'Send the family an apology and pay the bill.',
+    'Put table signs on the booths.', 'Open the car park for delivery riders.',
+    'Keep the ten booths for diners.', 'Switch the wall sockets off during breakfast.',
+    'Give solo diners the window seats.', 'Use both counters for the morning rush.',
+    'Let the chef check each fresh tray.', 'I choose the smaller menu.',
+    'We should trial the new ordering screen.', 'Try a short queue outside.',
+    'Actually, keep the old names on receipts.', 'Make the labels larger.',
+    'Launch the office platter first.', 'Hold the discount until margins are checked.',
+    'Let staff guide first-time customers.', 'Move laptops away from the booths.',
+    'Close only the affected fridge.', 'Document the disposal immediately.',
+    'Use a direct pickup code.', 'I back the window bar plan.',
+    'My decision is to split the queue.', 'Do the slower option to protect quality.',
+    'Yes, set up the signs before opening.', 'Sure, give Auntie Mary help at the door.',
+    'Wait, use fresh stock instead.', 'Thanks, I choose the office bundle.',
+    'File the receipt with the inspection notes.', 'Write the seating policy today.',
+    'We can absorb this cost once.', 'Give the hospital a goodwill payment.',
+    'Let us use subtitles and retain kitchen names.', 'The staff should lead the rollout.',
+  ];
+  it('settles forty differently worded decisions when the streamed control says settled', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const speaker = aiCast(scenario, scenario.attendees.find((a) => a.role === role)!.name)[0]!.attendee;
+    expect(decisions).toHaveLength(40);
+    for (const decision of decisions) {
+      const h = meeting(scenario, role, [`${control('settled')}\n${speaker}: Could you Share the agreed decision?`]);
+      await h.say(decision);
+      expect(h.tasks, decision).toHaveLength(1);
+      expect(h.tasks[0]!.context, decision).toContain(decision);
+      h.conversation.close();
+    }
+  });
+
+  it.each([
+    'Sam: I hear you.',
+    'KAKI_CONTROL {bad json}\nSam: I hear you.',
+    `Sam: I hear you.\n${control('settled')}`,
+  ])('keeps an open path for missing, malformed or late control: %s', async (reply) => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role, [reply]);
+    await h.say('Use the window bar.');
+    expect(h.tasks).toHaveLength(0);
+    expect(h.spoken).toContain('I hear you.');
+    h.conversation.lockDecision();
+    expect(h.tasks).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('parses a control line split across chunks without speaking it', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const reply = `${control('settled')}\nSam: Could you Share the agreed decision?`;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role, [reply.split('')]);
+    await h.say('Use the window bar.');
+    expect(h.tasks).toHaveLength(1);
+    expect(h.spoken).toEqual(['Could you Share the agreed decision?']);
+    h.conversation.close();
+  });
+
+  it('reads the control line when the reply starts with blank lines', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const reply = `\n \n${control('settled')}\nSam: Could you Share the agreed decision?`;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role, [['\n', ' \n', reply.slice(3)]]);
+    await h.say('Use the window bar.');
+    expect(h.tasks).toHaveLength(1);
+    expect(h.spoken).toEqual(['Could you Share the agreed decision?']);
+    h.conversation.close();
+  });
+
+  it('keeps sure and an early task on this topic until the visitor task is synced', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const title = fullScenario.agenda[0]!.title;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('open')}\nSam: Tell me more.`, `${control('settled')}\nSam: Could you Share the agreed decision?`,
+        `${control('open')}\nSam: Thanks.`]);
+    h.conversation.taskStatus('early', title, 'SYNCED', true);
+    await h.say('I am considering the window bar.');
+    expect(h.ended()).toBe(0);
+    await h.say('Use the window bar.');
+    expect(h.tasks).toHaveLength(1);
+    h.conversation.taskStatus('new', title, 'DISPATCHED', true);
+    await h.say('sure');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.ended()).toBe(0);
+    h.conversation.taskStatus('new', title, 'SYNCED', true);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(h.ended()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('offers once after the turn budget and locks after two unanswered prompts', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('open')}\nSam: I hear you.`], { topicTurnBudget: 1, budgetSilenceMs: 2 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(510);
+    expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.spoken).toContain('Shall I lock in what you’ve said now?');
+    expect(h.tasks).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('warns before a review window expires and ends the topic', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`], { reviewWindowMs: 1 });
+    await h.say('Use the window bar.');
+    expect(h.ended()).toBe(0);
+    await vi.advanceTimersByTimeAsync(510);
+    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(true);
+    expect(h.ended()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('resumes the completion grace after Stop so a synced topic can end', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const title = fullScenario.agenda[0]!.title;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`], { openLiveGraceMs: 20 });
+    await h.say('Use the window bar.');
+    h.conversation.taskStatus('sent', title, 'SYNCED', true);
+    h.conversation.stop();
+    await vi.advanceTimersByTimeAsync(30);
+    expect(h.ended()).toBe(0);
+    h.conversation.resumeFromPause();
+    await vi.advanceTimersByTimeAsync(30);
+    expect(h.ended()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('resumes the review window after Stop so an unfinished topic can end', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`], { reviewWindowMs: 20 });
+    await h.say('Use the window bar.');
+    h.conversation.stop();
+    await vi.advanceTimersByTimeAsync(30);
+    expect(h.ended()).toBe(0);
+    h.conversation.resumeFromPause();
+    await vi.advanceTimersByTimeAsync(550);
+    expect(h.ended()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('restores the review window when typing resumes a stopped meeting', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`, `${control('open')}\nSam: Thanks.`],
+      { reviewWindowMs: 20 });
+    await h.say('Use the window bar.');
+    h.conversation.stop();
+    await h.say('I will check the card.');
+    await vi.advanceTimersByTimeAsync(550);
+    expect(h.ended()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('does not schedule a callback from a reply that began before Skip', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: fullScenario.agenda.slice(0, 2) }, role, [
+      async function* () {
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        yield `${control('open')}\nSam: Let me check Kaki and get back to you in a minute.`;
+      },
+    ], { observeDelayMs: 60_000, silencePromptMs: 60_000 });
+    h.conversation.humanTyped('What are the figures?');
+    await vi.advanceTimersByTimeAsync(0);
+    h.conversation.agendaMoved(fullScenario.agenda[1]!.title);
+    await vi.advanceTimersByTimeAsync(10);
+    await h.conversation.settled();
+    await vi.advanceTimersByTimeAsync(45_010);
+    expect(h.replies()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('reoffers budget recovery after a visitor clarification leaves the topic open', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('open')}\nSam: What would work?`, `${control('open')}\nSam: Thanks for clarifying.`],
+      { topicTurnBudget: 1, budgetSilenceMs: 20 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(510);
+    expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(1);
+    await h.say('Could we keep a seat for walk-ins?');
+    await vi.advanceTimersByTimeAsync(510);
+    expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(2);
+    h.conversation.close();
+  });
+
+  it.each(['\t', '   ', '\u00a0'])('never speaks or captions a malformed control header separated by %j', async (separator) => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`KAKI_CONTROL${separator}{bad json}\nSam: Tell me more.`]);
+    await h.say('Use the window bar.');
+    expect(h.tasks).toHaveLength(0);
+    expect(h.spoken, h.logs.join('\n')).toEqual(['Tell me more.']);
+    expect(h.captions).not.toContain(`KAKI_CONTROL${separator}{bad json}`);
+    h.conversation.close();
+  });
+
+  it('treats a newline immediately after the control token as a malformed hidden header', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      ['KAKI_CONTROL\nSam: Tell me more.']);
+    await h.say('Use the window bar.');
+    expect(h.spoken).toEqual(['Tell me more.']);
+    h.conversation.close();
+  });
+
+  it('keeps Lock enabled while the model thinks after a visitor line', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [async function* () { await new Promise<void>(() => undefined); }]);
+    h.conversation.humanTyped('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.states.at(-1)).toMatchObject({ kind: 'thinking', canLock: true });
+    h.conversation.lockDecision();
+    expect(h.tasks).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('reopens Lock and logs an error when follow-up creation fails', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const states: NpcUiState[] = [];
+    const logs: string[] = [];
+    const settleTopic = vi.fn().mockRejectedValue(new Error('HTTP 503'));
+    const conversation = new NpcConversation({
+      async *stream() {}, async synthesize(utterance) { return utterance; }, async play() {},
+      emitTranscript() {}, emitState(state) { states.push(state); }, log(message) { logs.push(message); },
+      settleTopic,
+    }, { scenario, responseDelayMs: 60_000 });
+    conversation.setHuman({ name: 'Visitor', role });
+    conversation.agendaMoved(scenario.agenda[0]!.title);
+    conversation.humanTyped('Use the window bar.');
+    conversation.lockDecision();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
+    expect(logs.some((line) => line.includes('ERROR') && line.includes('HTTP 503'))).toBe(true);
+    conversation.lockDecision();
+    expect(settleTopic).toHaveBeenCalledTimes(2);
+    conversation.close();
+  });
+});

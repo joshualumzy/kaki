@@ -21,6 +21,7 @@ import {
   type NpcProfile,
   type NpcStateMessage,
   type Scenario,
+  type SuggestInput,
 } from '@kaki/shared';
 import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenTopicLead } from '../host/opening';
 import type { ChatMessage } from '../llm';
@@ -84,6 +85,8 @@ export interface RunnerOptions {
   fetchScenario?(): Promise<Scenario | undefined>;
   /** Emit a live 1-sentence Wingman coaching brief when the visitor's turn updates the discussion state. */
   onWingmanTip?(tip: string, title: string): void;
+  /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
+  onTopicSettled?(followUp: SuggestInput): void | Promise<void>;
 }
 
 export interface NpcRunner {
@@ -94,22 +97,16 @@ export interface NpcRunner {
   announce(text: string, onDone?: (spoken: boolean) => void, shouldStillSpeak?: () => boolean): void;
   /** The meeting moved to the next agenda item: the AI host will ask the person for the decision they own. */
   agendaMoved(title?: string): void;
-  /** A follow-up task on the current agenda item was accepted: if the person already weighed in, move the meeting on. */
-  taskAccepted(originAgendaTitle?: string | null): void;
-  /** The visitor clicked "Let Kaki do it" on a task assigned to them: hold the advance timer so they can review the draft. */
-  holdForHumanTask(holdMs?: number, originAgendaTitle?: string | null): void;
+  taskStatus(id: string, origin: string | undefined, status: string, isVisitorTask: boolean, declined?: boolean): void;
   /** Cancel a queued or running task-dispatch announcement when the visitor already clicked Accept or Decline. */
   cancelPendingDispatch(originAgendaTitle?: string | null): void;
-  /** Advance to the next agenda item (or end the meeting) once the visitor's task has been synced/declined. */
-  completeHumanTask(originAgendaTitle?: string | null): void;
   /** True when `title` names the item the meeting is on now. */
   onCurrentAgenda(title: string | undefined): boolean;
   /** The current human visitor's display name, if someone is in the room. */
   visitorName(): string | undefined;
+  visitorRole(): string | undefined;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
-  /** True when the visitor has already spoken on the current agenda item (or the item is observe-only). */
-  canDispatchTask(): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
   hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
@@ -269,6 +266,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         advanceAgenda: options.onAdvanceAgenda,
         endMeeting: options.onEndMeeting,
         onWingmanTip: options.onWingmanTip,
+        settleTopic: options.onTopicSettled,
       },
       { scenario: { ...scenario, npcs: cast }, responseDelayMs: options.responseDelayMs, speakerGapMs: options.speakerGapMs, sentenceGapMs: options.sentenceGapMs, bargeInMs: options.bargeInMs },
     );
@@ -543,6 +541,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         options.onPauseChange?.(false);
         log(`${participant.identity} pressed resume`);
         conversation?.resumeFromPause();
+      } else if (message.kind === 'lock') {
+        if (started || hostIsHuman()) conversation?.lockDecision();
       } else if (!started && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {
@@ -551,7 +551,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           options.onPauseChange?.(false);
         }
         typingUntil = Date.now() + TYPING_QUIET_MS;
-        conversation?.humanTyped(message.text);
+        if (message.kind === 'text') conversation?.humanTyped(message.text);
       }
       return;
     }
@@ -642,30 +642,25 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
     },
-    canDispatchTask() {
-      return conversation?.canDispatchTask() ?? true;
-    },
     hostIsHuman,
     agendaMoved(title) {
       conversation?.agendaMoved(title);
     },
-    taskAccepted(originAgendaTitle) {
-      conversation?.taskAccepted(originAgendaTitle);
-    },
-    holdForHumanTask(holdMs, originAgendaTitle) {
-      conversation?.holdForHumanTask(holdMs, originAgendaTitle);
+    taskStatus(id, origin, status, isVisitorTask, declined) {
+      conversation?.taskStatus(id, origin, status, isVisitorTask, declined);
     },
     cancelPendingDispatch(originAgendaTitle) {
       conversation?.cancelPendingDispatch(originAgendaTitle);
-    },
-    completeHumanTask(originAgendaTitle) {
-      conversation?.completeHumanTask(originAgendaTitle);
     },
     onCurrentAgenda(title) {
       return conversation?.onCurrentAgenda(title) ?? false;
     },
     visitorName() {
       return [...humans.values()].at(-1)?.name;
+    },
+    visitorRole() {
+      const wanted = [...humans.values()].at(-1)?.role;
+      return scenario.roles.find((role) => role.id === wanted || role.label === wanted)?.id;
     },
     say(attendee, text, onDone) {
       if (conversation === undefined) {

@@ -1,4 +1,5 @@
 import type { Role } from './roles';
+import { ACTION_KINDS, type ActionKind } from './task';
 
 /** One role the active scenario defines, with the label people see. */
 export interface ScenarioRole {
@@ -41,6 +42,10 @@ export interface AgendaItem {
   contested?: boolean;
   /** Structured opening views and trade-offs the AI colleagues can draw on; optional. */
   discussion?: AgendaDiscussion;
+  /** Neutral problem statement for the opening briefing, independent of who plays the owner. */
+  briefing?: string;
+  /** Default follow-up when the Director does not suggest a valid one. */
+  followUp?: { kind: ActionKind; hint: string };
 }
 
 /**
@@ -351,6 +356,13 @@ function readAgenda(
     }
     if (item.decision !== undefined && !isNonEmptyString(item.decision)) {
       problems.push(`agenda[${index}].decision must be a non-empty string when present`);
+    }
+    if (item.briefing !== undefined && !isNonEmptyString(item.briefing)) {
+      problems.push(`agenda[${index}].briefing must be a non-empty string when present`);
+    }
+    if (item.followUp !== undefined &&
+        (!isObject(item.followUp) || !ACTION_KINDS.includes(item.followUp.kind as ActionKind) || !isNonEmptyString(item.followUp.hint))) {
+      problems.push(`agenda[${index}].followUp must have a valid kind and non-empty hint`);
     }
     if (!isNonEmptyString(item.ownerRole)) {
       problems.push(`agenda[${index}].ownerRole must be a non-empty string`);

@@ -181,6 +181,55 @@ describe('app', () => {
     expect(screen.messages.some((event) => event.type === 'TASK_UPDATED')).toBe(true);
   });
 
+  it('settlement reuses a held follow-up card for the same role, kind and topic', async () => {
+    const { installAutoDispatch } = await import('../src/host/autoDispatch');
+    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    try {
+      const early = app.tasks.suggest({ title: 'Tell the team what we decided', context: 'Early note',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
+      const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+          suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' }),
+      });
+      expect(response.status).toBe(200);
+      const settled = (await response.json()) as { id: string };
+      expect(settled.id).toBe(early.id);
+      expect(app.tasks.list()).toHaveLength(1);
+      expect(app.tasks.get(early.id)).toMatchObject({ status: 'DISPATCHED', title: 'Post the prep plan',
+        context: 'Visitor decision: use fresh stock', decisionSource: 'use fresh stock' });
+    } finally { release(); }
+  });
+
+  it('returns the same follow-up when a settlement POST is retried', async () => {
+    const { installAutoDispatch } = await import('../src/host/autoDispatch');
+    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    try {
+      const body = { title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' };
+      const post = () => fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const first = (await (await post()).json()) as { id: string };
+      const retry = (await (await post()).json()) as { id: string };
+      expect(retry.id).toBe(first.id);
+      expect(app.tasks.list()).toHaveLength(1);
+    } finally { release(); }
+  });
+
+  it('keeps a separate held task when its grounded decision differs', async () => {
+    const early = app.tasks.suggest({ title: 'Email the supplier', context: 'Ask for stock',
+      suggestedAssignee: 'chef', actionKind: 'email', agendaItemTitle: 'Prep', decisionSource: 'Ask the supplier for stock.' });
+    const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Email the team decision', context: 'Use fresh stock.',
+        suggestedAssignee: 'chef', actionKind: 'email', agendaItemTitle: 'Prep', decisionSource: 'Use fresh stock.' }),
+    });
+    const settled = (await response.json()) as { id: string };
+    expect(settled.id).not.toBe(early.id);
+    expect(app.tasks.list()).toHaveLength(2);
+  });
+
   it('returns 400 with the message when a dev suggestion is rejected', async () => {
     const suggest = vi.spyOn(app.tasks, 'suggest').mockImplementation(() => {
       throw new CommandError('Invalid task suggestion');

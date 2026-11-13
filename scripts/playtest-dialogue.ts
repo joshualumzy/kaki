@@ -171,6 +171,7 @@ function checkWingmanTradeOffs(item: AgendaItem, _scenario: Scenario): string[] 
 
 async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise<ItemResult> {
   const transcript: UtteranceRecord[] = [];
+  const suggestedTasks: string[] = [];
   const cast = scenario.npcs?.filter((npc) => npc.attendee !== 'Wei Ling') ?? [];
 
   const conversation = new NpcConversation<Int16Array>(
@@ -188,6 +189,7 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
       describeMic: () => undefined,
       advanceAgenda: () => {},
       endMeeting: () => {},
+      settleTopic: (input) => { suggestedTasks.push(input.title); },
     },
     {
       scenario: { ...scenario, npcs: cast },
@@ -278,7 +280,7 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
     const turn2Start = Date.now();
     while (Date.now() - turn2Start < 15_000) {
       const replies = transcript.slice(preTurn2Len).filter((r) => r.speaker !== human.name);
-      if (replies.length > 0 && conversation.canDispatchTask()) {
+      if (replies.length > 0 && suggestedTasks.length > 0) {
         await new Promise((r) => setTimeout(r, 600));
         break;
       }
@@ -286,8 +288,8 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
     }
     await conversation.settled();
 
-    if (!conversation.canDispatchTask()) {
-      transcriptFailures.push('Multi-turn check: Visitor got stuck! Complete proposal did not unlock canDispatchTask()');
+    if (suggestedTasks.length === 0) {
+      transcriptFailures.push('Multi-turn check: Visitor got stuck! Complete proposal did not create a follow-up task');
     }
   }
 

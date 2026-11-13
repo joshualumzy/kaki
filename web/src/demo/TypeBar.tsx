@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
-import { CONTROL_TOPIC, MAX_TYPED_LENGTH, type ControlMessage } from '@kaki/shared';
+import { RoomEvent } from 'livekit-client';
+import { CONTROL_TOPIC, MAX_TYPED_LENGTH, NPC_STATE_TOPIC, type ControlMessage, type NpcStateMessage } from '@kaki/shared';
 
 /** Often enough that the server knows keys are being pressed, rarely enough not to flood the connection. */
 const TYPING_SIGNAL_EVERY_MS = 400;
 
 export interface TypeBarProps {
   send(message: ControlMessage): void;
+  canLock?: boolean;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface TypeBarProps {
  * the room is too noisy to be heard, and the "typing" signal tells the server that a short sound in
  * the microphone is probably a key press, so typing does not cut an attendee off.
  */
-export function TypeBar({ send }: TypeBarProps) {
+export function TypeBar({ send, canLock = false }: TypeBarProps) {
   const [text, setText] = useState('');
   const [paused, setPaused] = useState(false);
   const lastSignal = useRef(0);
@@ -106,6 +108,9 @@ export function TypeBar({ send }: TypeBarProps) {
       <button type="submit" className="kd-send" disabled={text.trim().length === 0}>
         Send
       </button>
+      <button type="button" disabled={!canLock} onClick={() => send({ kind: 'lock' })}>
+        Lock in my decision
+      </button>
       <button
         type="button"
         className="kd-stop"
@@ -123,6 +128,18 @@ export function TypeBar({ send }: TypeBarProps) {
 /** The type bar wired to the LiveKit room it is in. */
 export function ConnectedTypeBar({ micOnline }: { micOnline?: boolean }) {
   const room = useRoomContext();
+  const [canLock, setCanLock] = useState(false);
+  useEffect(() => {
+    const onData = (payload: Uint8Array, _participant: unknown, _kind: unknown, topic?: string): void => {
+      if (topic !== NPC_STATE_TOPIC) return;
+      try {
+        const state = JSON.parse(new TextDecoder().decode(payload)) as NpcStateMessage;
+        setCanLock(state.kind === 'idle' || state.kind === 'thinking' || state.kind === 'speaking' ? state.canLock === true : false);
+      } catch { /* Keep the last known state until the next valid update. */ }
+    };
+    room.on(RoomEvent.DataReceived, onData);
+    return () => { room.off(RoomEvent.DataReceived, onData); };
+  }, [room]);
   const send = useCallback(
     (message: ControlMessage) => {
       room.localParticipant
@@ -147,7 +164,7 @@ export function ConnectedTypeBar({ micOnline }: { micOnline?: boolean }) {
           {micOnline ? 'Voice active' : 'Mic muted'}
         </span>
       )}
-      <TypeBar send={send} />
+      <TypeBar send={send} canLock={canLock} />
     </div>
   );
 }

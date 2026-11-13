@@ -185,103 +185,6 @@ describe('NpcConversation', () => {
     expect(playing.length).toBe(count);
   });
 
-  describe('an item the person only watches', () => {
-    const watched = () => {
-      const base = hostedScenario();
-      return { ...base, agenda: base.agenda.map((item, index) => (index === 0 ? { ...item, contested: false, ownerRole: 'chef' } : item)) };
-    };
-
-    it('has the characters start talking it through, and never asks the person', async () => {
-      const { conversation, calls, say } = harness(watched());
-      conversation.agendaMoved(watched().agenda[0]!.title);
-      await vi.advanceTimersByTimeAsync(4000);
-      expect(calls).toHaveLength(1);
-      expect(String(calls[0]?.messages.at(-1)?.content)).toContain('Josh is just listening for now');
-      expect(String(calls[0]?.messages.at(-1)?.content)).toContain('Do not ask Josh anything');
-      calls[0]?.end();
-      // Said once for the item, however often it is announced again, and no question to the person follows.
-      conversation.agendaMoved(watched().agenda[0]!.title);
-      await vi.advanceTimersByTimeAsync(10000);
-      expect(calls).toHaveLength(1);
-      for (const line of ['One.', 'Two.', 'Three.', 'Four.', 'Five.', 'Six.', 'Seven.', 'Eight.']) {
-        await say(line);
-        calls.at(-1)?.end();
-      }
-      expect(JSON.stringify(calls.map((call) => call.messages))).not.toContain('do we ship it or hold it?"');
-    });
-
-    it('stops handing over after two follow-ups when the person never speaks', async () => {
-      const { conversation, calls, playing, flush } = harness(watched());
-      conversation.agendaMoved(watched().agenda[0]!.title);
-      await vi.advanceTimersByTimeAsync(4000);
-      const handOvers = ['Ada: Bao, what do you make of it?', 'Bao: Ada, over to you. Thoughts?', 'Ada: Bao, your turn again. Agree?', 'Bao: Ada, last word?'];
-      for (const line of handOvers) {
-        calls.at(-1)?.push(line);
-        calls.at(-1)?.end();
-        await flush();
-        playing.at(-1)?.finish();
-        await vi.advanceTimersByTimeAsync(3000);
-      }
-      // The first turn, then two follow-ups; the room does not keep passing the turn between themselves.
-      expect(calls).toHaveLength(3);
-    });
-
-    it('leaves it to the person when they speak first', async () => {
-      const { conversation, calls, say } = harness(watched());
-      conversation.agendaMoved(watched().agenda[0]!.title);
-      await say('Hold on, before you start.');
-      calls.at(-1)?.end();
-      const count = calls.length;
-      await vi.advanceTimersByTimeAsync(10000);
-      expect(calls.length).toBe(count);
-      expect(JSON.stringify(calls.map((call) => call.messages.at(-1)?.content))).not.toContain('just listening');
-    });
-
-    it('advances the agenda once the characters finish talking an observe item through and the person stays silent', async () => {
-      const { conversation, ports, calls, playing, flush } = harness(watched());
-      let advanced = 0;
-      ports.advanceAgenda = () => {
-        advanced += 1;
-      };
-      conversation.agendaMoved(watched().agenda[0]!.title);
-      await vi.advanceTimersByTimeAsync(2000);
-      calls[0]?.push('Ada: I will patch the memory leak today.\nBao: Sounds good.');
-      calls[0]?.end();
-      await flush();
-      playing[0]?.finish();
-      await flush();
-      playing[1]?.finish();
-      await conversation.settled();
-      expect(advanced).toBe(0);
-      await vi.advanceTimersByTimeAsync(9000);
-      expect(advanced).toBe(1);
-    });
-
-    it('advances the agenda once the person settles a contested item and the room wraps up with a follow-up commitment', async () => {
-      const { conversation, ports, calls, playing, say, flush } = harness(hostedScenario());
-      let advanced = 0;
-      ports.advanceAgenda = () => {
-        advanced += 1;
-      };
-      conversation.agendaMoved(hostedScenario().agenda[0]!.title);
-      await say('Let us go ahead with the changes.');
-      calls.at(-1)?.push("Ada: Alright, so we're restoring the timer.\nBao: Sounds good, I'll file a Gitea ticket for that.");
-      calls.at(-1)?.end();
-      await flush();
-      // Finish the AI's two sentences, then finish the host's queued ask announcement if any.
-      while (playing.some((entry) => !entry.finished)) {
-        for (const entry of playing) {
-          if (!entry.finished) entry.finish();
-        }
-        await flush();
-        await vi.advanceTimersByTimeAsync(600);
-      }
-      await conversation.settled();
-      expect(advanced).toBe(0);
-      await vi.advanceTimersByTimeAsync(9000);
-      expect(advanced).toBe(1);
-    });
-  });
 
   it('tells the model which agenda item the meeting is on', async () => {
     const { conversation, calls, say } = harness(hostedScenario());
@@ -312,7 +215,7 @@ describe('NpcConversation', () => {
     expect(calls[0]?.messages.at(0)?.content).toContain('Calm chef');
     expect(calls[0]?.messages.at(0)?.content).toContain('Josh, the Producer');
     expect(calls[0]?.messages.at(-1)).toEqual({ role: 'user', content: 'Hello team.' });
-    expect(states.at(-1)).toEqual({ kind: 'thinking' });
+    expect(states.at(-1)).toEqual({ kind: 'thinking', canLock: true });
 
     calls[0]?.push('Ada: Morning Josh. Ready when you are.\nBao: Hi all!');
     calls[0]?.end();
@@ -340,7 +243,7 @@ describe('NpcConversation', () => {
       ['Ada', 'Ready when you are.'],
       ['Bao', 'Hi all!'],
     ]);
-    expect(states.map((s) => s.kind)).toEqual(['thinking', 'speaking', 'speaking', 'speaking', 'idle']);
+    expect(states.map((s) => s.kind)).toEqual(['idle', 'thinking', 'speaking', 'speaking', 'speaking', 'idle']);
   });
 
   it('joins words that arrive in pieces into one question', async () => {
@@ -382,7 +285,7 @@ describe('NpcConversation', () => {
     conversation.humanSpeech(true);
     expect(playing[0]?.signal.aborted).toBe(true);
     expect(calls[0]?.signal.aborted).toBe(true);
-    expect(states.at(-1)).toEqual({ kind: 'idle' });
+    expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
     await flush();
     expect(playing).toHaveLength(1); // nothing else started
 
@@ -432,7 +335,7 @@ describe('NpcConversation', () => {
     calls[0]?.push('Ada: Too late.'); // a straggler from the cancelled stream
     await flush();
     expect(playing).toHaveLength(0);
-    expect(states.at(-1)).toEqual({ kind: 'idle' });
+    expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
 
     conversation.humanText('Actually, question two.');
     conversation.humanSpeech(false);
@@ -523,7 +426,7 @@ describe('NpcConversation', () => {
     calls[0]?.end();
     await conversation.settled();
     expect(playing).toHaveLength(0);
-    expect(states.at(-1)).toEqual({ kind: 'idle' });
+    expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
 
     await say('Okay, real question now.');
     await flush();
@@ -611,7 +514,7 @@ describe('NpcConversation', () => {
     await conversation.settled();
     // Something was heard, so it must not be repeated and no recovery cue is added.
     expect(calls).toHaveLength(1);
-    expect(states.at(-1)).toEqual({ kind: 'idle' });
+    expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
     expect(playing.map((p) => p.text)).toEqual(['First part.']);
   });
 
@@ -817,7 +720,7 @@ describe('NpcConversation', () => {
     h.conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(h.calls).toHaveLength(1);
-    expect(h.states.at(-1)).toEqual({ kind: 'idle' });
+    expect(h.states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
     // Resuming replays the exact unfinished sentence from the interrupted speaker (Bao) without jumping speakers.
     h.conversation.resumeFromPause();
     await h.flush();
@@ -959,22 +862,7 @@ describe('NpcConversation', () => {
       expect(h.logs.join('\n')).toContain('dropped Ada');
     });
 
-    it('does not auto-advance on a side-task acceptance before the decision is wrapped up', async () => {
-      const { conversation, ports, calls, say, flush } = harness(hostedScenario());
-      let advanced = 0;
-      ports.advanceAgenda = () => {
-        advanced += 1;
-      };
-      conversation.agendaMoved(hostedScenario().agenda[0]!.title);
-      await say('Have you told anyone about the promo yet?');
-      calls.at(-1)?.push('Bao: I mentioned a rough idea on social media, Josh, what do you want to do?');
-      calls.at(-1)?.end();
-      await flush();
-      // A mid-discussion side task is accepted while the item is still an open question: must NOT advance.
-      conversation.taskAccepted();
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(advanced).toBe(0);
-    });
+
 
     it('freezes the conversation after announceClosing so trailing speech cannot restart it', async () => {
       const h = harness();
@@ -987,26 +875,7 @@ describe('NpcConversation', () => {
       expect(h.calls).toHaveLength(0);
     });
 
-    it('intercepts canned safety refusals, speaks a warm colleague check-in, and scrubs the turn from history so the next turn recovers', async () => {
-      const h = harness(hostedScenario());
-      await h.say('I am so stressed I want to hurt myself.');
-      h.calls[0]?.push(
-        'Ada: I cannot continue a conversation that is discussing self-harm. Please call the National Suicide Prevention Lifeline at 1-800-273-TALK or text HOME to 741741.',
-      );
-      h.calls[0]?.end();
-      await h.flush();
-      expect(h.playing).toHaveLength(1);
-      expect(h.playing[0]?.text).toContain('forget the meeting for a second');
-      expect(h.playing[0]?.text).not.toContain('741741');
-      h.playing[0]?.finish();
-      await h.conversation.settled();
 
-      // Next turn: the person moves back to the meeting topic; the refusal turn was scrubbed from history.
-      await h.say('Okay, let us decide on the menu.');
-      const historySent = JSON.stringify(h.calls[1]?.messages ?? []);
-      expect(historySent).not.toContain('741741');
-      expect(historySent).not.toContain('hurt myself');
-    });
 
     it('clears cutOff when real speech arrives after a barge-in so humanNothing cannot trigger a stale resume', async () => {
       const h = harness();
@@ -1029,482 +898,6 @@ describe('NpcConversation', () => {
       expect(lastCallMessages).not.toContain('made a sound');
     });
 
-    it('holds the advance timer when holdForHumanTask is called so the visitor can review a Kaki draft', async () => {
-      const { conversation, ports, calls, say, flush, playing } = harness(hostedScenario());
-      let advanced = 0;
-      ports.advanceAgenda = () => {
-        advanced += 1;
-      };
-      conversation.agendaMoved(hostedScenario().agenda[0]!.title);
-      await say('Let us go with the first option.');
-      calls.at(-1)?.push('Bao: Got it, we will go with the first option. Josh, could you post that update in the team channel today?');
-      calls.at(-1)?.end();
-      await flush();
-      while (playing.some((entry) => !entry.finished)) {
-        for (const entry of playing) {
-          if (!entry.finished) entry.finish();
-        }
-        await flush();
-        await vi.advanceTimersByTimeAsync(600);
-      }
-      await conversation.settled();
-      // Visitor clicks "Let Kaki do it" -> holdForHumanTask holds the advance timer for 25s
-      conversation.holdForHumanTask(25_000);
-      await vi.advanceTimersByTimeAsync(18_000);
-      expect(advanced).toBe(0);
-      // Visitor approves the draft -> taskAccepted advances after 3s
-      conversation.taskAccepted();
-      await vi.advanceTimersByTimeAsync(4_000);
-      expect(advanced).toBe(1);
-    });
-
-    function twoTopicHarness() {
-      const base = hostedScenario();
-      const second = {
-        title: 'Seating plan',
-        minutes: 5,
-        ownerRole: 'cashier' as const,
-        decision: 'how do we seat people?',
-        contested: true,
-      };
-      const twoItem = { ...base, agenda: [...base.agenda, second] };
-      const h = harness(twoItem);
-      let advanced = 0;
-      h.ports.advanceAgenda = () => {
-        advanced += 1;
-      };
-      return { ...h, base, second, twoItem, advanced: () => advanced };
-    }
-
-    async function scheduleCurrentTopicAdvance(h: ReturnType<typeof twoTopicHarness>) {
-      h.conversation.agendaMoved(h.second.title);
-      await h.say('Let us seat people in waves.');
-      h.calls.at(-1)?.push('Bao: Got it, we will seat people in waves. Josh, could you post that update in the team channel today?');
-      h.calls.at(-1)?.end();
-      await h.flush();
-      while (h.playing.some((entry) => !entry.finished)) {
-        for (const entry of h.playing) {
-          if (!entry.finished) entry.finish();
-        }
-        await h.flush();
-        await vi.advanceTimersByTimeAsync(600);
-      }
-      await h.conversation.settled();
-    }
-
-    it('ignores delayed previous-topic task events without cancelling or advancing the current topic', async () => {
-      const h = twoTopicHarness();
-      await scheduleCurrentTopicAdvance(h);
-
-      // A task claimed on the previous item sends its hold, sync, decline and completion callbacks late.
-      const oldTitle = h.base.agenda[0]!.title;
-      h.conversation.holdForHumanTask(25_000, oldTitle);
-      h.conversation.completeHumanTask(oldTitle);
-      h.conversation.taskAccepted(oldTitle);
-      h.conversation.cancelPendingDispatch(oldTitle);
-      // An external callback with no recorded origin must not advance the current topic either.
-      h.conversation.holdForHumanTask(25_000, null);
-      h.conversation.completeHumanTask(null);
-      h.conversation.taskAccepted(null);
-      h.conversation.cancelPendingDispatch(null);
-
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(h.advanced()).toBe(0);
-      // The current topic's own scheduled advance still happens.
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(h.advanced()).toBe(1);
-    });
-
-    it('still holds and completes a task that belongs to the current topic', async () => {
-      const h = twoTopicHarness();
-      await scheduleCurrentTopicAdvance(h);
-
-      h.conversation.holdForHumanTask(25_000, h.second.title);
-      await vi.advanceTimersByTimeAsync(18_000);
-      expect(h.advanced()).toBe(0);
-      h.conversation.taskAccepted(h.second.title);
-      await vi.advanceTimersByTimeAsync(4_000);
-      expect(h.advanced()).toBe(1);
-    });
   });
 
-  describe('proposal readiness checks', () => {
-    const assessedScenario = () => {
-      const base = hostedScenario();
-      const firstItem = {
-        ...base.agenda[0]!,
-        discussion: {
-          openingViews: [
-            { attendee: 'Ada', view: 'We need to keep the queue moving.' },
-            { attendee: 'Bao', view: 'The till screen is already full.' },
-          ],
-          tradeOffs: [
-            {
-              attendee: 'Bao',
-              role: 'cashier' as const,
-              tradeOff: 'The till screen only fits twelve buttons.',
-              question: 'What do we remove from the screen?',
-            },
-            {
-              attendee: 'Chen',
-              role: 'producer' as const,
-              tradeOff: 'The kitchen docket must stay readable.',
-              question: 'How do we keep the docket readable?',
-            },
-          ],
-        },
-      };
-      return {
-        ...base,
-        attendees: [...base.attendees, { name: 'Chen', role: 'producer', zoomDisplayName: 'Chen' }],
-        agenda: [firstItem, { ...firstItem, title: 'Close', minutes: 3 }],
-        npcs: [
-          { attendee: 'Ada', voice: 'v1', role: 'host' as const, personality: 'Calm host', agenda: 'Run meeting', concerns: [] },
-          { attendee: 'Bao', voice: 'v2', personality: 'Cashier', agenda: 'Fix queues', concerns: ['Till grid'] },
-          { attendee: 'Chen', voice: 'v3', personality: 'Ops boss', agenda: 'Protect staff', concerns: ['Dockets'] },
-        ],
-      };
-    };
-
-    const shallow = JSON.stringify({
-      isProposal: true,
-      readiness: 'open',
-      resolved: [{ tradeOffId: 'T1', evidence: 'rename all the buttons to plain english' }],
-      unresolved: [{ tradeOffId: 'T2', question: 'How do we keep the docket readable?' }],
-    });
-    const complete = JSON.stringify({
-      isProposal: true,
-      readiness: 'complete',
-      resolved: [
-        { tradeOffId: 'T1', evidence: 'two-step milk and sugar popup on the screen' },
-        { tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' },
-      ],
-      unresolved: [],
-    });
-
-    it('keeps a shallow first proposal open with the unresolved trade-off and settles after the person addresses it', async () => {
-      const replies = [shallow, complete];
-      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Let us rename all the buttons to plain English.');
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(false);
-      const turn1Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn1Prompt).toContain('has not settled');
-      expect(turn1Prompt).toContain('The kitchen docket must stay readable.');
-      expect(turn1Prompt).toContain('How do we keep the docket readable?');
-      expect(turn1Prompt).not.toContain('The till screen only fits twelve buttons.');
-      expect(turn1Prompt).not.toContain('Do NOT let Josh one-shot');
-      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
-      expect(assessments).toHaveLength(2);
-      expect(conversation.canDispatchTask()).toBe(true);
-      const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn2Prompt).toContain('has made a complete proposal');
-      expect(turn2Prompt).toContain('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
-      expect(turn2Prompt).toContain('Confirm ONLY that decision');
-      calls.at(-1)?.end();
-    });
-
-    it('allows a genuinely complete first proposal and grounds confirmation in the decision spoken', async () => {
-      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, () => complete);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(true);
-      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(prompt).toContain('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
-      expect(prompt).toContain('do not add new terms, numbers, equipment or promises');
-      calls.at(-1)?.end();
-    });
-
-    it('keeps the decision quote as evidence without telling the colleague to speak the visitor words', async () => {
-      const decision =
-        'Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.';
-      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, () => complete);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say(decision);
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(true);
-      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(prompt).toContain(decision);
-      expect(prompt).toContain('Confirm ONLY that decision');
-      expect(prompt).toMatch(/evidence/i);
-      expect(prompt).toMatch(/in your own voice/i);
-      expect(prompt).toMatch(/never speak as/i);
-      expect(prompt).toMatch(/first-person/i);
-      expect(prompt).not.toMatch(/using the words .* actually said/i);
-      calls.at(-1)?.end();
-    });
-
-    it('keeps a complete decision settled when the visitor then names themselves in a follow-up promise', async () => {
-      const followUp =
-        'Confirmed, that is my decision. I, Booth Playtest, will post the agreed plan in the team channel today. Please assign that Mattermost handover to me so I can review the draft.';
-      const { conversation, calls, assessments, say, flush, playing } = harness(
-        assessedScenario(),
-        0,
-        (_messages, call) =>
-          call === 0
-            ? complete
-            : JSON.stringify({ isProposal: false, readiness: 'open', resolved: [], unresolved: [] }),
-      );
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(true);
-      calls.at(-1)?.push('Bao: Great, that settles it.');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      await say(followUp);
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(true);
-      calls.at(-1)?.end();
-    });
-
-    it('never assesses a question, side request or filler', async () => {
-      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, () => {
-        throw new Error('a question, side request or filler must not be assessed');
-      });
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      for (const line of ['How do we keep the docket readable?', 'Could you send me the budget breakdown after this?', 'Hi team.']) {
-        await say(line);
-        calls.at(-1)?.push('Bao: Noted, Josh.');
-        calls.at(-1)?.end();
-        await flush();
-        while (playing.some((entry) => !entry.finished)) {
-          for (const entry of playing) {
-            if (!entry.finished) entry.finish();
-          }
-          await flush();
-        }
-        await conversation.settled();
-      }
-
-      expect(assessments).toHaveLength(0);
-      expect(conversation.canDispatchTask()).toBe(false);
-    });
-
-    it('answers an explicit side request as asked without settling the item or inventing a task', async () => {
-      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, () => {
-        throw new Error('a side request must not be assessed');
-      });
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Could you draft a ticket for the kiosk trial?');
-      expect(assessments).toHaveLength(0);
-      expect(conversation.canDispatchTask()).toBe(false);
-      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(prompt).toContain('side request, not a proposal');
-      expect(prompt).toContain('Address exactly the deliverable Josh asked for');
-      expect(prompt).toContain('do not substitute a different follow-up');
-      expect(prompt).toContain('still open');
-      expect(prompt).toContain('do not say it is settled');
-      expect(prompt).toContain('prepare that requested item provisionally');
-      expect(prompt).not.toContain('do not ask for a follow-up task yet');
-      calls.at(-1)?.end();
-    });
-
-    it('keeps the item open when the readiness check fails or is malformed', async () => {
-      const replies = ['not json', complete];
-      const { conversation, calls, assessments, say } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Let us rename all the buttons to plain English.');
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(false);
-      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(prompt).toContain('readiness check could not run');
-      expect(prompt).toContain('The till screen only fits twelve buttons.');
-      calls.at(-1)?.end();
-
-      await say('Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.');
-      expect(assessments).toHaveLength(2);
-      expect(conversation.canDispatchTask()).toBe(true);
-      calls.at(-1)?.end();
-    });
-
-    it('retries the same proposal line after a transient readiness failure', async () => {
-      const line = 'Keep the kitchen docket in shorthand and show a two-step milk and sugar popup on the screen.';
-      const { conversation, calls, assessments, say, flush } = harness(assessedScenario(), 0, (_messages, call) => {
-        if (call === 0) throw new Error('gateway down');
-        return complete;
-      });
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say(line);
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(false);
-      expect(String(calls.at(-1)?.messages.at(-1)?.content ?? '')).toContain('readiness check could not run');
-      calls.at(-1)?.end();
-      await flush();
-      await conversation.settled();
-
-      await say(line);
-      expect(assessments).toHaveLength(2);
-      expect(conversation.canDispatchTask()).toBe(true);
-      expect(String(calls.at(-1)?.messages.at(-1)?.content ?? '')).toContain('has made a complete proposal');
-      const secondContext = assessments[1]!.map((message) => message.content).join('\n');
-      // The line appears once in the proposal history and once as the latest line.
-      expect(secondContext.split(line)).toHaveLength(3);
-      calls.at(-1)?.end();
-    });
-
-    it('settles a two-turn discussion when the person only adds the missing adjustment', async () => {
-      const replies = [
-        shallow,
-        JSON.stringify({
-          isProposal: true,
-          readiness: 'complete',
-          resolved: [{ tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' }],
-          unresolved: [],
-        }),
-      ];
-      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Let us rename all the buttons to plain English.');
-      expect(assessments).toHaveLength(1);
-      expect(conversation.canDispatchTask()).toBe(false);
-      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      await say('Keep the kitchen docket in shorthand.');
-      expect(assessments).toHaveLength(2);
-      const context = String(assessments[1]?.[0]?.content ?? '');
-      expect(context).toContain('Let us rename all the buttons to plain English.');
-      expect(context).toContain('Keep the kitchen docket in shorthand.');
-      expect(conversation.canDispatchTask()).toBe(true);
-      const turn2Prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(turn2Prompt).toContain('Let us rename all the buttons to plain English.');
-      expect(turn2Prompt).toContain('Keep the kitchen docket in shorthand.');
-      expect(turn2Prompt).toContain('has made a complete proposal');
-      calls.at(-1)?.end();
-    });
-
-    it('does not quote a superseded earlier proposal in the final decision summary', async () => {
-      const first = 'Let us rename all the buttons to plain English.';
-      const final = 'Actually, keep the Kopi names on screen and keep the kitchen docket in shorthand.';
-      const replies = [
-        shallow,
-        JSON.stringify({
-          isProposal: true,
-          readiness: 'complete',
-          decisionLines: [2],
-          resolved: [
-            { tradeOffId: 'T1', evidence: 'keep the kopi names on screen' },
-            { tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' },
-          ],
-          unresolved: [],
-        }),
-      ];
-      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say(first);
-      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      await say(final);
-      expect(assessments).toHaveLength(2);
-      // The assessment still sees the whole history, so it can judge the replacement in context.
-      const assessmentContext = String(assessments[1]?.[0]?.content ?? '');
-      expect(assessmentContext).toContain(first);
-      expect(assessmentContext).toContain(final);
-
-      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(prompt).toContain('has made a complete proposal');
-      expect(prompt).toContain(final);
-      expect(prompt).not.toContain(first);
-      expect(prompt).toContain('do not revive a superseded earlier proposal');
-      expect(prompt).toContain('base that follow-up on the final decision only');
-      calls.at(-1)?.end();
-    });
-
-    it('keeps a cumulative adjustment in the final decision summary', async () => {
-      const first = 'Let us rename all the buttons to plain English.';
-      const adjustment = 'Keep the kitchen docket in shorthand.';
-      const replies = [
-        shallow,
-        JSON.stringify({
-          isProposal: true,
-          readiness: 'complete',
-          decisionLines: [1, 2],
-          resolved: [{ tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' }],
-          unresolved: [],
-        }),
-      ];
-      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say(first);
-      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      await say(adjustment);
-      expect(assessments).toHaveLength(2);
-      const prompt = String(calls.at(-1)?.messages.at(-1)?.content ?? '');
-      expect(prompt).toContain('has made a complete proposal');
-      expect(prompt).toContain(first);
-      expect(prompt).toContain(adjustment);
-      calls.at(-1)?.end();
-    });
-
-    it('does not let proposal lines from the previous item settle the new item', async () => {
-      const replies = [
-        shallow,
-        JSON.stringify({
-          isProposal: true,
-          readiness: 'complete',
-          resolved: [
-            { tradeOffId: 'T1', evidence: 'rename all the buttons to plain english' },
-            { tradeOffId: 'T2', evidence: 'keep the kitchen docket in shorthand' },
-          ],
-          unresolved: [],
-        }),
-      ];
-      const { conversation, calls, assessments, say, flush, playing } = harness(assessedScenario(), 0, (_messages, call) => replies[call]!);
-      conversation.agendaMoved(assessedScenario().agenda[0]!.title);
-
-      await say('Let us rename all the buttons to plain English.');
-      expect(assessments).toHaveLength(1);
-      calls.at(-1)?.push('Chen: Renaming buttons helps, Josh, but the kitchen docket must stay readable, so how do we keep it readable?');
-      calls.at(-1)?.end();
-      await flush();
-      playing.at(-1)?.finish();
-      await conversation.settled();
-
-      conversation.agendaMoved('Close');
-      await say('Keep the kitchen docket in shorthand.');
-
-      expect(assessments).toHaveLength(2);
-      const context = String(assessments[1]?.[0]?.content ?? '');
-      expect(context).not.toContain('Let us rename all the buttons to plain English.');
-      expect(context).toContain('Keep the kitchen docket in shorthand.');
-      expect(String(calls.at(-1)?.messages.at(-1)?.content ?? '')).toContain('The till screen only fits twelve buttons.');
-      expect(conversation.canDispatchTask()).toBe(false);
-      calls.at(-1)?.end();
-    });
-  });
 });

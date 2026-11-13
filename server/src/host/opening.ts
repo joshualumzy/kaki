@@ -47,19 +47,6 @@ export function cleanSpokenTopic(title: string): string {
 
 /** Converts written headline agenda titles into natural spoken phrases for a live team huddle. */
 export function spokenTopicLead(title: string): string {
-  const lower = title.toLowerCase();
-  if (lower.includes('sfa') || lower.includes('salmonella') || lower.includes('food safety')) {
-    return "tomorrow's SFA food safety inspection";
-  }
-  if (lower.includes('kiosk over kopi') || lower.includes('first-timers') || lower.includes('kopi names')) {
-    return 'the kiosk ordering issues';
-  }
-  if (lower.includes('seat crunch') || lower.includes('laptop')) {
-    return 'the morning seat crunch and laptop campers';
-  }
-  if (lower.includes('delivery platform') || lower.includes('commission') || lower.includes('squeeze')) {
-    return 'the 32% delivery app fee';
-  }
   return cleanSpokenTopic(title);
 }
 
@@ -111,13 +98,14 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
         : first !== undefined
           ? ` Let's start with ${spokenLead}.`
           : '';
+  const briefing = first?.briefing === undefined ? '' : ` ${first.briefing}`;
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
-    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}. ${situationLead}, and we've got ${scenario.agenda.length} quick issues to settle today.${handoff}`;
+    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}. ${situationLead}, and we've got ${scenario.agenda.length} quick issues to settle today.${briefing}${handoff}`;
   }
 
   if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.`;
-  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}. We've got ${scenario.agenda.length} quick things to sort out today.${handoff}`;
+  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}. We've got ${scenario.agenda.length} quick things to sort out today.${briefing}${handoff}`;
 }
 
 /**
@@ -134,14 +122,15 @@ export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Vi
   const speakerName =
     owner !== undefined && !ownerIsHost && !visitorOwnsItem ? owner.name : undefined;
   const spoken = spokenTopicLead(title);
+  const briefing = item?.briefing === undefined ? '' : ` ${item.briefing}`;
   if (visitorOwnsItem && visitor !== undefined) {
     const firstBriefer = item?.discussion?.openingViews
       ?.map((v) => v.attendee)
       .find((name) => name !== visitor.seat && name !== visitor.name);
     if (firstBriefer !== undefined) {
-      return `Alright team, let's look at ${spoken} — ${visitor.name}, this one is yours to lead, so ${firstBriefer}, walk us through what happened first.`;
+      return `Alright team, let's look at ${spoken}.${briefing} ${visitor.name}, this one is yours to lead, so ${firstBriefer}, walk us through what happened first.`;
     }
-    return `Alright team, let's look at ${spoken} — ${visitor.name}, this topic is yours to lead.`;
+    return `Alright team, let's look at ${spoken}.${briefing} ${visitor.name}, this topic is yours to lead.`;
   }
   if (speakerName !== undefined) {
     const intros = [
@@ -150,7 +139,7 @@ export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Vi
       `Right, moving on to ${spoken}, which ${speakerName} is leading — ${speakerName}, bring us up to speed.`,
     ];
     const index = Math.abs(title.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % intros.length;
-    return intros[index]!;
+    return `${intros[index]!}${briefing}`;
   }
-  return `Alright team, let's look at ${spoken}.`;
+  return `Alright team, let's look at ${spoken}.${briefing}`;
 }

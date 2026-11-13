@@ -1149,6 +1149,12 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         source.agendaItemTitle === undefined
           ? withDecision
           : { ...withDecision, agendaItemTitle: source.agendaItemTitle };
+      // The engine owns the settled decision's follow-up. Keep a second card only for a distinct deliverable.
+      if (tasks.list().some((existing) =>
+        existing.agendaItemTitle === withOrigin.agendaItemTitle &&
+        existing.suggestedAssignee === withOrigin.suggestedAssignee &&
+        existing.actionKind === withOrigin.actionKind &&
+        existing.title.trim().toLowerCase() === withOrigin.title.trim().toLowerCase())) continue;
       if (withDecision !== baseTask && isLikelyDuplicate(withDecision, tasks.list())) continue;
       // The same decision may be announced by a different owner in a later batch. Keep one task for it, but never
       // merge two different decisions (their grounded sources differ).

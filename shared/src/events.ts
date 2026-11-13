@@ -31,6 +31,7 @@ export type KakiEventType =
   | 'FACT_FOUND'
   | 'TASK_UPDATED'
   | 'MEETING_RESET'
+  | 'TOPIC_SETTLED'
   | 'COMMAND_REJECTED';
 
 type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: Audience };
@@ -70,6 +71,8 @@ export type KakiEvent =
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
   /** A new meeting is starting: pages drop the old record, feed and tasks. */
   | KakiEventOf<'MEETING_RESET', Record<string, never>>
+  /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
+  | KakiEventOf<'TOPIC_SETTLED', { title: string; taskId?: string }>
   | KakiEventOf<'COMMAND_REJECTED', { commandType: string; reason: string }>;
 
 const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
@@ -80,6 +83,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'FACT_FOUND',
   'TASK_UPDATED',
   'MEETING_RESET',
+  'TOPIC_SETTLED',
   'COMMAND_REJECTED',
 ];
 
@@ -160,6 +164,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     payload.facts.every(isFact),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_RESET: () => true,
+  TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),
   COMMAND_REJECTED: (payload) => isString(payload.commandType) && isString(payload.reason),
 };
 
