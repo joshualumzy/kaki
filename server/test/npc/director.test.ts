@@ -299,6 +299,16 @@ describe('the director prompt', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('never says what another character did');
   });
 
+  it('points the visitor to their card instead of a colleague taking the follow-up', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const scenario = { ...npcScenario, npcs: [{ ...ada!, role: 'host' as const }, bao!] };
+    const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Chef' });
+    expect(prompt).toContain('Once Visitor agrees to send the follow-up');
+    expect(prompt).toContain('points them to their card');
+    expect(prompt).toContain('Kaki has the draft on your card');
+    expect(prompt).toContain('nobody says they will draft, post, send or email it themselves');
+  });
+
   it('forbids inventing an unsupported change in a colleague\'s job or commitments', () => {
     const prompt = buildSystemPrompt(npcScenario);
     expect(prompt).toContain('Never invent a change in a colleague');

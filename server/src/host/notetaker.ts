@@ -656,12 +656,17 @@ export function addressedRole(
   return undefined;
 }
 
-/** True when a candidate is the same work, for the same role, as an existing task. */
+/**
+ * True when a candidate is the same work, for the same role, as an existing task on the same agenda item. Two tasks
+ * on different agenda items are separate work even when their wording overlaps: a delivery follow-up is not a repeat
+ * of the food-safety follow-up that happened to share a template.
+ */
 export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): boolean {
   const active = existing.filter((task) => task.status !== 'DISMISSED');
   const title = normalize(candidate.title);
   const mine = keywords(candidate.title);
   return active.some((task) => {
+    if (task.agendaItemTitle !== candidate.agendaItemTitle) return false;
     if (normalize(task.title) === title) return true;
     if (
       task.actionKind !== undefined &&
@@ -685,7 +690,7 @@ export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): bo
  * by design: a candidate with no established source falls back to the per-owner duplicate check instead.
  */
 export function isDuplicateAnnouncement(
-  candidate: Pick<Task, 'decisionSource' | 'actionKind'>,
+  candidate: Pick<Task, 'decisionSource' | 'actionKind' | 'agendaItemTitle'>,
   existing: Task[],
 ): boolean {
   if (candidate.decisionSource === undefined) return false;
@@ -694,6 +699,7 @@ export function isDuplicateAnnouncement(
   return existing.some(
     (task) =>
       task.status !== 'DISMISSED' &&
+      task.agendaItemTitle === candidate.agendaItemTitle &&
       task.decisionSource !== undefined &&
       normalize(task.decisionSource) === decision &&
       task.actionKind === candidate.actionKind,
@@ -707,10 +713,11 @@ export function isDuplicateAnnouncement(
  * explicitly pointed at this task).
  */
 export function isDuplicateTarget(
-  candidate: Pick<Task, 'title' | 'suggestedAssignee' | 'decisionSource' | 'actionKind'>,
+  candidate: Pick<Task, 'title' | 'suggestedAssignee' | 'decisionSource' | 'actionKind' | 'agendaItemTitle'>,
   target: Task,
 ): boolean {
   if (target.status === 'DISMISSED') return false;
+  if (target.agendaItemTitle !== candidate.agendaItemTitle) return false;
   if (normalize(candidate.title) === normalize(target.title)) return true;
   if (isDuplicateAnnouncement(candidate, [target])) return true;
   if (
@@ -1088,7 +1095,6 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
       const duplicateTarget = duplicateOf === undefined ? undefined : tasks.get(duplicateOf);
       const activeDuplicateOf =
         duplicateTarget !== undefined && duplicateTarget.status !== 'DISMISSED' ? duplicateTarget : undefined;
-      if (isLikelyDuplicate(task, tasks.list())) continue;
       // A verified decision source pins the task to its agenda item, so a generic handover line repeated across items
       // resolves to the copy on the decision's item. Queued lines keep their own stamped origin when this is absent.
       const decisionLine = decisionSourceLineFrom(decisionEvidence, decisionPool);
@@ -1155,15 +1161,15 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         existing.suggestedAssignee === withOrigin.suggestedAssignee &&
         existing.actionKind === withOrigin.actionKind &&
         existing.title.trim().toLowerCase() === withOrigin.title.trim().toLowerCase())) continue;
-      if (withDecision !== baseTask && isLikelyDuplicate(withDecision, tasks.list())) continue;
+      if (isLikelyDuplicate(withOrigin, tasks.list())) continue;
       // The same decision may be announced by a different owner in a later batch. Keep one task for it, but never
       // merge two different decisions (their grounded sources differ).
-      if (isDuplicateAnnouncement(withDecision, tasks.list())) {
+      if (isDuplicateAnnouncement(withOrigin, tasks.list())) {
         console.warn(`kaki notetaker: dropped task "${task.title}"; it announces a decision another task already covers`);
         continue;
       }
       if (activeDuplicateOf !== undefined) {
-        if (isDuplicateTarget(withDecision, activeDuplicateOf)) {
+        if (isDuplicateTarget(withOrigin, activeDuplicateOf)) {
           console.warn(`kaki notetaker: dropped task "${task.title}"; it duplicates ${activeDuplicateOf.id}`);
           continue;
         }

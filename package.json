@@ -22,6 +22,7 @@
     "emit-demo": "tsx scripts/emit-demo.ts",
     "eval:notetaker": "tsx server/src/host/evalNotetaker.ts",
     "playtest:dialogue": "tsx scripts/playtest-dialogue.ts",
+    "playtest:live": "tsx scripts/live-playtest.ts",
     "stack:up": "docker compose -f docker/docker-compose.yml up -d",
     "stack:down": "docker compose -f docker/docker-compose.yml down",
     "seed": "tsx docker/seed/index.ts",
@@ -39,6 +40,7 @@
     "@types/node": "^22.15.0",
     "@types/nodemailer": "^7.0.12",
     "@types/pg": "^8.23.1",
+    "playwright": "^1.65.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^5.0.5"

@@ -73,8 +73,10 @@ export const DEFAULT_TOPIC_TURN_BUDGET = 12;
 export const DEFAULT_TOPIC_TIME_BUDGET_MS = 180_000;
 /** How long the host waits for an answer to that offer before asking once more, and then before locking it in. */
 export const DEFAULT_BUDGET_SILENCE_MS = 20_000;
+/** After a settled topic waits this long with nothing happening on the card, the host nudges the visitor towards it. */
+export const DEFAULT_REVIEW_NUDGE_MS = 20_000;
 /** How long a settled topic waits for the visitor's follow-up card with nothing happening on it before the host moves on. */
-export const DEFAULT_REVIEW_WINDOW_MS = 90_000;
+export const DEFAULT_REVIEW_WINDOW_MS = 45_000;
 /** After the follow-up is sent or declined, how long the topic stays so the visitor can open the result. */
 export const DEFAULT_OPEN_LIVE_GRACE_MS = 9_000;
 
@@ -98,6 +100,9 @@ export interface ConversationOptions {
   topicTurnBudget?: number;
   topicTimeBudgetMs?: number;
   budgetSilenceMs?: number;
+  /** How long before the host nudges the visitor to work from their follow-up card (see {@link DEFAULT_REVIEW_NUDGE_MS}). */
+  reviewNudgeMs?: number;
+  /** How long before the host moves on from a settled topic whose card is still unfinished (see {@link DEFAULT_REVIEW_WINDOW_MS}). */
   reviewWindowMs?: number;
   openLiveGraceMs?: number;
   observeDelayMs?: number;
@@ -218,6 +223,7 @@ export class NpcConversation<Clip> {
   private topicBudgetTimer: ReturnType<typeof setTimeout> | undefined;
   private reviewTimer: ReturnType<typeof setTimeout> | undefined;
   private graceTimer: ReturnType<typeof setTimeout> | undefined;
+  private reviewNudged = false;
   private reviewWarned = false;
   private readonly topicTasks = new Map<string, Map<string, 'pending' | 'done'>>();
   /** People the host has already asked, by name. */
@@ -228,6 +234,8 @@ export class NpcConversation<Clip> {
   private readonly introduced = new Set<string>();
   /** Items where the AI colleagues have already briefed the room before asking the human for a decision. */
   private readonly briefed = new Set<string>();
+  /** The item waiting for the room to be free so its colleague briefing can start. */
+  private pendingBrief: string | undefined;
   /** Items the meeting has already been asked to leave. */
   private readonly advanced = new Set<string>();
   private linesAtMove = 0;
@@ -380,6 +388,10 @@ export class NpcConversation<Clip> {
     this.pausedCutOff = false;
     const speaker = this.cutOffSpeaker;
     this.cutOffSpeaker = undefined;
+    const item = this.currentItem();
+    if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
+      this.pendingBrief = item.title;
+    }
     if (scripted !== undefined) {
       this.startScripted(scripted.utterance, scripted.onDone);
       return;
@@ -388,7 +400,6 @@ export class NpcConversation<Clip> {
       this.startReplayTurn(utterances);
       return;
     }
-    const item = this.currentItem();
     if (wasCutOff) {
       const who = this.human?.name ?? 'The person';
       const speakerHint =
@@ -399,10 +410,7 @@ export class NpcConversation<Clip> {
       this.startTurn(true);
       return;
     }
-    if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
-      this.briefLater(item.title, 0);
-      return;
-    }
+    if (this.maybeBrief()) return;
     if (this.askDue) {
       this.ask();
       return;
@@ -918,13 +926,29 @@ export class NpcConversation<Clip> {
 
   private startReviewWindow(): void {
     const title = this.currentItem()?.title;
-    if (title === undefined || this.reviewTimer !== undefined) return;
+    if (title === undefined || !this.humanSettledOnCurrentItem || this.reviewTimer !== undefined) return;
+    const total = this.options.reviewWindowMs ?? DEFAULT_REVIEW_WINDOW_MS;
+    const nudgeAt = this.options.reviewNudgeMs ?? DEFAULT_REVIEW_NUDGE_MS;
+    const delay = this.reviewNudged ? Math.max(total - nudgeAt, 0) : Math.min(nudgeAt, total);
     this.reviewTimer = setTimeout(() => {
       this.reviewTimer = undefined;
       if (this.currentItem()?.title !== title || this.reviewWarned) return;
-      this.reviewWarned = true;
       const host = this.facilitatorOrCoHost();
       if (host === undefined) return;
+      if (!this.reviewNudged && nudgeAt < total) {
+        this.reviewNudged = true;
+        const visitor = this.human?.name ?? 'You';
+        this.announce(host, `${visitor}, your draft is on your card — send it when you're ready, or we can move on.`,
+          DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+            if (spoken) this.startReviewWindow();
+            else {
+              this.reviewNudged = false;
+              this.startReviewWindow();
+            }
+          });
+        return;
+      }
+      this.reviewWarned = true;
       this.announce(host, `We need to move on from ${title} shortly. You can finish the follow-up from your card.`,
         DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
           if (spoken) this.checkTopicAdvance(true);
@@ -933,7 +957,7 @@ export class NpcConversation<Clip> {
             this.startReviewWindow();
           }
         });
-    }, this.options.reviewWindowMs ?? DEFAULT_REVIEW_WINDOW_MS).unref();
+    }, delay).unref();
   }
 
   private checkTopicAdvance(expired = false, afterGrace = false): void {
@@ -959,11 +983,14 @@ export class NpcConversation<Clip> {
     this.advanceOrEnd();
   }
 
+  /** Clear the review sequence; any progress on the card starts it again from the nudge. */
   private clearReviewTimer(): void {
     if (this.reviewTimer !== undefined) clearTimeout(this.reviewTimer);
     this.reviewTimer = undefined;
     if (this.graceTimer !== undefined) clearTimeout(this.graceTimer);
     this.graceTimer = undefined;
+    this.reviewNudged = false;
+    this.reviewWarned = false;
   }
 
   /** The agenda item the meeting is on, and how this person takes part in it. */
@@ -999,6 +1026,7 @@ export class NpcConversation<Clip> {
   agendaMoved(title?: string): void {
     this.clearSilenceTimer();
     this.clearBriefTimer();
+    this.pendingBrief = undefined;
     if (title !== undefined) {
       const previousTitle = this.currentItem()?.title;
       const cleanTitle = cleanSpokenTopic(title).toLowerCase();
@@ -1034,7 +1062,7 @@ export class NpcConversation<Clip> {
     // and trade-offs of the item first before asking the visitor for their decision, so the visitor isn't asked cold!
     if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
       this.askDue = false;
-      this.briefLater(item.title, 0);
+      this.briefLater(item.title);
       return;
     }
     if (this.asked.has(this.human.name)) return;
@@ -1044,30 +1072,49 @@ export class NpcConversation<Clip> {
     }, this.options.askDelayMs ?? DEFAULT_ASK_DELAY_MS).unref();
   }
 
-  private briefLater(title: string, attempt: number): void {
+  private briefLater(title: string): void {
     if (this.closed || this.paused) return;
+    this.pendingBrief = title;
     this.clearBriefTimer();
     this.briefTimer = setTimeout(() => {
       this.briefTimer = undefined;
-      if (this.closed || this.paused || this.briefed.has(title) || this.currentItem()?.title !== title) return;
-      if (this.humanLines > this.linesAtMove) return;
-      if (
-        this.turn !== undefined ||
-        this.humanTalking ||
-        this.recognizingSpeech ||
-        this.pending.length > 0 ||
-        this.respondTimer !== undefined
-      ) {
-        if (attempt < 12) this.briefLater(title, attempt + 1);
-        return;
-      }
-      const cue = this.briefCue(title);
-      if (cue === undefined) return;
-      this.briefed.add(title);
-      this.asked.add(this.human?.name ?? '');
-      this.pending.push(cue);
-      this.startTurn();
-    }, attempt === 0 ? (this.options.observeDelayMs ?? DEFAULT_OBSERVE_DELAY_MS) : 1500).unref();
+      this.maybeBrief();
+    }, this.options.observeDelayMs ?? DEFAULT_OBSERVE_DELAY_MS).unref();
+  }
+
+  /**
+   * Start the pending briefing as soon as the room is free, and keep it pending until then. The room may be busy
+   * with a scripted line or a turn for as long as it likes; whoever finishes checks here instead of retrying on a timer.
+   */
+  private maybeBrief(): boolean {
+    const title = this.pendingBrief;
+    if (title === undefined || this.closed || this.paused) return false;
+    if (this.briefed.has(title) || this.currentItem()?.title !== title || this.humanLines > this.linesAtMove) {
+      this.pendingBrief = undefined;
+      return false;
+    }
+    if (
+      this.turn !== undefined ||
+      this.humanTalking ||
+      this.recognizingSpeech ||
+      this.pending.length > 0 ||
+      this.respondTimer !== undefined
+    ) {
+      return false;
+    }
+    this.pendingBrief = undefined;
+    const cue = this.briefCue(title);
+    if (cue === undefined) {
+      this.ports.log?.(`could not brief "${title}": no colleague cue; asking the visitor instead`);
+      this.askDue = true;
+      this.ask();
+      return false;
+    }
+    this.briefed.add(title);
+    this.asked.add(this.human?.name ?? '');
+    this.pending.push(cue);
+    this.startTurn();
+    return true;
   }
 
   /** Brief the item from its own discussion, without assuming the owner is an AI seat. */
@@ -1308,6 +1355,7 @@ export class NpcConversation<Clip> {
     this.finalize(turn);
     this.turn = undefined;
     this.gate.setAiAudible(false);
+    if (this.maybeBrief()) return;
     const handedTo = findHandover(turn.spoken.map((entry) => entry.utterance), this.names, this.human?.name);
     if (handedTo !== undefined) this.scheduleFollowUp(handedTo.from, handedTo.target);
     else if (turn.spoken.length > 0) {
@@ -1365,6 +1413,7 @@ export class NpcConversation<Clip> {
     this.turn = undefined;
     this.gate.setAiAudible(false);
     this.ports.emitState(this.idleState());
+    if (this.maybeBrief()) return;
     if (this.lastSpoken.trim().endsWith('?') && turn.onScriptedDone === undefined) this.scheduleSilencePrompt();
   }
 
@@ -1719,12 +1768,13 @@ export class NpcConversation<Clip> {
       this.offerBudgetLock();
     }
     this.gate.setAiAudible(false);
+    const briefing = this.maybeBrief();
     const handedTo =
-      failure === undefined
+      !briefing && failure === undefined
         ? findHandover(turn.spoken.map((entry) => entry.utterance), this.names, this.human?.name)
         : undefined;
     if (handedTo !== undefined) this.scheduleFollowUp(handedTo.from, handedTo.target);
-    else if (failure === undefined && turn.spoken.length > 0) {
+    else if (!briefing && failure === undefined && turn.spoken.length > 0) {
       this.scheduleDeferredFollowUp(turn);
       if (!this.lastSpoken.trim().endsWith('?')) {
         const finalSpeaker = turn.spoken.at(-1)?.utterance.speaker;
@@ -1737,11 +1787,11 @@ export class NpcConversation<Clip> {
       }
       this.scheduleSilencePrompt();
     }
-    if (failure !== undefined && turn.spoken.length === 0) {
+    if (!briefing && failure !== undefined && turn.spoken.length === 0) {
       const message = failure instanceof Error ? failure.message : String(failure);
       this.ports.log?.(`the model failed: ${message}`);
       if (!this.recoverFromEmptyTurn(turn)) this.ports.emitState({ kind: 'error', message });
-    } else {
+    } else if (!briefing) {
       this.ports.emitState(this.idleState());
     }
   }

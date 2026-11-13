@@ -8,7 +8,13 @@ const fullScenario = parseScenario(JSON.parse(readFileSync(new URL('../../../sce
 const control = (state: 'open' | 'settled' | 'deferred', title = 'Share the agreed decision') =>
   `KAKI_CONTROL ${JSON.stringify({ state, followUp: { kind: 'mattermost_post', title }, wingmanNeeded: false })}`;
 
-function meeting(scenario: Scenario, role: string, replies: Array<string | string[] | (() => AsyncIterable<string>)>, overrides: Partial<ConversationOptions> = {}) {
+function meeting(
+  scenario: Scenario,
+  role: string,
+  replies: Array<string | string[] | (() => AsyncIterable<string>)>,
+  overrides: Partial<ConversationOptions> = {},
+  portOverrides: Partial<NpcPorts<Utterance>> = {},
+) {
   const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
   const cast = aiCast(scenario, seat);
   const tasks: SuggestInput[] = [];
@@ -34,6 +40,7 @@ function meeting(scenario: Scenario, role: string, replies: Array<string | strin
     settleTopic(input) { tasks.push(input); },
     advanceAgenda() { index += 1; conversation.agendaMoved(scenario.agenda[index]?.title); },
     endMeeting() { ended += 1; },
+    ...portOverrides,
   };
   conversation = new NpcConversation(ports, {
     scenario: { ...scenario, npcs: cast }, responseDelayMs: 0,
@@ -217,6 +224,79 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
+  it('nudges the visitor towards their card at 20 s without moving on', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`],
+      { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(19_000);
+    expect(h.spoken.some((line) => line.includes('your draft is on your card'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await h.conversation.settled();
+    expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(1);
+    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(false);
+    expect(h.ended()).toBe(0);
+    h.conversation.close();
+  });
+
+  it('moves on at 45 s when the card is still untouched', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`],
+      { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(44_999);
+    await h.conversation.settled();
+    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(false);
+    expect(h.ended()).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await h.conversation.settled();
+    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(true);
+    expect(h.ended()).toBe(1);
+    h.conversation.close();
+  });
+
+  it('restarts the review sequence when the visitor makes progress on the card', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const title = fullScenario.agenda[0]!.title;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`],
+      { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await h.conversation.settled();
+    expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    h.conversation.taskStatus('task-0', title, 'DISPATCHED', true);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await h.conversation.settled();
+    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(false);
+    expect(h.ended()).toBe(0);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await h.conversation.settled();
+    expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(2);
+    h.conversation.close();
+  });
+
+  it('nudges only once in a review sequence', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Could you Share the agreed decision?`],
+      { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await h.conversation.settled();
+    await vi.advanceTimersByTimeAsync(24_999);
+    await h.conversation.settled();
+    expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(1);
+    h.conversation.close();
+  });
+
   it('warns before a review window expires and ends the topic', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
@@ -342,6 +422,66 @@ describe('never-stuck visitor path', () => {
     expect(h.states.at(-1)).toMatchObject({ kind: 'thinking', canLock: true });
     h.conversation.lockDecision();
     expect(h.tasks).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('briefs the room after the observe delay when nothing interrupts it', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+    const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+    const h = meeting(scenario, role,
+      [`${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`],
+      { observeDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    await h.conversation.settled();
+    expect(h.spoken).toContain('Here is the problem.');
+    expect(h.spoken).toContain('What is your call?');
+    h.conversation.close();
+  });
+
+  it('still briefs after a pause and resume during the scripted opening', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+    const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+    const h = meeting(scenario, role,
+      [`${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`],
+      { observeDelayMs: 100 });
+    h.conversation.announce('Sam', 'Welcome to the huddle, Daniel. Walk us through what happened.');
+    h.conversation.stop();
+    h.conversation.resumeFromPause();
+    await vi.advanceTimersByTimeAsync(100);
+    await h.conversation.settled();
+    expect(h.spoken).toContain('Walk us through what happened.');
+    expect(h.spoken).toContain('Here is the problem.');
+    expect(h.spoken).toContain('What is your call?');
+    h.conversation.close();
+  });
+
+  it('briefs once the room frees after being busy past the old retry window', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+    const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+    const slowSynthesize: Partial<NpcPorts<Utterance>> = {
+      async synthesize(utterance) {
+        if (utterance.speaker === 'Sam') await new Promise<void>((resolve) => setTimeout(resolve, 20_000));
+        return utterance;
+      },
+    };
+    const h = meeting(scenario, role,
+      [`${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`],
+      { observeDelayMs: 100 }, slowSynthesize);
+    h.conversation.announce('Sam', 'Let me set the scene for a while.');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await h.conversation.settled();
+    expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
+    expect(h.spoken).toContain('Here is the problem.');
+    expect(h.spoken).toContain('What is your call?');
     h.conversation.close();
   });
 

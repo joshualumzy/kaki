@@ -618,13 +618,17 @@ describe('task precision', () => {
     expect(isGrounded('file it', lines)).toBe(false);
 
     const existing = [
-      { id: 't', title: 'Fix pause menu text overlap', context: '', suggestedAssignee: 'lead_programmer', status: 'SUGGESTED', updatedAt: '' },
+      { id: 't', title: 'Fix pause menu text overlap', context: '', suggestedAssignee: 'lead_programmer',
+        agendaItemTitle: 'Kiosk rollout', status: 'SUGGESTED', updatedAt: '' },
     ] as const;
-    const same = { title: 'Pause menu text overlaps on small screens', context: '', suggestedAssignee: 'lead_programmer' };
+    const same = { title: 'Pause menu text overlaps on small screens', context: '', suggestedAssignee: 'lead_programmer',
+      agendaItemTitle: 'Kiosk rollout' };
     expect(isLikelyDuplicate(same, [...existing])).toBe(true);
     expect(isLikelyDuplicate({ ...same, suggestedAssignee: 'producer' }, [...existing])).toBe(false);
+    expect(isLikelyDuplicate({ ...same, agendaItemTitle: 'Delivery costs' }, [...existing])).toBe(false);
     expect(
-      isLikelyDuplicate({ title: 'Fix tutorial skip button', context: '', suggestedAssignee: 'lead_programmer' }, [...existing]),
+      isLikelyDuplicate({ title: 'Fix tutorial skip button', context: '', suggestedAssignee: 'lead_programmer',
+        agendaItemTitle: 'Kiosk rollout' }, [...existing]),
     ).toBe(false);
   });
 
@@ -1095,6 +1099,42 @@ describe('duplicate handling across batches', () => {
     expect(tasks.list().map((task) => task.title).sort()).toEqual([
       'Post the cash decision in the team channel',
       'Post the seating decision in the team channel',
+    ]);
+  });
+
+  it('does not treat a task as a duplicate of one on another agenda item', async () => {
+    const firstAssignment = 'Mei, can you post the response plan in the team channel today?';
+    const secondAssignment = 'Mei, can you post the delivery response plan in the team channel today?';
+    const { tasks, notetaker, setAgendaIndex } = setup((_messages, call) =>
+      call === 0
+        ? reply({
+            newTasks: [
+              candidate('Post the response plan in the team channel', 'game_designer', firstAssignment, {
+                actionKind: 'mattermost_post',
+              }),
+            ],
+          })
+        : reply({
+            newTasks: [
+              candidate('Post the delivery response plan in the team channel', 'game_designer', secondAssignment, {
+                actionKind: 'mattermost_post',
+                duplicateOf: tasks.list()[0]?.id ?? 'missing-task',
+              }),
+            ],
+          }),
+    );
+
+    setAgendaIndex(0);
+    notetaker.addChunk({ speaker: 'Mei', text: firstAssignment });
+    await notetaker.run();
+    setAgendaIndex(1);
+    notetaker.addChunk({ speaker: 'Mei', text: secondAssignment });
+    await notetaker.run();
+
+    expect(tasks.list()).toHaveLength(2);
+    expect(tasks.list().map((task) => task.agendaItemTitle)).toEqual([
+      scenario.agenda[0]?.title,
+      scenario.agenda[1]?.title,
     ]);
   });
 

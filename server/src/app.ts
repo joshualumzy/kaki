@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, seatProblem, shuffleAgendaForRole, type Scenario } from '@kaki/shared';
+import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, seatProblem, shuffleAgendaForRole, type Scenario, type Task } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -406,21 +406,24 @@ async function handleRequest(
         sendJson(response, 400, { error: 'Body must be a valid task suggestion with an agendaItemTitle' });
         return;
       }
-      const existing = followUp.decisionSource === undefined ? undefined : context.tasks.list().find((task) =>
-        task.agendaItemTitle === followUp.agendaItemTitle && task.suggestedAssignee === followUp.suggestedAssignee &&
-        task.decisionSource === followUp.decisionSource && task.actionKind === followUp.actionKind);
-      if (existing !== undefined) {
-        sendJson(response, 200, existing);
-        return;
+      // The settlement is the visitor's authoritative follow-up for this topic, so it replaces whichever early
+      // suggestion was being held for the same agenda item, role and deliverable, however differently the two were
+      // worded. A retried settlement reuses the card its first POST already dispatched, so it never creates a second
+      // one. Any other held card for those same three keys is a duplicate and is dismissed; cards for another
+      // deliverable or owner stay untouched.
+      const sameTopic = (task: Task): boolean =>
+        task.agendaItemTitle === followUp.agendaItemTitle &&
+        task.suggestedAssignee === followUp.suggestedAssignee && task.actionKind === followUp.actionKind;
+      const matching = context.tasks.list().filter(sameTopic);
+      const settled = matching.find((task) => task.status !== 'SUGGESTED' && task.status !== 'DISMISSED');
+      const suggested = matching.filter((task) => task.status === 'SUGGESTED');
+      const task = settled ??
+        (suggested[0] === undefined
+          ? context.tasks.suggest(followUp)
+          : context.tasks.reviseSuggested(suggested[0].id, followUp));
+      for (const duplicate of settled === undefined ? suggested.slice(1) : suggested) {
+        context.tasks.transition(duplicate.id, 'DISMISSED');
       }
-      const candidates = context.tasks.list().filter((task) =>
-        task.status === 'SUGGESTED' && task.agendaItemTitle === followUp.agendaItemTitle &&
-        task.suggestedAssignee === followUp.suggestedAssignee && task.actionKind === followUp.actionKind &&
-        (task.decisionSource === undefined || followUp.decisionSource === undefined ||
-          followUp.decisionSource.toLowerCase().includes(task.decisionSource.trim().toLowerCase())));
-      const task = candidates.length === 1
-        ? context.tasks.reviseSuggested(candidates[0]!.id, followUp)
-        : context.tasks.suggest(followUp);
       context.hub.publish({
         type: 'TOPIC_SETTLED',
         audience: { kind: 'screen' },

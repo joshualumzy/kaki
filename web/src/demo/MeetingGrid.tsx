@@ -257,10 +257,12 @@ export function MeetingGrid({
     return latestRecord?.type === 'MEETING_RECORD_UPDATED' ? latestRecord.payload.agendaIndex : 0;
   }, [screenEvents]);
 
+  // The agenda record only goes to the screen audience, so these must read the screen feed: it carries both that
+  // record and every transcript line, in order.
   const hasColleagueBriefed = useMemo(() => {
     let currentIdx = 0;
     let sawCurrentItemBrief = false;
-    for (const event of events) {
+    for (const event of screenEvents) {
       if (event.type === 'MEETING_RECORD_UPDATED') {
         if (event.payload.agendaIndex !== currentIdx) {
           currentIdx = event.payload.agendaIndex;
@@ -275,12 +277,12 @@ export function MeetingGrid({
       }
     }
     return sawCurrentItemBrief;
-  }, [events, facilitatorName, activeAgendaIndex]);
+  }, [screenEvents, facilitatorName, activeAgendaIndex]);
   const hasVisitorSpokenOnTopic = useMemo(() => {
     const npcNameSet = new Set((scenario.npcs ?? []).map((n) => n.attendee.toLowerCase()));
     let currentIdx = 0;
     let spoken = false;
-    for (const event of events) {
+    for (const event of screenEvents) {
       if (event.type === 'MEETING_RECORD_UPDATED') {
         if (event.payload.agendaIndex !== currentIdx) {
           currentIdx = event.payload.agendaIndex;
@@ -294,7 +296,7 @@ export function MeetingGrid({
       }
     }
     return spoken;
-  }, [events, scenario.npcs, activeAgendaIndex]);
+  }, [screenEvents, scenario.npcs, activeAgendaIndex]);
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
   const idleAfterBriefing = npcState.kind === 'idle' && hasColleagueBriefed;
