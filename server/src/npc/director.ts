@@ -143,6 +143,8 @@ export function buildSystemPrompt(
   };
   const currentTitle = agendaItem ?? scenario.agenda[0]?.title;
   const currentAgendaItem = scenario.agenda.find((item) => item.title === currentTitle);
+  const meetingTitles = new Set(scenario.agenda.map((item) => item.title));
+  const meetingLinks = currentAgendaItem?.links?.filter((link) => meetingTitles.has(link.with)) ?? [];
   const agendaDecision = currentAgendaItem?.decision;
   const discussion = currentAgendaItem?.discussion;
   const discussionLine =
@@ -174,6 +176,7 @@ export function buildSystemPrompt(
     `Agenda:\n${agenda}`,
     ...(currentAgendaItem === undefined ? [] : [
       `Current item: ${currentAgendaItem.title}. ${currentAgendaItem.briefing ?? ''}`,
+      ...(meetingLinks.length === 0 ? [] : [`Links to other items in this meeting: ${meetingLinks.map((link) => `${link.with}: ${link.effect}`).join(' | ')}`]),
       ...((currentAgendaItem.background ?? []).length === 0 ? [] : [`Established facts for this item: ${currentAgendaItem.background!.map(scrubSeatName).join(' | ')}`]),
       ...((currentAgendaItem.directions ?? []).length === 0 ? [] : [`Possible ways this item could go (hidden background; never list them or steer the visitor toward them; accept other workable ideas): ${currentAgendaItem.directions!.map(scrubSeatName).join(' | ')}`]),
       ...Object.entries(currentAgendaItem.seatFacts ?? {}).filter(([role]) => role !== humanRoleId).map(([role, fact]) => {

@@ -6,6 +6,7 @@ import { CommandError } from '../src/hub';
 import { loadScenario } from '../src/loadScenario';
 import { createTestApp, connectClient, portOf, settle, type TestClient } from './helpers';
 import { testScenario } from './fixtures/scenario';
+import { parseScenario } from '@kaki/shared';
 
 function closeInfoFor(url: string): Promise<{ code: number; reason: string }> {
   return new Promise((resolve, reject) => {
@@ -390,6 +391,29 @@ describe('app', () => {
     ]);
     expect(scenario.agenda).toHaveLength(5);
     expect(scenario.excludedPairs).toHaveLength(2);
+  });
+
+  it('serves a parseable meeting scenario after a join resets the agenda', async () => {
+    const full = await loadScenario('kopitiam');
+    const agendaReference = full.agenda;
+    const meeting = await createApp({ scenario: full, roomRoster: async () => [] });
+    try {
+      const base = `http://127.0.0.1:${portOf(meeting)}`;
+      const joined = await fetch(`${base}/api/livekit/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomName: 'test-room', participantName: 'Visitor', participantRole: full.roles[0]!.id }),
+      });
+      expect(joined.status).toBe(200);
+      const response = await fetch(`${base}/api/scenario`);
+      expect(response.status).toBe(200);
+      const parsed = parseScenario(await response.json());
+      expect(parsed.agenda).toHaveLength(2);
+      expect(full.agenda).toBe(agendaReference);
+      expect(parsed.agenda.map((item) => item.title)).toEqual(full.agenda.map((item) => item.title));
+    } finally {
+      await meeting.close();
+    }
   });
 
   it('keeps the shipped Auntie Mary facts to what the records say', async () => {

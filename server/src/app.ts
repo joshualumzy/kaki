@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, shuffleAgendaForRole, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type Scenario, type Task } from '@kaki/shared';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -36,7 +36,7 @@ interface RequestContext {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
-  fullAgenda: Scenario['agenda'];
+  fullScenario: Scenario;
   /** A fixed agenda order from KAKI_AGENDA_PICK, used instead of the random draw. */
   pickedAgenda?: Scenario['agenda'];
   devRoutes: boolean;
@@ -208,7 +208,7 @@ async function handleRequest(
         if (roster !== undefined) {
           if (present.length === 0) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
-            if (npcNames.length > 0 && context.fullAgenda.length > 1) {
+            if (npcNames.length > 0 && context.fullScenario.agenda.length > 1) {
               context.tasks.reset();
               context.hub.clearRetained('record');
               context.hub.clearRetained('host:opening');
@@ -216,12 +216,12 @@ async function handleRequest(
               context.hub.clearRetained('nudge:');
               const maxAgendaItems = Number(process.env.KAKI_AGENDA_ITEMS) || 2;
               const reordered = context.pickedAgenda ?? shuffleAgendaForRole(
-                { ...context.scenario, agenda: context.fullAgenda },
+                context.fullScenario,
                 join.participantRole,
                 Math.random,
                 maxAgendaItems,
               );
-              context.scenario.agenda.splice(0, context.scenario.agenda.length, ...reordered);
+              setMeetingAgenda(context.scenario, context.fullScenario, reordered);
               context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
             }
           }
@@ -485,9 +485,9 @@ export async function createApp({
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
-  const fullAgenda = [...scenario.agenda];
+  const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, scenario, fullAgenda, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
+    void handleRequest(request, response, { hub, tasks, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

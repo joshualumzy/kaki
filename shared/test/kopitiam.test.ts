@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseScenario, type Scenario } from '../src/scenario';
+import { setMeetingAgenda, shuffleAgendaForRole } from '../src/demo';
 
 const scenarioDir = fileURLToPath(new URL('../../scenarios/kopitiam', import.meta.url));
 const scenarioFile = path.join(scenarioDir, 'scenario.json');
@@ -57,6 +58,32 @@ function loadScenario(): Scenario {
 }
 
 describe('shipped Kopitiam story', () => {
+  it('validates every drawn meeting agenda and keeps the source intact', () => {
+    const full = loadScenario();
+    const original = JSON.stringify(full);
+    let draws = 0;
+    const visit = (choices: number[]): void => {
+      if (choices.length < full.agenda.length - 1) {
+        const size = full.agenda.length - choices.length;
+        for (let index = 0; index < size; index += 1) visit([...choices, (index + 0.5) / size]);
+        return;
+      }
+      for (const role of full.roles) {
+        for (const maxItems of [2, 3, 4]) {
+          let next = 0;
+          const picked = shuffleAgendaForRole(full, role.id, () => choices[next++]!, maxItems);
+          const active = { ...full, agenda: [...full.agenda] };
+          setMeetingAgenda(active, full, picked);
+          expect(parseScenario(JSON.parse(JSON.stringify(active)) as unknown).agenda.map((item) => item.title))
+            .toEqual(picked.map((item) => item.title));
+          draws += 1;
+        }
+      }
+    };
+    visit([]);
+    expect(draws).toBe(full.roles.length * 3 * 120);
+    expect(JSON.stringify(full)).toBe(original);
+  });
   it('validates and gives every topic the v2 fields the later steps use', () => {
     const scenario = loadScenario();
     const playableRoles = (scenario.npcs ?? [])

@@ -177,7 +177,7 @@ const runner = await startNpcRunner({
   },
   fetchScenario: async () => {
     const response = await fetch(`${kakiUrl}/api/scenario`);
-    if (!response.ok) return undefined;
+    if (!response.ok) throw new Error(`Scenario fetch returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
     return parseScenario(await response.json());
   },
 });

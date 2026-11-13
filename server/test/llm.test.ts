@@ -99,6 +99,21 @@ describe('notetakerLlmFromEnv', () => {
     return bodies[0]!.model;
   }
 
+  // The whole request body, for checking the reasoning switch.
+  async function bodyUsed(env: NodeJS.ProcessEnv): Promise<Record<string, unknown>> {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', async (_url: unknown, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }));
+    });
+    try {
+      await notetakerLlmFromEnv(env)!.complete([], { json: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    return bodies[0]!;
+  }
+
   it('uses the shared model unless a notetaker model is set', async () => {
     expect(await modelUsed(shared)).toBe('chat-model');
     expect(await modelUsed({ ...shared, KAKI_NOTETAKER_LLM_MODEL: 'notes-model' })).toBe('notes-model');
@@ -111,6 +126,31 @@ describe('notetakerLlmFromEnv', () => {
 
   it('rejects a bad notetaker timeout', () => {
     expect(() => notetakerLlmFromEnv({ ...shared, KAKI_NOTETAKER_LLM_TIMEOUT_MS: 'soon' })).toThrow(/KAKI_LLM_TIMEOUT_MS/);
+  });
+
+  it('ignores the gateway models\' reasoning switches: its own switch, else its own model name', async () => {
+    const routed = {
+      ...shared,
+      KAKI_LLM_BASE_URL: 'https://api.deepseek.com/v1',
+      KAKI_LLM_MODEL: 'deepseek-chat',
+      KAKI_LLM_FALLBACK_BASE_URL: 'https://school.example',
+      KAKI_LLM_FALLBACK_API_KEY: 'k2',
+      KAKI_LLM_FALLBACK_MODEL: 'fallback-model',
+      KAKI_LLM_REASONING_CONTROL: 'false',
+      KAKI_LLM_FALLBACK_REASONING_CONTROL: 'true',
+      KAKI_NOTETAKER_LLM_MODEL: 'notes-model',
+    };
+
+    expect('reasoning_effort' in await bodyUsed(routed)).toBe(false);
+    expect((await bodyUsed({ ...routed, KAKI_NOTETAKER_LLM_MODEL: 'deepseek-notes' })).reasoning_effort).toBe('none');
+    expect('reasoning_effort' in await bodyUsed({ ...routed, KAKI_NOTETAKER_LLM_MODEL: 'deepseek-notes', KAKI_NOTETAKER_LLM_REASONING_CONTROL: 'false' })).toBe(false);
+    expect((await bodyUsed({ ...routed, KAKI_NOTETAKER_LLM_REASONING_CONTROL: '1' })).reasoning_effort).toBe('none');
+  });
+
+  it('rejects a bad notetaker reasoning switch by name', () => {
+    expect(() =>
+      notetakerLlmFromEnv({ ...shared, KAKI_NOTETAKER_LLM_REASONING_CONTROL: 'sometimes' }),
+    ).toThrow(/KAKI_NOTETAKER_LLM_REASONING_CONTROL/);
   });
 });
 
@@ -212,5 +252,191 @@ describe('streaming', () => {
       controller.abort();
     }
     expect(received).toEqual(['first']);
+  });
+});
+
+describe('reasoning control', () => {
+  function clientFor(
+    model: string,
+    reasoningControl: boolean | undefined,
+    bodies: Array<Record<string, unknown>>,
+  ) {
+    return createOpenAiLlm({
+      baseUrl: 'https://gateway.example',
+      apiKey: 'k',
+      model,
+      reasoningControl,
+      fetchImpl: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }));
+      },
+    });
+  }
+
+  it('sends reasoning_effort exactly as DeepSeek did when control is on', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const llm = clientFor('x-test-2', true, bodies);
+
+    await llm.complete([], { json: true });
+    await llm.complete([], { json: false });
+    await llm.complete([], { json: true, reasoningEffort: 'low' });
+
+    expect(bodies.map((body) => body.reasoning_effort)).toEqual(['none', undefined, 'low']);
+  });
+
+  it('sends no reasoning_effort when control is off, even if asked', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const llm = clientFor('deepseek-chat', false, bodies);
+
+    await llm.complete([], { json: true });
+    await llm.complete([], { json: true, reasoningEffort: 'high' });
+
+    expect(bodies.every((body) => !('reasoning_effort' in body))).toBe(true);
+  });
+
+  it('keeps the old name-based rule when control is unset', async () => {
+    const deepseekBodies: Array<Record<string, unknown>> = [];
+    const otherBodies: Array<Record<string, unknown>> = [];
+
+    await clientFor('deepseek-chat', undefined, deepseekBodies).complete([], { json: true });
+    await clientFor('x-test-2', undefined, otherBodies).complete([], { json: true });
+
+    expect(deepseekBodies[0]!.reasoning_effort).toBe('none');
+    expect('reasoning_effort' in otherBodies[0]!).toBe(false);
+  });
+
+  it('treats only a bounded assessment as reasoning-free in a stream when control is on', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const make = (model: string, reasoningControl: boolean) =>
+      createOpenAiLlm({
+        baseUrl: 'https://gateway.example',
+        apiKey: 'k',
+        model,
+        reasoningControl,
+        fetchImpl: async (_url, init) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          return sseResponse(['data: [DONE]\n\n']);
+        },
+      });
+    const assessment = [{ role: 'system' as const, content: '[KAKI_PROPOSAL_ASSESSMENT] rate this' }];
+
+    await collect(make('x-test-2', true).stream!(assessment));
+    await collect(make('x-test-2', false).stream!(assessment));
+    await collect(make('deepseek-chat', true).stream!([{ role: 'user', content: 'hi' }]));
+
+    expect(bodies.map((body) => body.reasoning_effort)).toEqual(['none', undefined, undefined]);
+  });
+});
+
+describe('reasoning control from the environment', () => {
+  const base = { KAKI_LLM_BASE_URL: 'https://school.example', KAKI_LLM_API_KEY: 'k', KAKI_LLM_MODEL: 'x-test-2' };
+
+  async function bodyFor(env: NodeJS.ProcessEnv): Promise<Record<string, unknown>> {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', async (_url: unknown, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }));
+    });
+    try {
+      await llmFromEnv(env)!.complete([], { json: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    return bodies[0]!;
+  }
+
+  it('accepts true/false and 1/0 in any case, and rejects anything else', async () => {
+    expect((await bodyFor({ ...base, KAKI_LLM_REASONING_CONTROL: 'TRUE' })).reasoning_effort).toBe('none');
+    expect((await bodyFor({ ...base, KAKI_LLM_REASONING_CONTROL: '1' })).reasoning_effort).toBe('none');
+    expect('reasoning_effort' in (await bodyFor({ ...base, KAKI_LLM_REASONING_CONTROL: 'FALSE' }))).toBe(false);
+    expect('reasoning_effort' in (await bodyFor({ ...base, KAKI_LLM_REASONING_CONTROL: '0' }))).toBe(false);
+    expect(() => llmFromEnv({ ...base, KAKI_LLM_REASONING_CONTROL: 'maybe' })).toThrow(/KAKI_LLM_REASONING_CONTROL/);
+  });
+
+  it('falls back to the model name when the switch is unset', async () => {
+    expect((await bodyFor({ ...base, KAKI_LLM_MODEL: 'deepseek-chat' })).reasoning_effort).toBe('none');
+    expect('reasoning_effort' in (await bodyFor(base))).toBe(false);
+  });
+
+  it('rejects a bad fallback switch by name', () => {
+    expect(() =>
+      llmFromEnv({
+        ...base,
+        KAKI_LLM_FALLBACK_BASE_URL: 'https://fallback.example',
+        KAKI_LLM_FALLBACK_API_KEY: 'k2',
+        KAKI_LLM_FALLBACK_MODEL: 'deepseek-chat',
+        KAKI_LLM_FALLBACK_REASONING_CONTROL: 'sometimes',
+      }),
+    ).toThrow(/KAKI_LLM_FALLBACK_REASONING_CONTROL/);
+  });
+});
+
+describe('fallback warnings', () => {
+  const primary = {
+    KAKI_LLM_BASE_URL: 'https://secret-primary.example/v1',
+    KAKI_LLM_API_KEY: 'primary-key',
+    KAKI_LLM_MODEL: 'primary-model',
+    KAKI_LLM_REASONING_CONTROL: 'true',
+  };
+  const fallback = {
+    KAKI_LLM_FALLBACK_BASE_URL: 'https://secret-fallback.example/v1',
+    KAKI_LLM_FALLBACK_API_KEY: 'fallback-key',
+    KAKI_LLM_FALLBACK_MODEL: 'fallback-model',
+  };
+
+  async function warningFor(run: () => Promise<unknown>): Promise<string[]> {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await run();
+      return warn.mock.calls.map((call) => String(call[0]));
+    } finally {
+      vi.unstubAllGlobals();
+      warn.mockRestore();
+    }
+  }
+
+  function stubFetch(respond: (url: string) => Response): void {
+    vi.stubGlobal('fetch', async (url: unknown) => respond(String(url)));
+  }
+
+  function expectSafeWarning(message: string): void {
+    expect(message).toMatch(/^\[llm-fallback\] primary primary-model failed: .+; using fallback-model$/);
+    for (const secret of ['primary-key', 'fallback-key', 'secret-primary.example', 'secret-fallback.example']) {
+      expect(message).not.toContain(secret);
+    }
+  }
+
+  it('warns once when complete falls back', async () => {
+    stubFetch((url) =>
+      url.startsWith('https://secret-primary.example')
+        ? new Response('out of credits', { status: 402 })
+        : new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] })),
+    );
+
+    const warnings = await warningFor(async () => {
+      const llm = llmFromEnv({ ...primary, ...fallback })!;
+      expect(await llm.complete([])).toBe('ok');
+    });
+
+    expect(warnings).toHaveLength(1);
+    expectSafeWarning(warnings[0]!);
+    expect(warnings[0]).toContain('HTTP 402');
+  });
+
+  it('warns once when stream falls back before yielding anything', async () => {
+    stubFetch((url) =>
+      url.startsWith('https://secret-primary.example')
+        ? new Response('down', { status: 503 })
+        : sseResponse([delta('from fallback'), 'data: [DONE]\n\n']),
+    );
+
+    const warnings = await warningFor(async () => {
+      const llm = llmFromEnv({ ...primary, ...fallback })!;
+      expect(await collect(llm.stream!([]))).toEqual(['from fallback']);
+    });
+
+    expect(warnings).toHaveLength(1);
+    expectSafeWarning(warnings[0]!);
+    expect(warnings[0]).toContain('HTTP 503');
   });
 });

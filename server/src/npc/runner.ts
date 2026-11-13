@@ -17,6 +17,7 @@ import {
   CONTROL_TOPIC,
   NPC_STATE_TOPIC,
   parseControlMessage,
+  setMeetingAgenda,
   STT_TOPIC,
   type NpcProfile,
   type NpcStateMessage,
@@ -326,9 +327,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           paused = false;
         } else if (conversation === undefined || names !== castNames || !started) {
           if (options.fetchScenario !== undefined) {
-            const latest = await options.fetchScenario().catch(() => undefined);
+            let failure: string | undefined;
+            const latest = await options.fetchScenario().catch((error: unknown) => {
+              failure = String(error).slice(0, 300);
+              return undefined;
+            });
             if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
-              scenario.agenda.splice(0, scenario.agenda.length, ...latest.agenda);
+              setMeetingAgenda(scenario, latest, latest.agenda);
+            } else {
+              log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);
             }
           }
           if (conversation === undefined || names !== castNames) {

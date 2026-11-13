@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, roleForZoomName, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { startNpcRunner } from '../../src/npc/runner';
@@ -72,6 +72,60 @@ describe('startNpcRunner visitor transcript identity', () => {
       const speaker = transcript.find(([, text]) => text === line)![0];
       expect(speaker).toBe('Booth Playtest (Operations Director)');
       expect(roleForZoomName(scenario, speaker)).toBe('producer');
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('scenario refresh failure', () => {
+  it.each([
+    ['fetch', async () => { throw new Error('offline'); }, 'offline'],
+    ['parse', async () => parseScenario({ agenda: [] }), 'Invalid scenario'],
+    ['empty result', async () => undefined, 'no usable scenario returned'],
+  ])('logs the %s reason and keeps the current agenda', async (_kind, fetchScenario, reason) => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const original = scenario.agenda.map((item) => item.title);
+    const lines: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      fetchScenario,
+      log: (line) => lines.push(line),
+      responseDelayMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Visitor', metadata: 'producer' });
+      await vi.waitFor(() => expect(lines.some((line) => line.includes(reason))).toBe(true));
+      expect(lines.some((line) => line.includes('keeping current agenda as last resort'))).toBe(true);
+      expect(scenario.agenda.map((item) => item.title)).toEqual(original);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('updates the shared agenda and references after a successful refresh', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const latest = { ...scenario, agenda: [...scenario.agenda] };
+    setMeetingAgenda(latest, scenario, scenario.agenda.slice(0, 2));
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      fetchScenario: async () => latest,
+      responseDelayMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Visitor', metadata: 'producer' });
+      await vi.waitFor(() => expect(scenario.agenda).toHaveLength(2));
+      expect(parseScenario(JSON.parse(JSON.stringify(scenario)) as unknown).agenda).toHaveLength(2);
     } finally {
       await runner.stop();
     }

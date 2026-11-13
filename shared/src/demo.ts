@@ -303,6 +303,23 @@ export function shuffleAgendaForRole(
   return select(shuffled);
 }
 
+/** Replace the active agenda in place while keeping the source ready for later meeting draws. */
+export function setMeetingAgenda(target: Scenario, full: Scenario, picked: readonly AgendaItem[]): void {
+  const titles = new Set(picked.map((item) => item.title));
+  const sourceItems = new Map(full.agenda.map((item) => [item.title, item]));
+  const meetingItems = picked.map((item) => {
+    const source = sourceItems.get(item.title);
+    if (source === undefined) throw new Error(`Unknown meeting agenda title: ${item.title}`);
+    const links = source.links?.filter((link) => titles.has(link.with));
+    const { links: _links, ...withoutLinks } = source;
+    return links?.length ? { ...withoutLinks, links } : withoutLinks;
+  });
+  const pairs = full.excludedPairs?.filter(([left, right]) => titles.has(left) && titles.has(right));
+  target.agenda.splice(0, target.agenda.length, ...meetingItems);
+  if (pairs?.length) target.excludedPairs = pairs;
+  else delete target.excludedPairs;
+}
+
 /**
  * Resolve `KAKI_AGENDA_PICK` (comma-separated agenda titles or 0-based canon indexes) to an
  * ordered agenda subset for repeatable playtests. Unknown titles, out-of-range indexes,

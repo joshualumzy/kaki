@@ -210,6 +210,17 @@ describe('addressedCharacter', () => {
 });
 
 describe('buildSystemPrompt', () => {
+  it('mentions links only to items in the active meeting', () => {
+    const first = { ...npcScenario.agenda[0]!, links: [
+      { with: 'Present', effect: 'present effect' },
+      { with: 'Absent', effect: 'absent effect' },
+    ] };
+    const present = { ...npcScenario.agenda[1]!, title: 'Present' };
+    const prompt = buildSystemPrompt({ ...npcScenario, agenda: [first, present] }, undefined, first.title);
+    expect(prompt).toContain('Present: present effect');
+    expect(prompt).not.toContain('Absent');
+    expect(prompt).not.toContain('absent effect');
+  });
   it('renders only the current meeting item facts and hidden directions', () => {
     const [ada, bao] = npcScenario.npcs;
     const first = { title: 'First', minutes: 5, ownerRole: 'chef', contested: true,

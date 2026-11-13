@@ -32,9 +32,35 @@ export interface OpenAiLlmOptions {
   model: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * Whether the model accepts `reasoning_effort`. Unset keeps the old rule: only model names
+   * containing "deepseek". Set it explicitly when the same model is served under another name.
+   */
+  reasoningControl?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+/** Read a true/false (or 1/0) switch, and name the variable in the error when it is malformed. */
+function reasoningControlFromEnv(raw: string | undefined, name: string): boolean | undefined {
+  if (raw === undefined) return undefined;
+  switch (raw.trim().toLowerCase()) {
+    case 'true':
+    case '1':
+      return true;
+    case 'false':
+    case '0':
+      return false;
+    default:
+      throw new Error(`Invalid ${name}: ${raw} (expected true/false or 1/0)`);
+  }
+}
+
+/** The single warning logged when the fallback takes over; it never includes URLs, keys or headers. */
+function fallbackWarning(primaryModel: string, error: unknown, fallbackModel: string): string {
+  const detail = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+  return `[llm-fallback] primary ${primaryModel} failed: ${detail}; using ${fallbackModel}`;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -97,8 +123,10 @@ export function createOpenAiLlm({
   model,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
+  reasoningControl,
 }: OpenAiLlmOptions): LlmClient {
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const controlReasoning = reasoningControl ?? /deepseek/i.test(model);
   // Not every OpenAI-compatible model accepts response_format; stop sending it once one refuses.
   let jsonModeSupported = true;
 
@@ -120,13 +148,12 @@ export function createOpenAiLlm({
     async complete(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
-      const isDeepSeek = /deepseek/i.test(model);
-      const effort = options.reasoningEffort ?? (options.json === true && isDeepSeek ? 'none' : undefined);
+      const effort = options.reasoningEffort ?? (options.json === true && controlReasoning ? 'none' : undefined);
       const request = {
         model,
         messages,
         temperature: options.temperature ?? 0,
-        ...(effort !== undefined && isDeepSeek ? { reasoning_effort: effort } : {}),
+        ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
       };
       const askForJson = options.json === true && jsonModeSupported;
 
@@ -159,9 +186,8 @@ export function createOpenAiLlm({
     async *stream(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
-      const isDeepSeek = /deepseek/i.test(model);
       const isBoundedAssessment =
-        isDeepSeek &&
+        controlReasoning &&
         messages[0]?.role === 'system' &&
         messages[0].content.includes('[KAKI_PROPOSAL_ASSESSMENT]');
       const effort = options.reasoningEffort ?? (isBoundedAssessment ? 'none' : undefined);
@@ -170,7 +196,7 @@ export function createOpenAiLlm({
         messages,
         temperature: options.temperature ?? 0,
         stream: true,
-        ...(effort !== undefined && isDeepSeek ? { reasoning_effort: effort } : {}),
+        ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
       };
 
       const response = await post(request, signal, timeout);
@@ -239,7 +265,13 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
   if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs <= 0)) {
     throw new Error(`Invalid KAKI_LLM_TIMEOUT_MS: ${rawTimeout}`);
   }
-  const primary = createOpenAiLlm({ baseUrl, apiKey, model, timeoutMs });
+  const primary = createOpenAiLlm({
+    baseUrl,
+    apiKey,
+    model,
+    timeoutMs,
+    reasoningControl: reasoningControlFromEnv(env.KAKI_LLM_REASONING_CONTROL, 'KAKI_LLM_REASONING_CONTROL'),
+  });
 
   const fallbackBaseUrl = env.KAKI_LLM_FALLBACK_BASE_URL;
   const fallbackApiKey = env.KAKI_LLM_FALLBACK_API_KEY;
@@ -251,6 +283,10 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
     apiKey: fallbackApiKey,
     model: fallbackModel,
     timeoutMs,
+    reasoningControl: reasoningControlFromEnv(
+      env.KAKI_LLM_FALLBACK_REASONING_CONTROL,
+      'KAKI_LLM_FALLBACK_REASONING_CONTROL',
+    ),
   });
 
   return {
@@ -259,6 +295,7 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
         return await primary.complete(messages, options);
       } catch (error) {
         if (options?.signal?.aborted === true) throw error;
+        console.warn(fallbackWarning(model, error, fallbackModel));
         return await fallback.complete(messages, options);
       }
     },
@@ -275,6 +312,7 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
         }
       } catch (error) {
         if (yieldedAny || options?.signal?.aborted === true || fallback.stream === undefined) throw error;
+        console.warn(fallbackWarning(model, error, fallbackModel));
         yield* fallback.stream(messages, options);
       }
     },
@@ -296,6 +334,12 @@ export function notetakerLlmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmCl
     !/deepseek/i.test(notetakerModel) &&
     /deepseek/i.test(env.KAKI_LLM_BASE_URL ?? '') &&
     Boolean(env.KAKI_LLM_FALLBACK_BASE_URL && env.KAKI_LLM_FALLBACK_API_KEY);
+  // The switch belongs to a model, not a gateway: the notetaker's model may differ from the gateway's
+  // usual one, so only its own switch applies (unset: the model-name default in createOpenAiLlm).
+  const reasoningControl = reasoningControlFromEnv(
+    env.KAKI_NOTETAKER_LLM_REASONING_CONTROL,
+    'KAKI_NOTETAKER_LLM_REASONING_CONTROL',
+  );
   return llmFromEnv({
     ...env,
     KAKI_LLM_BASE_URL:
@@ -306,5 +350,6 @@ export function notetakerLlmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmCl
       (useFallbackGatewayForNotetaker ? env.KAKI_LLM_FALLBACK_API_KEY : env.KAKI_LLM_API_KEY),
     KAKI_LLM_MODEL: notetakerModel,
     KAKI_LLM_TIMEOUT_MS: env.KAKI_NOTETAKER_LLM_TIMEOUT_MS || env.KAKI_LLM_TIMEOUT_MS,
+    KAKI_LLM_REASONING_CONTROL: reasoningControl === undefined ? undefined : String(reasoningControl),
   });
 }

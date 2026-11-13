@@ -8,6 +8,12 @@ Run it in one command: `SCENARIO=kopitiam npm run live:up`, then open http://loc
 (Or run `npm run stack:up`, `npm run dev`, and `npm run npc` separately.)
 Settings are in `.env.example`. Terms are in `CONTEXT.md`.
 
+Both the primary and the fallback LLM are OpenAI-compatible; the fallback takes over when the primary fails.
+`npm run llm:use -- school` (or `direct`) moves the school gateway and the direct DeepSeek API between the
+`KAKI_LLM_*` and `KAKI_LLM_FALLBACK_*` slots, so restart the stack afterwards. `KAKI_LLM_REASONING_CONTROL`
+(and the fallback and notetaker equivalents) force `reasoning_effort` on or off when a DeepSeek model is
+served under a name that does not contain "deepseek"; unset keeps the old name-based rule.
+
 ## A visit, start to finish
 
 1. **Join.** The visitor picks a name and a role (any role no AI plays) and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, 2 minutes per item) tailored to that role.

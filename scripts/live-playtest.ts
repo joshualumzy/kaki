@@ -43,11 +43,11 @@ function decisionFor(title: string): string {
 }
 
 const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
-  { matches: /counter staff/i, markers: /counter|rest day|double pay|till login|free kopi|toast/i },
-  { matches: /regulars/i, markers: /regulars|kopi|price|till|facebook|share/i },
-  { matches: /laptop/i, markers: /laptop|stool|socket|wifi|timer|tray|solo/i },
-  { matches: /food safety/i, markers: /fridge|disposal log|officer|delivery|review|customer|eggs/i },
-  { matches: /delivery/i, markers: /grabfood|platter|pickup|commission|margin|tray|10%/i },
+  { matches: /counter staff/i, markers: /short.staffed|rest day|double pay|till login/i },
+  { matches: /regulars/i, markers: /regulars|price button|facebook post|loyalty/i },
+  { matches: /laptop/i, markers: /laptop|window.bar|socket timer|wifi/i },
+  { matches: /food safety/i, markers: /fridge|disposal log|inspection|eggs/i },
+  { matches: /delivery/i, markers: /grabfood|office platter|pickup code|commission/i },
 ];
 
 function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }

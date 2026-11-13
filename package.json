@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "emit-demo": "tsx scripts/emit-demo.ts",
+    "llm:use": "tsx scripts/llm-use.ts",
     "eval:notetaker": "tsx server/src/host/evalNotetaker.ts",
     "playtest:dialogue": "tsx scripts/playtest-dialogue.ts",
     "playtest:live": "tsx scripts/live-playtest.ts",
