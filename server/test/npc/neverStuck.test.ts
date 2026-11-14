@@ -317,7 +317,7 @@ describe('never-stuck visitor path', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await h.conversation.settled();
     expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(1);
-    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(false);
+    expect(h.spoken.some((line) => line.includes("Let's leave"))).toBe(false);
     expect(h.ended()).toBe(0);
     h.conversation.close();
   });
@@ -331,11 +331,11 @@ describe('never-stuck visitor path', () => {
     await h.say('Use the window bar.');
     await vi.advanceTimersByTimeAsync(44_999);
     await h.conversation.settled();
-    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(false);
+    expect(h.spoken.some((line) => line.includes("Let's leave"))).toBe(false);
     expect(h.ended()).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
     await h.conversation.settled();
-    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(true);
+    expect(h.spoken.some((line) => line.includes("Let's leave"))).toBe(true);
     expect(h.ended()).toBe(1);
     h.conversation.close();
   });
@@ -355,7 +355,7 @@ describe('never-stuck visitor path', () => {
     h.conversation.taskStatus('task-0', title, 'DISPATCHED', true);
     await vi.advanceTimersByTimeAsync(15_000);
     await h.conversation.settled();
-    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(false);
+    expect(h.spoken.some((line) => line.includes("Let's leave"))).toBe(false);
     expect(h.ended()).toBe(0);
     await vi.advanceTimersByTimeAsync(20_000);
     await h.conversation.settled();
@@ -382,7 +382,7 @@ describe('never-stuck visitor path', () => {
   it('skips the card nudge once the host handoff line pointed at the card on this topic', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
-    const handoff = 'Josh, that follow-up is on your screen on the right to review and confirm.';
+    const handoff = "Josh, the follow-up's still on your screen whenever you're ready.";
     const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
       [`${control('settled')}\nSam: Window bar it is.`],
       { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
@@ -396,7 +396,7 @@ describe('never-stuck visitor path', () => {
     expect(h.logs.some((line) => line.includes('skipped the card nudge'))).toBe(true);
     await vi.advanceTimersByTimeAsync(25_000);
     await h.conversation.settled();
-    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(true);
+    expect(h.spoken.some((line) => line.includes("Let's leave"))).toBe(true);
     h.conversation.close();
   });
 
@@ -444,7 +444,7 @@ describe('never-stuck visitor path', () => {
     await h.say('Use the window bar.');
     expect(h.ended()).toBe(0);
     await vi.advanceTimersByTimeAsync(510);
-    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(true);
+    expect(h.spoken.some((line) => line.includes("Let's leave"))).toBe(true);
     expect(h.ended()).toBe(1);
     h.conversation.close();
   });

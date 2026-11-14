@@ -48,10 +48,10 @@ vi.mock('@livekit/rtc-node', () => {
 describe('visitorDispatchLine', () => {
   it('points at the card once on the first dispatch and is brief after', () => {
     expect(visitorDispatchLine('Daniel', 1)).toBe(
-      "Daniel, I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.",
+      "Daniel, the follow-up's on your screen whenever you want to send it.",
     );
     expect(visitorDispatchLine('Daniel', 2)).toBe(
-      'Daniel, that follow-up is on your screen on the right to review and confirm.',
+      "Daniel, the follow-up's still on your screen whenever you're ready.",
     );
   });
 

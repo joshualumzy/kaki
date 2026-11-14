@@ -36,6 +36,13 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   return parts.join(' ');
 }
 
+const SMALL_COUNTS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+
+/** Small counts are spoken as words, because a host reading "2 quick issues" aloud sounds like a form. */
+function spokenCount(count: number): string {
+  return SMALL_COUNTS[count] ?? String(count);
+}
+
 export function cleanSpokenTopic(title: string): string {
   return title
     .replace(/^@/, '')
@@ -96,19 +103,19 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
 
   const lead = scenario.hostBrief?.goal.match(/\bvisitor as ([^.]+)/i)?.[1]?.trim();
   const decisionLead = visitor === undefined || lead === undefined ? '' : ` You're ${lead}, so the calls are yours.`;
-  const handoff = first === undefined ? '' : ` Let's start with ${spokenTopicLead(first.title)}.`;
+  const handoff = first === undefined ? '' : ` Let's start with ${spokenAgendaName(scenario, first.title)}.`;
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
-    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead} ${situationLead}, and we've got ${scenario.agenda.length} quick issues to settle today.${handoff}`;
+    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead} ${situationLead}, and we've got ${spokenCount(scenario.agenda.length)} quick issues to settle today.${handoff}`;
   }
 
   if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}`;
-  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead} We've got ${scenario.agenda.length} quick things to sort out today.${handoff}`;
+  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead} We've got ${spokenCount(scenario.agenda.length)} quick things to sort out today.${handoff}`;
 }
 
 /**
  * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`).
  */
-export function liveNextItemLine(_scenario: Scenario, title: string, _visitor?: Visitor): string {
-  return `Alright team, next is ${spokenTopicLead(title)}.`;
+export function liveNextItemLine(scenario: Scenario, title: string, _visitor?: Visitor): string {
+  return `Next up, ${spokenAgendaName(scenario, title)}.`;
 }

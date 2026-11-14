@@ -199,7 +199,7 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
 
 /** The host is pointing the visitor at their follow-up card. */
 const CARD_POINT_RE =
-  /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel)\b/i;
+  /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel|on your screen)\b/i;
 
 export interface ConversationOptions {
   topicTurnBudget?: number;
@@ -789,7 +789,7 @@ export class NpcConversation<Clip> {
     if (!this.originIsCurrent(origin)) return;
     if (
       this.turn?.scripted === true &&
-      /\b(?:sent you a task|this one is yours|can you take on|Kaki panel on the right|your screen on the right)\b/i.test(
+      /\b(?:sent you a task|this one is yours|can you take on|Kaki panel on the right|on your screen)\b/i.test(
         this.turn.scriptedUtterance?.text ?? '',
       )
     ) {
@@ -1188,9 +1188,10 @@ export class NpcConversation<Clip> {
       }
       this.reviewWarned = true;
       const topicName = spokenAgendaName(this.options.scenario, title);
+      const wrapUp = `Let's leave ${topicName} there.`;
       const warning = this.cardPointedTopics.has(title)
-        ? `We need to move on from ${topicName} shortly.`
-        : `We need to move on from ${topicName} shortly. You can finish the follow-up from your card.`;
+        ? wrapUp
+        : `${wrapUp} The follow-up's on your card whenever you're ready.`;
       this.announce(host, warning,
         DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
           if (spoken) this.checkTopicAdvance(true);

@@ -133,8 +133,8 @@ export interface NpcRunner {
 export function visitorDispatchLine(name: string | undefined, count: number): string {
   const who = name === undefined || name.trim() === '' ? '' : `${name.trim()}, `;
   return count === 1
-    ? `${who}I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.`
-    : `${who}that follow-up is on your screen on the right to review and confirm.`;
+    ? `${who}the follow-up's on your screen whenever you want to send it.`
+    : `${who}the follow-up's still on your screen whenever you're ready.`;
 }
 
 interface Character {

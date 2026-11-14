@@ -7,8 +7,28 @@ describe('liveNextItemLine', () => {
     const scenario = { ...testScenario, agenda: [{ ...testScenario.agenda[0]!, briefing: 'Fresh stock arrived late.' }] };
     const line = liveNextItemLine(scenario, 'Prep', { name: 'Visitor', seat: 'Bao' });
     expect(line).not.toContain('Fresh stock arrived late.');
-    expect(line).toBe('Alright team, next is Prep.');
+    expect(line).toBe('Next up, Prep.');
     expect(liveNextItemLine(scenario, 'Prep')).toBe(line);
+  });
+
+  it('uses the scenario\'s short spoken name for the next item', () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [{ ...testScenario.agenda[0]!, title: 'One counter staff short for the opening rush', spoken: 'the staffing gap' }],
+    };
+    expect(liveNextItemLine(scenario, 'One counter staff short for the opening rush'))
+      .toBe('Next up, the staffing gap.');
+  });
+
+  it('speaks small agenda counts as words in the welcome', () => {
+    const scenario = {
+      ...testScenario,
+      situation: 'Lunch service starts in ten minutes.',
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
+    };
+    const line = liveOpeningLine(scenario);
+    expect(line).toContain("we've got two quick issues");
+    expect(line).toContain("Let's start with Prep.");
   });
 
   it('tells the visitor once that they make the calls, using the host brief', () => {

@@ -293,7 +293,7 @@ describe('NpcConversation', () => {
     expect(h.playing.some((entry) => /your (?:draft|invite) is on your card/i.test(entry.text))).toBe(false);
     await vi.advanceTimersByTimeAsync(2000);
     await h.flush();
-    expect(h.playing.at(-1)?.text).toBe('We need to move on from Prep shortly.');
+    expect(h.playing.at(-1)?.text).toBe("Let's leave Prep there.");
     conversation.close();
   });
 
@@ -316,7 +316,7 @@ describe('NpcConversation', () => {
     await h.flush();
     conversation.lockDecision();
     await h.flush();
-    conversation.announce('Ada', 'Josh, that follow-up is on your screen on the right to review and confirm.');
+    conversation.announce('Ada', "Josh, the follow-up's still on your screen whenever you're ready.");
     await h.flush();
     h.playing.at(-1)?.finish();
     await h.flush();
@@ -324,7 +324,7 @@ describe('NpcConversation', () => {
     expect(h.logs).toContainEqual(expect.stringContaining('skipped the card nudge on "Prep"'));
     await vi.advanceTimersByTimeAsync(2000);
     await h.flush();
-    expect(h.playing.at(-1)?.text).toBe('We need to move on from Prep shortly.');
+    expect(h.playing.at(-1)?.text).toBe("Let's leave Prep there.");
     conversation.close();
   });
 
@@ -353,10 +353,10 @@ describe('NpcConversation', () => {
     await h.flush();
     await vi.advanceTimersByTimeAsync(2000);
     await h.flush();
-    expect(h.playing.at(-1)?.text).toBe('We need to move on from Prep shortly.');
+    expect(h.playing.at(-1)?.text).toBe("Let's leave Prep there.");
     h.playing.at(-1)?.finish();
     await h.flush();
-    expect(h.playing.map((entry) => entry.text)).not.toContain('You can finish the follow-up from your card.');
+    expect(h.playing.map((entry) => entry.text)).not.toContain("The follow-up's on your card whenever you're ready.");
     conversation.close();
   });
 
@@ -388,13 +388,13 @@ describe('NpcConversation', () => {
     await h.flush();
     await vi.advanceTimersByTimeAsync(2000);
     await h.flush();
-    expect(h.playing.at(-1)?.text).toBe('We need to move on from the prep job shortly.');
+    expect(h.playing.at(-1)?.text).toBe("Let's leave the prep job there.");
     conversation.close();
   });
 
   it.each([
-    "Josh, I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.",
-    'Josh, that follow-up is on your screen on the right to review and confirm.',
+    "Josh, the follow-up's on your screen whenever you want to send it.",
+    "Josh, the follow-up's still on your screen whenever you're ready.",
   ])('still cancels a pending dispatch that points at the screen: %s', async (line) => {
     const h = harness();
     h.conversation.announce('Ada', line);

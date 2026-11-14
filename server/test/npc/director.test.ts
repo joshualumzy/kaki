@@ -286,7 +286,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Story time comes only from the scenario situation');
     expect(prompt).not.toContain('current local time:');
     expect(prompt).not.toContain('time of day (');
-    expect(prompt).toContain('At most two numbers in any spoken sentence');
+    expect(prompt).toContain('At most two figures in a spoken sentence');
     expect(prompt).not.toContain('last line of the reply is a short question');
     expect(prompt).not.toContain('Every reply while this item is open');
     expect(prompt).not.toContain('ask for the exact followUp.title');
@@ -490,6 +490,20 @@ describe('the director prompt', () => {
     const prompt = buildSystemPrompt(npcScenario);
     expect(prompt).toContain('Never invent a change in a colleague');
     expect(prompt).toContain('quit, resigned, was fired, is leaving');
+  });
+
+  it('keeps colleague speech natural: one signature worry, varied openers, few figures', () => {
+    const prompt = buildSystemPrompt(npcScenario, { name: 'Visitor', role: 'Chef' });
+    expect(prompt).toContain("signature worry is said once per meeting");
+    expect(prompt).toContain('Vary how lines open');
+    expect(prompt).toContain('At most two figures in a spoken sentence');
+  });
+
+  it('gives the host a natural acknowledgement instead of a bare Noted', () => {
+    const [ada, bao] = npcScenario.npcs ?? [];
+    const scenario = { ...npcScenario, npcs: [{ ...ada!, role: 'host' as const }, bao!] };
+    expect(buildSystemPrompt(scenario, { name: 'Visitor', role: 'Chef' }))
+      .toContain('Never answer with a bare "Noted."');
   });
 });
 

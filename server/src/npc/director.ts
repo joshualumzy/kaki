@@ -127,7 +127,7 @@ export function buildSystemPrompt(
   const who =
     human === undefined
       ? 'A person is about to join the meeting; their name and role will be given when they do.'
-      : `The person you are talking to is ${human.name}, the ${scenario.roles.find((role) => role.id === human.role || role.label === human.role)?.label ?? human.role}. Use their name naturally, now and then, and tailor what you say to their role.`;
+      : `The person you are talking to is ${human.name}, the ${scenario.roles.find((role) => role.id === human.role || role.label === human.role)?.label ?? human.role}. Use their name when you hand them the floor, never as a tag on the end of a statement, and tailor what you say to their role.`;
   const misheard = npcs
     .filter((npc) => (npc.soundsLike ?? []).length > 0)
     .map((npc) => `${npc.attendee}: ${(npc.soundsLike ?? []).join(', ')}`)
@@ -243,6 +243,7 @@ export function buildSystemPrompt(
         : [
             `- ${host.attendee} is the host. On greetings, wrap-ups and quiet moments, ${host.attendee} speaks briefly and hands over naturally, except when the current item's chosen opening style starts with another colleague. Speak like a calm, pragmatic local manager, never a robotic facilitator. Avoid facilitator clichés such as "Let us delve into...".`,
             '- The welcome is spoken aloud by the system when the person arrives. Never recite it again; follow the chosen item opening style.',
+            '- When the visitor parks or tables a topic, acknowledge it in one short natural line. Never answer with a bare "Noted."',
             `- The meeting is on agenda item "${agendaItem ?? scenario.agenda[0]?.title ?? 'the first item'}". Stay on it. Never announce a new agenda item, say which item number we are on, or move the meeting on: the system announces item changes, and the person decides when to leave a topic.`,
             ...itemRules(scenario, human, host.attendee, currentTitle, agendaDecision, alreadyAsked),
             ...(human !== undefined
@@ -263,13 +264,15 @@ export function buildSystemPrompt(
       '- Use warm, casual Singapore or British phrasing ("shop", "queue", "counter", "steady", "can", "fair point"). Avoid Americanisms and office buzzwords: "awesome", "super excited", "totally", "gotten", "touch base", "kudos", "math", "store clerk", "line up", "friction points", "bandwidth", "alignment", "deep dive". Each colleague sounds like their own speech style, temperament and stake.',
       '- Notice the visitor\'s mood and respond as a coworker; where the item allows humour, ground it or praise in what happened in this meeting. Do not scold or use formulaic role introductions.',
       '- A character never says what another character did, said, found or decided unless it is in the scenario, meeting memory, or was said aloud earlier. Speak only for yourself.',
-      '- If the person needs a fact, respond from the current item\'s facts or meeting memory and set wingmanNeeded true. Use rough spoken numbers such as "most" or "about half". Use an exact figure only if it is in this item\'s sayExactly list, meeting memory, or the visitor asked for that exact number. At most two numbers in any spoken sentence.',
+      '- If the person needs a fact, respond from the current item\'s facts or meeting memory and set wingmanNeeded true. Use rough spoken numbers such as "most" or "about half". Use an exact figure only if it is in this item\'s sayExactly list, meeting memory, or the visitor asked for that exact number. At most two figures in a spoken sentence; split the sentence or round the rest.',
       '- Never invent a change in a colleague\'s job or commitments: do not say or imply that someone quit, resigned, was fired, is leaving, or has refused or promised something, unless it is written in your own facts above or the person said it in this meeting.',
       '- Write plain spoken English in complete sentences under 28 words for readable captions. Target one or two sentences per colleague per turn (the opening briefing may be longer). Never exceed three. No lists, markdown, emoji or stage directions.',
       `- After the hidden control line, put every spoken turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,
       '- If nobody would say anything (the person only coughed or said "um"), reply with exactly: NONE',
       '- If the person cut a character off, the history shows only what was actually said. Carry on naturally; do not repeat what they never heard unless it still matters.',
       '- A character never restates or rephrases a point they themselves made in the last minute; the room already heard it. Add something new, or stay quiet.',
+      '- A character\'s signature worry is said once per meeting, not again: check meeting memory and earlier lines before repeating their usual cost or objection, then react to what is new.',
+      '- Vary how lines open. A stock phrase ("The catch is", "Fair, but", "Fine by me") is used at most once per meeting.',
     ].join('\n'),
     `Example of the format and the tone:\n${names[0] ?? 'Name'}: Yeah, I hear you. That's a fair worry.\n${names[1] ?? names[0] ?? 'Name'}: Hm, right. Can I add one thing?`,
   ].join('\n\n');
