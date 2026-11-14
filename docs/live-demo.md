@@ -13,6 +13,8 @@ Both the primary and the fallback LLM are OpenAI-compatible; the fallback takes 
 `KAKI_LLM_*` and `KAKI_LLM_FALLBACK_*` slots, so restart the stack afterwards. `KAKI_LLM_REASONING_CONTROL`
 (and the fallback and notetaker equivalents) force `reasoning_effort` on or off when a DeepSeek model is
 served under a name that does not contain "deepseek"; unset keeps the old name-based rule.
+`KAKI_LLM_FIRST_CHUNK_MS` (default 12 s) and `KAKI_LLM_IDLE_MS` (default 10 s) are the streamed reply's
+first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-request timeout for `complete`.
 
 ## A visit, start to finish
 
@@ -86,6 +88,10 @@ attendees stop auto-approving or retrying drafts. Unset it to run for real.
 
 If an AI cuts itself off, raise `NPC_VAD_LEAK_MARGIN` or `NPC_VAD_GUARDED_MIN_LEVEL`. If cutting in feels sluggish, lower
 `NPC_VAD_GUARDED_START_MS`. Headphones remove the echo problem entirely; laptop speakers rely on the browser's echo cancellation.
+
+`KAKI_FAULT=control-garbled|slow-first|stall-mid|tts-fail` shows one failure on purpose during a live check: a garbled
+control line, a 15 s delay before the first chunk, a stream that stops mid-reply, or every voice clip failing. Unset it
+for a normal run; an unknown value stops the NPC at startup.
 
 ## Verified and not verified
 

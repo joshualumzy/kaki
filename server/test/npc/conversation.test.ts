@@ -943,8 +943,9 @@ describe('NpcConversation', () => {
     expect(playing.map((p) => p.text)).toEqual(['Sorry about that.', 'Friday works.']);
   });
 
-  it('speaks a natural recovery cue when the retry fails too, and does not retry again', async () => {
+  it('speaks a natural recovery cue when the retry fails too, then keeps the room moving without repeating it', async () => {
     const { conversation, calls, playing, states, transcript, flush, say } = harness();
+    conversation.setHuman({ name: 'Josh', role: 'chef' });
     await say('Can we move the launch to Friday?');
     calls[0]?.fail(new Error('LLM request failed: timed out after 20000 ms'));
     await flush();
@@ -961,19 +962,29 @@ describe('NpcConversation', () => {
     expect(transcript.at(-1)?.[1]).toContain('say that again');
     playing[0]?.finish();
     await conversation.settled();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(calls).toHaveLength(2);
+
+    // The cue re-arms the silence prompt instead of leaving the room quiet for good.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls.length).toBeGreaterThan(2);
+
+    // Models still down: the host line is not repeated on every failed turn.
+    calls.at(-1)?.fail(new Error('still down'));
+    await flush();
+    calls.at(-1)?.fail(new Error('still down'));
+    await flush();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(playing.filter((entry) => entry.text.includes('say that again'))).toHaveLength(1);
 
     // Their original request is still in the history, so repeating it is answered with both lines in context.
+    const before = calls.length;
     await say('Can we move the launch to Friday?');
-    expect(calls).toHaveLength(3);
-    expect(calls[2]?.messages.filter((message) => message.role === 'user').map((message) => message.content)).toEqual([
-      'Can we move the launch to Friday?',
-      'Can we move the launch to Friday?',
-    ]);
-    expect(
-      calls[2]?.messages.some((message) => message.role === 'assistant' && message.content.includes('say that again')),
-    ).toBe(true);
+    expect(calls).toHaveLength(before + 1);
+    const last = calls.at(-1)!;
+    const userLines = last.messages.filter((message) => message.role === 'user').map((message) => message.content);
+    expect(userLines.filter((line) => line === 'Can we move the launch to Friday?')).toHaveLength(2);
+    expect(last.messages.some((message) => message.role === 'assistant' && message.content.includes('say that again'))).toBe(
+      true,
+    );
   });
 
   it('drops the failed-request recovery when the person says something new during the retry', async () => {
@@ -992,7 +1003,7 @@ describe('NpcConversation', () => {
   });
 
   it('keeps what was said before a model failure part-way through', async () => {
-    const { conversation, calls, playing, states, flush, say } = harness();
+    const { conversation, calls, playing, states, logs, flush, say } = harness();
     await say('Hello, I am here.');
     calls[0]?.push('Ada: First part. Seco');
     await flush();
@@ -1004,6 +1015,7 @@ describe('NpcConversation', () => {
     expect(calls).toHaveLength(1);
     expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
     expect(playing.map((p) => p.text)).toEqual(['First part.']);
+    expect(logs).toContainEqual(expect.stringMatching(/^\[stream-cut\] Ada: reply stopped after 1 sentences: boom$/));
   });
 
   it('stops everything on close', async () => {

@@ -16,6 +16,7 @@ import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { postMeetingMemory, postSettledTopic } from './settlement';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
+import { faultFromEnv, faultyStream, faultySynthesize } from './fault';
 
 /** `npm run npc`: the AI attendees of the live demo meeting, wired to the real model, Azure speech and Kaki. */
 
@@ -36,6 +37,10 @@ function requireEnv(name: string, hint: string): string {
 const log = (message: string): void => console.log(`[npc ${new Date().toISOString().slice(11, 23)}] ${message}`);
 const logError = (message: string): void => console.error(`[npc ${new Date().toISOString().slice(11, 23)}] ${message}`);
 
+// KAKI_FAULT shows one failure on purpose during a live check; unset is off.
+const fault = faultFromEnv(process.env.KAKI_FAULT);
+if (fault !== undefined) log(`[fault] ${fault} active`);
+
 const scenario = await loadScenario();
 const npcs = scenario.npcs ?? [];
 
@@ -45,12 +50,20 @@ if (llm?.stream === undefined) {
 }
 const stream = llm.stream.bind(llm);
 const temperature = numberEnv('NPC_TEMPERATURE', 0.8);
+const streamWithFault = faultyStream(
+  (messages, signal) => stream(messages, { signal, temperature }),
+  fault,
+  numberEnv('KAKI_LLM_IDLE_MS', 10_000),
+);
 
 const azureHint = 'Add your Azure Speech key and region to .env (see .env.example).';
-const synthesize = createAzureTts(
-  requireEnv('AZURE_SPEECH_KEY', azureHint),
-  requireEnv('AZURE_SPEECH_REGION', azureHint),
-  (speaker) => npcs.find((npc) => npc.attendee === speaker)?.voice,
+const synthesize = faultySynthesize(
+  createAzureTts(
+    requireEnv('AZURE_SPEECH_KEY', azureHint),
+    requireEnv('AZURE_SPEECH_REGION', azureHint),
+    (speaker) => npcs.find((npc) => npc.attendee === speaker)?.voice,
+  ),
+  fault,
 );
 
 // Server-side recognition by default: it hears the echo-cancelled microphone track, so it does not pick up the
@@ -125,7 +138,7 @@ const vad: Partial<VadOptions> = {
 const runner = await startNpcRunner({
   scenario,
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
-  stream: (messages, signal) => stream(messages, { signal, temperature }),
+  stream: streamWithFault,
   synthesize,
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),

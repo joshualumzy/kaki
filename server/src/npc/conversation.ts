@@ -461,6 +461,7 @@ export class NpcConversation<Clip> {
     this.ports.log?.(`typed "${typed}"`);
     this.chain = 0;
     this.bridgedStatementOnTurn = false;
+    this.recoveryCueSpoken = false;
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
@@ -688,6 +689,7 @@ export class NpcConversation<Clip> {
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
     this.chain = 0;
     this.bridgedStatementOnTurn = false;
+    this.recoveryCueSpoken = false;
     this.clearSilenceTimer();
     this.pending.push(accepted);
     this.noteHumanLine(accepted);
@@ -913,6 +915,8 @@ export class NpcConversation<Clip> {
   private deferredFollowUpTimer: ReturnType<typeof setTimeout> | undefined;
   private silencePromptStage = 0;
   private bridgedStatementOnTurn = false;
+  /** The host has already asked the visitor to repeat themselves since their last line. */
+  private recoveryCueSpoken = false;
 
   private clearBargeTimer(): void {
     if (this.bargeTimer !== undefined) clearTimeout(this.bargeTimer);
@@ -1291,6 +1295,7 @@ export class NpcConversation<Clip> {
       this.agendaItem = matched?.title ?? title;
       this.silencePromptStage = 0;
       this.bridgedStatementOnTurn = false;
+      this.recoveryCueSpoken = false;
     }
     if (this.closed || this.human === undefined) return;
     this.linesAtMove = this.humanLines;
@@ -1832,13 +1837,20 @@ export class NpcConversation<Clip> {
     }
     const host = this.facilitatorOrCoHost();
     if (host === undefined) return false;
+    if (this.recoveryCueSpoken) {
+      // The models are still down: keep the meeting's own bounded silence prompts going, but
+      // do not ask the visitor to repeat themselves again since they last spoke.
+      this.ports.log?.('the model is still down; not repeating the recovery cue');
+      this.scheduleSilencePrompt();
+      return true;
+    }
     const who = this.human?.name;
     const line =
       who === undefined
         ? 'Sorry, I lost you for a second there — could you say that again?'
         : `Sorry, ${who}, I lost you for a second there — could you say that again?`;
-    // A no-op completion keeps the silence-prompt timer from starting another model turn.
-    this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, () => undefined);
+    this.recoveryCueSpoken = true;
+    this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, () => this.scheduleSilencePrompt());
     return true;
   }
 
@@ -1853,6 +1865,8 @@ export class NpcConversation<Clip> {
     const handover = new HandoverGuard(this.names, this.human?.name);
     const SAFETY_REFUSAL_RE = /^(?:sorry,?\s*)?i\s+(?:cannot|can't)\s+(?:continue|engage|proceed|help)\s+(?:(?:with|in)\s+)?(?:this|the)\s+(?:conversation|role-?play|simulation|request)[.!]?$/i;
     let heldRefusal: Utterance | undefined;
+    let failure: unknown;
+    let synthesisError: unknown;
     const enqueue = (utterance: Utterance, allowRefusal = false): void => {
       let trimmed = utterance.text
         .replace(/\s*\[(?:cut off|[^\]]*interrupted here[^\]]*)\]\s*/gi, ' ')
@@ -1932,6 +1946,7 @@ export class NpcConversation<Clip> {
       }
       const clip = this.ports.synthesize(utterance, signal).catch((error: unknown) => {
         if (!signal.aborted) {
+          synthesisError ??= error;
           this.ports.log?.(`could not synthesize "${utterance.text}": ${error instanceof Error ? error.message : String(error)}`);
         }
         return undefined;
@@ -1940,7 +1955,6 @@ export class NpcConversation<Clip> {
       queue.push({ utterance, clip });
     };
 
-    let failure: unknown;
     try {
       const cast = this.options.scenario.npcs ?? [];
       const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
@@ -2099,6 +2113,8 @@ export class NpcConversation<Clip> {
     }
     this.gate.setAiAudible(false);
     const briefing = this.maybeBrief();
+    const lostVoice =
+      failure === undefined && turn.spoken.length === 0 && turn.enqueued.length > 0 && synthesisError !== undefined;
     const handedTo =
       !briefing && failure === undefined
         ? findHandover(turn.spoken.map((entry) => entry.utterance), this.names, this.human?.name)
@@ -2115,6 +2131,18 @@ export class NpcConversation<Clip> {
           this.lastSpoken = questionFromFinalSpeaker.utterance.text;
         }
       }
+      this.scheduleSilencePrompt();
+    }
+    if (!briefing && lostVoice) {
+      const speaker = turn.enqueued[0]?.speaker ?? 'the room';
+      const message = synthesisError instanceof Error ? synthesisError.message : String(synthesisError);
+      this.ports.log?.(`[tts] lost the whole reply from ${speaker}: ${message}`);
+      this.scheduleSilencePrompt();
+    }
+    if (!briefing && failure !== undefined && turn.spoken.length > 0) {
+      const speaker = turn.spoken.at(-1)?.utterance.speaker ?? 'the room';
+      const message = failure instanceof Error ? failure.message : String(failure);
+      this.ports.log?.(`[stream-cut] ${speaker}: reply stopped after ${turn.spoken.length} sentences: ${message}`);
       this.scheduleSilencePrompt();
     }
     if (!briefing && failure !== undefined && turn.spoken.length === 0) {

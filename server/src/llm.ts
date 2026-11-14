@@ -42,7 +42,14 @@ export interface OpenAiLlmOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Whole-request timeout for `complete`; streaming uses the chunk deadlines below instead. */
   timeoutMs?: number;
+  /** How long a stream waits for its first content chunk. */
+  firstChunkMs?: number;
+  /** How long a stream waits between content chunks before it is treated as stalled. */
+  idleMs?: number;
+  /** Generous whole-reply safety cap for a stream, so a slow trickle cannot run forever. */
+  streamSafetyMs?: number;
   fetchImpl?: typeof fetch;
   /**
    * Whether the model accepts `reasoning_effort`. Unset keeps the old rule: only model names
@@ -52,6 +59,17 @@ export interface OpenAiLlmOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_FIRST_CHUNK_MS = 12_000;
+const DEFAULT_IDLE_MS = 10_000;
+const DEFAULT_STREAM_SAFETY_MS = 60_000;
+
+/** Read a positive whole number, and name the variable in the error when it is malformed. */
+function positiveIntegerFromEnv(raw: string | undefined, name: string): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`Invalid ${name}: ${raw}`);
+  return value;
+}
 
 /** Read a true/false (or 1/0) switch, and name the variable in the error when it is malformed. */
 export function reasoningControlFromEnv(raw: string | undefined, name: string): boolean | undefined {
@@ -141,6 +159,9 @@ export function createOpenAiLlm({
   apiKey,
   model,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  firstChunkMs = DEFAULT_FIRST_CHUNK_MS,
+  idleMs = DEFAULT_IDLE_MS,
+  streamSafetyMs = DEFAULT_STREAM_SAFETY_MS,
   fetchImpl = fetch,
   reasoningControl,
 }: OpenAiLlmOptions): OpenAiLlm {
@@ -149,7 +170,7 @@ export function createOpenAiLlm({
   // Not every OpenAI-compatible model accepts response_format; stop sending it once one refuses.
   let jsonModeSupported = true;
 
-  async function post(body: Record<string, unknown>, signal: AbortSignal, timeout: AbortSignal): Promise<Response> {
+  async function post(body: Record<string, unknown>, signal: AbortSignal, failureReason: () => string | undefined): Promise<Response> {
     try {
       return await fetchImpl(url, {
         method: 'POST',
@@ -158,7 +179,7 @@ export function createOpenAiLlm({
         signal,
       });
     } catch (error) {
-      const reason = timeout.aborted ? `timed out after ${timeoutMs} ms` : String(error);
+      const reason = failureReason() ?? String(error);
       throw new LlmError(`LLM request failed: ${reason}`, { cause: error });
     }
   }
@@ -179,12 +200,12 @@ export function createOpenAiLlm({
       let response = await post(
         askForJson ? { ...request, response_format: { type: 'json_object' } } : request,
         signal,
-        timeout,
+        () => (timeout.aborted ? `timed out after ${timeoutMs} ms` : undefined),
       );
       let detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
       if (askForJson && response.status === 400 && detail.includes('response_format')) {
         jsonModeSupported = false;
-        response = await post(request, signal, timeout);
+        response = await post(request, signal, () => (timeout.aborted ? `timed out after ${timeoutMs} ms` : undefined));
         detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
       }
 
@@ -207,8 +228,28 @@ export function createOpenAiLlm({
     completeWithUsage,
     async complete(messages, options) { return (await completeWithUsage(messages, options)).content; },
     async *stream(messages, options = {}) {
-      const timeout = AbortSignal.timeout(timeoutMs);
-      const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
+      const deadline = new AbortController();
+      let deadlineReason: string | undefined;
+      let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+      const clearDeadline = (): void => {
+        if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+        deadlineTimer = undefined;
+      };
+      const armDeadline = (ms: number, reason: string): void => {
+        clearDeadline();
+        deadlineTimer = setTimeout(() => {
+          deadlineReason = reason;
+          deadline.abort();
+        }, ms);
+        deadlineTimer.unref?.();
+      };
+      const overallTimer = setTimeout(() => {
+        if (deadline.signal.aborted) return;
+        deadlineReason = `the reply took longer than ${streamSafetyMs} ms`;
+        deadline.abort();
+      }, streamSafetyMs);
+      overallTimer.unref?.();
+      const signal = AbortSignal.any(options.signal === undefined ? [deadline.signal] : [deadline.signal, options.signal]);
       const isBoundedAssessment =
         controlReasoning &&
         messages[0]?.role === 'system' &&
@@ -222,15 +263,22 @@ export function createOpenAiLlm({
         ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
       };
 
-      const response = await post(request, signal, timeout);
-      if (!response.ok) {
-        const detail = (await response.text().catch(() => '')).slice(0, 200);
-        throw new LlmError(`LLM request failed with HTTP ${response.status}: ${detail}`);
-      }
-      if (response.body === null) throw new LlmError('LLM reply has no body');
-
+      let firstChunkSeen = false;
       try {
-        for await (const data of serverSentData(response.body)) {
+        armDeadline(firstChunkMs, `the first chunk did not arrive within ${firstChunkMs} ms`);
+        const response = await post(request, signal, () => (deadline.signal.aborted ? deadlineReason : undefined));
+        if (!response.ok) {
+          const detail = (await response.text().catch(() => '')).slice(0, 200);
+          throw new LlmError(`LLM request failed with HTTP ${response.status}: ${detail}`);
+        }
+        if (response.body === null) throw new LlmError('LLM reply has no body');
+
+        const chunks = serverSentData(response.body)[Symbol.asyncIterator]();
+        for (;;) {
+          if (firstChunkSeen) armDeadline(idleMs, `the reply stalled for ${idleMs} ms between chunks`);
+          const next = await chunks.next();
+          if (next.done === true) return;
+          const data = next.value;
           if (data === '[DONE]') return;
           let piece: unknown;
           try {
@@ -239,14 +287,21 @@ export function createOpenAiLlm({
             continue; // a keep-alive or a partial line the gateway garbled: skip it
           }
           const content = deltaOf(piece);
-          if (content !== undefined && content.length > 0) yield content;
+          if (content === undefined || content.length === 0) continue;
+          // Do not run the gap timer while the caller is playing what we just gave it.
+          clearDeadline();
+          firstChunkSeen = true;
+          yield content;
         }
       } catch (error) {
         if (error instanceof LlmError) throw error;
         // The caller stopping the stream is not a failure; anything else is.
         if (options.signal?.aborted === true) return;
-        const reason = timeout.aborted ? `timed out after ${timeoutMs} ms` : String(error);
+        const reason = deadline.signal.aborted && deadlineReason !== undefined ? deadlineReason : String(error);
         throw new LlmError(`LLM stream failed: ${reason}`, { cause: error });
+      } finally {
+        clearDeadline();
+        clearTimeout(overallTimer);
       }
     },
   };
@@ -284,15 +339,16 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
   if (!baseUrl || !apiKey || !model) return undefined;
 
   const rawTimeout = env.KAKI_LLM_TIMEOUT_MS;
-  const timeoutMs = rawTimeout === undefined ? undefined : Number(rawTimeout);
-  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs <= 0)) {
-    throw new Error(`Invalid KAKI_LLM_TIMEOUT_MS: ${rawTimeout}`);
-  }
+  const timeoutMs = positiveIntegerFromEnv(rawTimeout, 'KAKI_LLM_TIMEOUT_MS');
+  const firstChunkMs = positiveIntegerFromEnv(env.KAKI_LLM_FIRST_CHUNK_MS, 'KAKI_LLM_FIRST_CHUNK_MS');
+  const idleMs = positiveIntegerFromEnv(env.KAKI_LLM_IDLE_MS, 'KAKI_LLM_IDLE_MS');
   const primary = createOpenAiLlm({
     baseUrl,
     apiKey,
     model,
     timeoutMs,
+    firstChunkMs,
+    idleMs,
     reasoningControl: reasoningControlFromEnv(env.KAKI_LLM_REASONING_CONTROL, 'KAKI_LLM_REASONING_CONTROL'),
   });
 
@@ -306,6 +362,8 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
     apiKey: fallbackApiKey,
     model: fallbackModel,
     timeoutMs,
+    firstChunkMs,
+    idleMs,
     reasoningControl: reasoningControlFromEnv(
       env.KAKI_LLM_FALLBACK_REASONING_CONTROL,
       'KAKI_LLM_FALLBACK_REASONING_CONTROL',

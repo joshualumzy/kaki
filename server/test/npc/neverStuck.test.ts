@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aiCast, humanRoles, parseScenario, shuffleAgendaForRole, type Scenario, type SuggestInput } from '@kaki/shared';
 import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import { buildSystemPrompt, type Utterance } from '../../src/npc/director';
+import { faultFromEnv } from '../../src/npc/fault';
 
 const fullScenario = parseScenario(JSON.parse(readFileSync(new URL('../../../scenarios/kopitiam/scenario.json', import.meta.url), 'utf8')));
 const control = (state: 'open' | 'settled' | 'deferred', title = 'Share the agreed decision') =>
@@ -160,6 +161,75 @@ describe('never-stuck visitor path', () => {
     expect(h.spoken).toContain('I hear you.');
     h.conversation.lockDecision();
     expect(h.tasks).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('keeps the meeting moving after a reply dies mid-stream', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [
+      async function* () {
+        yield `${control('open')}\nSam: First part.\n`;
+        throw new Error('stream stalled');
+      },
+      `${control('open')}\nSam: Are you still there?`,
+    ], { silencePromptMs: 1_000 });
+    await h.say('Hello team.');
+    expect(h.spoken).toContain('First part.');
+    expect(h.logs).toContainEqual(
+      expect.stringMatching(/^\[stream-cut\] Sam: reply stopped after 1 sentences: stream stalled$/),
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    await h.conversation.settled();
+    expect(h.spoken).toContain('Are you still there?');
+    h.conversation.close();
+  });
+
+  it('logs loudly and keeps the meeting moving when voice fails for the whole reply', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: First part.`,
+      `${control('open')}\nSam: Are you still there?`,
+    ], { silencePromptMs: 1_000 }, {
+      async synthesize(utterance) {
+        if (utterance.text.includes('First part.')) throw new Error('voice down');
+        return utterance;
+      },
+    });
+    await h.say('Hello team.');
+    expect(h.spoken).toEqual([]);
+    expect(h.logs).toContainEqual(
+      expect.stringMatching(/^\[tts\] lost the whole reply from Sam: voice down$/),
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    await h.conversation.settled();
+    expect(h.spoken).toContain('Are you still there?');
+    h.conversation.close();
+  });
+
+  it('re-arms the silence prompt after the lost-you cue without repeating it while the models stay down', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    let calls = 0;
+    const h = meeting(scenario, role, [], { silencePromptMs: 1_000 }, {
+      async *stream() {
+        calls += 1;
+        throw new Error('LLM request failed: timed out after 20000 ms');
+      },
+    });
+    await h.say('Hello team.');
+    expect(calls).toBe(2);
+    expect(h.spoken.filter((line) => line.includes('say that again'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await h.conversation.settled();
+    expect(calls).toBeGreaterThan(2);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await h.conversation.settled();
+    expect(h.spoken.filter((line) => line.includes('say that again'))).toHaveLength(1);
     h.conversation.close();
   });
 
@@ -577,5 +647,16 @@ describe('never-stuck visitor path', () => {
     conversation.lockDecision();
     expect(settleTopic).toHaveBeenCalledTimes(2);
     conversation.close();
+  });
+});
+
+describe('KAKI_FAULT', () => {
+  it('parses the known values and rejects an unknown one', () => {
+    expect(faultFromEnv(undefined)).toBeUndefined();
+    expect(faultFromEnv('')).toBeUndefined();
+    for (const fault of ['control-garbled', 'slow-first', 'stall-mid', 'tts-fail']) {
+      expect(faultFromEnv(fault)).toBe(fault);
+    }
+    expect(() => faultFromEnv('not-a-fault')).toThrow(/KAKI_FAULT/);
   });
 });

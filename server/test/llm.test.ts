@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFakeLlm, createOpenAiLlm, LlmError, llmFromEnv, notetakerLlmFromEnv, parseJsonReply, serverSentData } from '../src/llm';
+
+afterEach(() => vi.useRealTimers());
 
 function replyWith(body: unknown, status = 200): typeof fetch {
   return async () => new Response(JSON.stringify(body), { status });
@@ -267,6 +269,98 @@ describe('streaming', () => {
       controller.abort();
     }
     expect(received).toEqual(['first']);
+  });
+
+  it('falls back when the first chunk deadline fires', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', async (url: unknown, init: { signal?: AbortSignal }) => {
+      if (String(url).startsWith('https://primary.example')) {
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        });
+      }
+      return sseResponse([delta('from fallback'), 'data: [DONE]\n\n']);
+    });
+    try {
+      const llm = llmFromEnv({
+        KAKI_LLM_BASE_URL: 'https://primary.example',
+        KAKI_LLM_API_KEY: 'k',
+        KAKI_LLM_MODEL: 'primary-model',
+        KAKI_LLM_FIRST_CHUNK_MS: '20',
+        KAKI_LLM_FALLBACK_BASE_URL: 'https://fallback.example',
+        KAKI_LLM_FALLBACK_API_KEY: 'k2',
+        KAKI_LLM_FALLBACK_MODEL: 'fallback-model',
+      })!;
+
+      expect(await collect(llm.stream!([]))).toEqual(['from fallback']);
+      expect(warn.mock.calls.map((call) => String(call[0])).some((line) => line.includes('first chunk'))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      warn.mockRestore();
+    }
+  });
+
+  it('does not cut a slow but steady stream at the old whole-reply timeout', async () => {
+    vi.useFakeTimers();
+    const pieces = 6;
+    const llm = createOpenAiLlm({
+      ...options,
+      timeoutMs: 20,
+      fetchImpl: async (_url, init) => {
+        const encoder = new TextEncoder();
+        const signal = init?.signal;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              let sent = 0;
+              const send = (): void => {
+                if (signal?.aborted === true) {
+                  controller.error(new DOMException('aborted', 'AbortError'));
+                  return;
+                }
+                controller.enqueue(encoder.encode(delta(`p${sent}`)));
+                sent += 1;
+                if (sent === pieces) controller.close();
+                else setTimeout(send, 5_000);
+              };
+              setTimeout(send, 5_000);
+              signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+            },
+          }),
+        );
+      },
+    });
+
+    const result = collect(llm.stream!([]));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await result).toEqual(['p0', 'p1', 'p2', 'p3', 'p4', 'p5']);
+  });
+
+  it('reports an idle gap when the stream stalls between chunks', async () => {
+    const llm = createOpenAiLlm({
+      ...options,
+      firstChunkMs: 1_000,
+      idleMs: 20,
+      fetchImpl: async (_url, init) => {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(delta('first')));
+              init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+            },
+          }),
+        );
+      },
+    });
+
+    await expect(collect(llm.stream!([]))).rejects.toThrow(/stalled for 20 ms between chunks/);
+  });
+
+  it('rejects a bad first-chunk or idle deadline by name', () => {
+    const base = { KAKI_LLM_BASE_URL: 'https://x', KAKI_LLM_API_KEY: 'k', KAKI_LLM_MODEL: 'm' };
+    expect(() => llmFromEnv({ ...base, KAKI_LLM_FIRST_CHUNK_MS: 'soon' })).toThrow(/KAKI_LLM_FIRST_CHUNK_MS/);
+    expect(() => llmFromEnv({ ...base, KAKI_LLM_IDLE_MS: '0' })).toThrow(/KAKI_LLM_IDLE_MS/);
   });
 });
 
