@@ -4,7 +4,7 @@ import { createOpenAiLlm, LlmError, reasoningControlFromEnv, parseJsonReply, typ
 import { runLivePlaytest, type AnswerContext, type FinishContext, type Line, type PlaytestHooks } from './live-playtest';
 import { pathToFileURL } from 'node:url';
 
-export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive'] as const;
+export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive', 'delegator'] as const;
 export type Persona = typeof PERSONAS[number];
 type Score = { score: number; reason: string };
 export type Judgement = { natural: Score; dynamic: Score; fun: Score; realistic: Score; contradictions: Array<{ line: string; reason: string }> };
@@ -24,6 +24,7 @@ const personaDirections: Record<Persona, string> = {
   terse: 'Use very few words. You might say "ok" or "do it", but make your call intelligible in context.',
   'off-topic': 'Sometimes drift to a small unrelated thought, then return to the actual question and answer it.',
   inventive: 'Offer your own practical ideas and plausible new details. Mark guesses as guesses; do not rewrite established facts.',
+  delegator: 'Make the call yourself, but hand the practical follow-up jobs to a named colleague in the room ("Daniel, can you call the supplier?") instead of doing them yourself.',
 };
 
 function transcriptText(lines: Line[]): string {
@@ -155,7 +156,7 @@ function parseOptions(argv: string[]): { persona: Persona | 'all'; phone: boolea
     else if (argv[i] === '--max-minutes' && argv[i + 1]) maxMinutes = Number(argv[++i]);
     else throw new Error(`Unknown or incomplete argument: ${argv[i]}`);
   }
-  if (persona === undefined || (persona !== 'all' && !PERSONAS.includes(persona))) throw new Error('Use --persona hesitant|terse|off-topic|inventive|all');
+  if (persona === undefined || (persona !== 'all' && !PERSONAS.includes(persona))) throw new Error('Use --persona hesitant|terse|off-topic|inventive|delegator|all');
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
   return { persona, phone, maxMinutes };
 }

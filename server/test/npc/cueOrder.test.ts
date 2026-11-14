@@ -39,6 +39,15 @@ describe('createCueOrder', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it('lets the answer through when the cue was dropped before it was said', async () => {
+    const order = createCueOrder();
+    order.cue((done) => done(false));
+    const run = vi.fn();
+    order.after(run);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run).toHaveBeenCalledWith(false);
+  });
+
   it('only waits for the latest cue', async () => {
     const order = createCueOrder();
     const dones: Array<() => void> = [];

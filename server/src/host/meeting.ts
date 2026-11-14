@@ -5,7 +5,7 @@ import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
 import { createNotetaker, hasTaskAssignment } from './notetaker';
-import { cleanSpokenTopic, openingLine } from './opening';
+import { cleanSpokenTopic, openingLine, spokenAgendaName } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
 
 const TICK_MS = 1_000;
@@ -121,7 +121,7 @@ export function createMeetingModule({
           audience: { kind: 'screen' },
           payload: {
             kind: 'TIMEOUT',
-            text: `Hey team, we're a bit past time on ${cleanSpokenTopic(item.title)} — let's wrap this one up so we can move on.`,
+            text: `Hey team, we're a bit past time on ${spokenAgendaName(scenario, item.title)} — let's wrap this one up so we can move on.`,
           },
         });
       });

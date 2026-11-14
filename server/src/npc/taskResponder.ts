@@ -8,6 +8,8 @@ export interface TaskResponderPorts {
   llm: Pick<LlmClient, 'complete'>;
   /** True when this attendee is voiced by the AI right now (a person may have taken the seat). */
   plays(attendee: string): boolean;
+  /** True when this attendee said aloud they would take on a task at any point on the current topic. */
+  volunteeredOnTopic(attendee: string): boolean;
   /** The attendee says the line aloud; `onDone` runs once they have finished (or the line was dropped). */
   say(attendee: string, text: string, onDone: () => void): void;
   /** Send a command as the phone of `role` would. */
@@ -124,16 +126,11 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
     // The assignee already volunteered for this exact task in the transcript, so hold them to their own words
     // instead of letting the model talk them out of it. Any change to the work, or any doubt about the evidence,
     // falls back to the ordinary in-character decision.
-    if (isTrustedCommitment(task, who.attendee, scenario)) {
-      const trustedLines = [
-        "Sure, I'll get right on that.",
-        "On it — I'll get that sorted right after this.",
-        "Leave it with me, I'll handle that follow-up.",
-        "Steady, I've got that one covered.",
-      ];
-      const line = trustedLines[Math.abs(task.title.length) % trustedLines.length]!;
-      log?.(`${who.attendee} keeps their own commitment to "${task.title}": "${line}"`);
-      ports.say(who.attendee, line, () => ports.send(role, claimCommand(task)));
+    // They already said aloud they would do it, so nobody asks again and they say nothing more: the card just
+    // becomes theirs.
+    if (isTrustedCommitment(task, who.attendee, scenario) || ports.volunteeredOnTopic(who.attendee)) {
+      log?.(`${who.attendee} keeps their own commitment to "${task.title}" without another word`);
+      ports.send(role, claimCommand(task));
       return;
     }
     const decision = await decide(task, who.npc, role);

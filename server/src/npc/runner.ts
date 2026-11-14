@@ -25,7 +25,7 @@ import {
   type SuggestInput,
   type MeetingMemoryEntry,
 } from '@kaki/shared';
-import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenTopicLead } from '../host/opening';
+import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenAgendaName } from '../host/opening';
 import type { ChatMessage } from '../llm';
 import { createRoomToken } from '../livekit';
 import { NpcConversation } from './conversation';
@@ -112,10 +112,10 @@ export interface NpcRunner {
   visitorRole(): string | undefined;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
-  /** True when `attendee` volunteered for the follow-up in their own line on this topic in the last minute. */
-  volunteeredRecently(attendee: string): boolean;
-  /** True when the visitor already gave `attendee` the follow-up on this topic in the last minute. */
-  assignedByGuestRecently(attendee: string): boolean;
+  /** True when `attendee` volunteered for the follow-up in their own line at any point on this topic. */
+  volunteeredOnTopic(attendee: string): boolean;
+  /** True when the visitor already gave `attendee` a follow-up at any point on this topic. */
+  askedByGuestOnTopic(attendee: string): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
   hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
@@ -632,7 +632,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       /^Hey team, we're a bit past time on (.+?) — let's wrap this one up so we can move on\.$/i.exec(spoken.trim());
     if (timeoutMatch !== null) {
       const personName = person?.name;
-      const itemTitle = spokenTopicLead(timeoutMatch[1] ?? 'this item');
+      const itemTitle = spokenAgendaName(scenario, timeoutMatch[1] ?? 'this item');
       spoken =
         personName !== undefined
           ? `${personName}, we're a bit past time on ${itemTitle} — do you want another minute on this, or should we make a decision and keep moving?`
@@ -666,11 +666,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
     },
-    volunteeredRecently(attendee) {
-      return conversation?.volunteeredRecently(attendee) ?? false;
+    volunteeredOnTopic(attendee) {
+      return conversation?.volunteeredOnTopic(attendee) ?? false;
     },
-    assignedByGuestRecently(attendee) {
-      return conversation?.assignedByGuestRecently(attendee) ?? false;
+    askedByGuestOnTopic(attendee) {
+      return conversation?.askedByGuestOnTopic(attendee) ?? false;
     },
     hostIsHuman,
     agendaMoved(title) {

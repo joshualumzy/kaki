@@ -33,19 +33,51 @@ export function dispatchLine(name: string, title: string, count: number): string
 
 /**
  * How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention).
- * The title is quoted as a task name so an imperative title still reads naturally. When the colleague has just
- * volunteered to handle it, or the visitor already gave it to them, the host confirms instead of asking again.
+ * The task title is an imperative phrase, so it goes inline as the request itself instead of being read out as a name.
  */
-export function colleagueLine(name: string, title: string, count: number, confirmed?: 'volunteered' | 'assigned'): string {
-  if (confirmed === 'volunteered') return `Thanks, ${name}, that one's yours.`;
-  if (confirmed === 'assigned') return `Got it, ${name}'s on that.`;
-  const task = `"${title.trim().replace(/\.$/, '')}"`;
+export function colleagueLine(name: string, title: string, count: number): string {
+  const request = inlineTitle(title).replace(/[.!?]+$/, '');
   const lines = [
-    `${name}, could you take this one: ${task}?`,
-    `${name}, can I put ${task} on your list?`,
-    `${name}, would you take ${task}?`,
+    `${name}, could you ${request}?`,
+    `${name}, can you ${request}?`,
+    `${name}, would you be able to ${request}?`,
   ];
   return lines[count % lines.length]!;
+}
+
+/** What Sam should say when a task goes to a colleague in the room; no line means the colleague speaks for themselves. */
+export interface ColleagueCue {
+  line?: string;
+  /** Set when Sam stays quiet because the colleague already has it. */
+  quietBecause?: 'volunteered' | 'was asked';
+}
+
+/**
+ * Sam asks the colleague only while nobody has put the task to them yet. If they just volunteered, or the visitor
+ * already gave it to them, he says nothing and the colleague answers in their own words.
+ */
+export function colleagueCue(
+  name: string,
+  title: string,
+  count: number,
+  already: { volunteered: boolean; assignedByGuest: boolean },
+): ColleagueCue {
+  if (already.volunteered) return { quietBecause: 'volunteered' };
+  if (already.assignedByGuest) return { quietBecause: 'was asked' };
+  return { line: colleagueLine(name, title, count) };
+}
+
+/**
+ * True while a queued request to a colleague is still worth saying: the task has not moved on from DISPATCHED,
+ * and the topic it came from is still the one the meeting is on. With neither status nor topic known, keep it.
+ */
+export function shouldStillAskColleague(
+  status: string | undefined,
+  topic: string | undefined,
+  onCurrentAgenda: (title: string | undefined) => boolean,
+): boolean {
+  if (status !== undefined && status !== 'DISPATCHED') return false;
+  return topic === undefined || onCurrentAgenda(topic);
 }
 
 /**

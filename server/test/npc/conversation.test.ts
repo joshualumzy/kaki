@@ -218,16 +218,29 @@ describe('NpcConversation', () => {
     await h.flush();
     h.playing.at(-1)?.finish();
     await h.flush();
-    expect(h.conversation.volunteeredRecently('Ada')).toBe(true);
-    expect(h.conversation.volunteeredRecently('Bao')).toBe(false);
+    expect(h.conversation.volunteeredOnTopic('Ada')).toBe(true);
+    expect(h.conversation.volunteeredOnTopic('Bao')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('remembers a colleague offer in everyday words for the rest of the topic', async () => {
+    const h = harness();
+    await h.say('Can someone get the cards printed?');
+    h.calls.at(-1)?.push('Ada: Yes, I can get those printed before eight.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(h.conversation.volunteeredOnTopic('Ada')).toBe(true);
     h.conversation.close();
   });
 
   it('knows when the visitor already gave the follow-up to a colleague', async () => {
     const h = harness();
     await h.say('Daniel, can you call the supplier?');
-    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(true);
-    expect(h.conversation.assignedByGuestRecently('Ada')).toBe(false);
+    expect(h.conversation.askedByGuestOnTopic('Daniel')).toBe(true);
+    expect(h.conversation.askedByGuestOnTopic('Ada')).toBe(false);
     h.conversation.close();
   });
 
@@ -236,19 +249,19 @@ describe('NpcConversation', () => {
       { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
     const h = harness(twoItems);
     h.conversation.humanTyped('Daniel, what do you think?');
-    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(false);
+    expect(h.conversation.askedByGuestOnTopic('Daniel')).toBe(false);
     h.conversation.humanTyped('Daniel, can you call the supplier?');
-    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(true);
+    expect(h.conversation.askedByGuestOnTopic('Daniel')).toBe(true);
     h.conversation.agendaMoved('Service');
-    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(false);
+    expect(h.conversation.askedByGuestOnTopic('Daniel')).toBe(false);
     h.conversation.close();
   });
 
-  it('forgets an assignment once the repeat window has passed', async () => {
+  it('still knows about an assignment minutes later on the same topic, when the task is handed out', async () => {
     const h = harness();
     h.conversation.humanTyped('Daniel, can you call the supplier?');
-    await vi.advanceTimersByTimeAsync(60_001);
-    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(false);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(h.conversation.askedByGuestOnTopic('Daniel')).toBe(true);
     h.conversation.close();
   });
 
@@ -347,6 +360,38 @@ describe('NpcConversation', () => {
     conversation.close();
   });
 
+  it('uses the short spoken name in the move-on warning', async () => {
+    const spokenScenario = {
+      ...hostedScenario(),
+      agenda: hostedScenario().agenda.map((item, index) => (index === 0 ? { ...item, spoken: 'the prep job' } : item)),
+    };
+    const h = harness(spokenScenario);
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: spokenScenario, reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.humanSpeech(true);
+    conversation.humanText('Ship it.');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    h.calls.at(-1)?.push('Ada: Understood.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.playing.at(-1)?.text).toBe('We need to move on from the prep job shortly.');
+    conversation.close();
+  });
+
   it.each([
     "Josh, I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.",
     'Josh, that follow-up is on your screen on the right to review and confirm.',
@@ -380,6 +425,41 @@ describe('NpcConversation', () => {
     await h.flush();
     expect(h.transcript.filter(([, text]) => text === line)).toHaveLength(1);
     expect(h.logs.some((text) => text.startsWith('[repeat] Ada:'))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('drops a model sentence that points at the card or screen, keeps the rest, and logs it', async () => {
+    const h = harness();
+    await h.say('Go with the price freeze.');
+    h.calls.at(-1)?.push("Ada: Right, the price stays. It's on your card there, ready to send. The card machine still works.");
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 5 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain('Right, the price stays.');
+    expect(said).toContain('The card machine still works.');
+    expect(said.some((text) => /your card/i.test(text))).toBe(false);
+    expect(h.logs.some((text) => text.startsWith('[card] Ada:'))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('turns a bare-name handover into a spoken handover, and logs it', async () => {
+    const h = harness();
+    await h.say('What happened overnight?');
+    h.calls.at(-1)?.push('Ada: The fridge was off for three hours. Bao.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 5 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain('Bao, over to you.');
+    expect(said).not.toContain('Bao.');
+    expect(h.logs.some((text) => text.startsWith('[handover] Ada:'))).toBe(true);
     h.conversation.close();
   });
 

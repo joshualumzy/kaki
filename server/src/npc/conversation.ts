@@ -1,6 +1,6 @@
 import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { cleanSpokenTopic } from '../host/opening';
+import { cleanSpokenTopic, spokenAgendaName } from '../host/opening';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
@@ -134,7 +134,7 @@ function closelyRepeats(next: Set<string>, previous: Set<string>): boolean {
 
 /** A volunteer takes the follow-up themselves rather than waiting to be asked. */
 const VOLUNTEERED_RE =
-  /\b(?:leave (?:it|that|this) (?:with|to) me|i(?:'ll| will) (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|i can (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|i(?:'m| am) (?:happy|glad) to (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|(?:count|put) me in|on it)\b/i;
+  /\b(?:leave (?:it|that|this) (?:with|to) me|i(?:'ll| will) (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|get|print|call|ring|book|order|fix|set up|brief|update)|i can (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|get|print|call|ring|book|order|fix|set up|brief|update)|i(?:'m| am) (?:happy|glad) to (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|get|print|call|ring|book|order|fix|set up|brief|update)|(?:count|put) me in|on it)\b/i;
 
 /** True when the visitor's line names `name` and gives them the follow-up ("Daniel, can you call the supplier?"). */
 function assignedByGuest(text: string, name: string): boolean {
@@ -155,6 +155,12 @@ function assignedByGuest(text: string, name: string): boolean {
     'i',
   ).test(text);
 }
+
+/**
+ * A model-written sentence that points the visitor at their card or screen. Only the host's fixed handoff line does
+ * that, so these are dropped. Narrower than CARD_POINT_RE so "the card machine" in a kopitiam still gets through.
+ */
+const MODEL_CARD_MENTION_RE = /\b(?:your (?:card|screen|panel)|(?:card|screen|panel) on the right|right-hand panel)\b/i;
 
 /** The host is pointing the visitor at their follow-up card. */
 const CARD_POINT_RE =
@@ -305,7 +311,9 @@ export class NpcConversation<Clip> {
   /** Lines the room actually heard, for repeat checks and the per-speaker prompt. */
   private readonly recentSpoken: Array<{ speaker: string; text: string; at: number; topic: string | undefined }> = [];
   /** Lines the visitor said, so the host can tell when they already gave the follow-up to a colleague. */
-  private readonly recentGuest: Array<{ text: string; at: number; topic: string | undefined }> = [];
+  private readonly guestLinesByTopic = new Map<string | undefined, string[]>();
+  /** Who said aloud they would take on a follow-up, per topic. */
+  private readonly volunteersByTopic = new Map<string | undefined, Set<string>>();
   /** People the host has already asked, by name. */
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
@@ -377,7 +385,8 @@ export class NpcConversation<Clip> {
     this.reopenedTitle = undefined;
     this.resumeAfterReopen = undefined;
     this.recentSpoken.length = 0;
-    this.recentGuest.length = 0;
+    this.guestLinesByTopic.clear();
+    this.volunteersByTopic.clear();
     this.cardNudgedTopics.clear();
     this.cardPointedTopics.clear();
     this.reviewActionKind.clear();
@@ -797,13 +806,12 @@ export class NpcConversation<Clip> {
     return !this.closed && this.names.includes(speaker);
   }
 
-  /** True when `speaker` volunteered for the follow-up in their own line on this topic in the last minute. */
-  volunteeredRecently(speaker: string, withinMs = DEFAULT_REPEAT_WINDOW_MS): boolean {
-    const topic = this.currentItem()?.title;
-    const now = Date.now();
-    return this.recentSpoken.some((entry) =>
-      entry.speaker === speaker && entry.topic === topic && now - entry.at <= withinMs &&
-      VOLUNTEERED_RE.test(entry.text));
+  /**
+   * True when `speaker` said aloud, at any point on the current topic, that they would take on a follow-up. Tasks are
+   * handed out when the topic settles, often minutes later, so this is not limited to a time window.
+   */
+  volunteeredOnTopic(speaker: string): boolean {
+    return this.volunteersByTopic.get(this.currentItem()?.title)?.has(speaker) ?? false;
   }
 
   /** The last few lines the room heard on this topic in the last minute, for the Director's own-repeat check. */
@@ -827,6 +835,9 @@ export class NpcConversation<Clip> {
   }
 
   private rememberSpoken(utterance: Utterance, topic: string | undefined): void {
+    if (VOLUNTEERED_RE.test(utterance.text)) {
+      this.volunteersByTopic.set(topic, new Set([...(this.volunteersByTopic.get(topic) ?? []), utterance.speaker]));
+    }
     const now = Date.now();
     this.recentSpoken.push({ speaker: utterance.speaker, text: utterance.text, at: now, topic });
     const cutoff = now - DEFAULT_REPEAT_WINDOW_MS * 2;
@@ -952,20 +963,15 @@ export class NpcConversation<Clip> {
     if (line !== undefined && host !== undefined) this.announce(host, line, ASK_GIVE_UP_MS);
   }
 
-  /** True when the visitor gave `name` the follow-up in a line on this topic in the last minute. */
-  assignedByGuestRecently(name: string, withinMs = DEFAULT_REPEAT_WINDOW_MS): boolean {
-    const topic = this.currentItem()?.title;
-    const now = Date.now();
-    return this.recentGuest.some((entry) =>
-      entry.topic === topic && now - entry.at <= withinMs && assignedByGuest(entry.text, name));
+  /** True when the visitor gave `name` a follow-up in any of their lines on the current topic. */
+  askedByGuestOnTopic(name: string): boolean {
+    return (this.guestLinesByTopic.get(this.currentItem()?.title) ?? []).some((text) => assignedByGuest(text, name));
   }
 
   /** The person said another line: ask if they have talked a long time without being asked. */
   private noteHumanLine(text: string): void {
-    const now = Date.now();
-    this.recentGuest.push({ text, at: now, topic: this.currentItem()?.title });
-    const cutoff = now - DEFAULT_REPEAT_WINDOW_MS * 2;
-    while (this.recentGuest.length > 0 && this.recentGuest[0]!.at < cutoff) this.recentGuest.shift();
+    const topic = this.currentItem()?.title;
+    this.guestLinesByTopic.set(topic, [...(this.guestLinesByTopic.get(topic) ?? []), text]);
     this.humanLines += 1;
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
     if (!this.humanSettledOnCurrentItem && !this.budgetOffered &&
@@ -1020,7 +1026,9 @@ export class NpcConversation<Clip> {
         this.decisionWrappedUpOnItem = this.resumeAfterReopen?.wrapped ?? false;
         this.resumeAfterReopen = undefined;
         const host = this.facilitatorOrCoHost();
-        if (host !== undefined && this.agendaItem !== undefined) this.announce(host, `Back to ${this.agendaItem}. What do you think?`);
+        if (host !== undefined && this.agendaItem !== undefined) {
+          this.announce(host, `Back to ${spokenAgendaName(this.options.scenario, this.agendaItem)}. What do you think?`);
+        }
         this.ports.emitState(this.idleState());
         return;
       }
@@ -1074,7 +1082,8 @@ export class NpcConversation<Clip> {
     const host = this.facilitatorOrCoHost();
     if (host === undefined) return;
     const title = this.currentItem()?.title;
-    this.announce(host, `${this.human?.name ?? 'You'}, shall we lock in what you've said on ${title ?? 'this topic'}?`,
+    const topicName = title === undefined ? 'this topic' : spokenAgendaName(this.options.scenario, title);
+    this.announce(host, `${this.human?.name ?? 'You'}, shall we lock in what you've said on ${topicName}?`,
       DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
         // Never heard: the offer is still owed, and the visitor's next line brings it back.
         if (!spoken) {
@@ -1139,9 +1148,10 @@ export class NpcConversation<Clip> {
         return;
       }
       this.reviewWarned = true;
+      const topicName = spokenAgendaName(this.options.scenario, title);
       const warning = this.cardPointedTopics.has(title)
-        ? `We need to move on from ${title} shortly.`
-        : `We need to move on from ${title} shortly. You can finish the follow-up from your card.`;
+        ? `We need to move on from ${topicName} shortly.`
+        : `We need to move on from ${topicName} shortly. You can finish the follow-up from your card.`;
       this.announce(host, warning,
         DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
           if (spoken) this.checkTopicAdvance(true);
@@ -1453,7 +1463,7 @@ export class NpcConversation<Clip> {
         } else {
           this.announce(
             host,
-            `${this.human.name}, no rush — what are your thoughts on ${spokenTitle}, or do you want us to go over the options again?`,
+            `${this.human.name}, no rush — what are your thoughts on ${spokenAgendaName(this.options.scenario, title)}, or do you want us to go over the options again?`,
             DEFAULT_ANNOUNCE_GIVE_UP_MS,
             () => this.scheduleSilencePrompt(),
           );
@@ -1818,6 +1828,14 @@ export class NpcConversation<Clip> {
         trimmed = trimmed[0]!.toUpperCase() + trimmed.slice(1);
         utterance = { speaker: utterance.speaker, text: trimmed };
       }
+      // A handover the model wrote as a bare name ("Daniel.") sounds like a stray word aloud.
+      const bareName = /^([A-Z][\w'-]*)[.!]?$/.exec(trimmed)?.[1];
+      if (bareName !== undefined && bareName !== utterance.speaker &&
+          (this.names.includes(bareName) || bareName === this.human?.name)) {
+        trimmed = `${bareName}, over to you.`;
+        this.ports.log?.(`[handover] ${utterance.speaker}: turned a bare "${utterance.text.trim()}" into "${trimmed}"`);
+        utterance = { speaker: utterance.speaker, text: trimmed };
+      }
       if (this.introduced.has(utterance.speaker)) {
         const escaped = utterance.speaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const withoutRepeatIntro = trimmed
@@ -1857,6 +1875,10 @@ export class NpcConversation<Clip> {
       }
       if (this.repeatsRecently(utterance.speaker, trimmed)) {
         this.ports.log?.(`[repeat] ${utterance.speaker}: dropped a sentence that repeats what they just said: "${trimmed}"`);
+        return;
+      }
+      if (MODEL_CARD_MENTION_RE.test(trimmed)) {
+        this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; the handoff line does that: "${trimmed}"`);
         return;
       }
       if (turn.firstSentenceAt === undefined) {
@@ -1927,7 +1949,10 @@ export class NpcConversation<Clip> {
             if (freshHumanLine !== undefined) this.decisionLines = this.decisionLines.filter((line) => line !== freshHumanLine);
             refuseReopen = true;
             const host = this.facilitatorOrCoHost();
-            if (host !== undefined) enqueue({ speaker: host, text: `That earlier call stays as decided. Let's keep going with ${this.agendaItem ?? 'this item'}.` });
+            if (host !== undefined) {
+              const topicName = this.agendaItem === undefined ? 'this item' : spokenAgendaName(this.options.scenario, this.agendaItem);
+              enqueue({ speaker: host, text: `That earlier call stays as decided. Let's keep going with ${topicName}.` });
+            }
             return;
           }
           if (this.concluded || earlier < 0 || earlier >= actualIndex ||

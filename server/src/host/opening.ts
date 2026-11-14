@@ -51,6 +51,20 @@ export function spokenTopicLead(title: string): string {
 }
 
 /**
+ * The short name for an agenda item when the host says it aloud mid-sentence: the scenario's `spoken` name when
+ * set, otherwise the cleaned-up title.
+ */
+export function spokenAgendaName(scenario: Scenario, title: string): string {
+  const wanted = cleanSpokenTopic(title).toLowerCase();
+  const item = scenario.agenda.find((candidate) =>
+    candidate.title === title ||
+    cleanSpokenTopic(candidate.title).toLowerCase() === wanted ||
+    (candidate.spoken !== undefined && candidate.spoken.toLowerCase() === title.trim().toLowerCase()),
+  );
+  return item?.spoken ?? cleanSpokenTopic(title);
+}
+
+/**
  * A warm, natural spoken welcome for the live AI host (`runner.ts`), combining clauses so TTS
  * flows like a real human colleague kicking off a quick team huddle rather than reading bullet points.
  * Pulls the first sentence of `scenario.situation` when available so any scenario is introduced in plain words.

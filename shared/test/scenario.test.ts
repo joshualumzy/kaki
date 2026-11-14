@@ -277,6 +277,15 @@ describe('parseScenario', () => {
     }
   });
 
+  it('accepts a short spoken agenda name and rejects an empty one', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', spoken: 'the prep job' }];
+    expect(parseScenario(scenario).agenda[0]?.spoken).toBe('the prep job');
+
+    (scenario.agenda as Array<Record<string, unknown>>)[0]!.spoken = '  ';
+    expect(() => parseScenario(scenario)).toThrow(/agenda\[0\]\.spoken must be a non-empty string when present/);
+  });
+
   it('accepts a temperament and stake on an AI attendee, and rejects empty ones', () => {
     const scenario = cloneScenario();
     const npc = { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };

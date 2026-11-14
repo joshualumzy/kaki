@@ -309,14 +309,17 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
-  it('skips the card nudge when the host already pointed at the card in the last 30 seconds', async () => {
+  it('skips the card nudge once the host handoff line pointed at the card on this topic', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
+    const handoff = 'Josh, that follow-up is on your screen on the right to review and confirm.';
     const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
-      [`${control('settled')}\nSam: Have a look on your screen on the right to review and confirm.`],
+      [`${control('settled')}\nSam: Window bar it is.`],
       { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
     await h.say('Use the window bar.');
-    expect(h.spoken).toContain('Have a look on your screen on the right to review and confirm.');
+    h.conversation.announce('Sam', handoff);
+    await h.conversation.settled();
+    expect(h.spoken).toContain(handoff);
     await vi.advanceTimersByTimeAsync(20_000);
     await h.conversation.settled();
     expect(h.spoken.some((line) => line.includes('your draft is on your card'))).toBe(false);

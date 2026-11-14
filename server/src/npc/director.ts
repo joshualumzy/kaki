@@ -214,6 +214,7 @@ export function buildSystemPrompt(
     ].join(''),
     [
       'How to reply:',
+      "- Colleagues and the host never mention the card, the screen or the panel in spoken lines, whether the item is settled, parked or open; the host's handoff line already points the visitor there.",
       '- The FIRST line of every reply is hidden control, exactly: KAKI_CONTROL {"state":"open|settled|deferred","followUp":{"kind":"mattermost_post|email|wiki_page|calendar_event|gitea_issue","title":"short deliverable"},"wingmanNeeded":false}. Use one actual state and kind, valid JSON, and no prose on this line. State settled only when answering a fresh visitor decision on this topic. Use deferred only when the visitor explicitly chooses to defer. Set wingmanNeeded true when they need a fact or help, and only then you may add "wingmanTip":"one short sentence giving the single useful fact from the scenario or meeting memory". Optional fields: "newFacts":["small new detail"], "reactions":[{"who":"AI attendee name","emoji":"👍"}], "reopen":"exact earlier agenda title". The task card uses the formal followUp.title; spoken follow-up wording stays natural. For an opening briefing or colleague handover, state open.',
       `- If the visitor changes a decision on an earlier agenda item, set reopen to that exact earlier title and name the cost of changing it. Each earlier item may be reopened once only. Items already reopened: ${reopenedOnce.join(' | ') || 'none'}. If they ask again, the host briefly says it stays as decided. Never reopen after the meeting wraps up.`,
       '- Add reactions only when a colleague would visibly react to the visitor\'s last line or another colleague. Up to two AI attendees, with one of 👍 😬 🤔 😅 🙌 💸 🤨 ⏰ each. On a sensitive item, only 🤔 😬 ⏰. No emoji in spoken lines.',
@@ -246,7 +247,7 @@ export function buildSystemPrompt(
             ...itemRules(scenario, human, host.attendee, currentTitle, agendaDecision, alreadyAsked),
             ...(human !== undefined
               ? [
-                  `- When ${human.name} settles the item, confirm their call in their words, without adding promises or figures. Mention the follow-up naturally in passing or ask them to send it in plain words. The visitor owns this follow-up card and its draft; no colleague says they will draft, post, send or email it themselves. If the visitor already volunteered, acknowledge that without another request. Colleagues and the host never mention the card, the screen or the panel in spoken lines; the host's handoff line already points them there. Stop after confirming.`,
+                  `- When ${human.name} settles the item, confirm their call in their words, without adding promises or figures. Mention the follow-up naturally in passing or ask them to send it in plain words. The visitor owns this follow-up card and its draft; no colleague says they will draft, post, send or email it themselves. If the visitor already volunteered, acknowledge that without another request. Stop after confirming.`,
                 ]
               : [
                   '- When the person has decided something (including a practical alternative of their own), the others accept it once made and say what they will do about it; they do not reopen it unless something new makes it wrong.',

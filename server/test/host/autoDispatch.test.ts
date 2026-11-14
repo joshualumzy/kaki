@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
-import { installAutoDispatch } from '../../src/host/autoDispatch';
+import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
 import { createTestApp } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
@@ -117,32 +117,75 @@ describe('colleagueLine', () => {
     }
   });
 
-  it('quotes an imperative task title as a name and asks one question', async () => {
+  it('puts an imperative task title inline as the request, without quotes or a capital mid-sentence', async () => {
     const { colleagueLine } = await import('../../src/host/autoDispatch');
     const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0);
-    expect(line).toBe('Mei, could you take this one: "Draft plain-language sign for laptop zone decision"?');
-    expect(line).not.toContain('take on draft');
+    expect(line).toBe('Mei, could you draft plain-language sign for laptop zone decision?');
+    expect(line).not.toContain('"');
+    expect(line).not.toContain('Draft');
     expect(line.match(/\?/g)).toHaveLength(1);
   });
+});
 
-  it('thanks a colleague who already volunteered instead of asking again', async () => {
-    const { colleagueLine } = await import('../../src/host/autoDispatch');
-    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0, 'volunteered');
-    expect(line).toBe("Thanks, Mei, that one's yours.");
-    expect(line).not.toContain('?');
+describe('colleagueCue', () => {
+  it('asks a plain dispatch in Sam\'s own words', async () => {
+    const { colleagueCue } = await import('../../src/host/autoDispatch');
+    const cue = colleagueCue('Mei', 'Draft plain-language sign for laptop zone decision', 0, {
+      volunteered: false,
+      assignedByGuest: false,
+    });
+    expect(cue.line).toBe('Mei, could you draft plain-language sign for laptop zone decision?');
+    expect(cue.quietBecause).toBeUndefined();
   });
 
-  it('confirms a colleague the visitor already assigned instead of asking again', async () => {
-    const { colleagueLine } = await import('../../src/host/autoDispatch');
-    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0, 'assigned');
-    expect(line).toBe("Got it, Mei's on that.");
-    expect(line).not.toContain('?');
+  it('stays quiet when the colleague already volunteered', async () => {
+    const { colleagueCue } = await import('../../src/host/autoDispatch');
+    expect(colleagueCue('Mei', 'Draft a sign', 0, { volunteered: true, assignedByGuest: false }))
+      .toEqual({ quietBecause: 'volunteered' });
   });
 
-  it('asks the colleague when neither they nor the visitor already took it', async () => {
-    const { colleagueLine } = await import('../../src/host/autoDispatch');
-    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0);
-    expect(line).toBe('Mei, could you take this one: "Draft plain-language sign for laptop zone decision"?');
+  it('stays quiet when the guest already asked the colleague', async () => {
+    const { colleagueCue } = await import('../../src/host/autoDispatch');
+    expect(colleagueCue('Mei', 'Draft a sign', 0, { volunteered: false, assignedByGuest: true }))
+      .toEqual({ quietBecause: 'was asked' });
+  });
+});
+
+describe('shouldStillAskColleague', () => {
+  const onCurrentAgenda = (title: string | undefined): boolean => title === 'Prep';
+
+  it('keeps the request while the task is dispatched on the current topic', () => {
+    expect(shouldStillAskColleague('DISPATCHED', 'Prep', onCurrentAgenda)).toBe(true);
+    expect(shouldStillAskColleague(undefined, undefined, onCurrentAgenda)).toBe(true);
+  });
+
+  it('drops the request once the task is no longer dispatched', () => {
+    expect(shouldStillAskColleague('SYNCED', 'Prep', onCurrentAgenda)).toBe(false);
+    expect(shouldStillAskColleague('DISMISSED', undefined, onCurrentAgenda)).toBe(false);
+  });
+
+  it('drops the request once the meeting has moved to another topic', () => {
+    expect(shouldStillAskColleague('DISPATCHED', 'Service', onCurrentAgenda)).toBe(false);
+  });
+
+  it('only checks the status when no topic is known', () => {
+    expect(shouldStillAskColleague('DISPATCHED', undefined, () => false)).toBe(true);
+  });
+});
+
+describe('a queued colleague request', () => {
+  it('is dropped when the topic moves on, and the queue continues', async () => {
+    const { createCueOrder } = await import('../../src/npc/cueOrder');
+    const order = createCueOrder();
+    const heard: string[] = [];
+    order.cue((done) => {
+      const keep = shouldStillAskColleague('DISPATCHED', 'Service', (topic) => topic === 'Prep');
+      if (keep) heard.push('Sam asks');
+      done(keep);
+    });
+    order.after((spoken) => heard.push(spoken ? 'colleague answers' : 'colleague claims silently'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heard).toEqual(['colleague claims silently']);
   });
 });
 

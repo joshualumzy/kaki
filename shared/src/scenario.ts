@@ -44,6 +44,8 @@ export interface AgendaItem {
   discussion?: AgendaDiscussion;
   /** Neutral problem statement for the opening briefing, independent of who plays the owner. */
   briefing?: string;
+  /** Short name used when the host refers to the item aloud, e.g. "the food safety complaint". */
+  spoken?: string;
   /** Artwork for this item, if the scenario provides it. */
   art?: string;
   /** Hidden possible directions for this topic: background for the AI, never a menu read aloud. */
@@ -412,6 +414,9 @@ function readAgenda(
     }
     if (item.briefing !== undefined && !isNonEmptyString(item.briefing)) {
       problems.push(`agenda[${index}].briefing must be a non-empty string when present`);
+    }
+    if (item.spoken !== undefined && !isNonEmptyString(item.spoken)) {
+      problems.push(`agenda[${index}].spoken must be a non-empty string when present`);
     }
     if (item.art !== undefined && !isNonEmptyString(item.art)) {
       problems.push(`agenda[${index}].art must be a non-empty string when present`);

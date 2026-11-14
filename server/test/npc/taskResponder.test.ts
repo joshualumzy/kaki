@@ -22,21 +22,28 @@ function task(overrides: Partial<Task>): Task {
 }
 const updated = (t: Task): KakiEvent => ({ type: 'TASK_UPDATED', payload: { task: t }, audience: { kind: 'screen' } });
 
-function setup(reply: string | Error, plays = true, draftOnly = false) {
+function setup(reply: string | Error, plays = true, draftOnly = false, volunteered = false) {
   const said: string[] = [];
   const sent: Array<[string, KakiCommand]> = [];
   let finish: (() => void) | undefined;
   let calls = 0;
+  const prompts: string[] = [];
   const responder = createTaskResponder({
     scenario,
-    llm: { complete: async () => { calls += 1; if (reply instanceof Error) throw reply; return reply; } },
+    llm: { complete: async (messages) => {
+      calls += 1;
+      prompts.push(messages.map((message) => message.content).join('\n'));
+      if (reply instanceof Error) throw reply;
+      return reply;
+    } },
     plays: () => plays,
+    volunteeredOnTopic: () => volunteered,
     say: (_who, text, onDone) => { said.push(text); finish = onDone; },
     send: (role, command) => sent.push([role, command]),
     approveDelayMs: 20,
     draftOnly,
   });
-  return { responder, said, sent, calls: () => calls, finish: () => finish?.() };
+  return { responder, said, sent, prompts, calls: () => calls, finish: () => finish?.() };
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -60,6 +67,7 @@ describe('task responder for an AI attendee', () => {
       scenario: withFacts,
       llm: { complete: async (messages) => { prompt = messages.map((m) => m.content).join('\n'); return '{"accept": true, "line": "ok"}'; } },
       plays: () => true,
+      volunteeredOnTopic: () => false,
       say: () => undefined,
       send: () => undefined,
     });
@@ -76,7 +84,7 @@ describe('task responder for an AI attendee', () => {
     const responder = createTaskResponder({
       scenario: { ...scenario, agenda: [{ ...scenario.agenda[0]!, seatFacts: { chef: 'present item fact' } }] },
       llm: { complete: async (messages) => { prompt = messages.map((m) => m.content).join('\n'); return '{"accept": true, "line": "I will take it."}'; } },
-      plays: () => true, say: () => undefined, send: () => undefined,
+      plays: () => true, volunteeredOnTopic: () => false, say: () => undefined, send: () => undefined,
     });
     responder.handle(updated(task({ agendaItemTitle: 'Absent' })));
     await tick();
@@ -116,8 +124,8 @@ describe('task responder for an AI attendee', () => {
     "I'm going to fix the oven this afternoon.",
     'I, Ada, will fix the oven this afternoon.',
     'Sure, I will fix the oven this afternoon.',
-  ])('honours an unchanged self-volunteered task without asking the model: %s', async (quote) => {
-    const { responder, said, sent, calls, finish } = setup('{"accept": false, "line": "Not mine, ask Bao."}');
+  ])('honours an unchanged self-volunteered task silently, without asking the model: %s', async (quote) => {
+    const { responder, said, sent, calls } = setup('{"accept": false, "line": "Not mine, ask Bao."}');
     responder.handle(
       updated(
         task({
@@ -131,9 +139,16 @@ describe('task responder for an AI attendee', () => {
     );
     await tick();
     expect(calls()).toBe(0);
-    expect(said).toHaveLength(1);
-    expect(said[0]).not.toMatch(/not mine|declin|won't|can't/i);
-    finish();
+    expect(said).toEqual([]);
+    expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
+  });
+
+  it('claims silently when the colleague already offered aloud on this topic, without asking the model', async () => {
+    const { responder, said, sent, calls } = setup('{"accept": false, "line": "Not mine."}', true, false, true);
+    responder.handle(updated(task({})));
+    await tick();
+    expect(calls()).toBe(0);
+    expect(said).toEqual([]);
     expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
   });
 

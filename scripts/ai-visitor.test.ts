@@ -26,7 +26,7 @@ const validJudgement = JSON.stringify({
 const usage = { promptTokens: 10, completionTokens: 4, totalTokens: 14 };
 
 describe('AI visitor prompts and judge', () => {
-  it.each(['hesitant', 'terse', 'off-topic', 'inventive'] as Persona[])('builds a %s prompt with seat, topic and both sides of the transcript', (persona) => {
+  it.each(['hesitant', 'terse', 'off-topic', 'inventive', 'delegator'] as Persona[])('builds a %s prompt with seat, topic and both sides of the transcript', (persona) => {
     const prompt = visitorPrompt(persona, answer);
     expect(prompt[0]!.content).toContain('Operations Director');
     expect(prompt[0]!.content).toContain('opening-day lead');

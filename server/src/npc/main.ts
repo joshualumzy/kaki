@@ -11,7 +11,7 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
-import { colleagueLine } from '../host/autoDispatch';
+import { colleagueCue, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { postMeetingMemory, postSettledTopic } from './settlement';
@@ -224,6 +224,7 @@ const taskResponder = createTaskResponder({
   scenario,
   llm,
   plays: (attendee) => runner.plays(attendee),
+  volunteeredOnTopic: (attendee) => runner.volunteeredOnTopic(attendee),
   say: (attendee, text, onDone) =>
     cueOrder.after((spoken) => {
       if (spoken) runner.say(attendee, text, onDone);
@@ -239,7 +240,7 @@ const taskResponder = createTaskResponder({
 // What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
 // Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
 let dispatchCount = 0;
-const taskStatusByTitle = new Map<string, string>();
+const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
 function followHostCues(): void {
@@ -266,7 +267,9 @@ function followHostCues(): void {
           declinedBy?: string[]; agendaItemTitle?: string;
         } } | undefined)?.task;
         if (task?.id === undefined || task.status === undefined) return;
-        if (task.title !== undefined) taskStatusByTitle.set(task.title.trim().toLowerCase(), task.status);
+        if (task.title !== undefined) {
+          taskStatusByTitle.set(task.title.trim().toLowerCase(), { status: task.status, topic: task.agendaItemTitle });
+        }
         taskResponder.handle(event as KakiEvent);
         const role = task.assignee ?? task.suggestedAssignee;
         const isVisitorTask = role !== undefined && role === runner.visitorRole();
@@ -289,7 +292,7 @@ function followHostCues(): void {
         }
         // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
         if (!runner.hostIsHuman()) {
-          const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string };
+          const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string; topic?: string };
           if (payload.kind === 'CLOSING') {
             runner.announceClosing(payload.text);
             return;
@@ -301,19 +304,33 @@ function followHostCues(): void {
             payload.title !== undefined &&
             runner.plays(payload.assignee);
           if (colleague) {
-            cueOrder.cue((done) => {
-              const confirmed = runner.volunteeredRecently(payload.assignee!)
-                ? 'volunteered'
-                : runner.assignedByGuestRecently(payload.assignee!)
-                  ? 'assigned'
-                  : undefined;
-              runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++, confirmed), done);
+            const name = payload.assignee!;
+            const title = payload.title!;
+            const cue = colleagueCue(name, title, dispatchCount, {
+              volunteered: runner.volunteeredOnTopic(name),
+              assignedByGuest: runner.askedByGuestOnTopic(name),
             });
+            if (cue.quietBecause !== undefined) {
+              log(`[dispatch] Sam stays quiet: ${name} already ${cue.quietBecause}`);
+            } else {
+              const titleKey = title.trim().toLowerCase();
+              cueOrder.cue((done) => {
+                runner.announce(cue.line!, done, () => {
+                  const current = taskStatusByTitle.get(titleKey);
+                  return shouldStillAskColleague(
+                    current?.status,
+                    payload.topic ?? current?.topic,
+                    (topic) => runner.onCurrentAgenda(topic),
+                  );
+                });
+              });
+              dispatchCount += 1;
+            }
           } else if (payload.kind === 'DISPATCH') {
             const titleKey = (payload.title ?? '').trim().toLowerCase();
             runner.announce(payload.text, undefined, () => {
-              const currentStatus = taskStatusByTitle.get(titleKey);
-              return currentStatus === undefined || currentStatus === 'DISPATCHED';
+              const current = taskStatusByTitle.get(titleKey);
+              return current === undefined || current.status === 'DISPATCHED';
             });
           } else {
             runner.announce(payload.text);
