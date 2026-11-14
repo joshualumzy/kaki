@@ -13,7 +13,7 @@ import {
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
-import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario } from '@kaki/shared';
+import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { Orb, orbPalette } from './Orb';
@@ -170,6 +170,31 @@ function CaptionedTile() {
  */
 export function cardFactForItem(item: AgendaItem | undefined, role: string): string | undefined {
   return item?.seatFacts?.[role];
+}
+
+/**
+ * The visitor's open task the stage banner should announce: their task on the current topic when there is
+ * one, otherwise the most recently updated open task. Map order alone would keep announcing topic 1's draft
+ * after the meeting has moved on.
+ */
+export function activeStageTaskFor(
+  tasks: Iterable<Task>,
+  role: string,
+  currentAgendaTitle: string | undefined,
+): Task | undefined {
+  const openTasks = [...tasks].filter(
+    (t) =>
+      (t.assignee ?? t.suggestedAssignee) === role &&
+      (t.status === 'DISPATCHED' || t.status === 'DRAFT_READY'),
+  );
+  if (currentAgendaTitle !== undefined) {
+    const onCurrentTopic = openTasks.find((t) => t.agendaItemTitle === currentAgendaTitle);
+    if (onCurrentTopic !== undefined) return onCurrentTopic;
+  }
+  return openTasks.reduce<Task | undefined>(
+    (latest, task) => (latest === undefined || task.updatedAt >= latest.updatedAt ? task : latest),
+    undefined,
+  );
 }
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
@@ -396,9 +421,7 @@ export function MeetingGrid({
 
   const activeStageToast = useMemo(() => {
     const allTasks = [...screenTasks.values()];
-    const myTask = allTasks
-      .filter((t) => (t.assignee ?? t.suggestedAssignee) === role)
-      .find((t) => t.status === 'DISPATCHED' || t.status === 'DRAFT_READY');
+    const myTask = activeStageTaskFor(allTasks, role, activeItem?.title);
     if (myTask !== undefined) {
       const key = `task:${myTask.id}:${myTask.status}`;
       return {
@@ -440,7 +463,7 @@ export function MeetingGrid({
       };
     }
     return undefined;
-  }, [screenTasks, events, role, hasColleagueBriefed, activeAgendaIndex]);
+  }, [screenTasks, events, role, hasColleagueBriefed, activeAgendaIndex, activeItem]);
 
   return (
     <StageContext.Provider value={stage}>

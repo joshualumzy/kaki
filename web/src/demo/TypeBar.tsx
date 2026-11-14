@@ -93,7 +93,7 @@ export function TypeBar({ send, canLock = false }: TypeBarProps) {
         aria-label="Type to the meeting"
         value={text}
         maxLength={MAX_TYPED_LENGTH}
-        placeholder="Type here instead of speaking, then press Enter"
+        placeholder="Type to speak, press Enter"
         autoComplete="off"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {

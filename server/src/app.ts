@@ -552,6 +552,9 @@ export async function createApp({
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
   hub.subscribe((event) => { if (event.type === 'MEETING_RESET') memory.splice(0); });
+  hub.subscribe((event) => {
+    if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') rejoin.ended();
+  });
 
   async function closeAuth(): Promise<void> {
     if (auth === undefined) return;

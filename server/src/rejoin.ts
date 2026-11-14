@@ -31,6 +31,8 @@ export interface RejoinGuard {
   emptied(): void;
   /** The server observed people again: cancel the grace window without resetting anything. */
   occupied(): void;
+  /** The meeting has ended: nobody resumes it, the next arrival in an empty room starts a new one. */
+  ended(): void;
   /** Whether a meeting exists: someone has joined since the last reset. */
   hasMeeting(): boolean;
   /** What someone arriving in an empty room should get. */
@@ -52,6 +54,7 @@ export function createRejoinGuard({
   }
 
   let started = false;
+  let finished = false;
   const humans = new Set<string>();
   let emptySince: number | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -82,10 +85,17 @@ export function createRejoinGuard({
   return {
     emptied,
     occupied,
+    ended() {
+      if (!started || finished) return;
+      finished = true;
+      log('[rejoin] meeting ended, the next arrival starts a new one');
+    },
     hasMeeting: () => started,
     admit(name) {
       // Nobody has joined since the last reset: there is no meeting to keep.
       if (!started) return { reset: true, requireCode: false };
+      // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
+      if (finished) return { reset: true, requireCode: false };
       // The grace is off: every arrival into an empty room starts a new meeting.
       if (graceMs <= 0) return { reset: true, requireCode: false };
       // The last person may have left after the previous poll: treat this arrival as the moment the
@@ -99,6 +109,7 @@ export function createRejoinGuard({
     },
     joined(name, decision) {
       if (decision.reset) {
+        finished = false;
         humans.clear();
         emptySince = undefined;
         clearExpiry();

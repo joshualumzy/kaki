@@ -22,6 +22,24 @@ describe('rejoin guard', () => {
     guard.close();
   });
 
+  it('starts a new meeting for anyone arriving after the meeting ended, even inside the window', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.joined('Daniel', guard.admit('Daniel'));
+    guard.ended();
+    guard.emptied();
+    clock.now += 10_000;
+    expect(guard.admit('Daniel')).toEqual({ reset: true, requireCode: false });
+    expect(guard.admit('Priya')).toEqual({ reset: true, requireCode: false });
+
+    // The new meeting can be resumed again as usual.
+    guard.joined('Priya', guard.admit('Priya'));
+    guard.emptied();
+    clock.now += 10_000;
+    expect(guard.admit('Priya')).toEqual({ reset: false, requireCode: false });
+    guard.close();
+  });
+
   it('resumes the same person when the room emptied before a poll saw it', () => {
     const clock = { now: 1_000 };
     const logs: string[] = [];

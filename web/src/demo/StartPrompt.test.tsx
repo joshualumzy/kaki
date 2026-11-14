@@ -93,7 +93,7 @@ describe('StartPrompt', () => {
   it('tells the person to read their briefing and waits for the button', () => {
     const onStart = vi.fn();
     render(<StartPrompt onStart={onStart} />);
-    expect(screen.getByText(/Read your briefing first/)).toBeTruthy();
+    expect(screen.getByText(/Your briefing/)).toBeTruthy();
     expect(screen.getByText(/stay quiet until you start/)).toBeTruthy();
     expect(onStart).not.toHaveBeenCalled();
   });

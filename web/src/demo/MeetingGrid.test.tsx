@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { KakiEvent } from '@kaki/shared';
+import type { KakiEvent, Task } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cardFactForItem, MeetingGrid, reactionForColleague } from './MeetingGrid';
+import { activeStageTaskFor, cardFactForItem, MeetingGrid, reactionForColleague } from './MeetingGrid';
 
 const mocks = vi.hoisted(() => ({ screenEvents: [] as KakiEvent[], roleEvents: [] as KakiEvent[] }));
 
@@ -115,6 +115,40 @@ describe('MeetingGrid starter ideas', () => {
 
     expect(screen.getByText('The storeroom is inspected every morning.')).toBeTruthy();
     expect(screen.queryByText('Ten stools are in the storeroom.')).toBeNull();
+  });
+});
+
+describe('activeStageTaskFor', () => {
+  function task(overrides: Partial<Task> & Pick<Task, 'id' | 'status' | 'updatedAt'>): Task {
+    return { title: overrides.id, context: '', suggestedAssignee: 'chef', ...overrides };
+  }
+
+  it('announces the visitor task on the current topic instead of an older open task', () => {
+    const olderTopicOne = task({
+      id: 'draft-kopi', status: 'DRAFT_READY', updatedAt: '2026-11-13T10:05:00.000Z', agendaItemTitle: 'Prep',
+    });
+    const currentTopicTwo = task({
+      id: 'stock-count', status: 'DISPATCHED', updatedAt: '2026-11-13T10:00:00.000Z', agendaItemTitle: 'Stock',
+    });
+    expect(activeStageTaskFor([olderTopicOne, currentTopicTwo], 'chef', 'Stock')?.id).toBe('stock-count');
+  });
+
+  it('falls back to the most recently updated open task when the current topic has none', () => {
+    const older = task({
+      id: 'draft-kopi', status: 'DRAFT_READY', updatedAt: '2026-11-13T10:00:00.000Z', agendaItemTitle: 'Prep',
+    });
+    const newer = task({
+      id: 'stock-count', status: 'DISPATCHED', updatedAt: '2026-11-13T10:05:00.000Z', agendaItemTitle: 'Stock',
+    });
+    expect(activeStageTaskFor([older, newer], 'chef', 'Delivery')?.id).toBe('stock-count');
+  });
+
+  it('ignores tasks that are finished or belong to another role', () => {
+    const done = task({ id: 'done', status: 'COMPLETED', updatedAt: '2026-11-13T10:09:00.000Z' });
+    const otherRole = task({
+      id: 'other', status: 'DISPATCHED', updatedAt: '2026-11-13T10:08:00.000Z', suggestedAssignee: 'host',
+    });
+    expect(activeStageTaskFor([done, otherRole], 'chef', 'Prep')).toBeUndefined();
   });
 });
 

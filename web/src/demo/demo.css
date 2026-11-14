@@ -401,3 +401,19 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-typebar input { flex: 1 1 60%; }
   .kd-typebar button:not(.kd-send) { flex: 1 1 35%; }
 }
+
+/* Phone: a tip and a task banner would stack over a quarter of the screen, so the tip wins; the task stays
+   listed under "Needs you now" in the Kaki panel below. Tile labels drop the role suffix and wrap instead of
+   ending in an ellipsis under the status chip. */
+@media (max-width: 600px) {
+  .kd-wingman-glide ~ .kd-stage-toast { display: none; }
+  .kd-tile[data-ai="true"] .kd-who { max-width: calc(100% - 76px); }
+  .kd-who-role { display: none; }
+  .kd-who-line { white-space: normal; overflow-wrap: anywhere; }
+  /* The fixed banner ratio is too short for the badge plus a two-line title, so the text clipped off the top:
+     let the text set the height and keep the picture behind it. */
+  .kd-story-hero { aspect-ratio: auto; }
+  .kd-story-hero-img { position: absolute; inset: 0; }
+  .kd-story-hero-overlay { position: relative; min-height: 130px; }
+  .kd-story-badge { font-size: 9px; letter-spacing: 0.04em; max-width: 68%; }
+}

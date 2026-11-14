@@ -281,7 +281,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
 
             <div className="kd-story-role-box">
               <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
-                Step 1 of 3 · Welcome to the shop · Read your briefing first
+                Step 1 of 3 · Your briefing
               </p>
               <p className="kd-story-shop-intro">
                 Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> is opening this morning. We have {totalMinutes} minutes to settle {topicCount} opening-day calls, and you’re opening-day lead, so the calls are yours.
