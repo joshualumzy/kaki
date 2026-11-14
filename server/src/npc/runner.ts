@@ -28,6 +28,7 @@ import {
 import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenAgendaName } from '../host/opening';
 import type { ChatMessage } from '../llm';
 import { createRoomToken } from '../livekit';
+import { visitorDispatchLine } from './cardPointer';
 import { NpcConversation } from './conversation';
 import { MeetingMemory } from './meetingMemory';
 import type { Utterance } from './director';
@@ -129,13 +130,7 @@ export interface NpcRunner {
   resetMemory(): void;
 }
 
-/** The host's line when a follow-up lands on the visitor's card: the first pointer, then a brief reminder. */
-export function visitorDispatchLine(name: string | undefined, count: number): string {
-  const who = name === undefined || name.trim() === '' ? '' : `${name.trim()}, `;
-  return count === 1
-    ? `${who}the follow-up's on your screen whenever you want to send it.`
-    : `${who}the follow-up's still on your screen whenever you're ready.`;
-}
+export { visitorDispatchLine } from './cardPointer';
 
 interface Character {
   room: Room;
@@ -311,8 +306,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let castQueue: Promise<void> = Promise.resolve();
   /** The welcome is spoken once per visit: when the person arrives, not when they first speak. */
   let welcomed = false;
-  /** How many task dispatches have been voiced to the visitor so Sam can orient them on the first one and be brief after. */
+  /** How many task dispatches have been voiced to the visitor on this topic, so the first pointer is plain and later ones are brief. */
   let visitorTaskDispatches = 0;
+  let visitorDispatchTopic: string | undefined;
+  const resetDispatchCountOn = (title: string | undefined): void => {
+    if (title === undefined || title === visitorDispatchTopic) return;
+    visitorDispatchTopic = title;
+    visitorTaskDispatches = 0;
+  };
   /**
    * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
    * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
@@ -342,6 +343,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           castNames = '';
           welcomed = false;
           visitorTaskDispatches = 0;
+          visitorDispatchTopic = undefined;
           started = false;
           paused = false;
         } else if (conversation === undefined || names !== castNames || !started) {
@@ -622,9 +624,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
     if (isTaskDispatch) {
+      const alreadyPointed = conversation?.cardPointedOnCurrentTopic() === true;
       visitorTaskDispatches += 1;
       const dispatchedName = visitor?.name?.trim() || /^([^,]+),/.exec(text)?.[1]?.trim();
-      spoken = visitorDispatchLine(dispatchedName, visitorTaskDispatches);
+      spoken = visitorDispatchLine(dispatchedName, visitorTaskDispatches + (alreadyPointed ? 1 : 0));
     }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
@@ -674,6 +677,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     hostIsHuman,
     agendaMoved(title) {
+      resetDispatchCountOn(title);
       conversation?.agendaMoved(title);
     },
     taskStatus(id, origin, status, isVisitorTask, declined) {

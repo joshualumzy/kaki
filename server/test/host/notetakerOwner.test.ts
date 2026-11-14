@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { Hub } from '../../src/hub';
-import { createNotetaker, volunteerRole } from '../../src/host/notetaker';
+import { addressedRole, createNotetaker, volunteerRole } from '../../src/host/notetaker';
 import { createFakeLlm } from '../../src/llm';
 import { loadScenario } from '../../src/loadScenario';
 import { createTaskStore } from '../../src/tasks';
@@ -55,6 +55,20 @@ describe('who owns a task', () => {
 
   it('is the role the model chose when the speaker has no known role', async () => {
     expect(await assigneeAfter('Visitor', "I'll send the update to the venue tonight.", 'marketing_lead')).toBe('marketing_lead');
+  });
+
+  // The visitor (Wei Ling's seat, shown with their own name) asks Daniel mid-line, after stating the decision.
+  const visitorLines = [{ speaker: 'Robot Visitor (Wei Ling)', role: 'producer' as const, text: 'Four window seats.' }];
+
+  it('is the colleague the visitor names right before "can you", even mid-line', () => {
+    expect(addressedRole(
+      'Right, four window seats breakfast-only till 10.30 with small table signs. Daniel, can you print and place those before we open?',
+      scenario, visitorLines, 'producer',
+    )).toBe('marketing_lead');
+  });
+
+  it('is the visitor when a colleague asks "can you" without naming anyone', () => {
+    expect(addressedRole('Sounds right. Can you post that to the team?', scenario, visitorLines, 'marketing_lead')).toBe('producer');
   });
 
   it('volunteerRole needs both a commitment and a known role', () => {

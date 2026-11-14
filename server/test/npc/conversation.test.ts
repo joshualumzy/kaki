@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../../src/llm';
+import { visitorDispatchLine } from '../../src/npc/cardPointer';
 import { NpcConversation, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
@@ -290,7 +291,7 @@ describe('NpcConversation', () => {
     await h.flush();
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.logs).toContainEqual(expect.stringContaining('skipped the card nudge on "Prep"'));
-    expect(h.playing.some((entry) => /your (?:draft|invite) is on your card/i.test(entry.text))).toBe(false);
+    expect(h.playing.some((entry) => /the (?:follow-up|invite)'s on your screen/i.test(entry.text))).toBe(false);
     await vi.advanceTimersByTimeAsync(2000);
     await h.flush();
     expect(h.playing.at(-1)?.text).toBe("Let's leave Prep there.");
@@ -348,7 +349,7 @@ describe('NpcConversation', () => {
     conversation.lockDecision();
     await h.flush();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(h.playing.at(-1)?.text).toContain('your draft is on your card');
+    expect(h.playing.at(-1)?.text).toContain("the follow-up's on your screen whenever you want to send it");
     h.playing.at(-1)?.finish();
     await h.flush();
     await vi.advanceTimersByTimeAsync(2000);
@@ -357,6 +358,79 @@ describe('NpcConversation', () => {
     h.playing.at(-1)?.finish();
     await h.flush();
     expect(h.playing.map((entry) => entry.text)).not.toContain("The follow-up's on your card whenever you're ready.");
+    conversation.close();
+  });
+
+  it('uses the plain dispatch pointer for the card nudge and counts it as the topic pointer', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.humanSpeech(true);
+    conversation.humanText('Ship it.');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    h.calls.at(-1)?.push('Ada: Understood.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.playing.at(-1)?.text).toBe(visitorDispatchLine('Josh', 1));
+    expect(conversation.cardPointedOnCurrentTopic()).toBe(true);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.playing.at(-1)?.text).toBe("Let's leave Prep there.");
+    conversation.close();
+  });
+
+  it('drops a host sentence that tells the visitor to send the follow-up, and logs it', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    await h.say('Ship it.');
+    const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
+      followUp: { kind: 'mattermost_post', title: 'Send the card rules' }, wingmanNeeded: false })}`;
+    const send = 'Send the card rules round to the team in a short note before you head off.';
+    h.calls.at(-1)?.push(`${settled}\nAda: ${send}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).not.toContain(send);
+    expect(h.logs).toContain(`[card] dropped host send-instruction: ${send}`);
+    conversation.close();
+  });
+
+  it('keeps a colleague line and a host task handed to a named colleague', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    await h.say('Ship it.');
+    const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
+      followUp: { kind: 'mattermost_post', title: 'Send the card rules' }, wingmanNeeded: false })}`;
+    const colleague = 'Send the card rules round to the team in a short note.';
+    const toColleague = 'Bao, send the card rules round to the team in a short note.';
+    h.calls.at(-1)?.push(`${settled}\nBao: ${colleague}\nAda: ${toColleague}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).toContain(colleague);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).toContain(toColleague);
     conversation.close();
   });
 

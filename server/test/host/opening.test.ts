@@ -27,8 +27,19 @@ describe('liveNextItemLine', () => {
       agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
     };
     const line = liveOpeningLine(scenario);
-    expect(line).toContain("we've got two quick issues");
+    expect(line).toContain("We've got two quick issues");
     expect(line).toContain("Let's start with Prep.");
+  });
+
+  it('ends the situation sentence before saying what the meeting has to settle', () => {
+    const scenario = {
+      ...testScenario,
+      situation: "It's 7 AM on opening day at our refurbished Raffles Place flagship, and doors open at 8.",
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
+    };
+    const line = liveOpeningLine(scenario);
+    expect(line).toContain("doors open at 8. We've got two quick issues to settle today.");
+    expect(line).not.toContain('doors open at 8, and we');
   });
 
   it('tells the visitor once that they make the calls, using the host brief', () => {

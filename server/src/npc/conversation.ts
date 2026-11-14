@@ -1,6 +1,7 @@
 import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic, spokenAgendaName } from '../host/opening';
+import { visitorCardPointerLine } from './cardPointer';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
@@ -201,6 +202,24 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
 const CARD_POINT_RE =
   /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel|on your screen)\b/i;
 
+/**
+ * A host sentence that tells the visitor to send the follow-up themselves. The code points at the card, so the
+ * model must not repeat that instruction in its own words.
+ */
+const HOST_SEND_INSTRUCTION_RE = new RegExp(
+  `\\b(?:send|post|email|e-mail|share|message|circulate|forward|announce|broadcast|text)\\b` +
+    `[^.!?]*\\b(?:note|decision|update|follow-?up|summary|invite|announcement|card|message)\\b`,
+  'i',
+);
+
+/** True when the sentence names one of the colleagues, so it hands them a task rather than instructing the visitor. */
+function namesColleague(text: string, names: readonly string[]): boolean {
+  return names.some((name) => {
+    const who = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return who.length > 0 && new RegExp(`\\b${who}\\b`, 'i').test(text);
+  });
+}
+
 export interface ConversationOptions {
   topicTurnBudget?: number;
   topicTimeBudgetMs?: number;
@@ -343,6 +362,8 @@ export class NpcConversation<Clip> {
   private readonly cardNudgedTopics = new Set<string>();
   /** Topics where the host has already pointed the visitor at their card. */
   private readonly cardPointedTopics = new Set<string>();
+  /** Topics the visitor parked or tabled, so moving on needs no "Let's leave it there" wrap-up. */
+  private readonly parkedTopics = new Set<string>();
   /** Lines the room actually heard, for repeat checks and the per-speaker prompt. */
   private readonly recentSpoken: Array<{ speaker: string; text: string; at: number; topic: string | undefined }> = [];
   /** Lines the visitor said, so the host can tell when they already gave the follow-up to a colleague. */
@@ -424,6 +445,7 @@ export class NpcConversation<Clip> {
     this.volunteersByTopic.clear();
     this.cardNudgedTopics.clear();
     this.cardPointedTopics.clear();
+    this.parkedTopics.clear();
     this.reviewActionKind.clear();
   }
 
@@ -774,6 +796,18 @@ export class NpcConversation<Clip> {
     const current = this.currentItem()?.title;
     if (current === undefined) return false;
     return origin === current || cleanSpokenTopic(origin).toLowerCase() === cleanSpokenTopic(current).toLowerCase();
+  }
+
+  /** True when the host has already pointed the visitor at their card on the topic the meeting is on now. */
+  cardPointedOnCurrentTopic(): boolean {
+    const title = this.currentItem()?.title;
+    return title !== undefined && this.cardPointedTopics.has(title);
+  }
+
+  /** True when the current topic has, or is about to have, a follow-up card for the visitor. */
+  private currentTopicHasVisitorFollowUp(turn: Turn): boolean {
+    const title = this.currentItem()?.title;
+    return title !== undefined && (this.reviewActionKind.has(title) || turn.settle !== undefined);
   }
 
   /** True when `title` names the item the meeting is on now; external task events use this to stay on their own topic. */
@@ -1147,12 +1181,9 @@ export class NpcConversation<Clip> {
       });
   }
 
-  /** What the visitor will actually find on their card on this topic: a draft to send, or an invite to confirm. */
+  /** The first pointer at what the visitor will find on their card on this topic: a draft to send, or an invite to confirm. */
   private cardNudgeLine(visitor: string, title: string): string {
-    if (this.reviewActionKind.get(title) === 'calendar_event') {
-      return `${visitor}, your invite is on your card — review and confirm it when you're ready, or we can move on.`;
-    }
-    return `${visitor}, your draft is on your card — send it when you're ready, or we can move on.`;
+    return visitorCardPointerLine(visitor, this.reviewActionKind.get(title));
   }
 
   private startReviewWindow(): void {
@@ -1178,6 +1209,7 @@ export class NpcConversation<Clip> {
           DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
             if (spoken) {
               this.cardNudgedTopics.add(title);
+              this.cardPointedTopics.add(title);
               this.startReviewWindow();
             } else {
               this.reviewNudged = false;
@@ -1187,6 +1219,11 @@ export class NpcConversation<Clip> {
         return;
       }
       this.reviewWarned = true;
+      if (this.parkedTopics.has(title)) {
+        this.ports.log?.(`skipped the leave-there wrap-up on "${title}": the topic was parked`);
+        this.checkTopicAdvance(true);
+        return;
+      }
       const topicName = spokenAgendaName(this.options.scenario, title);
       const wrapUp = `Let's leave ${topicName} there.`;
       const warning = this.cardPointedTopics.has(title)
@@ -1864,6 +1901,7 @@ export class NpcConversation<Clip> {
     const player = this.playAll(turn, queue);
 
     const handover = new HandoverGuard(this.names, this.human?.name);
+    const aiHost = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
     const SAFETY_REFUSAL_RE = /^(?:sorry,?\s*)?i\s+(?:cannot|can't)\s+(?:continue|engage|proceed|help)\s+(?:(?:with|in)\s+)?(?:this|the)\s+(?:conversation|role-?play|simulation|request)[.!]?$/i;
     let heldRefusal: Utterance | undefined;
     let failure: unknown;
@@ -1929,6 +1967,11 @@ export class NpcConversation<Clip> {
       }
       if (MODEL_CARD_MENTION_RE.test(trimmed)) {
         this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; the handoff line does that: "${trimmed}"`);
+        return;
+      }
+      if (aiHost !== undefined && utterance.speaker === aiHost && this.currentTopicHasVisitorFollowUp(turn) &&
+          HOST_SEND_INSTRUCTION_RE.test(trimmed) && !namesColleague(trimmed, this.names)) {
+        this.ports.log?.(`[card] dropped host send-instruction: ${trimmed}`);
         return;
       }
       if (this.human !== undefined) {
@@ -2029,6 +2072,11 @@ export class NpcConversation<Clip> {
           }
         }
         turn.control = control;
+        const topic = turn.topic ?? this.currentItem()?.title;
+        if (topic !== undefined) {
+          if (control.state === 'deferred') this.parkedTopics.add(topic);
+          else if (control.state === 'settled') this.parkedTopics.delete(topic);
+        }
         const item = this.currentItem();
         if (control.wingmanNeeded) {
           this.wingmanHintActive = true;

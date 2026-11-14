@@ -61,6 +61,44 @@ describe('visitorDispatchLine', () => {
   });
 });
 
+describe('startNpcRunner visitor pointer count', () => {
+  it('starts plainly on the first dispatch of each topic', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })), participant, undefined, CONTROL_TOPIC);
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      const dispatch = (title: string): string =>
+        `Daniel, I've sent you a task: ${title}. Accept or decline it on your phone.`;
+
+      runner.announce(dispatch('Send the note'));
+      await vi.waitFor(() => expect(transcript.some((line) => line.includes("the follow-up's on your screen"))).toBe(true));
+      runner.announce(dispatch('Book the call'));
+      await vi.waitFor(() => expect(transcript.some((line) => line.includes("the follow-up's still on your screen"))).toBe(true));
+
+      runner.agendaMoved(scenario.agenda[1]?.title);
+      runner.announce(dispatch('Check the till'));
+      await vi.waitFor(() => expect(transcript.filter((line) => line.includes("the follow-up's on your screen"))).toHaveLength(2));
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
 describe('startNpcRunner visitor transcript identity', () => {
   it.each([
     ['Operations Director', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],

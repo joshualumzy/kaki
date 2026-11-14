@@ -106,7 +106,8 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
   const handoff = first === undefined ? '' : ` Let's start with ${spokenAgendaName(scenario, first.title)}.`;
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
-    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead} ${situationLead}, and we've got ${spokenCount(scenario.agenda.length)} quick issues to settle today.${handoff}`;
+    const situationSentence = /[.!?]$/.test(situationLead) ? situationLead : `${situationLead}.`;
+    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead} ${situationSentence} We've got ${spokenCount(scenario.agenda.length)} quick issues to settle today.${handoff}`;
   }
 
   if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}`;

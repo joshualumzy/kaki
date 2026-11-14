@@ -481,6 +481,7 @@ describe('the director prompt', () => {
     const scenario = { ...npcScenario, npcs: [{ ...ada!, role: 'host' as const }, bao!] };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Chef' });
     expect(prompt).toContain('The visitor owns this follow-up card and its draft');
+    expect(prompt).toContain('Never tell the visitor to send, post, email or share');
     expect(prompt).not.toContain('point them to their card');
     expect(prompt).toContain('never mention the card, the screen or the panel');
     expect(prompt).toContain('no colleague says they will draft, post, send or email it themselves');

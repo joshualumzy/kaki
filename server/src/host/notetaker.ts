@@ -626,11 +626,15 @@ export function addressedRole(
     return undefined;
   };
   // If someone says "can you...", "could you...", or "would you..." in the evidence line, and a human visitor has spoken in the transcript,
-  // route second-person requests to the visitor first unless an NPC's name opens the line.
-  if (/\b(?:can you|could you|would you|will you)\b/i.test(evidence)) {
+  // route second-person requests to the visitor first unless an NPC's name opens the sentence that asks
+  // ("Right, four seats. Daniel, can you print the signs?" is Daniel's).
+  const request = /\b(?:can you|could you|would you|will you)\b/i;
+  const sentences = evidence.split(/(?<=[.!?])\s+/);
+  if (request.test(evidence)) {
+    const asking = sentences.filter((sentence) => request.test(sentence));
     const startsWithNpc = scenario.attendees.some((attendee) => {
       const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp(`^\\W*${escaped}\\b`, 'i').test(evidence);
+      return asking.some((sentence) => new RegExp(`^\\W*${escaped}\\b`, 'i').test(sentence));
     });
     if (!startsWithNpc) {
       const visitorRole = findVisitorRole();
@@ -643,9 +647,8 @@ export function addressedRole(
   if (FIRST_PERSON_COMMITMENT.test(evidence)) return undefined;
   for (const attendee of scenario.attendees) {
     const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (
-      new RegExp(`^\\W*${escaped}\\b|,\\s*${escaped}\\b|\\b(?:have|ask|get)\\s+${escaped}\\b`, 'i').test(evidence)
-    ) {
+    const named = new RegExp(`^\\W*${escaped}\\b|,\\s*${escaped}\\b|\\b(?:have|ask|get)\\s+${escaped}\\b`, 'i');
+    if (sentences.some((sentence) => named.test(sentence))) {
       return attendee.role;
     }
   }
