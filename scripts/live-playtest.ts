@@ -8,7 +8,9 @@ import { chromium, devices, type Browser, type Page } from 'playwright';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
 
-const BASE = 'http://localhost:5173';
+/** The demo to test; set KAKI_PLAYTEST_URL (e.g. the cloud URL) to test a deployed copy instead of the local stack. */
+const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
+const BASE_ORIGIN = new URL(BASE).host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const LOG_DIR = '.live-logs';
 type Check = { at: string; name: string; status: 'PASS' | 'WARN' | 'FAIL'; detail: string; shot?: string };
 export type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
@@ -106,7 +108,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   const flipFlopFinal = new Map<number, string>();
   let lastVisitorLine = '';
   let rejoined = false;
-  const localUrl = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//;
+  const localUrl = new RegExp(`^https?://(?:localhost|127\\.0\\.0\\.1|${BASE_ORIGIN})(?::\\d+)?/`);
   const strictModeSocketClose = /closed before the connection is established/i;
   const nearNavigation = (): boolean => lastNavigationAt > 0 && Date.now() - lastNavigationAt <= 5_000;
 
@@ -529,6 +531,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     await mkdir(LOG_DIR, { recursive: true });
     browser = await chromium.launch({ channel: 'chrome', headless: false, args: [
       '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+      // Silent by default so a run does not talk over whatever the owner is doing; KAKI_PLAYTEST_SOUND=1 to listen.
+      ...(process.env.KAKI_PLAYTEST_SOUND === '1' ? [] : ['--mute-audio']),
     ] });
     phoneMode = parsed.phone;
     const context = await browser.newContext({ ...(phoneMode ? devices['Pixel 7'] : {}), permissions: ['microphone', 'camera'] });
@@ -556,7 +560,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       errors.push(`${stamp()} response: HTTP ${response.status()} ${response.request().method()} ${response.url()}`);
     });
     page.on('websocket', (socket) => {
-      if (/^wss?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//.test(socket.url())) {
+      if (new RegExp(`^wss?://(?:localhost|127\\.0\\.0\\.1|${BASE_ORIGIN})(?::\\d+)?/`).test(socket.url())) {
         socket.on('socketerror', (error) => {
           const text = String(error);
           if (strictModeSocketClose.test(text) && nearNavigation()) {
