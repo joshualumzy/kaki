@@ -417,6 +417,7 @@ export function ConnectedStartPrompt({
   const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');
   const [error, setError] = useState<string | undefined>(undefined);
   const request = useRef<{ requestId: string; session: string } | undefined>(undefined);
+  const publishError = useRef<string | undefined>(undefined);
   const retryTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const timeoutTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const started = useRef(false);
@@ -434,7 +435,12 @@ export function ConnectedStartPrompt({
     const message: ControlMessage = { kind: 'start', ...pending };
     room.localParticipant
       .publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: CONTROL_TOPIC })
-      .catch(() => undefined);
+      .then(() => {
+        if (request.current === pending) publishError.current = undefined;
+      })
+      .catch((cause: unknown) => {
+        if (request.current === pending) publishError.current = cause instanceof Error ? cause.message : String(cause);
+      });
   }, [room]);
 
   useEffect(() => {
@@ -483,6 +489,7 @@ export function ConnectedStartPrompt({
       return;
     }
     started.current = false;
+    publishError.current = undefined;
     request.current = {
       requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
       session,
@@ -503,7 +510,9 @@ export function ConnectedStartPrompt({
         [...remoteParticipants.values()].some((p) => p.identity === listener.attendee);
       setPhase('failed');
       setError(
-        listenerPresent
+        publishError.current !== undefined
+          ? `The room could not send Start (${publishError.current}). Check your connection, then try again.`
+          : listenerPresent
           ? 'The room did not confirm the start. Check your connection, then try again.'
           : 'Waiting for the AI attendees to join the room (run npm run npc or bash scripts/live-up.sh), then try again.',
       );

@@ -170,6 +170,16 @@ describe('ConnectedStartPrompt', () => {
     expect(onStarted).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a rejected Start publish instead of hiding the transport failure', async () => {
+    vi.useFakeTimers();
+    room.localParticipant.publishData.mockRejectedValue(new Error('channel closed'));
+    render(<ConnectedStartPrompt onStarted={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    await act(async () => { await Promise.resolve(); });
+    act(() => { vi.advanceTimersByTime(8000); });
+    expect(screen.getByText(/could not send Start \(channel closed\)/i)).toBeTruthy();
+  });
+
   it('stops retrying and ignores acknowledgements after unmount', () => {
     vi.useFakeTimers();
     const onStarted = vi.fn();

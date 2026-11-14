@@ -23,6 +23,20 @@ function parseWithLogs(pieces: string[]): { lines: Utterance[]; logs: string[] }
 }
 
 describe('meeting carry-over prompt', () => {
+  it('tells the room to raise its catch before accepting the visitor\'s first idea', () => {
+    const scenario = {
+      ...npcScenario,
+      agenda: [{ ...testScenario.agenda[0]!, contested: true }],
+      roles: [...npcScenario.roles, { id: 'host', label: 'Host', facilitator: true }],
+      attendees: [...npcScenario.attendees, { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' }],
+      npcs: [...npcScenario.npcs, { attendee: 'Hal', role: 'host' as const, voice: 'v0', personality: 'Calm', agenda: 'Keep time', concerns: [] }],
+    };
+    const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'chef' });
+    expect(prompt).toContain("Visitor's first idea for this item");
+    expect(prompt).toContain('raise that catch');
+    expect(prompt).toContain("Visitor's second idea");
+  });
+
   it('shows an earlier decision and only an actual link to that earlier agenda item', () => {
     const scenario = { ...npcScenario, agenda: [
       { title: 'Prep', minutes: 5, ownerRole: 'chef' },

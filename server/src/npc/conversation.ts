@@ -1,6 +1,6 @@
 import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { cleanSpokenTopic, spokenAgendaName } from '../host/opening';
+import { cleanSpokenTopic, liveWrapUpLine, spokenAgendaName } from '../host/opening';
 import { visitorCardPointerLine } from './cardPointer';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
@@ -231,6 +231,22 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
 const CARD_POINT_RE =
   /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel|on your screen)\b/i;
 
+/** A whole line that is only a greeting, filler or acknowledgement, so it is not an idea for the topic. */
+const GUEST_GREETING_OR_FILLER =
+  /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+|ok|okay|sure|yes|no|yeah|yep|nope|right|fine|thanks|thank you|got it)(?:[ ,]+(?:team|all|everyone|folks))?[,.!?]*\s*)+$/i;
+
+/** An idea put as a question ("What if we move the till?", "Shall we cut the menu?"), not a question for facts. */
+const GUEST_PROPOSAL_QUESTION = /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b/i;
+
+/** True when a visitor's line is an idea for the topic, not a greeting, filler or a question for facts. */
+function isGuestProposal(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (GUEST_GREETING_OR_FILLER.test(trimmed)) return false;
+  if (trimmed.endsWith('?')) return GUEST_PROPOSAL_QUESTION.test(trimmed);
+  return true;
+}
+
 /**
  * A host sentence that tells the visitor to send the follow-up themselves. The code points at the card, so the
  * model must not repeat that instruction in its own words.
@@ -297,6 +313,8 @@ export interface ConversationOptions {
   maxHistory?: number;
   /** Random source for choosing an item opening; injectable for deterministic tests. */
   random?: () => number;
+  /** False turns off the first-idea catch guard for tests of other paths; the live meeting keeps it on. */
+  firstIdeaCatch?: boolean;
   gate?: SpeechGate;
   memory?: MeetingMemory;
 }
@@ -392,6 +410,8 @@ export class NpcConversation<Clip> {
   private humanLines = 0;
   /** Visitor words on this topic, retained for the task context and the lock safety net. */
   private decisionLines: string[] = [];
+  /** The visitor's ideas on this topic, oldest first, so the first one is never accepted outright. */
+  private readonly proposalsByTopic = new Map<string | undefined, string[]>();
   private humanSettledOnCurrentItem = false;
   private topicOpenedAt = Date.now();
   private budgetOffered = false;
@@ -490,6 +510,7 @@ export class NpcConversation<Clip> {
     this.resumeAfterReopen = undefined;
     this.recentSpoken.length = 0;
     this.guestLinesByTopic.clear();
+    this.proposalsByTopic.clear();
     this.volunteersByTopic.clear();
     this.cardNudgedTopics.clear();
     this.cardPointedTopics.clear();
@@ -1256,9 +1277,15 @@ export class NpcConversation<Clip> {
       });
   }
 
+  /** The card line's variant for this topic, so two topics never use the same wording. */
+  private topicIndex(title: string): number {
+    const index = this.options.scenario.agenda.findIndex((item) => item.title === title);
+    return index < 0 ? 0 : index;
+  }
+
   /** The first pointer at what the visitor will find on their card on this topic: a draft to send, or an invite to confirm. */
   private cardNudgeLine(visitor: string, title: string): string {
-    return visitorCardPointerLine(visitor, this.reviewActionKind.get(title));
+    return visitorCardPointerLine(visitor, this.reviewActionKind.get(title), this.topicIndex(title));
   }
 
   private startReviewWindow(): void {
@@ -1299,8 +1326,7 @@ export class NpcConversation<Clip> {
         this.checkTopicAdvance(true);
         return;
       }
-      const topicName = spokenAgendaName(this.options.scenario, title);
-      const wrapUp = `Let's leave ${topicName} there.`;
+      const wrapUp = liveWrapUpLine(this.options.scenario, title);
       const warning = this.cardPointedTopics.has(title)
         ? wrapUp
         : `${wrapUp} The follow-up's on your card whenever you're ready.`;
@@ -1360,6 +1386,16 @@ export class NpcConversation<Clip> {
     this.decisionLines.push(text);
   }
 
+  /**
+   * True only on the turn that answers the visitor's first idea on this topic. Later turns are free to settle even
+   * when the visitor's reply is not a new idea ("Yes." to "shall we lock it in?"), so the guard can never hold a topic.
+   */
+  private firstProposalOnTopic(turn: Turn, freshHumanLine: string | undefined): boolean {
+    if (this.options.firstIdeaCatch === false || this.reopenedTitle !== undefined || turn.topic === undefined) return false;
+    const ideas = this.proposalsByTopic.get(turn.topic) ?? [];
+    return freshHumanLine !== undefined && ideas.length === 1 && freshHumanLine.includes(ideas[0]!);
+  }
+
   /** The agenda item the meeting is on, and how this person takes part in it. */
   private currentItem() {
     const title = this.reopenedTitle ?? this.agendaItem ?? this.options.scenario.agenda[0]?.title;
@@ -1415,6 +1451,7 @@ export class NpcConversation<Clip> {
     this.humanSettledOnCurrentItem = false;
     this.wingmanHintActive = false;
     this.decisionLines = [];
+    this.proposalsByTopic.clear();
     this.topicOpenedAt = Date.now();
     this.budgetOffered = false;
     this.budgetRecoveryPending = false;
@@ -1520,7 +1557,7 @@ export class NpcConversation<Clip> {
       `Opening style: ${pushing} jumps in with the news before the host speaks.`,
       `Opening style: ${first} and ${second} are already mid-disagreement as the host's cue brings ${human.name} in; only these two speak in this reply.`,
     ];
-    return `[We just started "${title}". ${styles[openingStyle]} The briefing facts are: "${problem}". State the problem and positions, not a fix. ${first}'s view: "${firstView ?? title}". ${second}'s view: "${secondView ?? title}". ${human.name} decides.${pushing === undefined ? '' : ` ${pushing} pushes hardest.`} Only two colleagues speak unless ${human.name} asked everyone. Leave the decision open.]`;
+    return `[We just started "${title}". ${styles[openingStyle]} The briefing facts are: "${problem}". State the problem and positions, not a fix. ${first}'s view: "${firstView ?? title}". ${second}'s view: "${secondView ?? title}". ${human.name} decides.${pushing === undefined ? '' : ` ${pushing} pushes hardest.`} Only two colleagues speak unless ${human.name} asked everyone. Leave the decision open and hold at least one catch back for ${human.name}'s first idea.]`;
   }
 
   /**
@@ -1660,6 +1697,10 @@ export class NpcConversation<Clip> {
     const text = retry ? this.lastText : this.pending.join(' ').trim();
     this.pending = [];
     if (text.length === 0) return;
+    if (!retry && this.human !== undefined && !text.startsWith('[') && isGuestProposal(text)) {
+      const topic = this.currentItem()?.title;
+      this.proposalsByTopic.set(topic, [...(this.proposalsByTopic.get(topic) ?? []), text]);
+    }
     this.ports.log?.(`[respond] asking the model${retry ? ' (retry)' : ''}`);
     this.interrupt('a new turn started');
     const forced = this.forcedSpeaker;
@@ -2093,6 +2134,16 @@ export class NpcConversation<Clip> {
       ];
       const last = messages[messages.length - 1]!;
       const freshHumanLine = last.role === 'user' && !last.content.startsWith('[') ? last.content : undefined;
+      // The visitor's first idea on a topic is never accepted outright: the room names what works, then
+      // the colleague whose cost is still open raises it from their facts and asks how to adapt.
+      if (this.firstProposalOnTopic(turn, freshHumanLine)) {
+        const currentLast = messages[messages.length - 1]!;
+        const who = this.human?.name ?? 'The person';
+        messages[messages.length - 1] = {
+          ...currentLast,
+          content: `${currentLast.content}\n[This is ${who}'s first idea on "${turn.topic}". Acknowledge what works in it, then have the colleague whose constraint is still open raise that catch from their own facts and ask ${who} how to adapt. Do not settle the item on this first idea.]`,
+        };
+      }
       // The Director itself decides whether this visitor line settles the topic.
       if (addressed !== undefined && last?.role === 'user' && turn.forced === undefined) {
         const currentLast = messages[messages.length - 1]!;
@@ -2107,6 +2158,10 @@ export class NpcConversation<Clip> {
       // Only a reply to something the visitor just said on this topic may settle it.
       let refuseReopen = false;
       const applyControl = (control: ReplyControl): void => {
+        if (control.state === 'settled' && this.firstProposalOnTopic(turn, freshHumanLine)) {
+          this.ports.log?.(`[settle] ignored settled on ${this.human?.name ?? 'the person'}'s first idea on "${turn.topic}"`);
+          control = { ...control, state: 'open' };
+        }
         if (control.reopen !== undefined) {
           const agenda = this.options.scenario.agenda;
           const actualIndex = agenda.findIndex((candidate) => candidate.title === (this.agendaItem ?? agenda[0]?.title));
@@ -2118,7 +2173,7 @@ export class NpcConversation<Clip> {
             const host = this.facilitatorOrCoHost();
             if (host !== undefined) {
               const topicName = this.agendaItem === undefined ? 'this item' : spokenAgendaName(this.options.scenario, this.agendaItem);
-              enqueue({ speaker: host, text: `That earlier call stays as decided. Let's keep going with ${topicName}.` });
+              enqueue({ speaker: host, text: `Let's keep going with ${topicName}.` });
             }
             return;
           }

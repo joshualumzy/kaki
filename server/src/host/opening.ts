@@ -43,6 +43,31 @@ function spokenCount(count: number): string {
   return SMALL_COUNTS[count] ?? String(count);
 }
 
+/** Joins spoken list items the way people say them: "A, B, and C". */
+function spokenList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
+}
+
+/** One colleague's job in lower-case spoken words, without the shouted title capitals. */
+function spokenJob(scenario: Scenario, role: string): string {
+  return roleLabel(scenario, role).replace(/&/g, 'and').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * The colleagues in the room, named with their jobs in one spoken line. Sam is speaking, and the
+ * visitor's seat belongs to the guest, so neither is named.
+ */
+function colleagueIntroductions(scenario: Scenario, hostName: string | undefined, visitor?: Visitor): string {
+  const npcNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
+  const colleagues = scenario.attendees.filter((attendee) =>
+    attendee.name !== hostName &&
+    attendee.name !== visitor?.seat &&
+    (npcNames.size === 0 || npcNames.has(attendee.name)));
+  const introductions = colleagues.map((attendee) => `${attendee.name} is our ${spokenJob(scenario, attendee.role)}`);
+  return introductions.length === 0 ? '' : `${spokenList(introductions)}.`;
+}
+
 export function cleanSpokenTopic(title: string): string {
   return title
     .replace(/^@/, '')
@@ -57,18 +82,21 @@ export function spokenTopicLead(title: string): string {
   return cleanSpokenTopic(title);
 }
 
+function findAgendaItem(scenario: Scenario, title: string) {
+  const wanted = cleanSpokenTopic(title).toLowerCase();
+  return scenario.agenda.find((candidate) =>
+    candidate.title === title ||
+    cleanSpokenTopic(candidate.title).toLowerCase() === wanted ||
+    (candidate.spoken !== undefined && candidate.spoken.toLowerCase() === title.trim().toLowerCase()),
+  );
+}
+
 /**
  * The short name for an agenda item when the host says it aloud mid-sentence: the scenario's `spoken` name when
  * set, otherwise the cleaned-up title.
  */
 export function spokenAgendaName(scenario: Scenario, title: string): string {
-  const wanted = cleanSpokenTopic(title).toLowerCase();
-  const item = scenario.agenda.find((candidate) =>
-    candidate.title === title ||
-    cleanSpokenTopic(candidate.title).toLowerCase() === wanted ||
-    (candidate.spoken !== undefined && candidate.spoken.toLowerCase() === title.trim().toLowerCase()),
-  );
-  return item?.spoken ?? cleanSpokenTopic(title);
+  return findAgendaItem(scenario, title)?.spoken ?? cleanSpokenTopic(title);
 }
 
 /**
@@ -103,20 +131,56 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
 
   const lead = scenario.hostBrief?.goal.match(/\bvisitor as ([^.]+)/i)?.[1]?.trim();
   const decisionLead = visitor === undefined || lead === undefined ? '' : ` You're ${lead}, so the calls are yours.`;
+  const colleagues = colleagueIntroductions(scenario, hostAttendee?.name, visitor);
+  const colleaguesLine = colleagues === '' ? '' : ` ${colleagues}`;
   const handoff = first === undefined ? '' : ` Let's start with ${spokenAgendaName(scenario, first.title)}.`;
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
     const situationSentence = /[.!?]$/.test(situationLead) ? situationLead : `${situationLead}.`;
-    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead} ${situationSentence} We've got ${spokenCount(scenario.agenda.length)} quick issues to settle today.${handoff}`;
+    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead}${colleaguesLine} ${situationSentence} We've got ${spokenCount(scenario.agenda.length)} quick issues to settle today.${handoff}`;
   }
 
-  if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}`;
-  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead} We've got ${spokenCount(scenario.agenda.length)} quick things to sort out today.${handoff}`;
+  if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}${colleaguesLine}`;
+  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}${colleaguesLine} We've got ${spokenCount(scenario.agenda.length)} quick things to sort out today.${handoff}`;
+}
+
+const NEXT_ITEM_LINES: ReadonlyArray<(topic: string) => string> = [
+  (topic) => `Next up, ${topic}.`,
+  (topic) => `Right, let's move on to ${topic}.`,
+  (topic) => `Okay, on to ${topic}.`,
+  (topic) => `Let's move to ${topic} now.`,
+];
+
+const WRAP_UP_LINES: ReadonlyArray<(topic: string) => string> = [
+  (topic) => `Let's leave ${topic} there.`,
+  (topic) => `Good, that's ${topic} sorted.`,
+  (topic) => `Okay, ${topic} is done.`,
+  (topic) => `Right, that settles ${topic}.`,
+];
+
+function agendaLine(lines: ReadonlyArray<(topic: string) => string>, scenario: Scenario, title: string): string {
+  const index = scenario.agenda.findIndex((item) => item.title === findAgendaItem(scenario, title)?.title);
+  return lines[Math.max(0, index) % lines.length]!(spokenAgendaName(scenario, title));
 }
 
 /**
- * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`).
+ * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`),
+ * handing over by name to the colleague who owns it when that lead is known.
  */
-export function liveNextItemLine(scenario: Scenario, title: string, _visitor?: Visitor): string {
-  return `Next up, ${spokenAgendaName(scenario, title)}.`;
+export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Visitor): string {
+  const item = findAgendaItem(scenario, title);
+  const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
+  const ownerIsHost = item !== undefined && scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
+  const lead = owner === undefined || ownerIsHost
+    ? undefined
+    : visitor !== undefined && visitor.seat === owner.name
+      ? visitor.name
+      : owner.name;
+  const handoff = lead === undefined ? '' : ` ${lead}, over to you.`;
+  return `${agendaLine(NEXT_ITEM_LINES, scenario, title)}${handoff}`;
+}
+
+/** The host's spoken wrap-up when a topic is left, picked by that topic's place in the agenda. */
+export function liveWrapUpLine(scenario: Scenario, title: string): string {
+  return agendaLine(WRAP_UP_LINES, scenario, title);
 }

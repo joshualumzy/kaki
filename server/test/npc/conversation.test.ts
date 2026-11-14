@@ -154,9 +154,88 @@ describe('NpcConversation', () => {
     h.calls.at(-1)?.end();
     await h.flush();
     expect(h.logs).toContainEqual(expect.stringContaining('[control] dropped reopen: Prep was already reopened'));
-    expect(h.playing.at(-1)?.text).toContain('stays as decided');
+    expect(h.playing.at(-1)?.text).toBe("Let's keep going with Service.");
     expect(h.conversation.onCurrentAgenda('Service')).toBe(true);
     h.conversation.close();
+  });
+
+  it('does not settle on the first idea, tells the room to raise its catch, and settles on the second idea', async () => {
+    const h = harness(hostedScenario());
+    h.conversation.setHuman({ name: 'Josh', role: 'producer' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+    await h.say('Use the window bar.');
+    const first = h.calls.at(-1)!;
+    expect(String(first.messages.at(-1)?.content)).toContain('first idea on "Prep"');
+    expect(String(first.messages.at(-1)?.content)).toContain('raise that catch');
+    first.push('KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: The window bar works, but who covers the counter?');
+    first.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(settleTopic).not.toHaveBeenCalled();
+    expect(h.logs).toContainEqual(expect.stringContaining('[settle] ignored settled'));
+
+    await h.say('Mei covers the counter from nine.');
+    const second = h.calls.at(-1)!;
+    expect(String(second.messages.at(-1)?.content)).not.toContain('first idea on "Prep"');
+    second.push('KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: That works.');
+    second.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('settles after the first idea when the visitor only agrees ("Yes.") instead of giving a new idea', async () => {
+    const h = harness(hostedScenario());
+    h.conversation.setHuman({ name: 'Josh', role: 'producer' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+    await h.say('Use the window bar.');
+    const first = h.calls.at(-1)!;
+    first.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false}\nAda: The window bar works, but who covers the counter? Shall we lock it in?');
+    first.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+
+    await h.say('Yes.');
+    const second = h.calls.at(-1)!;
+    expect(String(second.messages.at(-1)?.content)).not.toContain('first idea on "Prep"');
+    second.push('KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: Locked in.');
+    second.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('still parks a topic on the first line', async () => {
+    const h = harness(hostedScenario());
+    h.conversation.setHuman({ name: 'Josh', role: 'producer' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+    await h.say('Park it for now.');
+    h.calls.at(-1)?.push('KAKI_CONTROL {"state":"deferred","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: Fair enough, we can come back to it.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.logs.some((line) => line.includes('[settle] ignored settled'))).toBe(false);
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('varies the card pointer wording by topic so two topics never repeat it', () => {
+    const first = visitorDispatchLine('Josh', 1, 0);
+    const second = visitorDispatchLine('Josh', 1, 1);
+    expect(first).toBe("Josh, the follow-up's on your screen whenever you want to send it.");
+    expect(second).not.toBe(first);
+    expect(second).toContain("the follow-up's on your screen");
+    expect(visitorDispatchLine('Josh', 2, 1)).not.toContain("whenever you're ready.");
   });
 
   it('records invented and spoken facts but drops a playful reaction on a sensitive item', async () => {
@@ -433,6 +512,8 @@ describe('NpcConversation', () => {
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     await h.say('Ship it.');
+    h.conversation.lockDecision();
+    await h.flush();
     const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
       followUp: { kind: 'mattermost_post', title: 'Send the card rules' }, wingmanNeeded: false })}`;
     const send = 'Send the card rules round to the team in a short note before you head off.';
@@ -453,6 +534,8 @@ describe('NpcConversation', () => {
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     await h.say('Ship it.');
+    h.conversation.lockDecision();
+    await h.flush();
     const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
       followUp: { kind: 'mattermost_post', title: 'Share the decision' }, wingmanNeeded: false })}`;
     const send = 'Worth putting that on the staff channel before doors open.';
@@ -497,6 +580,8 @@ describe('NpcConversation', () => {
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     await h.say('Ship it.');
+    h.conversation.lockDecision();
+    await h.flush();
     const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
       followUp: { kind: 'mattermost_post', title: 'Send the card rules' }, wingmanNeeded: false })}`;
     const confirm = 'Got it, we hold the price and post a note at the counter.';
@@ -805,6 +890,7 @@ describe('NpcConversation', () => {
     expect(h.calls).toHaveLength(1);
     expect(h.calls[0]?.messages.at(-1)?.content).toContain(style);
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('The stock arrived late.');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('hold at least one catch back');
   });
 
   it.each([0, 0.4, 0.9])('names the prompt colleague among the two opening speakers at seed %s', async (seed) => {
@@ -1024,7 +1110,7 @@ describe('NpcConversation', () => {
 
     const messages = calls[1]?.messages ?? [];
     expect(messages.slice(1)).toEqual([
-      { role: 'user', content: 'Give me the status.' },
+      { role: 'user', content: expect.stringContaining('Give me the status.') },
       {
         role: 'assistant',
         content:
@@ -1133,7 +1219,7 @@ describe('NpcConversation', () => {
     conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(900);
 
-    expect(calls[1]?.messages.at(-1)).toEqual({ role: 'user', content: 'okay can we end the meeting now' });
+    expect(calls[1]?.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('okay can we end the meeting now') });
     expect(transcript.at(-1)?.[1]).toBe('okay can we end the meeting now');
     expect(logs.some((line) => line.includes("cut the AI's own words"))).toBe(true);
   });
@@ -1239,7 +1325,7 @@ describe('NpcConversation', () => {
     expect(calls[1]?.signal.aborted).toBe(true);
     await vi.advanceTimersByTimeAsync(900);
     expect(calls).toHaveLength(3);
-    expect(calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: 'Actually, second question.' });
+    expect(calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('Actually, second question.') });
     expect(playing.some((entry) => entry.text.includes('say that again'))).toBe(false);
   });
 
@@ -1395,7 +1481,7 @@ describe('NpcConversation', () => {
     h.conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(3000);
     expect(h.calls).toHaveLength(3);
-    expect(h.calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: 'Actually, wait.' });
+    expect(h.calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('Actually, wait.') });
   });
 
   it('carries on quickly when recognition says a cut-in held no words', async () => {

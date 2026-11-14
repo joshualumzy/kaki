@@ -50,7 +50,7 @@ function meeting(
   conversation = new NpcConversation(ports, {
     scenario: { ...scenario, npcs: cast }, responseDelayMs: 0,
     speakerGapMs: 0, sentenceGapMs: 0, openLiveGraceMs: 1,
-    observeDelayMs: 60_000, silencePromptMs: 60_000,
+    observeDelayMs: 60_000, silencePromptMs: 60_000, firstIdeaCatch: false,
     ...overrides,
   });
   conversation.setHuman({ name: 'Visitor', role });
