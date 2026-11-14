@@ -39,7 +39,7 @@ type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: 
 
 /** One message on the Kaki meeting protocol, with its audience. */
 export type KakiEvent =
-  | KakiEventOf<'TRANSCRIPT_CHUNK', { speaker: string; text: string; timestamp: string }>
+  | KakiEventOf<'TRANSCRIPT_CHUNK', { speaker: string; text: string; timestamp: string; textOnly?: boolean }>
   | KakiEventOf<
       'MEETING_RECORD_UPDATED',
       {
@@ -147,7 +147,10 @@ type PayloadCheck = (payload: Record<string, unknown>, scenario: Scenario) => bo
 
 const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
   TRANSCRIPT_CHUNK: (payload) =>
-    isString(payload.speaker) && isString(payload.text) && isString(payload.timestamp),
+    isString(payload.speaker) &&
+    isString(payload.text) &&
+    isString(payload.timestamp) &&
+    (payload.textOnly === undefined || typeof payload.textOnly === 'boolean'),
   MEETING_RECORD_UPDATED: (payload, scenario) =>
     Number.isInteger(payload.agendaIndex) &&
     Array.isArray(payload.openQuestions) &&

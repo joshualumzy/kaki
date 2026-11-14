@@ -476,3 +476,148 @@ describe('app', () => {
     expect(noShow?.offScreen?.name).toBe('Auntie Mary');
   });
 });
+
+describe('rejoining an empty meeting', () => {
+  const resetCount = (client: TestClient): number =>
+    client.messages.filter((event) => event.type === 'MEETING_RESET').length;
+
+  type Roster = Array<{ name: string; role?: string }> | undefined;
+
+  async function startApp(
+    rejoinGraceMs: number,
+    options: { roster?: () => Roster; rejoinPollMs?: number } = {},
+  ) {
+    const scenario = await loadScenario('kopitiam');
+    return createApp({
+      scenario,
+      roomRoster: async () => (options.roster === undefined ? [] : options.roster()),
+      rejoinGraceMs,
+      // Keep the poll out of the way unless a test is about what the server observes.
+      rejoinPollMs: options.rejoinPollMs ?? 60_000,
+    });
+  }
+
+  function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
+    return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', ...body }),
+    });
+  }
+
+  async function firstJoinAndTask(app: Awaited<ReturnType<typeof startApp>>) {
+    const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+    expect(first.status).toBe(200);
+    const { meetingCode } = (await first.json()) as { meetingCode: string };
+    const agenda = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`)).json()) as {
+      agenda: Array<{ title: string }>;
+    };
+    const task = app.tasks.suggest({ title: 'Keep the plan', context: 'From this meeting', suggestedAssignee: 'producer' });
+    await settle();
+    return { meetingCode, agenda, task };
+  }
+
+  it('keeps the meeting when the same person returns before a poll sees the room empty', async () => {
+    const app = await startApp(60_000);
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    try {
+      const { meetingCode, agenda, task } = await firstJoinAndTask(app);
+      const resetsBefore = resetCount(screen);
+
+      // The room is empty to LiveKit, but no poll has run yet: this is the 0.1 s rejoin race.
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(back.status).toBe(200);
+      expect(((await back.json()) as { meetingCode: string }).meetingCode).toBe(meetingCode);
+
+      expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
+      const kept = (await (await fetch(`http://127.0.0.1:${port}/api/scenario`)).json()) as {
+        agenda: Array<{ title: string }>;
+      };
+      expect(kept.agenda.map((item) => item.title)).toEqual(agenda.agenda.map((item) => item.title));
+      await settle();
+      expect(resetCount(screen)).toBe(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('keeps the meeting when the same person returns inside the window a poll saw', async () => {
+    const app = await startApp(60_000, { rejoinPollMs: 5 });
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    try {
+      const { meetingCode, task } = await firstJoinAndTask(app);
+      const resetsBefore = resetCount(screen);
+      await settle(50);
+
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(back.status).toBe(200);
+      expect(((await back.json()) as { meetingCode: string }).meetingCode).toBe(meetingCode);
+      expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
+      await settle();
+      expect(resetCount(screen)).toBe(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('asks a different person for the meeting code inside the window', async () => {
+    const app = await startApp(60_000);
+    try {
+      const { meetingCode } = await firstJoinAndTask(app);
+
+      const noCode = await join(app, { participantName: 'Priya', participantRole: 'producer' });
+      expect(noCode.status).toBe(403);
+      expect(((await noCode.json()) as { needsCode?: boolean }).needsCode).toBe(true);
+
+      const withCode = await join(app, { participantName: 'Priya', participantRole: 'producer', meetingCode });
+      expect(withCode.status).toBe(200);
+      expect(((await withCode.json()) as { meetingCode: string }).meetingCode).toBe(meetingCode);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('resets on the next join once the window a poll saw has passed', async () => {
+    const app = await startApp(20, { rejoinPollMs: 5 });
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    try {
+      const { task } = await firstJoinAndTask(app);
+      const resetsBefore = resetCount(screen);
+
+      // The poll sees the empty room, then its grace expires before the person comes back.
+      await settle(60);
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(back.status).toBe(200);
+      expect(app.tasks.get(task.id)).toBeUndefined();
+      await settle();
+      expect(resetCount(screen)).toBeGreaterThan(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('resets immediately when the grace is 0', async () => {
+    const app = await startApp(0);
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    try {
+      const { task } = await firstJoinAndTask(app);
+      const resetsBefore = resetCount(screen);
+
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(back.status).toBe(200);
+      expect(app.tasks.get(task.id)).toBeUndefined();
+      await settle();
+      expect(resetCount(screen)).toBeGreaterThan(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+});

@@ -21,6 +21,7 @@ function meeting(
   const tasks: SuggestInput[] = [];
   const spoken: string[] = [];
   const captions: string[] = [];
+  const textOnly: string[] = [];
   const logs: string[] = [];
   const states: NpcUiState[] = [];
   let reply = 0;
@@ -35,7 +36,10 @@ function meeting(
     },
     async synthesize(utterance) { return utterance; },
     async play(_speaker, clip) { spoken.push(clip.text); },
-    emitTranscript(_speaker, text) { captions.push(text); },
+    emitTranscript(_speaker, text, options) {
+      captions.push(text);
+      if (options?.textOnly === true) textOnly.push(text);
+    },
     emitState(state) { states.push(state); },
     log(message) { logs.push(message); },
     settleTopic(input) { tasks.push(input); },
@@ -56,7 +60,7 @@ function meeting(
     await vi.advanceTimersByTimeAsync(0);
     await conversation.settled();
   };
-  return { conversation, tasks, spoken, captions, logs, states, say, index: () => index, ended: () => ended, replies: () => reply };
+  return { conversation, tasks, spoken, captions, textOnly, logs, states, say, index: () => index, ended: () => ended, replies: () => reply };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -186,27 +190,73 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
-  it('logs loudly and keeps the meeting moving when voice fails for the whole reply', async () => {
+  it('retries a failed sentence once and plays it when the second try works', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
-    const h = meeting(scenario, role, [
-      `${control('open')}\nSam: First part.`,
-      `${control('open')}\nSam: Are you still there?`,
-    ], { silencePromptMs: 1_000 }, {
+    let attempts = 0;
+    const h = meeting(scenario, role, [`${control('open')}\nSam: One line.`], {}, {
       async synthesize(utterance) {
-        if (utterance.text.includes('First part.')) throw new Error('voice down');
+        if (utterance.text === 'One line.') {
+          attempts += 1;
+          if (attempts === 1) throw new Error('voice blip');
+        }
         return utterance;
       },
     });
     await h.say('Hello team.');
+    expect(attempts).toBe(2);
+    expect(h.spoken).toEqual(['One line.']);
+    expect(h.textOnly).toEqual([]);
+    expect(h.logs).toContainEqual(expect.stringMatching(/^\[tts\] retry Sam: voice blip$/));
+    h.conversation.close();
+  });
+
+  it('shows a whole failed reply as text, then keeps the meeting moving', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: First part. Second part.`,
+      `${control('open')}\nSam: Are you still there?`,
+    ], { silencePromptMs: 1_000 }, {
+      async synthesize(utterance) {
+        if (utterance.text.includes('part.')) throw new Error('voice down');
+        return utterance;
+      },
+    });
+    h.conversation.humanTyped('Hello team.');
+    await vi.advanceTimersByTimeAsync(3_000);
+    await h.conversation.settled();
     expect(h.spoken).toEqual([]);
-    expect(h.logs).toContainEqual(
-      expect.stringMatching(/^\[tts\] lost the whole reply from Sam: voice down$/),
-    );
-    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.captions).toEqual(expect.arrayContaining(['First part.', 'Second part.']));
+    expect(h.textOnly).toEqual(['First part.', 'Second part.']);
+    expect(h.logs).toContainEqual(expect.stringMatching(/^\[tts\] retry Sam: voice down$/));
+    expect(h.logs).toContainEqual(expect.stringMatching(/^\[tts\] shown as text: Sam$/));
+    expect(h.logs.some((line) => line.includes('lost the whole reply'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_001);
     await h.conversation.settled();
     expect(h.spoken).toContain('Are you still there?');
+    h.conversation.close();
+  });
+
+  it('does not retry synthesis when the turn was aborted', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    let attempts = 0;
+    const h = meeting(scenario, role, [`${control('open')}\nSam: One line.`], {}, {
+      async synthesize() {
+        attempts += 1;
+        h.conversation.stop();
+        throw new Error('aborted');
+      },
+    });
+    h.conversation.humanTyped('Hello team.');
+    await vi.advanceTimersByTimeAsync(0);
+    await h.conversation.settled();
+    expect(attempts).toBe(1);
+    expect(h.textOnly).toEqual([]);
     h.conversation.close();
   });
 
@@ -577,6 +627,37 @@ describe('never-stuck visitor path', () => {
     expect(h.states.at(-1)).toMatchObject({ kind: 'thinking', canLock: true });
     h.conversation.lockDecision();
     expect(h.tasks).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('retries a briefing whose reply had only the control line, instead of going quiet', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+    const colleague = aiCast(scenario, seat).filter((npc) => npc.role !== 'host')[0]!.attendee;
+    const h = meeting(scenario, role,
+      [control('open'), `${control('open')}\n${colleague}: Here is the problem.`],
+      { observeDelayMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    await h.conversation.settled();
+    await vi.advanceTimersByTimeAsync(0);
+    await h.conversation.settled();
+    expect(h.logs).toContainEqual(expect.stringMatching(/^the model said nothing speakable/));
+    expect(h.spoken).toContain('Here is the problem.');
+    h.conversation.close();
+  });
+
+  it('asks the visitor again when two replies in a row come back empty', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, ['', '']);
+    await h.say('Hello team.');
+    await vi.advanceTimersByTimeAsync(0);
+    await h.conversation.settled();
+    expect(h.replies()).toBe(2);
+    expect(h.spoken.filter((line) => line.includes('say that again'))).toHaveLength(1);
     h.conversation.close();
   });
 

@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
+import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
 
 const BASE = 'http://localhost:5173';
 const LOG_DIR = '.live-logs';
@@ -20,6 +21,8 @@ export type PlaytestHooks = {
   answer(context: AnswerContext): Promise<string>;
   finish(context: FinishContext): Promise<{ reportLines: string[]; summaryLines: string[] }>;
   reportLines(): string[];
+  /** Optional live-meeting behaviour the robot runs; a plain scripted run leaves this unset. */
+  behaviour?: Behaviour;
 };
 
 function options(): PlaytestOptions {
@@ -93,7 +96,16 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   let shotNumber = 0;
   let globalDeadline = Date.now() + 25 * 60_000;
   let visitorRole = '';
+  let visitorRoleLabel = '';
+  let hostName = 'Sam';
   let lastNavigationAt = 0;
+  const silentChecked = new Set<number>();
+  const interruptArmed = new Set<number>();
+  const interruptedTopics = new Set<number>();
+  const flipFlopFirst = new Map<number, string>();
+  const flipFlopFinal = new Map<number, string>();
+  let lastVisitorLine = '';
+  let rejoined = false;
   const localUrl = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//;
   const strictModeSocketClose = /closed before the connection is established/i;
   const nearNavigation = (): boolean => lastNavigationAt > 0 && Date.now() - lastNavigationAt <= 5_000;
@@ -190,24 +202,192 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     return (await page.locator(selector).first().textContent().catch(() => ''))?.includes(value) === true;
   }
 
+  async function typeLine(text: string): Promise<{ ok: boolean; at: number }> {
+    if (page === undefined) return { ok: false, at: Date.now() };
+    const input = page.getByRole('textbox', { name: 'Type to the meeting' });
+    try {
+      await input.fill(text, { timeout: 5_000 });
+      await input.press('Enter', { timeout: 5_000 });
+      const at = Date.now();
+      // A person on a phone closes the keyboard after sending; the app hides the Kaki panel while the box has focus.
+      if (phoneMode) await input.blur();
+      notes.push(`${stamp()} Robot Visitor typed: ${text}`);
+      return { ok: true, at };
+    } catch (error) {
+      await check('Type bar', false, String(error));
+      return { ok: false, at: Date.now() };
+    }
+  }
+
+  async function ensureMicrophoneMuted(): Promise<boolean> {
+    if (page === undefined) return false;
+    const microphone = page.getByRole('button', { name: 'Microphone', exact: true });
+    if (await microphone.getAttribute('aria-pressed').catch(() => null) === 'true') {
+      await microphone.click({ timeout: 5_000 }).catch(() => undefined);
+    }
+    return await microphone.getAttribute('aria-pressed').catch(() => null) === 'false';
+  }
+
+  /** Reuse the start-of-run join flow: name, seat, muted microphone, then wait out a seat still held by the last visitor. */
+  async function joinAsRobot(deadline: number): Promise<'joined' | 'full' | 'unknown'> {
+    if (page === undefined || visitorRoleLabel === '') return 'unknown';
+    await page.getByRole('textbox', { name: 'Your name' }).fill('Robot Visitor');
+    await page.getByRole('radio', { name: new RegExp(visitorRoleLabel, 'i') }).click();
+    for (;;) {
+      if (Date.now() > deadline) return 'full';
+      await page.getByRole('button', { name: 'Join to type' }).click();
+      const joined = page.locator('.kd-meeting').first().waitFor({ timeout: 10_000 }).then(() => 'joined' as const);
+      const full = page.getByText(/The meeting is full/).first().waitFor({ timeout: 10_000 }).then(() => 'full' as const);
+      const outcome = await Promise.any([joined, full]).catch(() => 'unknown' as const);
+      if (outcome === 'joined') return 'joined';
+      if (outcome !== 'full') return 'unknown';
+      if (Date.now() + 5_000 > deadline) return 'full';
+      notes.push(`${stamp()} Seat taken by a previous visitor; retrying join in 5 s`);
+      await delay(5_000);
+    }
+  }
+
+  async function silentGate(index: number): Promise<void> {
+    if (silentChecked.has(index)) return;
+    silentChecked.add(index);
+    // The room went quiet at its last AI line, and a prompt for this topic must come after the robot's own last line.
+    const quietAt = lastAiLineAt;
+    const from = Math.max(0, lastRobotLineIndex(index) + 1);
+    const limit = 60_000;
+    const end = Math.min(quietAt + limit, globalDeadline);
+    let prompt: { prompted: boolean; waitedMs: number; text?: string } = { prompted: false, waitedMs: limit };
+    while (Date.now() < end && agendaIndex === index && !closing) {
+      prompt = silencePromptWithin(transcript, from, 'Robot Visitor', quietAt, limit, hostName);
+      if (prompt.prompted) break;
+      await delay(350);
+    }
+    if (!prompt.prompted) prompt = { prompted: false, waitedMs: Math.min(limit, Date.now() - quietAt) };
+    await check(`Topic ${index + 1} silence prompt`, prompt.prompted,
+      prompt.prompted
+        ? `${hostName} prompted the visitor after ${(prompt.waitedMs / 1000).toFixed(1)}s: ${prompt.text ?? ''}`
+        : `No AI line addressing the visitor within ${(prompt.waitedMs / 1000).toFixed(0)}s`);
+  }
+
+  /** The interrupter does not wait for quiet; it waits for a colleague to speak, then types over them. */
+  async function waitForOpeningTurn(index: number): Promise<boolean> {
+    if (hooks?.behaviour === 'interrupter' && !interruptedTopics.has(index)) {
+      const speaking = await waitFor(`Topic ${index + 1} AI speaking to interrupt`, () => aiSpeaking(), 60_000, false);
+      if (speaking) {
+        interruptArmed.add(index);
+        return true;
+      }
+      notes.push(`${stamp()} Topic ${index + 1}: no AI colleague speaking to interrupt; waiting for the visitor's turn instead`);
+    }
+    return waitForVisitorTurn(index);
+  }
+
+  async function evaluateInterrupt(index: number, typedAt: number, robotLineBefore: number, wasSpeaking: boolean): Promise<void> {
+    // Measure the speaking state from the moment the line was typed, while the transcript catches up in parallel.
+    const endedAt = (async (): Promise<number | undefined> => {
+      const end = Math.min(Date.now() + 4_000, globalDeadline);
+      while (Date.now() < end) {
+        if (!await aiSpeaking()) return Date.now();
+        await delay(350);
+      }
+      return undefined;
+    })();
+    const landed = await waitFor(`Topic ${index + 1} typed line after interrupt`, () =>
+      transcript.slice(robotLineBefore).some((line) => line.agendaIndex === index && /robot visitor/i.test(line.speaker)), 15_000, false);
+    const ended = await endedAt;
+    const robotAt = lastRobotLineIndex(index);
+    const nextLine = await waitFor(`Topic ${index + 1} AI line after interrupt`, () =>
+      robotAt >= 0 && transcript.slice(robotAt + 1).some((line) => !/robot visitor/i.test(line.speaker)), 20_000, false);
+    const duplicates = robotAt < 0 ? [] : duplicatedAiLines(transcript.filter((line) => line.agendaIndex === index));
+    const within = ended !== undefined && ended - typedAt <= 4_000;
+    const ok = wasSpeaking && landed && within && nextLine && duplicates.length === 0;
+    const detail = !wasSpeaking
+      ? 'No AI colleague was speaking when the line was typed'
+      : !landed
+        ? 'The interrupted line never reached the transcript'
+        : !within
+          ? 'The speaking state did not end within 4 s of the typed line'
+          : !nextLine
+            ? 'No AI line followed the interrupted line in the transcript'
+            : duplicates.length > 0
+              ? `AI line repeated word for word afterwards: ${duplicates.join(' / ')}`
+              : `Speaking ended ${(((ended ?? typedAt) - typedAt) / 1000).toFixed(1)}s after the typed line; the next AI line followed it`;
+    await check(`Topic ${index + 1} interrupt yields`, ok, detail);
+  }
+
+  async function leaveAndRejoin(): Promise<void> {
+    if (page === undefined) return;
+    const agendaBefore = agendaIndex;
+    const earlierTaskIds = [...tasks.keys()];
+    const transcriptStart = transcript.length;
+    const previousOpening = rejoinWelcome(transcript, 0, hostName)?.text;
+    const leftAt = Date.now();
+    let left = false;
+    try {
+      await page.locator('.kd-stage .lk-disconnect-button').first().click({ timeout: 5_000 });
+      left = await waitFor('Rejoin leave control', () => page!.getByRole('textbox', { name: 'Your name' }).isVisible(), 10_000, false);
+    } catch (error) {
+      notes.push(`${stamp()} Leave control failed: ${String(error)}`);
+    }
+    if (!left) {
+      await check('Rejoin resumes topic', false, 'The Leave control did not return to the join form');
+      return;
+    }
+    if (!await ensureMicrophoneMuted()) notes.push(`${stamp()} Microphone could not be muted before the rejoin`);
+    // Re-entering the meeting remounts its sockets; treat it like the initial navigation so a StrictMode double-mount is a note, not an error.
+    lastNavigationAt = Date.now();
+    const joined = await joinAsRobot(leftAt + 20_000) === 'joined';
+    const joinedAt = Date.now();
+    if (!joined) {
+      await check('Rejoin resumes topic', false, `Could not rejoin within ${((joinedAt - leftAt) / 1000).toFixed(1)}s`);
+      return;
+    }
+    // A fresh join shows Start again; press it so the robot can type, then let the room settle.
+    const start = page.getByRole('button', { name: 'Start the meeting' }).first();
+    if (await start.isVisible().catch(() => false)) {
+      await start.click({ timeout: 5_000 }).catch((error: unknown) => notes.push(`${stamp()} Rejoin Start click failed: ${String(error)}`));
+      await waitFor('Rejoin start acknowledgement', () =>
+        page!.locator('.kd-meeting[data-needs-start="false"]').count().then((count) => count > 0), 20_000, false);
+    }
+    // A server-side reset clears the transcript, so fall back to its start when it has shrunk.
+    const findWelcome = () => rejoinWelcome(transcript, transcript.length < transcriptStart ? 0 : transcriptStart, hostName, previousOpening);
+    await waitFor('Rejoin welcome check', () => findWelcome() !== undefined, 6_000, false);
+    const welcome = findWelcome();
+    const verdict = rejoinResumes({
+      agendaBefore,
+      agendaAfter: agendaIndex,
+      closingAfter: closing,
+      hostWelcomeAfter: welcome !== undefined,
+      earlierTaskIds,
+      currentTaskIds: [...tasks.keys()],
+      secondsToRejoin: (joinedAt - leftAt) / 1000,
+    });
+    await check('Rejoin resumes topic', verdict.ok,
+      verdict.ok
+        ? `Rejoined in ${((joinedAt - leftAt) / 1000).toFixed(1)}s; agenda topic ${agendaBefore + 1} → ${agendaIndex + 1}; ${earlierTaskIds.length} earlier card(s) remained; no new opening line`
+        : verdict.reasons.join('; '));
+  }
+
   async function speak(text: string, intent = text): Promise<boolean> {
     if (page === undefined) return false;
     if (hooks !== undefined) {
       if (scenario === undefined) throw new Error('Cannot choose an AI visitor line without a scenario');
       text = await hooks.answer({ scenario, role: visitorRole, topicTitle: scenario.agenda[agendaIndex]?.title ?? '(unknown topic)', transcript: [...transcript], intent });
     }
-    const input = page.getByRole('textbox', { name: 'Type to the meeting' });
-    try {
-      await input.fill(text, { timeout: 5_000 });
-      await input.press('Enter', { timeout: 5_000 });
-      // A person on a phone closes the keyboard after sending; the app hides the Kaki panel while the box has focus.
-      if (phoneMode) await input.blur();
-      notes.push(`${stamp()} Robot Visitor typed: ${text}`);
+    const index = agendaIndex;
+    if (hooks?.behaviour === 'silent') await silentGate(index);
+    if (hooks?.behaviour === 'interrupter' && interruptArmed.delete(index)) {
+      const robotLineBefore = transcript.length;
+      const stillSpeaking = await waitFor(`Topic ${index + 1} AI still speaking`, () => aiSpeaking(), 15_000, false);
+      const typed = await typeLine(text);
+      if (!typed.ok) return false;
+      lastVisitorLine = text;
+      interruptedTopics.add(index);
+      await evaluateInterrupt(index, typed.at, robotLineBefore, stillSpeaking);
       return true;
-    } catch (error) {
-      await check('Type bar', false, String(error));
-      return false;
     }
+    const typed = await typeLine(text);
+    if (typed.ok) lastVisitorLine = text;
+    return typed.ok;
   }
 
   async function handleOffer(index: number): Promise<void> {
@@ -430,22 +610,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     const role = playable.find((candidate) => candidate.id === parsed.role) ?? (parsed.role === undefined ? playable[0] : undefined);
     if (role === undefined) throw new Error(`Role ${parsed.role ?? '(default)'} is not a playable non-Sam seat; choices: ${playable.map((r) => r.id).join(', ')}`);
     visitorRole = role.id;
-    await page.getByRole('textbox', { name: 'Your name' }).fill('Robot Visitor');
-    await page.getByRole('radio', { name: new RegExp(role.label, 'i') }).click();
-    const microphone = page.getByRole('button', { name: 'Microphone', exact: true });
-    if (await microphone.getAttribute('aria-pressed') === 'true') await microphone.click();
-    await check('Microphone muted', await microphone.getAttribute('aria-pressed') === 'false', 'Visitor input uses the type bar only');
+    visitorRoleLabel = role.label;
+    await check('Microphone muted', await ensureMicrophoneMuted(), 'Visitor input uses the type bar only');
     // A previous visitor who did not leave cleanly holds the only seat until LiveKit drops them; wait for it to free.
     const seatDeadline = Date.now() + 90_000;
-    for (;;) {
-      await page.getByRole('button', { name: 'Join to type' }).click();
-      const joined = page.locator('.kd-meeting').first().waitFor({ timeout: 10_000 }).then(() => 'joined' as const);
-      const full = page.getByText(/The meeting is full/).first().waitFor({ timeout: 10_000 }).then(() => 'full' as const);
-      const outcome = await Promise.any([joined, full]).catch(() => 'unknown' as const);
-      if (outcome !== 'full') break;
-      if (Date.now() > seatDeadline) throw new Error('The visitor seat was still taken after 90 s: a previous visitor never left the room');
-      notes.push(`${stamp()} Seat taken by a previous visitor; retrying join in 5 s`);
-      await page.waitForTimeout(5_000);
+    if (await joinAsRobot(seatDeadline) === 'full') {
+      throw new Error('The visitor seat was still taken after 90 s: a previous visitor never left the room');
     }
     if (await waitFor('Join meeting', () => page!.locator('.kd-meeting').count().then((n) => n > 0), 25_000)) {
       await check('Join role', true, `${role.id} as Robot Visitor, microphone muted`);
@@ -469,7 +639,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     }
 
     const count = Math.min(4, scenario.agenda.length);
-    const hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
+    hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
     for (let i = 0; i < count && Date.now() < globalDeadline && !closing; i += 1) {
       const title = scenario.agenda[i]!.title;
       if (!await waitFor(`Topic ${i + 1} active`, () => agendaIndex === i, 120_000)) {
@@ -494,7 +664,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
 
       const before = transcript.length;
       if (i === 1) {
-        if (!await waitForVisitorTurn(i)) continue;
+        if (!await waitForOpeningTurn(i)) continue;
         notes.push(`${stamp()} Topic ${i + 1}: the Table topic chip needs a visitor line on this topic, so typed a short non-decision line first.`);
         await speak('Before I call it, what is the practical catch for the team?', 'Ask a practical question before making a decision.');
         await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
@@ -521,11 +691,28 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
           }
         }
       } else {
-        if (!await waitForVisitorTurn(i)) continue;
+        if (!await waitForOpeningTurn(i)) continue;
         const latest = latestAiLine(i);
         const recap = latest !== undefined && /\brecap\b/i.test(latest.text) && !reacted.has(lineKey(latest));
         if (recap) reacted.add(lineKey(latest));
-        if (!await speak(recap ? `No need, here's my call: ${decision}` : decision, 'Make your opening-day call on this topic, responding to the latest exchange.')) continue;
+        const flipFlop = i === 0 && hooks?.behaviour === 'flip-flop';
+        const intent = flipFlop ? 'make a call' : 'Make your opening-day call on this topic, responding to the latest exchange.';
+        if (!await speak(recap ? `No need, here's my call: ${decision}` : decision, intent)) continue;
+        if (flipFlop) {
+          flipFlopFirst.set(i, lastVisitorLine);
+          const replied = await waitFor(`Topic ${i + 1} colleague reply after first call`, () => {
+            const firstAt = lastRobotLineIndex(i);
+            return firstAt >= 0 && transcript.slice(firstAt + 1).some((line) =>
+              line.agendaIndex === i && !/robot visitor/i.test(line.speaker));
+          }, 60_000, false);
+          if (replied && await quietBeforeTyping(i)) {
+            if (await speak('', 'Actually, scrap that — reverse your last call completely and choose a clearly different option, starting the line with "Actually, scrap that —".')) {
+              flipFlopFinal.set(i, lastVisitorLine);
+            }
+          } else {
+            notes.push(`${stamp()} Topic ${i + 1}: no colleague reply after the first call, so the flip-flop reversal was skipped`);
+          }
+        }
         if (i === 3) {
           const lock = page.getByRole('button', { name: 'Lock in my decision' });
           const thinking = await waitFor('Thinking with Lock enabled', async () =>
@@ -560,6 +747,30 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
         await check(`Topic ${i + 1} follow-up card`, await waitFor(`Topic ${i + 1} task card`, () =>
           [...tasks.values()].some((task) => task.agendaItemTitle === title), 20_000),
         `TASK_UPDATED with agendaItemTitle=${title}`);
+      }
+
+      if (i === 0 && hooks?.behaviour === 'flip-flop') {
+        const first = flipFlopFirst.get(0);
+        const final = flipFlopFinal.get(0);
+        const card = [...tasks.values()]
+          .filter((task) => task.agendaItemTitle === title)
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+        const follows = card !== undefined && first !== undefined && final !== undefined &&
+          cardFollowsFinalCall(card, first, final);
+        await check('Topic 1 card follows final call', follows,
+          follows
+            ? `Card decisionSource/context contains the final call${final === undefined ? '' : `: ${final}`}`
+            : card === undefined
+              ? 'No follow-up card was created for topic 1'
+              : first === undefined || final === undefined
+                ? 'The flip-flop did not record both the first and the final call'
+                : `Card did not reflect the final call. First: ${first} Final: ${final} Card: ${card.decisionSource ?? card.context ?? '(empty)'}`);
+      }
+
+      if (i === 0 && hooks?.behaviour === 'rejoin' && !rejoined) {
+        rejoined = true;
+        await acceptVisitorTasks(i);
+        await leaveAndRejoin();
       }
 
       if (i === 1 && i + 1 < count) {

@@ -88,6 +88,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-stage .lk-disconnect-button { background: var(--color-danger); color: #fff; border-color: transparent; }
 .kd-banner { position: absolute; left: 50%; transform: translateX(-50%); top: 14px; z-index: 5; max-width: 90%; padding: 7px 15px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--color-host-soft); border: 1px solid color-mix(in srgb, var(--color-host) 35%, transparent); color: var(--color-host-text); backdrop-filter: blur(10px); }
 .kd-banner[data-tone="error"] { background: var(--color-danger-soft); border-color: color-mix(in srgb, var(--color-danger) 40%, transparent); color: var(--color-danger); }
+.kd-caption-note { align-self: center; margin: 0 10px 6px; padding: 4px 12px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-muted); font-size: 12px; font-weight: 600; pointer-events: none; }
 
 .kd-typebar-wrap { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 auto; width: min(680px, calc(100% - 20px)); }
 .kd-mic-online-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: var(--color-surface); border: 1px solid var(--color-border-strong); color: var(--color-muted); white-space: nowrap; flex: none; }

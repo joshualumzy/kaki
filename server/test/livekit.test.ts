@@ -79,7 +79,8 @@ describe('POST /api/livekit/token', () => {
     let present: Array<{ name: string; role?: string }> = [];
     // The booth default is one visitor; this test is about a second person joining, so it allows more.
     vi.stubEnv('NPC_MAX_HUMANS', '3');
-    app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present });
+    // Grace 0: an empty room starts a new meeting at once, so the next person gets a fresh code.
+    app = await createApp({ devRoutes: false, scenario, roomRoster: async () => present, rejoinGraceMs: 0 });
     const first = await post({ roomName: 'room', participantName: 'One' });
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
     expect(code).toMatch(/^[A-Z2-9]{4}$/);

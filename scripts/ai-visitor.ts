@@ -2,12 +2,21 @@
 import '../server/src/env.ts';
 import { createOpenAiLlm, LlmError, reasoningControlFromEnv, parseJsonReply, type ChatMessage, type CompleteOptions, type CompletionUsage } from '../server/src/llm';
 import { runLivePlaytest, type AnswerContext, type FinishContext, type Line, type PlaytestHooks } from './live-playtest';
+import { behaviourForPersona, reversalLine, type Behaviour } from './playtest-behaviours';
 import { pathToFileURL } from 'node:url';
 
-export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive', 'delegator'] as const;
+export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive', 'delegator', 'silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
 export type Persona = typeof PERSONAS[number];
 type Score = { score: number; reason: string };
-export type Judgement = { natural: Score; dynamic: Score; fun: Score; realistic: Score; contradictions: Array<{ line: string; reason: string }> };
+export type Judgement = {
+  natural: Score;
+  dynamic: Score;
+  fun: Score;
+  realistic: Score;
+  contradictions: Array<{ line: string; reason: string }>;
+  unsupported: Array<{ line: string; fact: string; reason: string }>;
+  toneBreaches: Array<{ line: string; reason: string }>;
+};
 type Model = { completeWithUsage(messages: ChatMessage[], options?: CompleteOptions): Promise<{ content: string; usage?: CompletionUsage }> };
 const scoreNames = ['natural', 'dynamic', 'fun', 'realistic'] as const;
 
@@ -25,6 +34,10 @@ const personaDirections: Record<Persona, string> = {
   'off-topic': 'Sometimes drift to a small unrelated thought, then return to the actual question and answer it.',
   inventive: 'Offer your own practical ideas and plausible new details. Mark guesses as guesses; do not rewrite established facts.',
   delegator: 'Make the call yourself, but hand the practical follow-up jobs to a named colleague in the room ("Daniel, can you call the supplier?") instead of doing them yourself.',
+  silent: 'Stay quiet unless someone asks you directly by name, then answer briefly and concretely.',
+  interrupter: 'Jump in while a colleague is still speaking, then answer the point they were making.',
+  'flip-flop': 'Make a call, then change your mind once when a colleague pushes back, and settle on the second call.',
+  rejoin: 'Step out briefly after the first decision, then come back and carry on as if you never left.',
 };
 
 function transcriptText(lines: Line[]): string {
@@ -43,14 +56,27 @@ export function visitorPrompt(persona: Persona, context: AnswerContext): ChatMes
 
 export function judgePrompt(context: FinishContext): ChatMessage[] {
   if (context.scenario === undefined) throw new Error('AI judge needs the session scenario');
+  const scenario = context.scenario;
   const canon = {
-    organisation: context.scenario.organisation,
-    situation: context.scenario.situation,
-    background: context.scenario.background,
-    topics: context.playedTopics.map((index) => context.scenario!.agenda[index]).filter((topic) => topic !== undefined),
+    organisation: scenario.organisation,
+    situation: scenario.situation,
+    background: scenario.background,
+    cast: scenario.attendees.map((person) => ({
+      name: person.name,
+      role: scenario.roles.find((role) => role.id === person.role)?.label ?? person.role,
+    })),
+    characters: (scenario.npcs ?? []).map((npc) => ({
+      name: npc.attendee,
+      knows: npc.knows ?? [],
+      worries: npc.concerns,
+    })),
+    topics: context.playedTopics.map((index) => scenario.agenda[index]).filter((topic) => topic !== undefined),
   };
   return [
-    { role: 'system', content: 'Judge this live meeting fairly from the complete transcript. Score natural (human-sounding dialogue), dynamic (responsive exchange), fun (engaging to watch), and realistic (credible opening-day decisions), each as an integer 1-5 with a one-line reason. Find contradictions with the supplied canon or an earlier transcript line. Quote the exact contradictory line. Return only JSON: {"natural":{"score":1,"reason":"..."},"dynamic":{"score":1,"reason":"..."},"fun":{"score":1,"reason":"..."},"realistic":{"score":1,"reason":"..."},"contradictions":[{"line":"exact quote","reason":"..."}]}. Use [] if none; do not invent contradictions.' },
+    { role: 'system', content: `Judge this live meeting fairly from the complete transcript. Score natural (human-sounding dialogue), dynamic (responsive exchange), fun (engaging to watch), and realistic (credible opening-day decisions), each as an integer 1-5 with a one-line reason. Find contradictions with the supplied canon or an earlier transcript line. Quote the exact contradictory line.
+Unsupported facts: list every number, price, time, quantity, name, place or concrete claim spoken by an AI character (not the guest, Robot Visitor) that is not in the canon and was not said earlier by the guest. It is fine to list nothing.
+Tone on sensitive topics: for agenda items flagged "sensitive": true, list lines that joke, make light of the topic, blame the customer, or promise things not agreed. It is fine to list nothing.
+Every line must quote an actual transcript line exactly. Return only JSON: {"natural":{"score":1,"reason":"..."},"dynamic":{"score":1,"reason":"..."},"fun":{"score":1,"reason":"..."},"realistic":{"score":1,"reason":"..."},"contradictions":[{"line":"exact quote","reason":"..."}],"unsupported":[{"line":"exact quote","fact":"...","reason":"..."}],"toneBreaches":[{"line":"exact quote","reason":"..."}]}. Use [] if none; do not invent findings.` },
     { role: 'user', content: `Scenario canon for topics actually played:\n${JSON.stringify(canon)}\n\nFull meeting transcript:\n${transcriptText(context.transcript)}` },
   ];
 }
@@ -69,16 +95,26 @@ export function parseJudgement(text: string, transcript: Line[]): Judgement {
     }
     return { score: score as number, reason: reason.trim() };
   };
-  if (!Array.isArray(data.contradictions)) throw new Error('AI judge missing contradictions list');
-  const contradictions = data.contradictions.map((item: unknown) => {
-    if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error('AI judge returned an invalid contradiction');
+  const quoted = (item: unknown, label: string): { line: string; reason: string } => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error(`AI judge returned an invalid ${label}`);
     const { line, reason } = item as Record<string, unknown>;
     if (typeof line !== 'string' || !line.trim() || typeof reason !== 'string' || !reason.trim() || /[\r\n]/.test(reason) || !transcript.some((entry) => entry.text.includes(line))) {
-      throw new Error('AI judge contradiction must quote an actual transcript line and give one-line reason');
+      throw new Error(`AI judge ${label} must quote an actual transcript line and give one-line reason`);
     }
     return { line, reason: reason.trim() };
+  };
+  if (!Array.isArray(data.contradictions)) throw new Error('AI judge missing contradictions list');
+  const contradictions = data.contradictions.map((item: unknown) => quoted(item, 'contradiction'));
+  if (!Array.isArray(data.unsupported)) throw new Error('AI judge missing unsupported list');
+  const unsupported = data.unsupported.map((item: unknown) => {
+    const { line, reason } = quoted(item, 'unsupported fact');
+    const { fact } = item as Record<string, unknown>;
+    if (typeof fact !== 'string' || !fact.trim() || /[\r\n]/.test(fact)) throw new Error('AI judge unsupported fact needs a one-line fact');
+    return { line, fact: fact.trim(), reason };
   });
-  return { natural: scoreOf('natural'), dynamic: scoreOf('dynamic'), fun: scoreOf('fun'), realistic: scoreOf('realistic'), contradictions };
+  if (!Array.isArray(data.toneBreaches)) throw new Error('AI judge missing toneBreaches list');
+  const toneBreaches = data.toneBreaches.map((item: unknown) => quoted(item, 'tone breach'));
+  return { natural: scoreOf('natural'), dynamic: scoreOf('dynamic'), fun: scoreOf('fun'), realistic: scoreOf('realistic'), contradictions, unsupported, toneBreaches };
 }
 
 export class AiVisitor implements PlaytestHooks {
@@ -88,9 +124,13 @@ export class AiVisitor implements PlaytestHooks {
   completionTokens = 0;
   totalTokens = 0;
   judgement?: Judgement;
+  /** The live-meeting behaviour this persona runs, if its name adds behaviour to the wording. */
+  readonly behaviour?: Behaviour;
 
   /** The guest runs on the free primary model; the judge on a separate model so it does not score its own lines. */
-  constructor(readonly persona: Persona, private readonly guest: Model, private readonly judge: Model = guest) {}
+  constructor(readonly persona: Persona, private readonly guest: Model, private readonly judge: Model = guest) {
+    this.behaviour = behaviourForPersona(persona);
+  }
 
   private async call(messages: ChatMessage[], maxTokens: number, kind: 'visitor' | 'judge'): Promise<string> {
     if (kind === 'visitor') {
@@ -115,7 +155,10 @@ export class AiVisitor implements PlaytestHooks {
     for (let attempt = 0; attempt < 2 && this.visitorCalls < 40; attempt += 1) {
       try {
         const raw = await this.call(messages, 96, 'visitor');
-        const line = raw.replace(/^['"“”]+|['"“”]+$/g, '').trim();
+        let line = raw.replace(/^['"“”]+|['"“”]+$/g, '').trim();
+        if (this.behaviour === 'flip-flop' && /scrap that|reverse your (?:last|previous) call/i.test(context.intent)) {
+          line = reversalLine(line);
+        }
         if (!line || /[\r\n]/.test(line) || line.length > 240) {
           // Tell the model what was wrong before the retry, and keep the rejected text so a failure shows it.
           messages.push({ role: 'assistant', content: raw }, { role: 'user', content: 'That was not one short line. Reply again with only your own next line: one line, under 200 characters, no other speakers.' });
@@ -131,18 +174,18 @@ export class AiVisitor implements PlaytestHooks {
     if (context.scenario === undefined || context.transcript.length === 0) throw new Error('AI judge needs a played session transcript');
     // The one-call judge ceiling also bounds retries. A failed judge request fails the run.
     let response: string;
-    try { response = await this.call(judgePrompt(context), 700, 'judge'); }
+    try { response = await this.call(judgePrompt(context), 1000, 'judge'); }
     catch (error) { throw new Error(`AI judge call failed: ${safeError(error)}`); }
     this.judgement = parseJudgement(response, context.transcript);
     const j = this.judgement;
     return {
-      reportLines: ['## AI judge', '', ...scoreNames.map((name) => `- ${name}: ${j[name].score}/5 — ${j[name].reason}`), '', '### Contradictions', '', ...(j.contradictions.length ? j.contradictions.map((item) => `- “${item.line}” — ${item.reason}`) : ['(none)']), ''],
-      summaryLines: [...scoreNames.map((name) => `${name}: ${j[name].score}/5 — ${j[name].reason}`), `contradictions: ${j.contradictions.length}`],
+      reportLines: ['## AI judge', '', ...scoreNames.map((name) => `- ${name}: ${j[name].score}/5 — ${j[name].reason}`), '', '### Contradictions', '', ...(j.contradictions.length ? j.contradictions.map((item) => `- “${item.line}” — ${item.reason}`) : ['(none)']), '', '### Unsupported facts', '', ...(j.unsupported.length ? j.unsupported.map((item) => `- “${item.line}” — ${item.fact} — ${item.reason}`) : ['(none)']), '', '### Tone on sensitive topics', '', ...(j.toneBreaches.length ? j.toneBreaches.map((item) => `- “${item.line}” — ${item.reason}`) : ['(none)']), ''],
+      summaryLines: [...scoreNames.map((name) => `${name}: ${j[name].score}/5 — ${j[name].reason}`), `contradictions: ${j.contradictions.length}`, `unsupported: ${j.unsupported.length}`, `tone breaches: ${j.toneBreaches.length}`],
     };
   }
 
   reportLines(): string[] {
-    return ['## AI model usage', '', `- Persona: ${this.persona}`, `- Calls: ${this.visitorCalls} visitor (cap 40), ${this.judgeCalls} judge (cap 1)`, `- Tokens reported by API: ${this.totalTokens} total (${this.promptTokens} prompt, ${this.completionTokens} completion)`, ''];
+    return ['## AI model usage', '', `- Persona: ${this.persona}`, `- Behaviour: ${this.behaviour ?? 'scripted wording only'}`, `- Calls: ${this.visitorCalls} visitor (cap 40), ${this.judgeCalls} judge (cap 1)`, `- Tokens reported by API: ${this.totalTokens} total (${this.promptTokens} prompt, ${this.completionTokens} completion)`, ''];
   }
 }
 
@@ -156,7 +199,7 @@ function parseOptions(argv: string[]): { persona: Persona | 'all'; phone: boolea
     else if (argv[i] === '--max-minutes' && argv[i + 1]) maxMinutes = Number(argv[++i]);
     else throw new Error(`Unknown or incomplete argument: ${argv[i]}`);
   }
-  if (persona === undefined || (persona !== 'all' && !PERSONAS.includes(persona))) throw new Error('Use --persona hesitant|terse|off-topic|inventive|delegator|all');
+  if (persona === undefined || (persona !== 'all' && !PERSONAS.includes(persona))) throw new Error(`Use --persona ${PERSONAS.join('|')}|all`);
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
   return { persona, phone, maxMinutes };
 }

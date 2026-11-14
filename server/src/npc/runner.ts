@@ -58,8 +58,8 @@ export interface RunnerOptions {
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** A sentence as 16 kHz mono samples. */
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Int16Array>;
-  /** A line spoken in the meeting, under the name Kaki's transcript uses. */
-  postTranscript(speaker: string, text: string): void;
+  /** A line said in the meeting, under the name Kaki's transcript uses; `textOnly` marks a line shown as text because its voice failed. */
+  postTranscript(speaker: string, text: string, options?: { textOnly?: boolean }): void;
   responseDelayMs?: number;
   /** Called when the last person has left the room (not when the room was empty to begin with). */
   onRoomEmpty?: () => void;
@@ -127,7 +127,8 @@ export interface NpcRunner {
   announceClosing(text: string): void;
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
-  resetMemory(): void;
+  /** Start a fresh meeting after the server's MEETING_RESET: close the conversation and forget the welcome. */
+  resetMeeting(): void;
 }
 
 export { visitorDispatchLine } from './cardPointer';
@@ -262,9 +263,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           if (character === undefined) return Promise.reject(new Error(`${speaker} is not in the room`));
           return playPcm(character.source, clip, SAMPLE_RATE, signal, reference);
         },
-        emitTranscript: (speaker, text) => {
+        emitTranscript: (speaker, text, transcriptOptions) => {
           const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);
-          options.postTranscript(attendee?.zoomDisplayName ?? speaker, text);
+          options.postTranscript(attendee?.zoomDisplayName ?? speaker, text, transcriptOptions);
         },
         emitState: (state) => {
           lastConversationState = state;
@@ -325,9 +326,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     castQueue = castQueue
       .then(async () => {
         if (closing) return;
+        // Nobody is in the room: keep the conversation paused in case someone returns. Only the server's
+        // MEETING_RESET tears it down, so both processes agree on when a meeting really ends.
+        if (humans.size === 0) return;
         const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
-        const wanted =
-          humans.size === 0 ? permanent : npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
+        const wanted = npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
         for (const npc of wanted) await joinCharacter(npc);
         for (const [name, character] of [...characters]) {
           if (name === listenerProfile.attendee || wanted.some((npc) => npc.attendee === name)) continue;
@@ -337,16 +340,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         }
 
         const names = wanted.map((npc) => npc.attendee).join(',');
-        if (humans.size === 0) {
-          conversation?.close();
-          conversation = undefined;
-          castNames = '';
-          welcomed = false;
-          visitorTaskDispatches = 0;
-          visitorDispatchTopic = undefined;
-          started = false;
-          paused = false;
-        } else if (conversation === undefined || names !== castNames || !started) {
+        if (conversation === undefined || names !== castNames || !started) {
           if (options.fetchScenario !== undefined) {
             let failure: string | undefined;
             const latest = await options.fetchScenario().catch((error: unknown) => {
@@ -375,13 +369,17 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           });
         }
         // Sam welcomes the person once they press Start, before anyone else speaks (when a person hosts, the NPC co-host kicks off item 1's briefing).
-        if (humans.size > 0 && started && !welcomed) {
+        if (started && !welcomed) {
           if (!hostIsHuman()) {
             announce(openingLine(scenario));
           } else {
             welcomed = true;
             conversation?.agendaMoved(scenario.agenda[0]?.title);
           }
+        }
+        if (rejoinPending) {
+          rejoinPending = false;
+          resumeFromEmptyRoom();
         }
       })
       .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
@@ -395,6 +393,42 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     options.onHostChange?.(now);
   }
 
+  /** The meeting was paused because the room emptied, not because the person pressed Pause. */
+  let emptyPaused = false;
+  /** A person came back into an empty room; resume once the cast for them is ready. */
+  let rejoinPending = false;
+
+  /** Nobody is in the room: hold the conversation exactly where it is, like pressing Pause. */
+  function pauseForEmptyRoom(): void {
+    if (!started && !hostIsHuman()) return;
+    if (paused) return;
+    paused = true;
+    emptyPaused = true;
+    talking.clear();
+    for (const vad of vads.values()) vad.close();
+    options.onPauseChange?.(true);
+    conversation?.stop();
+    log('the room is empty; the meeting is paused in case someone returns');
+  }
+
+  /** The person is back inside the grace window: carry on, and let Sam say one welcome-back line. */
+  function resumeFromEmptyRoom(): void {
+    if (!emptyPaused) return;
+    emptyPaused = false;
+    paused = false;
+    options.onPauseChange?.(false);
+    if (conversation !== undefined && !hostIsHuman() && hostName !== undefined) {
+      const title = conversation.currentTopicTitle();
+      const line = title === undefined
+        ? 'Welcome back.'
+        : `Welcome back — we were on ${spokenAgendaName(scenario, title)}.`;
+      conversation.resumeAfterRejoin(hostName, line);
+    } else {
+      conversation?.resumeFromPause();
+    }
+    log('someone returned; the meeting resumes');
+  }
+
   function registerHuman(participant: RemoteParticipant): void {
     if (npcNames.has(participant.identity)) return;
     const role = participant.metadata?.trim() || 'participant';
@@ -402,6 +436,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const seat = humanAttendeeForRole(scenario, role)?.name;
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
+    if (humans.size === 0 && emptyPaused) rejoinPending = true;
     humans.set(participant.identity, { name, role, seat });
     reportHost();
     if (known === undefined) log(`${name} joined as ${role}`);
@@ -513,9 +548,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     log(`${participant.identity} left`);
     reportHost();
-    // With nobody left the conversation is closed, so the next person starts a fresh one.
+    if (humans.size === 0) {
+      // Hold the meeting where it is; the server decides whether a later join resumes it or resets it.
+      pauseForEmptyRoom();
+      options.onRoomEmpty?.();
+      return;
+    }
     syncCast();
-    if (humans.size === 0) options.onRoomEmpty?.();
   });
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
     if (npcNames.has(participant.identity) || track.kind !== TrackKind.KIND_AUDIO) return;
@@ -662,9 +701,21 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   return {
     announce,
-    resetMemory() {
-      if (conversation !== undefined) conversation.resetMemory();
-      else memory.reset();
+    resetMeeting() {
+      conversation?.close();
+      conversation = undefined;
+      castNames = '';
+      welcomed = false;
+      visitorTaskDispatches = 0;
+      visitorDispatchTopic = undefined;
+      started = false;
+      paused = false;
+      emptyPaused = false;
+      rejoinPending = false;
+      memory.reset();
+      lastConversationState = { kind: 'idle' };
+      publishState(lastConversationState);
+      if (humans.size > 0) syncCast();
     },
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;

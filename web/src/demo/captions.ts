@@ -66,6 +66,25 @@ export function splitCaptionBursts(text: string, maxWords = 11): string[] {
   return bursts;
 }
 
+/** The calm note shown while the latest line is text-only, so the visitor knows why there is no voice. */
+export const TEXT_ONLY_NOTE = 'Voice unavailable — showing text';
+
+/**
+ * The note to show near the captions: visible only while the latest transcript line is text-only,
+ * and it clears as soon as a line with audio arrives or `windowMs` passes without another one.
+ */
+export function textOnlyNote(
+  chunks: readonly TranscriptChunk[],
+  now: number,
+  windowMs = 10_000,
+): string | null {
+  const latest = chunks.at(-1);
+  if (latest === undefined || latest.payload.textOnly !== true) return null;
+  const latestAt = Date.parse(latest.payload.timestamp);
+  if (!Number.isFinite(latestAt) || now - latestAt > windowMs) return null;
+  return TEXT_ONLY_NOTE;
+}
+
 /**
  * The caption to show under a speaker's tile: their latest spoken sentence, matching the exact
  * sentence currently playing in TTS audio. Stays visible while they are still speaking, and

@@ -5,6 +5,7 @@ import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
+import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type RejoinGuard } from './rejoin';
 import { createTaskStore, type TaskStore } from './tasks';
 import { createRoomToken, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster } from './livekit';
 
@@ -22,6 +23,10 @@ export interface CreateAppOptions {
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
   draftOnly?: boolean;
+  /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
+  rejoinGraceMs?: number;
+  /** How often the app server checks who is in the room; defaults to 5 seconds. */
+  rejoinPollMs?: number;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -47,6 +52,10 @@ interface RequestContext {
   roomRoster: RoomRoster;
   /** The code the second and later people need to join; renewed whenever the room is empty (or fixed by KAKI_MEETING_CODE). */
   meetingCode: { value: string; fixed: boolean };
+  /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
+  rejoin: RejoinGuard;
+  /** Remember the room someone joined and start watching it for the meeting's next empty spell. */
+  watchRoom: (roomName: string) => void;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -206,9 +215,14 @@ async function handleRequest(
           return;
         }
         // The first person into an empty room starts a new meeting with a new code; later people must know it.
-        // If LiveKit cannot be asked, nobody can be told apart from an empty room, so the gate stays open.
+        // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
+        // a different person arriving in that window still needs the code. If LiveKit cannot be asked, nobody can be
+        // told apart from an empty room, so the gate stays open and nothing is reset.
+        const rejoin = roster !== undefined && present.length === 0
+          ? context.rejoin.admit(join.participantName)
+          : undefined;
         if (roster !== undefined) {
-          if (present.length === 0) {
+          if (rejoin?.reset === true) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
             if (npcNames.length > 0 && context.fullScenario.agenda.length > 1) {
               context.tasks.reset();
@@ -227,7 +241,8 @@ async function handleRequest(
               context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
             }
           }
-          const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
+          const peoplePresent = rejoin?.requireCode === true ? Math.max(1, present.length) : present.length;
+          const codeError = codeProblem(peoplePresent, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
             sendJson(response, 403, { error: codeError, needsCode: true });
             return;
@@ -243,6 +258,8 @@ async function handleRequest(
           { roomName: join.roomName, participantName: join.participantName, participantRole: join.participantRole },
           npcNames,
         );
+        if (rejoin !== undefined) context.rejoin.joined(join.participantName, rejoin);
+        context.watchRoom(join.roomName);
         void syncDemoVisitorProfile(join.participantName);
         sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value });
       } catch (error) {
@@ -501,6 +518,8 @@ export async function createApp({
   calendar,
   roomRoster = livekitRoster(),
   draftOnly = false,
+  rejoinGraceMs,
+  rejoinPollMs,
 }: CreateAppOptions): Promise<KakiApp> {
   const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
@@ -508,8 +527,26 @@ export async function createApp({
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
   const memory: MeetingMemoryEntry[] = [];
+  const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
+  const npcNames = (scenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
+  let watchedRoom: string | undefined;
+  const roomPoll = createRoomPoll({
+    guard: rejoin,
+    roster: roomRoster,
+    roomName: () => watchedRoom,
+    isHuman: (name) => !npcNames.includes(name.toLowerCase()),
+    intervalMs: rejoinPollMs,
+  });
+  const watchRoom = (roomName: string): void => {
+    watchedRoom = roomName;
+    roomPoll.start();
+  };
+  const closeRejoin = (): void => {
+    roomPoll.close();
+    rejoin.close();
+  };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, watchRoom });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });
@@ -526,6 +563,7 @@ export async function createApp({
   try {
     await listen(server, port);
   } catch (error) {
+    closeRejoin();
     hub.close();
     await closeServer(server).catch(() => undefined);
     await closeAuth();
@@ -546,6 +584,7 @@ export async function createApp({
           console.error('kaki server: a module failed to stop after startup failed', cleanupError);
         }
       }
+      closeRejoin();
       hub.close();
       await closeServer(server);
       await closeAuth();
@@ -575,6 +614,7 @@ export async function createApp({
           console.error('kaki server: a module failed to stop', error);
         }
       }
+      closeRejoin();
       hub.close();
       await closeServer(server);
       await closeAuth();

@@ -304,7 +304,7 @@ describe('start receipt acknowledgement', () => {
     }
   });
 
-  it('lets a new visitor session start after the previous one leaves', async () => {
+  it('lets a new visitor session start after the server resets the meeting', async () => {
     rooms.length = 0;
     published.length = 0;
     const scenario = await loadScenario('kopitiam');
@@ -327,11 +327,56 @@ describe('start receipt acknowledgement', () => {
       await vi.waitFor(() => expect(starts(log)).toBe(1));
       rooms[0]!.emit('participantDisconnected', first);
       await new Promise((resolve) => setTimeout(resolve, 20));
+      // The server's MEETING_RESET arrives after the grace window: no rejoin, a fresh meeting.
+      runner.resetMeeting();
       const second = { identity: 'visitor-2', name: 'Second Visitor', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', second);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-2', session: 'visitor-2' })), second, undefined, CONTROL_TOPIC);
       await vi.waitFor(() => expect(starts(log)).toBe(2));
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('pauses when the room empties and says one welcome-back line on return', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const pauses: boolean[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      onPauseChange: (paused) => pauses.push(paused),
+      responseDelayMs: 0,
+    });
+    try {
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', first);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })), first, undefined, CONTROL_TOPIC);
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      rooms[0]!.emit('participantDisconnected', first);
+      await vi.waitFor(() => expect(pauses).toContain(true));
+      expect(log.some((line) => line.includes('paused in case someone returns'))).toBe(true);
+
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', back);
+      await vi.waitFor(() => expect(pauses.at(-1)).toBe(false));
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome back')).length).toBe(1));
+
+      // The same person starts again (a page refresh resets the browser's Start state): no second welcome.
+      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-2', session: 'visitor-1' })), back, undefined, CONTROL_TOPIC);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
+      expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(1);
     } finally {
       await runner.stop();
     }

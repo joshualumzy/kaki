@@ -17,7 +17,7 @@ import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, t
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { Orb, orbPalette } from './Orb';
-import { captionFor, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
+import { captionFor, textOnlyNote, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
 
 const COLLEAGUE_STANCE: Record<string, string> = {
   producer: 'Guards staff, hygiene & margins',
@@ -215,6 +215,7 @@ export function MeetingGrid({
   const aiNames = useMemo(() => new Set((scenario.npcs ?? []).map((npc) => npc.attendee)), [scenario]);
   const aiPresent = participants.some((participant) => aiNames.has(participant.identity));
   const chunks = useMemo(() => transcriptChunks(events), [events]);
+  const voiceNote = textOnlyNote(chunks, now);
   const facilitatorName = useMemo(() => {
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
     return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
@@ -555,6 +556,11 @@ export function MeetingGrid({
             <CaptionedTile />
           </GridLayout>
         </div>
+        {voiceNote !== null && (
+          <div className="kd-caption-note" role="status" aria-live="polite">
+            {voiceNote}
+          </div>
+        )}
         {(idleAfterBriefing || showStarterIdeas) && (
           <div className="kd-turn-bar" role="region" aria-label="Your turn and starter questions">
             <div className="kd-turn-row">

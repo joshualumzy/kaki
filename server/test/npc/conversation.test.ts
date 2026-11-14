@@ -411,6 +411,27 @@ describe('NpcConversation', () => {
     conversation.close();
   });
 
+  it('drops a host sentence that points the visitor at the staff channel without a send verb', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    await h.say('Ship it.');
+    const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
+      followUp: { kind: 'mattermost_post', title: 'Share the decision' }, wingmanNeeded: false })}`;
+    const send = 'Worth putting that on the staff channel before doors open, Josh.';
+    h.calls.at(-1)?.push(`${settled}\nAda: Good call. ${send}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).toContain('Good call.');
+    expect(h.playing.map((entry) => entry.text)).not.toContain(send);
+    expect(h.logs).toContain(`[card] dropped host send-instruction: ${send}`);
+    conversation.close();
+  });
+
   it('keeps a colleague line and a host task handed to a named colleague', async () => {
     const h = harness(hostedScenario());
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
@@ -729,6 +750,7 @@ describe('NpcConversation', () => {
     const { conversation, calls, playing, transcript, say, flush } = harness(hostedScenario());
     for (const line of ['One.', 'Two.', 'Three.', 'Four.', 'Five.']) {
       await say(line);
+      calls.at(-1)?.push('NONE');
       calls.at(-1)?.end();
     }
     // Five lines is not a reason to ask: nothing has moved on.
@@ -759,10 +781,12 @@ describe('NpcConversation', () => {
     const { calls, playing, say, flush } = harness(hostedScenario());
     for (let n = 1; n <= 7; n += 1) {
       await say(`Line ${n}.`);
+      calls.at(-1)?.push('NONE');
       calls.at(-1)?.end();
     }
     expect(playing.some((entry) => entry.text.includes('do we ship it or hold it'))).toBe(false);
     await say('Line 8.');
+    calls.at(-1)?.push('NONE');
     calls.at(-1)?.end();
     await flush();
     await vi.advanceTimersByTimeAsync(1000);

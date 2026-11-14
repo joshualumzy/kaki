@@ -410,6 +410,8 @@ export class TurnParser {
   private buffer = '';
   private speaker: string | undefined;
   private silenced = false;
+  /** The model chose to say nothing (it answered NONE), so an empty reply is on purpose. */
+  saidNone = false;
   private readonly names: string[];
   private readonly lead: RegExp;
   private readonly midReply: RegExp;
@@ -469,7 +471,10 @@ export class TurnParser {
     const emit = (text: string): void => {
       // A character never opens a line with the person's name or seat name and a colon, and never narrates its instructions.
       const spoken = stripLeadName(cleanSpoken(text), [this.humanName, ...this.names, ...this.extraNamesToStrip]);
-      if (/^none[.!?\s]*$/i.test(spoken.trim())) return;
+      if (/^none[.!?\s]*$/i.test(spoken.trim())) {
+        this.saidNone = true;
+        return;
+      }
       if (META_LEAK.test(spoken)) return;
       if (/[\p{L}\p{N}]/u.test(spoken) && this.speaker !== undefined) {
         this.sentenceCount += 1;
@@ -503,6 +508,7 @@ export class TurnParser {
         }
         if (/^NONE\b/i.test(lead) || (final && /^NONE\s*$/i.test(lead))) {
           this.silenced = true;
+          this.saidNone = true;
           this.buffer = '';
           return out;
         }

@@ -121,6 +121,32 @@ describe('host meeting module', () => {
     expect(record).toMatchObject({ payload: { agendaIndex: 0, openQuestions: [] } });
   });
 
+  it('confirms a pause once a text-only first line has started the meeting', async () => {
+    app = await createTestApp({ modules: [createMeetingModule({ notetakerIntervalMs: 50 })] });
+    const screen = await connect('screen');
+    app.hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: {
+        speaker: 'Ada (Chef)',
+        text: 'Voice is off, so this line is text.',
+        timestamp: new Date().toISOString(),
+        textOnly: true,
+      },
+    });
+    await waitForEvent(screen, isRecord, 'first record', 2_000);
+
+    screen.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: true }));
+    const paused = await waitForEvent(
+      screen,
+      (event) => isRecord(event) && event.payload.paused === true,
+      'paused record',
+      2_000,
+    );
+    if (!isRecord(paused)) throw new Error('expected a meeting record');
+    expect(paused.payload.paused).toBe(true);
+  });
+
   it('says when the notes are stale and who has been quiet', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const llm = createFakeLlm(() => {

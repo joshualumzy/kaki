@@ -18,8 +18,8 @@ export interface NpcPorts<Clip> {
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Clip>;
   /** Play a clip as `speaker`. Resolves when it finished, or straight after `signal` aborts and the sound has stopped. */
   play(speaker: string, clip: Clip, signal: AbortSignal): Promise<void>;
-  /** A line spoken in the meeting, for Kaki's transcript. */
-  emitTranscript(speaker: string, text: string): void;
+  /** A line said in the meeting, for Kaki's transcript; `textOnly` marks a line shown as text because its voice failed. */
+  emitTranscript(speaker: string, text: string, options?: { textOnly?: boolean }): void;
   /** What the AI attendees are doing, for the screen. */
   emitState(state: NpcUiState): void;
   log?(message: string): void;
@@ -207,8 +207,10 @@ const CARD_POINT_RE =
  * model must not repeat that instruction in its own words.
  */
 const HOST_SEND_INSTRUCTION_RE = new RegExp(
-  `\\b(?:send|post|email|e-mail|share|message|circulate|forward|announce|broadcast|text)\\b` +
-    `[^.!?]*\\b(?:note|decision|update|follow-?up|summary|invite|announcement|card|message)\\b`,
+  `\\b(?:(?:send|post|email|e-mail|share|message|circulate|forward|announce|broadcast|text)(?:s|ed|ing)?|sharing|emailing|messaging|circulating|announcing)\\b` +
+    `[^.!?]*\\b(?:note|decision|update|follow-?up|summary|invite|announcement|card|message|channel|chat|group)\\b` +
+    // "Worth putting that on the staff channel": a place to post names the send even without a send verb.
+    `|\\b(?:put|putting|drop|dropping|stick|sticking|get|getting)\\b[^.!?]*\\b(?:on|in|into|onto)\\s+(?:the\\s+)?(?:\\w+\\s+)?(?:channel|chat|group)\\b`,
   'i',
 );
 
@@ -542,6 +544,20 @@ export class NpcConversation<Clip> {
     this.cutOff = false;
   }
 
+  /**
+   * The person came back after the room emptied: drop whatever sentence was cut off before they left, carry on,
+   * and let `speaker` say one welcome-back line. A two-minute-old half sentence would only confuse them.
+   */
+  resumeAfterRejoin(speaker: string, text: string): void {
+    if (this.closed || this.concluded || !this.paused) return;
+    this.pausedScripted = undefined;
+    this.pausedUtterances = undefined;
+    this.pausedCutOff = false;
+    this.cutOffSpeaker = undefined;
+    this.resumeFromPause();
+    this.announce(speaker, text);
+  }
+
   /** The person pressed Resume after pausing: pick back up where the room left off. */
   resumeFromPause(): void {
     if (this.closed || this.concluded || !this.paused) return;
@@ -810,6 +826,11 @@ export class NpcConversation<Clip> {
     return title !== undefined && (this.reviewActionKind.has(title) || turn.settle !== undefined);
   }
 
+  /** The title of the agenda item the meeting is on now, for a welcome-back line. */
+  currentTopicTitle(): string | undefined {
+    return this.currentItem()?.title;
+  }
+
   /** True when `title` names the item the meeting is on now; external task events use this to stay on their own topic. */
   onCurrentAgenda(title: string | undefined): boolean {
     if (title === undefined) return false;
@@ -860,7 +881,7 @@ export class NpcConversation<Clip> {
     const player = this.playAll(turn, queue, false);
     for (const sentence of splitSentences(line)) {
       const item: Utterance = { speaker, text: sentence };
-      const clip = this.ports.synthesize(item, signal).catch(() => undefined);
+      const clip = this.synthesizeWithRetry(item, signal);
       queue.push({ utterance: item, clip });
     }
     queue.close();
@@ -973,12 +994,19 @@ export class NpcConversation<Clip> {
   }
 
   private clearRespondTimer(): void {
+    if (this.respondTimer !== undefined && this.pending.length > 0) {
+      const caller = new Error().stack?.split('\n')[2]?.trim() ?? 'unknown';
+      this.ports.log?.(`[respond] cancelled a pending reply (${caller})`);
+    }
     if (this.respondTimer !== undefined) clearTimeout(this.respondTimer);
     this.respondTimer = undefined;
   }
 
   private scheduleRespond(): void {
-    if (this.humanTalking || this.paused) return;
+    if (this.humanTalking || this.paused) {
+      if (this.pending.length > 0) this.ports.log?.(`[respond] held: ${this.humanTalking ? 'the person is talking' : 'paused'}`);
+      return;
+    }
     if (this.pending.length === 0) {
       // The person cut in but no words came (a cough, a click, a word the recogniser missed): carry on.
       if (this.cutOff && !this.closed) {
@@ -1003,6 +1031,7 @@ export class NpcConversation<Clip> {
     this.respondTimer = setTimeout(() => {
       this.respondTimer = undefined;
       if (!this.humanTalking && !this.closed && !this.paused) this.startTurn();
+      else this.ports.log?.(`[respond] skipped: ${this.closed ? 'closed' : this.paused ? 'paused' : 'the person is talking'}`);
     }, this.responseDelayMs);
   }
 
@@ -1585,6 +1614,7 @@ export class NpcConversation<Clip> {
     const text = retry ? this.lastText : this.pending.join(' ').trim();
     this.pending = [];
     if (text.length === 0) return;
+    this.ports.log?.(`[respond] asking the model${retry ? ' (retry)' : ''}`);
     this.interrupt('a new turn started');
     const forced = this.forcedSpeaker;
     this.forcedSpeaker = undefined;
@@ -1646,12 +1676,7 @@ export class NpcConversation<Clip> {
     this.ports.emitState({ kind: 'thinking', canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
     const player = this.playAll(turn, queue);
     for (const utterance of utterances) {
-      const clip = this.ports.synthesize(utterance, signal).catch((error: unknown) => {
-        if (!signal.aborted) {
-          this.ports.log?.(`could not synthesize "${utterance.text}": ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return undefined;
-      });
+      const clip = this.synthesizeWithRetry(utterance, signal);
       queue.push({ utterance, clip });
     }
     queue.close();
@@ -1703,12 +1728,7 @@ export class NpcConversation<Clip> {
     const sentences = splitSentences(utterance.text);
     for (const sentence of sentences) {
       const item: Utterance = { speaker: utterance.speaker, text: sentence };
-      const clip = this.ports.synthesize(item, signal).catch((error: unknown) => {
-        if (!signal.aborted) {
-          this.ports.log?.(`could not synthesize "${item.text}": ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return undefined;
-      });
+      const clip = this.synthesizeWithRetry(item, signal);
       queue.push({ utterance: item, clip });
     }
     queue.close();
@@ -1905,7 +1925,9 @@ export class NpcConversation<Clip> {
     const SAFETY_REFUSAL_RE = /^(?:sorry,?\s*)?i\s+(?:cannot|can't)\s+(?:continue|engage|proceed|help)\s+(?:(?:with|in)\s+)?(?:this|the)\s+(?:conversation|role-?play|simulation|request)[.!]?$/i;
     let heldRefusal: Utterance | undefined;
     let failure: unknown;
-    let synthesisError: unknown;
+    // The start of what the model sent, to name it in the log when none of it could be said.
+    let received = '';
+    let choseSilence = false;
     const enqueue = (utterance: Utterance, allowRefusal = false): void => {
       let trimmed = utterance.text
         .replace(/\s*\[(?:cut off|[^\]]*interrupted here[^\]]*)\]\s*/gi, ' ')
@@ -1988,13 +2010,7 @@ export class NpcConversation<Clip> {
         turn.firstSentenceAt = Date.now();
         this.ports.log?.(`first sentence written ${turn.firstSentenceAt - turn.startedAt} ms after the model was asked`);
       }
-      const clip = this.ports.synthesize(utterance, signal).catch((error: unknown) => {
-        if (!signal.aborted) {
-          synthesisError ??= error;
-          this.ports.log?.(`could not synthesize "${utterance.text}": ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return undefined;
-      });
+      const clip = this.synthesizeWithRetry(utterance, signal);
       turn.enqueued.push(utterance);
       queue.push({ utterance, clip });
     };
@@ -2109,6 +2125,7 @@ export class NpcConversation<Clip> {
       };
       for await (const chunk of this.ports.stream(messages, signal)) {
         if (signal.aborted) break;
+        if (received.length < 160) received += chunk;
         if (!firstResolved) {
           // Blank lines before the control line are not a first line.
           firstLine = (firstLine + chunk).trimStart();
@@ -2134,6 +2151,7 @@ export class NpcConversation<Clip> {
           for (const utterance of parser.push(speechBuffer)) enqueue(utterance);
         }
         for (const utterance of parser.flush()) enqueue(utterance);
+        choseSilence = parser.saidNone;
         if (heldRefusal !== undefined) {
           this.ports.log?.('the model replied only with a refusal; asking the visitor to repeat the request');
           heldRefusal = undefined;
@@ -2162,8 +2180,6 @@ export class NpcConversation<Clip> {
     }
     this.gate.setAiAudible(false);
     const briefing = this.maybeBrief();
-    const lostVoice =
-      failure === undefined && turn.spoken.length === 0 && turn.enqueued.length > 0 && synthesisError !== undefined;
     const handedTo =
       !briefing && failure === undefined
         ? findHandover(turn.spoken.map((entry) => entry.utterance), this.names, this.human?.name)
@@ -2182,12 +2198,6 @@ export class NpcConversation<Clip> {
       }
       this.scheduleSilencePrompt();
     }
-    if (!briefing && lostVoice) {
-      const speaker = turn.enqueued[0]?.speaker ?? 'the room';
-      const message = synthesisError instanceof Error ? synthesisError.message : String(synthesisError);
-      this.ports.log?.(`[tts] lost the whole reply from ${speaker}: ${message}`);
-      this.scheduleSilencePrompt();
-    }
     if (!briefing && failure !== undefined && turn.spoken.length > 0) {
       const speaker = turn.spoken.at(-1)?.utterance.speaker ?? 'the room';
       const message = failure instanceof Error ? failure.message : String(failure);
@@ -2198,6 +2208,11 @@ export class NpcConversation<Clip> {
       const message = failure instanceof Error ? failure.message : String(failure);
       this.ports.log?.(`the model failed: ${message}`);
       if (!this.recoverFromEmptyTurn(turn)) this.ports.emitState({ kind: 'error', message });
+    } else if (!briefing && !choseSilence && turn.spoken.length === 0 && turn.settle === undefined) {
+      // The reply finished but nothing in it could be said (empty, only the control line, or every line dropped):
+      // treat it like a failed reply, or the meeting goes quiet with nobody due to speak.
+      this.ports.log?.(`the model said nothing speakable (it sent ${JSON.stringify(received.slice(0, 160))})`);
+      if (!this.recoverFromEmptyTurn(turn)) this.ports.emitState(this.idleState());
     } else if (!briefing) {
       this.ports.emitState(this.idleState());
     }
@@ -2221,6 +2236,49 @@ export class NpcConversation<Clip> {
     }
   }
 
+  /**
+   * Synthesize one sentence, retrying once so a single voice failure does not lose it. `undefined` means both
+   * attempts failed and the line will be shown as text instead; an aborted turn never retries.
+   */
+  private async synthesizeWithRetry(utterance: Utterance, signal: AbortSignal): Promise<Clip | undefined> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.ports.synthesize(utterance, signal);
+      } catch (error) {
+        if (signal.aborted) return undefined;
+        const message = error instanceof Error ? error.message : String(error);
+        if (attempt === 1) {
+          this.ports.log?.(`[tts] retry ${utterance.speaker}: ${message}`);
+          continue;
+        }
+        this.ports.log?.(`could not synthesize "${utterance.text}": ${message}`);
+        return undefined;
+      }
+    }
+  }
+
+  /** Wait `ms`, resolving early (and without a stray timer) when the turn aborts. */
+  private wait(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve();
+        return;
+      }
+      const done = (): void => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal.addEventListener('abort', done, { once: true });
+    });
+  }
+
+  /** How long a text-only line stays up: about 60 ms per character, within quiet bounds. */
+  private textReadingMs(text: string): number {
+    return Math.min(6_000, Math.max(1_500, Math.round(text.trim().length * 60)));
+  }
+
   private async playAll(
     turn: Turn,
     queue: SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>,
@@ -2231,14 +2289,11 @@ export class NpcConversation<Clip> {
     for await (const { utterance, clip } of queue) {
       const audio = await clip;
       if (signal.aborted) return;
-      if (audio === undefined) continue;
+      const textOnly = audio === undefined;
 
       const gapMs = previousSpeaker === undefined ? 0 : previousSpeaker === utterance.speaker ? this.sentenceGapMs : this.speakerGapMs;
       if (gapMs > 0) {
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, gapMs);
-          signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
-        });
+        await this.wait(gapMs, signal);
         if (signal.aborted) return;
       }
       previousSpeaker = utterance.speaker;
@@ -2251,8 +2306,10 @@ export class NpcConversation<Clip> {
       this.introduced.add(utterance.speaker);
       turn.spoken.push(entry);
       if (turn.spoken.length === 1) this.sendReactions(turn);
-      this.gate.setAiAudible(true);
-      this.gate.aiSaid(utterance.text);
+      if (!textOnly) {
+        this.gate.setAiAudible(true);
+        this.gate.aiSaid(utterance.text);
+      }
       this.lastSpoken = utterance.text;
       this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
       this.noteCardPoint(utterance);
@@ -2260,14 +2317,19 @@ export class NpcConversation<Clip> {
       const transcriptKey = `${utterance.speaker}:${utterance.text}`;
       if (transcribe && transcriptKey !== this.lastTranscriptEmit) {
         this.lastTranscriptEmit = transcriptKey;
-        this.ports.emitTranscript(utterance.speaker, utterance.text);
+        this.ports.emitTranscript(utterance.speaker, utterance.text, textOnly ? { textOnly: true } : undefined);
       }
 
-      try {
-        await this.ports.play(utterance.speaker, audio, signal);
-      } catch (error) {
-        if (!signal.aborted) {
-          this.ports.log?.(`playback failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (textOnly) {
+        this.ports.log?.(`[tts] shown as text: ${utterance.speaker}`);
+        await this.wait(this.textReadingMs(utterance.text), signal);
+      } else {
+        try {
+          await this.ports.play(utterance.speaker, audio, signal);
+        } catch (error) {
+          if (!signal.aborted) {
+            this.ports.log?.(`playback failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
         }
       }
       if (signal.aborted) return;

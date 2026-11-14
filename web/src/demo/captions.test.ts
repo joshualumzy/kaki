@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
-import { captionFor, transcriptChunks, transcriptNameFor } from './captions';
+import { captionFor, TEXT_ONLY_NOTE, textOnlyNote, transcriptChunks, transcriptNameFor } from './captions';
 
 const scenario: Scenario = {
   id: 's',
@@ -19,10 +19,15 @@ const scenario: Scenario = {
 };
 
 const NOW = Date.parse('2026-01-01T10:00:30Z');
-const chunk = (speaker: string, text: string, secondsAgo: number): KakiEvent => ({
+const chunk = (speaker: string, text: string, secondsAgo: number, textOnly = false): KakiEvent => ({
   type: 'TRANSCRIPT_CHUNK',
   audience: { kind: 'all' },
-  payload: { speaker, text, timestamp: new Date(NOW - secondsAgo * 1000).toISOString() },
+  payload: {
+    speaker,
+    text,
+    timestamp: new Date(NOW - secondsAgo * 1000).toISOString(),
+    ...(textOnly ? { textOnly: true } : {}),
+  },
 });
 
 describe('transcriptNameFor', () => {
@@ -76,6 +81,27 @@ describe('captionFor', () => {
     const startChunk = chunk('A', longSentence, 0);
     expect(captionFor(transcriptChunks([startChunk]), 'A', NOW, 8000, true)).toBe(longSentence);
     expect(captionFor(transcriptChunks([startChunk]), 'A', NOW + 4000, 8000, true)).toBe(longSentence);
+  });
+});
+
+describe('textOnlyNote', () => {
+  it('shows the calm note while the latest line is text-only', () => {
+    const events = transcriptChunks([chunk('A', 'Shown as text.', 2, true)]);
+    expect(textOnlyNote(events, NOW)).toBe(TEXT_ONLY_NOTE);
+  });
+
+  it('clears as soon as a line with audio arrives', () => {
+    const events = transcriptChunks([
+      chunk('A', 'Shown as text.', 3, true),
+      chunk('A', 'Spoken again.', 1),
+    ]);
+    expect(textOnlyNote(events, NOW)).toBeNull();
+  });
+
+  it('clears after ten seconds with no further text-only line', () => {
+    const events = transcriptChunks([chunk('A', 'Shown as text.', 2, true)]);
+    expect(textOnlyNote(events, NOW + 8_000)).toBe(TEXT_ONLY_NOTE);
+    expect(textOnlyNote(events, NOW + 11_000)).toBeNull();
   });
 });
 

@@ -91,7 +91,7 @@ let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
 /** Send one transcript line to Kaki, and say so (at most every ten seconds) if that does not work. */
-function postTranscript(speaker: string, text: string): void {
+function postTranscript(speaker: string, text: string, options?: { textOnly?: boolean }): void {
   const complain = (message: string): void => {
     if (Date.now() - lastTranscriptError < 10_000) return;
     lastTranscriptError = Date.now();
@@ -103,7 +103,7 @@ function postTranscript(speaker: string, text: string): void {
     body: JSON.stringify({
       type: 'TRANSCRIPT_CHUNK',
       audience: { kind: 'all' },
-      payload: { speaker, text, timestamp: new Date().toISOString() },
+      payload: { speaker, text, timestamp: new Date().toISOString(), ...(options?.textOnly === true ? { textOnly: true } : {}) },
     }),
   })
     .then(async (response) => {
@@ -150,10 +150,9 @@ const runner = await startNpcRunner({
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
-  // The visitor left: end the meeting so its clock stops and the next visitor starts clean (silent: nobody to hear a closing line).
+  // The visitor left: the runner pauses locally; the app server watches the roster for the reset.
   onRoomEmpty: () => {
-    log('the room is empty; ending the meeting');
-    sendAs('screen', { type: 'END_MEETING', silent: true });
+    log('the room is empty; holding the meeting for a rejoin');
   },
   onHostChange: (human) => sendAs('screen', { type: 'SET_HOST_MODE', human }),
   onPauseChange: (paused) => sendAs('screen', { type: 'SET_PAUSED', paused }),
@@ -268,7 +267,7 @@ function followHostCues(): void {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
       if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
       if (event.type === 'MEETING_RESET') {
-        runner.resetMemory();
+        runner.resetMeeting();
         taskStatusByTitle.clear();
         syncedTaskIds.clear();
         declinedTaskIds.clear();
