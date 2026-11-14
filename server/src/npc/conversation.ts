@@ -133,9 +133,26 @@ function closelyRepeats(next: Set<string>, previous: Set<string>): boolean {
   return common / Math.min(next.size, previous.size) >= 0.7 && next.size - common <= 4;
 }
 
+const VOLUNTEER_VERB =
+  '(?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|print|call|ring|book|order|fix|set up|brief|update)';
+
 /** A volunteer takes the follow-up themselves rather than waiting to be asked. */
-const VOLUNTEERED_RE =
-  /\b(?:leave (?:it|that|this) (?:with|to) me|i(?:'ll| will) (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|get|print|call|ring|book|order|fix|set up|brief|update)|i can (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|get|print|call|ring|book|order|fix|set up|brief|update)|i(?:'m| am) (?:happy|glad) to (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after|get|print|call|ring|book|order|fix|set up|brief|update)|(?:count|put) me in|on it)\b/i;
+const VOLUNTEERED_RE = new RegExp(
+  `\\b(?:leave (?:it|that|this) (?:with|to) me|i(?:'ll| will) ${VOLUNTEER_VERB}|i can (?:${VOLUNTEER_VERB}|get)|i(?:'m| am) (?:happy|glad) to ${VOLUNTEER_VERB}|(?:count|put) me in)\\b`,
+  'i',
+);
+/** "I'll get it done" is a promise; a bare "I'll get ..." can be a complaint ("I'll get shouted at"). */
+const GET_IT_DONE_RE = /\bi(?:'ll| will)\s+get\s+(?:it|that|this)\s+(?:done|sorted)\b/i;
+/** "On it" is a volunteer only as a whole short reply or the start of a sentence, not inside "depends on it". */
+const ON_IT_RE = /^\s*on it\b/i;
+
+/** True when the speaker volunteered to take on the follow-up, not described it or added a condition. */
+function isVolunteer(text: string): boolean {
+  const match = VOLUNTEERED_RE.exec(text) ?? GET_IT_DONE_RE.exec(text) ?? ON_IT_RE.exec(text);
+  if (match === null) return false;
+  // "I can do it, but I need the password first" is a condition, not a promise to take it on.
+  return !/\bbut\b/i.test(text.slice(match.index + match[0].length));
+}
 
 /** True when the visitor's line names `name` and gives them the follow-up ("Daniel, can you call the supplier?"). */
 function assignedByGuest(text: string, name: string): boolean {
@@ -159,9 +176,11 @@ function assignedByGuest(text: string, name: string): boolean {
 
 /**
  * A model-written sentence that points the visitor at their card or screen. Only the host's fixed handoff line does
- * that, so these are dropped. Narrower than CARD_POINT_RE so "the card machine" in a kopitiam still gets through.
+ * that, so these are dropped. Narrower than CARD_POINT_RE so "the card machine", "your card or PayNow" and
+ * "your card at the counter" in a kopitiam still get through.
  */
-const MODEL_CARD_MENTION_RE = /\b(?:your (?:card|screen|panel)|(?:card|screen|panel) on the right|right-hand panel)\b/i;
+const MODEL_CARD_MENTION_RE =
+  /\b(?:your (?:card|screen|panel)(?=\s*(?:$|[.,!?]|\b(?:on the right|there|ready|has|holds|shows|contains|whenever)\b))|(?:card|screen|panel) on the right|right-hand panel)\b/i;
 
 /** A verb for passing the decision on to other people; a colleague's own task uses none of these. */
 const SHARE_VERB = '(?:post|send|share|email|message|put|drop|pop|circulate|announce|broadcast|text)';
@@ -176,6 +195,16 @@ const SHARE_TARGET =
 const SHARE_VERB_RE = new RegExp(`\\b${SHARE_VERB}\\b`, 'i');
 const SHARE_TARGET_RE = new RegExp(`\\b${SHARE_TARGET}\\b`, 'i');
 
+/** Verbs that share the decision itself, and verbs that only place something (which need a chat-like place). */
+const OUTWARD_SHARE_VERB = '(?:post|send|share|email|message|circulate|announce|broadcast)';
+const PLACING_SHARE_VERB = '(?:put|drop|pop|text)';
+const SHARE_PLACE_TARGET =
+  '(?:in|on|to|into|through)\\s+the\\s+(?:chat|group(?: chat)?|channel|team|crew|whatsapp|mattermost)';
+const SHARE_OBJECT_TARGET = '(?:the|that|an|this)\\s+(?:update|announcement|decision)';
+/** The target must follow the verb in the same clause, so an aside ("put it this way, the decision") does not count. */
+const SHARE_CLAUSE = '[^,.;!?]*?';
+const SHARE_PROMISE = "\\b(?:i['’]ll|i will|i can|let me|i['’]m happy to)\\b";
+
 /**
  * A model-written sentence where a colleague promises to share the visitor's decision with the team themselves
  * ("I'll post the update to the team"). The prompt forbids it, but the model sometimes does it; sharing the
@@ -183,8 +212,8 @@ const SHARE_TARGET_RE = new RegExp(`\\b${SHARE_TARGET}\\b`, 'i');
  * task ("I'll email the supplier about the fridge") still gets through.
  */
 const MODEL_SHARE_TAKEOVER_RE = new RegExp(
-  `\\b(?:i['’]ll|i will|i can|let me|i['’]m happy to)\\b` +
-    `(?=[^.!?]*\\b${SHARE_VERB}\\b)(?=[^.!?]*\\b${SHARE_TARGET}\\b)`,
+  `${SHARE_PROMISE}${SHARE_CLAUSE}\\b${OUTWARD_SHARE_VERB}\\b${SHARE_CLAUSE}\\b(?:${SHARE_PLACE_TARGET}|${SHARE_OBJECT_TARGET}|the same line)\\b` +
+    `|${SHARE_PROMISE}${SHARE_CLAUSE}\\b${PLACING_SHARE_VERB}\\b${SHARE_CLAUSE}\\b${SHARE_PLACE_TARGET}\\b`,
   'i',
 );
 
@@ -208,11 +237,28 @@ const CARD_POINT_RE =
  */
 const HOST_SEND_INSTRUCTION_RE = new RegExp(
   `\\b(?:(?:send|post|email|e-mail|share|message|circulate|forward|announce|broadcast|text)(?:s|ed|ing)?|sharing|emailing|messaging|circulating|announcing)\\b` +
-    `[^.!?]*\\b(?:note|decision|update|follow-?up|summary|invite|announcement|card|message|channel|chat|group)\\b` +
-    // "Worth putting that on the staff channel": a place to post names the send even without a send verb.
-    `|\\b(?:put|putting|drop|dropping|stick|sticking|get|getting)\\b[^.!?]*\\b(?:on|in|into|onto)\\s+(?:the\\s+)?(?:\\w+\\s+)?(?:channel|chat|group)\\b`,
+    `[^.!?]*\\b(?:note|decision|update|follow-?up|summary|invite|announcement|card|message|channel|chat|group|team)\\b`,
   'i',
 );
+
+/**
+ * "Worth putting that on the staff channel": a place to post names the send even without a send verb or a "you",
+ * and a confirmation of the visitor's call never mentions the channel, so this shape is always dropped.
+ */
+const HOST_SEND_PLACE_RE =
+  /\b(?:put|putting|drop|dropping|stick|sticking|get|getting)\b[^.!?]*\b(?:on|in|into|onto)\s+(?:the\s+)?(?:\w+\s+)?(?:channel|chat|group)\b/i;
+
+/** The host opens with the instruction itself ("Send the card rules...") rather than describing what happened. */
+const HOST_IMPERATIVE_START_RE =
+  /^(?:please\s+)?(?:send|post|email|e-mail|share|message|circulate|forward|announce|broadcast|text|put|drop|stick)\b/i;
+
+/** The host's sentence names the visitor or says "you", so it is an instruction to them and not a confirmation. */
+function addressesVisitor(text: string, visitorName: string | undefined): boolean {
+  if (/\byou(?:['’]ll|['’]re|['’]ve)?\b|\byour\b/i.test(text)) return true;
+  const name = visitorName?.trim();
+  if (name === undefined || name.length === 0) return false;
+  return new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text);
+}
 
 /** True when the sentence names one of the colleagues, so it hands them a task rather than instructing the visitor. */
 function namesColleague(text: string, names: readonly string[]): boolean {
@@ -927,7 +973,7 @@ export class NpcConversation<Clip> {
   }
 
   private rememberSpoken(utterance: Utterance, topic: string | undefined): void {
-    if (VOLUNTEERED_RE.test(utterance.text)) {
+    if (isVolunteer(utterance.text)) {
       this.volunteersByTopic.set(topic, new Set([...(this.volunteersByTopic.get(topic) ?? []), utterance.speaker]));
     }
     const now = Date.now();
@@ -1992,7 +2038,9 @@ export class NpcConversation<Clip> {
         return;
       }
       if (aiHost !== undefined && utterance.speaker === aiHost && this.currentTopicHasVisitorFollowUp(turn) &&
-          HOST_SEND_INSTRUCTION_RE.test(trimmed) && !namesColleague(trimmed, this.names)) {
+          !namesColleague(trimmed, this.names) &&
+          (HOST_SEND_PLACE_RE.test(trimmed) || (HOST_SEND_INSTRUCTION_RE.test(trimmed) &&
+            (HOST_IMPERATIVE_START_RE.test(trimmed) || addressesVisitor(trimmed, this.human?.name))))) {
         this.ports.log?.(`[card] dropped host send-instruction: ${trimmed}`);
         return;
       }

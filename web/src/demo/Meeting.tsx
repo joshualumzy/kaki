@@ -92,7 +92,7 @@ export default function Meeting() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ roomName: demoRoomName(scenario), participantName: name, participantRole: roleLabel, ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }) }),
       });
-      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown; needsCode?: unknown; meetingCode?: unknown };
+      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown; needsCode?: unknown; meetingCode?: unknown; resumed?: unknown };
       if (body.needsCode === true) setNeedsCode(true);
       if (!response.ok || typeof body.token !== 'string') {
         throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
@@ -103,7 +103,8 @@ export default function Meeting() {
         // Ignore refresh error if scenario already loaded
       }
       setPane('meeting');
-      setStarted(false);
+      // A resumed meeting is already talking, so its guest goes straight in instead of the Start tour.
+      setStarted(body.resumed === true);
       setSession({
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,

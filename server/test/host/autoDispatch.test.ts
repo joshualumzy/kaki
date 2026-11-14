@@ -125,6 +125,12 @@ describe('colleagueLine', () => {
     expect(line).not.toContain('Draft');
     expect(line.match(/\?/g)).toHaveLength(1);
   });
+
+  it('asks a colleague to take care of a noun-phrase task title', async () => {
+    const { colleagueLine } = await import('../../src/host/autoDispatch');
+    expect(colleagueLine('Daniel', 'Agency temp booking', 0))
+      .toBe('Daniel, could you take care of the agency temp booking?');
+  });
 });
 
 describe('colleagueCue', () => {

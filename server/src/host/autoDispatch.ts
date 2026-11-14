@@ -21,6 +21,10 @@ function inlineTitle(title: string): string {
   return `${trimmed[0]!.toLowerCase()}${trimmed.slice(1)}`;
 }
 
+/** The first word of a task title that reads as the instruction itself ("Draft the poster"). */
+const IMPERATIVE_TITLE_START_RE =
+  /^(?:add|announce|book|brief|call|check|clean|collect|confirm|contact|cover|create|draft|email|file|find|fix|follow|handle|hold|install|launch|make|move|order|organi[sz]e|plan|post|prepare|print|promote|publish|recruit|remove|replace|reply|resolve|review|ring|run|schedule|send|set|share|sort|take|test|text|train|update|visit|write)\b/i;
+
 /** Sam's dispatch line; it changes a little from one task to the next so it does not sound canned. */
 export function dispatchLine(name: string, title: string, count: number): string {
   const lines = [
@@ -33,10 +37,13 @@ export function dispatchLine(name: string, title: string, count: number): string
 
 /**
  * How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention).
- * The task title is an imperative phrase, so it goes inline as the request itself instead of being read out as a name.
+ * An imperative task title goes inline as the request itself; a noun-phrase title is something to take care of.
  */
 export function colleagueLine(name: string, title: string, count: number): string {
-  const request = inlineTitle(title).replace(/[.!?]+$/, '');
+  const trimmed = title.trim().replace(/[.!?]+$/, '');
+  const request = IMPERATIVE_TITLE_START_RE.test(trimmed)
+    ? inlineTitle(trimmed)
+    : `take care of the ${inlineTitle(trimmed)}`;
   const lines = [
     `${name}, could you ${request}?`,
     `${name}, can you ${request}?`,

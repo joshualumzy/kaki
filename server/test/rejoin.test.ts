@@ -9,7 +9,7 @@ describe('rejoin guard', () => {
   it('starts a fresh meeting for the first person ever', () => {
     const clock = { now: 1_000 };
     const guard = guardWith(120_000, clock);
-    expect(guard.admit('Daniel')).toEqual({ reset: true, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: true });
     guard.close();
   });
 
@@ -29,14 +29,14 @@ describe('rejoin guard', () => {
     guard.ended();
     guard.emptied();
     clock.now += 10_000;
-    expect(guard.admit('Daniel')).toEqual({ reset: true, requireCode: false });
-    expect(guard.admit('Priya')).toEqual({ reset: true, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: true });
+    expect(guard.admit('Priya')).toEqual({ reset: true });
 
     // The new meeting can be resumed again as usual.
     guard.joined('Priya', guard.admit('Priya'));
     guard.emptied();
     clock.now += 10_000;
-    expect(guard.admit('Priya')).toEqual({ reset: false, requireCode: false });
+    expect(guard.admit('Priya')).toEqual({ reset: false });
     guard.close();
   });
 
@@ -48,19 +48,19 @@ describe('rejoin guard', () => {
 
     // The person left and returned before the next poll, so the guard never observed an empty room.
     const back = guard.admit('Daniel');
-    expect(back).toEqual({ reset: false, requireCode: false });
+    expect(back).toEqual({ reset: false });
     guard.joined('Daniel', back);
     expect(logs).toContain('[rejoin] grace started');
     expect(logs).toContain('[rejoin] resumed after 0 s');
     guard.close();
   });
 
-  it('still asks a different person for the code when they arrive before a poll saw the room empty', () => {
+  it('starts a fresh meeting for a different person before a poll saw the room empty', () => {
     const clock = { now: 1_000 };
     const guard = guardWith(120_000, clock);
     guard.joined('Daniel', guard.admit('Daniel'));
 
-    expect(guard.admit('Priya')).toEqual({ reset: false, requireCode: true });
+    expect(guard.admit('Priya')).toEqual({ reset: true });
     guard.close();
   });
 
@@ -76,14 +76,14 @@ describe('rejoin guard', () => {
     clock.now += 30_000;
 
     const back = guard.admit('Daniel');
-    expect(back).toEqual({ reset: false, requireCode: false });
+    expect(back).toEqual({ reset: false });
     guard.joined('Daniel', back);
     expect(logs).toContain('[rejoin] grace started');
     expect(logs).toContain('[rejoin] resumed after 30 s');
     guard.close();
   });
 
-  it('asks a different person for the code inside the window', () => {
+  it('starts a fresh meeting for a different person inside the window', () => {
     const clock = { now: 1_000 };
     const guard = guardWith(120_000, clock);
     guard.joined('Daniel', guard.admit('Daniel'));
@@ -91,19 +91,25 @@ describe('rejoin guard', () => {
     guard.emptied();
     clock.now += 5_000;
 
-    expect(guard.admit('Priya')).toEqual({ reset: false, requireCode: true });
+    expect(guard.admit('Priya')).toEqual({ reset: true });
     guard.close();
   });
 
-  it('does not spend the window on a person who is turned away for the code', () => {
+  it('lets the new person resume after their fresh meeting, not the one who left', () => {
     const clock = { now: 1_000 };
     const guard = guardWith(120_000, clock);
     guard.joined('Daniel', guard.admit('Daniel'));
     guard.emptied();
     clock.now += 10_000;
 
-    expect(guard.admit('Priya').requireCode).toBe(true);
-    expect(guard.admit('Daniel')).toEqual({ reset: false, requireCode: false });
+    const fresh = guard.admit('Priya');
+    expect(fresh).toEqual({ reset: true });
+    guard.joined('Priya', fresh);
+    guard.emptied();
+    clock.now += 10_000;
+
+    expect(guard.admit('Priya')).toEqual({ reset: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: true });
     guard.close();
   });
 
@@ -114,7 +120,7 @@ describe('rejoin guard', () => {
     guard.emptied();
     clock.now += 120_000;
 
-    expect(guard.admit('Daniel')).toEqual({ reset: true, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: true });
     guard.close();
   });
 
@@ -137,7 +143,7 @@ describe('rejoin guard', () => {
     guard.joined('Daniel', guard.admit('Daniel'));
     guard.emptied();
 
-    expect(guard.admit('Daniel')).toEqual({ reset: true, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: true });
     expect(logs).toEqual([]);
     guard.close();
   });
@@ -171,7 +177,7 @@ describe('room poll', () => {
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(logs).toContain('[rejoin] grace started');
-    expect(guard.admit('Daniel')).toEqual({ reset: false, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: false });
     poll.close();
     guard.close();
   });
@@ -187,7 +193,7 @@ describe('room poll', () => {
     await vi.advanceTimersByTimeAsync(120_000);
 
     // The window was cleared, so this arrival is treated as a fresh empty spell and resumes.
-    expect(guard.admit('Daniel')).toEqual({ reset: false, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: false });
     expect(logs).not.toContain('[rejoin] grace expired, reset on next join');
     poll.close();
     guard.close();
@@ -198,7 +204,7 @@ describe('room poll', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(guard.admit('Daniel')).toEqual({ reset: true, requireCode: false });
+    expect(guard.admit('Daniel')).toEqual({ reset: true });
     poll.close();
     guard.close();
   });

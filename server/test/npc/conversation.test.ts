@@ -237,6 +237,39 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
+  it.each([
+    'That depends on it.',
+    "I'll get shouted at by the regulars.",
+    'I can do the till login, but I need the password first.',
+  ])('does not count "%s" as volunteering', async (line) => {
+    const h = harness();
+    await h.say('Can you handle this?');
+    h.calls.at(-1)?.push(`Ada: ${line}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.volunteeredOnTopic('Ada')).toBe(false);
+    h.conversation.close();
+  });
+
+  it.each([
+    'Leave it with me.',
+    "I'll handle the supplier call.",
+    'I can draft that.',
+    'On it.',
+  ])('counts "%s" as volunteering', async (line) => {
+    const h = harness();
+    await h.say('Can you handle this?');
+    h.calls.at(-1)?.push(`Ada: ${line}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.volunteeredOnTopic('Ada')).toBe(true);
+    h.conversation.close();
+  });
+
   it('knows when the visitor already gave the follow-up to a colleague', async () => {
     const h = harness();
     await h.say('Daniel, can you call the supplier?');
@@ -422,7 +455,7 @@ describe('NpcConversation', () => {
     await h.say('Ship it.');
     const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
       followUp: { kind: 'mattermost_post', title: 'Share the decision' }, wingmanNeeded: false })}`;
-    const send = 'Worth putting that on the staff channel before doors open, Josh.';
+    const send = 'Worth putting that on the staff channel before doors open.';
     h.calls.at(-1)?.push(`${settled}\nAda: Good call. ${send}`);
     h.calls.at(-1)?.end();
     await h.flush();
@@ -453,6 +486,116 @@ describe('NpcConversation', () => {
     await h.flush();
     expect(h.playing.map((entry) => entry.text)).toContain(toColleague);
     conversation.close();
+  });
+
+  it('keeps a host confirmation of what the team will do, while dropping an instruction to the visitor', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    await h.say('Ship it.');
+    const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
+      followUp: { kind: 'mattermost_post', title: 'Send the card rules' }, wingmanNeeded: false })}`;
+    const confirm = 'Got it, we hold the price and post a note at the counter.';
+    const thanks = 'Thanks for sending that update.';
+    const instruct = 'Josh, you can post that to the team.';
+    h.calls.at(-1)?.push(`${settled}\nAda: ${confirm}\nAda: ${thanks}\nAda: ${instruct}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 6 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain(confirm);
+    expect(said).toContain(thanks);
+    expect(said).not.toContain(instruct);
+    expect(h.logs).toContain(`[card] dropped host send-instruction: ${instruct}`);
+    conversation.close();
+  });
+
+  it('keeps lines that are not actually sharing the visitor\'s decision', async () => {
+    const h = harness();
+    await h.say('Go with the price freeze.');
+    h.calls.at(-1)?.push(
+      'Ada: Let me put it this way, the decision is yours. ' +
+        'Ada: I can put the regulars price button on the till once you make the decision. ' +
+        "Ada: I'll put Mei on the counter and announce the change to the staff.",
+    );
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 6 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain('Let me put it this way, the decision is yours.');
+    expect(said).toContain('I can put the regulars price button on the till once you make the decision.');
+    expect(said).toContain("I'll put Mei on the counter and announce the change to the staff.");
+    expect(h.logs.some((text) => text.startsWith('[owner]'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('still drops a colleague promising to share the decision with the team', async () => {
+    const h = harness();
+    await h.say('Go with the price freeze.');
+    h.calls.at(-1)?.push(
+      "Ada: I'll post the update to the team. " +
+        'Ada: Let me send the decision in the group chat.',
+    );
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 6 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said.some((text) => /post the update|send the decision/i.test(text))).toBe(false);
+    expect(h.logs.filter((text) => text.startsWith('[owner]'))).toHaveLength(2);
+    h.conversation.close();
+  });
+
+  it('keeps payment talk that mentions a card without pointing at the visitor\'s card', async () => {
+    const h = harness();
+    await h.say('How should we take payment?');
+    h.calls.at(-1)?.push(
+      'Ada: The kiosk takes your card or PayNow. ' +
+        'Ada: Seniors show your card at the counter.',
+    );
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 6 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain('The kiosk takes your card or PayNow.');
+    expect(said).toContain('Seniors show your card at the counter.');
+    expect(h.logs.some((text) => text.startsWith('[card] Ada:'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('still drops a line that points the visitor at their card or screen', async () => {
+    const h = harness();
+    await h.say('Where is it?');
+    h.calls.at(-1)?.push(
+      "Ada: It's on your card on the right. " +
+        'Ada: Check your screen. ' +
+        'Ada: your panel has the draft.',
+    );
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 6 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said.some((text) => /your card on the right|check your screen|your panel has the draft/i.test(text))).toBe(false);
+    expect(h.logs.filter((text) => text.startsWith('[card] Ada:'))).toHaveLength(3);
+    h.conversation.close();
   });
 
   it('uses the short spoken name in the move-on warning', async () => {

@@ -1,12 +1,13 @@
 /** How long an empty live-demo meeting is kept for the same person to return. */
 export const DEFAULT_REJOIN_GRACE_MS = 120_000;
 
-/** What an arriving person gets when the room is empty. */
+/**
+ * What an arriving person gets when the room is empty: either start a fresh meeting, or carry on the
+ * paused one because the same person came back inside the grace.
+ */
 export interface RejoinDecision {
   /** Start a fresh meeting: new code, cleared tasks, a fresh agenda and record. */
   reset: boolean;
-  /** A different person is arriving inside the window, so they need the meeting's code. */
-  requireCode: boolean;
 }
 
 export interface RejoinGuardOptions {
@@ -93,19 +94,20 @@ export function createRejoinGuard({
     hasMeeting: () => started,
     admit(name) {
       // Nobody has joined since the last reset: there is no meeting to keep.
-      if (!started) return { reset: true, requireCode: false };
+      if (!started) return { reset: true };
       // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
-      if (finished) return { reset: true, requireCode: false };
+      if (finished) return { reset: true };
       // The grace is off: every arrival into an empty room starts a new meeting.
-      if (graceMs <= 0) return { reset: true, requireCode: false };
+      if (graceMs <= 0) return { reset: true };
       // The last person may have left after the previous poll: treat this arrival as the moment the
       // room emptied, so the same person resumes instead of losing the meeting to a cross-process race.
       if (emptySince === undefined) emptied();
       const since = emptySince;
-      if (since === undefined) return { reset: true, requireCode: false };
+      if (since === undefined) return { reset: true };
       const elapsed = Math.max(0, now() - since);
-      if (elapsed >= graceMs) return { reset: true, requireCode: false };
-      return { reset: false, requireCode: !humans.has(normalise(name)) };
+      if (elapsed >= graceMs) return { reset: true };
+      // The grace holds the paused meeting only for the person who left. Anyone else starts fresh.
+      return { reset: !humans.has(normalise(name)) };
     },
     joined(name, decision) {
       if (decision.reset) {

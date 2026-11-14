@@ -216,8 +216,9 @@ async function handleRequest(
         }
         // The first person into an empty room starts a new meeting with a new code; later people must know it.
         // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
-        // a different person arriving in that window still needs the code. If LiveKit cannot be asked, nobody can be
-        // told apart from an empty room, so the gate stays open and nothing is reset.
+        // a different person arriving in that empty room starts a fresh meeting instead. If LiveKit cannot be asked,
+        // nobody can be told apart from an empty room, so the gate stays open and nothing is reset.
+        const meetingWasRunning = context.rejoin.hasMeeting();
         const rejoin = roster !== undefined && present.length === 0
           ? context.rejoin.admit(join.participantName)
           : undefined;
@@ -241,8 +242,7 @@ async function handleRequest(
               context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
             }
           }
-          const peoplePresent = rejoin?.requireCode === true ? Math.max(1, present.length) : present.length;
-          const codeError = codeProblem(peoplePresent, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
+          const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
             sendJson(response, 403, { error: codeError, needsCode: true });
             return;
@@ -261,7 +261,8 @@ async function handleRequest(
         if (rejoin !== undefined) context.rejoin.joined(join.participantName, rejoin);
         context.watchRoom(join.roomName);
         void syncDemoVisitorProfile(join.participantName);
-        sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value });
+        const resumed = meetingWasRunning && rejoin?.reset !== true;
+        sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed });
       } catch (error) {
         if (error instanceof JoinError) {
           sendJson(response, 400, { error: error.message });

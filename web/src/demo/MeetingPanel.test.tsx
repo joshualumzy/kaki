@@ -350,4 +350,35 @@ describe('MeetingPanel', () => {
     expect(screen.queryByText('Margin limit:')).toBeNull();
     expect(screen.queryByText('Remaining launch budget is capped at $750')).toBeNull();
   });
+
+  it('hides a superseded card from the action board', () => {
+    const superseded: Task = {
+      id: 'old-card',
+      title: 'Old superseded decision',
+      context: '',
+      suggestedAssignee: 'producer',
+      status: 'SUPERSEDED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    const current: Task = {
+      id: 'current-card',
+      title: 'Current decision',
+      context: '',
+      suggestedAssignee: 'producer',
+      status: 'DISPATCHED',
+      updatedAt: '2026-11-08T10:05:00Z',
+    };
+    mocks.useKaki.mockReturnValue({
+      events: [],
+      tasks: new Map([[superseded.id, superseded], [current.id, current]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    });
+
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} />);
+
+    expect(screen.queryByText('Old superseded decision')).toBeNull();
+    expect(screen.getByText('Current decision')).toBeTruthy();
+  });
 });

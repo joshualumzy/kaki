@@ -168,7 +168,10 @@ export function MeetingPanel({
     end.current?.scrollIntoView?.({ block: 'end' });
   }, [entries.length, hasActiveVisitorTask]);
 
-  const visibleTasks = useMemo(() => [...tasks.values()].filter((task) => task.status !== 'DISMISSED'), [tasks]);
+  const visibleTasks = useMemo(
+    () => [...tasks.values()].filter((task) => task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED'),
+    [tasks],
+  );
   const minutesTask = useMemo(
     () =>
       visibleTasks.find(

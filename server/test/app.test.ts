@@ -528,7 +528,9 @@ describe('rejoining an empty meeting', () => {
       // The room is empty to LiveKit, but no poll has run yet: this is the 0.1 s rejoin race.
       const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
       expect(back.status).toBe(200);
-      expect(((await back.json()) as { meetingCode: string }).meetingCode).toBe(meetingCode);
+      const resumed = (await back.json()) as { meetingCode: string; resumed?: boolean };
+      expect(resumed.meetingCode).toBe(meetingCode);
+      expect(resumed.resumed).toBe(true);
 
       expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
       const kept = (await (await fetch(`http://127.0.0.1:${port}/api/scenario`)).json()) as {
@@ -564,18 +566,39 @@ describe('rejoining an empty meeting', () => {
     }
   });
 
-  it('asks a different person for the meeting code inside the window', async () => {
+  it('starts a fresh meeting for a different person inside the window', async () => {
     const app = await startApp(60_000);
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
     try {
-      const { meetingCode } = await firstJoinAndTask(app);
+      const { meetingCode, task } = await firstJoinAndTask(app);
+      const resetsBefore = resetCount(screen);
 
-      const noCode = await join(app, { participantName: 'Priya', participantRole: 'producer' });
-      expect(noCode.status).toBe(403);
-      expect(((await noCode.json()) as { needsCode?: boolean }).needsCode).toBe(true);
+      const next = await join(app, { participantName: 'Priya', participantRole: 'producer' });
+      expect(next.status).toBe(200);
+      const fresh = (await next.json()) as { meetingCode: string; resumed?: boolean };
+      expect(fresh.meetingCode).not.toBe(meetingCode);
+      expect(fresh.resumed).toBe(false);
+      expect(app.tasks.get(task.id)).toBeUndefined();
+      await settle();
+      expect(resetCount(screen)).toBeGreaterThan(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
 
-      const withCode = await join(app, { participantName: 'Priya', participantRole: 'producer', meetingCode });
-      expect(withCode.status).toBe(200);
-      expect(((await withCode.json()) as { meetingCode: string }).meetingCode).toBe(meetingCode);
+  it('still says the meeting is full when someone is in the room', async () => {
+    let people: Roster = [];
+    const app = await startApp(60_000, { roster: () => people });
+    try {
+      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(first.status).toBe(200);
+      people = [{ name: 'Booth Playtest', role: 'producer' }];
+
+      const second = await join(app, { participantName: 'Priya', participantRole: 'producer' });
+      expect(second.status).toBe(409);
+      expect(((await second.json()) as { error: string }).error).toMatch(/meeting is full/i);
     } finally {
       await app.close();
     }
