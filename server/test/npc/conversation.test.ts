@@ -446,6 +446,71 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
+  it('drops a colleague taking over the visitor\'s follow-up, and logs it', async () => {
+    const h = harness();
+    await h.say('Go with the price freeze.');
+    h.calls.at(-1)?.push(
+      'Ada: Right, the price stays. ' +
+        "Bao: I'll put the same line in the chat. " +
+        'Ada: Bao, can you send that through in the chat? ' +
+        "Bao: I’ll post the update to the team.",
+    );
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 5 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain('Right, the price stays.');
+    expect(said.some((text) => /same line in the chat|send that through|post the update/i.test(text))).toBe(false);
+    expect(h.logs.filter((text) => text.startsWith('[owner]'))).toHaveLength(3);
+    h.conversation.close();
+  });
+
+  it('keeps a colleague talking about their own task, not the visitor\'s follow-up', async () => {
+    const h = harness();
+    await h.say('Anything else for today?');
+    h.calls.at(-1)?.push(
+      "Ada: I'll print the new price cards. " +
+        "Ada: I'll call the supplier. " +
+        "Bao: I'll email the supplier about the fridge. " +
+        "Bao: I'll check the till login. " +
+        "Ada: I'll put a note on the fridge. " +
+        "Bao: I can send a message to the supplier.",
+    );
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 12 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    const said = h.transcript.map(([, text]) => text);
+    expect(said).toContain("I'll print the new price cards.");
+    expect(said).toContain("I'll call the supplier.");
+    expect(said).toContain("I'll email the supplier about the fridge.");
+    expect(said).toContain("I'll check the till login.");
+    expect(said).toContain("I'll put a note on the fridge.");
+    expect(said).toContain('I can send a message to the supplier.');
+    expect(h.logs.some((text) => text.startsWith('[owner]'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('keeps a colleague\'s share when the visitor gave them that job on this topic', async () => {
+    const h = harness();
+    await h.say('Bao, can you post it in the chat?');
+    h.calls.at(-1)?.push("Bao: Right. I'll post it in the chat now.");
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 5 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.transcript.map(([, text]) => text)).toContain("I'll post it in the chat now.");
+    expect(h.logs.some((text) => text.startsWith('[owner]'))).toBe(false);
+    h.conversation.close();
+  });
+
   it('turns a bare-name handover into a spoken handover, and logs it', async () => {
     const h = harness();
     await h.say('What happened overnight?');

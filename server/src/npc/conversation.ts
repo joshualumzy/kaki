@@ -162,6 +162,41 @@ function assignedByGuest(text: string, name: string): boolean {
  */
 const MODEL_CARD_MENTION_RE = /\b(?:your (?:card|screen|panel)|(?:card|screen|panel) on the right|right-hand panel)\b/i;
 
+/** A verb for passing the decision on to other people; a colleague's own task uses none of these. */
+const SHARE_VERB = '(?:post|send|share|email|message|put|drop|pop|circulate|announce|broadcast|text)';
+
+/**
+ * Where a shared decision goes: the team/chat, or the decision itself. Narrow enough that a colleague's own task
+ * ("I'll email the supplier about the fridge", "I'll put a note on the fridge") still gets through.
+ */
+const SHARE_TARGET =
+  '(?:(?:in|on|to|into|through)\\s+the\\s+(?:chat|group(?: chat)?|channel|team|staff|everyone|crew|whatsapp|mattermost)|(?:the|that|an|this)\\s+(?:update|announcement|decision)|the same line)';
+
+const SHARE_VERB_RE = new RegExp(`\\b${SHARE_VERB}\\b`, 'i');
+const SHARE_TARGET_RE = new RegExp(`\\b${SHARE_TARGET}\\b`, 'i');
+
+/**
+ * A model-written sentence where a colleague promises to share the visitor's decision with the team themselves
+ * ("I'll post the update to the team"). The prompt forbids it, but the model sometimes does it; sharing the
+ * decision is the visitor's own follow-up, so these are dropped. Narrower than a bare verb so a colleague's own
+ * task ("I'll email the supplier about the fridge") still gets through.
+ */
+const MODEL_SHARE_TAKEOVER_RE = new RegExp(
+  `\\b(?:i['’]ll|i will|i can|let me|i['’]m happy to)\\b` +
+    `(?=[^.!?]*\\b${SHARE_VERB}\\b)(?=[^.!?]*\\b${SHARE_TARGET}\\b)`,
+  'i',
+);
+
+/** The colleague a sentence asks to share the decision ("Daniel, can you post it in the chat?"), if any. */
+function addressedShareTarget(text: string, names: readonly string[]): string | undefined {
+  if (!SHARE_VERB_RE.test(text) || !SHARE_TARGET_RE.test(text)) return undefined;
+  for (const name of names) {
+    const who = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`\\b${who}\\s*,\\s*(?:(?:can|could|would|will)\\s+you|please)\\b`, 'i').test(text)) return name;
+  }
+  return undefined;
+}
+
 /** The host is pointing the visitor at their follow-up card. */
 const CARD_POINT_RE =
   /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel)\b/i;
@@ -1880,6 +1915,16 @@ export class NpcConversation<Clip> {
       if (MODEL_CARD_MENTION_RE.test(trimmed)) {
         this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; the handoff line does that: "${trimmed}"`);
         return;
+      }
+      if (this.human !== undefined) {
+        const addressed = addressedShareTarget(trimmed, this.names);
+        if (addressed !== undefined || MODEL_SHARE_TAKEOVER_RE.test(trimmed)) {
+          const owner = addressed ?? utterance.speaker;
+          if (!this.askedByGuestOnTopic(owner)) {
+            this.ports.log?.(`[owner] ${utterance.speaker}: dropped a sentence that gives the visitor's follow-up to a colleague: "${trimmed}"`);
+            return;
+          }
+        }
       }
       if (turn.firstSentenceAt === undefined) {
         turn.firstSentenceAt = Date.now();
