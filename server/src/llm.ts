@@ -54,7 +54,7 @@ export interface OpenAiLlmOptions {
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 /** Read a true/false (or 1/0) switch, and name the variable in the error when it is malformed. */
-function reasoningControlFromEnv(raw: string | undefined, name: string): boolean | undefined {
+export function reasoningControlFromEnv(raw: string | undefined, name: string): boolean | undefined {
   if (raw === undefined) return undefined;
   switch (raw.trim().toLowerCase()) {
     case 'true':

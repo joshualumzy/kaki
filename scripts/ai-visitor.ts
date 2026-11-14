@@ -1,6 +1,6 @@
 /** Model-backed guest and post-meeting judge for the existing live playtest driver. */
 import '../server/src/env.ts';
-import { createOpenAiLlm, LlmError, parseJsonReply, type ChatMessage, type CompleteOptions, type CompletionUsage } from '../server/src/llm';
+import { createOpenAiLlm, LlmError, reasoningControlFromEnv, parseJsonReply, type ChatMessage, type CompleteOptions, type CompletionUsage } from '../server/src/llm';
 import { runLivePlaytest, type AnswerContext, type FinishContext, type Line, type PlaytestHooks } from './live-playtest';
 import { pathToFileURL } from 'node:url';
 
@@ -88,7 +88,8 @@ export class AiVisitor implements PlaytestHooks {
   totalTokens = 0;
   judgement?: Judgement;
 
-  constructor(readonly persona: Persona, private readonly model: Model) {}
+  /** The guest runs on the free primary model; the judge on a separate model so it does not score its own lines. */
+  constructor(readonly persona: Persona, private readonly guest: Model, private readonly judge: Model = guest) {}
 
   private async call(messages: ChatMessage[], maxTokens: number, kind: 'visitor' | 'judge'): Promise<string> {
     if (kind === 'visitor') {
@@ -98,7 +99,7 @@ export class AiVisitor implements PlaytestHooks {
       if (this.judgeCalls >= 1) throw new Error('AI judge call cap reached (1 per persona)');
       this.judgeCalls += 1;
     }
-    const reply = await this.model.completeWithUsage(messages, { maxTokens, temperature: kind === 'visitor' ? 0.8 : 0 });
+    const reply = await (kind === 'visitor' ? this.guest : this.judge).completeWithUsage(messages, { maxTokens, temperature: kind === 'visitor' ? 0.8 : 0, reasoningEffort: 'none' });
     if (reply.usage === undefined) throw new Error('AI model reply omitted token usage');
     this.promptTokens += reply.usage.promptTokens;
     this.completionTokens += reply.usage.completionTokens;
@@ -109,10 +110,16 @@ export class AiVisitor implements PlaytestHooks {
 
   async answer(context: AnswerContext): Promise<string> {
     let lastError: unknown;
+    const messages = visitorPrompt(this.persona, context);
     for (let attempt = 0; attempt < 2 && this.visitorCalls < 40; attempt += 1) {
       try {
-        const line = (await this.call(visitorPrompt(this.persona, context), 96, 'visitor')).replace(/^['"“”]+|['"“”]+$/g, '').trim();
-        if (!line || /[\r\n]/.test(line) || line.length > 240) throw new Error('AI visitor reply must be one short line');
+        const raw = await this.call(messages, 96, 'visitor');
+        const line = raw.replace(/^['"“”]+|['"“”]+$/g, '').trim();
+        if (!line || /[\r\n]/.test(line) || line.length > 240) {
+          // Tell the model what was wrong before the retry, and keep the rejected text so a failure shows it.
+          messages.push({ role: 'assistant', content: raw }, { role: 'user', content: 'That was not one short line. Reply again with only your own next line: one line, under 200 characters, no other speakers.' });
+          throw new Error(`AI visitor reply must be one short line; got: ${JSON.stringify(raw.slice(0, 200))}`);
+        }
         return line;
       } catch (error) { lastError = error; }
     }
@@ -156,14 +163,18 @@ function parseOptions(argv: string[]): { persona: Persona | 'all'; phone: boolea
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseOptions(argv);
   const env = process.env;
-  const missing = ['KAKI_LLM_FALLBACK_BASE_URL', 'KAKI_LLM_FALLBACK_API_KEY', 'KAKI_LLM_FALLBACK_MODEL'].filter((name) => !env[name]);
+  const missing = ['KAKI_LLM_BASE_URL', 'KAKI_LLM_API_KEY', 'KAKI_LLM_MODEL', 'KAKI_LLM_FALLBACK_BASE_URL', 'KAKI_LLM_FALLBACK_API_KEY', 'KAKI_LLM_FALLBACK_MODEL'].filter((name) => !env[name]);
   if (missing.length) throw new Error(`Missing AI playtest configuration: ${missing.join(', ')}`);
-  const model = createOpenAiLlm({ baseUrl: env.KAKI_LLM_FALLBACK_BASE_URL!, apiKey: env.KAKI_LLM_FALLBACK_API_KEY!, model: env.KAKI_LLM_FALLBACK_MODEL! });
+  // Guest: the free primary slot the colleagues use. Judge: the paid fallback slot, one call per run.
+  const guest = createOpenAiLlm({ baseUrl: env.KAKI_LLM_BASE_URL!, apiKey: env.KAKI_LLM_API_KEY!, model: env.KAKI_LLM_MODEL!,
+    reasoningControl: reasoningControlFromEnv(env.KAKI_LLM_REASONING_CONTROL, 'KAKI_LLM_REASONING_CONTROL') });
+  const judge = createOpenAiLlm({ baseUrl: env.KAKI_LLM_FALLBACK_BASE_URL!, apiKey: env.KAKI_LLM_FALLBACK_API_KEY!, model: env.KAKI_LLM_FALLBACK_MODEL!,
+    reasoningControl: reasoningControlFromEnv(env.KAKI_LLM_FALLBACK_REASONING_CONTROL, 'KAKI_LLM_FALLBACK_REASONING_CONTROL') });
   const personas = options.persona === 'all' ? PERSONAS : [options.persona];
   const rows: string[] = [];
   let failed = false;
   for (const persona of personas) {
-    const visitor = new AiVisitor(persona, model);
+    const visitor = new AiVisitor(persona, guest, judge);
     const result = await runLivePlaytest({ role: 'producer', phone: options.phone, maxMinutes: options.maxMinutes }, visitor);
     console.log(`AI usage (${persona}): ${visitor.visitorCalls} visitor calls, ${visitor.judgeCalls} judge calls, ${visitor.totalTokens} total tokens (${visitor.promptTokens} prompt, ${visitor.completionTokens} completion)`);
     const scores = visitor.judgement === undefined ? '—' : scoreNames.map((name) => visitor.judgement![name].score).join('/');

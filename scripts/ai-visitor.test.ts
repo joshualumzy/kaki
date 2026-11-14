@@ -58,7 +58,7 @@ describe('AI visitor prompts and judge', () => {
     for (let i = 0; i < 40; i += 1) expect(await visitor.answer(answer)).toBe('Okay, ask Mary.');
     await expect(visitor.answer(answer)).rejects.toThrow(/40-call cap/);
     expect(completeWithUsage).toHaveBeenCalledTimes(40);
-    expect(completeWithUsage.mock.calls[0]![1]).toMatchObject({ maxTokens: 96 });
+    expect(completeWithUsage.mock.calls[0]![1]).toMatchObject({ maxTokens: 96, reasoningEffort: 'none' });
     completeWithUsage.mockResolvedValueOnce({ content: validJudgement, usage });
     expect((await visitor.finish(finish)).summaryLines).toHaveLength(5);
     await expect(visitor.finish(finish)).rejects.toThrow(/1 per persona/);

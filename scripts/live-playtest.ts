@@ -435,7 +435,18 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     const microphone = page.getByRole('button', { name: 'Microphone', exact: true });
     if (await microphone.getAttribute('aria-pressed') === 'true') await microphone.click();
     await check('Microphone muted', await microphone.getAttribute('aria-pressed') === 'false', 'Visitor input uses the type bar only');
-    await page.getByRole('button', { name: 'Join to type' }).click();
+    // A previous visitor who did not leave cleanly holds the only seat until LiveKit drops them; wait for it to free.
+    const seatDeadline = Date.now() + 90_000;
+    for (;;) {
+      await page.getByRole('button', { name: 'Join to type' }).click();
+      const joined = page.locator('.kd-meeting').first().waitFor({ timeout: 10_000 }).then(() => 'joined' as const);
+      const full = page.getByText(/The meeting is full/).first().waitFor({ timeout: 10_000 }).then(() => 'full' as const);
+      const outcome = await Promise.any([joined, full]).catch(() => 'unknown' as const);
+      if (outcome !== 'full') break;
+      if (Date.now() > seatDeadline) throw new Error('The visitor seat was still taken after 90 s: a previous visitor never left the room');
+      notes.push(`${stamp()} Seat taken by a previous visitor; retrying join in 5 s`);
+      await page.waitForTimeout(5_000);
+    }
     if (await waitFor('Join meeting', () => page!.locator('.kd-meeting').count().then((n) => n > 0), 25_000)) {
       await check('Join role', true, `${role.id} as Robot Visitor, microphone muted`);
       await checkPhoneLayout('after join');
@@ -641,6 +652,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     if (page !== undefined && !page.isClosed() && uiLines.length === 0) {
       const storedUiLines = await page.evaluate('window.__playtestLines ?? []').catch(() => []) as UiLine[];
       uiLines.push(...storedUiLines);
+    }
+    // Leave the room cleanly (the page disconnects on pagehide) so the next run's visitor gets the seat.
+    if (page !== undefined && !page.isClosed()) {
+      const closed = page.waitForEvent('close', { timeout: 5_000 }).catch(() => notes.push(`${stamp()} Page did not close cleanly; LiveKit may hold the seat briefly`));
+      await page.close({ runBeforeUnload: true }).catch(() => undefined);
+      await closed;
     }
     if (browser !== undefined) await browser.close().catch((error: unknown) => notes.push(`Could not close launched browser: ${String(error)}`));
     if (hooks !== undefined) {
