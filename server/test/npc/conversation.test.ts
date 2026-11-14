@@ -223,6 +223,144 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
+  it('knows when the visitor already gave the follow-up to a colleague', async () => {
+    const h = harness();
+    await h.say('Daniel, can you call the supplier?');
+    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(true);
+    expect(h.conversation.assignedByGuestRecently('Ada')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('does not treat a question or an earlier topic as an assignment', async () => {
+    const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
+      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
+    const h = harness(twoItems);
+    h.conversation.humanTyped('Daniel, what do you think?');
+    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(false);
+    h.conversation.humanTyped('Daniel, can you call the supplier?');
+    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(true);
+    h.conversation.agendaMoved('Service');
+    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('forgets an assignment once the repeat window has passed', async () => {
+    const h = harness();
+    h.conversation.humanTyped('Daniel, can you call the supplier?');
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(h.conversation.assignedByGuestRecently('Daniel')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('skips the card nudge and its move-on sentence once the host already pointed at the card', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.announce('Ada', 'Josh, the card is waiting for you.');
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.humanSpeech(true);
+    conversation.humanText('Ship it.');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    h.calls.at(-1)?.push('Ada: Understood.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.logs).toContainEqual(expect.stringContaining('skipped the card nudge on "Prep"'));
+    expect(h.playing.some((entry) => /your (?:draft|invite) is on your card/i.test(entry.text))).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.playing.at(-1)?.text).toBe('We need to move on from Prep shortly.');
+    conversation.close();
+  });
+
+  it('drops the move-on card sentence when the dispatch points at the card after the topic settles', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.humanSpeech(true);
+    conversation.humanText('Ship it.');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    h.calls.at(-1)?.push('Ada: Understood.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+    conversation.announce('Ada', 'Josh, that follow-up is on your screen on the right to review and confirm.');
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.logs).toContainEqual(expect.stringContaining('skipped the card nudge on "Prep"'));
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.playing.at(-1)?.text).toBe('We need to move on from Prep shortly.');
+    conversation.close();
+  });
+
+  it('nudges the card once, then warns without pointing at it again', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.humanSpeech(true);
+    conversation.humanText('Ship it.');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    h.calls.at(-1)?.push('Ada: Understood.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.playing.at(-1)?.text).toContain('your draft is on your card');
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.playing.at(-1)?.text).toBe('We need to move on from Prep shortly.');
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).not.toContain('You can finish the follow-up from your card.');
+    conversation.close();
+  });
+
+  it.each([
+    "Josh, I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.",
+    'Josh, that follow-up is on your screen on the right to review and confirm.',
+  ])('still cancels a pending dispatch that points at the screen: %s', async (line) => {
+    const h = harness();
+    h.conversation.announce('Ada', line);
+    await h.flush();
+    expect(h.playing).toHaveLength(1);
+    h.conversation.cancelPendingDispatch();
+    await h.flush();
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    h.conversation.close();
+  });
+
   it('drops a repeated line when a cut-off reply carries on, and logs it', async () => {
     const h = harness();
     const line = 'Anyone new on the till needs a login, and that is about fifteen minutes before opening.';

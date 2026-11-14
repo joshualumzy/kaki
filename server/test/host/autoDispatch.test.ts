@@ -127,9 +127,22 @@ describe('colleagueLine', () => {
 
   it('thanks a colleague who already volunteered instead of asking again', async () => {
     const { colleagueLine } = await import('../../src/host/autoDispatch');
-    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0, true);
+    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0, 'volunteered');
     expect(line).toBe("Thanks, Mei, that one's yours.");
     expect(line).not.toContain('?');
+  });
+
+  it('confirms a colleague the visitor already assigned instead of asking again', async () => {
+    const { colleagueLine } = await import('../../src/host/autoDispatch');
+    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0, 'assigned');
+    expect(line).toBe("Got it, Mei's on that.");
+    expect(line).not.toContain('?');
+  });
+
+  it('asks the colleague when neither they nor the visitor already took it', async () => {
+    const { colleagueLine } = await import('../../src/host/autoDispatch');
+    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0);
+    expect(line).toBe('Mei, could you take this one: "Draft plain-language sign for laptop zone decision"?');
   });
 });
 

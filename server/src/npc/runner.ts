@@ -114,6 +114,8 @@ export interface NpcRunner {
   plays(attendee: string): boolean;
   /** True when `attendee` volunteered for the follow-up in their own line on this topic in the last minute. */
   volunteeredRecently(attendee: string): boolean;
+  /** True when the visitor already gave `attendee` the follow-up on this topic in the last minute. */
+  assignedByGuestRecently(attendee: string): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
   hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
@@ -125,6 +127,14 @@ export interface NpcRunner {
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
   resetMemory(): void;
+}
+
+/** The host's line when a follow-up lands on the visitor's card: the first pointer, then a brief reminder. */
+export function visitorDispatchLine(name: string | undefined, count: number): string {
+  const who = name === undefined || name.trim() === '' ? '' : `${name.trim()}, `;
+  return count === 1
+    ? `${who}I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.`
+    : `${who}that follow-up is on your screen on the right to review and confirm.`;
 }
 
 interface Character {
@@ -613,14 +623,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
     if (isTaskDispatch) {
       visitorTaskDispatches += 1;
-      const guidance =
-        visitorTaskDispatches === 1
-          ? "I've put that follow-up on your screen on the right — take a look, you can have Kaki draft it for you or adjust it."
-          : "Have a look on your screen on the right to review and confirm.";
-      spoken = spoken
-        .replace(/\bAccept or decline it on your phone\./gi, guidance)
-        .replace(/\bHave a look on your phone and accept or decline\./gi, guidance)
-        .replace(/\bIt's on your phone\./gi, guidance);
+      const dispatchedName = visitor?.name?.trim() || /^([^,]+),/.exec(text)?.[1]?.trim();
+      spoken = visitorDispatchLine(dispatchedName, visitorTaskDispatches);
     }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
@@ -664,6 +668,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     volunteeredRecently(attendee) {
       return conversation?.volunteeredRecently(attendee) ?? false;
+    },
+    assignedByGuestRecently(attendee) {
+      return conversation?.assignedByGuestRecently(attendee) ?? false;
     },
     hostIsHuman,
     agendaMoved(title) {

@@ -246,7 +246,7 @@ export function buildSystemPrompt(
             ...itemRules(scenario, human, host.attendee, currentTitle, agendaDecision, alreadyAsked),
             ...(human !== undefined
               ? [
-                  `- When ${human.name} settles the item, confirm their call in their words, without adding promises or figures. Mention the follow-up naturally in passing or ask them to send it in plain words. The visitor owns this follow-up card and its draft; no colleague says they will draft, post, send or email it themselves. If the visitor already volunteered, acknowledge that without another request. Once they accept the follow-up, briefly point them to their card and stop.`,
+                  `- When ${human.name} settles the item, confirm their call in their words, without adding promises or figures. Mention the follow-up naturally in passing or ask them to send it in plain words. The visitor owns this follow-up card and its draft; no colleague says they will draft, post, send or email it themselves. If the visitor already volunteered, acknowledge that without another request. Colleagues and the host never mention the card, the screen or the panel in spoken lines; the host's handoff line already points them there. Stop after confirming.`,
                 ]
               : [
                   '- When the person has decided something (including a practical alternative of their own), the others accept it once made and say what they will do about it; they do not reopen it unless something new makes it wrong.',

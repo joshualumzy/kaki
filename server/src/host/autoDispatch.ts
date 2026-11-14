@@ -34,10 +34,11 @@ export function dispatchLine(name: string, title: string, count: number): string
 /**
  * How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention).
  * The title is quoted as a task name so an imperative title still reads naturally. When the colleague has just
- * volunteered to handle it, the host thanks them instead of asking again.
+ * volunteered to handle it, or the visitor already gave it to them, the host confirms instead of asking again.
  */
-export function colleagueLine(name: string, title: string, count: number, volunteered = false): string {
-  if (volunteered) return `Thanks, ${name}, that one's yours.`;
+export function colleagueLine(name: string, title: string, count: number, confirmed?: 'volunteered' | 'assigned'): string {
+  if (confirmed === 'volunteered') return `Thanks, ${name}, that one's yours.`;
+  if (confirmed === 'assigned') return `Got it, ${name}'s on that.`;
   const task = `"${title.trim().replace(/\.$/, '')}"`;
   const lines = [
     `${name}, could you take this one: ${task}?`,

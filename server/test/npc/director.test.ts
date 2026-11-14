@@ -476,12 +476,13 @@ describe('the director prompt', () => {
     expect(buildSystemPrompt(npcScenario)).toContain('never says what another character did');
   });
 
-  it('points the visitor to their card instead of a colleague taking the follow-up', () => {
+  it('keeps the follow-up with the visitor without telling a colleague to point at the card', () => {
     const [ada, bao] = npcScenario.npcs ?? [];
     const scenario = { ...npcScenario, npcs: [{ ...ada!, role: 'host' as const }, bao!] };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Chef' });
     expect(prompt).toContain('The visitor owns this follow-up card and its draft');
-    expect(prompt).toContain('point them to their card');
+    expect(prompt).not.toContain('point them to their card');
+    expect(prompt).toContain('never mention the card, the screen or the panel');
     expect(prompt).toContain('no colleague says they will draft, post, send or email it themselves');
   });
 

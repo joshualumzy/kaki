@@ -302,8 +302,12 @@ function followHostCues(): void {
             runner.plays(payload.assignee);
           if (colleague) {
             cueOrder.cue((done) => {
-              const volunteered = runner.volunteeredRecently(payload.assignee!);
-              runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++, volunteered), done);
+              const confirmed = runner.volunteeredRecently(payload.assignee!)
+                ? 'volunteered'
+                : runner.assignedByGuestRecently(payload.assignee!)
+                  ? 'assigned'
+                  : undefined;
+              runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++, confirmed), done);
             });
           } else if (payload.kind === 'DISPATCH') {
             const titleKey = (payload.title ?? '').trim().toLowerCase();

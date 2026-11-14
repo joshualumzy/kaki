@@ -1,7 +1,7 @@
 import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
-import { startNpcRunner } from '../../src/npc/runner';
+import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
 
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void }>);
 const published = vi.hoisted(() => [] as Array<{ topic?: string; message: unknown }>);
@@ -43,6 +43,22 @@ vi.mock('@livekit/rtc-node', () => {
     TrackSource: { SOURCE_MICROPHONE: 1 },
     TrackKind: { KIND_AUDIO: 1 },
   };
+});
+
+describe('visitorDispatchLine', () => {
+  it('points at the card once on the first dispatch and is brief after', () => {
+    expect(visitorDispatchLine('Daniel', 1)).toBe(
+      "Daniel, I've put that follow-up on your screen on the right — Kaki can draft it for you, or you can adjust it.",
+    );
+    expect(visitorDispatchLine('Daniel', 2)).toBe(
+      'Daniel, that follow-up is on your screen on the right to review and confirm.',
+    );
+  });
+
+  it('never reads the formal task title aloud', () => {
+    const title = 'Reply to trial-day customer by 7:30 with goodwill payment, no admission';
+    for (const count of [1, 2]) expect(visitorDispatchLine('Daniel', count)).not.toContain(title);
+  });
 });
 
 describe('startNpcRunner visitor transcript identity', () => {

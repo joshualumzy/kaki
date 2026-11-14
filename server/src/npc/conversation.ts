@@ -101,8 +101,6 @@ function splitSentences(text: string): string[] {
 
 /** How long a speaker must not restate a point they already made aloud. */
 export const DEFAULT_REPEAT_WINDOW_MS = 60_000;
-/** After the host points the visitor at their card, the review nudge waits at least this long before repeating the pointer. */
-export const CARD_NUDGE_QUIET_MS = 30_000;
 
 const STOP_WORDS = new Set([
   'about', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'because', 'been', 'before', 'being',
@@ -137,6 +135,26 @@ function closelyRepeats(next: Set<string>, previous: Set<string>): boolean {
 /** A volunteer takes the follow-up themselves rather than waiting to be asked. */
 const VOLUNTEERED_RE =
   /\b(?:leave (?:it|that|this) (?:with|to) me|i(?:'ll| will) (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|i can (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|i(?:'m| am) (?:happy|glad) to (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|(?:count|put) me in|on it)\b/i;
+
+/** True when the visitor's line names `name` and gives them the follow-up ("Daniel, can you call the supplier?"). */
+function assignedByGuest(text: string, name: string): boolean {
+  const who = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (who.length === 0 || !new RegExp(`\\b${who}\\b`, 'i').test(text)) return false;
+  return new RegExp(
+    [
+      `\\b(?:can|could|would|will) you\\b`,
+      `\\bplease\\b`,
+      `\\byou(?:'ll| will)\\b`,
+      `\\byou (?:take|handle)\\b`,
+      `\\b${who}(?:'ll| will)\\b`,
+      `\\blet ${who}\\b`,
+      `\\bget ${who} to\\b`,
+      `\\b${who} to (?:handle|take|call|send|draft|check|sort|do)\\b`,
+      `\\b${who} can (?:handle|take|do|sort)\\b`,
+    ].join('|'),
+    'i',
+  ).test(text);
+}
 
 /** The host is pointing the visitor at their follow-up card. */
 const CARD_POINT_RE =
@@ -282,11 +300,12 @@ export class NpcConversation<Clip> {
   private readonly reviewActionKind = new Map<string, ActionKind>();
   /** Topics that have already had their one card nudge. */
   private readonly cardNudgedTopics = new Set<string>();
-  /** When the host last pointed the visitor at their card, and on which topic. */
-  private lastCardPointAt = 0;
-  private lastCardPointTopic: string | undefined;
+  /** Topics where the host has already pointed the visitor at their card. */
+  private readonly cardPointedTopics = new Set<string>();
   /** Lines the room actually heard, for repeat checks and the per-speaker prompt. */
   private readonly recentSpoken: Array<{ speaker: string; text: string; at: number; topic: string | undefined }> = [];
+  /** Lines the visitor said, so the host can tell when they already gave the follow-up to a colleague. */
+  private readonly recentGuest: Array<{ text: string; at: number; topic: string | undefined }> = [];
   /** People the host has already asked, by name. */
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
@@ -358,10 +377,10 @@ export class NpcConversation<Clip> {
     this.reopenedTitle = undefined;
     this.resumeAfterReopen = undefined;
     this.recentSpoken.length = 0;
+    this.recentGuest.length = 0;
     this.cardNudgedTopics.clear();
+    this.cardPointedTopics.clear();
     this.reviewActionKind.clear();
-    this.lastCardPointAt = 0;
-    this.lastCardPointTopic = undefined;
   }
 
   memorySnapshot(): MeetingMemoryEntry[] { return this.memory.snapshot(); }
@@ -402,7 +421,7 @@ export class NpcConversation<Clip> {
     this.lastTranscriptEmit = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
     this.pending.push(typed);
-    this.noteHumanLine();
+    this.noteHumanLine(typed);
     this.noteDecisionLine(typed);
     this.interrupt('the person typed something');
     this.unanswered = false;
@@ -627,7 +646,7 @@ export class NpcConversation<Clip> {
     this.bridgedStatementOnTurn = false;
     this.clearSilenceTimer();
     this.pending.push(accepted);
-    this.noteHumanLine();
+    this.noteHumanLine(accepted);
     this.noteDecisionLine(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.interrupt('the person said something');
@@ -819,8 +838,7 @@ export class NpcConversation<Clip> {
     if (utterance.speaker !== this.facilitatorOrCoHost() || !CARD_POINT_RE.test(utterance.text)) return;
     const topic = this.currentItem()?.title;
     if (topic === undefined) return;
-    this.lastCardPointAt = Date.now();
-    this.lastCardPointTopic = topic;
+    this.cardPointedTopics.add(topic);
   }
 
   /** Resolves when no turn is running. */
@@ -934,8 +952,20 @@ export class NpcConversation<Clip> {
     if (line !== undefined && host !== undefined) this.announce(host, line, ASK_GIVE_UP_MS);
   }
 
+  /** True when the visitor gave `name` the follow-up in a line on this topic in the last minute. */
+  assignedByGuestRecently(name: string, withinMs = DEFAULT_REPEAT_WINDOW_MS): boolean {
+    const topic = this.currentItem()?.title;
+    const now = Date.now();
+    return this.recentGuest.some((entry) =>
+      entry.topic === topic && now - entry.at <= withinMs && assignedByGuest(entry.text, name));
+  }
+
   /** The person said another line: ask if they have talked a long time without being asked. */
-  private noteHumanLine(): void {
+  private noteHumanLine(text: string): void {
+    const now = Date.now();
+    this.recentGuest.push({ text, at: now, topic: this.currentItem()?.title });
+    const cutoff = now - DEFAULT_REPEAT_WINDOW_MS * 2;
+    while (this.recentGuest.length > 0 && this.recentGuest[0]!.at < cutoff) this.recentGuest.shift();
     this.humanLines += 1;
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
     if (!this.humanSettledOnCurrentItem && !this.budgetOffered &&
@@ -1077,10 +1107,6 @@ export class NpcConversation<Clip> {
     return `${visitor}, your draft is on your card — send it when you're ready, or we can move on.`;
   }
 
-  private cardPointedAtRecently(title: string): boolean {
-    return this.lastCardPointTopic === title && Date.now() - this.lastCardPointAt < CARD_NUDGE_QUIET_MS;
-  }
-
   private startReviewWindow(): void {
     const title = this.currentItem()?.title;
     if (title === undefined || !this.humanSettledOnCurrentItem || this.reviewTimer !== undefined) return;
@@ -1094,7 +1120,7 @@ export class NpcConversation<Clip> {
       if (host === undefined) return;
       if (!this.reviewNudged && nudgeAt < total) {
         this.reviewNudged = true;
-        if (this.cardNudgedTopics.has(title) || this.cardPointedAtRecently(title)) {
+        if (this.cardNudgedTopics.has(title) || this.cardPointedTopics.has(title)) {
           this.ports.log?.(`skipped the card nudge on "${title}": the visitor was already pointed to their card`);
           this.startReviewWindow();
           return;
@@ -1113,7 +1139,10 @@ export class NpcConversation<Clip> {
         return;
       }
       this.reviewWarned = true;
-      this.announce(host, `We need to move on from ${title} shortly. You can finish the follow-up from your card.`,
+      const warning = this.cardPointedTopics.has(title)
+        ? `We need to move on from ${title} shortly.`
+        : `We need to move on from ${title} shortly. You can finish the follow-up from your card.`;
+      this.announce(host, warning,
         DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
           if (spoken) this.checkTopicAdvance(true);
           else {
