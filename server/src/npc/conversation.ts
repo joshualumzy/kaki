@@ -99,6 +99,49 @@ function splitSentences(text: string): string[] {
   );
 }
 
+/** How long a speaker must not restate a point they already made aloud. */
+export const DEFAULT_REPEAT_WINDOW_MS = 60_000;
+/** After the host points the visitor at their card, the review nudge waits at least this long before repeating the pointer. */
+export const CARD_NUDGE_QUIET_MS = 30_000;
+
+const STOP_WORDS = new Set([
+  'about', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'because', 'been', 'before', 'being',
+  'between', 'both', 'but', 'can', 'could', 'did', 'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from',
+  'further', 'had', 'has', 'have', 'having', 'her', 'here', 'hers', 'him', 'his', 'how', 'into', 'its', 'itself',
+  'just', 'more', 'most', 'nor', 'not', 'now', 'off', 'once', 'only', 'other', 'our', 'out', 'over', 'own', 'same',
+  'she', 'should', 'some', 'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this',
+  'those', 'through', 'too', 'under', 'until', 'very', 'was', 'were', 'what', 'when', 'where', 'which', 'while',
+  'who', 'whom', 'why', 'will', 'with', 'would', 'you', 'your',
+]);
+
+/** The meaningful words in a sentence, for spotting a restated point without matching on filler. */
+function contentWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/['’]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(' ')
+      .filter((word) => word.length > 2 && !STOP_WORDS.has(word)),
+  );
+}
+
+/** True when `next` restates most of `previous` and adds only a little of its own. */
+function closelyRepeats(next: Set<string>, previous: Set<string>): boolean {
+  if (next.size < 4 || previous.size < 4) return false;
+  let common = 0;
+  for (const word of next) if (previous.has(word)) common += 1;
+  return common / Math.min(next.size, previous.size) >= 0.7 && next.size - common <= 4;
+}
+
+/** A volunteer takes the follow-up themselves rather than waiting to be asked. */
+const VOLUNTEERED_RE =
+  /\b(?:leave (?:it|that|this) (?:with|to) me|i(?:'ll| will) (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|i can (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|i(?:'m| am) (?:happy|glad) to (?:handle|take|do|sort|draft|write|send|post|email|prepare|check|cover|look after)|(?:count|put) me in|on it)\b/i;
+
+/** The host is pointing the visitor at their follow-up card. */
+const CARD_POINT_RE =
+  /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel)\b/i;
+
 export interface ConversationOptions {
   topicTurnBudget?: number;
   topicTimeBudgetMs?: number;
@@ -235,6 +278,15 @@ export class NpcConversation<Clip> {
   private reviewNudged = false;
   private reviewWarned = false;
   private readonly topicTasks = new Map<string, Map<string, 'pending' | 'done'>>();
+  /** The follow-up kind of the visitor's card on each topic, so a card nudge names what is actually there. */
+  private readonly reviewActionKind = new Map<string, ActionKind>();
+  /** Topics that have already had their one card nudge. */
+  private readonly cardNudgedTopics = new Set<string>();
+  /** When the host last pointed the visitor at their card, and on which topic. */
+  private lastCardPointAt = 0;
+  private lastCardPointTopic: string | undefined;
+  /** Lines the room actually heard, for repeat checks and the per-speaker prompt. */
+  private readonly recentSpoken: Array<{ speaker: string; text: string; at: number; topic: string | undefined }> = [];
   /** People the host has already asked, by name. */
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
@@ -305,6 +357,11 @@ export class NpcConversation<Clip> {
     this.memory.reset();
     this.reopenedTitle = undefined;
     this.resumeAfterReopen = undefined;
+    this.recentSpoken.length = 0;
+    this.cardNudgedTopics.clear();
+    this.reviewActionKind.clear();
+    this.lastCardPointAt = 0;
+    this.lastCardPointTopic = undefined;
   }
 
   memorySnapshot(): MeetingMemoryEntry[] { return this.memory.snapshot(); }
@@ -721,6 +778,51 @@ export class NpcConversation<Clip> {
     return !this.closed && this.names.includes(speaker);
   }
 
+  /** True when `speaker` volunteered for the follow-up in their own line on this topic in the last minute. */
+  volunteeredRecently(speaker: string, withinMs = DEFAULT_REPEAT_WINDOW_MS): boolean {
+    const topic = this.currentItem()?.title;
+    const now = Date.now();
+    return this.recentSpoken.some((entry) =>
+      entry.speaker === speaker && entry.topic === topic && now - entry.at <= withinMs &&
+      VOLUNTEERED_RE.test(entry.text));
+  }
+
+  /** The last few lines the room heard on this topic in the last minute, for the Director's own-repeat check. */
+  private recentSpokenForPrompt(withinMs = DEFAULT_REPEAT_WINDOW_MS): Utterance[] {
+    const topic = this.currentItem()?.title;
+    const now = Date.now();
+    return this.recentSpoken
+      .filter((entry) => entry.topic === topic && now - entry.at <= withinMs)
+      .slice(-6)
+      .map(({ speaker, text }) => ({ speaker, text }));
+  }
+
+  /** A speaker must not restate a point they already made aloud on this topic in the last minute. */
+  private repeatsRecently(speaker: string, text: string): boolean {
+    const words = contentWords(text);
+    const topic = this.currentItem()?.title;
+    const now = Date.now();
+    return this.recentSpoken.some((entry) =>
+      entry.speaker === speaker && entry.topic === topic && now - entry.at <= DEFAULT_REPEAT_WINDOW_MS &&
+      closelyRepeats(words, contentWords(entry.text)));
+  }
+
+  private rememberSpoken(utterance: Utterance, topic: string | undefined): void {
+    const now = Date.now();
+    this.recentSpoken.push({ speaker: utterance.speaker, text: utterance.text, at: now, topic });
+    const cutoff = now - DEFAULT_REPEAT_WINDOW_MS * 2;
+    while (this.recentSpoken.length > 0 && this.recentSpoken[0]!.at < cutoff) this.recentSpoken.shift();
+  }
+
+  /** Remember when the host points the visitor at their follow-up card, so the review nudge does not repeat it. */
+  private noteCardPoint(utterance: Utterance): void {
+    if (utterance.speaker !== this.facilitatorOrCoHost() || !CARD_POINT_RE.test(utterance.text)) return;
+    const topic = this.currentItem()?.title;
+    if (topic === undefined) return;
+    this.lastCardPointAt = Date.now();
+    this.lastCardPointTopic = topic;
+  }
+
   /** Resolves when no turn is running. */
   async settled(): Promise<void> {
     while (this.turn !== undefined) await this.turn.done;
@@ -867,6 +969,7 @@ export class NpcConversation<Clip> {
     });
     const kind = chosen?.kind ?? 'mattermost_post';
     const title = chosen?.title ?? `Share the decision on ${item.title}`;
+    this.reviewActionKind.set(item.title, kind);
     const decision = this.decisionLines.join(' ');
     const reopening = this.reopenedTitle === item.title;
     const generation = this.memoryGeneration;
@@ -966,6 +1069,18 @@ export class NpcConversation<Clip> {
       });
   }
 
+  /** What the visitor will actually find on their card on this topic: a draft to send, or an invite to confirm. */
+  private cardNudgeLine(visitor: string, title: string): string {
+    if (this.reviewActionKind.get(title) === 'calendar_event') {
+      return `${visitor}, your invite is on your card — review and confirm it when you're ready, or we can move on.`;
+    }
+    return `${visitor}, your draft is on your card — send it when you're ready, or we can move on.`;
+  }
+
+  private cardPointedAtRecently(title: string): boolean {
+    return this.lastCardPointTopic === title && Date.now() - this.lastCardPointAt < CARD_NUDGE_QUIET_MS;
+  }
+
   private startReviewWindow(): void {
     const title = this.currentItem()?.title;
     if (title === undefined || !this.humanSettledOnCurrentItem || this.reviewTimer !== undefined) return;
@@ -979,11 +1094,18 @@ export class NpcConversation<Clip> {
       if (host === undefined) return;
       if (!this.reviewNudged && nudgeAt < total) {
         this.reviewNudged = true;
+        if (this.cardNudgedTopics.has(title) || this.cardPointedAtRecently(title)) {
+          this.ports.log?.(`skipped the card nudge on "${title}": the visitor was already pointed to their card`);
+          this.startReviewWindow();
+          return;
+        }
         const visitor = this.human?.name ?? 'You';
-        this.announce(host, `${visitor}, your draft is on your card — send it when you're ready, or we can move on.`,
+        this.announce(host, this.cardNudgeLine(visitor, title),
           DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-            if (spoken) this.startReviewWindow();
-            else {
+            if (spoken) {
+              this.cardNudgedTopics.add(title);
+              this.startReviewWindow();
+            } else {
               this.reviewNudged = false;
               this.startReviewWindow();
             }
@@ -1704,6 +1826,10 @@ export class NpcConversation<Clip> {
         this.ports.log?.(`dropped ${utterance.speaker}'s line after the handover: "${utterance.text}"`);
         return;
       }
+      if (this.repeatsRecently(utterance.speaker, trimmed)) {
+        this.ports.log?.(`[repeat] ${utterance.speaker}: dropped a sentence that repeats what they just said: "${trimmed}"`);
+        return;
+      }
       if (turn.firstSentenceAt === undefined) {
         turn.firstSentenceAt = Date.now();
         this.ports.log?.(`first sentence written ${turn.firstSentenceAt - turn.startedAt} ms after the model was asked`);
@@ -1742,6 +1868,7 @@ export class NpcConversation<Clip> {
             this.memory.snapshot(),
             this.reopenedTitle,
             this.memory.reopenedItems(),
+            this.recentSpokenForPrompt(),
           ),
         },
         ...this.history.slice(-this.maxHistory),
@@ -1951,6 +2078,8 @@ export class NpcConversation<Clip> {
       this.gate.setAiAudible(true);
       this.gate.aiSaid(utterance.text);
       this.lastSpoken = utterance.text;
+      this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
+      this.noteCardPoint(utterance);
       this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
       const transcriptKey = `${utterance.speaker}:${utterance.text}`;
       if (transcribe && transcriptKey !== this.lastTranscriptEmit) {

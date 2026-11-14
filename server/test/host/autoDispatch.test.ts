@@ -116,6 +116,21 @@ describe('colleagueLine', () => {
       expect(line).not.toMatch(/phone|accept|decline/i);
     }
   });
+
+  it('quotes an imperative task title as a name and asks one question', async () => {
+    const { colleagueLine } = await import('../../src/host/autoDispatch');
+    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0);
+    expect(line).toBe('Mei, could you take this one: "Draft plain-language sign for laptop zone decision"?');
+    expect(line).not.toContain('take on draft');
+    expect(line.match(/\?/g)).toHaveLength(1);
+  });
+
+  it('thanks a colleague who already volunteered instead of asking again', async () => {
+    const { colleagueLine } = await import('../../src/host/autoDispatch');
+    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0, true);
+    expect(line).toBe("Thanks, Mei, that one's yours.");
+    expect(line).not.toContain('?');
+  });
 });
 
 describe('dispatchLine', () => {

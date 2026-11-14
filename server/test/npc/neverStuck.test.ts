@@ -270,7 +270,7 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
-  it('restarts the review sequence when the visitor makes progress on the card', async () => {
+  it('restarts the review window when the visitor makes progress on the card, without another nudge', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const title = fullScenario.agenda[0]!.title;
@@ -289,7 +289,62 @@ describe('never-stuck visitor path', () => {
     expect(h.ended()).toBe(0);
     await vi.advanceTimersByTimeAsync(20_000);
     await h.conversation.settled();
-    expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(2);
+    expect(h.spoken.filter((line) => line.includes('your draft is on your card'))).toHaveLength(1);
+    expect(h.logs.some((line) => line.includes('skipped the card nudge'))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('names an invite on the card when the follow-up is a calendar event', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const calendarControl = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
+      followUp: { kind: 'calendar_event', title: 'Book the follow-up call' }, wingmanNeeded: false })}`;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${calendarControl}\nSam: I will book that in.`], { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
+    await h.say('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await h.conversation.settled();
+    expect(h.spoken.some((line) => line.includes('your invite is on your card'))).toBe(true);
+    expect(h.spoken.some((line) => line.includes('your draft is on your card'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('skips the card nudge when the host already pointed at the card in the last 30 seconds', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
+      [`${control('settled')}\nSam: Have a look on your screen on the right to review and confirm.`],
+      { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 });
+    await h.say('Use the window bar.');
+    expect(h.spoken).toContain('Have a look on your screen on the right to review and confirm.');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await h.conversation.settled();
+    expect(h.spoken.some((line) => line.includes('your draft is on your card'))).toBe(false);
+    expect(h.logs.some((line) => line.includes('skipped the card nudge'))).toBe(true);
+    await vi.advanceTimersByTimeAsync(25_000);
+    await h.conversation.settled();
+    expect(h.spoken.some((line) => line.includes('need to move on'))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('drops a sentence a colleague already said in the last minute, and logs it', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+    const colleague = aiCast(scenario, seat).filter((npc) => npc.role !== 'host')[0]!.attendee;
+    const first = "Anyone new on the till needs a login, and that's about fifteen minutes out of my hour before opening.";
+    const repeated = "Anyone new on the till needs a login, and that's about fifteen minutes of my hour, untested until we open.";
+    const h = meeting(scenario, role, [
+      `${control('open')}\n${colleague}: ${first}`,
+      `${control('open')}\n${colleague}: The catch is time. ${repeated}`,
+    ]);
+    await h.say('Okay.');
+    expect(h.spoken).toContain(first);
+    await h.say('Tell me more.');
+    expect(h.spoken).toContain('The catch is time.');
+    expect(h.spoken).not.toContain(repeated);
+    expect(h.logs.some((line) => line.startsWith('[repeat]') && line.includes(colleague))).toBe(true);
     h.conversation.close();
   });
 

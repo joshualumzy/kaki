@@ -301,9 +301,10 @@ function followHostCues(): void {
             payload.title !== undefined &&
             runner.plays(payload.assignee);
           if (colleague) {
-            cueOrder.cue((done) =>
-              runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++), done),
-            );
+            cueOrder.cue((done) => {
+              const volunteered = runner.volunteeredRecently(payload.assignee!);
+              runner.announce(colleagueLine(payload.assignee!, payload.title!, dispatchCount++, volunteered), done);
+            });
           } else if (payload.kind === 'DISPATCH') {
             const titleKey = (payload.title ?? '').trim().toLowerCase();
             runner.announce(payload.text, undefined, () => {

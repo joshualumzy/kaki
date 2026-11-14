@@ -6,6 +6,21 @@ function replyWith(body: unknown, status = 200): typeof fetch {
 }
 
 describe('OpenAI-compatible LLM client', () => {
+  it('sends an output token ceiling and returns API usage for paid playtests', async () => {
+    let request: Record<string, unknown> = {};
+    const llm = createOpenAiLlm({
+      baseUrl: 'https://gateway.example/v1', apiKey: 'secret', model: 'chat',
+      fetchImpl: async (_url, init) => {
+        request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'hello' } }], usage: { prompt_tokens: 12, completion_tokens: 2, total_tokens: 14 } }));
+      },
+    });
+    expect(await llm.completeWithUsage([{ role: 'user', content: 'hi' }], { maxTokens: 96 })).toEqual({
+      content: 'hello', usage: { promptTokens: 12, completionTokens: 2, totalTokens: 14 },
+    });
+    expect(request.max_tokens).toBe(96);
+  });
+
   it('posts the messages to /chat/completions and returns the reply text', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const llm = createOpenAiLlm({

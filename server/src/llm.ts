@@ -13,6 +13,18 @@ export interface CompleteOptions {
   temperature?: number;
   /** Optional reasoning effort override for models that support it (e.g. 'none' on DeepSeek for fast classification). */
   reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+  /** Output token ceiling for bounded paid calls. */
+  maxTokens?: number;
+}
+
+export interface CompletionUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface OpenAiLlm extends LlmClient {
+  completeWithUsage(messages: ChatMessage[], options?: CompleteOptions): Promise<{ content: string; usage?: CompletionUsage }>;
 }
 
 /** The shared LLM client every module uses; the fake one stands in for it in tests. */
@@ -80,6 +92,13 @@ function contentOf(body: unknown): string | undefined {
   return typeof first.message.content === 'string' ? first.message.content : undefined;
 }
 
+function usageOf(body: unknown): CompletionUsage | undefined {
+  if (!isObject(body) || !isObject(body.usage)) return undefined;
+  const { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens } = body.usage;
+  if (![promptTokens, completionTokens, totalTokens].every((n) => Number.isSafeInteger(n) && (n as number) >= 0)) return undefined;
+  return { promptTokens: promptTokens as number, completionTokens: completionTokens as number, totalTokens: totalTokens as number };
+}
+
 // Pull choices[0].delta.content out of one streamed chunk.
 function deltaOf(chunk: unknown): string | undefined {
   if (!isObject(chunk) || !Array.isArray(chunk.choices)) return undefined;
@@ -124,7 +143,7 @@ export function createOpenAiLlm({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
   reasoningControl,
-}: OpenAiLlmOptions): LlmClient {
+}: OpenAiLlmOptions): OpenAiLlm {
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const controlReasoning = reasoningControl ?? /deepseek/i.test(model);
   // Not every OpenAI-compatible model accepts response_format; stop sending it once one refuses.
@@ -144,8 +163,7 @@ export function createOpenAiLlm({
     }
   }
 
-  return {
-    async complete(messages, options = {}) {
+  async function completeWithUsage(messages: ChatMessage[], options: CompleteOptions = {}): Promise<{ content: string; usage?: CompletionUsage }> {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);
       const effort = options.reasoningEffort ?? (options.json === true && controlReasoning ? 'none' : undefined);
@@ -153,6 +171,7 @@ export function createOpenAiLlm({
         model,
         messages,
         temperature: options.temperature ?? 0,
+        ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
         ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
       };
       const askForJson = options.json === true && jsonModeSupported;
@@ -181,8 +200,12 @@ export function createOpenAiLlm({
       }
       const content = contentOf(body);
       if (content === undefined) throw new LlmError('LLM reply has no message content');
-      return content;
-    },
+      return { content, usage: usageOf(body) };
+  }
+
+  return {
+    completeWithUsage,
+    async complete(messages, options) { return (await completeWithUsage(messages, options)).content; },
     async *stream(messages, options = {}) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal]);

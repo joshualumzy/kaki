@@ -119,6 +119,7 @@ export function buildSystemPrompt(
   memory: readonly MeetingMemoryEntry[] = [],
   reopenedItem?: string,
   reopenedOnce: readonly string[] = [],
+  recentSpoken: readonly Utterance[] = [],
 ): string {
   const npcs = scenario.npcs ?? [];
   const names = npcs.map((npc) => npc.attendee);
@@ -181,6 +182,9 @@ export function buildSystemPrompt(
     `Agenda:\n${agenda}`,
     `Already true in this meeting (never contradict these):\n${memory.length === 0 ? 'No decisions or new details yet.' : memory.map((entry) =>
       entry.kind === 'decision' ? `Decision on ${entry.item}: ${entry.text}` : `${entry.item}: ${entry.text}`).join('\n')}`,
+    ...(recentSpoken.length === 0
+      ? []
+      : [`Already heard in the last minute of this topic (do not repeat or rephrase these points; add something new or stay quiet):\n${recentSpoken.map((utterance) => `${utterance.speaker}: ${utterance.text}`).join('\n')}`]),
     ...(reopenedItem === undefined ? [] : [`The visitor is revisiting the earlier item "${reopenedItem}" while the meeting remains on its current agenda item. Name the cost of changing the earlier decision. Once the new call settles, the host returns to the current item.`]),
     ...(currentAgendaItem === undefined ? [] : [
       `Current item: ${currentAgendaItem.title}. ${currentAgendaItem.briefing ?? ''}`,
@@ -264,6 +268,7 @@ export function buildSystemPrompt(
       `- After the hidden control line, put every spoken turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,
       '- If nobody would say anything (the person only coughed or said "um"), reply with exactly: NONE',
       '- If the person cut a character off, the history shows only what was actually said. Carry on naturally; do not repeat what they never heard unless it still matters.',
+      '- A character never restates or rephrases a point they themselves made in the last minute; the room already heard it. Add something new, or stay quiet.',
     ].join('\n'),
     `Example of the format and the tone:\n${names[0] ?? 'Name'}: Yeah, I hear you. That's a fair worry.\n${names[1] ?? names[0] ?? 'Name'}: Hm, right. Can I add one thing?`,
   ].join('\n\n');

@@ -195,6 +195,56 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
+  it('shows the Director which points the room already heard in the last minute', async () => {
+    const h = harness();
+    await h.say('Hello.');
+    h.calls.at(-1)?.push('Ada: Anyone new on the till needs a login, and that is about fifteen minutes before opening.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await h.say('Tell me more.');
+    const prompt = String(h.calls.at(-1)?.messages[0]?.content);
+    expect(prompt).toContain('Already heard in the last minute');
+    expect(prompt).toContain('Anyone new on the till needs a login');
+    h.conversation.close();
+  });
+
+  it('knows when a colleague volunteered to handle the follow-up in their own recent line', async () => {
+    const h = harness();
+    await h.say('Can you handle this?');
+    h.calls.at(-1)?.push("Ada: Leave it with me, I'll handle that follow-up.");
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.volunteeredRecently('Ada')).toBe(true);
+    expect(h.conversation.volunteeredRecently('Bao')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('drops a repeated line when a cut-off reply carries on, and logs it', async () => {
+    const h = harness();
+    const line = 'Anyone new on the till needs a login, and that is about fifteen minutes before opening.';
+    await h.say('Tell me about the till.');
+    h.calls.at(-1)?.push(`Ada: ${line}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.playing).toHaveLength(1);
+    h.conversation.humanSpeech(true);
+    await h.flush();
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(400);
+    h.calls.at(-1)?.push(`Ada: ${line}`);
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.transcript.filter(([, text]) => text === line)).toHaveLength(1);
+    expect(h.logs.some((text) => text.startsWith('[repeat] Ada:'))).toBe(true);
+    h.conversation.close();
+  });
+
   it('sends no reaction when the turn is aborted before any line plays', async () => {
     const h = harness();
     const reaction = vi.fn();

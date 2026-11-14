@@ -3,21 +3,26 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 
 const BASE = 'http://localhost:5173';
 const LOG_DIR = '.live-logs';
-const startedAt = new Date();
-const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
-const reportPath = join(LOG_DIR, `${stem}.md`);
-const shotDir = join(LOG_DIR, 'playtest-shots');
-
 type Check = { at: string; name: string; status: 'PASS' | 'WARN' | 'FAIL'; detail: string; shot?: string };
-type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
+export type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
-function options(): { role?: string; maxMinutes: number; phone: boolean } {
+export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean };
+export type AnswerContext = { scenario: Scenario; role: string; topicTitle: string; transcript: Line[]; intent: string };
+export type FinishContext = { scenario?: Scenario; transcript: Line[]; playedTopics: number[] };
+export type PlaytestHooks = {
+  answer(context: AnswerContext): Promise<string>;
+  finish(context: FinishContext): Promise<{ reportLines: string[]; summaryLines: string[] }>;
+  reportLines(): string[];
+};
+
+function options(): PlaytestOptions {
   let role: string | undefined;
   let phone = false;
   let maxMinutes = 25;
@@ -54,7 +59,11 @@ function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').
 function stamp(): string { return new Date().toISOString(); }
 function lineKey(line: Line): string { return `${line.sourceTime}|${line.speaker}|${line.text}`; }
 
-async function main(): Promise<void> {
+export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestHooks): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
+  const startedAt = new Date();
+  const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
+  const reportPath = join(LOG_DIR, `${stem}.md`);
+  const shotDir = join(LOG_DIR, 'playtest-shots');
   const checks: Check[] = [];
   const transcript: Line[] = [];
   const uiLines: UiLine[] = [];
@@ -68,6 +77,9 @@ async function main(): Promise<void> {
   const offerHandled = new Set<number>();
   const accepted = new Set<string>();
   const reacted = new Set<string>();
+  const playedTopics = new Set<number>();
+  let extraReportLines: string[] = [];
+  let summaryLines: string[] = [];
   let scenario: Scenario | undefined;
   let page: Page | undefined;
   let browser: Browser | undefined;
@@ -178,8 +190,12 @@ async function main(): Promise<void> {
     return (await page.locator(selector).first().textContent().catch(() => ''))?.includes(value) === true;
   }
 
-  async function speak(text: string): Promise<boolean> {
+  async function speak(text: string, intent = text): Promise<boolean> {
     if (page === undefined) return false;
+    if (hooks !== undefined) {
+      if (scenario === undefined) throw new Error('Cannot choose an AI visitor line without a scenario');
+      text = await hooks.answer({ scenario, role: visitorRole, topicTitle: scenario.agenda[agendaIndex]?.title ?? '(unknown topic)', transcript: [...transcript], intent });
+    }
     const input = page.getByRole('textbox', { name: 'Type to the meeting' });
     try {
       await input.fill(text, { timeout: 5_000 });
@@ -201,7 +217,7 @@ async function main(): Promise<void> {
     offerHandled.add(index);
     const before = transcript.length;
     await check(`Topic ${index + 1} lock offer`, true, offer.text);
-    await speak('Before we lock that in, who will own the practical check tomorrow morning?');
+    await speak('Before we lock that in, who will own the practical check tomorrow morning?', 'Ask who owns the practical check before locking the decision.');
     const recovered = await waitFor(`Topic ${index + 1} offer recovery`, () =>
       settled.has(scenario?.agenda[index]?.title ?? '') ||
       transcript.slice(before).some((line) => line.agendaIndex === index && /shall (?:we|i) lock in what you/i.test(line.text)), 35_000, false);
@@ -323,13 +339,12 @@ async function main(): Promise<void> {
       if (reply === undefined) { reacted.add(lineKey(line)); continue; }
       if (robotLineCount(index) >= 4) { reacted.add(lineKey(line)); return; }
       if (!await quietBeforeTyping(index)) return;
-      if (await speak(reply)) reacted.add(lineKey(line));
+      if (await speak(reply, `Reply to this latest colleague line and move the discussion forward: ${line.text}`)) reacted.add(lineKey(line));
       return;
     }
   }
 
   try {
-    const parsed = options();
     globalDeadline = Date.now() + parsed.maxMinutes * 60_000;
     await mkdir(LOG_DIR, { recursive: true });
     browser = await chromium.launch({ channel: 'chrome', headless: false, args: [
@@ -449,6 +464,7 @@ async function main(): Promise<void> {
       if (!await waitFor(`Topic ${i + 1} active`, () => agendaIndex === i, 120_000)) {
         if (agendaIndex !== i) continue;
       }
+      playedTopics.add(i);
       notes.push(`${stamp()} Topic ${i + 1}: ${title}`);
       const decision = decisionFor(title);
       if (i === 0) {
@@ -469,7 +485,7 @@ async function main(): Promise<void> {
       if (i === 1) {
         if (!await waitForVisitorTurn(i)) continue;
         notes.push(`${stamp()} Topic ${i + 1}: the Table topic chip needs a visitor line on this topic, so typed a short non-decision line first.`);
-        await speak('Before I call it, what is the practical catch for the team?');
+        await speak('Before I call it, what is the practical catch for the team?', 'Ask a practical question before making a decision.');
         await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
           transcript.slice(before).some((line) => line.agendaIndex === i && /robot visitor/i.test(line.speaker)), 15_000);
         // The starter button only appears when the room is idle, and colleagues may keep talking for 50+ s after the
@@ -498,7 +514,7 @@ async function main(): Promise<void> {
         const latest = latestAiLine(i);
         const recap = latest !== undefined && /\brecap\b/i.test(latest.text) && !reacted.has(lineKey(latest));
         if (recap) reacted.add(lineKey(latest));
-        if (!await speak(recap ? `No need, here's my call: ${decision}` : decision)) continue;
+        if (!await speak(recap ? `No need, here's my call: ${decision}` : decision, 'Make your opening-day call on this topic, responding to the latest exchange.')) continue;
         if (i === 3) {
           const lock = page.getByRole('button', { name: 'Lock in my decision' });
           const thinking = await waitFor('Thinking with Lock enabled', async () =>
@@ -539,7 +555,7 @@ async function main(): Promise<void> {
         const isSpeaking = () => page!.locator('.kd-state').filter({ hasText: 'speaking' }).count().then((n) => n > 0);
         let speaking = await waitFor('AI speaking before Skip', isSpeaking, 15_000, false);
         if (!speaking) {
-          await speak('Before we leave this, could someone give one quick recap of the next step?');
+          await speak('Before we leave this, could someone give one quick recap of the next step?', 'Ask for a quick recap of the next step.');
           speaking = await waitFor('AI reply before Skip', isSpeaking, 20_000);
         }
         if (speaking) {
@@ -627,6 +643,16 @@ async function main(): Promise<void> {
       uiLines.push(...storedUiLines);
     }
     if (browser !== undefined) await browser.close().catch((error: unknown) => notes.push(`Could not close launched browser: ${String(error)}`));
+    if (hooks !== undefined) {
+      try {
+        const finished = await hooks.finish({ scenario, transcript: [...transcript], playedTopics: [...playedTopics] });
+        extraReportLines = finished.reportLines;
+        summaryLines = finished.summaryLines;
+      } catch (error) {
+        await check('AI judge', false, error instanceof Error ? error.message : String(error));
+      }
+      extraReportLines.push(...hooks.reportLines());
+    }
     const lines = [
       `# Kopitiam live playtest — ${startedAt.toISOString()}`,
       '',
@@ -662,12 +688,16 @@ async function main(): Promise<void> {
       '',
       ...(notes.length ? notes.map((item) => `- ${item}`) : ['(none)']),
       '',
+      ...extraReportLines,
     ];
     await mkdir(LOG_DIR, { recursive: true });
     await writeFile(reportPath, lines.join('\n'));
     console.log(`Report: ${reportPath}`);
-    process.exitCode = checks.some((item) => item.status === 'FAIL') ? 1 : 0;
+    for (const line of summaryLines) console.log(line);
   }
+  return { reportPath, passed: checks.every((item) => item.status !== 'FAIL'), summaryLines };
 }
 
-void main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void runLivePlaytest(options()).then((result) => { process.exitCode = result.passed ? 0 : 1; });
+}

@@ -31,13 +31,18 @@ export function dispatchLine(name: string, title: string, count: number): string
   return lines[count % lines.length]!;
 }
 
-/** How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention). */
-export function colleagueLine(name: string, title: string, count: number): string {
-  const phrased = inlineTitle(title);
+/**
+ * How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention).
+ * The title is quoted as a task name so an imperative title still reads naturally. When the colleague has just
+ * volunteered to handle it, the host thanks them instead of asking again.
+ */
+export function colleagueLine(name: string, title: string, count: number, volunteered = false): string {
+  if (volunteered) return `Thanks, ${name}, that one's yours.`;
+  const task = `"${title.trim().replace(/\.$/, '')}"`;
   const lines = [
-    `${name}, can you help us take on ${phrased}? Are you good to handle that?`,
-    `${name}, let's put that on your list: ${phrased}. Are you good to take it?`,
-    `${name}, can you take the lead on this one: ${phrased}?`,
+    `${name}, could you take this one: ${task}?`,
+    `${name}, can I put ${task} on your list?`,
+    `${name}, would you take ${task}?`,
   ];
   return lines[count % lines.length]!;
 }

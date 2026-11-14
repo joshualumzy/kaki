@@ -112,6 +112,8 @@ export interface NpcRunner {
   visitorRole(): string | undefined;
   /** True when `attendee` is voiced by the AI right now (not when a person took that seat). */
   plays(attendee: string): boolean;
+  /** True when `attendee` volunteered for the follow-up in their own line on this topic in the last minute. */
+  volunteeredRecently(attendee: string): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
   hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
@@ -659,6 +661,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;
+    },
+    volunteeredRecently(attendee) {
+      return conversation?.volunteeredRecently(attendee) ?? false;
     },
     hostIsHuman,
     agendaMoved(title) {
