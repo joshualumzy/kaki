@@ -16,7 +16,7 @@ type Check = { at: string; name: string; status: 'PASS' | 'WARN' | 'FAIL'; detai
 export type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
-export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean };
+export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean };
 export type AnswerContext = { scenario: Scenario; role: string; topicTitle: string; transcript: Line[]; intent: string };
 export type FinishContext = { scenario?: Scenario; transcript: Line[]; playedTopics: number[] };
 export type PlaytestHooks = {
@@ -30,16 +30,18 @@ export type PlaytestHooks = {
 function options(): PlaytestOptions {
   let role: string | undefined;
   let phone = false;
+  let shots = false;
   let maxMinutes = 25;
   for (let i = 2; i < process.argv.length; i += 1) {
     const arg = process.argv[i];
     if (arg === '--role' && process.argv[i + 1]) role = process.argv[++i];
     else if (arg === '--max-minutes' && process.argv[i + 1]) maxMinutes = Number(process.argv[++i]);
     else if (arg === '--phone') phone = true;
+    else if (arg === '--shots') shots = true;
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
-  return { role, maxMinutes, phone };
+  return { role, maxMinutes, phone, shots };
 }
 
 function decisionFor(title: string): string {
@@ -77,6 +79,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   let uiTaskCards: string[] = [];
   const errors: string[] = [];
   const notes: string[] = [];
+  const shots: Array<{ at: string; path: string }> = [];
+  const shotTaken = new Set<string>();
   const seenLines = new Set<string>();
   const settled = new Set<string>();
   const offerHandled = new Set<number>();
@@ -112,15 +116,33 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   const strictModeSocketClose = /closed before the connection is established/i;
   const nearNavigation = (): boolean => lastNavigationAt > 0 && Date.now() - lastNavigationAt <= 5_000;
 
+  /** One screenshot for a named moment, in phone mode or when --shots is on. Each moment is captured at most once. */
+  async function keepShot(when: string): Promise<string | undefined> {
+    if (!phoneMode && parsed.shots !== true) return undefined;
+    if (page === undefined || page.isClosed()) return undefined;
+    const slug = when.replace(/\W+/g, '-');
+    if (shotTaken.has(slug)) return undefined;
+    shotTaken.add(slug);
+    await mkdir(shotDir, { recursive: true });
+    const shot = join(shotDir, `${stem}-${phoneMode ? 'phone' : 'desktop'}-${slug}.png`);
+    try {
+      await page.screenshot({ path: shot, timeout: 4_000 });
+      shots.push({ at: stamp(), path: shot });
+      return shot;
+    } catch (error) {
+      notes.push(`Screenshot failed (${when}): ${String(error)}`);
+      return undefined;
+    }
+  }
+
   /** Phone mode: the page must never scroll sideways; always keeps a screenshot so a person can eyeball the layout. */
   async function checkPhoneLayout(when: string): Promise<void> {
     if (!phoneMode || page === undefined || page.isClosed()) return;
     const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
     await check(`Phone layout ${when}`, scrollWidth <= innerWidth, `page width ${scrollWidth}px in a ${innerWidth}px screen`);
-    await mkdir(shotDir, { recursive: true });
-    const shot = join(shotDir, `${stem}-phone-${when.replace(/\W+/g, '-')}.png`);
-    await page.screenshot({ path: shot, timeout: 4_000 }).then(() => { const last = checks.at(-1); if (last !== undefined) last.shot ??= shot; })
-      .catch((error: unknown) => notes.push(`Phone screenshot failed (${when}): ${String(error)}`));
+    const shot = await keepShot(when);
+    const last = checks.at(-1);
+    if (shot !== undefined && last !== undefined) last.shot ??= shot;
   }
 
   // severity 'warn': a miss is listed for human review but does not fail the run.
@@ -132,6 +154,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
         const shot = join(shotDir, `${stem}-${String(++shotNumber).padStart(2, '0')}.png`);
         await page.screenshot({ path: shot, timeout: 4_000 });
         item.shot = shot;
+        shots.push({ at: item.at, path: shot });
       } catch (error) {
         notes.push(`Screenshot failed for ${name}: ${String(error)}`);
       }
@@ -626,10 +649,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     if (await waitFor('Join meeting', () => page!.locator('.kd-meeting').count().then((n) => n > 0), 25_000)) {
       await check('Join role', true, `${role.id} as Robot Visitor, microphone muted`);
       await checkPhoneLayout('after join');
+      await keepShot('after join');
     }
     const activeResponse = await page.request.get(`${BASE}/api/scenario`, { timeout: 10_000 });
     if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario returned HTTP ${activeResponse.status()}`);
     scenario = await activeResponse.json() as Scenario;
+    hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
     await check('Two agenda topics for the session', scenario.agenda.length === 2,
       `API returned ${scenario.agenda.length}; each meeting draws two of the five topics`);
     await check('Event API connection', await waitFor('Screen event stream', async () =>
@@ -643,9 +668,17 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
         page!.locator('.kd-meeting[data-needs-start="false"]').count().then((n) => n > 0), 20_000),
       'Start prompt closed after room acknowledgement');
     }
+    // The busy opening is Sam's welcome caption, a couple of seconds into the meeting rather than at the blank first frame.
+    if (phoneMode || parsed.shots === true) {
+      const welcome = await waitFor('Opening welcome caption', () =>
+        transcript.some((line) => line.agendaIndex === 0 && line.speaker === hostName), 45_000, false);
+      if (welcome) {
+        await delay(2_000);
+        await keepShot('opening');
+      }
+    }
 
     const count = Math.min(4, scenario.agenda.length);
-    hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
     for (let i = 0; i < count && Date.now() < globalDeadline && !closing; i += 1) {
       const title = scenario.agenda[i]!.title;
       if (!await waitFor(`Topic ${i + 1} active`, () => agendaIndex === i, 120_000)) {
@@ -653,6 +686,11 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       }
       playedTopics.add(i);
       notes.push(`${stamp()} Topic ${i + 1}: ${title}`);
+      // The brief is alive while the first colleague line of the topic is in captions.
+      if (phoneMode || parsed.shots === true) {
+        await waitFor(`Topic ${i + 1} first colleague line`, () => firstColleagueLine(i, hostName) !== undefined, 120_000, false);
+        await keepShot(`topic ${i + 1} brief`);
+      }
       const decision = decisionFor(title);
       if (i === 0) {
         const pause = page.locator('.kd-typebar .kd-stop');
@@ -749,10 +787,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       }
       await check(`Topic ${i + 1} settled`, await waitFor(`Topic ${i + 1} settlement event`, () => settled.has(title), 20_000), title);
       await checkPhoneLayout(`topic ${i + 1} settled`);
+      await keepShot(`topic ${i + 1} settled`);
       if (settled.has(title)) {
         await check(`Topic ${i + 1} follow-up card`, await waitFor(`Topic ${i + 1} task card`, () =>
           [...tasks.values()].some((task) => task.agendaItemTitle === title), 20_000),
         `TASK_UPDATED with agendaItemTitle=${title}`);
+        await keepShot(`topic ${i + 1} card`);
       }
 
       if (i === 0 && hooks?.behaviour === 'flip-flop') {
@@ -817,11 +857,17 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
           }
         }
       }
+      // Read the new topic on screen, not the last caption of the one that just ended.
+      if ((phoneMode || parsed.shots === true) && agendaIndex > i && i + 1 < count) {
+        await delay(2_000);
+        await keepShot(`topic ${i + 2} change`);
+      }
     }
 
     if (!closing) await waitFor('Meeting wrap-up', () => closing, 75_000);
     await check('Meeting reached wrap-up', closing, closing ? 'HOST_SPEECH_TRIGGERED CLOSING received' : 'No closing event');
     await checkPhoneLayout('at wrap-up');
+    await keepShot('at wrap-up');
     const storedUiLines = await page.evaluate('window.__playtestLines ?? []') as UiLine[];
     uiLines.push(...storedUiLines);
     uiTaskCards = await page.locator('.kd-task-card, .kd-role-active .card-title').allTextContents();
@@ -896,6 +942,10 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       '| Time (UTC) | Check | Result | Detail | Screenshot |',
       '| --- | --- | --- | --- | --- |',
       ...checks.map((item) => `| ${item.at} | ${escapeCell(item.name)} | ${item.status} | ${escapeCell(item.detail)} | ${item.shot ?? ''} |`),
+      '',
+      '## Screenshots',
+      '',
+      ...(shots.length ? shots.map((shot) => `- ${shot.at} — ${shot.path}`) : ['(none)']),
       '',
       '## Full API transcript',
       '',
