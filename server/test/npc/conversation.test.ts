@@ -117,6 +117,48 @@ describe('NpcConversation', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('limits a solo reply to one speaker and two sentences, then requests a reaction', async () => {
+    const withThree = { ...scenario, npcs: [...scenario.npcs,
+      { attendee: 'Cai', voice: 'v3', personality: 'Quiet', agenda: 'Open on time', concerns: [] }],
+      attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai' }] };
+    const h = harness(withThree);
+    await h.say('What happened?');
+    expect(h.calls.at(-1)?.messages.at(-1)?.content).toContain('ONE colleague answers in at most two short sentences');
+    h.calls.at(-1)?.push('Ada: We are short today. The till is ready. Bao: I have more to add.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await vi.advanceTimersByTimeAsync(400);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.transcript.filter(([speaker]) => speaker === 'Ada').map(([, text]) => text)).toEqual([
+      'We are short today.', 'The till is ready.',
+    ]);
+    expect(h.logs).toContainEqual(expect.stringContaining('[shape] dropped extra line from Bao'));
+    await h.say('And the queue?');
+    expect(h.calls.at(-1)?.messages.at(-1)?.content).toContain('single short sentence reacting');
+    h.conversation.close();
+  });
+
+  it('blocks another lock-in ask within a minute and suppresses an immediate overtime cue', async () => {
+    const h = harness(hostedScenario());
+    await h.say('What if we keep the prep plan?');
+    h.calls.at(-1)?.push('Ada: Shall we lock in the prep plan?');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.shouldSkipOvertimeCue()).toBe(true);
+    await h.say('Could we wait?');
+    h.calls.at(-1)?.push('Ada: Shall I lock in what you said?');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.logs).toContainEqual(expect.stringContaining('skipped a repeated lock-in ask'));
+    vi.setSystemTime(Date.now() + 15_001);
+    expect(h.conversation.shouldSkipOvertimeCue()).toBe(false);
+    h.conversation.close();
+  });
+
   it('reopens one earlier meeting item, replaces its decision, and returns to the current item', async () => {
     const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
       { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
@@ -865,11 +907,7 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
-  it.each([
-    [0, 'the host briefly states the news'],
-    [0.4, 'jumps in with the news'],
-    [0.9, 'already mid-disagreement'],
-  ])('passes seeded opening style %s and the same briefing facts to the prompt', async (seed, style) => {
+  it('asks for one colleague to give a two-sentence first-topic brief', async () => {
     const withThree = {
       ...scenario,
       agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.' }],
@@ -882,18 +920,38 @@ describe('NpcConversation', () => {
     };
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
-      scenario: withThree, random: () => seed, observeDelayMs: 1, responseDelayMs: 0,
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
     await vi.advanceTimersByTimeAsync(1);
     expect(h.calls).toHaveLength(1);
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain(style);
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('Only Bao speaks');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('two short sentences');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most 16 words');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('what happened and its core cause');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at stake before 8 AM');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('A short question to Visitor follows automatically');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most one number');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('The stock arrived late.');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('hold at least one catch back');
+    h.calls[0]?.push('Bao: The stock arrived late. We may delay. Cai: I have another fact.');
+    h.calls[0]?.end();
+    await h.flush();
+    for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.transcript).toEqual([
+      ['Bao', 'The stock arrived late.'],
+      ['Bao', 'We may delay.'],
+      ['Bao', 'Visitor, what would you do?'],
+    ]);
+    expect(h.logs).toContainEqual(expect.stringContaining('[brief] dropped extra line from Cai'));
+    conversation.close();
   });
 
-  it.each([0, 0.4, 0.9])('names the prompt colleague among the two opening speakers at seed %s', async (seed) => {
+  it('uses the pushing colleague alone in the first-topic brief', async () => {
     const withOwner = {
       ...scenario,
       agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.', discussion: {
@@ -914,7 +972,7 @@ describe('NpcConversation', () => {
     };
     const h = harness(withOwner);
     const conversation = new NpcConversation<Utterance>(h.ports, {
-      scenario: withOwner, random: () => seed, observeDelayMs: 1, responseDelayMs: 0,
+      scenario: withOwner, observeDelayMs: 1, responseDelayMs: 0,
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
@@ -922,10 +980,65 @@ describe('NpcConversation', () => {
     expect(h.calls).toHaveLength(1);
     expect(h.calls[0]?.messages[0]?.content).toContain('Ada presses the issue hardest');
     const cue = h.calls[0]?.messages.at(-1)?.content;
-    expect(cue).toContain('Ada pushes hardest');
-    expect(cue).toContain('Ada\'s view:');
-    expect(cue).toContain('Bao\'s view:');
-    if (seed === 0.9) expect(cue).toContain('Ada and Bao are already mid-disagreement');
+    expect(cue).toContain('Begin with "Ada:"');
+    expect(cue).toContain('Only Ada speaks');
+    expect(cue).not.toContain("Bao's view");
+  });
+
+  const briefingScenario = () => ({
+    ...scenario,
+    agenda: [...scenario.agenda, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
+    npcs: [
+      { ...scenario.npcs[0]!, role: 'host' as const },
+      scenario.npcs[1]!,
+      { attendee: 'Cai', voice: 'v3', personality: 'Practical', agenda: 'Open on time', concerns: ['Supplies'] },
+    ],
+    attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai (Cashier)' }],
+  });
+
+  it('reports an upcoming colleague brief so the host does not invite the visitor first', () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Service');
+    expect(conversation.briefsOnTopic('Service')).toBe(true);
+    conversation.close();
+  });
+
+  it('starts the brief request while the host is still speaking, then plays it after the host', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Service');
+    conversation.announce('Ada', "Right, let's move on to Service.");
+    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.at(-1)).toMatchObject({ speaker: 'Ada' });
+    h.calls[0]?.push('Bao: The stock arrived late. We may delay.');
+    h.calls[0]?.end();
+    await h.flush();
+    expect(h.transcript.filter(([speaker]) => speaker === 'Bao')).toEqual([]);
+    h.playing.at(-1)?.finish();
+    await vi.advanceTimersByTimeAsync(1);
+    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.transcript).toEqual([
+      ['Ada', "Right, let's move on to Service."],
+      ['Bao', 'The stock arrived late.'],
+      ['Bao', 'We may delay.'],
+      ['Bao', 'How would you handle that, Visitor?'],
+    ]);
+    conversation.close();
   });
 
   it('does not cut the room off for a short burst of noise, but does for a person who keeps talking', async () => {

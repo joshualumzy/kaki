@@ -371,6 +371,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         // Sam welcomes the person once they press Start, before anyone else speaks (when a person hosts, the NPC co-host kicks off item 1's briefing).
         if (started && !welcomed) {
           if (!hostIsHuman()) {
+            conversation?.agendaMoved(scenario.agenda[0]?.title);
             announce(openingLine(scenario));
           } else {
             welcomed = true;
@@ -576,6 +577,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         conversation?.humanTyping();
       } else if (message.kind === 'start') {
         const session = message.session ?? participant.identity;
+        log(`received Start from ${participant.identity} (requestId=${message.requestId ?? 'none'}, session=${session})`);
         if (session !== participant.identity) {
           log(`ignored a Start for another session (${session})`);
           return;
@@ -586,6 +588,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           syncCast();
         }
         if (message.requestId !== undefined) {
+          log(`acknowledged Start requestId=${message.requestId} for ${session}`);
           publishState({ kind: 'started', requestId: message.requestId, session });
         }
       } else if (message.kind === 'stop') {
@@ -655,7 +658,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       isWelcome && visitor !== undefined
         ? liveOpeningLine(scenario, visitor)
         : isNextUp && nextTitle !== undefined
-          ? liveNextItemLine(scenario, nextTitle, visitor)
+          ? liveNextItemLine(scenario, nextTitle, visitor,
+              conversation?.briefsOnTopic(nextTitle) === true)
           : text;
     if (!isWelcome && !isNextUp && visitor !== undefined && visitor.seat !== visitor.name) {
       const escapedSeat = visitor.seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -673,6 +677,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       /^(.+?) is at (\d+) minutes, please wrap up\.$/i.exec(spoken.trim()) ??
       /^Hey team, we're a bit past time on (.+?) — let's wrap this one up so we can move on\.$/i.exec(spoken.trim());
     if (timeoutMatch !== null) {
+      if (conversation.shouldSkipOvertimeCue()) return;
       const personName = person?.name;
       const itemTitle = spokenAgendaName(scenario, timeoutMatch[1] ?? 'this item');
       spoken =
@@ -686,13 +691,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       hostName,
       spoken,
       undefined,
-      isWelcome
-        ? (wasSpoken) => {
-            conversation?.agendaMoved(scenario.agenda[0]?.title);
-            onDone?.(wasSpoken);
-          }
-        : onDone,
-      shouldStillSpeak,
+      onDone,
+      timeoutMatch === null ? shouldStillSpeak : () =>
+        conversation?.shouldSkipOvertimeCue() !== true && (shouldStillSpeak?.() ?? true),
     );
   }
   function hostIsHuman(): boolean {

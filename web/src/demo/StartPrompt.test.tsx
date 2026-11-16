@@ -170,6 +170,43 @@ describe('ConnectedStartPrompt', () => {
     expect(onStarted).toHaveBeenCalledTimes(1);
   });
 
+  it('queues Start when clicked while LiveKit is still connecting and sends it as soon as the room connects', () => {
+    vi.useFakeTimers();
+    const roomWithState = room as typeof room & { state?: string };
+    roomWithState.state = 'connecting';
+    room.localParticipant.identity = '';
+    const onStarted = vi.fn();
+    try {
+      render(<ConnectedStartPrompt onStarted={onStarted} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+      expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
+      expect(room.localParticipant.publishData).not.toHaveBeenCalled();
+
+      // Still connecting on the first retry tick: nothing sent yet.
+      act(() => {
+        vi.advanceTimersByTime(750);
+      });
+      expect(room.localParticipant.publishData).not.toHaveBeenCalled();
+
+      // LiveKit finishes connecting and sets the participant identity.
+      roomWithState.state = 'connected';
+      room.localParticipant.identity = 'visitor-1';
+      act(() => {
+        emit('connected');
+      });
+      expect(room.localParticipant.publishData).toHaveBeenCalledTimes(1);
+      const request = sentStart();
+      expect(request.kind).toBe('start');
+      expect(request.session).toBe('visitor-1');
+
+      act(() => acknowledge(request));
+      expect(onStarted).toHaveBeenCalledTimes(1);
+    } finally {
+      delete roomWithState.state;
+      room.localParticipant.identity = 'visitor-1';
+    }
+  });
+
   it('reports a rejected Start publish instead of hiding the transport failure', async () => {
     vi.useFakeTimers();
     room.localParticipant.publishData.mockRejectedValue(new Error('channel closed'));

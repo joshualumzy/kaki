@@ -12,6 +12,25 @@ export interface HumanInfo {
   role: string;
 }
 
+export type ReplyShape = 'solo' | 'reaction' | 'backing' | 'exchange';
+
+/** A fixed cycle gives the room short turns without relying on the model to invent variety. */
+export function replyShapeForTurn(index: number, firstIdea: boolean, recent: readonly ReplyShape[] = []): ReplyShape {
+  const proposed = firstIdea ? 'exchange' : (['solo', 'reaction', 'backing', 'solo', 'exchange'] as const)[Math.abs(Math.trunc(index)) % 5]!;
+  return recent.at(-1) === proposed && recent.at(-2) === proposed
+    ? proposed === 'solo' ? 'reaction' : 'solo'
+    : proposed;
+}
+
+export function replyShapeInstruction(shape: ReplyShape): string {
+  switch (shape) {
+    case 'solo': return 'ONE colleague answers in at most two short sentences. Everyone else stays quiet. Hand the floor back to the visitor.';
+    case 'reaction': return 'ONE colleague gives a single short sentence reacting to the visitor. Everyone else stays quiet. Hand the floor back.';
+    case 'backing': return 'One colleague answers in one short sentence; a second colleague only agrees or backs that point in one short sentence. No new fact from the second colleague. Then stop.';
+    case 'exchange': return 'One colleague answers in one short sentence; a second adds one short sentence only if their cost is still open. Then hand the floor back.';
+  }
+}
+
 /** What the person's role answers for (its role card's responsibility), if the role has a card. */
 export function responsibilityFor(scenario: Scenario, human: HumanInfo | undefined): string | undefined {
   const key = human?.role.trim().toLowerCase();
@@ -196,7 +215,7 @@ export function buildSystemPrompt(
         return colleague === undefined || !names.includes(colleague) ? '' : `${colleague}'s fact for this item: ${scrubSeatName(fact)}`;
       }).filter(Boolean),
       ...((currentAgendaItem.sayExactly ?? []).length === 0 ? [] : [`Figures allowed exactly when useful: ${currentAgendaItem.sayExactly!.join(' | ')}`]),
-      ...(currentAgendaItem.offScreen === undefined ? [] : [`Off-screen for this item only: ${currentAgendaItem.offScreen.name} (${currentAgendaItem.offScreen.role}). A colleague must say they will ask first; this person may answer once, relayed by a colleague in one sentence. How they answer: ${currentAgendaItem.offScreen.howTheyAnswer}`]),
+      ...(currentAgendaItem.offScreen === undefined ? [] : [`Off-screen for this item only: ${currentAgendaItem.offScreen.name} (${currentAgendaItem.offScreen.role}). A colleague must say they will ask first. Only on a LATER reply, once that offer is in the earlier lines, this person may answer once, relayed by a colleague in one sentence as a message they sent back ("Uncle Lim's texted back: ..."), never as a meeting the colleague had in person. How they answer: ${currentAgendaItem.offScreen.howTheyAnswer}`]),
       ...(currentAgendaItem.sensitive === true ? ['Sensitive item: no jokes, no blame; speak of the affected customer with respect.'] : []),
     ]),
     ...(discussionLine === undefined ? [] : [discussionLine]),
@@ -218,8 +237,8 @@ export function buildSystemPrompt(
       '- The FIRST line of every reply is hidden control, exactly: KAKI_CONTROL {"state":"open|settled|deferred","followUp":{"kind":"mattermost_post|email|wiki_page|calendar_event|gitea_issue","title":"short deliverable"},"wingmanNeeded":false}. Use one actual state and kind, valid JSON, and no prose on this line. State settled only when answering a fresh visitor decision on this topic. Use deferred only when the visitor explicitly chooses to defer. Set wingmanNeeded true when they need a fact or help, and only then you may add "wingmanTip":"one short sentence giving the single useful fact from the scenario or meeting memory". Optional fields: "newFacts":["small new detail"], "reactions":[{"who":"AI attendee name","emoji":"👍"}], "reopen":"exact earlier agenda title". The task card uses the formal followUp.title; spoken follow-up wording stays natural. For an opening briefing or colleague handover, state open.',
       `- If the visitor changes a decision on an earlier agenda item, set reopen to that exact earlier title and name the cost of changing it. Each earlier item may be reopened once only. Items already reopened: ${reopenedOnce.join(' | ') || 'none'}. If they ask again, the host moves the room back to the current item. Never reopen after the meeting wraps up.`,
       '- Add reactions only when a colleague would visibly react to the visitor\'s last line or another colleague. Up to two AI attendees, with one of 👍 😬 🤔 😅 🙌 💸 🤨 ⏰ each. On a sensitive item, only 🤔 😬 ⏰. No emoji in spoken lines.',
-      '- You may invent up to two small plausible details per reply only to fill a gap the visitor\'s idea opens: a lead time, off-screen agreement, a supplier or system capability, or a small cost. Put every such detail in newFacts. Never change a stated fact or number, add a new disaster or topic, or make an idea impossible merely to block it. An off-screen person appears only in their own item, at most once, and only after a colleague says they will ask.',
-      `- Decide who speaks from their temperament and stake. Usually one or two of ${names.join(', ')} speak; at most two colleagues per reply unless the visitor asked everyone. If addressed by name, that colleague answers first. Colleagues may answer each other briefly. Vary who goes first.`,
+      '- You may invent a small plausible detail only when the visitor asks for one or their idea opens a gap. Put it in newFacts. Never invent a completed off-screen action, conversation or event: say you will ask or check. An off-screen person appears only in their own item, at most once, on a later reply after a colleague said they will ask, relayed as a message they sent back.',
+      `- Decide who speaks from their temperament and stake. At most two of ${names.join(', ')} speak unless the visitor asked everyone. If addressed by name, that colleague answers first. Colleagues may answer each other briefly. Follow the reply shape specified for this turn.`,
       ...(unintroduced.length > 0
         ? [
             `- FIRST-TIME SPEAKERS: ${unintroduced.join(', ')} have not spoken yet. Begin with a concrete point, not a formulaic role introduction.`,
@@ -264,9 +283,11 @@ export function buildSystemPrompt(
       '- Use warm, casual Singapore or British phrasing ("shop", "queue", "counter", "steady", "can", "fair point"). Avoid Americanisms and office buzzwords: "awesome", "super excited", "totally", "gotten", "touch base", "kudos", "math", "store clerk", "line up", "friction points", "bandwidth", "alignment", "deep dive". Each colleague sounds like their own speech style, temperament and stake.',
       '- Notice the visitor\'s mood and respond as a coworker; where the item allows humour, ground it or praise in what happened in this meeting. Do not scold or use formulaic role introductions.',
       '- A character never says what another character did, said, found or decided unless it is in the scenario, meeting memory, or was said aloud earlier. Speak only for yourself.',
-      '- If the person needs a fact, respond from the current item\'s facts or meeting memory and set wingmanNeeded true. Use rough spoken numbers such as "most" or "about half". Use an exact figure only if it is in this item\'s sayExactly list, meeting memory, or the visitor asked for that exact number. At most two figures in a spoken sentence; split the sentence or round the rest.',
+      '- Facts in a character profile are background, not a checklist to recite. Answer the visitor\'s actual point; do not volunteer a new profile fact each turn. Use a number only if asked or if that number is the point of the reply. Unless the visitor asked for figures, use at most one number in each colleague line. Exact figures must come from this item\'s facts, sayExactly list, or meeting memory.',
+      '- Keep the internal time budget in natural speech: say what you can finish and what you cannot test before opening. Never say "my hour", "of my hour", "sheet", "points", or refer to a game rule.',
+      '- Speak like colleagues, not a scriptwriter: no neat aphorisms, punch lines, or balanced quips. Do not say "Sorry, I\'ll finish" or apologise for interruption unless someone actually interrupted you.',
       '- Never invent a change in a colleague\'s job or commitments: do not say or imply that someone quit, resigned, was fired, is leaving, or has refused or promised something, unless it is written in your own facts above or the person said it in this meeting.',
-      '- Write plain spoken English in complete sentences under 28 words for readable captions. Target one or two sentences per colleague per turn (the opening briefing may be longer). Never exceed three. No lists, markdown, emoji or stage directions.',
+      '- Write plain spoken English in complete sentences under 28 words for readable captions. Keep to the specified reply shape. No lists, markdown, emoji or stage directions.',
       `- After the hidden control line, put every spoken turn on its own line, starting with the speaker's name and a colon, using exactly these names: ${names.join(', ')}.`,
       '- If nobody would say anything (the person only coughed or said "um"), reply with exactly: NONE',
       '- If the person cut a character off, the history shows only what was actually said. Carry on naturally; do not repeat what they never heard unless it still matters.',
@@ -274,7 +295,6 @@ export function buildSystemPrompt(
       '- A character\'s signature worry is said once per meeting, not again: check meeting memory and earlier lines before repeating their usual cost or objection, then react to what is new.',
       '- Vary how lines open. A stock phrase ("The catch is", "Fair, but", "Fine by me") is used at most once per meeting.',
     ].join('\n'),
-    `Example of the format and the tone:\n${names[0] ?? 'Name'}: Yeah, I hear you. That's a fair worry.\n${names[1] ?? names[0] ?? 'Name'}: Hm, right. Can I add one thing?`,
   ].join('\n\n');
 }
 

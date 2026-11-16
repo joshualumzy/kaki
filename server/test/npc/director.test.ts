@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressedCharacter, buildSystemPrompt, cleanSpoken, findHandover, pushingColleague, TurnParser, type Utterance } from '../../src/npc/director';
+import { addressedCharacter, buildSystemPrompt, cleanSpoken, findHandover, pushingColleague, replyShapeForTurn, replyShapeInstruction, TurnParser, type Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
 const npcScenario = {
@@ -9,6 +9,21 @@ const npcScenario = {
     { attendee: 'Bao', voice: 'v2', personality: 'Chatty cashier', agenda: 'Fix queues', concerns: ['Long lines'] },
   ],
 };
+
+describe('reply shape rotation', () => {
+  it('cycles through solo, reaction, backing and exchange turns', () => {
+    expect(Array.from({ length: 5 }, (_, index) => replyShapeForTurn(index, false))).toEqual([
+      'solo', 'reaction', 'backing', 'solo', 'exchange',
+    ]);
+    expect(replyShapeInstruction('backing')).toContain('second colleague only agrees');
+  });
+
+  it('keeps the first-idea catch while preventing three identical shapes in a row', () => {
+    expect(replyShapeForTurn(0, true)).toBe('exchange');
+    expect(replyShapeForTurn(1, true, ['exchange', 'exchange'])).toBe('solo');
+    expect(replyShapeForTurn(0, false, ['solo', 'solo'])).toBe('reaction');
+  });
+});
 
 /** Feed a reply in the given pieces, as a model would stream it, and collect every utterance. */
 function parse(pieces: string[], names = ['Ada', 'Bao']): Utterance[] {
@@ -282,6 +297,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain("Ada's fact for this item: current chef fact");
     expect(prompt).not.toContain('current cashier fact');
     expect(prompt).toContain('Pat (supplier)');
+    expect(prompt).toContain('relayed by a colleague in one sentence as a message they sent back');
     expect(prompt).toContain('They can confirm once.');
     expect(prompt).toContain('no jokes, no blame');
     expect(prompt).toContain('42 tickets');
@@ -300,7 +316,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Story time comes only from the scenario situation');
     expect(prompt).not.toContain('current local time:');
     expect(prompt).not.toContain('time of day (');
-    expect(prompt).toContain('At most two figures in a spoken sentence');
+    expect(prompt).toContain('at most one number in each colleague line');
     expect(prompt).not.toContain('last line of the reply is a short question');
     expect(prompt).not.toContain('Every reply while this item is open');
     expect(prompt).not.toContain('ask for the exact followUp.title');
@@ -343,7 +359,8 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt(npcScenario);
     expect(prompt).toContain('answer it directly and concretely from the current scenario facts');
     expect(prompt).toContain("Notice the visitor's mood");
-    expect(prompt).toContain('Ada: Yeah, I hear you.');
+    expect(prompt).toContain('Keep to the specified reply shape');
+    expect(prompt).not.toContain('Ada: Yeah, I hear you.');
     expect(prompt).not.toMatch(/crash|Arjun|Hawker/);
   });
 
@@ -511,7 +528,7 @@ describe('the director prompt', () => {
     const prompt = buildSystemPrompt(npcScenario, { name: 'Visitor', role: 'Chef' });
     expect(prompt).toContain("signature worry is said once per meeting");
     expect(prompt).toContain('Vary how lines open');
-    expect(prompt).toContain('At most two figures in a spoken sentence');
+    expect(prompt).toContain('at most one number in each colleague line');
   });
 
   it('gives the host a natural acknowledgement instead of a bare Noted', () => {

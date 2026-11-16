@@ -218,7 +218,7 @@ async function handleRequest(
         // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
         // a different person arriving in that empty room starts a fresh meeting instead. If LiveKit cannot be asked,
         // nobody can be told apart from an empty room, so the gate stays open and nothing is reset.
-        const meetingWasRunning = context.rejoin.hasMeeting();
+        const meetingWasRunning = context.rejoin.hasBegun();
         const rejoin = roster !== undefined && present.length === 0
           ? context.rejoin.admit(join.participantName)
           : undefined;
@@ -262,6 +262,7 @@ async function handleRequest(
         context.watchRoom(join.roomName);
         void syncDemoVisitorProfile(join.participantName);
         const resumed = meetingWasRunning && rejoin?.reset !== true;
+        console.log(`[join] ${join.participantName} (${join.participantRole ?? 'participant'}) room=${join.roomName} reset=${rejoin?.reset === true} resumed=${resumed}`);
         sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed });
       } catch (error) {
         if (error instanceof JoinError) {
@@ -554,6 +555,8 @@ export async function createApp({
   hub.onCommand(tasks.handleCommand);
   hub.subscribe((event) => { if (event.type === 'MEETING_RESET') memory.splice(0); });
   hub.subscribe((event) => {
+    // Only speech proves the meeting began; record heartbeats and task updates can fire without anyone talking.
+    if (event.type === 'TRANSCRIPT_CHUNK' || event.type === 'HOST_SPEECH_TRIGGERED') rejoin.began();
     if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') rejoin.ended();
   });
 

@@ -16,7 +16,7 @@
       "id": "lead_programmer",
       "label": "Tech & POS Lead",
       "card": {
-        "youAre": "You are Arjun, Tech & POS Lead. You have one hour before doors open, and every system change comes out of it.",
+        "youAre": "You are Arjun, Tech & POS Lead. Doors open at eight; a change made now may leave no time to test it.",
         "facts": [],
         "responsibility": "Keep the shop systems working for opening and weigh each change against the time left."
       }
@@ -88,7 +88,7 @@
       "decision": "how do we run the counter from 8 to 10 one person short?",
       "directions": [
         "Ask Auntie Mary to come in. Rest-day work is double pay and she can say no. If asked, she answers once, in character: she may agree, refuse, or agree with a condition such as only from 9. Decide her answer from how the guest asks.",
-        "An agency temp. Needs notice and a till login from Arjun (15 minutes of his hour), and does not know the menu.",
+        "An agency temp needs notice and a till login from Arjun, which takes about 15 minutes before opening; the temp does not know the menu.",
         "A manager covers the counter. Whoever it is drops their own opening-day job.",
         "Cut the counter menu to drinks and toast only, or push ordering to the kiosk.",
         "Scale back the free-kopi offer."
@@ -155,7 +155,7 @@
       "decision": "what do we do for the old regulars without losing money on every cup?",
       "directions": [
         "An old-price hour for kopi before the rush: it loses money per cup and keeps the counter busy.",
-        "A regulars' card or a regulars' price on the till. Arjun can add a price button in about 10 minutes of his hour, but someone must decide who counts as a regular. If the guest proposes a list of names, a colleague may ask Uncle Lim, who answers once: he may offer to vouch for them, or say he will not be the one turning people away.",
+        "A regulars' card or a regulars' price on the till. Arjun can add a price button in about 10 minutes, but may not have time to test it before opening. Someone must decide who counts as a regular. If the guest proposes a list of names, a colleague may offer to ask Uncle Lim, who answers once after that ask: he may offer to vouch for them, or say he will not be the one turning people away.",
         "A seniors' discount checked against a seniors' card: simple to check, but not every regular is a senior, and office workers' parents qualify too.",
         "Hold the price and explain it: a note at the counter, a reply on Facebook, a free first kopi for regulars this week."
       ],
@@ -224,7 +224,7 @@
       "briefing": "At yesterday's trial laptop users held about half our seats for a couple of hours on one kopi, and breakfast customers with trays walked out. One of the floor staff got shouted at for asking someone to move, and nobody wants to police tables.",
       "decision": "how do we free up seats for breakfast without anyone having to confront customers?",
       "directions": [
-        "Booth power off and Wi-Fi limited from 8 to 10: the socket timer and Wi-Fi codes take about 10 minutes of Arjun's hour. Many of the laptop users work upstairs.",
+        "Booth power off and Wi-Fi limited from 8 to 10: the socket timer and Wi-Fi codes take about 10 minutes to change, with little time to test before opening. Many of the laptop users work upstairs.",
         "A laptop zone on the 10 window-bar stools with power, and breakfast-table signs on the booths.",
         "A minimum spend per hour for laptop seats, shown on a time-stamped receipt, so staff have to check.",
         "A deal for the offices upstairs, which is Daniel's angle."
@@ -293,7 +293,7 @@
         "Open at 10 after the inspection, with a big loss of morning sales and the free-kopi crowd.",
         "Open with an honest note at the counter.",
         "For the customer: apology and refund, and cover her clinic bill, which is $85, or offer something more.",
-        "A socket cover and a fridge temperature alert, which cost 10 minutes of Arjun's hour."
+        "A socket cover and a fridge temperature alert, which take about 10 minutes to set up before opening."
       ],
       "background": [
         "The night cleaner unplugged the fridge to use the socket.",
@@ -362,7 +362,7 @@
         "Office Platters for five or more, limited by the large trays.",
         "A direct pickup code for offices. Someone has to come down; a pickup shelf sits by the side door.",
         "Pause single sets on the app from 8 to 10. Daniel's launch deal gives a featured banner only while the full menu is live.",
-        "Any app menu change takes 15 minutes to go live and comes out of Arjun's hour."
+        "Any app menu change takes 15 minutes to go live and leaves less time for Arjun to test other changes before opening."
       ],
       "background": [
         "Commission is 32%: $10.00 less 32% leaves $6.80, and a delivered set costs $7.30 to make and pack, so the loss is $0.50 per set.",
@@ -477,8 +477,8 @@
       "personality": "Tech & POS Lead. Dry, gives way easily on people questions, stubborn about untested changes to the till or kiosk.",
       "speechStyle": "Crisp, practical and dry. Uses plain words and explains the time a proposed system change would take when it matters.",
       "temperament": "Dry, gives way easily on people questions, stubborn about untested changes to the till or kiosk.",
-      "stake": "He has one hour before doors open, and every system change comes out of it.",
-      "hiddenGoal": "Protect the untested systems and his one hour before opening.",
+      "stake": "Doors open at eight, and each new system change leaves less time to test it.",
+      "hiddenGoal": "Protect the systems from untested changes before opening.",
       "agenda": "Keep shop systems dependable and explain what any change asks of the time before opening.",
       "concerns": [
         "Untested changes to the till or kiosk close to opening."

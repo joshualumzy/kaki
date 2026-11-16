@@ -36,36 +36,21 @@ export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   return parts.join(' ');
 }
 
-const SMALL_COUNTS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
-
-/** Small counts are spoken as words, because a host reading "2 quick issues" aloud sounds like a form. */
-function spokenCount(count: number): string {
-  return SMALL_COUNTS[count] ?? String(count);
-}
-
 /** Joins spoken list items the way people say them: "A, B, and C". */
 function spokenList(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
 }
 
-/** One colleague's job in lower-case spoken words, without the shouted title capitals. */
-function spokenJob(scenario: Scenario, role: string): string {
-  return roleLabel(scenario, role).replace(/&/g, 'and').replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-/**
- * The colleagues in the room, named with their jobs in one spoken line. Sam is speaking, and the
- * visitor's seat belongs to the guest, so neither is named.
- */
+/** Name the colleagues once without reading their job titles aloud. */
 function colleagueIntroductions(scenario: Scenario, hostName: string | undefined, visitor?: Visitor): string {
   const npcNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
   const colleagues = scenario.attendees.filter((attendee) =>
     attendee.name !== hostName &&
     attendee.name !== visitor?.seat &&
     (npcNames.size === 0 || npcNames.has(attendee.name)));
-  const introductions = colleagues.map((attendee) => `${attendee.name} is our ${spokenJob(scenario, attendee.role)}`);
-  return introductions.length === 0 ? '' : `${spokenList(introductions)}.`;
+  return spokenList(colleagues.map((attendee) => attendee.name));
 }
 
 export function cleanSpokenTopic(title: string): string {
@@ -108,17 +93,17 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
   const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
   const hostRole = scenario.roles.find((role) => role.facilitator === true);
   const hostAttendee = hostRole === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === hostRole.id);
-  const hostIntro =
-    hostAttendee !== undefined && hostRole !== undefined
-      ? ` I'm ${hostAttendee.name}, your ${hostRole.label}`
-      : '';
+  const hostIntro = hostAttendee === undefined ? '' : ` I'm ${hostAttendee.name}`;
   const first = scenario.agenda[0];
-  const who =
-    visitor !== undefined && seat !== undefined
-      ? `, ${visitor.name}.${hostIntro ? `${hostIntro}, and we're` : " We're"} glad you're here as ${roleLabel(scenario, seat.role)}`
-      : hostIntro
-        ? `.${hostIntro}`
-        : '';
+  const colleagues = colleagueIntroductions(scenario, hostAttendee?.name, visitor);
+  const role = visitor !== undefined && seat !== undefined ? `, our ${roleLabel(scenario, seat.role)}` : '';
+  const lead = `${OPENING_PREFIX}${scenario.organisation}${visitor === undefined ? '' : `, ${visitor.name}${role}`}`;
+  const welcome = hostIntro !== ''
+    ? `${lead};${hostIntro}${colleagues === '' ? '' : `, with ${colleagues} here`}.`
+    : `${lead}${colleagues === '' ? '' : `; ${colleagues} are here`}.`;
+  // The guest must hear that the decisions are theirs, or they wait for Sam to lead.
+  const visitorLead = scenario.hostBrief?.goal.match(/\bvisitor as ([^.]+)/i)?.[1]?.trim();
+  const decisionLead = visitor === undefined || visitorLead === undefined ? '' : ` You're ${visitorLead}, so the calls are yours.`;
 
   const situationLead = scenario.situation
     ?.split(/\n/)[0]
@@ -129,19 +114,15 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
     .replace(/,\s*and the team needs your call.*$/i, '')
     .replace(/\.$/, '');
 
-  const lead = scenario.hostBrief?.goal.match(/\bvisitor as ([^.]+)/i)?.[1]?.trim();
-  const decisionLead = visitor === undefined || lead === undefined ? '' : ` You're ${lead}, so the calls are yours.`;
-  const colleagues = colleagueIntroductions(scenario, hostAttendee?.name, visitor);
-  const colleaguesLine = colleagues === '' ? '' : ` ${colleagues}`;
-  const handoff = first === undefined ? '' : ` Let's start with ${spokenAgendaName(scenario, first.title)}.`;
+  const handoff = first === undefined ? '' : ` First, ${spokenAgendaName(scenario, first.title)}.`;
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
     const situationSentence = /[.!?]$/.test(situationLead) ? situationLead : `${situationLead}.`;
-    return `${OPENING_PREFIX}our ${scenario.organisation} huddle${who}.${decisionLead}${colleaguesLine} ${situationSentence} We've got ${spokenCount(scenario.agenda.length)} quick issues to settle today.${handoff}`;
+    const shortSituation = situationSentence.replace(/ on opening day at our refurbished /i, ' at our ');
+    return `${welcome}${decisionLead} ${shortSituation}${handoff}`.replace(/\s+/g, ' ').trim();
   }
 
-  if (first === undefined) return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}${colleaguesLine}`;
-  return `${OPENING_PREFIX}our ${scenario.organisation} huddle on ${scenario.meetingTitle}${who}.${decisionLead}${colleaguesLine} We've got ${spokenCount(scenario.agenda.length)} quick things to sort out today.${handoff}`;
+  return `${welcome}${decisionLead}${handoff}`.replace(/\s+/g, ' ').trim();
 }
 
 const NEXT_ITEM_LINES: ReadonlyArray<(topic: string) => string> = [
@@ -167,7 +148,12 @@ function agendaLine(lines: ReadonlyArray<(topic: string) => string>, scenario: S
  * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`),
  * handing over by name to the colleague who owns it when that lead is known.
  */
-export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Visitor): string {
+export function liveNextItemLine(
+  scenario: Scenario,
+  title: string,
+  visitor?: Visitor,
+  briefFollows = false,
+): string {
   const item = findAgendaItem(scenario, title);
   const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
   const ownerIsHost = item !== undefined && scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
@@ -176,7 +162,7 @@ export function liveNextItemLine(scenario: Scenario, title: string, visitor?: Vi
     : visitor !== undefined && visitor.seat === owner.name
       ? visitor.name
       : owner.name;
-  const handoff = lead === undefined ? '' : ` ${lead}, over to you.`;
+  const handoff = lead === undefined || briefFollows ? '' : ` ${lead}, over to you.`;
   return `${agendaLine(NEXT_ITEM_LINES, scenario, title)}${handoff}`;
 }
 

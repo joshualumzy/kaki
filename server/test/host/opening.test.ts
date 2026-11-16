@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { liveNextItemLine, liveOpeningLine, liveWrapUpLine, spokenAgendaName } from '../../src/host/opening';
+import { loadScenario } from '../../src/loadScenario';
 import { testScenario } from '../fixtures/scenario';
 
 describe('liveNextItemLine', () => {
+  it('keeps the shipped Kopitiam welcome within four short lines', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const line = liveOpeningLine(scenario, { name: 'Visitor', seat: 'Wei Ling' });
+    expect(line.split(/(?<=[.!?])\s+/)).toHaveLength(4);
+    expect(line.split(/\s+/).length).toBeLessThanOrEqual(55);
+    expect(line).toContain("You're opening-day lead, so the calls are yours.");
+    for (const name of ['Sam', 'Mei', 'Arjun', 'Daniel']) expect(line).toContain(name);
+    expect(line).toContain('our Operations Director');
+    expect(line).toContain('First, the staffing gap.');
+  });
   it('announces the next item while leaving its briefing to the chosen opening style', () => {
     const scenario = { ...testScenario, agenda: [{ ...testScenario.agenda[0]!, briefing: 'Fresh stock arrived late.' }] };
     const line = liveNextItemLine(scenario, 'Prep', { name: 'Visitor', seat: 'Bao' });
@@ -30,15 +41,26 @@ describe('liveNextItemLine', () => {
     expect(liveWrapUpLine(scenario, 'Service')).toBe("Good, that's Service sorted.");
   });
 
-  it('speaks small agenda counts as words in the welcome', () => {
+  it('ends on the topic without inviting the visitor when a colleague brief follows', () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
+    };
+    const line = liveNextItemLine(scenario, 'Service', { name: 'Visitor', seat: 'Bao' }, true);
+    expect(line).toBe("Right, let's move on to Service.");
+    expect(line).not.toContain('over to you');
+  });
+
+  it('keeps the welcome to three short spoken sentences', () => {
     const scenario = {
       ...testScenario,
       situation: 'Lunch service starts in ten minutes.',
       agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
     };
     const line = liveOpeningLine(scenario);
-    expect(line).toContain("We've got two quick issues");
-    expect(line).toContain("Let's start with Prep.");
+    expect(line).toContain('First, Prep.');
+    expect(line).not.toContain('two quick issues');
+    expect(line.split(/(?<=[.!?])\s+/)).toHaveLength(3);
   });
 
   it('ends the situation sentence before saying what the meeting has to settle', () => {
@@ -48,19 +70,20 @@ describe('liveNextItemLine', () => {
       agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
     };
     const line = liveOpeningLine(scenario);
-    expect(line).toContain("doors open at 8. We've got two quick issues to settle today.");
+    expect(line).toContain('doors open at 8. First, Prep.');
     expect(line).not.toContain('doors open at 8, and we');
   });
 
-  it('tells the visitor once that they make the calls, using the host brief', () => {
+  it('tells the visitor the calls are theirs without reading the rest of the host brief', () => {
     const scenario = { ...testScenario, hostBrief: { goal: 'Settle today with the visitor as opening-day lead.', decision: 'One call per item.' } };
     const line = liveOpeningLine(scenario, { name: 'Visitor', seat: 'Bao' });
+    expect(line).toContain('Visitor, our Cashier');
     expect(line).toContain("You're opening-day lead, so the calls are yours.");
-    expect(line.match(/calls are yours/g)).toHaveLength(1);
+    expect(line).not.toContain('One call per item');
     expect(line).not.toContain('which Ada is leading');
   });
 
-  it('names each colleague in the room with their job, after Sam introduces himself and before the situation', () => {
+  it('names the colleagues once without reading every job title', () => {
     const scenario = {
       ...testScenario,
       situation: 'Lunch service starts in ten minutes.',
@@ -76,11 +99,12 @@ describe('liveNextItemLine', () => {
       ],
     };
     const line = liveOpeningLine(scenario, { name: 'Visitor', seat: 'Bao' });
-    expect(line).toContain("I'm Sam, your General Manager");
-    expect(line).toContain('Ada is our chef, and Mei is our floor runner.');
+    expect(line).toContain("I'm Sam, with Ada and Mei here.");
+    expect(line).not.toContain('General Manager');
     expect(line).not.toContain('Sam is our');
     expect(line).not.toContain('Bao is our');
-    expect(line.indexOf('Ada is our chef')).toBeLessThan(line.indexOf('Lunch service starts'));
+    expect(line.indexOf('Ada')).toBeLessThan(line.indexOf('Lunch service starts'));
+    expect(line.split(/(?<=[.!?])\s+/)).toHaveLength(3);
   });
 });
 

@@ -531,6 +531,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     await mkdir(LOG_DIR, { recursive: true });
     browser = await chromium.launch({ channel: 'chrome', headless: false, args: [
       '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+      // Keep full speed when the owner minimises or covers the window, so a run behaves the same unwatched.
+      '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
       // Silent by default so a run does not talk over whatever the owner is doing; KAKI_PLAYTEST_SOUND=1 to listen.
       ...(process.env.KAKI_PLAYTEST_SOUND === '1' ? [] : ['--mute-audio']),
     ] });

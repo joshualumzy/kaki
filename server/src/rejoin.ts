@@ -28,6 +28,10 @@ export const REJOIN_POLL_MS = 5_000;
 export interface RejoinGuard {
   /** Record a successful join so the people in this meeting may return without the code. */
   joined(name: string, decision: RejoinDecision): void;
+  /** The meeting has begun speaking (or is hosted by a human): a returning guest resumes it without the Start tour. */
+  began(): void;
+  /** Whether the meeting has begun speaking since the last reset. */
+  hasBegun(): boolean;
   /** The server observed the room empty: start the grace window. Repeated calls are ignored. */
   emptied(): void;
   /** The server observed people again: cancel the grace window without resetting anything. */
@@ -55,6 +59,7 @@ export function createRejoinGuard({
   }
 
   let started = false;
+  let begun = false;
   let finished = false;
   const humans = new Set<string>();
   let emptySince: number | undefined;
@@ -86,6 +91,11 @@ export function createRejoinGuard({
   return {
     emptied,
     occupied,
+    began() {
+      if (!started || finished) return;
+      begun = true;
+    },
+    hasBegun: () => started && begun && !finished,
     ended() {
       if (!started || finished) return;
       finished = true;
@@ -111,6 +121,7 @@ export function createRejoinGuard({
     },
     joined(name, decision) {
       if (decision.reset) {
+        begun = false;
         finished = false;
         humans.clear();
         emptySince = undefined;

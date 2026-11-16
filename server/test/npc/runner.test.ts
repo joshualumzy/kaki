@@ -99,6 +99,45 @@ describe('startNpcRunner visitor pointer count', () => {
   });
 });
 
+describe('startNpcRunner topic transition', () => {
+  it('does not invite the visitor over the colleague brief that follows', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const listener = rooms[0]!;
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      listener.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      listener.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      runner.agendaMoved(scenario.agenda[1]!.title);
+      runner.announce('Next up: the kopi prices.');
+      await vi.waitFor(() => expect(transcript.some((line) => line.includes('move on to the kopi prices'))).toBe(true));
+      const line = transcript.find((entry) => entry.includes('move on to the kopi prices'))!;
+      expect(line).not.toContain('over to you');
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
 describe('startNpcRunner visitor transcript identity', () => {
   it.each([
     ['Operations Director', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],

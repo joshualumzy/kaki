@@ -512,6 +512,8 @@ describe('rejoining an empty meeting', () => {
     const agenda = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`)).json()) as {
       agenda: Array<{ title: string }>;
     };
+    // Sam's opening is what marks the meeting as begun; a task card alone does not.
+    app.hub.publish({ type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' }, payload: { kind: 'OPENING', text: 'Welcome.' } });
     const task = app.tasks.suggest({ title: 'Keep the plan', context: 'From this meeting', suggestedAssignee: 'producer' });
     await settle();
     return { meetingCode, agenda, task };
@@ -541,6 +543,26 @@ describe('rejoining an empty meeting', () => {
       expect(resetCount(screen)).toBe(resetsBefore);
     } finally {
       screen.close();
+      await app.close();
+    }
+  });
+
+  it('keeps the Start prompt (resumed: false) when the same person returns before the meeting has begun', async () => {
+    const app = await startApp(60_000);
+    try {
+      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(first.status).toBe(200);
+      const { meetingCode } = (await first.json()) as { meetingCode: string };
+      // A task card or record heartbeat before Start must not count as the meeting having begun.
+      app.tasks.suggest({ title: 'Early card', context: 'Before Start', suggestedAssignee: 'producer' });
+      await settle();
+
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(back.status).toBe(200);
+      const rejoined = (await back.json()) as { meetingCode: string; resumed?: boolean };
+      expect(rejoined.meetingCode).toBe(meetingCode);
+      expect(rejoined.resumed).toBe(false);
+    } finally {
       await app.close();
     }
   });

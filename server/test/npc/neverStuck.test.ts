@@ -2,12 +2,18 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aiCast, humanRoles, parseScenario, shuffleAgendaForRole, type Scenario, type SuggestInput } from '@kaki/shared';
 import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
-import { buildSystemPrompt, type Utterance } from '../../src/npc/director';
+import { buildSystemPrompt, pushingColleague, type Utterance } from '../../src/npc/director';
 import { faultFromEnv } from '../../src/npc/fault';
 
 const fullScenario = parseScenario(JSON.parse(readFileSync(new URL('../../../scenarios/kopitiam/scenario.json', import.meta.url), 'utf8')));
 const control = (state: 'open' | 'settled' | 'deferred', title = 'Share the agreed decision') =>
   `KAKI_CONTROL ${JSON.stringify({ state, followUp: { kind: 'mattermost_post', title }, wingmanNeeded: false })}`;
+
+function briefingColleague(scenario: Scenario, role: string, item: Scenario['agenda'][number]): string {
+  const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
+  const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').map((npc) => npc.attendee);
+  return pushingColleague(scenario, item, role, colleagues, 'Sam') ?? colleagues[0]!;
+}
 
 function meeting(
   scenario: Scenario,
@@ -85,11 +91,9 @@ describe('never-stuck visitor path', () => {
       vi.useFakeTimers();
       const agenda = shuffleAgendaForRole(fullScenario, role.id, () => 0.1, 2);
       const scenario = { ...fullScenario, agenda };
-      const seat = scenario.attendees.find((attendee) => attendee.role === role.id)!.name;
-      const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
       const replies = agenda.flatMap((_item, n) => [
-        `${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`,
-        `${control('settled', `Post decision ${n + 1}`)}\n${colleagues[0]!.attendee}: Could you Post decision ${n + 1}?`,
+        `${control('open')}\n${briefingColleague(scenario, role.id, agenda[n]!)}: Here is the problem.`,
+        `${control('settled', `Post decision ${n + 1}`)}\n${briefingColleague(scenario, role.id, agenda[n]!)}: Could you Post decision ${n + 1}?`,
       ]);
       const h = meeting(scenario, role.id, replies, { observeDelayMs: 1500 });
       h.conversation.announce('Sam', 'Welcome to the huddle.');
@@ -99,7 +103,7 @@ describe('never-stuck visitor path', () => {
         await vi.advanceTimersByTimeAsync(1500);
         await h.conversation.settled();
         expect(h.spoken).toContain('Here is the problem.');
-        expect(h.spoken).toContain('What is your call?');
+        expect(h.spoken).toContain(n === 0 ? 'Visitor, what would you do?' : 'How would you handle that, Visitor?');
         await h.say(`I choose a workable plan for ${agenda[n]!.title}.`);
         expect(h.tasks[n]).toMatchObject({ agendaItemTitle: agenda[n]!.title, suggestedAssignee: role.id });
         expect(h.tasks[n]!.context).toContain(`I choose a workable plan for ${agenda[n]!.title}.`);
@@ -341,7 +345,7 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
-  it('offers once after the turn budget and locks after two unanswered prompts', async () => {
+  it('offers once after the turn budget and locks without repeating the ask', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const h = meeting({ ...fullScenario, agenda: [fullScenario.agenda[0]!] }, role,
@@ -350,7 +354,7 @@ describe('never-stuck visitor path', () => {
     await vi.advanceTimersByTimeAsync(510);
     expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(10);
-    expect(h.spoken).toContain('Shall I lock in what you’ve said now?');
+    expect(h.spoken.filter((line) => line.includes('lock in'))).toHaveLength(1);
     expect(h.tasks).toHaveLength(1);
     h.conversation.close();
   });
@@ -470,10 +474,9 @@ describe('never-stuck visitor path', () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
-    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
-    const colleague = aiCast(scenario, seat).filter((npc) => npc.role !== 'host')[0]!.attendee;
-    const first = "Anyone new on the till needs a login, and that's about fifteen minutes out of my hour before opening.";
-    const repeated = "Anyone new on the till needs a login, and that's about fifteen minutes of my hour, untested until we open.";
+    const colleague = briefingColleague(scenario, role, scenario.agenda[0]!);
+    const first = "Anyone new on the till needs a login, and that takes about fifteen minutes before opening.";
+    const repeated = "Anyone new on the till needs a login, and that takes about fifteen minutes before doors open.";
     const h = meeting(scenario, role, [
       `${control('open')}\n${colleague}: ${first}`,
       `${control('open')}\n${colleague}: The catch is time. ${repeated}`,
@@ -591,7 +594,7 @@ describe('never-stuck visitor path', () => {
     expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(1);
     await h.say('Could we keep a seat for walk-ins?');
     await vi.advanceTimersByTimeAsync(510);
-    expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(2);
+    expect(h.spoken.filter((line) => line.includes('shall we lock in'))).toHaveLength(1);
     h.conversation.close();
   });
 
@@ -634,8 +637,7 @@ describe('never-stuck visitor path', () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
-    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
-    const colleague = aiCast(scenario, seat).filter((npc) => npc.role !== 'host')[0]!.attendee;
+    const colleague = briefingColleague(scenario, role, scenario.agenda[0]!);
     const h = meeting(scenario, role,
       [control('open'), `${control('open')}\n${colleague}: Here is the problem.`],
       { observeDelayMs: 100 });
@@ -644,7 +646,7 @@ describe('never-stuck visitor path', () => {
     await vi.advanceTimersByTimeAsync(0);
     await h.conversation.settled();
     expect(h.logs).toContainEqual(expect.stringMatching(/^the model said nothing speakable/));
-    expect(h.spoken).toContain('Here is the problem.');
+    expect(h.spoken, h.logs.join('\n')).toContain('Here is the problem.');
     h.conversation.close();
   });
 
@@ -665,15 +667,14 @@ describe('never-stuck visitor path', () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
-    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
-    const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+    const colleague = briefingColleague(scenario, role, scenario.agenda[0]!);
     const h = meeting(scenario, role,
-      [`${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`],
+      [`${control('open')}\n${colleague}: Here is the problem.`],
       { observeDelayMs: 100 });
     await vi.advanceTimersByTimeAsync(100);
     await h.conversation.settled();
     expect(h.spoken).toContain('Here is the problem.');
-    expect(h.spoken).toContain('What is your call?');
+    expect(h.spoken).toContain('Visitor, what would you do?');
     h.conversation.close();
   });
 
@@ -681,10 +682,9 @@ describe('never-stuck visitor path', () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
-    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
-    const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+    const colleague = briefingColleague(scenario, role, scenario.agenda[0]!);
     const h = meeting(scenario, role,
-      [`${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`],
+      [`${control('open')}\n${colleague}: Here is the problem.`],
       { observeDelayMs: 100 });
     h.conversation.announce('Sam', 'Welcome to the huddle, Daniel. Walk us through what happened.');
     h.conversation.stop();
@@ -693,7 +693,7 @@ describe('never-stuck visitor path', () => {
     await h.conversation.settled();
     expect(h.spoken).toContain('Walk us through what happened.');
     expect(h.spoken).toContain('Here is the problem.');
-    expect(h.spoken).toContain('What is your call?');
+    expect(h.spoken).toContain('Visitor, what would you do?');
     h.conversation.close();
   });
 
@@ -701,8 +701,7 @@ describe('never-stuck visitor path', () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
-    const seat = scenario.attendees.find((attendee) => attendee.role === role)!.name;
-    const colleagues = aiCast(scenario, seat).filter((npc) => npc.role !== 'host').slice(0, 2);
+    const colleague = briefingColleague(scenario, role, scenario.agenda[0]!);
     const slowSynthesize: Partial<NpcPorts<Utterance>> = {
       async synthesize(utterance) {
         if (utterance.speaker === 'Sam') await new Promise<void>((resolve) => setTimeout(resolve, 20_000));
@@ -710,14 +709,14 @@ describe('never-stuck visitor path', () => {
       },
     };
     const h = meeting(scenario, role,
-      [`${control('open')}\n${colleagues[0]!.attendee}: Here is the problem.\n${colleagues[1]!.attendee}: What is your call?`],
+      [`${control('open')}\n${colleague}: Here is the problem.`],
       { observeDelayMs: 100 }, slowSynthesize);
     h.conversation.announce('Sam', 'Let me set the scene for a while.');
     await vi.advanceTimersByTimeAsync(30_000);
     await h.conversation.settled();
     expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
     expect(h.spoken).toContain('Here is the problem.');
-    expect(h.spoken).toContain('What is your call?');
+    expect(h.spoken).toContain('Visitor, what would you do?');
     h.conversation.close();
   });
 

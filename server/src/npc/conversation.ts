@@ -2,7 +2,7 @@ import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessag
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic, liveWrapUpLine, spokenAgendaName } from '../host/opening';
 import { visitorCardPointerLine } from './cardPointer';
-import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
+import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, replyShapeForTurn, replyShapeInstruction, responsibilityFor, TurnParser, type HumanInfo, type ReplyShape, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
 import { MeetingMemory } from './meetingMemory';
@@ -102,6 +102,7 @@ function splitSentences(text: string): string[] {
 
 /** How long a speaker must not restate a point they already made aloud. */
 export const DEFAULT_REPEAT_WINDOW_MS = 60_000;
+const LOCK_ASK_RE = /\b(?:shall we lock in|shall i lock in|lock a direction in|make a decision and keep moving)\b/i;
 
 const STOP_WORDS = new Set([
   'about', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'because', 'been', 'before', 'being',
@@ -311,8 +312,6 @@ export interface ConversationOptions {
   resumeMs?: number;
   /** How many past messages the Director sees. */
   maxHistory?: number;
-  /** Random source for choosing an item opening; injectable for deterministic tests. */
-  random?: () => number;
   /** False turns off the first-idea catch guard for tests of other paths; the live meeting keeps it on. */
   firstIdeaCatch?: boolean;
   gate?: SpeechGate;
@@ -338,11 +337,25 @@ interface Turn {
   forced?: { target: string; from: string };
   /** This turn is the single retry after the model failed before saying anything. */
   recoveryRetry?: boolean;
+  shape?: ReplyShape;
+  briefSpeaker?: string;
   /** The Director marked this reply as settling the topic; it takes effect once the visitor has heard some of it. */
   settle?: { followUp?: { kind: ActionKind; title: string } };
   control?: ReplyControl;
   /** This reply's reactions have been sent; they go out with the first line, not when the reply ends. */
   reactionsSent?: boolean;
+  prefetchedStream?: AsyncIterable<string>;
+}
+
+interface PrefetchedReply {
+  title: string;
+  cue: string;
+  controller: AbortController;
+  chunks: string[];
+  done: boolean;
+  failure?: unknown;
+  startedAt: number;
+  wake?: () => void;
 }
 
 /** Minimal async queue so playback can start on the first sentence while the rest is written. */
@@ -417,6 +430,10 @@ export class NpcConversation<Clip> {
   private budgetOffered = false;
   private budgetRecoveryPending = false;
   private budgetOfferAtLine = 0;
+  private lastLockAskAt = -Infinity;
+  private replyShapeIndex = 0;
+  private lastReplyShape: ReplyShape | undefined;
+  private readonly replyShapeHistory: ReplyShape[] = [];
   private budgetTimer: ReturnType<typeof setTimeout> | undefined;
   private topicBudgetTimer: ReturnType<typeof setTimeout> | undefined;
   private reviewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -448,6 +465,7 @@ export class NpcConversation<Clip> {
   private readonly briefed = new Set<string>();
   /** The item waiting for the room to be free so its colleague briefing can start. */
   private pendingBrief: string | undefined;
+  private prefetchedBrief: PrefetchedReply | undefined;
   /** Items the meeting has already been asked to leave. */
   private readonly advanced = new Set<string>();
   private linesAtMove = 0;
@@ -509,6 +527,10 @@ export class NpcConversation<Clip> {
     this.reopenedTitle = undefined;
     this.resumeAfterReopen = undefined;
     this.recentSpoken.length = 0;
+    this.lastLockAskAt = -Infinity;
+    this.replyShapeIndex = 0;
+    this.lastReplyShape = undefined;
+    this.replyShapeHistory.length = 0;
     this.guestLinesByTopic.clear();
     this.proposalsByTopic.clear();
     this.volunteersByTopic.clear();
@@ -641,6 +663,7 @@ export class NpcConversation<Clip> {
     const item = this.currentItem();
     if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
       this.pendingBrief = item.title;
+      this.prefetchBrief(item.title);
     }
     if (scripted !== undefined) {
       this.startScripted(scripted.utterance, scripted.onDone);
@@ -792,6 +815,7 @@ export class NpcConversation<Clip> {
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
+    this.clearPrefetchedBrief('the person spoke first');
     this.chain = 0;
     this.bridgedStatementOnTurn = false;
     this.recoveryCueSpoken = false;
@@ -823,6 +847,7 @@ export class NpcConversation<Clip> {
   ): void {
     const line = text.trim();
     if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
+    if (this.pendingBrief !== undefined) this.prefetchBrief(this.pendingBrief);
     if (shouldStillSpeak !== undefined && !shouldStillSpeak()) {
       this.ports.log?.(`skipped ${speaker}'s cue "${line}": already handled`);
       onDone?.(false);
@@ -923,6 +948,7 @@ export class NpcConversation<Clip> {
   announceClosing(speaker: string, text: string): void {
     const line = text.trim();
     if (this.closed || this.concluded || line.length === 0 || !this.names.includes(speaker)) return;
+    this.clearPrefetchedBrief('the meeting is closing');
     this.stop();
     this.concluded = true;
     this.paused = false;
@@ -994,6 +1020,9 @@ export class NpcConversation<Clip> {
   }
 
   private rememberSpoken(utterance: Utterance, topic: string | undefined): void {
+    if (utterance.speaker === this.facilitatorOrCoHost() && LOCK_ASK_RE.test(utterance.text)) {
+      this.lastLockAskAt = Date.now();
+    }
     if (isVolunteer(utterance.text)) {
       this.volunteersByTopic.set(topic, new Set([...(this.volunteersByTopic.get(topic) ?? []), utterance.speaker]));
     }
@@ -1023,6 +1052,7 @@ export class NpcConversation<Clip> {
     this.clearBargeTimer();
     this.clearSilenceTimer();
     this.clearBriefTimer();
+    this.clearPrefetchedBrief('the meeting ended');
     this.clearDeferredFollowUpTimer();
     this.clearBudgetTimer();
     this.clearReviewTimer();
@@ -1246,6 +1276,12 @@ export class NpcConversation<Clip> {
 
   private offerBudgetLock(): void {
     if (this.budgetOffered || this.humanSettledOnCurrentItem || this.decisionLines.length === 0) return;
+    const remaining = DEFAULT_REPEAT_WINDOW_MS - (Date.now() - this.lastLockAskAt);
+    if (remaining > 0) {
+      this.clearBudgetTimer();
+      this.budgetTimer = setTimeout(() => this.offerBudgetLock(), remaining).unref();
+      return;
+    }
     this.budgetOffered = true;
     this.budgetOfferAtLine = this.humanLines;
     const host = this.facilitatorOrCoHost();
@@ -1262,19 +1298,14 @@ export class NpcConversation<Clip> {
         this.clearBudgetTimer();
         this.budgetTimer = setTimeout(() => {
           if (this.currentItem()?.title !== title || this.humanSettledOnCurrentItem) return;
-          this.announce(host, 'Shall I lock in what you’ve said now?',
-            DEFAULT_ANNOUNCE_GIVE_UP_MS, (heard) => {
-              if (!heard) {
-                this.budgetOffered = false;
-                return;
-              }
-              this.clearBudgetTimer();
-              this.budgetTimer = setTimeout(() => {
-                if (this.currentItem()?.title === title && this.humanLines === this.budgetOfferAtLine) this.lockDecision();
-              }, this.options.budgetSilenceMs ?? DEFAULT_BUDGET_SILENCE_MS).unref();
-            });
-        }, this.options.budgetSilenceMs ?? DEFAULT_BUDGET_SILENCE_MS).unref();
+          if (this.humanLines === this.budgetOfferAtLine) this.lockDecision();
+        }, 2 * (this.options.budgetSilenceMs ?? DEFAULT_BUDGET_SILENCE_MS)).unref();
       });
+  }
+
+  /** The clock's overtime cue would pile another decision request onto Sam's recent ask. */
+  shouldSkipOvertimeCue(): boolean {
+    return Date.now() - this.lastLockAskAt < 15_000;
   }
 
   /** The card line's variant for this topic, so two topics never use the same wording. */
@@ -1431,6 +1462,7 @@ export class NpcConversation<Clip> {
     this.resumeAfterReopen = undefined;
     this.clearSilenceTimer();
     this.clearBriefTimer();
+    this.clearPrefetchedBrief('the agenda moved');
     this.pendingBrief = undefined;
     if (title !== undefined) {
       const previousTitle = this.currentItem()?.title;
@@ -1455,6 +1487,7 @@ export class NpcConversation<Clip> {
     this.topicOpenedAt = Date.now();
     this.budgetOffered = false;
     this.budgetRecoveryPending = false;
+    this.lastLockAskAt = -Infinity;
     this.reviewWarned = false;
     this.clearBudgetTimer();
     this.clearReviewTimer();
@@ -1498,6 +1531,7 @@ export class NpcConversation<Clip> {
     if (title === undefined || this.closed || this.paused) return false;
     if (this.briefed.has(title) || this.currentItem()?.title !== title || this.humanLines > this.linesAtMove) {
       this.pendingBrief = undefined;
+      this.clearPrefetchedBrief('the brief is no longer due');
       return false;
     }
     if (
@@ -1512,15 +1546,17 @@ export class NpcConversation<Clip> {
     this.pendingBrief = undefined;
     const cue = this.briefCue(title);
     if (cue === undefined) {
+      this.clearPrefetchedBrief('no colleague could brief');
       this.ports.log?.(`could not brief "${title}": no colleague cue; asking the visitor instead`);
       this.askDue = true;
       this.ask();
       return false;
     }
+    const prefetched = this.takePrefetchedBrief(title);
     this.briefed.add(title);
     this.asked.add(this.human?.name ?? '');
-    this.pending.push(cue);
-    this.startTurn();
+    this.pending.push(prefetched?.cue ?? cue);
+    this.startTurn(false, false, prefetched);
     return true;
   }
 
@@ -1542,22 +1578,104 @@ export class NpcConversation<Clip> {
       ...candidates,
       ...this.names.filter((name) => name !== seat && name !== host),
     ])];
-    const [first, second] = speakers;
-    if (first === undefined || second === undefined) return undefined;
+    const [first] = speakers;
+    if (first === undefined) return undefined;
     const firstView = item.discussion?.openingViews.find((view) => view.attendee === first)?.view ??
       item.discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === first)?.tradeOff;
-    const secondView = item.discussion?.openingViews.find((view) => view.attendee === second)?.view ??
-      item.discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === second)?.tradeOff;
     const problem = item.briefing ??
       item.discussion?.openingViews.find((view) => view.attendee === seat)?.view ??
       item.decision ?? title;
-    const openingStyle = Math.min(2, Math.max(0, Math.floor((this.options.random?.() ?? Math.random()) * 3)));
-    const styles = [
-      `Opening style: the host briefly states the news, then hands to ${pushing}.`,
-      `Opening style: ${pushing} jumps in with the news before the host speaks.`,
-      `Opening style: ${first} and ${second} are already mid-disagreement as the host's cue brings ${human.name} in; only these two speak in this reply.`,
+    return `[We just started "${title}". Begin with "${first}:". Only ${first} speaks two short sentences, each at most 16 words: first what happened and its core cause from "${problem}", then what is at stake before 8 AM and their view "${firstView ?? title}". Use at most one number in total. A short question to ${human.name} follows automatically. No host line, no second colleague. Leave the decision open and hold at least one catch back for ${human.name}'s first idea. Do not recite every fact.]`;
+  }
+
+  briefsOnTopic(title: string): boolean {
+    if (this.closed || !this.onCurrentAgenda(title)) return false;
+    const current = this.currentItem()?.title;
+    if (current === undefined || this.briefed.has(current) || this.pendingBrief !== current) return false;
+    return this.briefCue(current) !== undefined;
+  }
+
+  private prefetchBrief(title: string): void {
+    if (this.closed || this.paused || this.human === undefined || this.briefed.has(title)) return;
+    if (this.pendingBrief !== title || this.currentItem()?.title !== title) return;
+    const existing = this.prefetchedBrief;
+    if (existing !== undefined && existing.title === title && !existing.controller.signal.aborted) return;
+    this.clearPrefetchedBrief('the topic or cue changed');
+    const cue = this.briefCue(title);
+    if (cue === undefined) return;
+    const prefetched: PrefetchedReply = {
+      title, cue, controller: new AbortController(), chunks: [], done: false, startedAt: Date.now(),
+    };
+    const alreadyAsked = this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
+    const includeKnows = this.humanLines > this.linesAtMove;
+    const messages: ChatMessage[] = [
+      { role: 'system', content: this.systemPrompt(alreadyAsked, includeKnows) },
+      ...this.history.slice(-this.maxHistory),
+      { role: 'user', content: cue },
     ];
-    return `[We just started "${title}". ${styles[openingStyle]} The briefing facts are: "${problem}". State the problem and positions, not a fix. ${first}'s view: "${firstView ?? title}". ${second}'s view: "${secondView ?? title}". ${human.name} decides.${pushing === undefined ? '' : ` ${pushing} pushes hardest.`} Only two colleagues speak unless ${human.name} asked everyone. Leave the decision open and hold at least one catch back for ${human.name}'s first idea.]`;
+    this.prefetchedBrief = prefetched;
+    this.ports.log?.(`[brief] asking for the briefing early, while the host speaks`);
+    void this.pumpPrefetched(prefetched, messages);
+  }
+
+  private async pumpPrefetched(prefetched: PrefetchedReply, messages: ChatMessage[]): Promise<void> {
+    const iterator = this.ports.stream(messages, prefetched.controller.signal)[Symbol.asyncIterator]();
+    try {
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done === true) break;
+        prefetched.chunks.push(next.value);
+        prefetched.wake?.();
+        prefetched.wake = undefined;
+      }
+    } catch (error) {
+      if (!prefetched.controller.signal.aborted) {
+        prefetched.failure = error;
+        this.ports.log?.(`[brief] the early request failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      prefetched.done = true;
+      prefetched.wake?.();
+      prefetched.wake = undefined;
+    }
+  }
+
+  private prefetchedStream(prefetched: PrefetchedReply): AsyncIterable<string> {
+    return {
+      async *[Symbol.asyncIterator]() {
+        let index = 0;
+        for (;;) {
+          if (index < prefetched.chunks.length) {
+            yield prefetched.chunks[index++]!;
+            continue;
+          }
+          if (prefetched.failure !== undefined) throw prefetched.failure;
+          if (prefetched.done) return;
+          await new Promise<void>((resolve) => (prefetched.wake = resolve));
+        }
+      },
+    };
+  }
+
+  private takePrefetchedBrief(title: string): PrefetchedReply | undefined {
+    const prefetched = this.prefetchedBrief;
+    if (prefetched === undefined) return undefined;
+    if (prefetched.title !== title || prefetched.controller.signal.aborted) {
+      this.clearPrefetchedBrief('the pending brief changed');
+      return undefined;
+    }
+    this.prefetchedBrief = undefined;
+    return prefetched;
+  }
+
+  private clearPrefetchedBrief(reason?: string): void {
+    const prefetched = this.prefetchedBrief;
+    if (prefetched === undefined) return;
+    this.prefetchedBrief = undefined;
+    if (!prefetched.done) {
+      this.ports.log?.(`[brief] dropped the early request${reason === undefined ? '' : `: ${reason}`}`);
+      prefetched.controller.abort();
+    }
   }
 
   /**
@@ -1692,7 +1810,7 @@ export class NpcConversation<Clip> {
     }, this.speakerGapMs);
   }
 
-  private startTurn(retry = false, recoveryRetry = false): void {
+  private startTurn(retry = false, recoveryRetry = false, prefetched?: PrefetchedReply): void {
     if (this.closed || this.paused) return;
     const text = retry ? this.lastText : this.pending.join(' ').trim();
     this.pending = [];
@@ -1720,18 +1838,32 @@ export class NpcConversation<Clip> {
       this.history.push({ role: 'user', content: text });
     }
 
+    const shape = retry ? this.lastReplyShape :
+      this.human !== undefined && !text.startsWith('[') && this.names.length > 2
+        ? replyShapeForTurn(this.replyShapeIndex++,
+          (this.proposalsByTopic.get(this.currentItem()?.title)?.length ?? 0) === 1 && isGuestProposal(text),
+          this.replyShapeHistory)
+        : undefined;
+    if (!retry) {
+      this.lastReplyShape = shape;
+      if (shape !== undefined) this.replyShapeHistory.push(shape);
+    }
+    const reuse = prefetched !== undefined && !retry && !prefetched.controller.signal.aborted;
     const turn: Turn = {
       topic: this.currentItem()?.title,
-      abort: new AbortController(),
+      abort: reuse ? prefetched!.controller : new AbortController(),
       spoken: [],
       enqueued: [],
       streamFinished: false,
       aborted: false,
       finalized: false,
       done: Promise.resolve(),
-      startedAt: Date.now(),
+      startedAt: reuse ? prefetched!.startedAt : Date.now(),
       forced,
       recoveryRetry,
+      shape,
+      briefSpeaker: text.startsWith('[We just started') ? /Begin with "([^:]+):"/.exec(text)?.[1] : undefined,
+      prefetchedStream: reuse ? this.prefetchedStream(prefetched!) : undefined,
     };
     this.turn = turn;
     turn.done = this.runTurn(turn).catch((error: unknown) => {
@@ -1890,10 +2022,7 @@ export class NpcConversation<Clip> {
     this.ports.emitState(this.idleState());
   }
 
-  /**
-   * When a colleague promises aloud to check Kaki or pull numbers and report back "in a minute" / "in two minutes",
-   * schedule a real callback timer so that colleague genuinely chimes back in with the exact figures from their records!
-   */
+  /** Remind a colleague of a promised check without pretending a new lookup happened off-screen. */
   private scheduleDeferredFollowUp(turn: Turn): void {
     if (this.closed || this.concluded || this.paused || turn.topic !== this.currentItem()?.title) return;
     const DEFERRED_PROMISE_RE =
@@ -1923,10 +2052,9 @@ export class NpcConversation<Clip> {
         this.deferredFollowUpTimer.unref?.();
         return;
       }
-      const who = this.human?.name ?? 'everyone';
       this.forcedSpeaker = { target: speaker, from: speaker };
       this.pending.push(
-        `[A minute has passed since ${speaker} promised to check Kaki / pull the figures on "${promisedTopic}". Begin your reply with "${speaker}:". ${speaker} briefly chimes back in to ${who} ("Hey ${who}, quick update — I just pulled those numbers from Kaki...") and shares the exact concrete figures from ${speaker}'s own facts in ONE short sentence, then lets the room continue without derailing the current topic. Do not mention this note.]`,
+        `[A minute has passed since ${speaker} offered to check something on "${promisedTopic}". Begin with "${speaker}:". In ONE short sentence, answer only from established scenario or meeting facts. If the answer is not established, say you still need to check. Never claim a new call, lookup or conversation happened off-screen. Then stop. Do not mention this note.]`,
       );
       this.startTurn();
     };
@@ -1999,6 +2127,21 @@ export class NpcConversation<Clip> {
     return true;
   }
 
+  private systemPrompt(alreadyAsked: boolean, includeKnows: boolean): string {
+    return buildSystemPrompt(
+      this.options.scenario,
+      this.human,
+      this.agendaItem,
+      alreadyAsked,
+      includeKnows,
+      [...this.introduced],
+      this.memory.snapshot(),
+      this.reopenedTitle,
+      this.memory.reopenedItems(),
+      this.recentSpokenForPrompt(),
+    );
+  }
+
   private async runTurn(turn: Turn): Promise<void> {
     const { signal } = turn.abort;
     const queue = new SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>();
@@ -2015,7 +2158,7 @@ export class NpcConversation<Clip> {
     // The start of what the model sent, to name it in the log when none of it could be said.
     let received = '';
     let choseSilence = false;
-    const enqueue = (utterance: Utterance, allowRefusal = false): void => {
+    const enqueue = (utterance: Utterance, allowRefusal = false, briefQuestion = false): void => {
       let trimmed = utterance.text
         .replace(/\s*\[(?:cut off|[^\]]*interrupted here[^\]]*)\]\s*/gi, ' ')
         .replace(/^(?:from|on)\s+the\s+(?:menu|floor|kitchen|tech|pos|marketing|operations|ops|store)\s+side,\s*/i, '')
@@ -2074,6 +2217,27 @@ export class NpcConversation<Clip> {
         this.ports.log?.(`[repeat] ${utterance.speaker}: dropped a sentence that repeats what they just said: "${trimmed}"`);
         return;
       }
+      if (turn.briefSpeaker !== undefined &&
+          (utterance.speaker !== turn.briefSpeaker || (turn.enqueued.length >= 2 && !briefQuestion))) {
+        this.ports.log?.(`[brief] dropped extra line from ${utterance.speaker}`);
+        return;
+      }
+      if (aiHost !== undefined && utterance.speaker === aiHost && LOCK_ASK_RE.test(trimmed) &&
+          Date.now() - this.lastLockAskAt < DEFAULT_REPEAT_WINDOW_MS) {
+        this.ports.log?.(`[repeat] ${aiHost}: skipped a repeated lock-in ask`);
+        return;
+      }
+      if (turn.shape !== undefined) {
+        const maxSpeakers = turn.shape === 'solo' || turn.shape === 'reaction' ? 1 : 2;
+        const speakers = new Set(turn.enqueued.map((line) => line.speaker));
+        const maxSentences = turn.shape === 'reaction' ? 1 :
+          turn.shape === 'solo' ? 2 : 1;
+        if ((!speakers.has(utterance.speaker) && speakers.size >= maxSpeakers) ||
+            turn.enqueued.filter((line) => line.speaker === utterance.speaker).length >= maxSentences) {
+          this.ports.log?.(`[shape] dropped extra line from ${utterance.speaker}`);
+          return;
+        }
+      }
       if (MODEL_CARD_MENTION_RE.test(trimmed)) {
         this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; the handoff line does that: "${trimmed}"`);
         return;
@@ -2109,7 +2273,8 @@ export class NpcConversation<Clip> {
       const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
       const seatNames = this.options.scenario.attendees.map((attendee) => attendee.name);
-      const parser = new TurnParser(this.names, addressed ?? host, this.human?.name, seatNames, (line) => this.ports.log?.(line));
+      const parser = new TurnParser(this.names, turn.briefSpeaker ?? addressed ?? host, this.human?.name, seatNames,
+        (line) => this.ports.log?.(line));
       const alreadyAsked =
         this.human !== undefined && this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
       const includeKnows =
@@ -2117,18 +2282,7 @@ export class NpcConversation<Clip> {
       const messages: ChatMessage[] = [
         {
           role: 'system',
-          content: buildSystemPrompt(
-            this.options.scenario,
-            this.human,
-            this.agendaItem,
-            alreadyAsked,
-            includeKnows,
-            [...this.introduced],
-            this.memory.snapshot(),
-            this.reopenedTitle,
-            this.memory.reopenedItems(),
-            this.recentSpokenForPrompt(),
-          ),
+          content: this.systemPrompt(alreadyAsked, includeKnows),
         },
         ...this.history.slice(-this.maxHistory),
       ];
@@ -2151,6 +2305,13 @@ export class NpcConversation<Clip> {
         messages[messages.length - 1] = {
           ...currentLast,
           content: `${currentLast.content}\n[${who} is speaking directly to ${addressed}. Begin your reply with "${addressed}:". ${addressed} answers first, and nobody else speaks unless ${addressed} hands over by name. If ${who} only said ${addressed}'s name, ${addressed} just acknowledges and invites them to go on.]`,
+        };
+      }
+      if (turn.shape !== undefined && addressed === undefined) {
+        const currentLast = messages[messages.length - 1]!;
+        messages[messages.length - 1] = {
+          ...currentLast,
+          content: `${currentLast.content}\n[Reply shape for this turn: ${replyShapeInstruction(turn.shape)} Do not hand over to another colleague unless this shape calls for one. Do not mention this note.]`,
         };
       }
       let firstLine = '';
@@ -2226,7 +2387,8 @@ export class NpcConversation<Clip> {
           speechBuffer = '';
         }
       };
-      for await (const chunk of this.ports.stream(messages, signal)) {
+      const stream = turn.prefetchedStream ?? this.ports.stream(messages, signal);
+      for await (const chunk of stream) {
         if (signal.aborted) break;
         if (received.length < 160) received += chunk;
         if (!firstResolved) {
@@ -2254,6 +2416,14 @@ export class NpcConversation<Clip> {
           for (const utterance of parser.push(speechBuffer)) enqueue(utterance);
         }
         for (const utterance of parser.flush()) enqueue(utterance);
+        if (turn.briefSpeaker !== undefined && turn.enqueued.length >= 1 && turn.enqueued.length <= 2 &&
+            !turn.enqueued[turn.enqueued.length - 1]!.text.trim().endsWith('?')) {
+          const who = this.human?.name ?? 'Everyone';
+          const questions = [`${who}, what would you do?`, `How would you handle that, ${who}?`,
+            `What feels workable, ${who}?`, `Where would you start, ${who}?`];
+          enqueue({ speaker: turn.briefSpeaker,
+            text: questions[this.topicIndex(turn.topic ?? '') % questions.length]! }, false, true);
+        }
         choseSilence = parser.saidNone;
         if (heldRefusal !== undefined) {
           this.ports.log?.('the model replied only with a refusal; asking the visitor to repeat the request');

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
-import { RoomEvent } from 'livekit-client';
+import { ConnectionState, RoomEvent } from 'livekit-client';
 import { aiCast, CONTROL_TOPIC, NPC_STATE_TOPIC, roleLabel, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario, type ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import './demo.css';
@@ -432,14 +432,23 @@ export function ConnectedStartPrompt({
   const publish = useCallback(() => {
     const pending = request.current;
     if (pending === undefined) return;
+    if ((room as { state?: ConnectionState }).state !== undefined && (room as { state?: ConnectionState }).state !== ConnectionState.Connected) {
+      return;
+    }
+    const session = room.localParticipant?.identity;
+    if (session === undefined || session.length === 0) return;
+    pending.session = session;
     const message: ControlMessage = { kind: 'start', ...pending };
+    console.info(`[kaki:start] browser publishing Start request=${pending.requestId} session=${pending.session}`);
     room.localParticipant
       .publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: CONTROL_TOPIC })
       .then(() => {
         if (request.current === pending) publishError.current = undefined;
       })
       .catch((cause: unknown) => {
-        if (request.current === pending) publishError.current = cause instanceof Error ? cause.message : String(cause);
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        console.warn(`[kaki:start] browser Start publish failed request=${pending.requestId}: ${reason}`);
+        if (request.current === pending) publishError.current = reason;
       });
   }, [room]);
 
@@ -461,29 +470,38 @@ export function ConnectedStartPrompt({
       // Only the exact request from this visitor may open the meeting.
       if (ack.kind !== 'started' || ack.requestId !== pending.requestId || ack.session !== pending.session) return;
       if (started.current) return;
+      console.info(`[kaki:start] browser received Start ack request=${ack.requestId} from=${participant.identity}`);
       started.current = true;
       stopTimers();
       request.current = undefined;
       setPhase('idle');
       onStarted();
     };
+    const onConnected = () => {
+      if (request.current !== undefined) publish();
+    };
     room.on(RoomEvent.DataReceived, handler);
+    room.on(RoomEvent.Connected, onConnected);
     return () => {
       room.off(RoomEvent.DataReceived, handler);
+      room.off(RoomEvent.Connected, onConnected);
     };
-  }, [room, scenario, onStarted, stopTimers]);
+  }, [room, scenario, onStarted, stopTimers, publish]);
 
   useEffect(() => () => stopTimers(), [stopTimers]);
 
   const start = useCallback(() => {
     if (request.current !== undefined) return;
     if (scenario === undefined) {
+      console.warn('[kaki:start] Start rejected in browser: scenario is not loaded yet');
       setError('The meeting is not ready yet. Wait a moment and try again.');
       setPhase('failed');
       return;
     }
-    const session = room.localParticipant?.identity;
-    if (session === undefined || session.length === 0) {
+    const roomState = (room as { state?: ConnectionState }).state;
+    const session = room.localParticipant?.identity ?? '';
+    if (roomState === undefined && session.length === 0) {
+      console.warn('[kaki:start] Start rejected in browser: room is not connected yet');
       setError('The meeting is not connected yet. Wait a moment and try again.');
       setPhase('failed');
       return;
@@ -494,11 +512,13 @@ export function ConnectedStartPrompt({
       requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
       session,
     };
+    console.info(`[kaki:start] browser Start clicked request=${request.current.requestId} state=${roomState ?? 'connected'} session=${session || '(connecting)'}`);
     setError(undefined);
     setPhase('waiting');
     publish();
     retryTimer.current = setInterval(publish, START_RETRY_MS);
     timeoutTimer.current = setTimeout(() => {
+      const expired = request.current;
       stopTimers();
       request.current = undefined;
       const npcs = scenario?.npcs ?? [];
@@ -508,14 +528,21 @@ export function ConnectedStartPrompt({
         listener === undefined ||
         remoteParticipants === undefined ||
         [...remoteParticipants.values()].some((p) => p.identity === listener.attendee);
-      setPhase('failed');
-      setError(
+      const currentRoomState = (room as { state?: ConnectionState }).state;
+      const currentSession = room.localParticipant?.identity ?? '';
+      const notConnectedYet =
+        (currentRoomState !== undefined && currentRoomState !== ConnectionState.Connected) || currentSession.length === 0;
+      const message =
         publishError.current !== undefined
           ? `The room could not send Start (${publishError.current}). Check your connection, then try again.`
+          : notConnectedYet
+          ? 'The meeting is not connected yet. Wait a moment and try again.'
           : listenerPresent
           ? 'The room did not confirm the start. Check your connection, then try again.'
-          : 'Waiting for the AI attendees to join the room (run npm run npc or bash scripts/live-up.sh), then try again.',
-      );
+          : 'Waiting for the AI attendees to join the room (run npm run npc or bash scripts/live-up.sh), then try again.';
+      console.warn(`[kaki:start] browser Start timed out request=${expired?.requestId ?? 'unknown'}: ${message}`);
+      setPhase('failed');
+      setError(message);
     }, START_TIMEOUT_MS);
   }, [room, publish, stopTimers, scenario]);
 
