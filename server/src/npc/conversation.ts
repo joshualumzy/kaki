@@ -78,9 +78,13 @@ export const DEFAULT_TOPIC_TIME_BUDGET_MS = 180_000;
 /** How long the host waits for an answer to that offer before asking once more, and then before locking it in. */
 export const DEFAULT_BUDGET_SILENCE_MS = 20_000;
 /** After a settled topic waits this long with nothing happening on the card, the host nudges the visitor towards it. */
-export const DEFAULT_REVIEW_NUDGE_MS = 20_000;
-/** How long a settled topic waits for the visitor's follow-up card with nothing happening on it before the host moves on. */
-export const DEFAULT_REVIEW_WINDOW_MS = 45_000;
+export const DEFAULT_REVIEW_NUDGE_MS = 5_000;
+/**
+ * How long a settled topic waits for the visitor's follow-up card with nothing happening on it before the host moves on.
+ * Short on purpose: a long wait was 30-50 s of silence for a first-timer, and the card stays sendable after the room moves on.
+ * Any progress on the card restarts the wait, so a visitor working on it is never cut off.
+ */
+export const DEFAULT_REVIEW_WINDOW_MS = 10_000;
 /** After the follow-up is sent or declined, how long the topic stays so the visitor can open the result. */
 export const DEFAULT_OPEN_LIVE_GRACE_MS = 9_000;
 
