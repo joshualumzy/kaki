@@ -929,9 +929,11 @@ describe('NpcConversation', () => {
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('Only Bao speaks');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('two short sentences');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most 16 words');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('what happened and its core cause');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at stake before 8 AM');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('A short question to Visitor follows automatically');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('state the problem in plain words');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most the one fact that makes it a problem');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('what is at stake');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('End by inviting Visitor in with your own short question');
+    expect(h.calls[0]?.messages.at(-1)?.content).toContain('do not use a stock invitation');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most one number');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('The stock arrived late.');
     expect(h.calls[0]?.messages.at(-1)?.content).toContain('hold at least one catch back');
@@ -948,6 +950,30 @@ describe('NpcConversation', () => {
       ['Bao', 'Visitor, what would you do?'],
     ]);
     expect(h.logs).toContainEqual(expect.stringContaining('[brief] dropped extra line from Cai'));
+    conversation.close();
+  });
+
+  it('lets the briefing colleague invite the visitor in their own words', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Prep');
+    await vi.advanceTimersByTimeAsync(1);
+    h.calls[0]?.push('Bao: The stock arrived late. We may delay. Visitor, where would you start?');
+    h.calls[0]?.end();
+    await h.flush();
+    for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.transcript).toEqual([
+      ['Bao', 'The stock arrived late.'],
+      ['Bao', 'We may delay.'],
+      ['Bao', 'Visitor, where would you start?'],
+    ]);
     conversation.close();
   });
 
@@ -1038,6 +1064,82 @@ describe('NpcConversation', () => {
       ['Bao', 'We may delay.'],
       ['Bao', 'How would you handle that, Visitor?'],
     ]);
+    conversation.close();
+  });
+
+  it('starts fetching the next topic brief while the current topic winds down', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'chef' });
+
+    // Topic 1 briefs and is settled by the visitor.
+    conversation.agendaMoved('Prep');
+    await vi.advanceTimersByTimeAsync(1);
+    h.calls[0]?.push('Bao: The stock arrived late. We may delay.');
+    h.calls[0]?.end();
+    await h.flush();
+    for (let index = 0; index < 5 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    conversation.humanTyped('Use the window bar.');
+    await vi.advanceTimersByTimeAsync(900);
+    h.calls.at(-1)?.push('Bao: Agreed.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+
+    // The Service brief request is already running before the host says a word about moving on.
+    const serviceBrief = h.calls.find((call) =>
+      String(call.messages.at(-1)?.content).includes('We just started "Service"'));
+    expect(serviceBrief).toBeDefined();
+    expect(h.playing.some((entry) => entry.text.includes('Service'))).toBe(false);
+
+    // Sam moves on; the brief streams early and is ready the moment his line ends.
+    conversation.agendaMoved('Service');
+    conversation.announce('Ada', "Right, let's move on to Service.");
+    await h.flush();
+    serviceBrief!.push('Bao: The regulars walked out over the new price.\n');
+    await h.flush();
+    expect(h.transcript).not.toContainEqual(['Bao', 'The regulars walked out over the new price.']);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.transcript).toContainEqual(['Bao', 'The regulars walked out over the new price.']);
+    conversation.close();
+  });
+
+  it('never repeats a canned guest invitation across two topics', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'chef' });
+    const invitations: string[] = [];
+    for (const [title, line] of [['Prep', 'Bao: First problem.'], ['Service', 'Bao: Second problem.']] as const) {
+      conversation.agendaMoved(title);
+      await vi.advanceTimersByTimeAsync(1);
+      const call = h.calls.at(-1)!;
+      call.push(line);
+      call.end();
+      await h.flush();
+      for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
+        h.playing.at(-1)?.finish();
+        await h.flush();
+      }
+      const invitation = h.transcript.at(-1);
+      expect(invitation?.[1].endsWith('?')).toBe(true);
+      invitations.push(invitation![1]);
+    }
+    expect(invitations).toHaveLength(2);
+    expect(invitations[0]).not.toBe(invitations[1]);
     conversation.close();
   });
 

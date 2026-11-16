@@ -52,6 +52,25 @@ describe('meeting carry-over prompt', () => {
     expect(prompt).toContain("Visitor's second idea");
   });
 
+  it('shares a new fact only when it answers the point on the table', () => {
+    const scenario = {
+      ...npcScenario,
+      agenda: [{ ...testScenario.agenda[0]!, contested: true }],
+      roles: [...npcScenario.roles, { id: 'host', label: 'Host', facilitator: true }],
+      attendees: [...npcScenario.attendees, { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' }],
+      npcs: [...npcScenario.npcs, { attendee: 'Hal', role: 'host' as const, voice: 'v0', personality: 'Calm', agenda: 'Keep time', concerns: [] }],
+    };
+    const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'chef' });
+    expect(prompt).toContain(
+      'share a fact (a price, time, count or name) only when the visitor asked for it or when it directly answers or challenges the point on the table',
+    );
+    expect(prompt).toContain('a short reaction, agreement or question is enough');
+    expect(prompt).toContain('Do not add a new fact just to have something to say');
+    // The first-idea catch still has to arrive from the colleague's own facts.
+    expect(prompt).toContain('the colleague whose cost is still open still raises that one catch from their own facts');
+    expect(prompt).toContain('raise that catch');
+  });
+
   it('shows an earlier decision and only an actual link to that earlier agenda item', () => {
     const scenario = { ...npcScenario, agenda: [
       { title: 'Prep', minutes: 5, ownerRole: 'chef' },

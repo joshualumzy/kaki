@@ -470,6 +470,8 @@ export class NpcConversation<Clip> {
   /** The item waiting for the room to be free so its colleague briefing can start. */
   private pendingBrief: string | undefined;
   private prefetchedBrief: PrefetchedReply | undefined;
+  /** Guest invitations the fallback has already used, so a meeting never hears the same canned wording twice. */
+  private readonly usedGuestInvites = new Set<string>();
   /** Items the meeting has already been asked to leave. */
   private readonly advanced = new Set<string>();
   private linesAtMove = 0;
@@ -542,6 +544,7 @@ export class NpcConversation<Clip> {
     this.cardPointedTopics.clear();
     this.parkedTopics.clear();
     this.reviewActionKind.clear();
+    this.usedGuestInvites.clear();
   }
 
   memorySnapshot(): MeetingMemoryEntry[] { return this.memory.snapshot(); }
@@ -1235,6 +1238,7 @@ export class NpcConversation<Clip> {
         this.ports.emitState(this.idleState());
         return;
       }
+      this.prefetchUpcomingBrief();
       this.startReviewWindow();
       this.checkTopicAdvance();
     };
@@ -1316,6 +1320,34 @@ export class NpcConversation<Clip> {
   private topicIndex(title: string): number {
     const index = this.options.scenario.agenda.findIndex((item) => item.title === title);
     return index < 0 ? 0 : index;
+  }
+
+  /**
+   * The fallback invitation used only when a colleague's brief ends without asking the visitor in.
+   * It starts from the topic's usual variant, then skips any wording already heard in this meeting.
+   */
+  private nextGuestInvite(who: string, title: string | undefined): string {
+    const lines: ReadonlyArray<(name: string) => string> = [
+      (name) => `${name}, what would you do?`,
+      (name) => `How would you handle that, ${name}?`,
+      (name) => `What feels workable, ${name}?`,
+      (name) => `Where would you start, ${name}?`,
+      (name) => `${name}, what's your call on this?`,
+      (name) => `What would you try first, ${name}?`,
+    ];
+    const start = this.topicIndex(title ?? '') % lines.length;
+    for (let offset = 0; offset < lines.length; offset += 1) {
+      const line = lines[(start + offset) % lines.length]!(who);
+      if (!this.usedGuestInvites.has(line)) {
+        this.usedGuestInvites.add(line);
+        return line;
+      }
+    }
+    // More topics than stock wordings: make one from the topic itself so no wording is ever repeated.
+    const topic = spokenAgendaName(this.options.scenario, title ?? 'this');
+    const fresh = `${who}, what would you do about ${topic}?`;
+    this.usedGuestInvites.add(fresh);
+    return fresh;
   }
 
   /** The first pointer at what the visitor will find on their card on this topic: a draft to send, or an invite to confirm. */
@@ -1446,6 +1478,7 @@ export class NpcConversation<Clip> {
   }
 
   private advanceOrEnd(): void {
+    this.prefetchUpcomingBrief();
     const agenda = this.options.scenario.agenda;
     const current = this.currentItem();
     const currentIdx = current === undefined ? -1 : agenda.findIndex((item) => item.title === current.title);
@@ -1466,18 +1499,22 @@ export class NpcConversation<Clip> {
     this.resumeAfterReopen = undefined;
     this.clearSilenceTimer();
     this.clearBriefTimer();
-    this.clearPrefetchedBrief('the agenda moved');
     this.pendingBrief = undefined;
-    if (title !== undefined) {
+    if (title === undefined) {
+      this.clearPrefetchedBrief('the agenda moved');
+    } else {
       const previousTitle = this.currentItem()?.title;
       const cleanTitle = cleanSpokenTopic(title).toLowerCase();
       const matched = this.options.scenario.agenda.find(
         (candidate) => candidate.title === title || cleanSpokenTopic(candidate.title).toLowerCase() === cleanTitle,
       );
-      if (previousTitle !== undefined && previousTitle !== (matched?.title ?? title)) {
+      const incomingTitle = matched?.title ?? title;
+      // Keep a brief that was already fetched for this incoming topic while the previous item wound down.
+      if (this.prefetchedBrief?.title !== incomingTitle) this.clearPrefetchedBrief('the agenda moved');
+      if (previousTitle !== undefined && previousTitle !== incomingTitle) {
         this.interrupt('agenda moved');
       }
-      this.agendaItem = matched?.title ?? title;
+      this.agendaItem = incomingTitle;
       this.silencePromptStage = 0;
       this.bridgedStatementOnTurn = false;
       this.recoveryCueSpoken = false;
@@ -1589,7 +1626,7 @@ export class NpcConversation<Clip> {
     const problem = item.briefing ??
       item.discussion?.openingViews.find((view) => view.attendee === seat)?.view ??
       item.decision ?? title;
-    return `[We just started "${title}". Begin with "${first}:". Only ${first} speaks two short sentences, each at most 16 words: first what happened and its core cause from "${problem}", then what is at stake before 8 AM and their view "${firstView ?? title}". Use at most one number in total. A short question to ${human.name} follows automatically. No host line, no second colleague. Leave the decision open and hold at least one catch back for ${human.name}'s first idea. Do not recite every fact.]`;
+    return `[We just started "${title}". Begin with "${first}:". Only ${first} speaks two short sentences, each at most 16 words: first state the problem in plain words from "${problem}" with at most the one fact that makes it a problem, then their view "${firstView ?? title}" and what is at stake. Use at most one number in total. End by inviting ${human.name} in with your own short question about what they would do; do not use a stock invitation. No host line, no second colleague. Leave the decision open and hold at least one catch back for ${human.name}'s first idea. Do not add any other fact.]`;
   }
 
   briefsOnTopic(title: string): boolean {
@@ -1600,8 +1637,38 @@ export class NpcConversation<Clip> {
   }
 
   private prefetchBrief(title: string): void {
+    if (this.human === undefined || this.pendingBrief !== title || this.currentItem()?.title !== title) return;
+    const alreadyAsked = this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
+    const includeKnows = this.humanLines > this.linesAtMove;
+    this.startBriefPrefetch(title, { alreadyAsked, includeKnows });
+  }
+
+  /**
+   * The next item's brief is fetched while the room winds the current item down, so it is ready by the
+   * time the host finishes moving on. This is the same head start topic 1 gets from the long welcome.
+   */
+  private prefetchUpcomingBrief(): void {
+    if (this.closed || this.paused || this.human === undefined || this.names.length <= 2) return;
+    const next = this.nextAgendaItem();
+    if (next === undefined || this.briefed.has(next.title) || this.currentItem()?.title === next.title) return;
+    this.startBriefPrefetch(next.title, { alreadyAsked: false, includeKnows: false });
+  }
+
+  private nextAgendaItem() {
+    const agenda = this.options.scenario.agenda;
+    const anchor = this.agendaItem ?? this.currentItem()?.title;
+    if (anchor === undefined) return undefined;
+    const wanted = cleanSpokenTopic(anchor).toLowerCase();
+    const index = agenda.findIndex((item) =>
+      item.title === anchor || cleanSpokenTopic(item.title).toLowerCase() === wanted);
+    return index < 0 ? undefined : agenda[index + 1];
+  }
+
+  private startBriefPrefetch(
+    title: string,
+    state: { alreadyAsked: boolean; includeKnows: boolean },
+  ): void {
     if (this.closed || this.paused || this.human === undefined || this.briefed.has(title)) return;
-    if (this.pendingBrief !== title || this.currentItem()?.title !== title) return;
     const existing = this.prefetchedBrief;
     if (existing !== undefined && existing.title === title && !existing.controller.signal.aborted) return;
     this.clearPrefetchedBrief('the topic or cue changed');
@@ -1610,10 +1677,10 @@ export class NpcConversation<Clip> {
     const prefetched: PrefetchedReply = {
       title, cue, controller: new AbortController(), chunks: [], done: false, startedAt: Date.now(),
     };
-    const alreadyAsked = this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
-    const includeKnows = this.humanLines > this.linesAtMove;
+    const upcoming = this.currentItem()?.title !== title;
     const messages: ChatMessage[] = [
-      { role: 'system', content: this.systemPrompt(alreadyAsked, includeKnows) },
+      { role: 'system', content: this.systemPrompt(
+        state.alreadyAsked, state.includeKnows, title, upcoming ? [] : this.recentSpokenForPrompt()) },
       ...this.history.slice(-this.maxHistory),
       { role: 'user', content: cue },
     ];
@@ -2131,18 +2198,23 @@ export class NpcConversation<Clip> {
     return true;
   }
 
-  private systemPrompt(alreadyAsked: boolean, includeKnows: boolean): string {
+  private systemPrompt(
+    alreadyAsked: boolean,
+    includeKnows: boolean,
+    agendaTitle = this.agendaItem,
+    recentSpoken = this.recentSpokenForPrompt(),
+  ): string {
     return buildSystemPrompt(
       this.options.scenario,
       this.human,
-      this.agendaItem,
+      agendaTitle,
       alreadyAsked,
       includeKnows,
       [...this.introduced],
       this.memory.snapshot(),
       this.reopenedTitle,
       this.memory.reopenedItems(),
-      this.recentSpokenForPrompt(),
+      recentSpoken,
     );
   }
 
@@ -2221,8 +2293,11 @@ export class NpcConversation<Clip> {
         this.ports.log?.(`[repeat] ${utterance.speaker}: dropped a sentence that repeats what they just said: "${trimmed}"`);
         return;
       }
+      // A brief is two short sentences plus, at most, the colleague's own question inviting the visitor in.
+      const briefInvitation = turn.enqueued.length === 2 && trimmed.trim().endsWith('?');
       if (turn.briefSpeaker !== undefined &&
-          (utterance.speaker !== turn.briefSpeaker || (turn.enqueued.length >= 2 && !briefQuestion))) {
+          (utterance.speaker !== turn.briefSpeaker ||
+            (turn.enqueued.length >= 2 && !briefQuestion && !briefInvitation))) {
         this.ports.log?.(`[brief] dropped extra line from ${utterance.speaker}`);
         return;
       }
@@ -2423,10 +2498,8 @@ export class NpcConversation<Clip> {
         if (turn.briefSpeaker !== undefined && turn.enqueued.length >= 1 && turn.enqueued.length <= 2 &&
             !turn.enqueued[turn.enqueued.length - 1]!.text.trim().endsWith('?')) {
           const who = this.human?.name ?? 'Everyone';
-          const questions = [`${who}, what would you do?`, `How would you handle that, ${who}?`,
-            `What feels workable, ${who}?`, `Where would you start, ${who}?`];
           enqueue({ speaker: turn.briefSpeaker,
-            text: questions[this.topicIndex(turn.topic ?? '') % questions.length]! }, false, true);
+            text: this.nextGuestInvite(who, turn.topic) }, false, true);
         }
         choseSilence = parser.saidNone;
         if (heldRefusal !== undefined) {
