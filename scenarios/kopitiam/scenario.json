@@ -7,36 +7,36 @@
       "id": "producer",
       "label": "Operations Director",
       "card": {
-        "youAre": "You are Wei Ling, Operations Director. You protect the floor team and count every dollar.",
+        "youAre": "You are Wei Ling, Operations Director. You look after the floor team and watch the money.",
         "facts": [],
-        "responsibility": "Make sure the floor and the money hold up this morning."
+        "responsibility": "Make sure the floor team can cope and the numbers work this morning."
       }
     },
     {
       "id": "lead_programmer",
       "label": "Tech & POS Lead",
       "card": {
-        "youAre": "You are Arjun, Tech & POS Lead. Doors open at eight; a change made now may leave no time to test it.",
+        "youAre": "You are Arjun, Tech & POS Lead. Doors open at eight, so any change now leaves almost no time to test.",
         "facts": [],
-        "responsibility": "Keep the shop systems working for opening and weigh each change against the time left."
+        "responsibility": "Keep the till, kiosk, power and Wi-Fi working for opening, and flag how long any change takes."
       }
     },
     {
       "id": "game_designer",
       "label": "Menu & Store Experience Lead",
       "card": {
-        "youAre": "You are Mei, Menu & Store Experience Lead. You designed the new menu and fought to keep the old shop's heritage in the brand.",
+        "youAre": "You are Mei, Menu & Store Experience Lead. You built the new menu and fought to keep the old shop's name and regulars in it.",
         "facts": [],
-        "responsibility": "Keep the menu and the shop's heritage right while customers are looked after."
+        "responsibility": "Look after the menu, the store feel and the old shop's regulars."
       }
     },
     {
       "id": "marketing_lead",
       "label": "Marketing Lead",
       "card": {
-        "youAre": "You are Daniel, Marketing Lead. You are responsible for customer promises on opening day.",
+        "youAre": "You are Daniel, Marketing Lead. You made the opening-day promises to customers and the offices nearby.",
         "facts": [],
-        "responsibility": "Protect the opening-day reputation and the office customers without promising what the shop cannot deliver."
+        "responsibility": "Keep customer trust and the office crowd without promising what the shop cannot deliver."
       }
     },
     {
@@ -84,8 +84,8 @@
       "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
-      "briefing": "One of our counter staff texted at quarter to seven with a fever, so we're one short for the opening rush. Daniel's free-kopi flyers went to the whole building.",
-      "decision": "how do we run the counter from 8 to 10 one person short?",
+      "briefing": "One of our counter staff texted at 6:45 with a fever. We're one person short for the 8 o'clock rush, and Daniel's free-kopi flyers went to the whole building.",
+      "decision": "how do we cover the counter from 8 to 10 one person short?",
       "directions": [
         "Ask Auntie Mary to come in. Rest-day work is double pay and she can say no. If asked, she answers once, in character: she may agree, refuse, or agree with a condition such as only from 9. Decide her answer from how the guest asks.",
         "An agency temp needs notice and a till login from Arjun, which takes about 15 minutes before opening; the temp does not know the menu.",
@@ -102,44 +102,44 @@
         "howTheyAnswer": "Auntie Mary answers once, in character. She may agree, refuse, or agree with a condition such as starting at 9. A warm, fair ask is more likely to get a yes; decide her answer from how the guest asks."
       },
       "seatFacts": {
-        "producer": "I signed the opening-day staffing plan. Auntie Mary is on her rest day, so asking her in means double pay, and she is free to say no.",
-        "lead_programmer": "Anyone new on the till needs a login, which takes me about a quarter of an hour before opening.",
-        "game_designer": "Toast sets are the slowest thing at the counter; drinks ordered at the kiosk barely touch it.",
-        "marketing_lead": "The free-kopi flyers went to every office in the building, about two hundred of them."
+        "producer": "I signed off on today's roster. Auntie Mary is on her rest day, so calling her in means double pay, and she's free to say no.",
+        "lead_programmer": "Setting up a till login for someone new takes me about 15 minutes before opening.",
+        "game_designer": "Toast sets are what slow the counter down; drinks ordered on the kiosk barely touch the counter.",
+        "marketing_lead": "Our free-kopi flyers went to every office in the building, about 200 of them."
       },
       "links": [
         {
           "with": "Old regulars and the new kopi prices",
-          "effect": "An old-price hour or a regulars' queue lands on a counter that is already one short."
+          "effect": "An old-price hour or a regulars' queue hits a counter that is already one person short."
         },
         {
           "with": "Laptop campers and the breakfast seat crunch",
-          "effect": "With nobody free to walk the floor, any seat rule must work without staff."
+          "effect": "With nobody spare to walk the floor, any seat rule has to work on its own."
         }
       ],
       "discussion": {
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "We're one short at the counter for the rush, and I won't leave one person alone there."
+            "view": "We're one person short for the 8 o'clock rush. I don't want anyone left alone on that counter."
           },
           {
             "attendee": "Daniel",
-            "view": "The free-kopi crowd is coming at opening, and going quiet now would be worse."
+            "view": "The free-kopi flyers went to the whole building, so if we pull the offer at the door on day one, we look terrible."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "One on the counter: leaving someone alone through the opening rush is not safe or fair.",
-            "question": "How do we cover the counter without leaving one person alone?"
+            "tradeOff": "I won't leave one person alone on the counter. Auntie Mary is on her rest day, so calling her in means double pay, and she can say no.",
+            "question": "Who is actually going to stand on that counter with them from 8?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Whole building invited: the free-kopi flyers went to every office, about two hundred of them.",
-            "question": "Do we go quiet on the free kopi, or find the hands to keep it?"
+            "tradeOff": "About 200 offices in this building got our free-kopi flyer, and they're coming down between 8 and 9.",
+            "question": "How do we get through the 8 o'clock rush without pulling the free kopi we promised?"
           }
         ]
       },
@@ -151,7 +151,7 @@
       "minutes": 5,
       "ownerRole": "game_designer",
       "contested": true,
-      "briefing": "Our regulars from the old shop have had kopi here every morning for years. At yesterday's trial a few of the uncles saw the new prices and walked out, and one of their nephews posted on Facebook that Nanyang has forgotten its roots.",
+      "briefing": "Some of our old regulars saw the new kopi price at yesterday's trial and walked out. One nephew posted on Facebook that we've forgotten our roots.",
       "decision": "what do we do for the old regulars without losing money on every cup?",
       "directions": [
         "An old-price hour for kopi before the rush: it loses money per cup and keeps the counter busy.",
@@ -168,19 +168,19 @@
         "howTheyAnswer": "Uncle Lim answers once, in character. He may offer to vouch for the regulars, or say he will not be the one turning people away. Decide his answer from how the guest asks."
       },
       "seatFacts": {
-        "producer": "On this rent a cup of kopi costs us about $1.60, so anything at the old price loses money on every cup.",
-        "lead_programmer": "The till can take a regulars' price button in about ten minutes, but it needs a clear rule for who gets it.",
-        "game_designer": "Kopi used to be $1.30 here and the new menu charges $2.40; the old shop's story is on our menu boards.",
-        "marketing_lead": "The nephew's Facebook post has been shared a few hundred times since last night, and the food blogger reads local Facebook groups."
+        "producer": "On Raffles Place rent, a cup of kopi costs us about $1.60 to serve, so selling at $1.30 loses money on every cup.",
+        "lead_programmer": "I can add a regulars' price button on the till in about 10 minutes, but we need a clear rule on who gets it.",
+        "game_designer": "Kopi was $1.30 at the old shop and it's $2.40 on the new menu, right under the board telling the old regulars' story.",
+        "marketing_lead": "The nephew's Facebook post has been shared a few hundred times since last night. The food blogger reads those local groups."
       },
       "links": [
         {
           "with": "One counter staff short for the opening rush",
-          "effect": "An old-price hour or a regulars' queue lands on a counter that is already one short."
+          "effect": "An old-price hour or a regulars' queue hits a counter that is already one person short."
         },
         {
           "with": "Food safety complaint before the 9 AM inspection",
-          "effect": "The regulars' Facebook post and the customer's review tonight mean two public complaints on day one; Daniel feels it."
+          "effect": "With the nephew's Facebook post already up, a bad hygiene review tonight would be our second public hit on day one."
         }
       ],
       "sayExactly": [
@@ -191,25 +191,25 @@
         "openingViews": [
           {
             "attendee": "Mei",
-            "view": "The regulars walked out over the new price, and I won't brush off the people who gave this shop its name."
+            "view": "Those uncles built this shop's name. Their story's on our menu board, and now we're charging them $2.40 for kopi."
           },
           {
             "attendee": "Wei Ling",
-            "view": "The regulars are upset, but I won't sell every cup at a loss on this rent."
+            "view": "I want the uncles back too, but on this rent each cup costs us $1.60, so we can't sell kopi at $1.30 all morning."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Old shop's name: kopi was $1.30 here and the new menu charges $2.40, and the regulars' story is on our menu boards.",
-            "question": "What keeps the old regulars while the new menu pays its way?"
+            "tradeOff": "Kopi jumped from $1.30 to $2.40, and the regulars we put on our own menu boards walked out yesterday.",
+            "question": "How do we look after the old regulars without gutting the new menu?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Every cup costs us: on this rent a cup of kopi costs about $1.60, so the old price loses money on every cup.",
-            "question": "How do we help the regulars without losing on every cup?"
+            "tradeOff": "Every cup of kopi costs us about $1.60 on this rent, so the old $1.30 price loses money on every cup.",
+            "question": "How do we do right by the uncles without selling kopi at a loss?"
           }
         ]
       },
@@ -221,8 +221,8 @@
       "minutes": 5,
       "ownerRole": "lead_programmer",
       "contested": true,
-      "briefing": "At yesterday's trial laptop users held about half our seats for a couple of hours on one kopi, and breakfast customers with trays walked out. One of the floor staff got shouted at for asking someone to move, and nobody wants to police tables.",
-      "decision": "how do we free up seats for breakfast without anyone having to confront customers?",
+      "briefing": "At yesterday's trial, laptop users took about half our seats for a couple of hours on one kopi. Breakfast customers walked out carrying their trays, and a floor colleague got shouted at for asking someone to move.",
+      "decision": "how do we keep seats turning for the breakfast crowd without putting floor staff in a fight?",
       "directions": [
         "Booth power off and Wi-Fi limited from 8 to 10: the socket timer and Wi-Fi codes take about 10 minutes to change, with little time to test before opening. Many of the laptop users work upstairs.",
         "A laptop zone on the 10 window-bar stools with power, and breakfast-table signs on the booths.",
@@ -233,19 +233,19 @@
         "Many laptop users work in the offices upstairs."
       ],
       "seatFacts": {
-        "producer": "The blocked seats cost us real breakfast sales at the trial, about $420.",
-        "lead_programmer": "The booth sockets are on one timer switch, and the Wi-Fi can give each receipt a code that lasts about three quarters of an hour.",
-        "game_designer": "Most morning customers come alone carrying a hot tray, and there are about ten stools in the storeroom.",
-        "marketing_lead": "More than half of the laptop users wore lanyards from the offices upstairs, and a couple of those offices have asked about bulk orders."
+        "producer": "Losing those tables cost us about $420 in breakfast sales yesterday, and our floor crew shouldn't be getting yelled at over seats.",
+        "lead_programmer": "The booth sockets are all on one timer switch, and I can set the Wi-Fi to print a 45-minute code on each receipt in about 10 minutes.",
+        "game_designer": "Most morning customers come in alone with a hot tray, and we have about ten window-bar stools in the storeroom we can put out.",
+        "marketing_lead": "Over half the laptop crowd wore lanyards from the offices upstairs, and a couple of those offices have asked about bulk orders."
       },
       "links": [
         {
           "with": "One counter staff short for the opening rush",
-          "effect": "With nobody free to walk the floor, any seat rule must work without staff."
+          "effect": "With nobody spare to walk the floor, any seat rule has to work on its own."
         },
         {
           "with": "Delivery app commission squeeze",
-          "effect": "How the laptop users from upstairs were treated changes how keen the offices are on a direct order code."
+          "effect": "How we treat the laptop crowd from upstairs affects whether their offices take up a direct order code."
         }
       ],
       "sayExactly": [
@@ -255,25 +255,25 @@
         "openingViews": [
           {
             "attendee": "Arjun",
-            "view": "Breakfast customers walked out because the seats were full. I want a seat rule that works without staff policing tables."
+            "view": "I can change the booth power and the Wi-Fi before eight, but tell me what we're going for first."
           },
           {
             "attendee": "Daniel",
-            "view": "The laptop crowd held breakfast seats, but I don't want to turn away offices I've spent weeks winning over."
+            "view": "More than half that laptop crowd works upstairs. I don't want to turn away offices that have asked us about bulk orders."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "Booth power and Wi-Fi: one timer switch runs the booth sockets, and a receipt code can last about three quarters of an hour.",
-            "question": "What seat rule works without anyone policing tables?"
+            "tradeOff": "The booth sockets run on one timer switch and the Wi-Fi can print a 45-minute receipt code, which takes 10 minutes to set up before opening.",
+            "question": "What do you want me to change before eight, if anything?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Offices upstairs: more than half the laptop users wore lanyards from upstairs, and a couple of offices have asked about bulk orders.",
-            "question": "How do we free seats without turning those offices away?"
+            "tradeOff": "More than half the laptop crowd wore lanyards from upstairs, and a couple of those offices have asked about bulk orders.",
+            "question": "How do we free up the breakfast booths without chasing away the office crowd upstairs?"
           }
         ]
       },
@@ -286,8 +286,8 @@
       "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
-      "briefing": "A customer from yesterday's trial emailed last night: she was sick after eating here and saw a doctor. This morning we found the prep fridge had been unplugged for about three hours overnight. The food agency officer comes soon after opening.",
-      "decision": "do we open at 8, and what do we tell the customer and the inspector?",
+      "briefing": "A customer from yesterday's trial emailed to say she got sick and saw a doctor. The prep fridge was unplugged for about three hours overnight, and the food agency officer comes after opening.",
+      "decision": "do we open at 8, and how do we handle the customer and the 9 AM inspection?",
       "directions": [
         "Open at 8 without Set A until the 10 o'clock delivery.",
         "Open at 10 after the inspection, with a big loss of morning sales and the free-kopi crowd.",
@@ -303,19 +303,19 @@
         "If Set A is off until 10, it comes off the kiosk and the till too, which costs Arjun minutes."
       ],
       "seatFacts": {
-        "producer": "I signed the hygiene sign-off for HQ. The chef's disposal log is signed and the fridge log shows the gap from overnight; the officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
-        "lead_programmer": "The fridge has no alarm; a temperature alert on the POS takes about ten minutes, and I was asked for one last month.",
-        "game_designer": "I designed Set A. It is our biggest breakfast seller and needs the eggs and kaya.",
-        "marketing_lead": "The customer's email is polite but says she will post her review tonight, and the food blogger is booked for later this morning."
+        "producer": "I signed the hygiene sign-off for HQ. The chef signed the disposal log, and the fridge log shows the overnight gap. The officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
+        "lead_programmer": "The fridge has no alarm. I was asked for a POS temperature alert last month; it takes about ten minutes. I can also remove Set A from the till and kiosk.",
+        "game_designer": "I designed Set A. It's our biggest breakfast seller, and it needs eggs and kaya. We have no fresh stock until the 10 o'clock delivery.",
+        "marketing_lead": "Her email is polite, but she says she'll post a review tonight. The food blogger is booked for later this morning."
       },
       "links": [
         {
           "with": "Old regulars and the new kopi prices",
-          "effect": "The regulars' Facebook post and the customer's review tonight mean two public complaints on day one; Daniel feels it."
+          "effect": "With the nephew's Facebook post already up, a bad hygiene review tonight would be our second public hit on day one."
         },
         {
           "with": "Delivery app commission squeeze",
-          "effect": "No Set A until 10 means no Set A on the app or in platters until 10."
+          "effect": "With Set A off until 10, we cannot send Set A out on GrabFood or in office platters before 10 either."
         }
       ],
       "sayExactly": [
@@ -325,25 +325,25 @@
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "The fridge was off overnight. I won't assume we can open until we know what the officer will need."
+            "view": "The chef threw out the spoiled stock, so there's no Set A until the 10 o'clock delivery, and the inspector comes at 9."
           },
           {
             "attendee": "Daniel",
-            "view": "The customer says she'll post a review tonight, and I want to answer her first."
+            "view": "She's waiting for a reply and says she'll post a review tonight. We need to answer her this morning."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Signed logs and a sign-off: the disposal log is signed, the fridge log shows the gap, and our insurance allows goodwill without admitting fault.",
-            "question": "What do we open with, and what do we tell the officer?"
+            "tradeOff": "The disposal log is signed, the fridge log shows the three-hour overnight gap, and our insurance lets us cover her $85 clinic bill as goodwill without admitting fault.",
+            "question": "Do we open at 8 without Set A, and how do we handle the inspector at 9?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Review tonight: the customer's email is polite but says she will post tonight, and the blogger is booked for later this morning.",
-            "question": "How do we answer the customer before her review goes up?"
+            "tradeOff": "The customer says she'll post her review tonight, and the food blogger is booked for later this morning.",
+            "question": "What do we send the customer this morning so she knows we're taking care of it?"
           }
         ]
       },
@@ -355,8 +355,8 @@
       "minutes": 5,
       "ownerRole": "marketing_lead",
       "contested": true,
-      "briefing": "From today GrabFood takes a bigger cut of every order, and we now lose 50 cents on each breakfast set delivered. The offices nearby ordered a couple of hundred sets through the app at yesterday's trial.",
-      "decision": "how do we stop losing money on delivery without losing the office customers?",
+      "briefing": "GrabFood takes a bigger cut from today, so we now lose 50 cents on every breakfast set we deliver. The offices nearby ordered about 240 sets on the app at yesterday's trial.",
+      "decision": "how do we stop losing 50 cents on every delivered set without losing the office orders?",
       "directions": [
         "Raise the app price. GrabFood hides shops priced more than 10% above in-store.",
         "Office Platters for five or more, limited by the large trays.",
@@ -371,19 +371,19 @@
         "Direct pickup with 10% off takes $9.00 in, costs $7.00 with no delivery packaging, and makes $2 profit."
       ],
       "seatFacts": {
-        "producer": "A delivered set costs a little over seven dollars; a five-set platter costs about thirty because the packaging is shared.",
-        "lead_programmer": "GrabFood hides shops priced more than 10% above in-store, and an app menu change takes about a quarter of an hour to go live.",
-        "game_designer": "Platters need the large trays and we have about thirty.",
-        "marketing_lead": "A dozen office managers have asked for a direct order code, and most office orders are for several sets. The launch deal's banner needs the full menu live."
+        "producer": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, whereas a five-set platter at $50 shares packaging and makes $5.",
+        "lead_programmer": "GrabFood hides shops priced more than 10% above dine-in, and any app menu change takes me about 15 minutes to push live before 8.",
+        "game_designer": "Each five-set platter needs one of our large trays, and we only have 30 of those trays in the shop.",
+        "marketing_lead": "A dozen office managers have asked me for a direct order code, and most office orders are for several sets. We keep the GrabFood launch banner only while the full menu is live."
       },
       "links": [
         {
           "with": "Laptop campers and the breakfast seat crunch",
-          "effect": "How the laptop users from upstairs were treated changes how keen the offices are on a direct order code."
+          "effect": "How we treat the laptop crowd from upstairs affects whether their offices take up a direct order code."
         },
         {
           "with": "Food safety complaint before the 9 AM inspection",
-          "effect": "No Set A until 10 means no Set A on the app or in platters until 10."
+          "effect": "With Set A off until 10, we cannot send Set A out on GrabFood or in office platters before 10 either."
         }
       ],
       "sayExactly": [
@@ -394,25 +394,25 @@
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "We lose money on the delivered sets, but I won't give up the office orders on opening day."
+            "view": "We're losing 50 cents on every single set on GrabFood, but I don't want to lose the office crowd on day one or drop our launch banner."
           },
           {
             "attendee": "Wei Ling",
-            "view": "The app brings in orders, but I won't lose money on every set all morning."
+            "view": "240 app orders is no good to us if we lose 50 cents on every one."
           }
         ],
         "tradeOffs": [
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Office orders: a dozen office managers have asked for a direct code, and most office orders are for several sets.",
-            "question": "How do we keep the office orders while the app takes more?"
+            "tradeOff": "Twelve office managers want a direct pickup code, and pausing items on GrabFood drops our launch banner.",
+            "question": "How do we keep the office orders without losing our GrabFood launch banner?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Margin on every set: delivered sets cost more than the app returns, while a platter shares packaging across several sets.",
-            "question": "How do we keep the office orders without losing money on every delivery?"
+            "tradeOff": "Single delivered sets lose 50 cents each at 32% commission, while a five-set platter shares packaging and makes $5 profit.",
+            "question": "How do we stop bleeding 50 cents on single sets before the 8 AM orders roll in?"
           }
         ]
       },

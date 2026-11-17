@@ -80,38 +80,55 @@ beforeEach(() => {
   mocks.useScenario.mockReturnValue(scenario);
 });
 
+function pressStart(): void {
+  if (screen.queryByRole('button', { name: 'Start the meeting' }) === null) goToStart();
+  fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+}
+
+function goToStart(): void {
+  fireEvent.click(screen.getByRole('button', { name: /Next: How to play/i }));
+}
+
 describe('StartPrompt', () => {
-  it('uses agenda artwork rather than guessing from a title', () => {
+  it('lists today’s calls on the first screen', () => {
     mocks.useScenario.mockReturnValue({ ...scenario, agenda: [
-      { title: 'A neutral title', minutes: 5, ownerRole: 'producer', art: '/scenario/current.svg' },
+      { title: 'Till login fix', minutes: 5, ownerRole: 'producer' },
+      { title: 'Delivery promise', minutes: 5, ownerRole: 'producer' },
     ] });
     render(<StartPrompt onStart={vi.fn()} />);
-    fireEvent.click(screen.getByRole('tab', { name: /Today’s 1 Topics/i }));
-    expect((screen.getByAltText('A neutral title') as HTMLImageElement).getAttribute('src')).toBe('/scenario/current.svg');
+    expect(screen.getByText(/Today’s 2 calls/)).toBeTruthy();
+    expect(screen.getByText(/Till login fix/)).toBeTruthy();
+    expect(screen.getByText(/10 minutes/)).toBeTruthy();
   });
 
-  it('tells the person to read their briefing and waits for the button', () => {
+  it('keeps Start off the first screen so the role is read before the meeting begins', () => {
     const onStart = vi.fn();
     render(<StartPrompt onStart={onStart} />);
-    expect(screen.getByText(/Your briefing/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start the meeting' })).toBeNull();
     expect(screen.getByText(/stay quiet until you start/)).toBeTruthy();
     expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it('teaches talking, Space or Esc to pause, and the Kaki panel on the second screen', () => {
+    render(<StartPrompt onStart={vi.fn()} />);
+    goToStart();
+    expect(screen.getByText('Space')).toBeTruthy();
+    expect(screen.getByText('Esc')).toBeTruthy();
+    expect(screen.getByText(/Kaki panel/)).toBeTruthy();
   });
 
   it('starts the meeting when the button is pressed', () => {
     const onStart = vi.fn();
     render(<StartPrompt onStart={onStart} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('walks through the live spotlight tour highlighting both the left stage and right Kaki wingman dock', () => {
-    const onStart = vi.fn();
-    render(<StartPrompt onStart={onStart} />);
-    fireEvent.click(screen.getByRole('tab', { name: /3\. Live Room Spotlight/i }));
-    expect(screen.getByText(/Highlighting · Live Meeting Stage/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Next: Spotlight Kaki Wingman/i }));
-    expect(screen.getByText(/Highlighting · Kaki Wingman Dock/i)).toBeTruthy();
+  it('goes back to the role screen', () => {
+    render(<StartPrompt onStart={vi.fn()} />);
+    goToStart();
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }));
+    expect(screen.getByRole('button', { name: /Next: How to play/i })).toBeTruthy();
   });
 });
 
@@ -119,7 +136,7 @@ describe('ConnectedStartPrompt', () => {
   it('retries with the same request and opens only after the matching acknowledgement', () => {
     const onStarted = vi.fn();
     render(<ConnectedStartPrompt onStarted={onStarted} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     const request = sentStart();
     expect(request.kind).toBe('start');
     expect(request.session).toBe('visitor-1');
@@ -143,7 +160,7 @@ describe('ConnectedStartPrompt', () => {
     mocks.useScenario.mockReturnValue(undefined as never);
     const onStarted = vi.fn();
     render(<ConnectedStartPrompt onStarted={onStarted} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     expect(screen.getByText(/not ready yet/i)).toBeTruthy();
     expect(room.localParticipant.publishData).not.toHaveBeenCalled();
     acknowledge({ requestId: 'req-1', session: 'visitor-1' }, 'Sam');
@@ -155,7 +172,7 @@ describe('ConnectedStartPrompt', () => {
     room.localParticipant.publishData.mockRejectedValue(new Error('transport down'));
     const onStarted = vi.fn();
     render(<ConnectedStartPrompt onStarted={onStarted} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     act(() => {
       vi.advanceTimersByTime(8000);
     });
@@ -163,7 +180,7 @@ describe('ConnectedStartPrompt', () => {
     expect(onStarted).not.toHaveBeenCalled();
 
     room.localParticipant.publishData.mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     const request = sentStart();
     expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
     act(() => acknowledge(request));
@@ -178,7 +195,7 @@ describe('ConnectedStartPrompt', () => {
     const onStarted = vi.fn();
     try {
       render(<ConnectedStartPrompt onStarted={onStarted} />);
-      fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+      pressStart();
       expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
       expect(room.localParticipant.publishData).not.toHaveBeenCalled();
 
@@ -211,7 +228,7 @@ describe('ConnectedStartPrompt', () => {
     vi.useFakeTimers();
     room.localParticipant.publishData.mockRejectedValue(new Error('channel closed'));
     render(<ConnectedStartPrompt onStarted={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     await act(async () => { await Promise.resolve(); });
     act(() => { vi.advanceTimersByTime(8000); });
     expect(screen.getByText(/could not send Start \(channel closed\)/i)).toBeTruthy();
@@ -221,7 +238,7 @@ describe('ConnectedStartPrompt', () => {
     vi.useFakeTimers();
     const onStarted = vi.fn();
     const { unmount } = render(<ConnectedStartPrompt onStarted={onStarted} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    pressStart();
     const request = sentStart();
     unmount();
     act(() => acknowledge(request));

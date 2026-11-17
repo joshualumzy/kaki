@@ -78,7 +78,7 @@ describe('Meeting join', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
 
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Join now' })).toBeNull());
-    expect(screen.queryByRole('button', { name: 'Start the meeting' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Before the meeting starts' })).toBeNull();
     expect(document.querySelector('[data-needs-start="true"]')).toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe('Meeting join', () => {
     render(<Meeting />);
     fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
 
-    expect(await screen.findByRole('button', { name: 'Start the meeting' })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Before the meeting starts' })).toBeTruthy();
     expect(document.querySelector('[data-needs-start="true"]')).toBeTruthy();
   });
 });

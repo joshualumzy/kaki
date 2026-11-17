@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { ConnectionState, RoomEvent } from 'livekit-client';
-import { aiCast, CONTROL_TOPIC, NPC_STATE_TOPIC, roleLabel, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario, type ScenarioRole } from '@kaki/shared';
+import { aiCast, CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario, type ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import './demo.css';
 
@@ -31,13 +31,12 @@ function safeUseScenario(): Scenario | undefined {
 }
 
 /**
- * Covers the meeting stage until the person has read their briefing (the role card and the situation in the dock)
- * and presses Start. The AI attendees are already in the room but stay silent until then.
+ * Covers the meeting stage with a two-screen briefing (who you are and today's calls, then how to play) until the
+ * person presses Start. The AI attendees are already in the room but stay silent until then.
  */
 export function StartPrompt({ onStart, role, viewerName, seatName, starting = false, startError }: StartPromptProps) {
   const scenario = safeUseScenario();
-  const [stepIndex, setStepIndex] = useState(0);
-  const [spotlightStop, setSpotlightStop] = useState<'stage' | 'dock'>('stage');
+  const [stepIndex, setStepIndex] = useState<0 | 1>(0);
 
   useEffect(() => {
     if (typeof Image === 'undefined') return;
@@ -47,39 +46,20 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
     }
   }, [scenario]);
 
-  const goPrev = useCallback(() => {
-    if (stepIndex === 2 && spotlightStop === 'dock') {
-      setSpotlightStop('stage');
-    } else if (stepIndex > 0) {
-      setStepIndex((prev) => Math.max(0, prev - 1));
-    }
-  }, [stepIndex, spotlightStop]);
-
-  const goNext = useCallback(() => {
-    if (stepIndex === 0) {
-      setStepIndex(1);
-    } else if (stepIndex === 1) {
-      setSpotlightStop('stage');
-      setStepIndex(2);
-    } else if (stepIndex === 2 && spotlightStop === 'stage') {
-      setSpotlightStop('dock');
-    }
-  }, [stepIndex, spotlightStop]);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        goNext();
+        setStepIndex(1);
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        goPrev();
+        setStepIndex(0);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [goNext, goPrev]);
+  }, []);
 
   const trimmedName = viewerName?.trim();
   const card = role?.card;
@@ -93,154 +73,7 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
   const totalMinutes = agendaItems.length > 0
     ? agendaItems.reduce((sum, item) => sum + (Number.isFinite(item.minutes) ? item.minutes : 0), 0)
     : topicCount * 5;
-  const stepLabels = [
-    '1. Story & Your Role',
-    `2. Today’s ${topicCount} Topics`,
-    '3. Live Room Spotlight',
-  ];
-
-  if (stepIndex === 2) {
-    return (
-      <div
-        className="kd-start kd-start-spotlight-mode"
-        data-spotlight={spotlightStop}
-        role="region"
-        aria-label="Before the meeting starts"
-      >
-        <div
-          className="kd-spotlight-frame"
-          data-target={spotlightStop}
-          aria-hidden="true"
-        />
-
-        <div className="kd-spotlight-popover" data-target={spotlightStop}>
-          <div className="kd-start-steps" role="tablist" aria-label="Quick tour" style={{ marginBottom: 10 }}>
-            {stepLabels.map((label, idx) => (
-              <button
-                key={label}
-                type="button"
-                role="tab"
-                aria-selected={idx === stepIndex}
-                className="kd-start-step-pill"
-                onClick={() => setStepIndex(idx)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="kd-spotlight-tabs">
-            <button
-              type="button"
-              className="kd-spotlight-tab"
-              data-active={spotlightStop === 'stage'}
-              onClick={() => setSpotlightStop('stage')}
-            >
-              1. Stage &amp; Controls
-            </button>
-            <button
-              type="button"
-              className="kd-spotlight-tab"
-              data-active={spotlightStop === 'dock'}
-              onClick={() => setSpotlightStop('dock')}
-            >
-              2. Kaki Wingman →
-            </button>
-          </div>
-
-          {spotlightStop === 'stage' ? (
-            <div className="kd-spotlight-body">
-              <span className="kd-spotlight-eyebrow">Highlighting · Live Meeting Stage</span>
-              <h3>How to talk with the team</h3>
-              <ul className="kd-spotlight-list">
-                <li>
-                  <b>1. Listen:</b> Colleagues speak with live captions on their tiles.
-                </li>
-                <li>
-                  <b>2. Reply:</b> Speak on mic, type below, or click a question idea.
-                </li>
-                <li>
-                  <b>3. Pause anytime:</b> Click <b>Pause</b> (or <code>Esc</code>) if you need a moment.
-                </li>
-              </ul>
-            </div>
-          ) : (
-            <div className="kd-spotlight-body">
-              <span className="kd-spotlight-eyebrow">Highlighting · Kaki Wingman Dock</span>
-              <h3>Your personal AI Wingman</h3>
-              <ul className="kd-spotlight-list">
-                <li>
-                  <b>1. Instant facts:</b> Kaki glides in with store numbers whenever you need them.
-                </li>
-                <li>
-                  <b>2. Auto-drafts:</b> Click <b>Let Kaki do it</b> when a follow-up task is assigned to you.
-                </li>
-                <li>
-                  <b>3. One-click send:</b> Approve Kaki’s draft to post to Mattermost, Gitea, or Email.
-                </li>
-              </ul>
-            </div>
-          )}
-
-          <p className="kd-start-quiet-note" style={{ marginTop: 8 }}>
-            Your colleagues are in the room, but they stay quiet until you start the meeting.
-          </p>
-          {(starting || startError !== undefined) && (
-            <p className="kd-start-quiet-note" role="status" aria-live="polite">
-              {starting ? 'Starting the meeting… waiting for the room to confirm.' : startError}
-            </p>
-          )}
-          <div className="kd-start-actions">
-            <button
-              type="button"
-              className="kd-chip"
-              style={{ padding: '10px 14px', fontWeight: 600 }}
-              onClick={() => {
-                if (spotlightStop === 'dock') setSpotlightStop('stage');
-                else setStepIndex(1);
-              }}
-            >
-              ← Back
-            </button>
-            {spotlightStop === 'stage' ? (
-              <>
-                <button
-                  type="button"
-                  className="kd-go"
-                  style={{ marginTop: 0, flex: 1 }}
-                  onClick={() => setSpotlightStop('dock')}
-                  autoFocus
-                >
-                  Next: Spotlight Kaki Wingman →
-                </button>
-                <button
-                  type="button"
-                  className="kd-skip-link"
-                  onClick={onStart}
-                  disabled={starting}
-                  aria-label="Start the meeting"
-                >
-                  {startError !== undefined ? 'Try again' : 'Skip tutorial →'}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="kd-go"
-                style={{ marginTop: 0, flex: 1 }}
-                onClick={onStart}
-                disabled={starting}
-                autoFocus
-                aria-label="Start the meeting"
-              >
-                {starting ? 'Starting…' : startError !== undefined ? 'Try again' : 'Start the meeting'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const stepLabels = ['1. Your role', '2. How to play'] as const;
 
   return (
     <div className="kd-start" role="region" aria-label="Before the meeting starts">
@@ -253,24 +86,17 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
               role="tab"
               aria-selected={idx === stepIndex}
               className="kd-start-step-pill"
-              onClick={() => {
-                setStepIndex(idx);
-                if (idx === 2) setSpotlightStop('stage');
-              }}
+              onClick={() => setStepIndex(idx as 0 | 1)}
             >
               {label}
             </button>
           ))}
         </div>
 
-        {stepIndex === 0 && (
+        {stepIndex === 0 ? (
           <div className="kd-story-step">
             <div className="kd-story-hero">
-              <img
-                src="/scenario/kopitiam-hero.svg"
-                alt="Nanyang Kopi & Toast Raffles Place Flagship"
-                className="kd-story-hero-img"
-              />
+              <img src={HERO_ART} alt="Nanyang Kopi & Toast Raffles Place Flagship" className="kd-story-hero-img" />
               <div className="kd-story-hero-overlay">
                 <span className="kd-story-badge">
                   {scenario?.organisation ?? 'Nanyang Kopi & Toast'} · Opening day
@@ -280,68 +106,42 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
             </div>
 
             <div className="kd-story-role-box">
-              <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
-                Step 1 of 3 · Your briefing
-              </p>
               <p className="kd-story-shop-intro">
-                Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> is opening this morning. We have {totalMinutes} minutes to settle {topicCount} opening-day calls, and you’re opening-day lead, so the calls are yours.
+                Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> opens this morning. You’re opening-day lead: the team has {totalMinutes} minutes, and the calls are yours.
               </p>
-              {role !== undefined && card !== undefined ? (
-                <div className="kd-story-seat-summary">
-                  <p className="kd-story-role-headline">
-                    <strong>🪑 {youAre}</strong>
-                  </p>
-                  <p className="kd-story-role-resp" style={{ marginBottom: 0 }}>
-                    <span>Your goal: </span>
-                    {card.responsibility}
-                  </p>
-                </div>
-              ) : (
-                <p style={{ margin: 0 }}>
-                  Your role card and store facts are in Kaki Wingman on the right.
+              {role !== undefined && card !== undefined && (
+                <p className="kd-story-role-headline">
+                  <strong>🪑 {youAre}</strong>
                 </p>
+              )}
+              {agendaItems.length > 0 && (
+                <div>
+                  <p className="kd-role-eyebrow" style={{ margin: '0 0 6px' }}>Today’s {topicCount} calls</p>
+                  <ol className="kd-start-topics">
+                    {agendaItems.map((item) => (
+                      <li key={item.title}>
+                        {item.title} <span>· {item.minutes} min</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
               )}
             </div>
           </div>
-        )}
-
-        {stepIndex === 1 && (
+        ) : (
           <div className="kd-story-step">
-            <p className="kd-role-eyebrow" style={{ marginBottom: 4 }}>
-              Step 2 of 3 · On the agenda today
-            </p>
-            <h2 style={{ marginBottom: 4 }}>Today’s {topicCount} Topics</h2>
-            <p style={{ marginBottom: 10 }}>
-              We have {totalMinutes} minutes to hear the team out and settle these calls:
-            </p>
-            {agendaItems.length > 0 ? (
-              <div className="kd-crisis-grid">
-                {agendaItems.map((item, idx) => {
-                  const art = item.art ?? HERO_ART;
-                  const owner = scenario ? roleLabel(scenario, item.ownerRole) : item.ownerRole;
-                  const isYours = role !== undefined && item.ownerRole === role.id;
-                  return (
-                    <article key={item.title} className="kd-crisis-card" data-yours={isYours}>
-                      <img src={art} alt={item.title} className="kd-crisis-img" />
-                      <div className="kd-crisis-body">
-                        <div className="kd-crisis-meta">
-                          <span className="kd-crisis-pill">Item {idx + 1} · {item.minutes}m</span>
-                          <span className="kd-crisis-owner">
-                            {isYours ? '★ Your Topic to Lead' : `Led by ${owner}`}
-                          </span>
-                        </div>
-                        <h3>{item.title}</h3>
-                        <p>{item.briefing ?? item.decision ?? item.title}</p>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <p>
-                On each agenda item, Kaki Wingman highlights the exact decision on the table and your key numbers at the top of the Kaki panel.
-              </p>
-            )}
+            <h2 style={{ margin: 0 }}>How to play</h2>
+            <ul className="kd-start-howto">
+              <li>
+                <b>Talk:</b> speak into your mic, or type in the box under the meeting.
+              </li>
+              <li>
+                <b>Pause:</b> press <kbd>Space</kbd> or <kbd>Esc</kbd> any time you need a moment.
+              </li>
+              <li>
+                <b>Kaki:</b> the Kaki panel (on the right, or below on a phone) shows the key facts for each call, and drafts your follow-up messages for you.
+              </li>
+            </ul>
           </div>
         )}
 
@@ -354,40 +154,33 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
           </p>
         )}
         <div className="kd-start-actions">
-          {stepIndex > 0 && (
-            <button
-              type="button"
-              className="kd-chip"
-              style={{ padding: '10px 14px', fontWeight: 600 }}
-              onClick={() => setStepIndex((prev) => Math.max(0, prev - 1))}
-            >
-              ← Back
+          {stepIndex === 0 ? (
+            <button type="button" className="kd-go" style={{ marginTop: 0, flex: 1 }} onClick={() => setStepIndex(1)} autoFocus>
+              Next: How to play →
             </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="kd-chip"
+                style={{ padding: '10px 14px', fontWeight: 600 }}
+                onClick={() => setStepIndex(0)}
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                className="kd-go"
+                style={{ marginTop: 0, flex: 1 }}
+                onClick={onStart}
+                disabled={starting}
+                autoFocus
+                aria-label="Start the meeting"
+              >
+                {starting ? 'Starting…' : startError !== undefined ? 'Try again' : 'Start the meeting'}
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            className="kd-go"
-            style={{ marginTop: 0, flex: 1 }}
-            onClick={() => {
-              if (stepIndex === 0) setStepIndex(1);
-              else {
-                setSpotlightStop('stage');
-                setStepIndex(2);
-              }
-            }}
-            autoFocus
-          >
-            {stepIndex === 0 ? `Next: Today’s ${topicCount} Topics →` : 'Next: Live Room Spotlight →'}
-          </button>
-          <button
-            type="button"
-            className="kd-skip-link"
-            onClick={onStart}
-            disabled={starting}
-            aria-label="Start the meeting"
-          >
-            {startError !== undefined ? 'Try again' : 'Skip tutorial →'}
-          </button>
         </div>
       </div>
     </div>

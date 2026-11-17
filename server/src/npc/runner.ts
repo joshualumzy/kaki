@@ -263,6 +263,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           if (character === undefined) return Promise.reject(new Error(`${speaker} is not in the room`));
           return playPcm(character.source, clip, SAMPLE_RATE, signal, reference);
         },
+        clipDurationMs: (clip) => (clip.length / SAMPLE_RATE) * 1000,
         emitTranscript: (speaker, text, transcriptOptions) => {
           const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);
           options.postTranscript(attendee?.zoomDisplayName ?? speaker, text, transcriptOptions);

@@ -366,7 +366,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       await check('Rejoin resumes topic', false, `Could not rejoin within ${((joinedAt - leftAt) / 1000).toFixed(1)}s`);
       return;
     }
-    // A fresh join shows Start again; press it so the robot can type, then let the room settle.
+    // A fresh join shows the briefing again; step to Start and press it so the robot can type, then let the room settle.
+    const next = page.getByRole('button', { name: 'Next: How to play →' }).first();
+    if (await next.isVisible().catch(() => false)) await next.click({ timeout: 5_000 }).catch(() => undefined);
     const start = page.getByRole('button', { name: 'Start the meeting' }).first();
     if (await start.isVisible().catch(() => false)) {
       await start.click({ timeout: 5_000 }).catch((error: unknown) => notes.push(`${stamp()} Rejoin Start click failed: ${String(error)}`));
@@ -661,6 +663,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       screenSocketSeen && await page!.locator('.kd-meeting-panel').count() > 0 &&
       await page!.locator('.kd-meeting-panel .connection-banner').count() === 0, 10_000),
     '/ws?role=screen connected in the meeting panel');
+    // Start sits on the briefing's second screen.
+    const next = page.getByRole('button', { name: 'Next: How to play →' }).first();
+    if (await waitFor('Briefing Next button', () => next.isVisible(), 20_000)) await next.click();
     const start = page.getByRole('button', { name: 'Start the meeting' }).first();
     if (await waitFor('Start button', () => start.isVisible(), 20_000)) {
       await start.click();

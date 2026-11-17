@@ -1023,6 +1023,114 @@ describe('NpcConversation', () => {
     attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai (Cashier)' }],
   });
 
+  it('does not replay a scripted sentence after a wordless cut-in near its end', async () => {
+    const h = harness();
+    h.ports.clipDurationMs = () => 1_500;
+    h.conversation.announce('Ada', 'First, the laptop campers.');
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1_400);
+    h.conversation.humanSpeech(true);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.playing.map((entry) => entry.text)).toEqual(['First, the laptop campers.']);
+    expect(h.logs).toContainEqual(expect.stringContaining('scripted cue had finished'));
+    h.conversation.close();
+  });
+
+  it('resumes only the unspoken words of an interrupted scripted sentence', async () => {
+    const h = harness();
+    const line = 'Breakfast customers are waiting for a seat at the window.';
+    h.conversation.announce('Ada', line);
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(700);
+    h.conversation.humanSpeech(true);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.playing).toHaveLength(2);
+    expect(h.playing[1]?.text).not.toBe(line);
+    expect(h.playing[1]?.text).toContain('Customers are waiting');
+    h.conversation.close();
+  });
+
+  it('drops a prefetched sentence already spoken by another person before playback', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Service');
+    conversation.announce('Ada', 'The stock arrived late at the shop.');
+    await h.flush();
+    h.calls[0]?.push('Bao: The stock arrived late at the shop. We may need a smaller menu.');
+    h.calls[0]?.end();
+    await h.flush();
+    h.playing[0]?.finish();
+    await vi.advanceTimersByTimeAsync(1);
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).toContain('We may need a smaller menu.');
+    expect(h.playing.filter((entry) => entry.text === 'The stock arrived late at the shop.')).toHaveLength(1);
+    expect(h.logs).toContainEqual(expect.stringContaining('already said by Ada'));
+    conversation.close();
+  });
+
+  it('aborts an early brief without a spoken sentence and starts a fresh request', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      briefFirstChunkMs: 100,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Service');
+    conversation.announce('Ada', 'Here is the next issue.');
+    await h.flush();
+    h.calls[0]?.push('KAKI_CONTROL {"state":"open"}\n');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(h.calls[0]?.signal.aborted).toBe(true);
+    h.playing[0]?.finish();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.calls).toHaveLength(2);
+    h.calls[1]?.push('Bao: We need to sort the stock.');
+    h.calls[1]?.end();
+    await h.flush();
+    expect(h.playing.map((entry) => entry.text)).toContain('We need to sort the stock.');
+    conversation.close();
+  });
+
+  it('lets the pending colleague brief go first and asks the visitor once', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, silencePromptMs: 5, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Service');
+    conversation.announce('Ada', 'Let me set the scene.');
+    await vi.advanceTimersByTimeAsync(20);
+    expect(h.calls).toHaveLength(1);
+    h.playing[0]?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.filter((entry) => entry.speaker === 'Ada')).toHaveLength(1);
+    h.calls[0]?.push('Bao: The stock arrived late. Visitor, where would you start? Visitor, what would you do?');
+    h.calls[0]?.end();
+    await h.flush();
+    for (let index = 0; index < 4; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.playing.map((entry) => entry.text)).toContain('Visitor, where would you start?');
+    expect(h.playing.map((entry) => entry.text)).not.toContain('Visitor, what would you do?');
+    expect(h.playing.filter((entry) => entry.text.endsWith('?'))).toHaveLength(1);
+    expect(h.logs).toContainEqual(expect.stringContaining('dropped a second question'));
+    conversation.close();
+  });
+
   it('reports an upcoming colleague brief so the host does not invite the visitor first', () => {
     const withThree = briefingScenario();
     const h = harness(withThree);
