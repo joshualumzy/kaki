@@ -384,9 +384,16 @@ interface Turn {
   /** Do not start playing this turn before this time (the silence nudge is written early and held). */
   notBefore?: number;
   abort: AbortController;
+  /** Stops sound, gaps and text waits without cancelling the model stream; replaced when a held turn carries on. */
+  soundAbort: AbortController;
   spoken: Array<{ utterance: Utterance; complete: boolean; startedAt: number; durationMs?: number }>;
   enqueued: Utterance[];
   streamFinished: boolean;
+  streamFailed?: boolean;
+  /** A sound-only cut-in paused this turn instead of discarding it; its unsaid lines play if no words follow. */
+  held?: boolean;
+  /** Wakes the playback loop when a held turn carries on or is discarded. */
+  heldWake?: () => void;
   aborted: boolean;
   finalized: boolean;
   done: Promise<void>;
@@ -838,7 +845,8 @@ export class NpcConversation<Clip> {
     if (talking) {
       this.clearRespondTimer();
       this.clearSilenceTimer();
-      if (this.turn === undefined) return;
+      // A held turn is already silent; it waits for words (real interrupt) or none (carry on).
+      if (this.turn === undefined || this.turn.held === true) return;
       // The microphone can pick up the room's own voice or a noise for a moment. Stopping the speaker for that makes it
       // stutter and start again, so it is only cut off once the person has kept talking a while; a shorter burst waits for
       // recognised words (`humanText` interrupts then), and carries on if there were none.
@@ -1048,8 +1056,10 @@ export class NpcConversation<Clip> {
     this.pausedCutOff = false;
     this.pausedUtterances = undefined;
     this.pausedScripted = undefined;
+    const abort = new AbortController();
     const turn: Turn = {
-      abort: new AbortController(),
+      abort,
+      soundAbort: this.linkedSound(abort),
       spoken: [],
       enqueued: [],
       streamFinished: true,
@@ -2092,9 +2102,11 @@ export class NpcConversation<Clip> {
       if (shape !== undefined) this.replyShapeHistory.push(shape);
     }
     const reuse = prefetched !== undefined && !retry && !prefetched.controller.signal.aborted;
+    const abort = reuse ? prefetched!.controller : new AbortController();
     const turn: Turn = {
       topic: this.currentItem()?.title,
-      abort: reuse ? prefetched!.controller : new AbortController(),
+      abort,
+      soundAbort: this.linkedSound(abort),
       spoken: [],
       enqueued: [],
       streamFinished: false,
@@ -2116,8 +2128,10 @@ export class NpcConversation<Clip> {
   }
 
   private startReplayTurn(utterances: Utterance[]): void {
+    const abort = new AbortController();
     const turn: Turn = {
-      abort: new AbortController(),
+      abort,
+      soundAbort: this.linkedSound(abort),
       spoken: [],
       enqueued: [...utterances],
       streamFinished: true,
@@ -2159,8 +2173,10 @@ export class NpcConversation<Clip> {
   }
 
   private startScripted(utterance: Utterance, onDone?: (spoken: boolean) => void): void {
+    const abort = new AbortController();
     const turn: Turn = {
-      abort: new AbortController(),
+      abort,
+      soundAbort: this.linkedSound(abort),
       spoken: [],
       enqueued: [],
       streamFinished: true,
@@ -2208,8 +2224,27 @@ export class NpcConversation<Clip> {
 
   /** Carry on from where the person cut in without saying anything. */
   private resume(): void {
+    let speaker = this.cutOffSpeaker;
+    const held = this.turn !== undefined && this.turn.held === true ? this.turn : undefined;
+    if (held !== undefined) {
+      const remaining = this.heldLineCount(held);
+      const streamLive = held.streamFinished !== true && held.streamFailed !== true;
+      // A held turn with lines still to hear (or a stream still writing them) carries on by itself.
+      // A stream that failed, or that ended with nothing left, falls back to asking the model, as before.
+      if (streamLive || (held.streamFailed !== true && remaining > 0)) {
+        this.ports.log?.('cut-in had no words: carrying on held lines');
+        this.cutOff = false;
+        this.cutOffSpeaker = undefined;
+        this.resumeHeldTurn(held);
+        return;
+      }
+      speaker = held.spoken.at(-1)?.utterance.speaker ?? speaker;
+      this.ports.log?.(held.streamFailed === true
+        ? 'the held reply failed: asking the model to carry on'
+        : 'the held reply had nothing left: asking the model to carry on');
+      this.abandonHeldTurn(held);
+    }
     this.cutOff = false;
-    const speaker = this.cutOffSpeaker;
     this.cutOffSpeaker = undefined;
     const scripted = this.pausedScripted;
     this.pausedScripted = undefined;
@@ -2238,12 +2273,17 @@ export class NpcConversation<Clip> {
   private interrupt(reason: string): void {
     const turn = this.turn;
     if (turn === undefined || turn.finalized) return;
-    this.ports.log?.(`interrupted: ${reason}`);
+    const soundOnly = reason === 'the person started talking' || reason === 'the person kept talking';
+    const mic = soundOnly ? this.ports.describeMic?.() : undefined;
+    this.ports.log?.(`interrupted: ${reason}${mic === undefined ? '' : ` (${mic})`}`);
+    // Sound alone (an echo, a cough, a noise) cannot be told from a voice. A model turn that has already
+    // been heard is paused rather than thrown away, so its unsaid lines can carry on if no words follow.
+    if (soundOnly && turn.scripted !== true && turn.spoken.length > 0) {
+      this.holdTurn(turn);
+      return;
+    }
     if (turn.scripted === true) {
-      if (
-        (reason === 'the person started talking' || reason === 'the person kept talking') &&
-        turn.scriptedUtterance !== undefined
-      ) {
+      if (soundOnly && turn.scriptedUtterance !== undefined) {
         const remaining = this.scriptedRemainder(turn);
         this.cutOff = true;
         this.pausedScripted = {
@@ -2254,19 +2294,96 @@ export class NpcConversation<Clip> {
       }
     } else {
       if (turn.spoken.length === 0) this.unanswered = true;
-      else if (reason === 'the person started talking' || reason === 'the person kept talking') {
+      else if (soundOnly) {
         this.cutOff = true;
         this.cutOffSpeaker = turn.spoken.at(-1)?.utterance.speaker;
       }
     }
     turn.aborted = true;
+    turn.held = false;
+    const wake = turn.heldWake;
+    turn.heldWake = undefined;
+    wake?.();
     this.finalize(turn);
     this.turn = undefined;
     turn.abort.abort();
+    turn.soundAbort.abort();
     this.gate.setAiAudible(false);
     // The visitor heard the room accept their decision before the reply was cut short: it still counts.
     if (reason !== 'agenda moved' && turn.settle !== undefined && turn.spoken.length > 0) this.lockDecision(turn.settle.followUp);
     this.ports.emitState(this.idleState());
+  }
+
+  /** How many of this turn's accepted lines the room has not finished hearing. */
+  private heldLineCount(turn: Turn): number {
+    const completed = turn.spoken.filter((entry) => entry.complete).length;
+    return Math.max(0, turn.enqueued.length - completed);
+  }
+
+  /** A sound-only cut-in: stop the sound now, but keep the model stream and its unsaid lines for a wordless resume. */
+  private holdTurn(turn: Turn): void {
+    if (this.isTurnHeld(turn)) return;
+    turn.held = true;
+    turn.soundAbort.abort();
+    this.cutOff = true;
+    this.cutOffSpeaker = turn.spoken.at(-1)?.utterance.speaker;
+    this.ports.log?.(`held ${this.heldLineCount(turn)} unsaid lines`);
+    this.gate.setAiAudible(false);
+    this.ports.emitState(this.idleState());
+  }
+
+  /** The person said nothing recognisable: play the held lines on the same turn, with no new model call. */
+  private resumeHeldTurn(turn: Turn): void {
+    if (turn !== this.turn || turn.finalized) return;
+    turn.held = false;
+    turn.soundAbort = this.linkedSound(turn.abort);
+    const wake = turn.heldWake;
+    turn.heldWake = undefined;
+    wake?.();
+  }
+
+  /** Drop a held turn, keeping in the history only what was heard, so the meeting can carry on another way. */
+  private abandonHeldTurn(turn: Turn): void {
+    if (turn !== this.turn || turn.finalized) return;
+    turn.held = false;
+    turn.aborted = true;
+    const wake = turn.heldWake;
+    turn.heldWake = undefined;
+    wake?.();
+    this.finalize(turn);
+    this.turn = undefined;
+    turn.abort.abort();
+    turn.soundAbort.abort();
+    this.gate.setAiAudible(false);
+    if (turn.settle !== undefined && turn.spoken.length > 0) this.lockDecision(turn.settle.followUp);
+    this.ports.emitState(this.idleState());
+  }
+
+  /** Resolves when the playback loop's held turn carries on, or when the turn is finally aborted. */
+  private waitWhileHeld(turn: Turn): Promise<void> {
+    if (turn.held !== true) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const wake = (): void => {
+        turn.abort.signal.removeEventListener('abort', wake);
+        if (turn.heldWake === wake) turn.heldWake = undefined;
+        resolve();
+      };
+      turn.heldWake = wake;
+      turn.abort.signal.addEventListener('abort', wake, { once: true });
+    });
+  }
+
+  /** Whether the turn is paused by a sound-only cut-in (read through a method so a long await cannot hide a change). */
+  private isTurnHeld(turn: Turn): boolean {
+    return turn.held === true;
+  }
+
+  /** The signal that stops sound without ending the model call; it also dies when the whole turn is aborted. */
+  private linkedSound(abort: AbortController): AbortController {
+    const sound = new AbortController();
+    if (abort.signal.aborted) sound.abort();
+    else abort.signal.addEventListener('abort', () => sound.abort(), { once: true });
+    return sound;
   }
 
   private scriptedRemainder(turn: Turn): string {
@@ -2747,7 +2864,17 @@ export class NpcConversation<Clip> {
         turn.streamFinished = true;
       }
     } catch (error) {
-      if (!signal.aborted) failure = error;
+      if (!signal.aborted) {
+        failure = error;
+        turn.streamFailed = true;
+      }
+    }
+
+    // A held turn with a failed or finished stream and nothing left to hear must not wait forever:
+    // release it so the normal wordless resume can ask the model instead.
+    if (this.isTurnHeld(turn) && (failure !== undefined || turn.streamFinished) && this.heldLineCount(turn) === 0) {
+      this.abandonHeldTurn(turn);
+      return;
     }
 
     queue.close();
@@ -2871,77 +2998,131 @@ export class NpcConversation<Clip> {
     queue: SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>,
     transcribe = true,
   ): Promise<void> {
-    const { signal } = turn.abort;
+    const iterator = queue[Symbol.asyncIterator]();
+    let pending: { utterance: Utterance; clip: Promise<Clip | undefined> } | undefined;
     let heldForTarget = false;
     let previousSpeaker: string | undefined;
-    for await (const { utterance, clip } of queue) {
-      if (!heldForTarget && turn.notBefore !== undefined) {
-        heldForTarget = true;
-        const waitMs = turn.notBefore - Date.now();
-        if (waitMs > 0) await this.wait(waitMs, signal);
-        if (signal.aborted) return;
+    for (;;) {
+      if (turn.abort.signal.aborted) return;
+      // A sound-only cut-in stopped the sound but kept this turn: wait here instead of discarding it.
+      if (this.isTurnHeld(turn)) {
+        await this.waitWhileHeld(turn);
+        continue;
       }
+      if (!heldForTarget && turn.notBefore !== undefined) {
+        const waitMs = turn.notBefore - Date.now();
+        if (waitMs > 0) {
+          await this.wait(waitMs, turn.soundAbort.signal);
+          continue;
+        }
+        heldForTarget = true;
+      }
+      if (pending === undefined) {
+        const next = await iterator.next();
+        if (next.done === true) return;
+        pending = next.value;
+        continue;
+      }
+
+      const { utterance, clip } = pending;
       const audio = await clip;
-      if (signal.aborted) return;
-      if (!turn.scripted && !turn.replay) {
+      if (turn.abort.signal.aborted) return;
+      if (this.isTurnHeld(turn)) continue;
+      const last = turn.spoken.at(-1);
+      // The sentence that was being spoken when the cut came starts again, whole, on the same entry.
+      const restarting = last !== undefined && last.complete === false && last.utterance === utterance;
+      if (!restarting && !turn.scripted && !turn.replay) {
         const repeated = namesColleague(utterance.text, this.names) ? undefined :
           this.repeatsRecently(utterance.text, turn.startedAt);
         if (repeated !== undefined) {
           this.ports.log?.(`[repeat] ${utterance.speaker}: dropped a queued sentence already said by ${repeated.speaker}: "${utterance.text}"`);
+          pending = undefined;
           continue;
         }
         if (isQuestionToVisitor(utterance.text, utterance.speaker, this.names, this.human?.name) && this.askedGuestInRound) {
           this.ports.log?.(`${turn.briefSpeaker !== undefined ? '[brief]' : '[question]'} ${utterance.speaker}: dropped a queued second question to the visitor this round: "${utterance.text}"`);
+          pending = undefined;
           continue;
         }
       }
       const textOnly = audio === undefined;
 
-      const gapMs = previousSpeaker === undefined ? 0 : previousSpeaker === utterance.speaker ? this.sentenceGapMs : this.speakerGapMs;
-      if (gapMs > 0) {
-        await this.wait(gapMs, signal);
-        if (signal.aborted) return;
-      }
-      previousSpeaker = utterance.speaker;
+      if (!restarting) {
+        const gapMs = previousSpeaker === undefined ? 0 : previousSpeaker === utterance.speaker ? this.sentenceGapMs : this.speakerGapMs;
+        if (gapMs > 0) {
+          await this.wait(gapMs, turn.soundAbort.signal);
+          if (turn.abort.signal.aborted) return;
+          if (this.isTurnHeld(turn)) continue;
+        }
+        previousSpeaker = utterance.speaker;
 
-      const entry = { utterance, complete: false, startedAt: Date.now(),
-        durationMs: textOnly ? undefined : this.ports.clipDurationMs?.(audio) };
-      if (turn.spoken.length === 0) {
-        this.ports.log?.(`speaking ${Date.now() - turn.startedAt} ms after the model was asked`);
+        const entry = { utterance, complete: false, startedAt: Date.now(),
+          durationMs: textOnly ? undefined : this.ports.clipDurationMs?.(audio) };
+        if (turn.spoken.length === 0) {
+          this.ports.log?.(`speaking ${Date.now() - turn.startedAt} ms after the model was asked`);
+        }
+        this.ports.log?.(`${utterance.speaker}: ${utterance.text}`);
+        this.introduced.add(utterance.speaker);
+        turn.spoken.push(entry);
+        if (turn.spoken.length === 1) this.sendReactions(turn);
+        if (!textOnly) {
+          this.gate.setAiAudible(true);
+          this.gate.aiSaid(utterance.text);
+        }
+        this.lastSpoken = utterance.text;
+        this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
+        this.noteCardPoint(utterance);
+        this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
+        const transcriptKey = `${utterance.speaker}:${utterance.text}`;
+        if (transcribe && transcriptKey !== this.lastTranscriptEmit) {
+          this.lastTranscriptEmit = transcriptKey;
+          this.ports.emitTranscript(utterance.speaker, utterance.text, textOnly ? { textOnly: true } : undefined);
+        }
+        await this.playUtterance(turn, utterance, audio, textOnly);
+        if (turn.abort.signal.aborted) return;
+        if (this.isTurnHeld(turn)) continue;
+        entry.complete = true;
+        pending = undefined;
+        if (turn.topic !== undefined) this.memory.spoken(this.reopenedTitle ?? turn.topic, utterance.text);
+        continue;
       }
-      this.ports.log?.(`${utterance.speaker}: ${utterance.text}`);
-      this.introduced.add(utterance.speaker);
-      turn.spoken.push(entry);
-      if (turn.spoken.length === 1) this.sendReactions(turn);
+
+      // Restarting the cut sentence: it was already transcribed, accepted and counted; only replay its sound.
+      last.startedAt = Date.now();
+      last.durationMs = textOnly ? undefined : this.ports.clipDurationMs?.(audio);
       if (!textOnly) {
         this.gate.setAiAudible(true);
         this.gate.aiSaid(utterance.text);
       }
       this.lastSpoken = utterance.text;
-      this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
-      this.noteCardPoint(utterance);
       this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
-      const transcriptKey = `${utterance.speaker}:${utterance.text}`;
-      if (transcribe && transcriptKey !== this.lastTranscriptEmit) {
-        this.lastTranscriptEmit = transcriptKey;
-        this.ports.emitTranscript(utterance.speaker, utterance.text, textOnly ? { textOnly: true } : undefined);
-      }
-
-      if (textOnly) {
-        this.ports.log?.(`[tts] shown as text: ${utterance.speaker}`);
-        await this.wait(this.textReadingMs(utterance.text), signal);
-      } else {
-        try {
-          await this.ports.play(utterance.speaker, audio, signal);
-        } catch (error) {
-          if (!signal.aborted) {
-            this.ports.log?.(`playback failed: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-      }
-      if (signal.aborted) return;
-      entry.complete = true;
+      await this.playUtterance(turn, utterance, audio, textOnly);
+      if (turn.abort.signal.aborted) return;
+      if (this.isTurnHeld(turn)) continue;
+      last.complete = true;
+      pending = undefined;
       if (turn.topic !== undefined) this.memory.spoken(this.reopenedTitle ?? turn.topic, utterance.text);
+    }
+  }
+
+  /** Play one sentence (or hold a text-only line up long enough to read), stopping early when the turn is cut. */
+  private async playUtterance(
+    turn: Turn,
+    utterance: Utterance,
+    audio: Clip | undefined,
+    textOnly: boolean,
+  ): Promise<void> {
+    if (textOnly) {
+      this.ports.log?.(`[tts] shown as text: ${utterance.speaker}`);
+      await this.wait(this.textReadingMs(utterance.text), turn.soundAbort.signal);
+      return;
+    }
+    try {
+      await this.ports.play(utterance.speaker, audio as Clip, turn.soundAbort.signal);
+    } catch (error) {
+      if (!turn.abort.signal.aborted && turn.held !== true) {
+        this.ports.log?.(`playback failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 }

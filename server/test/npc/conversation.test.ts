@@ -772,7 +772,7 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
-  it('drops a repeated line when a cut-off reply carries on, and logs it', async () => {
+  it('restarts a cut sentence without transcribing or counting it twice', async () => {
     const h = harness();
     const line = 'Anyone new on the till needs a login, and that is about fifteen minutes before opening.';
     await h.say('Tell me about the till.');
@@ -786,11 +786,10 @@ describe('NpcConversation', () => {
     h.conversation.humanSpeech(false);
     h.conversation.humanNothing();
     await vi.advanceTimersByTimeAsync(400);
-    h.calls.at(-1)?.push(`Ada: ${line}`);
-    h.calls.at(-1)?.end();
-    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.map((p) => p.text)).toEqual([line, line]);
     expect(h.transcript.filter(([, text]) => text === line)).toHaveLength(1);
-    expect(h.logs.some((text) => text.startsWith('[repeat] Ada:'))).toBe(true);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[repeat] Ada:'));
     h.conversation.close();
   });
 
@@ -1515,12 +1514,14 @@ describe('NpcConversation', () => {
     // The person starts talking while the first sentence is still playing.
     conversation.humanSpeech(true);
     expect(playing[0]?.signal.aborted).toBe(true);
-    expect(calls[0]?.signal.aborted).toBe(true);
+    // Sound alone does not cancel the model: the turn is held in case no words follow.
+    expect(calls[0]?.signal.aborted).toBe(false);
     expect(states.at(-1)).toMatchObject({ kind: 'idle', canLock: true });
     await flush();
     expect(playing).toHaveLength(1); // nothing else started
 
     conversation.humanText('Hold on, the crash is only on Android.');
+    expect(calls[0]?.signal.aborted).toBe(true);
     conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(900);
 
@@ -1847,7 +1848,7 @@ describe('NpcConversation', () => {
     expect(logs.some((line) => line.includes('answering again'))).toBe(true);
   });
 
-  it('answers a cancelled answer once, and not at all when new words arrive instead', async () => {
+  it('carries on a held answer after a wordless cut-in, and answers new words instead when they arrive', async () => {
     const h = harness();
     await h.say('Hello team.');
     h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
@@ -1857,9 +1858,9 @@ describe('NpcConversation', () => {
     h.conversation.humanSpeech(true);
     h.conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(h.calls).toHaveLength(2); // they carry on once, after a pause, and not again
+    expect(h.calls).toHaveLength(1); // the held lines carry on with no new model call
     await vi.advanceTimersByTimeAsync(5000);
-    expect(h.calls).toHaveLength(2);
+    expect(h.calls).toHaveLength(1);
 
     const second = harness();
     await second.say('First question.');
@@ -1870,7 +1871,7 @@ describe('NpcConversation', () => {
     expect(second.calls).toHaveLength(2);
   });
 
-  it('carries on when the person cuts in but says nothing, and not when words follow', async () => {
+  it('carries on held lines when the person cuts in but says nothing, and answers words instead', async () => {
     const h = harness();
     await h.say('Hello team.');
     h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
@@ -1884,23 +1885,23 @@ describe('NpcConversation', () => {
     await vi.advanceTimersByTimeAsync(1500);
     expect(h.calls).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(500);
-    expect(h.calls).toHaveLength(2);
-    expect(h.calls[1]?.messages.at(-1)?.content).toContain('made a sound but said nothing');
-    expect(h.logs.some((line) => line.includes('carrying on'))).toBe(true);
-
-    // This time they say something: that is answered, with no "carry on" note.
-    h.calls[1]?.push('Ada: Sure.');
-    h.calls[1]?.end();
+    expect(h.calls).toHaveLength(1);
+    expect(h.logs.some((line) => line.includes('cut-in had no words: carrying on held lines'))).toBe(true);
+    expect(h.playing.map((p) => p.text)).toEqual(['Morning Josh.', 'Morning Josh.']);
+    h.playing.at(-1)?.finish();
     await h.flush();
-    h.conversation.humanSpeech(true);
-    h.conversation.humanText('Actually, wait.');
-    h.conversation.humanSpeech(false);
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(h.calls).toHaveLength(3);
-    expect(h.calls[2]?.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('Actually, wait.') });
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await h.conversation.settled();
+
+    // This time they say something: that is answered with a new model call, with no "carry on" note.
+    await h.say('Actually, wait.');
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1]?.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('Actually, wait.') });
+    expect(h.calls[1]?.messages.at(-1)?.content).not.toContain('made a sound');
   });
 
-  it('carries on quickly when recognition says a cut-in held no words', async () => {
+  it('carries on held lines quickly when recognition says a cut-in held no words', async () => {
     const h = harness();
     await h.say('Hello team.');
     h.calls[0]?.push('Ada: Morning Josh. Ready when you are.');
@@ -1912,11 +1913,150 @@ describe('NpcConversation', () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(h.calls).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(200);
-    expect(h.calls).toHaveLength(2);
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.map((p) => p.text)).toEqual(['Morning Josh.', 'Morning Josh.']);
     // Nothing to carry on from when no answer was cut off.
     h.conversation.humanNothing();
     await vi.advanceTimersByTimeAsync(2000);
+    expect(h.calls).toHaveLength(1);
+  });
+
+  it('pauses a model turn cut by sound and plays its unsaid lines without asking the model again', async () => {
+    const h = harness();
+    await h.say('Give me the status.');
+    h.calls[0]?.push('Ada: The build is red. We have a crash.');
+    h.calls[0]?.end();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.']);
+
+    h.conversation.humanSpeech(true);
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    expect(h.calls[0]?.signal.aborted).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('held 2 unsaid lines'));
+
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.calls).toHaveLength(1);
+    expect(h.logs).toContainEqual(expect.stringContaining('cut-in had no words: carrying on held lines'));
+    expect(h.playing.map((p) => `${p.speaker}: ${p.text}`)).toEqual([
+      'Ada: The build is red.', 'Ada: The build is red.',
+    ]);
+
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.', 'The build is red.', 'We have a crash.']);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await h.conversation.settled();
+    expect(h.calls).toHaveLength(1);
+
+    await h.say('Thanks.');
     expect(h.calls).toHaveLength(2);
+    const history = h.calls[1]!.messages.slice(1);
+    expect(history).toContainEqual({ role: 'assistant', content: 'Ada: The build is red.\nAda: We have a crash.' });
+    expect(JSON.stringify(history)).not.toContain('[cut off]');
+    h.conversation.close();
+  });
+
+  it('logs the microphone and echo levels when sound alone cuts a turn', async () => {
+    const h = harness();
+    h.ports.describeMic = () =>
+      'mic peak 0.184 in the last 3 s, bar to count as talking 0.040, AI level 0.120, its echo in the mic 0.070';
+    await h.say('Give me the status.');
+    h.calls[0]?.push('Ada: The build is red.');
+    h.calls[0]?.end();
+    await h.flush();
+    h.conversation.humanSpeech(true);
+    expect(h.logs).toContainEqual(expect.stringContaining('mic peak 0.184'));
+    expect(h.logs).toContainEqual(expect.stringContaining('its echo in the mic 0.070'));
+    h.conversation.close();
+  });
+
+  it('drops the held lines when real words arrive after a sound-only cut', async () => {
+    const h = harness();
+    await h.say('Give me the status.');
+    h.calls[0]?.push('Ada: The build is red. We have a crash.');
+    h.calls[0]?.end();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.']);
+
+    h.conversation.humanSpeech(true);
+    expect(h.calls[0]?.signal.aborted).toBe(false);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanText('Hold on, only on Android.');
+    expect(h.calls[0]?.signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(900);
+
+    expect(h.calls).toHaveLength(2);
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.']);
+    const history = h.calls[1]!.messages.slice(1);
+    expect(history[1]).toEqual({
+      role: 'assistant',
+      content: 'Ada: The build is red. [cut off]\n[Josh interrupted here; nothing after this was said aloud.]',
+    });
+    expect(history.at(-1)).toEqual({ role: 'user', content: 'Hold on, only on Android.' });
+    expect(h.logs.join('\n')).not.toContain('cut-in had no words');
+    h.conversation.close();
+  });
+
+  it('keeps and plays lines the model writes while a sound-only cut holds the turn', async () => {
+    const h = harness();
+    await h.say('Give me the status.');
+    h.calls[0]?.push('Ada: The build is red.\n');
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.']);
+
+    h.conversation.humanSpeech(true);
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    // The model is still writing while the turn is held: those later lines must be kept.
+    h.calls[0]?.push('Bao: I can help with that.\n');
+    h.calls[0]?.push('Ada: We should ship the fix today.\n');
+    await h.flush();
+
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.', 'The build is red.']);
+
+    for (let index = 0; index < 5; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.playing.map((p) => p.text)).toEqual([
+      'The build is red.', 'The build is red.', 'I can help with that.', 'We should ship the fix today.',
+    ]);
+    h.calls[0]?.end();
+    await h.flush();
+    await h.conversation.settled();
+    expect(h.calls).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('does not go silent when the model stream fails while a turn is held', async () => {
+    const h = harness();
+    await h.say('Give me the status.');
+    h.calls[0]?.push('Ada: The build is red.\n');
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toEqual(['The build is red.']);
+
+    h.conversation.humanSpeech(true);
+    expect(h.playing[0]?.signal.aborted).toBe(true);
+    h.calls[0]?.fail(new Error('model died'));
+    await h.flush();
+
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(400);
+    // The held stream is gone: the room asks the model to carry on instead of waiting forever.
+    expect(h.calls).toHaveLength(2);
+
+    h.calls[1]?.push('Ada: The build is red, and we have a crash.');
+    h.calls[1]?.end();
+    await h.flush();
+    expect(h.playing.map((p) => p.text)).toContain('The build is red, and we have a crash.');
+    h.conversation.close();
   });
 
   it('answers typed text without any voice behind it, and puts it in the transcript', async () => {
@@ -1976,7 +2116,7 @@ describe('NpcConversation', () => {
     expect(h.calls).toHaveLength(2);
   });
 
-  it('carries on when bargeInMs cuts off a speaker and recognition hears no words, without letting an announcement jump in first', async () => {
+  it('carries on held lines when bargeInMs cuts off a speaker and recognition hears no words, without letting an announcement jump in first', async () => {
     const h = harness(scenario, 900);
     await h.say('Hello team.');
     h.calls[0]?.push('Ada: The build has a crash issue when serving 10 customers.');
@@ -1992,9 +2132,16 @@ describe('NpcConversation', () => {
     h.conversation.humanSpeech(false);
     h.conversation.humanNothing();
     await vi.advanceTimersByTimeAsync(500);
-    // The interrupted speaker resumes first; the announcement waits until the resumed turn finishes.
-    expect(h.calls).toHaveLength(2);
-    expect(h.playing.map((p) => p.text)).toEqual(['The build has a crash issue when serving 10 customers.']);
+    // The held speaker resumes first; the announcement waits until the turn finishes.
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing.map((p) => p.text)).toEqual([
+      'The build has a crash issue when serving 10 customers.',
+      'The build has a crash issue when serving 10 customers.',
+    ]);
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(h.playing.map((p) => p.text)).toContain('Can you take that ticket?');
   });
 
   it('resumes the remaining sentences of a scripted cue after Stop and Resume', async () => {

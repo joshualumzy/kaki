@@ -277,7 +277,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         describeMic: () => {
           const vad = vads.values().next().value as EnergyVad | undefined;
           if (vad === undefined) return undefined;
-          return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}`;
+          return `mic peak ${vad.peak(3000).toFixed(3)} in the last 3 s, bar to count as talking ${vad.threshold.toFixed(3)}, AI level ${vad.referenceLevel.toFixed(3)}, its echo in the mic ${vad.leakLevel.toFixed(3)}`;
         },
         advanceAgenda: options.onAdvanceAgenda,
         endMeeting: options.onEndMeeting,
