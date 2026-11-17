@@ -4,6 +4,9 @@ import { aiCast, humanRoles, parseScenario, shuffleAgendaForRole, type Scenario,
 import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import { buildSystemPrompt, pushingColleague, type Utterance } from '../../src/npc/director';
 import { faultFromEnv } from '../../src/npc/fault';
+import type { ChatMessage } from '../../src/llm';
+
+const CHECK_IN_NOTE = 'checks in with Visitor in one short, warm, spoken sentence';
 
 const fullScenario = parseScenario(JSON.parse(readFileSync(new URL('../../../scenarios/kopitiam/scenario.json', import.meta.url), 'utf8')));
 const control = (state: 'open' | 'settled' | 'deferred', title = 'Share the agreed decision') =>
@@ -30,12 +33,14 @@ function meeting(
   const textOnly: string[] = [];
   const logs: string[] = [];
   const states: NpcUiState[] = [];
+  const requests: ChatMessage[][] = [];
   let reply = 0;
   let index = 0;
   let ended = 0;
   let conversation: NpcConversation<Utterance>;
   const ports: NpcPorts<Utterance> = {
-    async *stream() {
+    async *stream(messages) {
+      requests.push(messages);
       const chunks = replies[reply++] ?? `${control('open')}\n${cast[0]!.attendee}: Tell me more.`;
       if (typeof chunks === 'function') { yield* chunks(); return; }
       for (const chunk of Array.isArray(chunks) ? chunks : [chunks]) yield chunk;
@@ -66,7 +71,7 @@ function meeting(
     await vi.advanceTimersByTimeAsync(0);
     await conversation.settled();
   };
-  return { conversation, tasks, spoken, captions, textOnly, logs, states, say, index: () => index, ended: () => ended, replies: () => reply };
+  return { conversation, tasks, spoken, captions, textOnly, logs, states, requests, say, index: () => index, ended: () => ended, replies: () => reply };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -328,6 +333,78 @@ describe('never-stuck visitor path', () => {
     expect(h.spoken).toContain('Visitor, are you still there?');
     expect(Date.now() - quietAt).toBeGreaterThanOrEqual(22_000);
     expect(Date.now() - quietAt).toBeLessThanOrEqual(25_000);
+    h.conversation.close();
+  });
+
+  it('forgets a silence check-in the visitor interrupted before any of it was heard', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: What do we tell people at the counter?`,
+      `${control('open')}\nSam: Visitor, no rush, what's your gut saying?`,
+      `${control('open')}\nSam: A sign could work. What made you think of it?`,
+    ], { silencePromptMs: 1_000 });
+    await h.say('Hello team.');
+    await vi.advanceTimersByTimeAsync(1);
+    // The check-in was written early and held; none of it has been heard.
+    expect(h.spoken).not.toContain("Visitor, no rush, what's your gut saying?");
+    expect(String(h.requests.at(-1)?.at(-1)?.content)).toContain(CHECK_IN_NOTE);
+    const answerAt = h.requests.length;
+    h.conversation.humanTyped('Could a simple sign on some tables help?');
+    await vi.advanceTimersByTimeAsync(1);
+    const next = h.requests[answerAt]!;
+    expect(next.some((message) => message.content.includes(CHECK_IN_NOTE))).toBe(false);
+    expect(next.at(-1)?.content).toContain('Could a simple sign on some tables help?');
+    h.conversation.close();
+  });
+
+  it('starts the silence escalation again at the check-in after the visitor speaks', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const checkIn = "Visitor, no rush, what's your gut saying?";
+    const secondCheckIn = "Visitor, whenever you're ready, what feels right?";
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: What do we tell people at the counter?`,
+      `Sam: ${checkIn}`,
+      'One thought that helps you get unstuck.',
+      `${control('open')}\nSam: A sign on the tables, what would it say?`,
+      `Sam: ${secondCheckIn}`,
+    ], { silencePromptMs: 1_000 });
+    await h.say('Hello team.');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await h.conversation.settled();
+    expect(h.spoken).toContain(checkIn);
+    await vi.advanceTimersByTimeAsync(1);
+    await h.conversation.settled();
+    expect(h.spoken).toContain('One thought that helps you get unstuck.');
+    expect(h.spoken.filter((line) => line === checkIn)).toHaveLength(1);
+    await h.say('We could put a sign on the tables.');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.spoken).toContain(secondCheckIn);
+    h.conversation.close();
+  });
+
+  it('keeps an unheard silence check-in for its wordless retry', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const checkIn = "Visitor, no rush, what's your gut saying?";
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: What do we tell people at the counter?`,
+      `Sam: ${checkIn}`,
+      `${control('open')}\nSam: ${checkIn}`,
+    ], { silencePromptMs: 1_000, bargeInMs: 0, retryMs: 100 });
+    await h.say('Hello team.');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.spoken).not.toContain(checkIn);
+    h.conversation.humanSpeech(true);
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(100);
+    await h.conversation.settled();
+    expect(h.spoken).toContain(checkIn);
+    expect(String(h.requests.at(-1)?.at(-1)?.content)).toContain(CHECK_IN_NOTE);
     h.conversation.close();
   });
 

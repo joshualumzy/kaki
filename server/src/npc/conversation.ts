@@ -417,6 +417,10 @@ interface Turn {
   streamFailed?: boolean;
   /** A sound-only cut-in paused this turn instead of discarding it; its unsaid lines play if no words follow. */
   held?: boolean;
+  /** A silence nudge (a check-in, a colleague line or the statement bridge); its note is dropped if it is never heard. */
+  nudge?: boolean;
+  /** The history entry the nudge note was written from, removed when the visitor speaks before any of it is heard. */
+  nudgeNote?: ChatMessage;
   /** Wakes the playback loop when a held turn carries on or is discarded. */
   heldWake?: () => void;
   aborted: boolean;
@@ -707,6 +711,7 @@ export class NpcConversation<Clip> {
     this.pending.push(typed);
     this.noteHumanLine(typed);
     this.noteDecisionLine(typed);
+    this.discardUnheardNudge();
     this.interrupt('the person typed something');
     this.unanswered = false;
     this.cutOff = false;
@@ -955,6 +960,7 @@ export class NpcConversation<Clip> {
     this.noteHumanLine(accepted);
     this.noteDecisionLine(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
+    this.discardUnheardNudge();
     this.interrupt('the person said something');
     this.unanswered = false;
     this.cutOff = false;
@@ -1496,11 +1502,25 @@ export class NpcConversation<Clip> {
     return (this.guestLinesByTopic.get(this.currentItem()?.title) ?? []).some((text) => assignedByGuest(text, name));
   }
 
+  /** Forget a silence nudge that was written but never heard: the visitor's own line is what the room answers now. */
+  private discardUnheardNudge(): void {
+    const turn = this.turn;
+    if (turn === undefined || turn.nudge !== true || turn.spoken.length > 0) return;
+    const note = turn.nudgeNote;
+    if (note === undefined) return;
+    const at = this.history.indexOf(note);
+    if (at !== -1) this.history.splice(at, 1);
+    this.ports.log?.('dropped an unheard silence nudge: the visitor spoke first');
+  }
+
   /** The person said another line: ask if they have talked a long time without being asked. */
   private noteHumanLine(text: string): void {
     const topic = this.currentItem()?.title;
     this.guestLinesByTopic.set(topic, [...(this.guestLinesByTopic.get(topic) ?? []), text]);
     this.topicRecord.start(topic);
+    // A new line starts the silence escalation again at the check-in.
+    this.silencePromptStage = 0;
+    this.clearSilenceTimer();
     const open = this.topicRecord.openQuestion;
     this.questionBeforeGuestLine = open !== undefined && open.to === this.human?.name ? open.text : undefined;
     // The visitor speaking is the answer the room was waiting for.
@@ -2288,7 +2308,7 @@ export class NpcConversation<Clip> {
           this.pending.push(
             `[${this.human.name} just heard the team's answer on "${spokenTitle}", and the colleague finished on a statement without passing the floor. Begin your reply with "${host}:". ${host} steps in as the meeting chair in ONE short, natural spoken sentence connecting what was just said back to the decision and asking ${this.human.name} by name (ending with a question mark "?") how they want to play this or if they want to lock a direction in — never prescribe an answer or mention this note.]`,
           );
-          this.startTurn();
+          this.startTurn(false, false, undefined, undefined, undefined, undefined, true);
           return;
         }
       }
@@ -2303,7 +2323,7 @@ export class NpcConversation<Clip> {
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: host, from: host };
           this.pending.push(silenceCheckInNote(host, this.human.name, spokenTitle, this.humanSettledOnCurrentItem));
-          this.startTurn(false, false, undefined, scheduledAt + baseMs);
+          this.startTurn(false, false, undefined, scheduledAt + baseMs, undefined, undefined, true);
         } else {
           this.announce(
             host,
@@ -2322,7 +2342,7 @@ export class NpcConversation<Clip> {
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: owner, from: host };
           this.pending.push(silenceColleagueNote(owner, this.human.name, title, item?.decision));
-          this.startTurn();
+          this.startTurn(false, false, undefined, undefined, undefined, undefined, true);
         }
       }
     }, delayMs).unref();
@@ -2350,6 +2370,7 @@ export class NpcConversation<Clip> {
     notBefore?: number,
     briefSpeakers?: string[],
     dispatchCue?: DispatchCue,
+    nudge = false,
   ): void {
     if (this.closed || this.paused) return;
     const text = retry ? this.lastText : this.pending.join(' ').trim();
@@ -2368,6 +2389,7 @@ export class NpcConversation<Clip> {
     this.lastText = text;
 
     // On a retry the question is already in the history.
+    let note: ChatMessage | undefined;
     if (retry) {
       this.ports.log?.(
         recoveryRetry
@@ -2375,7 +2397,8 @@ export class NpcConversation<Clip> {
           : 'answering again: the last answer was cancelled before anything was said',
       );
     } else {
-      this.history.push({ role: 'user', content: text });
+      note = { role: 'user', content: text };
+      this.history.push(note);
     }
 
     const shape = retry ? this.lastReplyShape :
@@ -2405,6 +2428,8 @@ export class NpcConversation<Clip> {
       done: Promise.resolve(),
       startedAt: reuse ? prefetched!.startedAt : Date.now(),
       ...(notBefore === undefined ? {} : { notBefore }),
+      ...(nudge ? { nudge: true } : {}),
+      ...(nudge && note !== undefined ? { nudgeNote: note } : {}),
       forced,
       dispatchCue,
       recoveryRetry,

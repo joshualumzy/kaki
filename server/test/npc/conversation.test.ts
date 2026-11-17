@@ -1139,7 +1139,7 @@ describe('NpcConversation', () => {
     conversation.close();
   });
 
-  it('gives the food-safety fridge fact to Arjun when the guest takes Wei Ling\'s seat', async () => {
+  it('gives the food-safety fridge fact to Mei when the guest takes Wei Ling\'s seat', async () => {
     const kopitiam = await loadScenario('kopitiam');
     const scenarioWithGuest = { ...kopitiam, npcs: aiCast(kopitiam, 'Wei Ling') };
     const h = harness();
@@ -1151,9 +1151,9 @@ describe('NpcConversation', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(h.calls).toHaveLength(1);
     const cue = String(h.calls[0]?.messages.at(-1)?.content);
-    expect(cue).toContain('Begin with "Arjun:"');
-    expect(cue).toContain('Arjun tells what happened as they saw it, from "The prep fridge was unplugged');
-    expect(cue).toContain('Daniel answers Arjun');
+    expect(cue).toContain('Begin with "Mei:"');
+    expect(cue).toContain('Mei tells what happened as they saw it, from "The prep fridge was unplugged');
+    expect(cue).toContain('Daniel answers Mei');
     expect(cue).toContain('"A customer from yesterday\'s trial emailed to say she got sick and saw a doctor."');
     expect(cue).not.toContain('Daniel tells');
     conversation.close();
