@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { aiCast } from '@kaki/shared';
 import type { ChatMessage } from '../../src/llm';
 import { visitorDispatchLine } from '../../src/npc/cardPointer';
 import { NpcConversation, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
+import { loadScenario } from '../../src/loadScenario';
 import { testScenario } from '../fixtures/scenario';
 
 const scenario = {
@@ -317,7 +319,7 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
-  it('shows the Director which points the room already heard in the last minute', async () => {
+  it('shows the Director what the room already said on this topic', async () => {
     const h = harness();
     await h.say('Hello.');
     h.calls.at(-1)?.push('Ada: Anyone new on the till needs a login, and that is about fifteen minutes before opening.');
@@ -327,8 +329,63 @@ describe('NpcConversation', () => {
     await h.flush();
     await h.say('Tell me more.');
     const prompt = String(h.calls.at(-1)?.messages[0]?.content);
-    expect(prompt).toContain('Already heard in the last minute');
+    expect(prompt).toContain('Already said on this topic');
     expect(prompt).toContain('Anyone new on the till needs a login');
+    h.conversation.close();
+  });
+
+  it('keeps a line said more than a minute earlier in the prompt for the same topic', async () => {
+    const h = harness();
+    await h.say('Hello.');
+    h.calls.at(-1)?.push('Ada: The till needs a login about fifteen minutes before opening.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(61_000);
+    for (const entry of h.playing) if (!entry.finished) entry.finish();
+    await h.flush();
+    await h.say('Go on.');
+    const prompt = String(h.calls.at(-1)?.messages[0]?.content);
+    expect(prompt).toContain('Already said on this topic');
+    expect(prompt).toContain('The till needs a login about fifteen minutes before opening.');
+    h.conversation.close();
+  });
+
+  it('starts a new topic with an empty record', async () => {
+    const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
+      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
+    const h = harness(twoItems);
+    await h.say('Hello.');
+    h.calls.at(-1)?.push('Ada: Thirty trays only cover thirty platters.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    h.conversation.agendaMoved('Service');
+    await h.say('Hello again.');
+    const prompt = String(h.calls.at(-1)?.messages[0]?.content);
+    expect(prompt).not.toContain('Already said on this topic');
+    expect(prompt).not.toContain('Thirty trays only cover thirty platters');
+    h.conversation.close();
+  });
+
+  it('clears the open question once the visitor answers it', async () => {
+    const h = harness();
+    await h.say('Hello.');
+    h.calls.at(-1)?.push('Ada: Josh, who covers the counter?');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.conversation.openQuestionOnCurrentTopic()).toEqual({
+      from: 'Ada', to: 'Josh', text: 'Josh, who covers the counter?',
+    });
+    await h.say('Mei covers it.');
+    h.calls.at(-1)?.push('NONE');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    expect(h.conversation.openQuestionOnCurrentTopic()).toBeUndefined();
     h.conversation.close();
   });
 
@@ -542,6 +599,47 @@ describe('NpcConversation', () => {
     await vi.advanceTimersByTimeAsync(2000);
     await h.flush();
     expect(h.playing.at(-1)?.text).toBe("Let's leave Prep there.");
+    conversation.close();
+  });
+
+  it('holds the card pointer while a question is open and points once it is answered', async () => {
+    const h = harness(hostedScenario());
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.humanSpeech(true);
+    conversation.humanText('Ship it.');
+    conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    h.calls.at(-1)?.push('Ada: Understood.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    conversation.lockDecision();
+    await h.flush();
+    // A colleague asks the visitor something after the call: the pointer must wait for the answer.
+    conversation.announce('Bao', 'Josh, who covers the counter?');
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.logs).toContainEqual(expect.stringContaining('[card] waited: open question "Josh, who covers the counter?"'));
+    expect(h.playing.some((entry) => /the follow-up's on your screen/i.test(entry.text))).toBe(false);
+    expect(conversation.cardPointedOnCurrentTopic()).toBe(false);
+    // The visitor answers: the pointer goes ahead, once.
+    conversation.humanTyped('Mei covers the counter from nine.');
+    await h.flush();
+    h.calls.at(-1)?.push('NONE');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    await h.flush();
+    expect(h.playing.at(-1)?.text).toBe(visitorDispatchLine('Josh', 1));
+    expect(conversation.cardPointedOnCurrentTopic()).toBe(true);
     conversation.close();
   });
 
@@ -907,10 +1005,21 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
-  it('asks for the brief as a short exchange that starts with the teller and ends with the host\'s one question', async () => {
+  it('asks for the brief as a short exchange that starts with the first fact speaker and ends with the host\'s one question', async () => {
     const withThree = {
       ...scenario,
-      agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.', decision: 'how do we cover prep?' }],
+      agenda: [{
+        ...scenario.agenda[0]!,
+        contested: true,
+        briefing: [{
+          text: 'The stock arrived late.',
+          knownBy: [
+            { attendee: 'Bao', why: 'you checked the delivery' },
+            { attendee: 'Cai', why: 'you saw it arrive' },
+          ],
+        }],
+        decision: 'how do we cover prep?',
+      }],
       npcs: [
         { ...scenario.npcs[0]!, role: 'host' as const },
         scenario.npcs[1]!,
@@ -953,7 +1062,7 @@ describe('NpcConversation', () => {
     conversation.close();
   });
 
-  it('lets the host ask the visitor in his own words after the teller', async () => {
+  it('lets the host ask the visitor in his own words after the fact speaker', async () => {
     const withThree = briefingScenario();
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
@@ -977,8 +1086,8 @@ describe('NpcConversation', () => {
     conversation.close();
   });
 
-  it('starts the brief with the topic teller and lets the named colleagues react from their angles', async () => {
-    const tellerScenario = {
+  it('starts the brief with the first fact speaker and lets the named colleagues react from their angles', async () => {
+    const factScenario = {
       ...scenario,
       roles: [...scenario.roles, { id: 'host', label: 'Host', facilitator: true }],
       attendees: [
@@ -991,12 +1100,11 @@ describe('NpcConversation', () => {
         {
           ...scenario.agenda[0]!,
           title: 'Seats',
-          briefing: 'Laptop users took half the seats at the trial.',
+          briefing: [{
+            text: 'Laptop users took half the seats at the trial.',
+            knownBy: [{ attendee: 'Bao', why: 'your crew got shouted at' }],
+          }],
           decision: 'how do we keep seats turning?',
-          tellers: [
-            { attendee: 'Ada', why: 'you were on the floor at the trial' },
-            { attendee: 'Bao', why: 'your crew got shouted at' },
-          ],
           discussion: {
             openingViews: [
               { attendee: 'Ada', angle: 'the floor team' },
@@ -1013,9 +1121,9 @@ describe('NpcConversation', () => {
         { attendee: 'Sam', role: 'host' as const, voice: 'v4', personality: 'Calm', agenda: 'Keep time', concerns: [] },
       ],
     };
-    const h = harness(tellerScenario);
+    const h = harness(factScenario);
     const conversation = new NpcConversation<Utterance>(h.ports, {
-      scenario: tellerScenario, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      scenario: factScenario, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
     });
     conversation.setHuman({ name: 'Visitor', role: 'chef' });
     conversation.agendaMoved('Seats');
@@ -1031,7 +1139,27 @@ describe('NpcConversation', () => {
     conversation.close();
   });
 
-  it('logs a brief whose first speaker is not the teller but does not drop the turn', async () => {
+  it('gives the food-safety fridge fact to Arjun when the guest takes Wei Ling\'s seat', async () => {
+    const kopitiam = await loadScenario('kopitiam');
+    const scenarioWithGuest = { ...kopitiam, npcs: aiCast(kopitiam, 'Wei Ling') };
+    const h = harness();
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: scenarioWithGuest, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Josh', role: 'producer', transcriptName: 'Josh (Operations Director)' });
+    conversation.agendaMoved('Food safety complaint before the 9 AM inspection');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.calls).toHaveLength(1);
+    const cue = String(h.calls[0]?.messages.at(-1)?.content);
+    expect(cue).toContain('Begin with "Arjun:"');
+    expect(cue).toContain('Arjun tells what happened as they saw it, from "The prep fridge was unplugged');
+    expect(cue).toContain('Daniel answers Arjun');
+    expect(cue).toContain('"A customer from yesterday\'s trial emailed to say she got sick and saw a doctor."');
+    expect(cue).not.toContain('Daniel tells');
+    conversation.close();
+  });
+
+  it('logs a brief whose first speaker is not the expected one but does not drop the turn', async () => {
     const withThree = briefingScenario();
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
@@ -1047,7 +1175,7 @@ describe('NpcConversation', () => {
       h.playing.at(-1)?.finish();
       await h.flush();
     }
-    expect(h.logs).toContainEqual(expect.stringContaining('[brief] first speaker was Cai, expected teller Bao'));
+    expect(h.logs).toContainEqual(expect.stringContaining('[brief] first speaker was Cai, expected speaker Bao'));
     expect(h.transcript).toContainEqual(['Cai', 'Supplies are low.']);
     expect(h.transcript).toContainEqual(['Bao', 'The stock arrived late.']);
     conversation.close();
@@ -1069,10 +1197,10 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
-  it('uses the pushing colleague alone when no teller is named', async () => {
+  it('uses the pushing colleague alone when no briefing facts are given', async () => {
     const withOwner = {
       ...scenario,
-      agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.', discussion: {
+      agenda: [{ ...scenario.agenda[0]!, contested: true, discussion: {
         openingViews: [{ attendee: 'Bao', angle: 'One concern' }, { attendee: 'Cai', angle: 'Another concern' }],
         tradeOffs: [],
       } }],

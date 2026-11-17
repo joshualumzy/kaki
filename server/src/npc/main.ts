@@ -11,7 +11,7 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner } from './runner';
-import { colleagueCue, shouldStillAskColleague } from '../host/autoDispatch';
+import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { postMeetingMemory, postSettledTopic } from './settlement';
@@ -43,6 +43,11 @@ if (fault !== undefined) log(`[fault] ${fault} active`);
 
 const scenario = await loadScenario();
 const npcs = scenario.npcs ?? [];
+/** The AI host's name, chosen the same way the conversation chooses who chairs; the host never speaks these cues when a person is in that seat. */
+const hostName =
+  npcs.find((npc) => npc.role === 'host')?.attendee ??
+  npcs.find((npc) => npc.role === 'participant')?.attendee ??
+  npcs[0]?.attendee;
 
 const llm = llmFromEnv();
 if (llm?.stream === undefined) {
@@ -251,7 +256,6 @@ const taskResponder = createTaskResponder({
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
 // What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
 // Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
-let dispatchCount = 0;
 const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
@@ -309,16 +313,21 @@ function followHostCues(): void {
             runner.announceClosing(payload.text);
             return;
           }
-          // A colleague played by an AI is asked in plain words, with no phone to mention; the visitor gets the full line.
+          // A colleague played by an AI is asked in Sam's own words, through the model; the visitor gets the
+          // card pointer in Sam's own words too. Neither ever reads the Note Taker's task title aloud.
           const colleague =
             payload.kind === 'DISPATCH' &&
             payload.assignee !== undefined &&
             payload.title !== undefined &&
             runner.plays(payload.assignee);
+          const stillDispatched = (titleKey: string) => (): boolean => {
+            const current = taskStatusByTitle.get(titleKey);
+            return current === undefined || current.status === 'DISPATCHED';
+          };
           if (colleague) {
             const name = payload.assignee!;
             const title = payload.title!;
-            const cue = colleagueCue(name, title, dispatchCount, {
+            const cue = colleagueCue(hostName ?? 'Sam', name, title, {
               volunteered: runner.volunteeredOnTopic(name),
               assignedByGuest: runner.askedByGuestOnTopic(name),
             });
@@ -326,23 +335,26 @@ function followHostCues(): void {
               log(`[dispatch] Sam stays quiet: ${name} already ${cue.quietBecause}`);
             } else {
               const titleKey = title.trim().toLowerCase();
-              cueOrder.cue((done) => {
-                runner.announce(cue.line!, done, () => {
-                  const current = taskStatusByTitle.get(titleKey);
-                  return shouldStillAskColleague(
-                    current?.status,
-                    payload.topic ?? current?.topic,
-                    (topic) => runner.onCurrentAgenda(topic),
-                  );
-                });
-              });
-              dispatchCount += 1;
+              const shouldStillAsk = () => {
+                const current = taskStatusByTitle.get(titleKey);
+                return shouldStillAskColleague(
+                  current?.status,
+                  payload.topic ?? current?.topic,
+                  (topic) => runner.onCurrentAgenda(topic),
+                );
+              };
+              cueOrder.cue((done) => runner.askColleague(name, cue.note!, {
+                forbiddenText: title,
+                shouldStillSpeak: shouldStillAsk,
+                onDone: done,
+              }));
             }
           } else if (payload.kind === 'DISPATCH') {
             const titleKey = (payload.title ?? '').trim().toLowerCase();
-            runner.announce(payload.text, undefined, () => {
-              const current = taskStatusByTitle.get(titleKey);
-              return current === undefined || current.status === 'DISPATCHED';
+            const guest = runner.visitorName() ?? payload.assignee ?? 'there';
+            runner.pointAtCard(guestCardNote(hostName ?? 'Sam', guest), {
+              forbiddenText: payload.title,
+              shouldStillSpeak: stillDispatched(titleKey),
             });
           } else {
             runner.announce(payload.text);

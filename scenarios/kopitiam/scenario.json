@@ -88,7 +88,34 @@
       "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
-      "briefing": "One of our counter staff texted at 6:45 with a fever. We're one person short for the 8 o'clock rush, and Daniel's free-kopi flyers went to the whole building.",
+      "briefing": [
+        {
+          "text": "One of our counter staff texted at 6:45 with a fever, so we're one person short for the 8 o'clock rush.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "you got the text this morning"
+            },
+            {
+              "attendee": "Mei",
+              "why": "you've been setting up the counter"
+            }
+          ]
+        },
+        {
+          "text": "The free-kopi flyers went out to every office in the building.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "you sent the flyers out"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "you know the crowd it brings"
+            }
+          ]
+        }
+      ],
       "decision": "how do we cover the counter from 8 to 10 one person short?",
       "directions": [
         "Ask Auntie Mary to come in. Rest-day work is double pay and she can say no. If asked, she answers once, in character: she may agree, refuse, or agree with a condition such as only from 9. Decide her answer from how the guest asks.",
@@ -147,17 +174,7 @@
           }
         ]
       },
-      "art": "/scenario/crisis-counter.svg",
-      "tellers": [
-        {
-          "attendee": "Wei Ling",
-          "why": "you got the text this morning"
-        },
-        {
-          "attendee": "Mei",
-          "why": "you've been setting up the counter"
-        }
-      ]
+      "art": "/scenario/crisis-counter.svg"
     },
     {
       "title": "Old regulars and the new kopi prices",
@@ -165,7 +182,34 @@
       "minutes": 5,
       "ownerRole": "game_designer",
       "contested": true,
-      "briefing": "Some of our old regulars saw the new kopi price at yesterday's trial and walked out. One nephew posted on Facebook that we've forgotten our roots.",
+      "briefing": [
+        {
+          "text": "Some of our old regulars saw the new kopi price at yesterday's trial and walked out.",
+          "knownBy": [
+            {
+              "attendee": "Mei",
+              "why": "you were there when the regulars walked out"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "you saw them leave"
+            }
+          ]
+        },
+        {
+          "text": "One nephew posted on Facebook that we've forgotten our roots.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "you saw the Facebook post"
+            },
+            {
+              "attendee": "Mei",
+              "why": "the post is about our menu"
+            }
+          ]
+        }
+      ],
       "decision": "what do we do for the old regulars without losing money on every cup?",
       "directions": [
         "An old-price hour for kopi before the rush: it loses money per cup and keeps the counter busy.",
@@ -227,17 +271,7 @@
           }
         ]
       },
-      "art": "/scenario/crisis-regulars.svg",
-      "tellers": [
-        {
-          "attendee": "Mei",
-          "why": "you were there when the regulars walked out"
-        },
-        {
-          "attendee": "Daniel",
-          "why": "you've seen the Facebook post"
-        }
-      ]
+      "art": "/scenario/crisis-regulars.svg"
     },
     {
       "title": "Laptop campers and the breakfast seat crunch",
@@ -245,7 +279,34 @@
       "minutes": 5,
       "ownerRole": "lead_programmer",
       "contested": true,
-      "briefing": "At yesterday's trial, laptop users took about half our seats for a couple of hours on one kopi. Breakfast customers walked out carrying their trays, and a floor colleague got shouted at for asking someone to move.",
+      "briefing": [
+        {
+          "text": "At yesterday's trial, laptop users held about half our seats for a couple of hours on one kopi.",
+          "knownBy": [
+            {
+              "attendee": "Mei",
+              "why": "you were on the floor at the trial"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "your crew was on the floor"
+            }
+          ]
+        },
+        {
+          "text": "Breakfast customers walked out carrying their trays, and a floor colleague got shouted at for asking someone to move.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "it was your crew who got shouted at"
+            },
+            {
+              "attendee": "Mei",
+              "why": "you saw the breakfast crowd leave"
+            }
+          ]
+        }
+      ],
       "decision": "how do we keep seats turning for the breakfast crowd without putting floor staff in a fight?",
       "directions": [
         "Booth power off and Wi-Fi limited from 8 to 10: the socket timer and Wi-Fi codes take about 10 minutes to change, with little time to test before opening. Many of the laptop users work upstairs.",
@@ -301,17 +362,7 @@
           }
         ]
       },
-      "art": "/scenario/crisis-laptop.svg",
-      "tellers": [
-        {
-          "attendee": "Mei",
-          "why": "you were on the floor at the trial"
-        },
-        {
-          "attendee": "Wei Ling",
-          "why": "it was your crew who got shouted at"
-        }
-      ]
+      "art": "/scenario/crisis-laptop.svg"
     },
     {
       "title": "Food safety complaint before the 9 AM inspection",
@@ -320,8 +371,35 @@
       "minutes": 5,
       "ownerRole": "producer",
       "contested": true,
-      "briefing": "A customer from yesterday's trial emailed to say she got sick and saw a doctor. The prep fridge was unplugged for about three hours overnight, and the food agency officer comes after opening.",
-      "decision": "do we open at 8, and how do we handle the customer and the 9 AM inspection?",
+      "briefing": [
+        {
+          "text": "The prep fridge was unplugged for about three hours overnight, and the food agency officer comes after opening.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "you went through the fridge log"
+            },
+            {
+              "attendee": "Arjun",
+              "why": "you were asked about a fridge alarm"
+            }
+          ]
+        },
+        {
+          "text": "A customer from yesterday's trial emailed to say she got sick and saw a doctor.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "her email came to you"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "it came across your desk"
+            }
+          ]
+        }
+      ],
+      "decision": "what do we do about opening the doors at 8?",
       "directions": [
         "Open at 8 without Set A until the 10 o'clock delivery.",
         "Open at 10 after the inspection, with a big loss of morning sales and the free-kopi crowd.",
@@ -381,17 +459,7 @@
           }
         ]
       },
-      "art": "/scenario/crisis-food-safety.svg",
-      "tellers": [
-        {
-          "attendee": "Wei Ling",
-          "why": "you've been through the fridge log"
-        },
-        {
-          "attendee": "Daniel",
-          "why": "her email came to you"
-        }
-      ]
+      "art": "/scenario/crisis-food-safety.svg"
     },
     {
       "title": "Delivery app commission squeeze",
@@ -399,7 +467,34 @@
       "minutes": 5,
       "ownerRole": "marketing_lead",
       "contested": true,
-      "briefing": "GrabFood takes a bigger cut from today, so we now lose 50 cents on every breakfast set we deliver. The offices nearby ordered about 240 sets on the app at yesterday's trial.",
+      "briefing": [
+        {
+          "text": "GrabFood takes a bigger cut from today, so we now lose 50 cents on every breakfast set we deliver.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "you've run the numbers"
+            },
+            {
+              "attendee": "Daniel",
+              "why": "you watch the app orders"
+            }
+          ]
+        },
+        {
+          "text": "The offices nearby ordered about 240 sets on the app at yesterday's trial.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "you've been watching the app orders"
+            },
+            {
+              "attendee": "Arjun",
+              "why": "you saw the app traffic"
+            }
+          ]
+        }
+      ],
       "decision": "how do we stop losing 50 cents on every delivered set without losing the office orders?",
       "directions": [
         "Raise the app price. GrabFood hides shops priced more than 10% above in-store.",
@@ -460,17 +555,7 @@
           }
         ]
       },
-      "art": "/scenario/crisis-delivery.svg",
-      "tellers": [
-        {
-          "attendee": "Daniel",
-          "why": "you've been watching the app orders"
-        },
-        {
-          "attendee": "Wei Ling",
-          "why": "you've run the numbers"
-        }
-      ]
+      "art": "/scenario/crisis-delivery.svg"
     }
   ],
   "situation": "It's 7 AM on opening day at our refurbished Raffles Place flagship, and doors open at 8. Yesterday's trial day and this morning have left us a few things to sort out first.",

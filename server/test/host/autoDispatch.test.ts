@@ -105,54 +105,54 @@ describe('auto-dispatch', () => {
   });
 });
 
-describe('colleagueLine', () => {
-  it('asks a colleague in the room in plain words, with no phone', async () => {
-    const { colleagueLine } = await import('../../src/host/autoDispatch');
-    const lines = [0, 1, 2].map((count) => colleagueLine('Arjun', 'the crash fix', count));
-    expect(new Set(lines).size).toBe(3);
-    for (const line of lines) {
-      expect(line).toContain('Arjun');
-      expect(line).toContain('the crash fix');
-      expect(line).not.toMatch(/phone|accept|decline/i);
-    }
+describe('colleagueAskNote', () => {
+  it('gives the model the task as context and asks for one spoken sentence, not the title read out', async () => {
+    const { colleagueAskNote } = await import('../../src/host/autoDispatch');
+    const title = 'Confirm kiosk wording deployment timing for laptop camper policy';
+    const note = colleagueAskNote('Sam', 'Arjun', title);
+    expect(note).toContain('Arjun');
+    expect(note).toContain('Sam');
+    expect(note).toContain(title);
+    expect(note).toMatch(/ONE short spoken sentence/i);
+    expect(note).toMatch(/never the task title's wording/i);
+    expect(note).toMatch(/no report phrases/i);
+    expect(note).not.toMatch(/on your phone|accept|decline/i);
   });
+});
 
-  it('puts an imperative task title inline as the request, without quotes or a capital mid-sentence', async () => {
-    const { colleagueLine } = await import('../../src/host/autoDispatch');
-    const line = colleagueLine('Mei', 'Draft plain-language sign for laptop zone decision', 0);
-    expect(line).toBe('Mei, could you draft plain-language sign for laptop zone decision?');
-    expect(line).not.toContain('"');
-    expect(line).not.toContain('Draft');
-    expect(line.match(/\?/g)).toHaveLength(1);
-  });
-
-  it('asks a colleague to take care of a noun-phrase task title', async () => {
-    const { colleagueLine } = await import('../../src/host/autoDispatch');
-    expect(colleagueLine('Daniel', 'Agency temp booking', 0))
-      .toBe('Daniel, could you take care of the agency temp booking?');
+describe('guestCardNote', () => {
+  it('does not carry a task title and names the guest and the host', async () => {
+    const { guestCardNote } = await import('../../src/host/autoDispatch');
+    const note = guestCardNote('Sam', 'Josh');
+    expect(note).toContain('Josh');
+    expect(note).toContain('Sam');
+    expect(note).toMatch(/follow-up/i);
+    expect(note).toMatch(/own words/i);
+    expect(note).not.toMatch(/task title:|\btitle\b.*"/i);
   });
 });
 
 describe('colleagueCue', () => {
-  it('asks a plain dispatch in Sam\'s own words', async () => {
+  it('gives the model a note in Sam\'s own words', async () => {
     const { colleagueCue } = await import('../../src/host/autoDispatch');
-    const cue = colleagueCue('Mei', 'Draft plain-language sign for laptop zone decision', 0, {
+    const cue = colleagueCue('Sam', 'Mei', 'Draft plain-language sign for laptop zone decision', {
       volunteered: false,
       assignedByGuest: false,
     });
-    expect(cue.line).toBe('Mei, could you draft plain-language sign for laptop zone decision?');
+    expect(cue.note).toContain('Mei');
+    expect(cue.note).toContain('Draft plain-language sign for laptop zone decision');
     expect(cue.quietBecause).toBeUndefined();
   });
 
   it('stays quiet when the colleague already volunteered', async () => {
     const { colleagueCue } = await import('../../src/host/autoDispatch');
-    expect(colleagueCue('Mei', 'Draft a sign', 0, { volunteered: true, assignedByGuest: false }))
+    expect(colleagueCue('Sam', 'Mei', 'Draft a sign', { volunteered: true, assignedByGuest: false }))
       .toEqual({ quietBecause: 'volunteered' });
   });
 
   it('stays quiet when the guest already asked the colleague', async () => {
     const { colleagueCue } = await import('../../src/host/autoDispatch');
-    expect(colleagueCue('Mei', 'Draft a sign', 0, { volunteered: false, assignedByGuest: true }))
+    expect(colleagueCue('Sam', 'Mei', 'Draft a sign', { volunteered: false, assignedByGuest: true }))
       .toEqual({ quietBecause: 'was asked' });
   });
 });

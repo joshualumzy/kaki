@@ -94,7 +94,10 @@ describe('shipped Kopitiam story', () => {
 
     for (const item of scenario.agenda) {
       expect(item.title.trim().length, `${item.title} briefing`).toBeGreaterThan(0);
-      expect(item.briefing?.trim().length, `${item.title} briefing`).toBeGreaterThan(0);
+      expect(item.briefing?.length, `${item.title} briefing`).toBeGreaterThan(0);
+      for (const fact of item.briefing ?? []) {
+        expect(fact.text.trim().length, `${item.title} briefing fact`).toBeGreaterThan(0);
+      }
       expect(item.decision?.trim().length, `${item.title} decision`).toBeGreaterThan(0);
       expect(item.directions?.length, `${item.title} directions`).toBeGreaterThan(0);
       for (const role of playableRoles) {
@@ -149,19 +152,39 @@ describe('shipped Kopitiam story', () => {
     }
   });
 
-  it('names tellers for every topic and plain job words for each colleague', () => {
+  it('gives every briefing fact a speaker from every possible guest seat, and every decision one question', () => {
     const scenario = loadScenario();
     const names = new Set(scenario.attendees.map((attendee) => attendee.name));
+    const hostName = scenario.attendees.find((attendee) =>
+      scenario.roles.find((role) => role.id === attendee.role)?.facilitator === true)?.name;
+    expect(hostName).toBeDefined();
     for (const attendee of scenario.attendees) {
-      if (attendee.name === 'Sam') expect(attendee.spokenJob).toBeUndefined();
+      if (attendee.name === hostName) expect(attendee.spokenJob).toBeUndefined();
       else expect(attendee.spokenJob?.trim().length, `${attendee.name} spokenJob`).toBeGreaterThan(0);
     }
+    const guestSeats = (scenario.npcs ?? [])
+      .filter((npc) => npc.playable === true)
+      .map((npc) => npc.attendee);
+    expect(guestSeats.length, 'possible guest seats').toBe(4);
     for (const item of scenario.agenda) {
-      expect(item.tellers?.length, `${item.title} tellers`).toBeGreaterThan(0);
-      for (const teller of item.tellers ?? []) {
-        expect(names.has(teller.attendee), `${item.title} teller ${teller.attendee}`).toBe(true);
-        expect(teller.why.trim().length, `${item.title} teller reason`).toBeGreaterThan(0);
+      for (const fact of item.briefing ?? []) {
+        const knowers = fact.knownBy.map((knower) => knower.attendee);
+        expect(new Set(knowers).size, `${item.title} "${fact.text}" two different knowers`).toBeGreaterThanOrEqual(2);
+        for (const knower of fact.knownBy) {
+          expect(names.has(knower.attendee), `${item.title} knower ${knower.attendee}`).toBe(true);
+          expect(knower.attendee, `${item.title} host in knownBy`).not.toBe(hostName);
+          expect(knower.why.trim().length, `${item.title} knower reason`).toBeGreaterThan(0);
+        }
+        for (const guestSeat of guestSeats) {
+          const present = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
+          present.delete(guestSeat);
+          const speaker = fact.knownBy.find((knower) =>
+            knower.attendee !== guestSeat && knower.attendee !== hostName && present.has(knower.attendee));
+          expect(speaker, `${item.title} / guest ${guestSeat} / "${fact.text}"`).toBeDefined();
+        }
       }
+      expect((item.decision?.match(/\?/g) ?? []).length, `${item.title} decision question marks`).toBe(1);
+      expect(item.decision?.trim().endsWith('?'), `${item.title} decision ends with ?`).toBe(true);
     }
   });
 

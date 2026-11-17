@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { liveNextItemLine, liveOpeningLine, liveWrapUpLine, spokenAgendaName, topicHandover, topicTeller } from '../../src/host/opening';
+import { liveNextItemLine, liveOpeningLine, liveWrapUpLine, spokenAgendaName, topicSpeaker } from '../../src/host/opening';
 import { loadScenario } from '../../src/loadScenario';
 import { testScenario } from '../fixtures/scenario';
 
 describe('liveOpeningLine', () => {
-  it('opens the shipped Kopitiam meeting with each colleague\'s job and the right teller', async () => {
+  it('opens the shipped Kopitiam meeting with each colleague\'s job and the right speaker', async () => {
     const scenario = await loadScenario('kopitiam');
     const line = liveOpeningLine(scenario, { name: 'Josh', seat: 'Wei Ling' });
     expect(line.split(/(?<=[.!?])\s+/)).toHaveLength(6);
@@ -16,11 +16,17 @@ describe('liveOpeningLine', () => {
     expect(line).toContain("First up, the staffing gap. Mei, you've been setting up the counter, what happened?");
   });
 
-  it('announces the next item while leaving its briefing to the chosen opening style', () => {
-    const scenario = { ...testScenario, agenda: [{ ...testScenario.agenda[0]!, briefing: 'Fresh stock arrived late.' }] };
+  it('announces the next item and hands over without reading its briefing', () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [{
+        ...testScenario.agenda[0]!,
+        briefing: [{ text: 'Fresh stock arrived late.', knownBy: [{ attendee: 'Ada', why: 'you signed for the delivery' }] }],
+      }],
+    };
     const line = liveNextItemLine(scenario, 'Prep', { name: 'Visitor', seat: 'Bao' });
     expect(line).not.toContain('Fresh stock arrived late.');
-    expect(line).toBe('Next up, Prep. Ada, over to you.');
+    expect(line).toBe('Next up, Prep. Ada, you signed for the delivery, what happened?');
     expect(liveNextItemLine(scenario, 'Prep')).toBe(line);
   });
 
@@ -43,7 +49,7 @@ describe('liveOpeningLine', () => {
     expect(liveWrapUpLine(scenario, 'Service')).toBe("Good, that's Service sorted.");
   });
 
-  it('ends on the topic without inviting the visitor when a colleague brief follows and no teller is named', () => {
+  it('ends on the topic without inviting the visitor when a colleague brief follows and no briefing fact is given', () => {
     const scenario = {
       ...testScenario,
       agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' }],
@@ -111,50 +117,57 @@ describe('liveOpeningLine', () => {
 });
 
 describe('topic handover', () => {
-  const tellerScenario = {
+  const factScenario = {
     ...testScenario,
     roles: [...testScenario.roles, { id: 'manager', label: 'Manager', facilitator: true }],
     attendees: [...testScenario.attendees, { name: 'Sam', role: 'manager', zoomDisplayName: 'Sam' }],
     agenda: [{
       ...testScenario.agenda[0]!,
       spoken: 'the prep gap',
-      tellers: [
-        { attendee: 'Ada', why: 'you saw the stock arrive' },
-        { attendee: 'Bao', why: 'you counted the trays' },
-      ],
+      briefing: [{
+        text: 'The stock arrived late.',
+        knownBy: [
+          { attendee: 'Ada', why: 'you saw the stock arrive' },
+          { attendee: 'Bao', why: 'you counted the trays' },
+        ],
+      }],
     }],
   };
 
-  it('names the first teller with the reason they know', () => {
-    expect(liveNextItemLine(tellerScenario, 'Prep'))
+  it('names the first fact speaker with the reason they know', () => {
+    expect(liveNextItemLine(factScenario, 'Prep'))
       .toBe('Next up, the prep gap. Ada, you saw the stock arrive, what happened?');
-    expect(topicTeller(tellerScenario, 'Prep')).toEqual({ attendee: 'Ada', why: 'you saw the stock arrive' });
+    expect(topicSpeaker(factScenario, 'Prep')).toEqual({ attendee: 'Ada', why: 'you saw the stock arrive' });
   });
 
-  it('skips a guest sitting in the teller\'s seat and uses the backup', () => {
-    expect(liveNextItemLine(tellerScenario, 'Prep', { name: 'Visitor', seat: 'Ada' }))
+  it('skips a guest sitting in the speaker\'s seat and uses the next knower', () => {
+    expect(liveNextItemLine(factScenario, 'Prep', { name: 'Visitor', seat: 'Ada' }))
       .toBe('Next up, the prep gap. Bao, you counted the trays, what happened?');
   });
 
-  it('skips the host and falls back when nobody can tell it', () => {
+  it('falls back and logs when the item has no briefing fact', () => {
     const logs: string[] = [];
-    const hosted = {
-      ...tellerScenario,
+    const noBriefing = {
+      ...factScenario,
+      agenda: [{ ...factScenario.agenda[0]!, briefing: undefined }],
+    };
+    expect(liveNextItemLine(noBriefing, 'Prep', { name: 'Visitor', seat: 'Bao' }, false, (line) => logs.push(line)))
+      .toBe('Next up, the prep gap. Ada, over to you.');
+    expect(logs).toEqual([expect.stringContaining('no speaker')]);
+  });
+
+  it('hands over the first fact that still has a present knower', () => {
+    const scenario = {
+      ...factScenario,
       agenda: [{
-        ...tellerScenario.agenda[0]!,
-        tellers: [{ attendee: 'Sam', why: 'you run the meeting' }, { attendee: 'Ada', why: 'you saw the stock arrive' }],
+        ...factScenario.agenda[0]!,
+        briefing: [
+          { text: 'The stock arrived late.', knownBy: [{ attendee: 'Bao', why: 'you counted the trays' }] },
+          { text: 'The oven is cold.', knownBy: [{ attendee: 'Ada', why: 'you lit the oven' }] },
+        ],
       }],
     };
-    expect(topicHandover(hosted, 'Prep', 'First up,').text)
-      .toBe('First up, the prep gap. Ada, you saw the stock arrive, what happened?');
-
-    const noTellers = {
-      ...tellerScenario,
-      agenda: [{ ...tellerScenario.agenda[0]!, tellers: undefined }],
-    };
-    expect(liveNextItemLine(noTellers, 'Prep', { name: 'Visitor', seat: 'Bao' }, false, (line) => logs.push(line)))
-      .toBe('Next up, the prep gap. Ada, over to you.');
-    expect(logs).toEqual([expect.stringContaining('no teller')]);
+    expect(topicSpeaker(scenario, 'Prep', { visitorSeat: 'Bao' })).toEqual({ attendee: 'Ada', why: 'you lit the oven' });
   });
 });
 

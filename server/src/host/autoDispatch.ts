@@ -21,11 +21,7 @@ function inlineTitle(title: string): string {
   return `${trimmed[0]!.toLowerCase()}${trimmed.slice(1)}`;
 }
 
-/** The first word of a task title that reads as the instruction itself ("Draft the poster"). */
-const IMPERATIVE_TITLE_START_RE =
-  /^(?:add|announce|book|brief|call|check|clean|collect|confirm|contact|cover|create|draft|email|file|find|fix|follow|handle|hold|install|launch|make|move|order|organi[sz]e|plan|post|prepare|print|promote|publish|recruit|remove|replace|reply|resolve|review|ring|run|schedule|send|set|share|sort|take|test|text|train|update|visit|write)\b/i;
-
-/** Sam's dispatch line; it changes a little from one task to the next so it does not sound canned. */
+/** Sam's dispatch line for the text path (a person hosting reads it as a suggestion); it varies so it does not sound canned. */
 export function dispatchLine(name: string, title: string, count: number): string {
   const lines = [
     `${name}, I've sent you a task: ${title}. Accept or decline it on your phone.`,
@@ -36,25 +32,22 @@ export function dispatchLine(name: string, title: string, count: number): string
 }
 
 /**
- * How the host asks a colleague who is in the room with everyone else (an AI attendee has no phone to mention).
- * An imperative task title goes inline as the request itself; a noun-phrase title is something to take care of.
+ * The note the AI host writes his request to a colleague from. The task title is context, never a line to read:
+ * Sam puts it in the room's own words, in one short spoken question.
  */
-export function colleagueLine(name: string, title: string, count: number): string {
-  const trimmed = title.trim().replace(/[.!?]+$/, '');
-  const request = IMPERATIVE_TITLE_START_RE.test(trimmed)
-    ? inlineTitle(trimmed)
-    : `take care of the ${inlineTitle(trimmed)}`;
-  const lines = [
-    `${name}, could you ${request}?`,
-    `${name}, can you ${request}?`,
-    `${name}, would you be able to ${request}?`,
-  ];
-  return lines[count % lines.length]!;
+export function colleagueAskNote(host: string, name: string, title: string): string {
+  const intent = title.trim().replace(/[.!?]+$/, '');
+  return `[The Note Taker has a follow-up for ${name} from this topic: "${intent}". Begin your reply with "${host}:". ${host} asks ${name} by name, in ONE short spoken sentence, to take it on, using the words the room has been using — never the task title's wording, no report phrases, no quotes. Ask a question, and do not mention a phone, the task list, or this note.]`;
 }
 
-/** What Sam should say when a task goes to a colleague in the room; no line means the colleague speaks for themselves. */
+/** The note the AI host points the visitor at their follow-up card from; the card is pointed at once per topic. */
+export function guestCardNote(host: string, guest: string): string {
+  return `[The follow-up the room just agreed on is now on ${guest}'s card. Begin your reply with "${host}:". In ONE short spoken sentence, ${host} tells ${guest} in ${host}'s own words that the follow-up is on their screen and they can send it whenever they are ready. Do not read out a task title or report wording, and do not mention this note.]`;
+}
+
+/** What Sam should say when a task goes to a colleague in the room; no note means the colleague speaks for themselves. */
 export interface ColleagueCue {
-  line?: string;
+  note?: string;
   /** Set when Sam stays quiet because the colleague already has it. */
   quietBecause?: 'volunteered' | 'was asked';
 }
@@ -64,14 +57,14 @@ export interface ColleagueCue {
  * already gave it to them, he says nothing and the colleague answers in their own words.
  */
 export function colleagueCue(
+  host: string,
   name: string,
   title: string,
-  count: number,
   already: { volunteered: boolean; assignedByGuest: boolean },
 ): ColleagueCue {
   if (already.volunteered) return { quietBecause: 'volunteered' };
   if (already.assignedByGuest) return { quietBecause: 'was asked' };
-  return { line: colleagueLine(name, title, count) };
+  return { note: colleagueAskNote(host, name, title) };
 }
 
 /**

@@ -32,7 +32,13 @@ describe('meeting memory', () => {
   });
 
   it('does not record a spoken number that already appears in scenario text', () => {
-    const withText = { ...testScenario, agenda: [{ ...testScenario.agenda[0]!, briefing: 'Help takes 12 minutes.' }] };
+    const withText = {
+      ...testScenario,
+      agenda: [{
+        ...testScenario.agenda[0]!,
+        briefing: [{ text: 'Help takes 12 minutes.', knownBy: [{ attendee: 'Ada', why: 'you timed it' }] }],
+      }],
+    };
     const memory = new MeetingMemory(withText, () => undefined, () => undefined);
     memory.spoken('Prep', 'Help takes 12 minutes.');
     expect(memory.snapshot()).toEqual([]);

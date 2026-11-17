@@ -44,10 +44,8 @@ export interface AgendaItem {
   contested?: boolean;
   /** Structured opening angles and trade-offs the AI colleagues can draw on; optional. */
   discussion?: AgendaDiscussion;
-  /** Who can tell the room what happened on this item, in order, and why it is theirs to tell; optional. */
-  tellers?: AgendaTeller[];
-  /** Neutral problem statement for the opening briefing, independent of who plays the owner. */
-  briefing?: string;
+  /** What the room is told at the start, split into facts so only the colleagues who would know each one say it. */
+  briefing?: BriefingFact[];
   /** Short name used when the host refers to the item aloud, e.g. "the food safety complaint". */
   spoken?: string;
   /** Artwork for this item, if the scenario provides it. */
@@ -106,11 +104,22 @@ export interface AgendaOpeningView {
   angle: string;
 }
 
-/** Someone who can tell the room what happened on an agenda item, and why it is theirs to tell. */
-export interface AgendaTeller {
-  /** The `name` of the attendee who tells it. */
+/** One thing the room is told at the start of a topic, and the colleagues who would actually know it. */
+export interface BriefingFact {
+  /** What happened, as one short spoken fact. */
+  text: string;
+  /**
+   * Who knows it, best-placed knower first. The first present colleague who is not the guest or the host tells it,
+   * and their `why` is the reason Sam gives when handing over.
+   */
+  knownBy: BriefingFactKnower[];
+}
+
+/** A colleague who knows a briefing fact, and why it is theirs to tell. */
+export interface BriefingFactKnower {
+  /** The `name` of the attendee who knows it. */
   attendee: string;
-  /** Why this person is the one who knows, said after their name, for example "you were on the floor at the trial". */
+  /** Why this person knows, said after their name, for example "you went through the fridge log". */
   why: string;
 }
 
@@ -395,6 +404,7 @@ function readAgenda(
   value: unknown,
   roleIds: Set<string>,
   attendeeNames: Set<string>,
+  hostNames: Set<string>,
   agendaTitles: Set<string>,
   problems: string[],
 ): void {
@@ -427,8 +437,37 @@ function readAgenda(
     if (item.decision !== undefined && !isNonEmptyString(item.decision)) {
       problems.push(`agenda[${index}].decision must be a non-empty string when present`);
     }
-    if (item.briefing !== undefined && !isNonEmptyString(item.briefing)) {
-      problems.push(`agenda[${index}].briefing must be a non-empty string when present`);
+    if (isNonEmptyString(item.decision) && (item.decision.match(/\?/g) ?? []).length > 1) {
+      problems.push(`agenda[${index}].decision must ask one question with a single "?"`);
+    }
+    if (item.briefing !== undefined) {
+      if (!Array.isArray(item.briefing) || item.briefing.length === 0) {
+        problems.push(`agenda[${index}].briefing must be a non-empty array when present`);
+      } else {
+        item.briefing.forEach((fact, factIndex) => {
+          const where = `agenda[${index}].briefing[${factIndex}]`;
+          if (!isObject(fact) || !isNonEmptyString(fact.text)) {
+            problems.push(`${where} must have non-empty "text"`);
+            return;
+          }
+          if (!Array.isArray(fact.knownBy) || fact.knownBy.length === 0) {
+            problems.push(`${where}.knownBy must be a non-empty array`);
+            return;
+          }
+          fact.knownBy.forEach((knower, knowerIndex) => {
+            const who = `${where}.knownBy[${knowerIndex}]`;
+            if (!isObject(knower) || !isNonEmptyString(knower.attendee) || !isNonEmptyString(knower.why)) {
+              problems.push(`${who} must have a non-empty "attendee" and "why"`);
+              return;
+            }
+            if (!attendeeNames.has(knower.attendee)) {
+              problems.push(`${who}.attendee "${knower.attendee}" is not one of the attendees`);
+            } else if (hostNames.has(knower.attendee)) {
+              problems.push(`${who}.attendee "${knower.attendee}" is the host and cannot know a briefing fact`);
+            }
+          });
+        });
+      }
     }
     if (item.spoken !== undefined && !isNonEmptyString(item.spoken)) {
       problems.push(`agenda[${index}].spoken must be a non-empty string when present`);
@@ -462,22 +501,6 @@ function readAgenda(
           if (!roleIds.has(roleId)) problems.push(`agenda[${index}].seatFacts has unknown role "${roleId}"`);
           else if (!isNonEmptyString(fact)) problems.push(`agenda[${index}].seatFacts.${roleId} must be a non-empty string`);
         }
-      }
-    }
-    if (item.tellers !== undefined) {
-      if (!Array.isArray(item.tellers) || item.tellers.length === 0) {
-        problems.push(`agenda[${index}].tellers must be a non-empty array when present`);
-      } else {
-        item.tellers.forEach((teller, tellerIndex) => {
-          const where = `agenda[${index}].tellers[${tellerIndex}]`;
-          if (!isObject(teller) || !isNonEmptyString(teller.attendee) || !isNonEmptyString(teller.why)) {
-            problems.push(`${where} must have a non-empty "attendee" and "why"`);
-            return;
-          }
-          if (!attendeeNames.has(teller.attendee)) {
-            problems.push(`${where}.attendee "${teller.attendee}" is not one of the attendees`);
-          }
-        });
       }
     }
     if (item.links !== undefined) {
@@ -587,12 +610,31 @@ export function parseScenario(value: unknown): Scenario {
         )
       : [],
   );
+  const facilitatorRoleIds = new Set<string>(
+    Array.isArray(value.roles)
+      ? value.roles.flatMap((role) =>
+          isObject(role) && role.facilitator === true && isNonEmptyString(role.id) ? [role.id] : [],
+        )
+      : [],
+  );
+  const hostNames = new Set<string>(
+    Array.isArray(value.attendees)
+      ? value.attendees.flatMap((attendee) =>
+          isObject(attendee) &&
+          isNonEmptyString(attendee.name) &&
+          isNonEmptyString(attendee.role) &&
+          facilitatorRoleIds.has(attendee.role)
+            ? [attendee.name]
+            : [],
+        )
+      : [],
+  );
   const agendaTitles = new Set<string>(
     Array.isArray(value.agenda)
       ? value.agenda.flatMap((item) => (isObject(item) && isNonEmptyString(item.title) ? [item.title] : []))
       : [],
   );
-  readAgenda(value.agenda, roleIds, attendeeNames, agendaTitles, problems);
+  readAgenda(value.agenda, roleIds, attendeeNames, hostNames, agendaTitles, problems);
   readOptionalStringArray(value.background, 'background', problems);
   if (value.excludedPairs !== undefined) {
     if (!Array.isArray(value.excludedPairs) || value.excludedPairs.length === 0) {

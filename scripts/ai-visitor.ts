@@ -50,7 +50,7 @@ export function visitorPrompt(persona: Persona, context: AnswerContext): ChatMes
   const attendee = context.scenario.attendees.find((person) => person.role === context.role);
   return [
     { role: 'system', content: `You are ${attendee?.name ?? 'the guest'}, ${seat?.label ?? context.role}, the opening-day lead at ${context.scenario.organisation}. ${seat?.card?.youAre ?? ''} ${seat?.card?.responsibility ?? ''}\nPersona: ${personaDirections[persona]}\nWrite only your next line as if typed in a live meeting. Keep it short, chatty, and specific. No speaker label, quotation marks, markdown, or stage directions. Stay consistent with established facts and your earlier lines. Respond to the latest exchange. Do not claim an action is complete unless the transcript says so.` },
-    { role: 'user', content: `Current topic: ${context.topicTitle}\nBriefing: ${topic?.briefing ?? ''}\nDecision at hand: ${topic?.decision ?? ''}\nYour seat's known fact: ${topic?.seatFacts?.[context.role] ?? ''}\nImmediate purpose for your next line: ${context.intent}\nMeeting transcript so far:\n${transcriptText(context.transcript)}` },
+    { role: 'user', content: `Current topic: ${context.topicTitle}\nBriefing: ${(topic?.briefing ?? []).map((fact) => fact.text).join(' ')}\nDecision at hand: ${topic?.decision ?? ''}\nYour seat's known fact: ${topic?.seatFacts?.[context.role] ?? ''}\nImmediate purpose for your next line: ${context.intent}\nMeeting transcript so far:\n${transcriptText(context.transcript)}` },
   ];
 }
 

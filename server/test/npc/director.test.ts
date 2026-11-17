@@ -341,6 +341,19 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('ask for the exact followUp.title');
     expect(prompt).not.toContain('Propose practical choices so the person can simply pick');
   });
+  it('lists what was already said and the open question, and forbids menus and restating', () => {
+    const prompt = buildSystemPrompt(npcScenario, { name: 'Visitor', role: 'Chef' }, undefined, false, false, [], [], undefined, [], {
+      earlier: [{ speaker: 'Ada', text: 'Thirty trays only cover thirty…' }],
+      recent: [{ speaker: 'Bao', text: 'The kiosk wording is not tested yet.' }],
+      openQuestion: { from: 'Bao', to: 'Visitor', text: 'Who covers the counter at eight?' },
+    });
+    expect(prompt).toContain('Already said on this topic (never restate or rephrase a fact or point already said by anyone; add something new, react to the last line, or stay quiet):');
+    expect(prompt).toContain('Earlier: Ada: Thirty trays only cover thirty…');
+    expect(prompt).toContain('Bao: The kiosk wording is not tested yet.');
+    expect(prompt).toContain('Open question on this topic: Bao asked Visitor: "Who covers the counter at eight?". Help answer it, or let Visitor answer it; do not ask another question on top of it.');
+    expect(prompt).toContain('Never offer the guest an either/or menu or a list of options; give facts, worries and constraints from your own job, and let the guest make the call.');
+  });
+
   it('uses the visitor role label in item and colleague framing', () => {
     const scenario = {
       ...npcScenario,

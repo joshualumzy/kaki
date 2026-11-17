@@ -61,29 +61,33 @@ function hostAttendeeName(scenario: Scenario): string | undefined {
 }
 
 /**
- * The first person who can tell this item's story: not the guest's seat, not the host, and present in the
+ * The speaker for the first briefing fact that has one: not the guest's seat, not the host, and present in the
  * room. `presentNames` narrows it to the colleagues actually voiced in this session.
  */
-export function topicTeller(
+export function topicSpeaker(
   scenario: Scenario,
   title: string,
   options: { visitorSeat?: string; hostName?: string; presentNames?: readonly string[] } = {},
 ): { attendee: string; why: string } | undefined {
-  const item = findAgendaItem(scenario, title);
-  if (item?.tellers === undefined) return undefined;
+  const facts = findAgendaItem(scenario, title)?.briefing;
+  if (facts === undefined) return undefined;
   const hostName = options.hostName ?? hostAttendeeName(scenario);
   const present = options.presentNames === undefined
     ? new Set(scenario.attendees.map((attendee) => attendee.name))
     : new Set(options.presentNames);
-  return item.tellers.find((teller) =>
-    teller.attendee !== options.visitorSeat &&
-    teller.attendee !== hostName &&
-    present.has(teller.attendee));
+  for (const fact of facts) {
+    const knower = fact.knownBy.find((candidate) =>
+      candidate.attendee !== options.visitorSeat &&
+      candidate.attendee !== hostName &&
+      present.has(candidate.attendee));
+    if (knower !== undefined) return { attendee: knower.attendee, why: knower.why };
+  }
+  return undefined;
 }
 
 /**
- * The host's topic line: the topic in plain words, then the hand-over to the colleague who tells it,
- * with the reason it is theirs. When no teller can be found it falls back to the old announcement and
+ * The host's topic line: the topic in plain words, then the hand-over to the colleague who tells the first fact,
+ * with the reason it is theirs. When no speaker can be found it falls back to the old announcement and
  * says so in the log, never leaving the room without a way in.
  */
 export function topicHandover(
@@ -92,17 +96,17 @@ export function topicHandover(
   lead: string,
   visitor?: Visitor,
   log?: (line: string) => void,
-): { text: string; teller?: { attendee: string; why: string } } {
+): { text: string; speaker?: { attendee: string; why: string } } {
   const topic = spokenAgendaName(scenario, title);
-  const teller = topicTeller(scenario, title, { visitorSeat: visitor?.seat });
-  if (teller === undefined) {
-    log?.(`[handover] no teller for "${title}"; announcing the topic without a hand-over`);
+  const speaker = topicSpeaker(scenario, title, { visitorSeat: visitor?.seat });
+  if (speaker === undefined) {
+    log?.(`[handover] no speaker for "${title}"; announcing the topic without a hand-over`);
     return { text: `${lead} ${topic}.` };
   }
-  const why = teller.why.trim().replace(/[.,;:!?]+$/, '');
+  const why = speaker.why.trim().replace(/[.,;:!?]+$/, '');
   return {
-    text: `${lead} ${topic}. ${teller.attendee}, ${why}, what happened?`,
-    teller,
+    text: `${lead} ${topic}. ${speaker.attendee}, ${why}, what happened?`,
+    speaker,
   };
 }
 
@@ -208,7 +212,7 @@ function agendaLine(lines: ReadonlyArray<(topic: string) => string>, scenario: S
 
 /**
  * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`),
- * handing the story to the colleague who can tell it. When no teller is named it keeps the old
+ * handing the story to the colleague who can tell it. When no fact has a speaker it keeps the old
  * behaviour, including the owner's "over to you" unless a colleague brief follows.
  */
 export function liveNextItemLine(
@@ -221,7 +225,7 @@ export function liveNextItemLine(
   const item = findAgendaItem(scenario, title);
   const lead = NEXT_ITEM_LEADS[Math.max(0, agendaIndex(scenario, title)) % NEXT_ITEM_LEADS.length]!;
   const handover = topicHandover(scenario, title, lead, visitor, log);
-  if (handover.teller !== undefined) return handover.text;
+  if (handover.speaker !== undefined) return handover.text;
   const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
   const ownerIsHost = item !== undefined && scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
   const ownerName = owner === undefined || ownerIsHost

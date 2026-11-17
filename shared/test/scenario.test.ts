@@ -215,27 +215,61 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/tradeOffs must be a non-empty array/);
   });
 
-  it('accepts tellers and plain job words, and rejects a teller who is not an attendee', () => {
+  it('accepts briefing facts and plain job words, and rejects a fact nobody can own', () => {
     const scenario = cloneScenario();
     (scenario.attendees as Array<Record<string, unknown>>)[0]!.spokenJob = 'on the line';
     scenario.agenda = [{
       title: 'Prep',
       minutes: 5,
       ownerRole: 'chef',
-      tellers: [{ attendee: 'Ada', why: 'you saw the stock arrive' }],
+      briefing: [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Ada', why: 'you saw the stock arrive' }] }],
     }];
     const parsed = parseScenario(scenario);
     expect(parsed.attendees[0]?.spokenJob).toBe('on the line');
-    expect(parsed.agenda[0]?.tellers).toEqual([{ attendee: 'Ada', why: 'you saw the stock arrive' }]);
+    expect(parsed.agenda[0]?.briefing).toEqual([
+      { text: 'The stock arrived late.', knownBy: [{ attendee: 'Ada', why: 'you saw the stock arrive' }] },
+    ]);
 
-    (scenario.agenda as Array<Record<string, unknown>>)[0]!.tellers = [{ attendee: 'Nobody', why: 'you saw it' }];
-    expect(() => parseScenario(scenario)).toThrow(/tellers\[0\]\.attendee "Nobody" is not one of the attendees/);
+    const agenda = scenario.agenda as Array<Record<string, unknown>>;
+    agenda[0]!.briefing = [{ text: 'The stock arrived late.', knownBy: [] }];
+    expect(() => parseScenario(scenario)).toThrow(/briefing\[0\]\.knownBy must be a non-empty array/);
 
-    (scenario.agenda as Array<Record<string, unknown>>)[0]!.tellers = [{ attendee: 'Ada', why: ' ' }];
-    expect(() => parseScenario(scenario)).toThrow(/tellers\[0\] must have a non-empty "attendee" and "why"/);
+    agenda[0]!.briefing = [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Nobody', why: 'you saw it' }] }];
+    expect(() => parseScenario(scenario)).toThrow(/briefing\[0\]\.knownBy\[0\]\.attendee "Nobody" is not one of the attendees/);
+
+    agenda[0]!.briefing = [{ text: ' ', knownBy: [{ attendee: 'Ada', why: 'you saw it' }] }];
+    expect(() => parseScenario(scenario)).toThrow(/briefing\[0\] must have non-empty "text"/);
+
+    agenda[0]!.briefing = [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Ada', why: ' ' }] }];
+    expect(() => parseScenario(scenario)).toThrow(/briefing\[0\]\.knownBy\[0\] must have a non-empty "attendee" and "why"/);
 
     (scenario.attendees as Array<Record<string, unknown>>)[0]!.spokenJob = ' ';
     expect(() => parseScenario(scenario)).toThrow(/attendees\[0\]\.spokenJob must be a non-empty string/);
+  });
+
+  it('rejects the host as a briefing knower and a decision with more than one question', () => {
+    const scenario = cloneScenario();
+    scenario.roles = [
+      ...(scenario.roles as Array<Record<string, unknown>>),
+      { id: 'manager', label: 'Manager', facilitator: true },
+    ];
+    scenario.attendees = [
+      ...(scenario.attendees as Array<Record<string, unknown>>),
+      { name: 'Sam', role: 'manager', zoomDisplayName: 'Sam' },
+    ];
+    scenario.agenda = [{
+      title: 'Prep',
+      minutes: 5,
+      ownerRole: 'chef',
+      briefing: [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Sam', why: 'you run the meeting' }] }],
+      decision: 'do we start now?',
+    }];
+    expect(() => parseScenario(scenario)).toThrow(/briefing\[0\]\.knownBy\[0\]\.attendee "Sam" is the host and cannot know a briefing fact/);
+
+    const agenda = scenario.agenda as Array<Record<string, unknown>>;
+    agenda[0]!.briefing = [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Ada', why: 'you saw the stock arrive' }] }];
+    agenda[0]!.decision = 'do we start now? and who covers prep?';
+    expect(() => parseScenario(scenario)).toThrow(/decision must ask one question with a single "\?"/);
   });
 
   it('accepts the v2 story fields and rejects bad ones', () => {
@@ -248,7 +282,7 @@ describe('parseScenario', () => {
         minutes: 5,
         ownerRole: 'chef',
         contested: true,
-        briefing: 'The oven is cold.',
+        briefing: [{ text: 'The oven is cold.', knownBy: [{ attendee: 'Ada', why: 'you lit the oven' }] }],
         art: '/scenario/prep.svg',
         directions: ['Ask the baker to start earlier.'],
         background: ['The bakery opens at six.'],

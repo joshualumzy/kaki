@@ -121,6 +121,30 @@ export interface NpcRunner {
   hostIsHuman(): boolean;
   /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
   say(attendee: string, text: string, onDone?: () => void): void;
+  /**
+   * Sam asks an AI colleague to take on a task from `note`, through the model, once it is quiet.
+   * `onDone(true)` means the room heard the ask; `false` means it was skipped and no template is read.
+   */
+  askColleague(
+    target: string,
+    note: string,
+    options?: {
+      /** The task title the spoken line must never carry. */
+      forbiddenText?: string;
+      shouldStillSpeak?: () => boolean;
+      onDone?: (spoken: boolean) => void;
+    },
+  ): void;
+  /** Sam points the visitor at their follow-up card from `note`, once per topic. */
+  pointAtCard(
+    note: string,
+    options?: {
+      /** The task title the spoken line must never carry. */
+      forbiddenText?: string;
+      shouldStillSpeak?: () => boolean;
+      onDone?: (spoken: boolean) => void;
+    },
+  ): void;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -771,6 +795,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         return;
       }
       conversation.announce(attendee, text, undefined, () => onDone?.());
+    },
+    askColleague(target, note, options) {
+      if (conversation === undefined) {
+        options?.onDone?.(false);
+        return;
+      }
+      conversation.askColleague(target, note, options);
+    },
+    pointAtCard(note, options) {
+      if (conversation === undefined) {
+        options?.onDone?.(false);
+        return;
+      }
+      conversation.pointAtCard(note, options);
     },
     pause() {
       paused = true;
