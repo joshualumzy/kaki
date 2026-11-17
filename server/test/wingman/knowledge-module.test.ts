@@ -16,7 +16,7 @@ const scenario: Scenario = {
     { id: 'producer', label: 'Producer' },
   ],
   attendees: [],
-  agenda: [{ title: 'Prep', minutes: 5, ownerRole: 'chef', decision: 'Do we prep early?' }],
+  agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', decision: 'Do we prep early?' }],
 };
 
 const fact: Fact = { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' };

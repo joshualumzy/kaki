@@ -86,6 +86,8 @@
       "title": "One counter staff short for the opening rush",
       "spoken": "the staffing gap",
       "minutes": 5,
+      "canWait": false,
+      "deadline": "before doors open at 8",
       "ownerRole": "producer",
       "contested": true,
       "briefing": [
@@ -180,6 +182,8 @@
       "title": "Old regulars and the new kopi prices",
       "spoken": "the kopi prices",
       "minutes": 5,
+      "canWait": false,
+      "deadline": "before doors open at 8",
       "ownerRole": "game_designer",
       "contested": true,
       "briefing": [
@@ -277,6 +281,8 @@
       "title": "Laptop campers and the breakfast seat crunch",
       "spoken": "the laptop campers",
       "minutes": 5,
+      "canWait": false,
+      "deadline": "before doors open at 8",
       "ownerRole": "lead_programmer",
       "contested": true,
       "briefing": [
@@ -369,6 +375,8 @@
       "spoken": "the food safety complaint",
       "sensitive": true,
       "minutes": 5,
+      "canWait": false,
+      "deadline": "before doors open at 8",
       "ownerRole": "producer",
       "contested": true,
       "briefing": [
@@ -465,6 +473,8 @@
       "title": "Delivery app commission squeeze",
       "spoken": "the delivery app commission",
       "minutes": 5,
+      "canWait": true,
+      "deadline": "after the lunch rush",
       "ownerRole": "marketing_lead",
       "contested": true,
       "briefing": [

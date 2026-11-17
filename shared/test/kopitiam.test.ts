@@ -94,6 +94,8 @@ describe('shipped Kopitiam story', () => {
 
     for (const item of scenario.agenda) {
       expect(item.title.trim().length, `${item.title} briefing`).toBeGreaterThan(0);
+      expect(item.deadline?.trim().length, `${item.title} deadline`).toBeGreaterThan(0);
+      expect(item.canWait, `${item.title} can wait`).toBe(item.title === 'Delivery app commission squeeze');
       expect(item.briefing?.length, `${item.title} briefing`).toBeGreaterThan(0);
       for (const fact of item.briefing ?? []) {
         expect(fact.text.trim().length, `${item.title} briefing fact`).toBeGreaterThan(0);

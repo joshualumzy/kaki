@@ -73,8 +73,8 @@ describe('meeting carry-over prompt', () => {
 
   it('shows an earlier decision and only an actual link to that earlier agenda item', () => {
     const scenario = { ...npcScenario, agenda: [
-      { title: 'Prep', minutes: 5, ownerRole: 'chef' },
-      { title: 'Service', minutes: 5, ownerRole: 'cashier', links: [{ with: 'Prep', effect: 'The earlier call reduces available staff.' }] },
+      { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' },
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier', links: [{ with: 'Prep', effect: 'The earlier call reduces available staff.' }] },
     ] };
     const memory = [{ kind: 'decision' as const, item: 'Prep', text: 'Use one person on setup.' }];
     const linked = buildSystemPrompt(scenario, undefined, 'Service', false, false, [], memory);
@@ -82,7 +82,7 @@ describe('meeting carry-over prompt', () => {
     expect(linked).toContain('fact from the scenario or meeting memory');
     expect(linked).toContain('Prep: The earlier call reduces available staff.');
     const unlinked = buildSystemPrompt({ ...scenario, agenda: [scenario.agenda[0]!,
-      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] }, undefined, 'Service', false, false, [], memory);
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] }, undefined, 'Service', false, false, [], memory);
     expect(unlinked).toContain('Decision on Prep: Use one person on setup.');
     expect(unlinked).not.toContain('The earlier call reduces available staff.');
     expect(unlinked).not.toContain('Links to other items in this meeting:');
@@ -93,8 +93,8 @@ describe('meeting carry-over prompt', () => {
 
   it('does not expose a link to a topic outside this meeting', () => {
     const scenario = { ...npcScenario, agenda: [
-      { title: 'Prep', minutes: 5, ownerRole: 'chef' },
-      { title: 'Service', minutes: 5, ownerRole: 'cashier', links: [{ with: 'Other', effect: 'Do a hidden action.' }] },
+      { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' },
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier', links: [{ with: 'Other', effect: 'Do a hidden action.' }] },
     ] };
     expect(buildSystemPrompt(scenario, undefined, 'Service')).not.toContain('Do a hidden action.');
   });
@@ -302,12 +302,12 @@ describe('buildSystemPrompt', () => {
   });
   it('renders only the current meeting item facts and hidden directions', () => {
     const [ada, bao] = npcScenario.npcs;
-    const first = { title: 'First', minutes: 5, ownerRole: 'chef', contested: true,
+    const first = { title: 'First', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', contested: true,
       background: ['current established fact'], directions: ['current possible direction'],
       seatFacts: { chef: 'current chef fact', cashier: 'current cashier fact' },
       sayExactly: ['42 tickets'], sensitive: true,
       offScreen: { name: 'Pat', role: 'supplier', howTheyAnswer: 'They can confirm once.' } };
-    const missing = { title: 'Missing', minutes: 5, ownerRole: 'chef', background: ['forbidden absent fact'],
+    const missing = { title: 'Missing', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', background: ['forbidden absent fact'],
       directions: ['forbidden absent direction'], seatFacts: { chef: 'forbidden absent seat fact' } };
     const scenario = { ...npcScenario, agenda: [first, missing], npcs: [{ ...ada!, role: 'host' as const }, bao!] };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'Cashier' }, 'First');
@@ -437,7 +437,7 @@ describe('buildSystemPrompt', () => {
 
   it('keeps an AI host on the current agenda item and stops it moving the meeting on', () => {
     const [ada, bao] = npcScenario.npcs ?? [];
-    const scenario = { ...npcScenario, agenda: [{ title: 'Build', minutes: 5, ownerRole: 'chef' }, { title: 'Menu', minutes: 5, ownerRole: 'chef' }], npcs: [{ ...ada!, role: 'host' as const }, bao!] };
+    const scenario = { ...npcScenario, agenda: [{ title: 'Build', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' }, { title: 'Menu', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' }], npcs: [{ ...ada!, role: 'host' as const }, bao!] };
     expect(buildSystemPrompt(scenario)).toContain('agenda item "Build". Stay on it. Never announce a new agenda item');
     expect(buildSystemPrompt(scenario, undefined, 'Menu')).toContain('agenda item "Menu"');
   });
@@ -446,7 +446,7 @@ describe('buildSystemPrompt', () => {
     const [ada, bao] = npcScenario.npcs ?? [];
     const build = (extra: Record<string, unknown>) => ({
       ...npcScenario,
-      agenda: [{ title: 'Build', minutes: 5, ownerRole: 'chef', decision: 'do we hold the build?', ...extra }],
+      agenda: [{ title: 'Build', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', decision: 'do we hold the build?', ...extra }],
       npcs: [{ ...ada!, role: 'host' as const }, bao!],
     });
 

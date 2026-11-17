@@ -27,7 +27,15 @@ const scenario: Scenario = {
     { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
     { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
   ],
-  agenda: [{ title: 'Old regulars and the new kopi prices', minutes: 5, ownerRole: 'game_designer' }],
+  agenda: [
+    {
+      title: 'Old regulars and the new kopi prices',
+      minutes: 5,
+      canWait: false,
+      deadline: 'before doors open at 8',
+      ownerRole: 'game_designer',
+    },
+  ],
 };
 
 function assert(condition: unknown, message: string): asserts condition {

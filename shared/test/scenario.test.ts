@@ -112,29 +112,29 @@ describe('parseScenario', () => {
 
   it('accepts an optional decision on an agenda item and rejects an empty one', () => {
     const scenario = cloneScenario();
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', decision: 'do we hold the menu?' }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', decision: 'do we hold the menu?' }];
     expect(parseScenario(scenario).agenda[0]?.decision).toBe('do we hold the menu?');
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', decision: ' ' }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', decision: ' ' }];
     expect(() => parseScenario(scenario)).toThrow(/decision must be a non-empty string/);
   });
 
   it('accepts contested items and a glossary, and rejects bad ones', () => {
     const scenario = cloneScenario();
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', contested: true }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', contested: true }];
     scenario.glossary = { oven: 'the big hot box' };
     expect(parseScenario(scenario).glossary?.oven).toBe('the big hot box');
     scenario.glossary = { oven: ' ' };
     expect(() => parseScenario(scenario)).toThrow(/glossary must map/);
     scenario.glossary = undefined;
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', contested: 'yes' as never }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', contested: 'yes' as never }];
     expect(() => parseScenario(scenario)).toThrow(/contested must be true or false/);
   });
 
   it('accepts a sensitive item flag and rejects non-boolean values', () => {
     const scenario = cloneScenario();
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', sensitive: true }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', sensitive: true }];
     expect(parseScenario(scenario).agenda[0]?.sensitive).toBe(true);
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', sensitive: 'yes' as never }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', sensitive: 'yes' as never }];
     expect(() => parseScenario(scenario)).toThrow(/sensitive must be true or false/);
   });
 
@@ -144,6 +144,8 @@ describe('parseScenario', () => {
       {
         title: 'Prep',
         minutes: 5,
+        canWait: false,
+        deadline: 'before service',
         ownerRole: 'chef',
         discussion: {
           openingViews: [
@@ -166,13 +168,15 @@ describe('parseScenario', () => {
       openingViews: [{ attendee: 'Ada', angle: 'A view.' }],
       tradeOffs: [{ attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' }],
     };
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', discussion: valid }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', discussion: valid }];
     expect(parseScenario(scenario)).toBeTruthy();
 
     scenario.agenda = [
       {
         title: 'Prep',
         minutes: 5,
+        canWait: false,
+        deadline: 'before service',
         ownerRole: 'chef',
         discussion: {
           openingViews: [{ attendee: 'Nobody', angle: 'A view.' }, { attendee: 'Ada', angle: ' ' }],
@@ -201,6 +205,8 @@ describe('parseScenario', () => {
       {
         title: 'Prep',
         minutes: 5,
+        canWait: false,
+        deadline: 'before service',
         ownerRole: 'chef',
         discussion: {
           openingViews: [
@@ -221,6 +227,8 @@ describe('parseScenario', () => {
     scenario.agenda = [{
       title: 'Prep',
       minutes: 5,
+        canWait: false,
+        deadline: 'before service',
       ownerRole: 'chef',
       briefing: [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Ada', why: 'you saw the stock arrive' }] }],
     }];
@@ -260,6 +268,8 @@ describe('parseScenario', () => {
     scenario.agenda = [{
       title: 'Prep',
       minutes: 5,
+        canWait: false,
+        deadline: 'before service',
       ownerRole: 'chef',
       briefing: [{ text: 'The stock arrived late.', knownBy: [{ attendee: 'Sam', why: 'you run the meeting' }] }],
       decision: 'do we start now?',
@@ -280,6 +290,8 @@ describe('parseScenario', () => {
       {
         title: 'Prep',
         minutes: 5,
+        canWait: false,
+        deadline: 'before service',
         ownerRole: 'chef',
         contested: true,
         briefing: [{ text: 'The oven is cold.', knownBy: [{ attendee: 'Ada', why: 'you lit the oven' }] }],
@@ -291,7 +303,7 @@ describe('parseScenario', () => {
         links: [{ with: 'Lunch', effect: 'A late prep pushes lunch back.' }],
         sayExactly: ['6:00'],
       },
-      { title: 'Lunch', minutes: 5, ownerRole: 'cashier' },
+      { title: 'Lunch', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'cashier' },
     ];
     const parsed = parseScenario(scenario);
     expect(parsed.background).toEqual(['The shop has 28 seats.']);
@@ -308,6 +320,8 @@ describe('parseScenario', () => {
       {
         title: 'Prep',
         minutes: 5,
+        canWait: false,
+        deadline: 'before service',
         ownerRole: 'chef',
         art: ' ',
         directions: [''],
@@ -336,7 +350,7 @@ describe('parseScenario', () => {
 
   it('accepts a short spoken agenda name and rejects an empty one', () => {
     const scenario = cloneScenario();
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', spoken: 'the prep job' }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', spoken: 'the prep job' }];
     expect(parseScenario(scenario).agenda[0]?.spoken).toBe('the prep job');
 
     (scenario.agenda as Array<Record<string, unknown>>)[0]!.spoken = '  ';
@@ -355,13 +369,13 @@ describe('parseScenario', () => {
 
   it('rejects an agenda item with an unknown owner role', () => {
     const scenario = cloneScenario();
-    scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'waiter' }];
+    scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'waiter' }];
     expect(() => parseScenario(scenario)).toThrow(/ownerRole "waiter" is not a known role/);
   });
 
   it('rejects zero minutes and an empty agenda', () => {
     const zero = cloneScenario();
-    zero.agenda = [{ title: 'Prep', minutes: 0, ownerRole: 'chef' }];
+    zero.agenda = [{ title: 'Prep', minutes: 0, canWait: false, deadline: 'before service', ownerRole: 'chef' }];
     expect(() => parseScenario(zero)).toThrow(/greater than zero/);
 
     const empty = cloneScenario();
@@ -369,10 +383,24 @@ describe('parseScenario', () => {
     expect(() => parseScenario(empty)).toThrow(/at least one agenda item/);
   });
 
+  it('requires deadline metadata on every agenda item', () => {
+    const scenario = cloneScenario();
+    const agenda = scenario.agenda as Array<Record<string, unknown>>;
+    delete agenda[0]!.canWait;
+    expect(() => parseScenario(scenario)).toThrow(/agenda\[0\]\.canWait must be true or false/);
+
+    agenda[0]!.canWait = false;
+    delete agenda[0]!.deadline;
+    expect(() => parseScenario(scenario)).toThrow(/agenda\[0\]\.deadline must be a non-empty string/);
+
+    agenda[0]!.deadline = ' ';
+    expect(() => parseScenario(scenario)).toThrow(/agenda\[0\]\.deadline must be a non-empty string/);
+  });
+
   it('reports every problem in one message', () => {
     const scenario = cloneScenario();
     scenario.id = '';
-    scenario.agenda = [{ title: 'Prep', minutes: -5, ownerRole: 'chef' }];
+    scenario.agenda = [{ title: 'Prep', minutes: -5, canWait: false, deadline: 'before service', ownerRole: 'chef' }];
     scenario.attendees = [{ name: '', role: 'waiter', zoomDisplayName: 'Ada' }];
 
     expect(() => parseScenario(scenario)).toThrow(

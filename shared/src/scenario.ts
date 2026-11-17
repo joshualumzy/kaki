@@ -37,6 +37,10 @@ export interface Attendee {
 export interface AgendaItem {
   title: string;
   minutes: number;
+  /** Whether this item's decision can be deferred to a later slot, or has to be made now; required by validation. */
+  canWait: boolean;
+  /** When the decision has to be made, said aloud in plain words ("before doors open at 8"); required by validation. */
+  deadline: string;
   ownerRole: Role;
   /** The call this item exists to get, as a question to the person who decides ("Do we ship as is, or hold the date?"); optional. */
   decision?: string;
@@ -427,6 +431,12 @@ function readAgenda(
     }
     if (typeof item.minutes !== 'number' || !Number.isFinite(item.minutes) || item.minutes <= 0) {
       problems.push(`agenda[${index}].minutes must be a number greater than zero`);
+    }
+    if (typeof item.canWait !== 'boolean') {
+      problems.push(`agenda[${index}].canWait must be true or false`);
+    }
+    if (!isNonEmptyString(item.deadline)) {
+      problems.push(`agenda[${index}].deadline must be a non-empty string`);
     }
     if (item.contested !== undefined && typeof item.contested !== 'boolean') {
       problems.push(`agenda[${index}].contested must be true or false when present`);

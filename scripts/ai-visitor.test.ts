@@ -15,9 +15,9 @@ const scenario: Scenario = {
     { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
   ],
   agenda: [
-    { title: 'Counter staffing', minutes: 5, ownerRole: 'producer', briefing: [{ text: 'One person called in sick.', knownBy: [{ attendee: 'Wei Ling', why: 'you got the text' }] }], decision: 'Who covers?', seatFacts: { producer: 'Rest day means double pay.' } },
-    { title: 'Kopi prices', minutes: 5, ownerRole: 'producer', briefing: [{ text: 'Prices changed.', knownBy: [{ attendee: 'Wei Ling', why: 'you saw the new menu' }] }] },
-    { title: 'Food safety complaint', minutes: 5, ownerRole: 'producer', sensitive: true, briefing: [{ text: 'A customer was sick.', knownBy: [{ attendee: 'Daniel', why: 'her email came to you' }] }], sayExactly: ['$85'] },
+    { title: 'Counter staffing', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'producer', briefing: [{ text: 'One person called in sick.', knownBy: [{ attendee: 'Wei Ling', why: 'you got the text' }] }], decision: 'Who covers?', seatFacts: { producer: 'Rest day means double pay.' } },
+    { title: 'Kopi prices', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'producer', briefing: [{ text: 'Prices changed.', knownBy: [{ attendee: 'Wei Ling', why: 'you saw the new menu' }] }] },
+    { title: 'Food safety complaint', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'producer', sensitive: true, briefing: [{ text: 'A customer was sick.', knownBy: [{ attendee: 'Daniel', why: 'her email came to you' }] }], sayExactly: ['$85'] },
   ],
   npcs: [
     { attendee: 'Wei Ling', voice: 'voice', personality: 'Direct.', agenda: 'Keep the opening sound.', concerns: ['Making a promise the shop cannot keep.'], knows: ['The fridge log shows a three-hour gap.'] },

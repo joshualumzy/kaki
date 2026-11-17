@@ -444,8 +444,8 @@ describe('mattermost action module', () => {
           : role,
       ),
       agenda: [
-        { title: 'Prep', minutes: 5, ownerRole: 'chef', seatFacts: { chef: 'The booth demo runs on generator power.' } },
-        { title: 'Oven', minutes: 5, ownerRole: 'chef', seatFacts: { chef: 'The pastry oven needs a new fuse.' } },
+        { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', seatFacts: { chef: 'The booth demo runs on generator power.' } },
+        { title: 'Oven', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', seatFacts: { chef: 'The pastry oven needs a new fuse.' } },
       ],
     };
     const decision = 'Booth Playtest approved the booth demo: it runs from 9 to 11 AM and the Chef owns setup.';

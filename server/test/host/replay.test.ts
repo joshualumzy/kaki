@@ -54,7 +54,7 @@ describe('replay script', () => {
   });
 
   it('only accepts agenda markers that move forward through the agenda', () => {
-    const twoItems = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, ownerRole: 'cashier' }] };
+    const twoItems = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
     const line = (agendaIndex: unknown) => ({ at: 0, speaker: 'Ada (Chef)', text: 'Next.', agendaIndex });
 
     expect(parseReplay({ lines: [line(1)] }, twoItems)[0]).toMatchObject({ agendaIndex: 1 });

@@ -9,7 +9,7 @@ const scenario: Scenario = {
   meetingTitle: 'Lunch service',
   roles: [{ id: 'chef', label: 'Chef' }],
   attendees: [],
-  agenda: [{ title: 'Prep', minutes: 5, ownerRole: 'chef' }],
+  agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' }],
 };
 
 let ScenarioProvider: typeof import('./ScenarioContext').ScenarioProvider;

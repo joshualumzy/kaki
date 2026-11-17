@@ -36,6 +36,8 @@ const scenario: Scenario = {
     {
       title: 'Elderly regulars turned away at cashless kiosks',
       minutes: 4,
+      canWait: false,
+      deadline: 'before doors open at 8',
       ownerRole: 'producer',
       decision: 'how do we take cash without putting a coin drawer at the counter?',
       seatFacts: { producer: roleFact },
@@ -153,6 +155,8 @@ describe('MeetingPanel', () => {
         {
           title: 'Butter slice review',
           minutes: 4,
+          canWait: false,
+          deadline: 'before doors open at 8',
           ownerRole: 'lead_programmer',
           decision: 'how do we fix the butter slice?',
           discussion: {
@@ -285,6 +289,8 @@ describe('MeetingPanel', () => {
         {
           title: 'Butter slice review',
           minutes: 4,
+          canWait: false,
+          deadline: 'before doors open at 8',
           ownerRole: 'lead_programmer',
           decision: 'how do we fix the butter slice?',
           discussion: {

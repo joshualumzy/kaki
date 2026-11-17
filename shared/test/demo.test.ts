@@ -155,9 +155,9 @@ describe('itemMode', () => {
         { id: 'marketing', label: 'Marketing Lead' },
       ],
       agenda: [
-        { title: 'Item A', minutes: 5, ownerRole: 'lead', contested: true },
-        { title: 'Item B', minutes: 5, ownerRole: 'lead', contested: true },
-        { title: 'Item C', minutes: 5, ownerRole: 'marketing' },
+        { title: 'Item A', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead', contested: true },
+        { title: 'Item B', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead', contested: true },
+        { title: 'Item C', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'marketing' },
       ],
     };
     const forMarketing = shuffleAgendaForRole(fullScenario, 'Marketing Lead', () => 0.1);
@@ -184,9 +184,9 @@ describe('agenda pair rules', () => {
       { id: 'marketing', label: 'Marketing Lead' },
     ],
     agenda: [
-      { title: 'Item A', minutes: 5, ownerRole: 'lead', contested: true },
-      { title: 'Item B', minutes: 5, ownerRole: 'lead', contested: true },
-      { title: 'Item C', minutes: 5, ownerRole: 'marketing' },
+      { title: 'Item A', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead', contested: true },
+      { title: 'Item B', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead', contested: true },
+      { title: 'Item C', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'marketing' },
     ],
   };
 

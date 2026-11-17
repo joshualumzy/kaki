@@ -163,7 +163,7 @@ describe('NpcConversation', () => {
 
   it('reopens one earlier meeting item, replaces its decision, and returns to the current item', async () => {
     const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
-      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
     const h = harness(twoItems);
     h.conversation.setHuman({ name: 'Josh', role: 'chef' });
     const settleTopic = vi.fn().mockResolvedValue(undefined);
@@ -354,7 +354,7 @@ describe('NpcConversation', () => {
 
   it('starts a new topic with an empty record', async () => {
     const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
-      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
     const h = harness(twoItems);
     await h.say('Hello.');
     h.calls.at(-1)?.push('Ada: Thirty trays only cover thirty platters.');
@@ -458,7 +458,7 @@ describe('NpcConversation', () => {
 
   it('does not treat a question or an earlier topic as an assignment', async () => {
     const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
-      { title: 'Service', minutes: 5, ownerRole: 'cashier' }] };
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
     const h = harness(twoItems);
     h.conversation.humanTyped('Daniel, what do you think?');
     expect(h.conversation.askedByGuestOnTopic('Daniel')).toBe(false);
@@ -1096,7 +1096,7 @@ describe('NpcConversation', () => {
         { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' },
       ],
       agenda: [
-        { title: 'Warm-up', minutes: 5, ownerRole: 'chef' as const },
+        { title: 'Warm-up', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' as const },
         {
           ...scenario.agenda[0]!,
           title: 'Seats',
@@ -1233,7 +1233,7 @@ describe('NpcConversation', () => {
 
   const briefingScenario = () => ({
     ...scenario,
-    agenda: [...scenario.agenda, { title: 'Service', minutes: 5, ownerRole: 'cashier' as const }],
+    agenda: [...scenario.agenda, { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' as const }],
     npcs: [
       { ...scenario.npcs[0]!, role: 'host' as const },
       scenario.npcs[1]!,
@@ -2414,6 +2414,23 @@ describe('NpcConversation', () => {
       const lastCallMessages = JSON.stringify(h.calls.at(-1)?.messages ?? []);
       expect(lastCallMessages).toContain('Hold on, let us check the cost.');
       expect(lastCallMessages).not.toContain('made a sound');
+    });
+
+    it('logs a shadow planner decision after heard guest and room lines without acting on it', async () => {
+      const h = harness();
+      await h.say('Ada, what happened?');
+      expect(h.logs.some((line) => line.startsWith('[planner] '))).toBe(true);
+
+      h.calls[0]?.push('Ada: We are short today.');
+      h.calls[0]?.end();
+      await h.flush();
+      h.playing[0]?.finish();
+      await h.flush();
+
+      const planner = h.logs.filter((line) => line.startsWith('[planner] '));
+      expect(planner.length).toBeGreaterThanOrEqual(2);
+      expect(planner.every((line) => /^\[planner\] .+ because .+$/.test(line))).toBe(true);
+      expect(h.transcript.filter(([speaker]) => speaker === 'Ada').map(([, text]) => text)).toEqual(['We are short today.']);
     });
 
   });

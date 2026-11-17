@@ -102,8 +102,8 @@ describe('earlier topic cards', () => {
     const withAgenda: Scenario = {
       ...scenario,
       agenda: [
-        { title: 'Prep', minutes: 5, ownerRole: 'producer' },
-        { title: 'Stock', minutes: 5, ownerRole: 'producer' },
+        { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer' },
+        { title: 'Stock', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer' },
       ],
     };
     mocks.useScenario.mockReturnValue(withAgenda);
@@ -134,8 +134,8 @@ describe('earlier topic cards', () => {
     const withAgenda: Scenario = {
       ...scenario,
       agenda: [
-        { title: 'Prep', minutes: 5, ownerRole: 'producer' },
-        { title: 'Stock', minutes: 5, ownerRole: 'producer' },
+        { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer' },
+        { title: 'Stock', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer' },
       ],
     };
     mocks.useScenario.mockReturnValue(withAgenda);

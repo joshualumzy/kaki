@@ -162,6 +162,8 @@ describe('cardFactForItem', () => {
     const item = {
       title: 'Laptop campers and the breakfast seat crunch',
       minutes: 5,
+      canWait: false,
+      deadline: 'before doors open at 8',
       ownerRole: 'lead_programmer',
       seatFacts: { producer: 'The blocked seats cost about $420.', lead_programmer: 'The booth sockets share one timer switch.' },
     };

@@ -42,7 +42,7 @@ describe('liveOpeningLine', () => {
   it('varies the next-item wording by topic and hands over to that topic\'s lead', () => {
     const scenario = {
       ...testScenario,
-      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' }],
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }],
     };
     expect(liveNextItemLine(scenario, 'Service')).toBe("Right, let's move on to Service. Bao, over to you.");
     expect(liveWrapUpLine(scenario, 'Prep')).toBe("Let's leave Prep there.");
@@ -52,7 +52,7 @@ describe('liveOpeningLine', () => {
   it('ends on the topic without inviting the visitor when a colleague brief follows and no briefing fact is given', () => {
     const scenario = {
       ...testScenario,
-      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' }],
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }],
     };
     const line = liveNextItemLine(scenario, 'Service', { name: 'Visitor', seat: 'Bao' }, true);
     expect(line).toBe("Right, let's move on to Service.");
@@ -63,7 +63,7 @@ describe('liveOpeningLine', () => {
     const scenario = {
       ...testScenario,
       situation: 'Lunch service starts in ten minutes.',
-      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' }],
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }],
     };
     const line = liveOpeningLine(scenario);
     expect(line).toContain('First up, Prep.');
@@ -75,7 +75,7 @@ describe('liveOpeningLine', () => {
     const scenario = {
       ...testScenario,
       situation: "It's 7 AM on opening day at our refurbished Raffles Place flagship, and doors open at 8.",
-      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, ownerRole: 'cashier' }],
+      agenda: [testScenario.agenda[0]!, { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }],
     };
     const line = liveOpeningLine(scenario);
     expect(line).toContain('doors open at 8. First up, Prep.');
@@ -177,7 +177,7 @@ describe('spokenAgendaName', () => {
       ...testScenario,
       agenda: [
         { ...testScenario.agenda[0]!, title: 'Food safety complaint before the 9 AM inspection', spoken: 'the food safety complaint' },
-        { title: 'Old regulars & the new kopi prices', minutes: 5, ownerRole: 'chef' as const },
+        { title: 'Old regulars & the new kopi prices', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' as const },
       ],
     };
     expect(spokenAgendaName(scenario, 'Food safety complaint before the 9 AM inspection')).toBe('the food safety complaint');

@@ -8,6 +8,8 @@ import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseR
 import { SpeechGate } from './speechGate';
 import { MeetingMemory } from './meetingMemory';
 import { TopicRecord, type OpenQuestion, type TopicPromptView } from './topicRecord';
+import { meetingTopic, MeetingState } from './meetingState';
+import { describeDecision, next as nextPlannerDecision, type PlannerEvent } from './turnPlanner';
 
 /** What the people in the meeting should see the AI attendees doing. */
 export type NpcUiState = NpcStateMessage;
@@ -411,7 +413,7 @@ interface Turn {
   abort: AbortController;
   /** Stops sound, gaps and text waits without cancelling the model stream; replaced when a held turn carries on. */
   soundAbort: AbortController;
-  spoken: Array<{ utterance: Utterance; complete: boolean; startedAt: number; durationMs?: number }>;
+  spoken: Array<{ utterance: Utterance; complete: boolean; startedAt: number; durationMs?: number; shadowLineId?: string }>;
   enqueued: Utterance[];
   streamFinished: boolean;
   streamFailed?: boolean;
@@ -566,6 +568,9 @@ export class NpcConversation<Clip> {
   private readonly recentSpoken: Array<{ speaker: string; text: string; at: number; topic: string | undefined }> = [];
   /** Everything said on the current topic, and the question still open on it. */
   private readonly topicRecord = new TopicRecord();
+  /** Shadow-only heard-event state; its planner decisions are logged and never acted on in this checkpoint. */
+  private readonly meetingState: MeetingState;
+  private shadowLineSeq = 0;
   /** The open question already named in a `[card] waited` log, so one wait is logged once. */
   private cardWaitLoggedFor: string | undefined;
   /** Lines the visitor said, so the host can tell when they already gave the follow-up to a colleague. */
@@ -625,6 +630,11 @@ export class NpcConversation<Clip> {
   ) {
     this.gate = options.gate ?? new SpeechGate();
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
+    this.meetingState = new MeetingState({
+      topics: options.scenario.agenda.map(meetingTopic),
+      present: this.names,
+      host: (options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee ?? this.names[0],
+    });
     this.memory = options.memory ?? new MeetingMemory(options.scenario,
       (entries) => this.ports.onMemoryChange?.(entries), (line) => this.ports.log?.(line));
     this.responseDelayMs = options.responseDelayMs ?? DEFAULT_RESPONSE_DELAY_MS;
@@ -644,6 +654,7 @@ export class NpcConversation<Clip> {
   setHuman(human: HumanInfo & { transcriptName?: string }): void {
     if (this.human?.name !== human.name) this.humanLines = 0;
     this.human = { ...human, transcriptName: human.transcriptName ?? human.name };
+    this.meetingState.setGuest(this.human.name);
   }
 
   resetMemory(): void {
@@ -653,6 +664,8 @@ export class NpcConversation<Clip> {
     this.resumeAfterReopen = undefined;
     this.recentSpoken.length = 0;
     this.topicRecord.reset();
+    this.meetingState.reset();
+    this.shadowLineSeq = 0;
     this.cardWaitLoggedFor = undefined;
     this.lastLockAskAt = -Infinity;
     this.replyShapeIndex = 0;
@@ -1068,7 +1081,7 @@ export class NpcConversation<Clip> {
         options.onDone?.(false);
         return;
       }
-      this.topicRecord.start(topic);
+      this.startTopic(topic);
       const open = this.topicRecord.openQuestion;
       if (open !== undefined && this.topicStillHasTime()) {
         this.logCardWait(open.text);
@@ -1202,7 +1215,7 @@ export class NpcConversation<Clip> {
 
   /** The open question on the topic the meeting is on now, if any. */
   openQuestionOnCurrentTopic(): OpenQuestion | undefined {
-    this.topicRecord.start(this.currentItem()?.title);
+    this.startTopic(this.currentItem()?.title);
     return this.topicRecord.openQuestion;
   }
 
@@ -1330,7 +1343,49 @@ export class NpcConversation<Clip> {
       closelyRepeats(words, contentWords(entry.text)));
   }
 
-  private rememberSpoken(utterance: Utterance, topic: string | undefined): void {
+  /** Mirror a topic change into the shadow state without changing what the existing path says. */
+  private startTopic(topic: string | undefined): void {
+    this.topicRecord.start(topic);
+    this.meetingState.openTopic(topic, Date.now());
+  }
+
+  private nextShadowLineId(): string {
+    this.shadowLineSeq += 1;
+    return `heard-${this.shadowLineSeq}`;
+  }
+
+  /** Log the planner's choice for a heard event; nothing it returns is acted on in this checkpoint. */
+  private planNextTurn(event: PlannerEvent): void {
+    const log = this.ports.log;
+    if (log === undefined) return;
+    const decision = nextPlannerDecision(this.meetingState.view(Date.now()), event);
+    log(`[planner] ${describeDecision(decision)} because ${decision.reason}`);
+  }
+
+  /** Mark a played line complete or cut off, then ask the planner what the room would do next. */
+  private shadowLineEnded(eventId: string | undefined, complete: boolean): void {
+    if (eventId === undefined) return;
+    const line = this.meetingState.lineEnded(eventId, complete, Date.now());
+    if (line === undefined) return;
+    this.planNextTurn({ kind: complete ? 'heard' : 'interrupted', line });
+  }
+
+  /** A guest line is heard whole the moment it is typed or recognised; it never has a partial playback. */
+  private recordShadowGuestLine(text: string): void {
+    const guest = this.human?.name;
+    if (guest === undefined) return;
+    const eventId = this.nextShadowLineId();
+    this.meetingState.lineStarted({
+      id: eventId,
+      speaker: guest,
+      text,
+      at: Date.now(),
+      proposal: isGuestProposal(text),
+    });
+    this.shadowLineEnded(eventId, true);
+  }
+
+  private rememberSpoken(utterance: Utterance, topic: string | undefined): string | undefined {
     if (utterance.speaker === this.facilitatorOrCoHost() && LOCK_ASK_RE.test(utterance.text)) {
       this.lastLockAskAt = Date.now();
     }
@@ -1340,14 +1395,23 @@ export class NpcConversation<Clip> {
     if (isQuestionToVisitor(utterance.text, utterance.speaker, this.names, this.human?.name)) {
       this.askedGuestInRound = true;
     }
-    this.topicRecord.start(topic);
+    this.startTopic(topic);
     // The colleague the last question was put to has answered it by speaking; a new question then replaces it.
     if (this.topicRecord.openQuestion?.to === utterance.speaker) this.answerTopicQuestion();
     const question = this.questionFrom(utterance);
     if (question !== undefined) this.topicRecord.ask(question);
     this.topicRecord.said({ speaker: utterance.speaker, text: utterance.text });
+    const eventId = this.nextShadowLineId();
+    this.meetingState.lineStarted({
+      id: eventId,
+      speaker: utterance.speaker,
+      text: utterance.text,
+      at: Date.now(),
+      ...(question === undefined ? {} : { question: { to: question.to, text: question.text } }),
+    });
     const now = Date.now();
     this.recentSpoken.push({ speaker: utterance.speaker, text: utterance.text, at: now, topic });
+    return eventId;
   }
 
   /**
@@ -1517,7 +1581,7 @@ export class NpcConversation<Clip> {
   private noteHumanLine(text: string): void {
     const topic = this.currentItem()?.title;
     this.guestLinesByTopic.set(topic, [...(this.guestLinesByTopic.get(topic) ?? []), text]);
-    this.topicRecord.start(topic);
+    this.startTopic(topic);
     // A new line starts the silence escalation again at the check-in.
     this.silencePromptStage = 0;
     this.clearSilenceTimer();
@@ -1526,6 +1590,7 @@ export class NpcConversation<Clip> {
     // The visitor speaking is the answer the room was waiting for.
     if (open !== undefined && open.to === this.human?.name) this.answerTopicQuestion();
     this.humanLines += 1;
+    this.recordShadowGuestLine(text);
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
     if (!this.humanSettledOnCurrentItem && !this.budgetOffered &&
         (this.humanLines - this.linesAtMove >= (this.options.topicTurnBudget ?? DEFAULT_TOPIC_TURN_BUDGET) ||
@@ -1728,7 +1793,7 @@ export class NpcConversation<Clip> {
     const total = this.options.reviewWindowMs ?? DEFAULT_REVIEW_WINDOW_MS;
     const nudgeAt = this.options.reviewNudgeMs ?? DEFAULT_REVIEW_NUDGE_MS;
     if (!this.reviewNudged && nudgeAt < total) {
-      this.topicRecord.start(title);
+      this.startTopic(title);
       const open = this.topicRecord.openQuestion;
       if (open !== undefined && this.topicStillHasTime()) {
         this.logCardWait(open.text);
@@ -1798,7 +1863,7 @@ export class NpcConversation<Clip> {
     if (!expired && !afterGrace) return;
     // Sam does not move on while a question on this topic is still waiting for an answer; the topic's own
     // time limit releases the wait, so the meeting can never get stuck on a question nobody answers.
-    this.topicRecord.start(title);
+    this.startTopic(title);
     const open = this.topicRecord.openQuestion;
     if (open !== undefined && this.topicStillHasTime()) {
       this.logCardWait(open.text);
@@ -1908,7 +1973,7 @@ export class NpcConversation<Clip> {
     this.humanSettledOnCurrentItem = false;
     this.askedGuestInRound = false;
     this.questionBeforeGuestLine = undefined;
-    this.topicRecord.start(this.currentItem()?.title);
+    this.startTopic(this.currentItem()?.title);
     this.cardWaitLoggedFor = undefined;
     this.wingmanHintActive = false;
     this.decisionLines = [];
@@ -2758,6 +2823,8 @@ export class NpcConversation<Clip> {
   private finalize(turn: Turn): void {
     if (turn.finalized) return;
     turn.finalized = true;
+    // Safety net: any line the shadow ledger still has open was cut off before it was fully heard.
+    for (const entry of turn.spoken) this.shadowLineEnded(entry.shadowLineId, entry.complete);
 
     const stripSelfIntro = (speaker: string, text: string): string => {
       const escaped = speaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2859,7 +2926,7 @@ export class NpcConversation<Clip> {
 
   /** What the room has said on the topic the meeting is on now, in the small form the prompt uses. */
   private currentTopicView(): TopicPromptView {
-    this.topicRecord.start(this.currentItem()?.title);
+    this.startTopic(this.currentItem()?.title);
     return this.topicRecord.promptView();
   }
 
@@ -3419,8 +3486,12 @@ export class NpcConversation<Clip> {
         }
         previousSpeaker = utterance.speaker;
 
-        const entry = { utterance, complete: false, startedAt: Date.now(),
-          durationMs: textOnly ? undefined : this.ports.clipDurationMs?.(audio) };
+        const entry: Turn['spoken'][number] = {
+          utterance,
+          complete: false,
+          startedAt: Date.now(),
+          durationMs: textOnly ? undefined : this.ports.clipDurationMs?.(audio),
+        };
         if (turn.spoken.length === 0) {
           this.ports.log?.(`speaking ${Date.now() - turn.startedAt} ms after the model was asked`);
         }
@@ -3433,7 +3504,7 @@ export class NpcConversation<Clip> {
           this.gate.aiSaid(utterance.text);
         }
         this.lastSpoken = utterance.text;
-        this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
+        entry.shadowLineId = this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
         this.noteCardPoint(utterance);
         this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
         const transcriptKey = `${utterance.speaker}:${utterance.text}`;
@@ -3442,9 +3513,13 @@ export class NpcConversation<Clip> {
           this.ports.emitTranscript(utterance.speaker, utterance.text, textOnly ? { textOnly: true } : undefined);
         }
         await this.playUtterance(turn, utterance, audio, textOnly);
-        if (turn.abort.signal.aborted) return;
+        if (turn.abort.signal.aborted) {
+          this.shadowLineEnded(entry.shadowLineId, false);
+          return;
+        }
         if (this.isTurnHeld(turn)) continue;
         entry.complete = true;
+        this.shadowLineEnded(entry.shadowLineId, true);
         pending = undefined;
         if (turn.topic !== undefined) this.memory.spoken(this.reopenedTitle ?? turn.topic, utterance.text);
         continue;
@@ -3460,9 +3535,13 @@ export class NpcConversation<Clip> {
       this.lastSpoken = utterance.text;
       this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
       await this.playUtterance(turn, utterance, audio, textOnly);
-      if (turn.abort.signal.aborted) return;
+      if (turn.abort.signal.aborted) {
+        this.shadowLineEnded(last.shadowLineId, false);
+        return;
+      }
       if (this.isTurnHeld(turn)) continue;
       last.complete = true;
+      this.shadowLineEnded(last.shadowLineId, true);
       pending = undefined;
       if (turn.topic !== undefined) this.memory.spoken(this.reopenedTitle ?? turn.topic, utterance.text);
     }

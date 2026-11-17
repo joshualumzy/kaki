@@ -3,8 +3,8 @@ import type { AgendaItem } from '@kaki/shared';
 import { createAgendaClock } from '../../src/host/clock';
 
 const agenda: AgendaItem[] = [
-  { title: 'Prep', minutes: 5, ownerRole: 'chef' },
-  { title: 'Till', minutes: 2, ownerRole: 'cashier' },
+  { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' },
+  { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' },
 ];
 
 function fakeTime(start = 1_000_000) {

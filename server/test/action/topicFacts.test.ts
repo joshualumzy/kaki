@@ -19,8 +19,8 @@ const scenario: Scenario = {
     { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao' },
   ],
   agenda: [
-    { title: 'First', minutes: 5, ownerRole: 'chef', seatFacts: { chef: 'FIRST CHEF FACT', cashier: 'FIRST CASHIER FACT' } },
-    { title: 'Second', minutes: 5, ownerRole: 'cashier', seatFacts: { chef: 'FOREIGN TOPIC FACT', cashier: 'ANOTHER FOREIGN TOPIC FACT' } },
+    { title: 'First', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', seatFacts: { chef: 'FIRST CHEF FACT', cashier: 'FIRST CASHIER FACT' } },
+    { title: 'Second', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier', seatFacts: { chef: 'FOREIGN TOPIC FACT', cashier: 'ANOTHER FOREIGN TOPIC FACT' } },
   ],
 };
 

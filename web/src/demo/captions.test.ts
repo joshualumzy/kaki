@@ -14,7 +14,7 @@ const scenario: Scenario = {
     { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling (Producer)' },
     { name: 'Arjun', role: 'lead', zoomDisplayName: 'Arjun (Lead)' },
   ],
-  agenda: [{ title: 'Build', minutes: 5, ownerRole: 'lead' }],
+  agenda: [{ title: 'Build', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead' }],
   npcs: [{ attendee: 'Arjun', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] }],
 };
 

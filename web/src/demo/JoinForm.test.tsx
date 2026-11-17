@@ -46,7 +46,7 @@ describe('JoinForm', () => {
   it('preloads the art supplied by selected agenda items', () => {
     const loaded: string[] = [];
     vi.stubGlobal('Image', class { set src(value: string) { loaded.push(value); } });
-    setup({ agenda: [{ title: 'Current', minutes: 5, ownerRole: 'producer', art: '/scenario/current.svg' }] });
+    setup({ agenda: [{ title: 'Current', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer', art: '/scenario/current.svg' }] });
     expect(loaded).toContain('/scenario/current.svg');
   });
 

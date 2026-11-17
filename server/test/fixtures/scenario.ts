@@ -13,5 +13,5 @@ export const testScenario: Scenario = {
     { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
     { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
   ],
-  agenda: [{ title: 'Prep', minutes: 5, ownerRole: 'chef' }],
+  agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' }],
 };

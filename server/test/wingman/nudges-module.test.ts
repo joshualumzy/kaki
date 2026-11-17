@@ -17,9 +17,9 @@ const scenario: Scenario = {
   ],
   attendees: [],
   agenda: [
-    { title: 'Build and bugs', minutes: 10, ownerRole: 'lead_programmer' },
-    { title: 'Level 5 difficulty and playtest feedback', minutes: 10, ownerRole: 'game_designer' },
-    { title: 'Publisher milestone', minutes: 8, ownerRole: 'producer' },
+    { title: 'Build and bugs', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
+    { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'game_designer' },
+    { title: 'Publisher milestone', minutes: 8, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer' },
   ],
 };
 
@@ -241,8 +241,8 @@ describe('nudge module', () => {
     const sameOwner: Scenario = {
       ...scenario,
       agenda: [
-        { title: 'Build and bugs', minutes: 10, ownerRole: 'lead_programmer' },
-        { title: 'Level 5 difficulty and playtest feedback', minutes: 10, ownerRole: 'lead_programmer' },
+        { title: 'Build and bugs', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
+        { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
       ],
     };
     const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, scenario: sameOwner });
