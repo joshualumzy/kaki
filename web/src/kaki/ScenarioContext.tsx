@@ -1,6 +1,14 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { parseScenario, type Scenario } from '@kaki/shared';
-import { Card } from '../ui';
+import { Button, Card } from '../ui';
 
 type ScenarioState =
   | { status: 'loading' }
@@ -12,30 +20,49 @@ const RefreshScenarioContext = createContext<(() => Promise<Scenario>) | null>(n
 
 let scenarioPromise: Promise<Scenario> | undefined;
 
-const LOAD_RETRIES = 10;
-const LOAD_RETRY_DELAY_MS = 1_000;
+/** How long to keep retrying while the API server is starting behind the reverse proxy. */
+const SERVER_START_TIMEOUT_MS = 90_000;
+const SERVER_START_RETRY_DELAY_MS = 1_000;
+
+/** Statuses meaning the reverse proxy is up but the API server behind it is not yet. */
+const SERVER_STARTING_STATUSES = new Set([502, 503, 504]);
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchScenario(): Promise<Scenario> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      const response = await fetch('/api/scenario');
-      if (!response.ok) {
-        throw new Error(`GET /api/scenario failed (${response.status})`);
-      }
-      return parseScenario(await response.json());
-    } catch (error) {
-      if (attempt >= LOAD_RETRIES) throw error;
-      await wait(LOAD_RETRY_DELAY_MS);
-    }
+type Attempt =
+  | { status: 'ready'; scenario: Scenario }
+  | { status: 'starting'; error: unknown };
+
+async function attemptScenario(): Promise<Attempt> {
+  let response: Response;
+  try {
+    response = await fetch('/api/scenario');
+  } catch (error) {
+    return { status: 'starting', error };
+  }
+  if (!response.ok) {
+    const error = new Error(`GET /api/scenario failed (${response.status})`);
+    if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
+    throw error;
+  }
+  return { status: 'ready', scenario: parseScenario(await response.json()) };
+}
+
+async function fetchScenario({ onRetry }: { onRetry?: () => void } = {}): Promise<Scenario> {
+  const startedAt = Date.now();
+  for (;;) {
+    const attempt = await attemptScenario();
+    if (attempt.status === 'ready') return attempt.scenario;
+    if (Date.now() - startedAt >= SERVER_START_TIMEOUT_MS) throw attempt.error;
+    onRetry?.();
+    await wait(SERVER_START_RETRY_DELAY_MS);
   }
 }
 
-function loadScenario(): Promise<Scenario> {
-  scenarioPromise ??= fetchScenario().catch((error: unknown) => {
+function loadScenario(onRetry?: () => void): Promise<Scenario> {
+  scenarioPromise ??= fetchScenario({ onRetry }).catch((error: unknown) => {
     scenarioPromise = undefined;
     throw error;
   });
@@ -45,29 +72,40 @@ function loadScenario(): Promise<Scenario> {
 /** Fetch the active scenario once and make it available to every page. */
 export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ScenarioState>({ status: 'loading' });
+  const [starting, setStarting] = useState(false);
+  const loadId = useRef(0);
 
-  useEffect(() => {
-    let active = true;
-    loadScenario()
+  const start = useCallback(() => {
+    const id = (loadId.current += 1);
+    setStarting(false);
+    setState({ status: 'loading' });
+    // Not id-guarded: a remount (StrictMode) reuses the cached load, whose callback is the first mount's.
+    loadScenario(() => setStarting(true))
       .then((scenario) => {
-        if (active) setState({ status: 'ready', scenario });
+        if (loadId.current === id) setState({ status: 'ready', scenario });
       })
       .catch((error: unknown) => {
-        if (!active) return;
+        if (loadId.current !== id) return;
         setState({
           status: 'error',
           message: error instanceof Error ? error.message : 'Could not load the scenario',
         });
       });
-    return () => {
-      active = false;
-    };
   }, []);
+
+  useEffect(() => {
+    start();
+    return () => {
+      loadId.current += 1;
+    };
+  }, [start]);
 
   if (state.status === 'loading') {
     return (
       <main className="page">
-        <p className="empty-state">Loading scenario…</p>
+        <p className="empty-state">
+          {starting ? 'Starting up… this can take a few seconds.' : 'Loading scenario…'}
+        </p>
       </main>
     );
   }
@@ -79,6 +117,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
           <p className="connection-banner" role="alert">
             {state.message}
           </p>
+          <Button onClick={start}>Try again</Button>
         </Card>
       </main>
     );
