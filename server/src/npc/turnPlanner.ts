@@ -14,6 +14,8 @@ export interface SpeakDecision {
   purpose: SpeakPurpose;
   /** The heard event this line answers, or undefined for an opening handover. */
   respondsTo: string | undefined;
+  /** The briefing facts this step is written to tell, if any. */
+  factIds?: readonly string[];
   reason: string;
 }
 
@@ -56,8 +58,14 @@ export type PlannerEvent =
   | { kind: 'cardDue' }
   | { kind: 'cardSent' };
 
-function speak(speaker: string, purpose: SpeakPurpose, respondsTo: string | undefined, reason: string): SpeakDecision {
-  return { kind: 'Speak', speaker, purpose, respondsTo, reason };
+function speak(
+  speaker: string,
+  purpose: SpeakPurpose,
+  respondsTo: string | undefined,
+  reason: string,
+  factIds?: readonly string[],
+): SpeakDecision {
+  return { kind: 'Speak', speaker, purpose, respondsTo, ...(factIds === undefined ? {} : { factIds }), reason };
 }
 
 function wait(reason: string): WaitDecision {
@@ -97,6 +105,33 @@ function firstFactTeller(view: MeetingView): string | undefined {
   return undefined;
 }
 
+/**
+ * The first untold briefing fact's teller, plus any following consecutive facts the same colleague knows.
+ * A fact nobody present can tell is skipped; a different teller starts the next step.
+ */
+function nextBriefStep(view: MeetingView): { speaker: string; factIds: string[] } | undefined {
+  let speaker: string | undefined;
+  const factIds: string[] = [];
+  for (const fact of view.facts) {
+    if (fact.told) continue;
+    const teller = canTell(view, fact);
+    if (teller === undefined) continue;
+    if (speaker === undefined) {
+      speaker = teller;
+      factIds.push(fact.id);
+      continue;
+    }
+    if (teller !== speaker) break;
+    factIds.push(fact.id);
+  }
+  return speaker === undefined ? undefined : { speaker, factIds };
+}
+
+/** No untold fact is left that someone in the room could tell. */
+function factsSettled(view: MeetingView): boolean {
+  return view.facts.every((fact) => fact.told || canTell(view, fact) === undefined);
+}
+
 function matchingFact(view: MeetingView, text: string): MeetingFactView | undefined {
   let best: { fact: MeetingFactView; overlap: number } | undefined;
   for (const fact of view.facts) {
@@ -131,13 +166,10 @@ function unraisedCatchOwner(view: MeetingView, exclude: string | undefined): Mee
     view.present.includes(entry.attendee));
 }
 
-function factsComplete(view: MeetingView): boolean {
-  return view.facts.every((fact) => fact.told);
-}
-
 /**
- * The next speaker, in order: the named addressee of an open question; the knower who can answer the guest's
- * last point; the colleague holding an unraised catch on the guest's first idea; the host for a handover,
+ * The next speaker, in order: in the opening, the colleague who can tell the next briefing fact(s), then the
+ * host's one question; otherwise the named addressee of an open question, the knower who can answer the guest's
+ * last point, the colleague holding an unraised catch on the guest's first idea, the host for a handover,
  * one invitation or a confirmation. Nothing relevant to add means wait for the guest.
  */
 export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
@@ -152,6 +184,24 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
         ? 'opening the topic; no briefing fact has a present knower'
         : `opening the topic and handing it to ${teller}, who knows the first briefing fact`,
     );
+  }
+
+  // The opening is planner-owned: the handover's question is answered by the brief step, not by an answer turn.
+  if (event.kind === 'heard' && event.line.speaker !== view.guest &&
+      view.guestFirstIdea === undefined && !view.guestInvited) {
+    const step = nextBriefStep(view);
+    if (step !== undefined) {
+      return speak(
+        step.speaker,
+        'brief',
+        event.line.eventId,
+        `${step.speaker} has the next briefing fact the room has not heard`,
+        step.factIds,
+      );
+    }
+    if (factsSettled(view) && view.host !== undefined) {
+      return speak(view.host, 'invite', event.line.eventId, 'the briefing is done and the guest has not been invited once');
+    }
   }
 
   const question = view.openQuestion;
@@ -182,15 +232,6 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
   }
 
   if (event.kind === 'heard') {
-    if (view.guestFirstIdea === undefined) {
-      const teller = firstFactTeller(view);
-      if (teller !== undefined) {
-        return speak(teller, 'brief', event.line.eventId, `${teller} has the next briefing fact the room has not heard`);
-      }
-      if (factsComplete(view) && !view.guestInvited && view.host !== undefined) {
-        return speak(view.host, 'invite', event.line.eventId, 'the briefing is done and the guest has not been invited once');
-      }
-    }
     return wait('nothing new to add; waiting for the guest');
   }
 
@@ -219,4 +260,36 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
   }
 
   return wait('nothing to say');
+}
+
+/**
+ * The view as it would be if `line` had just finished playing and its `factIds` were heard. Used only to start
+ * the next opening speaker's request while the current line is still playing; the real ledger is the authority.
+ */
+export function projectHeard(view: MeetingView, line: HeardLine, factIds: readonly string[] = []): MeetingView {
+  const told = new Set(factIds);
+  const facts: MeetingFactView[] = view.facts.map((fact) =>
+    !fact.told && told.has(fact.id) && fact.knownBy.includes(line.speaker)
+      ? { ...fact, told: true, toldBy: line.speaker, eventId: line.eventId }
+      : fact);
+  const lines = [...view.lines, line];
+  const openQuestion = line.question === undefined
+    ? (view.openQuestion?.to === line.speaker ? undefined : view.openQuestion)
+    : { from: line.speaker, to: line.question.to, text: line.question.text, askedAt: line.at, eventId: line.eventId };
+  const guestInvited = view.guestInvited ||
+    (line.speaker === view.host && line.question?.to !== undefined && line.question.to === view.guest);
+  const guestFirstIdea = view.guestFirstIdea ??
+    (line.speaker === view.guest && line.proposal ? line : undefined);
+  return {
+    ...view,
+    lines,
+    lastHeard: line.complete ? line : view.lastHeard,
+    lastLine: line,
+    facts,
+    factsTold: facts.filter((fact) => fact.told).map((fact) => fact.id),
+    openQuestion,
+    guestInvited,
+    guestFirstIdea,
+    guestLastLine: line.speaker === view.guest ? line : view.guestLastLine,
+  };
 }

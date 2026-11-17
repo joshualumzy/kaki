@@ -122,4 +122,51 @@ describe('turn planner', () => {
 
     expect(next(state.view(6), { kind: 'heard', line })).toMatchObject({ kind: 'Wait' });
   });
+
+  it('names the facts the opening speaker tells, grouping consecutive facts by the same knower', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', decision: 'how do we cover prep?',
+        facts: [
+          { id: '0:0', text: 'The fridge was unplugged.', knownBy: ['Ada'] },
+          { id: '0:1', text: 'The log shows a gap.', knownBy: ['Ada'] },
+          { id: '0:2', text: 'The till needs a login.', knownBy: ['Bao'] },
+        ],
+        catches: [],
+      }],
+      present: ['Ada', 'Bao', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+    });
+    state.openTopic('Prep', 0);
+    const handover = heard(state, { id: 'sam-1', speaker: 'Sam', text: 'Ada, what happened?' });
+    const first = next(state.view(1), { kind: 'heard', line: handover });
+    expect(first).toMatchObject({ kind: 'Speak', speaker: 'Ada', purpose: 'brief', factIds: ['0:0', '0:1'] });
+
+    const told = heard(state, { id: 'ada-1', speaker: 'Ada', text: 'The fridge was unplugged. The log shows a gap.', factIds: ['0:0', '0:1'] }, 2);
+    expect(next(state.view(2), { kind: 'heard', line: told })).toMatchObject({
+      kind: 'Speak', speaker: 'Bao', purpose: 'brief', factIds: ['0:2'],
+    });
+  });
+
+  it('invites the guest when the remaining facts have no present knower', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', decision: 'how do we cover prep?',
+        facts: [
+          { id: '0:0', text: 'The fridge was unplugged.', knownBy: ['Ada'] },
+          { id: '0:1', text: 'A fact only the guest seat knows.', knownBy: ['Wei Ling'] },
+        ],
+        catches: [],
+      }],
+      present: ['Ada', 'Bao', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+    });
+    state.openTopic('Prep', 0);
+    const ada = heard(state, { id: 'ada-1', speaker: 'Ada', text: 'The fridge was unplugged.', factIds: ['0:0'] });
+    expect(next(state.view(1), { kind: 'heard', line: ada })).toMatchObject({
+      kind: 'Speak', speaker: 'Sam', purpose: 'invite',
+    });
+  });
 });

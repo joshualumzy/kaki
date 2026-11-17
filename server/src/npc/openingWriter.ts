@@ -1,0 +1,250 @@
+/**
+ * The writer for one opening speaker: a focused prompt with only that colleague's persona, the line they are
+ * answering and the briefing fact(s) they are allowed to tell. The reply is checked whole before any of it is heard.
+ */
+
+import type { Scenario } from '@kaki/shared';
+import { cleanSpoken, type HumanInfo } from './director';
+import { contentWords } from './meetingState';
+
+export interface OpeningSpeakerRequest {
+  scenario: Scenario;
+  speaker: string;
+  human?: HumanInfo;
+  topicTitle: string;
+  purpose: 'brief' | 'invite';
+  /** The briefing fact(s) this speaker tells; empty for the host's question. */
+  facts: readonly string[];
+  decision?: string;
+  /** The last line the room heard, which this line must answer. */
+  previous?: { speaker: string; text: string };
+}
+
+export interface OpeningReplyOptions {
+  expectedSpeaker: string;
+  names: readonly string[];
+  guestName?: string;
+  purpose: 'brief' | 'invite';
+  topicTitle?: string;
+}
+
+export type OpeningReply =
+  | { ok: true; text: string; sentences: string[] }
+  | { ok: false; reason: string };
+
+const CONTROL_LINE_RE = /^\s*(?:KAKI_CONTROL|\[|\()/i;
+const CARD_OR_SCREEN_RE = /\b(?:card|screen|panel|dashboard|on your phone)\b/i;
+const META_LINE_RE = /\b(?:as an ai|language model|system prompt|prompt leak|these instructions|this note)\b/i;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function roleLabel(scenario: Scenario, speaker: string): string {
+  const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);
+  return scenario.roles.find((role) => role.id === attendee?.role)?.label ?? 'colleague';
+}
+
+function describeSpeaker(scenario: Scenario, speaker: string, human?: HumanInfo): string {
+  const npc = (scenario.npcs ?? []).find((candidate) => candidate.attendee === speaker);
+  const lines = [`You are ${speaker}, ${roleLabel(scenario, speaker)} at ${scenario.organisation}.`];
+  if (scenario.situation !== undefined) lines.push(`The situation: ${scenario.situation}`);
+  if (npc === undefined) return lines.join('\n');
+  lines.push(`Personality: ${npc.personality}`);
+  lines.push(`What you want from this meeting: ${npc.agenda}`);
+  if (npc.concerns.length > 0) lines.push(`What you worry about: ${npc.concerns.join(' | ')}`);
+  if (npc.speechStyle !== undefined) lines.push(`How you sound: ${npc.speechStyle}`);
+  if (npc.knows !== undefined && npc.knows.length > 0) lines.push(`What you know: ${npc.knows.join(' | ')}`);
+  if (human !== undefined) lines.push(`You are speaking to ${human.name}, the ${human.role}. Address them by name only when asked to ask them something.`);
+  return lines.join('\n');
+}
+
+/** The messages for one opening step. The reply must be exactly one line for the chosen speaker. */
+export function openingSpeakerMessages(request: OpeningSpeakerRequest): Array<{ role: 'system' | 'user'; content: string }> {
+  const rules = [
+    'This is a live spoken meeting. Reply with exactly one line, in this form:',
+    `"${request.speaker}: <the words said aloud>"`,
+    'No control line, no notes, no other speaker, no stage directions.',
+    'One or two short spoken sentences, like telling a colleague. Keep any numbers or times you are given, written as digits, and add no others.',
+    'No report phrases, no semicolons, no lists, no options. Do not introduce yourself or your job; the host already did.',
+    'Never mention the screen, the card, the notes or this request.',
+  ].join(' ');
+
+  let task: string;
+  if (request.purpose === 'invite') {
+    const guest = request.human?.name ?? 'the guest';
+    task = [
+      `You are the host. The room has briefed "${request.topicTitle}".`,
+      request.previous === undefined
+        ? 'The room has just finished briefing the topic.'
+        : `The room just heard ${request.previous.speaker}: "${request.previous.text}". React to that only in how you ask.`,
+      `Ask ${guest} exactly one question, by name, from this decision: "${request.decision ?? 'what do you want to do about this?'}".`,
+      'One short spoken sentence. Ask only one question. Add no fact, no summary and no second question.',
+    ].join(' ');
+  } else {
+    task = [
+      `The meeting is on "${request.topicTitle}".`,
+      request.previous === undefined
+        ? 'The host has just handed you the topic.'
+        : `The room just heard ${request.previous.speaker}: "${request.previous.text}". Respond directly to that; do not repeat it.`,
+      `Tell only this, in your own words: "${request.facts.join(' ')}".`,
+      'Use only these details. Do not ask the guest anything. Do not mention any other problem, cost or catch; the room will raise that later.',
+    ].join(' ');
+  }
+
+  return [
+    { role: 'system', content: `${describeSpeaker(request.scenario, request.speaker, request.human)}\n\n${rules}` },
+    { role: 'user', content: task },
+  ];
+}
+
+function sentenceCount(text: string): number {
+  return text
+    .split(/(?<=(?:(?<!\b(?:Prof|Dr|Mr|Mrs|Ms|St|Jr|Sr))[.!?…])["')\]]*)\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => /\p{L}|\p{N}/u.test(part)).length;
+}
+
+function stripSelfIntro(name: string, text: string): string {
+  const who = escapeRegExp(name);
+  const cleaned = text
+    .replace(
+      new RegExp(
+        `^(?:(?:hey|hi|hello)\\s+[a-z]+,?\\s*)?(?:and\\s+)?(?:` +
+          `(?:(?:i'm|i am)\\s+${who}(?:\\s+here)?|${who}\\s+here|(?:i'm|i am)?\\s*${who}\\s+(?:from|on|in|your)\\s+[^,.!?]+)` +
+          `)(?:\\s*[,—–-]\\s*[^,.!?]+?(?:lead|director|manager))?\\s*[,.—–-]\\s*`,
+        'i',
+      ),
+      '',
+    )
+    .trim();
+  return cleaned.length === 0 ? text : cleaned;
+}
+
+function flatten(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function readsTitle(text: string, title: string | undefined): boolean {
+  if (title === undefined) return false;
+  const wanted = flatten(title);
+  return wanted.length > 0 && ` ${flatten(text)} `.includes(` ${wanted} `);
+}
+
+const NUMBER_WORDS: Readonly<Record<string, string>> = {
+  zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8',
+  nine: '9', ten: '10', eleven: '11', twelve: '12', thirteen: '13', fourteen: '14', fifteen: '15',
+  sixteen: '16', seventeen: '17', eighteen: '18', nineteen: '19', twenty: '20', thirty: '30',
+  forty: '40', fifty: '50', sixty: '60', seventy: '70', eighty: '80', ninety: '90', hundred: '100',
+  thousand: '1000',
+};
+
+/** A value that must survive a paraphrase: a number, a clock time or a price. */
+function normaliseValue(token: string): string {
+  const compact = token.toLowerCase().replace(/[\s.]/g, '').replace(/,/g, '');
+  return NUMBER_WORDS[compact] ?? compact;
+}
+
+function valueTokens(text: string): Set<string> {
+  const values = new Set<string>();
+  const lower = text.toLowerCase();
+  const add = (raw: string): void => {
+    values.add(normaliseValue(raw));
+  };
+  for (const match of lower.matchAll(/(?:rm|myr|usd|sgd|\$|s\$)\s*\d+(?:[.,]\d+)?/g)) {
+    add(match[0].replace(/^(?:rm|myr|usd|sgd|\$|s\$)\s*/, ''));
+  }
+  for (const match of lower.matchAll(/\d+(?:[.,]\d+)?\s*(?:ringgit|dollars?|cents?|bucks?)/g)) {
+    add(/\d+(?:[.,]\d+)?/.exec(match[0])![0]);
+  }
+  for (const match of lower.matchAll(/\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\b/g)) {
+    add(match[0].replace(/[.\s]/g, ''));
+  }
+  for (const match of lower.matchAll(/\b\d{1,2}:\d{2}\b/g)) add(match[0]);
+  for (const match of lower.matchAll(/\b\d+(?:[.,]\d+)?\b/g)) add(match[0]);
+  for (const match of lower.matchAll(
+    /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/g,
+  )) {
+    add(match[0]);
+  }
+  return values;
+}
+
+/**
+ * True when a spoken line still carries the fact it was asked to tell: every number, clock time and price
+ * appears in it, and at least half of the fact's content words survive the paraphrase.
+ */
+export function carriesFact(line: string, fact: string): boolean {
+  const factWords = contentWords(fact);
+  if (factWords.size > 0) {
+    const lineWords = contentWords(line);
+    let shared = 0;
+    for (const word of factWords) if (lineWords.has(word)) shared += 1;
+    if (shared / factWords.size < 0.5) return false;
+  }
+  const lineValues = valueTokens(line);
+  for (const value of valueTokens(fact)) if (!lineValues.has(value)) return false;
+  return true;
+}
+
+/** Clean and check one opening reply. A reply with another speaker, no speech or the wrong shape is rejected whole. */
+export function parseOpeningReply(reply: string, options: OpeningReplyOptions): OpeningReply {
+  const cast = [...options.names, ...(options.guestName === undefined ? [] : [options.guestName])];
+  const alternatives = cast.map(escapeRegExp).join('|');
+  const tagPattern = new RegExp(`^(${alternatives})\\s*:\\s*(.*)$`, 'i');
+  const tagged: string[] = [];
+  const stray: string[] = [];
+  for (const raw of reply.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    if (line.length === 0 || CONTROL_LINE_RE.test(line)) continue;
+    const tag = tagPattern.exec(line);
+    if (tag !== null) {
+      const name = tag[1] ?? '';
+      const canonical = cast.find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+      if (canonical !== undefined && canonical !== options.expectedSpeaker) {
+        return { ok: false, reason: `another speaker (${canonical}) was written` };
+      }
+      tagged.push(tag[2] ?? '');
+      continue;
+    }
+    stray.push(line);
+  }
+  // A second speaker can also appear mid-line after a finished sentence.
+  for (const other of cast) {
+    if (other === options.expectedSpeaker) continue;
+    if (new RegExp(`(?<=^|[.!?…]["')\\]]?\\s+|\\n)\\s*${escapeRegExp(other)}\\s*:`, 'i').test(reply)) {
+      return { ok: false, reason: `another speaker (${other}) was written` };
+    }
+  }
+
+  let text = cleanSpoken([...tagged, ...stray].join(' ')).replace(/\s+/g, ' ').trim();
+  text = stripSelfIntro(options.expectedSpeaker, text);
+  text = text.replace(/^\s*(?:NONE|none)[.!?\s]*$/, '').trim();
+  if (text.length === 0 || !/\p{L}|\p{N}/u.test(text)) {
+    return { ok: false, reason: 'no speakable line' };
+  }
+  if (META_LINE_RE.test(text)) return { ok: false, reason: 'wrote about the instructions' };
+  if (CARD_OR_SCREEN_RE.test(text)) return { ok: false, reason: 'pointed at the card or screen' };
+  if (readsTitle(text, options.topicTitle)) return { ok: false, reason: 'read the topic title' };
+  if (/;/.test(text)) return { ok: false, reason: 'used a semicolon' };
+  if (sentenceCount(text) > 2) return { ok: false, reason: 'wrote more than two sentences' };
+
+  if (options.purpose === 'brief' && text.includes('?')) {
+    return { ok: false, reason: 'asked a question during the brief' };
+  }
+  if (options.purpose === 'invite') {
+    if (!text.trim().endsWith('?') || (text.match(/\?/g) ?? []).length !== 1) {
+      return { ok: false, reason: 'did not ask exactly one question' };
+    }
+    const guest = options.guestName;
+    if (guest !== undefined && !new RegExp(`\\b${escapeRegExp(guest)}\\b`, 'i').test(text)) {
+      text = `${guest}, ${text[0]!.toLowerCase()}${text.slice(1)}`;
+    }
+  }
+
+  const sentences = text
+    .split(/(?<=(?:(?<!\b(?:Prof|Dr|Mr|Mrs|Ms|St|Jr|Sr))[.!?…])["')\]]*)\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return { ok: true, text, sentences };
+}

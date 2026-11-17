@@ -1030,6 +1030,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
@@ -1067,6 +1068,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
@@ -1124,6 +1126,7 @@ describe('NpcConversation', () => {
     const h = harness(factScenario);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: factScenario, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'chef' });
     conversation.agendaMoved('Seats');
@@ -1145,6 +1148,7 @@ describe('NpcConversation', () => {
     const h = harness();
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: scenarioWithGuest, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Josh', role: 'producer', transcriptName: 'Josh (Operations Director)' });
     conversation.agendaMoved('Food safety complaint before the 9 AM inspection');
@@ -1164,6 +1168,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
@@ -1219,6 +1224,7 @@ describe('NpcConversation', () => {
     const h = harness(withOwner);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withOwner, observeDelayMs: 1, responseDelayMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
@@ -1278,6 +1284,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Service');
@@ -1300,6 +1307,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
       briefFirstChunkMs: 100,
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
@@ -1324,6 +1332,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, silencePromptMs: 5, responseDelayMs: 0,
+      opening: 'legacy',
       speakerGapMs: 0, sentenceGapMs: 0,
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
@@ -1367,6 +1376,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Service');
@@ -1401,6 +1411,7 @@ describe('NpcConversation', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'chef' });
 
@@ -1448,6 +1459,7 @@ describe('NpcConversation', () => {
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+      opening: 'legacy',
     });
     conversation.setHuman({ name: 'Visitor', role: 'chef' });
     const invitations: string[] = [];

@@ -37,6 +37,8 @@ export interface MeetingTopicInfo {
   minutes: number;
   canWait: boolean;
   deadline: string;
+  /** The call the host puts to the guest once the briefing is done. */
+  decision?: string;
   facts: readonly MeetingFactInfo[];
   catches: readonly MeetingCatchInfo[];
 }
@@ -62,6 +64,8 @@ export interface HeardLine {
   /** The guest offered this line as an idea for the topic. */
   proposal: boolean;
   factId?: string;
+  /** Every briefing fact this line was written to tell, marked only when the whole line is heard. */
+  factIds?: readonly string[];
   /** The line was marked as raising a catch, whatever speaker said it. */
   catch: boolean;
 }
@@ -87,6 +91,7 @@ export interface MeetingView {
   phase: MeetingPhase;
   canWait: boolean;
   deadline: string | undefined;
+  decision: string | undefined;
   remainingMs: number;
   /** Every line heard on the current topic, in order. */
   lines: readonly HeardLine[];
@@ -126,6 +131,7 @@ export interface HeardLineStart {
   question?: { to: string; text: string };
   proposal?: boolean;
   factId?: string;
+  factIds?: readonly string[];
   catch?: boolean;
 }
 
@@ -167,6 +173,7 @@ export function meetingTopic(item: AgendaItem, index: number): MeetingTopicInfo 
     minutes: item.minutes,
     canWait: item.canWait,
     deadline: item.deadline,
+    decision: item.decision,
     facts: (item.briefing ?? []).map((fact, factIndex) => ({
       id: `${index}:${factIndex}`,
       text: fact.text,
@@ -186,6 +193,7 @@ function emptyView(topic: MeetingTopicInfo | undefined, guest: string | undefine
     phase: 'handover',
     canWait: topic?.canWait ?? true,
     deadline: topic?.deadline,
+    decision: topic?.decision,
     remainingMs: 0,
     lines: [],
     lastHeard: undefined,
@@ -240,6 +248,7 @@ function derive(
       ...(start.question === undefined ? {} : { question: start.question }),
       proposal: start.proposal === true,
       ...(start.factId === undefined ? {} : { factId: start.factId }),
+      ...(start.factIds === undefined ? {} : { factIds: start.factIds }),
       catch: start.catch === true,
     });
   }
@@ -287,19 +296,32 @@ function derive(
     if (line.speaker === guest) guestLastLine = line;
 
     const speaker = line.speaker;
-    const fact = facts.find((candidate) =>
-      !candidate.told &&
-      speaker !== guest &&
-      speaker !== host &&
-      candidate.knownBy.includes(speaker) &&
-      (line.factId === undefined
-        ? overlapCount(candidate.text, line.text) >= Math.max(2, Math.ceil(contentWords(candidate.text).size / 2))
-        : candidate.id === line.factId),
-    );
-    if (fact !== undefined) {
-      fact.told = true;
-      fact.toldBy = speaker;
-      fact.eventId = line.eventId;
+    const canNarrate = speaker !== guest && speaker !== host;
+    if (line.factIds !== undefined) {
+      if (canNarrate) {
+        for (const id of line.factIds) {
+          const fact = facts.find((candidate) => !candidate.told && candidate.id === id && candidate.knownBy.includes(speaker));
+          if (fact !== undefined) {
+            fact.told = true;
+            fact.toldBy = speaker;
+            fact.eventId = line.eventId;
+          }
+        }
+      }
+    } else {
+      const fact = facts.find((candidate) =>
+        !candidate.told &&
+        canNarrate &&
+        candidate.knownBy.includes(speaker) &&
+        (line.factId === undefined
+          ? overlapCount(candidate.text, line.text) >= Math.max(2, Math.ceil(contentWords(candidate.text).size / 2))
+          : candidate.id === line.factId),
+      );
+      if (fact !== undefined) {
+        fact.told = true;
+        fact.toldBy = speaker;
+        fact.eventId = line.eventId;
+      }
     }
 
     if (line.catch) explicitCatch = true;
@@ -332,6 +354,7 @@ function derive(
     phase,
     canWait: topic.canWait,
     deadline: topic.deadline,
+    decision: topic.decision,
     remainingMs: Math.max(0, ledger.openedAt + topic.minutes * 60_000 - now),
     lines,
     lastHeard,

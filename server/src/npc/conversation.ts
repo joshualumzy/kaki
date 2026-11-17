@@ -1,6 +1,6 @@
 import { itemMode, type ActionKind, type AgendaItem, type BriefingFact, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { cleanSpokenTopic, liveWrapUpLine, spokenAgendaName } from '../host/opening';
+import { cleanSpokenTopic, liveNextItemLine, liveWrapUpLine, spokenAgendaName } from '../host/opening';
 import { CardPointer, visitorCardPointerLine } from './cardPointer';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, replyShapeForTurn, replyShapeInstruction, responsibilityFor, TurnParser, type HumanInfo, type ReplyShape, type Utterance } from './director';
 import { silenceCheckInLine, silenceCheckInNote, silenceColleagueNote } from './silence';
@@ -8,8 +8,9 @@ import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseR
 import { SpeechGate } from './speechGate';
 import { MeetingMemory } from './meetingMemory';
 import { TopicRecord, type OpenQuestion, type TopicPromptView } from './topicRecord';
-import { meetingTopic, MeetingState } from './meetingState';
-import { describeDecision, next as nextPlannerDecision, type PlannerEvent } from './turnPlanner';
+import { meetingTopic, MeetingState, type HeardLine } from './meetingState';
+import { describeDecision, next as nextPlannerDecision, projectHeard, type PlannerEvent, type SpeakDecision } from './turnPlanner';
+import { carriesFact, openingSpeakerMessages, parseOpeningReply } from './openingWriter';
 
 /** What the people in the meeting should see the AI attendees doing. */
 export type NpcUiState = NpcStateMessage;
@@ -132,6 +133,8 @@ export const DEFAULT_REPEAT_WINDOW_MS = 60_000;
 const CARD_WAIT_POLL_MS = 500;
 /** How long an early colleague brief may wait for its first spoken sentence before it is aborted and retried. */
 export const DEFAULT_BRIEF_FIRST_CHUNK_MS = 12_000;
+/** How long one opening speaker's whole line may take before it is abandoned and retried, even after its first sentence. */
+export const DEFAULT_OPENING_COMPLETION_MS = 20_000;
 const LOCK_ASK_RE = /\b(?:shall we lock in|shall i lock in|lock a direction in|make a decision and keep moving)\b/i;
 
 const STOP_WORDS = new Set([
@@ -389,6 +392,11 @@ export interface ConversationOptions {
   maxHistory?: number;
   /** False turns off the first-idea catch guard for tests of other paths; the live meeting keeps it on. */
   firstIdeaCatch?: boolean;
+  /**
+   * `one-speaker` (the default, or from KAKI_OPENING) writes one opening speaker per model call.
+   * `legacy` keeps the old single multi-speaker brief cue.
+   */
+  opening?: 'one-speaker' | 'legacy';
   gate?: SpeechGate;
   memory?: MeetingMemory;
 }
@@ -450,6 +458,8 @@ interface Turn {
   briefSpeaker?: string;
   /** Everyone the brief gives a fact to, so only they may state one. */
   briefSpeakers?: string[];
+  /** A one-speaker opening step: the facts its final sentence tells, marked only when that sentence is fully heard. */
+  opening?: { factIds: readonly string[]; lastUtterance?: Utterance };
   /** The Director marked this reply as settling the topic; it takes effect once the visitor has heard some of it. */
   settle?: { followUp?: { kind: ActionKind; title: string } };
   control?: ReplyControl;
@@ -469,6 +479,27 @@ interface PrefetchedReply {
   startedAt: number;
   wake?: () => void;
   firstChunkTimer?: ReturnType<typeof setTimeout>;
+}
+
+/** One opening speaker's request, fetched while the previous line is still playing. */
+interface PrefetchedOpening {
+  title?: string;
+  epoch: number;
+  expected: { speaker: string; purpose: SpeakDecision['purpose']; factIds: readonly string[] };
+  controller: AbortController;
+  chunks: string[];
+  done: boolean;
+  failure?: unknown;
+  startedAt: number;
+  wake?: () => void;
+  firstChunkTimer?: ReturnType<typeof setTimeout>;
+  completionTimer?: ReturnType<typeof setTimeout>;
+}
+
+interface OpeningRun {
+  title: string;
+  epoch: number;
+  cancelled: boolean;
 }
 
 /** Minimal async queue so playback can start on the first sentence while the rest is written. */
@@ -590,6 +621,14 @@ export class NpcConversation<Clip> {
   /** The item waiting for the room to be free so its colleague briefing can start. */
   private pendingBrief: string | undefined;
   private prefetchedBrief: PrefetchedReply | undefined;
+  private readonly openingMode: 'one-speaker' | 'legacy';
+  /** The opening currently being written one speaker at a time; undefined when no one-speaker opening is running. */
+  private openingRun: OpeningRun | undefined;
+  /** Bumped when a guest line, interruption, topic change or close makes a prefetched opening line unsafe. */
+  private openingEpoch = 0;
+  private openingPrefetch: PrefetchedOpening | undefined;
+  /** The next topic's first opening speaker, fetched while the current topic winds down. */
+  private upcomingOpeningPrefetch: PrefetchedOpening | undefined;
   /** Guest invitations the fallback has already used, so a meeting never hears the same canned wording twice. */
   private readonly usedGuestInvites = new Set<string>();
   /** Items the meeting has already been asked to leave. */
@@ -611,6 +650,8 @@ export class NpcConversation<Clip> {
   private cutOffSpeaker: string | undefined;
   private pausedUtterances: Utterance[] | undefined;
   private pausedScripted: { utterance: Utterance; onDone?: (spoken: boolean) => void } | undefined;
+  /** A one-speaker opening that Stop interrupted; Resume continues it from the last line the room heard. */
+  private pausedOpening: { title: string } | undefined;
   /** Host cues waiting for a quiet moment to play. */
   private pendingAnnouncements = 0;
   /** Consecutive follow-up turns the AI started by itself after a hand-over; the person speaking again resets it. */
@@ -630,6 +671,7 @@ export class NpcConversation<Clip> {
   ) {
     this.gate = options.gate ?? new SpeechGate();
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
+    this.openingMode = options.opening ?? (process.env.KAKI_OPENING === 'legacy' ? 'legacy' : 'one-speaker');
     this.meetingState = new MeetingState({
       topics: options.scenario.agenda.map(meetingTopic),
       present: this.names,
@@ -665,6 +707,9 @@ export class NpcConversation<Clip> {
     this.recentSpoken.length = 0;
     this.topicRecord.reset();
     this.meetingState.reset();
+    this.cancelOpening('the meeting was reset');
+    this.pausedOpening = undefined;
+    this.clearUpcomingOpeningPrefetch('the meeting was reset');
     this.shadowLineSeq = 0;
     this.cardWaitLoggedFor = undefined;
     this.lastLockAskAt = -Infinity;
@@ -725,6 +770,8 @@ export class NpcConversation<Clip> {
     this.noteHumanLine(typed);
     this.noteDecisionLine(typed);
     this.discardUnheardNudge();
+    this.cancelOpening('the guest typed during the opening');
+    this.pausedOpening = undefined;
     this.interrupt('the person typed something');
     this.unanswered = false;
     this.cutOff = false;
@@ -735,6 +782,8 @@ export class NpcConversation<Clip> {
   /** The person pressed Stop/Pause: everyone goes quiet and timers are held until they press Resume (or type). */
   stop(): void {
     if (this.closed || this.concluded || this.paused) return;
+    const openingTitle = this.openingRun?.title ??
+      (this.turn?.opening !== undefined ? this.turn.topic : undefined);
     if (this.turn !== undefined) {
       if (this.turn.scripted === true && this.turn.scriptedUtterance !== undefined) {
         const allSentences = splitSentences(this.turn.scriptedUtterance.text);
@@ -766,6 +815,8 @@ export class NpcConversation<Clip> {
     this.clearRespondTimer();
     this.clearSilenceTimer();
     this.clearBriefTimer();
+    this.cancelOpening('the person pressed stop');
+    this.pausedOpening = openingTitle === undefined ? undefined : { title: openingTitle };
     this.clearDeferredFollowUpTimer();
     if (this.topicBudgetTimer !== undefined) clearTimeout(this.topicBudgetTimer);
     this.topicBudgetTimer = undefined;
@@ -783,6 +834,7 @@ export class NpcConversation<Clip> {
    */
   resumeAfterRejoin(speaker: string, text: string): void {
     if (this.closed || this.concluded || !this.paused) return;
+    this.pausedOpening = undefined;
     this.pausedScripted = undefined;
     this.pausedUtterances = undefined;
     this.pausedCutOff = false;
@@ -804,6 +856,17 @@ export class NpcConversation<Clip> {
     this.pausedCutOff = false;
     const speaker = this.cutOffSpeaker;
     this.cutOffSpeaker = undefined;
+    const opening = this.pausedOpening;
+    this.pausedOpening = undefined;
+    if (opening !== undefined && this.currentItem()?.title === opening.title) {
+      this.pausedCutOff = false;
+      this.cutOffSpeaker = undefined;
+      this.cutOff = false;
+      this.unanswered = false;
+      this.ports.log?.(`[opening] resuming "${opening.title}" from the last line the room heard`);
+      this.startOpening(opening.title);
+      return;
+    }
     const item = this.currentItem();
     if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
       this.pendingBrief = item.title;
@@ -887,7 +950,7 @@ export class NpcConversation<Clip> {
       this.respondTimer = undefined;
       if (this.closed || this.concluded || this.paused || this.humanTalking || this.pending.length > 0) return;
       if (this.cutOff) this.resume();
-      else if (this.unanswered) this.startTurn(true);
+      else if (this.unanswered && this.openingRun === undefined) this.startTurn(true);
     }, DEFAULT_NOTHING_MS);
   }
 
@@ -974,6 +1037,8 @@ export class NpcConversation<Clip> {
     this.noteDecisionLine(accepted);
     // The voice detector normally got here first; this covers a quiet person it missed.
     this.discardUnheardNudge();
+    this.cancelOpening('the guest spoke during the opening');
+    this.pausedOpening = undefined;
     this.interrupt('the person said something');
     this.unanswered = false;
     this.cutOff = false;
@@ -1385,7 +1450,7 @@ export class NpcConversation<Clip> {
     this.shadowLineEnded(eventId, true);
   }
 
-  private rememberSpoken(utterance: Utterance, topic: string | undefined): string | undefined {
+  private rememberSpoken(utterance: Utterance, topic: string | undefined, factIds?: readonly string[]): string | undefined {
     if (utterance.speaker === this.facilitatorOrCoHost() && LOCK_ASK_RE.test(utterance.text)) {
       this.lastLockAskAt = Date.now();
     }
@@ -1408,6 +1473,7 @@ export class NpcConversation<Clip> {
       text: utterance.text,
       at: Date.now(),
       ...(question === undefined ? {} : { question: { to: question.to, text: question.text } }),
+      ...(factIds === undefined || factIds.length === 0 ? {} : { factIds }),
     });
     const now = Date.now();
     this.recentSpoken.push({ speaker: utterance.speaker, text: utterance.text, at: now, topic });
@@ -1448,6 +1514,9 @@ export class NpcConversation<Clip> {
     this.clearSilenceTimer();
     this.clearBriefTimer();
     this.clearPrefetchedBrief('the meeting ended');
+    this.cancelOpening('the meeting ended');
+    this.pausedOpening = undefined;
+    this.clearUpcomingOpeningPrefetch('the meeting ended');
     this.clearDeferredFollowUpTimer();
     this.clearBudgetTimer();
     this.clearReviewTimer();
@@ -1510,7 +1579,7 @@ export class NpcConversation<Clip> {
         return;
       }
       // Something cut the answer off (a cough, a click) and the person said nothing more: answer anyway.
-      if (this.unanswered && !this.closed) {
+      if (this.unanswered && !this.closed && this.openingRun === undefined) {
         this.clearRespondTimer();
         this.respondTimer = setTimeout(() => {
           this.respondTimer = undefined;
@@ -1544,7 +1613,8 @@ export class NpcConversation<Clip> {
 
   private askLine(): string | undefined {
     const human = this.human;
-    if (human === undefined || this.asked.has(human.name) || this.mode() === 'observe') return undefined;
+    if (human === undefined || this.asked.has(human.name) || this.mode() === 'observe' ||
+        this.openingRun !== undefined) return undefined;
     const host = this.facilitatorOrCoHost();
     const owns = responsibilityFor(this.options.scenario, human);
     if (host === undefined || owns === undefined) return undefined;
@@ -1948,9 +2018,12 @@ export class NpcConversation<Clip> {
     this.resumeAfterReopen = undefined;
     this.clearSilenceTimer();
     this.clearBriefTimer();
+    this.cancelOpening('the agenda moved');
+    this.pausedOpening = undefined;
     this.pendingBrief = undefined;
     if (title === undefined) {
       this.clearPrefetchedBrief('the agenda moved');
+      this.clearUpcomingOpeningPrefetch('the agenda moved');
     } else {
       const previousTitle = this.currentItem()?.title;
       const cleanTitle = cleanSpokenTopic(title).toLowerCase();
@@ -1958,8 +2031,11 @@ export class NpcConversation<Clip> {
         (candidate) => candidate.title === title || cleanSpokenTopic(candidate.title).toLowerCase() === cleanTitle,
       );
       const incomingTitle = matched?.title ?? title;
-      // Keep a brief that was already fetched for this incoming topic while the previous item wound down.
+      // Keep a request already fetched for this incoming topic while the previous item wound down.
       if (this.prefetchedBrief?.title !== incomingTitle) this.clearPrefetchedBrief('the agenda moved');
+      if (this.upcomingOpeningPrefetch?.title !== incomingTitle) {
+        this.clearUpcomingOpeningPrefetch('the agenda moved');
+      }
       if (previousTitle !== undefined && previousTitle !== incomingTitle) {
         this.interrupt('agenda moved');
       }
@@ -2038,6 +2114,13 @@ export class NpcConversation<Clip> {
       return false;
     }
     this.pendingBrief = undefined;
+    if (this.openingMode === 'one-speaker') {
+      if (this.openingRun !== undefined) return true;
+      this.briefed.add(title);
+      this.ports.log?.(`[opening] starting "${title}" one speaker at a time`);
+      this.startOpening(title);
+      return true;
+    }
     const plan = this.briefPlan(title);
     if (plan === undefined) {
       this.clearPrefetchedBrief('no colleague could brief');
@@ -2154,11 +2237,17 @@ export class NpcConversation<Clip> {
     if (this.closed || !this.onCurrentAgenda(title)) return false;
     const current = this.currentItem()?.title;
     if (current === undefined || this.briefed.has(current) || this.pendingBrief !== current) return false;
+    if (this.openingMode === 'one-speaker') return true;
     return this.briefPlan(current) !== undefined;
   }
 
   private prefetchBrief(title: string): void {
     if (this.human === undefined || this.pendingBrief !== title || this.currentItem()?.title !== title) return;
+    // The first speaker's line is written while the host welcomes and hands over, so it is ready when they finish.
+    if (this.openingMode !== 'legacy') {
+      this.startUpcomingOpeningPrefetch(title);
+      return;
+    }
     const alreadyAsked = this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
     const includeKnows = this.humanLines > this.linesAtMove;
     this.startBriefPrefetch(title, { alreadyAsked, includeKnows });
@@ -2172,6 +2261,10 @@ export class NpcConversation<Clip> {
     if (this.closed || this.paused || this.human === undefined || this.names.length <= 2) return;
     const next = this.nextAgendaItem();
     if (next === undefined || this.briefed.has(next.title) || this.currentItem()?.title === next.title) return;
+    if (this.openingMode === 'one-speaker') {
+      this.startUpcomingOpeningPrefetch(next.title);
+      return;
+    }
     this.startBriefPrefetch(next.title, { alreadyAsked: false, includeKnows: false });
   }
 
@@ -2298,6 +2391,610 @@ export class NpcConversation<Clip> {
     }
   }
 
+  /** Start the one-speaker opening for `title`; it runs one planned speaker at a time. */
+  private startOpening(title: string): void {
+    if (this.openingRun !== undefined) return;
+    this.openingEpoch += 1;
+    const run: OpeningRun = { title, epoch: this.openingEpoch, cancelled: false };
+    this.openingRun = run;
+    if (this.upcomingOpeningPrefetch?.title === title) {
+      this.clearOpeningPrefetch('replaced by the next topic request');
+      const prefetched = this.upcomingOpeningPrefetch;
+      this.upcomingOpeningPrefetch = undefined;
+      prefetched.epoch = run.epoch;
+      this.openingPrefetch = prefetched;
+    } else {
+      this.clearUpcomingOpeningPrefetch('the topic opened');
+    }
+    void this.runOpening(run).catch((error: unknown) => {
+      this.ports.log?.(`[opening] failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (this.openingRun === run) this.openingRun = undefined;
+      this.clearOpeningPrefetch('the opening failed');
+    });
+  }
+
+  /** One planned speaker per step, replanned from the state after each fully heard line. */
+  private async runOpening(run: OpeningRun): Promise<void> {
+    let previous = this.meetingState.view(Date.now()).lastHeard;
+    if (previous !== undefined && previous.speaker === this.human?.name) {
+      this.finishOpening(run);
+      return;
+    }
+    for (;;) {
+      if (run.cancelled || this.closed || this.paused) {
+        this.finishOpening(run);
+        return;
+      }
+      const view = this.meetingState.view(Date.now());
+      let decision = previous === undefined
+        ? nextPlannerDecision(view, { kind: 'topicOpened' })
+        : nextPlannerDecision(view, { kind: 'heard', line: previous });
+      if (decision.kind === 'Speak' && decision.purpose === 'handover') {
+        // No handover line is in the ledger (a direct agenda move): plan the first speaker as if the host had just named the topic.
+        const synthetic: HeardLine = {
+          eventId: `opening-start-${run.epoch}`, speaker: decision.speaker, text: '', at: Date.now(),
+          complete: true, proposal: false, catch: false,
+        };
+        decision = nextPlannerDecision(view, { kind: 'heard', line: synthetic });
+      }
+      if (decision.kind !== 'Speak' || (decision.purpose !== 'brief' && decision.purpose !== 'invite') ||
+          decision.speaker === this.human?.name || !this.names.includes(decision.speaker)) {
+        this.ports.log?.(`[opening] ended: ${describeDecision(decision)} (${decision.reason})`);
+        this.finishOpening(run);
+        return;
+      }
+      this.ports.log?.(
+        `[opening] ${decision.speaker} (${decision.purpose}) asked; responding to "${(previous?.text ?? 'the topic opening').slice(0, 60)}"`,
+      );
+      const heard = await this.openingStepWithRetry(run, decision, previous);
+      if (run.cancelled) {
+        this.finishOpening(run);
+        return;
+      }
+      if (heard === undefined) {
+        if (this.closed || this.paused) {
+          this.finishOpening(run);
+          return;
+        }
+        if (decision.purpose === 'invite') {
+          this.finishWithFallbackInvite(run);
+          return;
+        }
+        this.ports.log?.(`[opening] skipping to the host's question after ${decision.speaker}'s line could not be heard`);
+        const invite = this.inviteDecision(previous, 'the opening skipped to the host question');
+        if (invite === undefined) {
+          this.finishOpening(run);
+          return;
+        }
+        const invited = await this.openingStepWithRetry(run, invite, previous);
+        if (run.cancelled) {
+          this.finishOpening(run);
+          return;
+        }
+        if (invited === undefined) {
+          this.finishWithFallbackInvite(run);
+          return;
+        }
+        this.afterOpeningQuestion(run);
+        return;
+      }
+      previous = heard;
+      if (decision.purpose === 'invite') {
+        this.afterOpeningQuestion(run);
+        return;
+      }
+    }
+  }
+
+  private finishOpening(run: OpeningRun): void {
+    if (this.openingRun !== run) return;
+    this.openingRun = undefined;
+    this.clearOpeningPrefetch('the opening finished');
+  }
+
+  /** The invite was heard: mark the guest asked, then finish the opening like any other heard turn. */
+  private afterOpeningQuestion(run: OpeningRun): void {
+    this.finishOpening(run);
+    const guest = this.human?.name;
+    if (guest !== undefined) this.asked.add(guest);
+    this.scheduleSilencePrompt();
+  }
+
+  /** The invite could not be heard after its retry: still ask the guest with the meeting's own wording. */
+  private finishWithFallbackInvite(run: OpeningRun): void {
+    this.finishOpening(run);
+    const host = this.facilitatorOrCoHost();
+    const guest = this.human?.name;
+    if (this.closed || host === undefined || guest === undefined || !this.names.includes(host)) return;
+    const item = this.options.scenario.agenda.find((candidate) => candidate.title === run.title);
+    const line = item?.decision === undefined
+      ? this.nextGuestInvite(guest, run.title)
+      : `${guest}, ${item.decision}`;
+    this.ports.log?.(`[opening] the host's question could not be heard; using the fallback question`);
+    this.announce(host, line, ASK_GIVE_UP_MS, (spoken) => {
+      if (spoken) this.asked.add(guest);
+      this.scheduleSilencePrompt();
+    });
+  }
+
+  /** The host's one question to the guest, used as a recovery when a brief step could not be heard. */
+  private inviteDecision(previous: HeardLine | undefined, reason: string): SpeakDecision | undefined {
+    const host = this.facilitatorOrCoHost();
+    if (host === undefined || !this.names.includes(host)) return undefined;
+    return { kind: 'Speak', speaker: host, purpose: 'invite', respondsTo: previous?.eventId, reason };
+  }
+
+  private async openingStepWithRetry(
+    run: OpeningRun,
+    decision: SpeakDecision,
+    previous: HeardLine | undefined,
+  ): Promise<HeardLine | undefined> {
+    let prefetched = this.takeOpeningPrefetch(decision);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (run.cancelled || this.closed || this.paused) return undefined;
+      const result = await this.playOpeningStep(run, decision, previous, attempt === 0 ? prefetched : undefined);
+      if (result.line !== undefined) return result.line;
+      if (run.cancelled) return undefined;
+      this.ports.log?.(
+        `[opening] ${decision.speaker} (${decision.purpose}) rejected: ${result.reason ?? 'unknown'}; ` +
+        `${attempt === 0 ? 'retrying once with a fresh request' : 'skipping to the host question'}`,
+      );
+      prefetched = undefined;
+    }
+    return undefined;
+  }
+
+  /** Write, check and play one opening line. Nothing is played unless the whole reply passes the check. */
+  private async playOpeningStep(
+    run: OpeningRun,
+    decision: SpeakDecision,
+    previous: HeardLine | undefined,
+    prefetched: PrefetchedOpening | undefined,
+  ): Promise<{ line?: HeardLine; reason?: string }> {
+    const view = this.meetingState.view(Date.now());
+    const messages = prefetched === undefined ? this.openingMessages(decision, previous, view) : [];
+    if (prefetched === undefined && messages.length === 0) return { reason: 'no request could be built' };
+    const factIds = decision.factIds ?? [];
+    const abort = prefetched?.controller ?? new AbortController();
+    const turn: Turn = {
+      topic: run.title,
+      abort,
+      soundAbort: this.linkedSound(abort),
+      spoken: [],
+      enqueued: [],
+      streamFinished: false,
+      aborted: false,
+      finalized: false,
+      done: Promise.resolve(),
+      startedAt: prefetched?.startedAt ?? Date.now(),
+      opening: { factIds },
+    };
+    this.turn = turn;
+    const queue = new SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>();
+    abort.signal.addEventListener('abort', () => queue.close(), { once: true });
+    this.ports.emitState({ kind: 'thinking', canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
+    const player = this.playAll(turn, queue);
+
+    let reply = '';
+    let failure: unknown;
+    let timeoutReason: string | undefined;
+    const firstChunkMs = this.options.briefFirstChunkMs ?? DEFAULT_BRIEF_FIRST_CHUNK_MS;
+    const completionMs = DEFAULT_OPENING_COMPLETION_MS;
+    const DEADLINE = Symbol('deadline');
+    const STOPPED = Symbol('stopped');
+    let reachDeadline: (() => void) | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      reachDeadline = resolve;
+    });
+    const stopped = new Promise<void>((resolve) => {
+      if (abort.signal.aborted) resolve();
+      else abort.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+    let firstChunkTimer: ReturnType<typeof setTimeout> | undefined;
+    let completionTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearFirstChunkTimer = (): void => {
+      if (firstChunkTimer !== undefined) {
+        clearTimeout(firstChunkTimer);
+        firstChunkTimer = undefined;
+      }
+    };
+    const clearCompletionTimer = (): void => {
+      if (completionTimer !== undefined) {
+        clearTimeout(completionTimer);
+        completionTimer = undefined;
+      }
+    };
+    if (firstChunkMs > 0) {
+      firstChunkTimer = setTimeout(() => {
+        firstChunkTimer = undefined;
+        if (abort.signal.aborted) return;
+        timeoutReason ??= `the first sentence did not arrive within ${firstChunkMs} ms`;
+        reachDeadline?.();
+        abort.abort();
+      }, firstChunkMs);
+      firstChunkTimer.unref?.();
+    }
+    completionTimer = setTimeout(() => {
+      completionTimer = undefined;
+      if (abort.signal.aborted) return;
+      timeoutReason ??= `the line did not finish within ${completionMs} ms`;
+      reachDeadline?.();
+      abort.abort();
+    }, completionMs);
+    completionTimer.unref?.();
+    try {
+      const stream = prefetched !== undefined ? this.openingPrefetchedStream(prefetched) : this.ports.stream(messages, abort.signal);
+      const iterator = stream[Symbol.asyncIterator]();
+      for (;;) {
+        const raced = await Promise.race([iterator.next(), deadline.then(() => DEADLINE), stopped.then(() => STOPPED)]);
+        if (typeof raced === 'symbol') break;
+        if (raced.done === true) break;
+        if (abort.signal.aborted) break;
+        reply += raced.value;
+        if (/[.!?]["')\]]*(?:\s|$)/.test(reply)) clearFirstChunkTimer();
+      }
+      if (!abort.signal.aborted) turn.streamFinished = true;
+    } catch (error) {
+      if (prefetched?.failure !== undefined) failure = prefetched.failure;
+      else if (!abort.signal.aborted) failure = error;
+    } finally {
+      clearFirstChunkTimer();
+      clearCompletionTimer();
+    }
+
+    if (run.cancelled || turn.aborted) {
+      queue.close();
+      await player;
+      this.finishOpeningStep(turn);
+      return { reason: 'the opening was cancelled' };
+    }
+    // A prefetched stream can be aborted by its own completion deadline just before the race is read;
+    // that is a failed step, never a partial line to accept.
+    if (failure === undefined && prefetched?.failure !== undefined) failure = prefetched.failure;
+    if (failure === undefined && timeoutReason === undefined && abort.signal.aborted) {
+      timeoutReason = 'the opening line was cut off before it finished';
+    }
+    if (failure !== undefined || timeoutReason !== undefined) {
+      queue.close();
+      await player;
+      this.finishOpeningStep(turn);
+      return { reason: timeoutReason ?? (failure instanceof Error ? failure.message : String(failure)) };
+    }
+    const item = this.options.scenario.agenda.find((candidate) => candidate.title === run.title);
+    const parsed = parseOpeningReply(reply, {
+      expectedSpeaker: decision.speaker,
+      names: this.names,
+      guestName: this.human?.name,
+      purpose: decision.purpose === 'invite' ? 'invite' : 'brief',
+      topicTitle: item?.title ?? run.title,
+    });
+    if (!parsed.ok) {
+      queue.close();
+      await player;
+      this.finishOpeningStep(turn);
+      return { reason: parsed.reason };
+    }
+    if (decision.purpose === 'brief') {
+      const missing = (decision.factIds ?? [])
+        .map((id) => view.facts.find((fact) => fact.id === id)?.text)
+        .find((text) => text !== undefined && !carriesFact(parsed.text, text));
+      if (missing !== undefined) {
+        queue.close();
+        await player;
+        this.finishOpeningStep(turn);
+        return { reason: `did not carry the fact "${missing.slice(0, 80)}"` };
+      }
+    }
+
+    const utterances: Utterance[] = parsed.sentences.map((text) => ({ speaker: decision.speaker, text }));
+    if (utterances.length === 0) {
+      queue.close();
+      await player;
+      this.finishOpeningStep(turn);
+      return { reason: 'no speakable line' };
+    }
+    turn.opening = { factIds, lastUtterance: utterances.at(-1) };
+    for (const utterance of utterances) {
+      turn.enqueued.push(utterance);
+      queue.push({ utterance, clip: this.synthesizeWithRetry(utterance, abort.signal) });
+    }
+    // Start the next speaker while this line plays; it is used only if this line is fully heard and the epoch holds.
+    this.startOpeningPrefetch(run, decision, parsed.text, factIds);
+    queue.close();
+    await player;
+    const complete = !turn.aborted && !run.cancelled &&
+      turn.spoken.length === utterances.length && turn.spoken.every((entry) => entry.complete);
+    const eventId = turn.spoken.at(-1)?.shadowLineId;
+    const line = complete && eventId !== undefined
+      ? this.meetingState.view(Date.now()).lines.find((candidate) => candidate.eventId === eventId)
+      : undefined;
+    this.finishOpeningStep(turn);
+    if (line === undefined) {
+      return { reason: turn.aborted || run.cancelled ? 'the opening was cancelled' : 'the line was not fully heard' };
+    }
+    return { line };
+  }
+
+  private finishOpeningStep(turn: Turn): void {
+    if (this.turn === turn) this.turn = undefined;
+    this.finalize(turn);
+    this.gate.setAiAudible(false);
+    this.ports.emitState(this.idleState());
+  }
+
+  private openingMessages(
+    decision: SpeakDecision,
+    previous: HeardLine | undefined,
+    view: ReturnType<MeetingState['view']>,
+  ): Array<{ role: 'system' | 'user'; content: string }> {
+    const item = this.options.scenario.agenda.find((candidate) => candidate.title === view.topic) ??
+      this.options.scenario.agenda.find((candidate) => candidate.title === this.currentItem()?.title);
+    const facts = (decision.factIds ?? [])
+      .map((id) => view.facts.find((fact) => fact.id === id)?.text)
+      .filter((text): text is string => text !== undefined);
+    if (decision.purpose === 'brief' && facts.length === 0) return [];
+    return openingSpeakerMessages({
+      scenario: this.options.scenario,
+      speaker: decision.speaker,
+      human: this.human,
+      topicTitle: item?.title ?? view.topic ?? 'this topic',
+      purpose: decision.purpose === 'invite' ? 'invite' : 'brief',
+      facts,
+      decision: item?.decision,
+      previous: previous === undefined ? undefined : { speaker: previous.speaker, text: previous.text },
+    });
+  }
+
+  /** While line N plays, write line N+1 from N's text and a projected view; the real ledger decides later. */
+  private startOpeningPrefetch(run: OpeningRun, decision: SpeakDecision, text: string, factIds: readonly string[]): void {
+    if (this.closed || this.paused || run.cancelled || this.openingMode !== 'one-speaker') return;
+    if (decision.purpose !== 'brief') return;
+    if (this.openingPrefetch !== undefined) return;
+    const view = this.meetingState.view(Date.now());
+    const synthetic: HeardLine = {
+      eventId: `opening-projection-${run.epoch}-${this.shadowLineSeq}`,
+      speaker: decision.speaker,
+      text,
+      at: Date.now(),
+      complete: true,
+      proposal: false,
+      catch: false,
+    };
+    const projected = projectHeard(view, synthetic, factIds);
+    const next = nextPlannerDecision(projected, { kind: 'heard', line: synthetic });
+    if (next.kind !== 'Speak' || (next.purpose !== 'brief' && next.purpose !== 'invite')) return;
+    if (next.speaker === this.human?.name || !this.names.includes(next.speaker)) return;
+    const messages = this.openingMessages(next, { ...synthetic }, projected);
+    if (messages.length === 0) return;
+    const prefetched: PrefetchedOpening = {
+      epoch: run.epoch,
+      expected: { speaker: next.speaker, purpose: next.purpose, factIds: next.factIds ?? [] },
+      controller: new AbortController(),
+      chunks: [],
+      done: false,
+      startedAt: Date.now(),
+    };
+    this.openingPrefetch = prefetched;
+    this.ports.log?.(`[opening] asking early for ${next.speaker} (${next.purpose}) while ${decision.speaker} speaks`);
+    void this.pumpOpeningPrefetch(prefetched, messages);
+  }
+
+  private takeOpeningPrefetch(decision: SpeakDecision): PrefetchedOpening | undefined {
+    const prefetched = this.openingPrefetch;
+    if (prefetched === undefined) return undefined;
+    this.openingPrefetch = undefined;
+    const expectedIds = decision.factIds ?? [];
+    const same = prefetched.epoch === this.openingEpoch &&
+      prefetched.expected.speaker === decision.speaker &&
+      prefetched.expected.purpose === decision.purpose &&
+      prefetched.expected.factIds.length === expectedIds.length &&
+      prefetched.expected.factIds.every((id, index) => id === expectedIds[index]);
+    if (!same || prefetched.controller.signal.aborted) {
+      this.ports.log?.(
+        `[opening] discarded the early request for ${prefetched.expected.speaker}: ` +
+        `${prefetched.controller.signal.aborted ? 'it was aborted or timed out' : 'the plan changed'}`,
+      );
+      if (prefetched.firstChunkTimer !== undefined) clearTimeout(prefetched.firstChunkTimer);
+      if (prefetched.completionTimer !== undefined) clearTimeout(prefetched.completionTimer);
+      if (!prefetched.done) prefetched.controller.abort();
+      return undefined;
+    }
+    return prefetched;
+  }
+
+  private clearOpeningPrefetch(reason?: string): void {
+    const prefetched = this.openingPrefetch;
+    if (prefetched === undefined) return;
+    this.openingPrefetch = undefined;
+    if (prefetched.firstChunkTimer !== undefined) {
+      clearTimeout(prefetched.firstChunkTimer);
+      prefetched.firstChunkTimer = undefined;
+    }
+    if (prefetched.completionTimer !== undefined) {
+      clearTimeout(prefetched.completionTimer);
+      prefetched.completionTimer = undefined;
+    }
+    if (!prefetched.done) {
+      this.ports.log?.(`[opening] dropped the early request for ${prefetched.expected.speaker}${reason === undefined ? '' : `: ${reason}`}`);
+      prefetched.controller.abort();
+    }
+  }
+
+  private clearUpcomingOpeningPrefetch(reason?: string): void {
+    const prefetched = this.upcomingOpeningPrefetch;
+    if (prefetched === undefined) return;
+    this.upcomingOpeningPrefetch = undefined;
+    if (prefetched.firstChunkTimer !== undefined) {
+      clearTimeout(prefetched.firstChunkTimer);
+      prefetched.firstChunkTimer = undefined;
+    }
+    if (prefetched.completionTimer !== undefined) {
+      clearTimeout(prefetched.completionTimer);
+      prefetched.completionTimer = undefined;
+    }
+    if (!prefetched.done) {
+      this.ports.log?.(`[opening] dropped the next topic request${reason === undefined ? '' : `: ${reason}`}`);
+      prefetched.controller.abort();
+    }
+  }
+
+  private async pumpOpeningPrefetch(prefetched: PrefetchedOpening, messages: ChatMessage[]): Promise<void> {
+    const firstChunkMs = this.options.briefFirstChunkMs ?? DEFAULT_BRIEF_FIRST_CHUNK_MS;
+    const completionMs = DEFAULT_OPENING_COMPLETION_MS;
+    const DEADLINE = Symbol('deadline');
+    const STOPPED = Symbol('stopped');
+    let reachDeadline: (() => void) | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      reachDeadline = resolve;
+    });
+    const stopped = new Promise<void>((resolve) => {
+      if (prefetched.controller.signal.aborted) resolve();
+      else prefetched.controller.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+    const fail = (message: string): void => {
+      if (prefetched.done || prefetched.controller.signal.aborted) return;
+      prefetched.failure = new Error(message);
+      this.ports.log?.(`[opening] the early request for ${prefetched.expected.speaker} timed out: ${message}`);
+      prefetched.controller.abort();
+      prefetched.done = true;
+      reachDeadline?.();
+      prefetched.wake?.();
+      prefetched.wake = undefined;
+    };
+    const clearFirstChunkTimer = (): void => {
+      if (prefetched.firstChunkTimer !== undefined) {
+        clearTimeout(prefetched.firstChunkTimer);
+        prefetched.firstChunkTimer = undefined;
+      }
+    };
+    const clearCompletionTimer = (): void => {
+      if (prefetched.completionTimer !== undefined) {
+        clearTimeout(prefetched.completionTimer);
+        prefetched.completionTimer = undefined;
+      }
+    };
+    if (firstChunkMs > 0) {
+      prefetched.firstChunkTimer = setTimeout(() => {
+        prefetched.firstChunkTimer = undefined;
+        fail(`the first spoken sentence did not arrive within ${firstChunkMs} ms`);
+      }, firstChunkMs);
+      prefetched.firstChunkTimer.unref?.();
+    }
+    prefetched.completionTimer = setTimeout(() => {
+      prefetched.completionTimer = undefined;
+      fail(`the opening line did not finish within ${completionMs} ms`);
+    }, completionMs);
+    prefetched.completionTimer.unref?.();
+    const iterator = this.ports.stream(messages, prefetched.controller.signal)[Symbol.asyncIterator]();
+    try {
+      for (;;) {
+        const raced = await Promise.race([
+          iterator.next(),
+          deadline.then(() => DEADLINE),
+          stopped.then(() => STOPPED),
+        ]);
+        if (typeof raced === 'symbol') break;
+        if (raced.done === true) break;
+        prefetched.chunks.push(raced.value);
+        const speech = prefetched.chunks.join('').replace(/^\s*KAKI_CONTROL[^\n]*\n?/i, '');
+        if (/[.!?]["')\]]*(?:\s|$)/.test(speech)) clearFirstChunkTimer();
+        prefetched.wake?.();
+        prefetched.wake = undefined;
+      }
+    } catch (error) {
+      if (!prefetched.controller.signal.aborted && prefetched.failure === undefined) {
+        prefetched.failure = error;
+        this.ports.log?.(`[opening] the early request for ${prefetched.expected.speaker} failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      clearFirstChunkTimer();
+      clearCompletionTimer();
+      prefetched.done = true;
+      prefetched.wake?.();
+      prefetched.wake = undefined;
+    }
+  }
+
+  private openingPrefetchedStream(prefetched: PrefetchedOpening): AsyncIterable<string> {
+    return {
+      async *[Symbol.asyncIterator]() {
+        let index = 0;
+        for (;;) {
+          if (index < prefetched.chunks.length) {
+            yield prefetched.chunks[index++]!;
+            continue;
+          }
+          if (prefetched.failure !== undefined) throw prefetched.failure;
+          if (prefetched.done) return;
+          await new Promise<void>((resolve) => (prefetched.wake = resolve));
+        }
+      },
+    };
+  }
+
+  /** The guest spoke, the topic changed, or the meeting stopped: no more opening lines, including the prefetched one. */
+  private cancelOpening(reason: string): void {
+    const run = this.openingRun;
+    this.clearOpeningPrefetch(reason);
+    if (run === undefined || run.cancelled) return;
+    run.cancelled = true;
+    this.openingEpoch += 1;
+    this.ports.log?.(`[opening] cancelled: ${reason}`);
+    if (this.turn !== undefined && this.turn.opening !== undefined) this.interrupt('the opening was cancelled');
+    if (this.openingRun === run) this.openingRun = undefined;
+  }
+
+  /** Fetch the next topic's first opening speaker while the host winds the current topic down. */
+  private startUpcomingOpeningPrefetch(title: string): void {
+    if (this.closed || this.paused || this.human === undefined) return;
+    const existing = this.upcomingOpeningPrefetch;
+    if (existing?.title === title && !existing.controller.signal.aborted) return;
+    this.clearUpcomingOpeningPrefetch('the next topic changed');
+    const item = this.options.scenario.agenda.find((candidate) => candidate.title === title);
+    if (item === undefined) return;
+    const topics = this.options.scenario.agenda.map(meetingTopic);
+    const host = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    const temp = new MeetingState({ topics, present: this.names, host, guest: this.human.name });
+    temp.openTopic(title, Date.now());
+    const visitor = this.visitorSeat();
+    const handover = liveNextItemLine(this.options.scenario, title, visitor, true, (line) => this.ports.log?.(line));
+    const synthetic: HeardLine = {
+      eventId: `upcoming-${title}`,
+      speaker: this.facilitatorOrCoHost() ?? this.names[0]!,
+      text: handover,
+      at: Date.now(),
+      complete: true,
+      proposal: false,
+      catch: false,
+    };
+    const decision = nextPlannerDecision(temp.view(Date.now()), { kind: 'heard', line: synthetic });
+    if (decision.kind !== 'Speak' || (decision.purpose !== 'brief' && decision.purpose !== 'invite')) return;
+    if (decision.speaker === this.human.name || !this.names.includes(decision.speaker)) return;
+    const messages = this.openingMessages(decision, synthetic, temp.view(Date.now()));
+    if (messages.length === 0) return;
+    const prefetched: PrefetchedOpening = {
+      title,
+      epoch: this.openingEpoch + 1,
+      expected: { speaker: decision.speaker, purpose: decision.purpose, factIds: decision.factIds ?? [] },
+      controller: new AbortController(),
+      chunks: [],
+      done: false,
+      startedAt: Date.now(),
+    };
+    this.upcomingOpeningPrefetch = prefetched;
+    this.ports.log?.(`[opening] asking early for ${decision.speaker} (${decision.purpose}) on the next topic "${title}"`);
+    void this.pumpOpeningPrefetch(prefetched, messages);
+  }
+
+  private visitorSeat(): { name: string; seat: string } | undefined {
+    const human = this.human;
+    if (human === undefined) return undefined;
+    const role = this.options.scenario.roles.find((candidate) =>
+      candidate.id === human.role || candidate.label.toLowerCase() === human.role.trim().toLowerCase());
+    const seat = this.options.scenario.attendees.find((attendee) => attendee.role === role?.id)?.name;
+    return seat === undefined ? undefined : { name: human.name, seat };
+  }
+
   /**
    * Gentle silence handling when the room is waiting on the person (`decide` or `involve` mode):
    * - Stage 1: After `silencePromptMs`, the AI host gently checks in with the person by name and invites them to share a thought or ask a question.
@@ -2310,6 +3007,7 @@ export class NpcConversation<Clip> {
     if (
       this.closed ||
       this.paused ||
+      this.openingRun !== undefined ||
       this.human === undefined ||
       host === undefined ||
       title === undefined ||
@@ -2343,6 +3041,7 @@ export class NpcConversation<Clip> {
       if (
         this.closed ||
         this.paused ||
+        this.openingRun !== undefined ||
         this.human === undefined ||
         this.currentItem()?.title !== title ||
         this.humanLines > linesBefore ||
@@ -2658,6 +3357,15 @@ export class NpcConversation<Clip> {
     const soundOnly = reason === 'the person started talking' || reason === 'the person kept talking';
     const mic = soundOnly ? this.ports.describeMic?.() : undefined;
     this.ports.log?.(`interrupted: ${reason}${mic === undefined ? '' : ` (${mic})`}`);
+    // Before an opening line's first sound there is nothing to hold: the opening run retries the step itself,
+    // so this must not become an ordinary "unanswered" retry that competes with it.
+    const openingBeforeAudio = soundOnly && turn.opening !== undefined && turn.spoken.length === 0;
+    if (openingBeforeAudio) {
+      this.clearOpeningPrefetch('a wordless cut-in during the opening');
+      this.unanswered = false;
+      this.cutOff = false;
+      this.cutOffSpeaker = undefined;
+    }
     // Sound alone (an echo, a cough, a noise) cannot be told from a voice. A model turn that has already
     // been heard is paused rather than thrown away, so its unsaid lines can carry on if no words follow.
     if (soundOnly && turn.scripted !== true && turn.spoken.length > 0) {
@@ -2675,8 +3383,9 @@ export class NpcConversation<Clip> {
         turn.onScriptedDone = undefined;
       }
     } else {
-      if (turn.spoken.length === 0) this.unanswered = true;
-      else if (soundOnly) {
+      if (turn.spoken.length === 0) {
+        if (!openingBeforeAudio) this.unanswered = true;
+      } else if (soundOnly) {
         this.cutOff = true;
         this.cutOffSpeaker = turn.spoken.at(-1)?.utterance.speaker;
       }
@@ -3461,7 +4170,7 @@ export class NpcConversation<Clip> {
       const last = turn.spoken.at(-1);
       // The sentence that was being spoken when the cut came starts again, whole, on the same entry.
       const restarting = last !== undefined && last.complete === false && last.utterance === utterance;
-      if (!restarting && !turn.scripted && !turn.replay) {
+      if (!restarting && !turn.scripted && !turn.replay && turn.opening === undefined) {
         const repeated = namesColleague(utterance.text, this.names) ? undefined :
           this.repeatsRecently(utterance.text, turn.startedAt);
         if (repeated !== undefined) {
@@ -3504,7 +4213,10 @@ export class NpcConversation<Clip> {
           this.gate.aiSaid(utterance.text);
         }
         this.lastSpoken = utterance.text;
-        entry.shadowLineId = this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
+        const factIds = turn.opening !== undefined && turn.opening.lastUtterance === utterance
+          ? turn.opening.factIds
+          : undefined;
+        entry.shadowLineId = this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title, factIds);
         this.noteCardPoint(utterance);
         this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
         const transcriptKey = `${utterance.speaker}:${utterance.text}`;
@@ -3512,12 +4224,22 @@ export class NpcConversation<Clip> {
           this.lastTranscriptEmit = transcriptKey;
           this.ports.emitTranscript(utterance.speaker, utterance.text, textOnly ? { textOnly: true } : undefined);
         }
-        await this.playUtterance(turn, utterance, audio, textOnly);
+        const played = await this.playUtterance(turn, utterance, audio, textOnly);
+        let heard = played;
+        this.ports.log?.(`finished speaking ${utterance.speaker}`);
+        if (!played && turn.opening !== undefined && !turn.abort.signal.aborted && !this.isTurnHeld(turn)) {
+          heard = await this.showOpeningLineAsText(turn, utterance, transcribe);
+        }
         if (turn.abort.signal.aborted) {
           this.shadowLineEnded(entry.shadowLineId, false);
           return;
         }
         if (this.isTurnHeld(turn)) continue;
+        if (turn.opening !== undefined && !heard) {
+          this.ports.log?.(`[opening] ${utterance.speaker}: the line could not be played or shown, so it is not heard`);
+          this.shadowLineEnded(entry.shadowLineId, false);
+          return;
+        }
         entry.complete = true;
         this.shadowLineEnded(entry.shadowLineId, true);
         pending = undefined;
@@ -3534,12 +4256,22 @@ export class NpcConversation<Clip> {
       }
       this.lastSpoken = utterance.text;
       this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
-      await this.playUtterance(turn, utterance, audio, textOnly);
+      const played = await this.playUtterance(turn, utterance, audio, textOnly);
+      let heard = played;
+      this.ports.log?.(`finished speaking ${utterance.speaker}`);
+      if (!played && turn.opening !== undefined && !turn.abort.signal.aborted && !this.isTurnHeld(turn)) {
+        heard = await this.showOpeningLineAsText(turn, utterance, false);
+      }
       if (turn.abort.signal.aborted) {
         this.shadowLineEnded(last.shadowLineId, false);
         return;
       }
       if (this.isTurnHeld(turn)) continue;
+      if (turn.opening !== undefined && !heard) {
+        this.ports.log?.(`[opening] ${utterance.speaker}: the line could not be played or shown, so it is not heard`);
+        this.shadowLineEnded(last.shadowLineId, false);
+        return;
+      }
       last.complete = true;
       this.shadowLineEnded(last.shadowLineId, true);
       pending = undefined;
@@ -3553,18 +4285,28 @@ export class NpcConversation<Clip> {
     utterance: Utterance,
     audio: Clip | undefined,
     textOnly: boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (textOnly) {
       this.ports.log?.(`[tts] shown as text: ${utterance.speaker}`);
       await this.wait(this.textReadingMs(utterance.text), turn.soundAbort.signal);
-      return;
+      return true;
     }
     try {
       await this.ports.play(utterance.speaker, audio as Clip, turn.soundAbort.signal);
+      return true;
     } catch (error) {
       if (!turn.abort.signal.aborted && turn.held !== true) {
         this.ports.log?.(`playback failed: ${error instanceof Error ? error.message : String(error)}`);
       }
+      return false;
     }
+  }
+
+  /** A failed opening playback still reaches the guest on screen, using the same text view as a failed voice. */
+  private async showOpeningLineAsText(turn: Turn, utterance: Utterance, transcribe: boolean): Promise<boolean> {
+    this.ports.log?.(`[tts] playback failed; showing as text: ${utterance.speaker}`);
+    if (transcribe) this.ports.emitTranscript(utterance.speaker, utterance.text, { textOnly: true });
+    await this.wait(this.textReadingMs(utterance.text), turn.soundAbort.signal);
+    return !turn.abort.signal.aborted;
   }
 }
