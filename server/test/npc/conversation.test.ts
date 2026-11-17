@@ -908,10 +908,10 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
-  it('asks for one colleague to give a two-sentence first-topic brief', async () => {
+  it('asks for the brief as a short exchange that starts with the teller and ends with the host\'s one question', async () => {
     const withThree = {
       ...scenario,
-      agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.' }],
+      agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.', decision: 'how do we cover prep?' }],
       npcs: [
         { ...scenario.npcs[0]!, role: 'host' as const },
         scenario.npcs[1]!,
@@ -927,18 +927,19 @@ describe('NpcConversation', () => {
     conversation.agendaMoved('Prep');
     await vi.advanceTimersByTimeAsync(1);
     expect(h.calls).toHaveLength(1);
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('Only Bao speaks');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('two short sentences');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most 16 words');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('state the problem in plain words');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most the one fact that makes it a problem');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('what is at stake');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('End by inviting Visitor in with your own short question');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('do not use a stock invitation');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('at most one number');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('The stock arrived late.');
-    expect(h.calls[0]?.messages.at(-1)?.content).toContain('hold at least one catch back');
-    h.calls[0]?.push('Bao: The stock arrived late. We may delay. Cai: I have another fact.');
+    const cue = String(h.calls[0]?.messages.at(-1)?.content);
+    expect(cue).toContain('Begin with "Bao:"');
+    expect(cue).toContain('Only Bao speaks before Ada.');
+    expect(cue).toContain('two or three short spoken sentences');
+    expect(cue).toContain('tells what happened as they saw it');
+    expect(cue).toContain('The stock arrived late.');
+    expect(cue).toContain('Last, Ada asks Visitor one question from this decision: "how do we cover prep?"');
+    expect(cue).toContain('Ask it by name, ask only one question, and let Ada close the turn.');
+    expect(cue).toContain('Every line reacts to the line before it');
+    expect(cue).toContain('with at most one number');
+    expect(cue).toContain('Hold back at least one catch');
+    expect(cue).toContain('no stock invitation');
+    h.calls[0]?.push('Bao: The stock arrived late. We may delay. Ada: Visitor, how do we cover prep?');
     h.calls[0]?.end();
     await h.flush();
     for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
@@ -948,13 +949,12 @@ describe('NpcConversation', () => {
     expect(h.transcript).toEqual([
       ['Bao', 'The stock arrived late.'],
       ['Bao', 'We may delay.'],
-      ['Bao', 'Visitor, what would you do?'],
+      ['Ada', 'Visitor, how do we cover prep?'],
     ]);
-    expect(h.logs).toContainEqual(expect.stringContaining('[brief] dropped extra line from Cai'));
     conversation.close();
   });
 
-  it('lets the briefing colleague invite the visitor in their own words', async () => {
+  it('lets the host ask the visitor in his own words after the teller', async () => {
     const withThree = briefingScenario();
     const h = harness(withThree);
     const conversation = new NpcConversation<Utterance>(h.ports, {
@@ -963,7 +963,7 @@ describe('NpcConversation', () => {
     conversation.setHuman({ name: 'Visitor', role: 'Guest' });
     conversation.agendaMoved('Prep');
     await vi.advanceTimersByTimeAsync(1);
-    h.calls[0]?.push('Bao: The stock arrived late. We may delay. Visitor, where would you start?');
+    h.calls[0]?.push('Bao: The stock arrived late. We may delay. Ada: Visitor, where would you start?');
     h.calls[0]?.end();
     await h.flush();
     for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
@@ -973,16 +973,108 @@ describe('NpcConversation', () => {
     expect(h.transcript).toEqual([
       ['Bao', 'The stock arrived late.'],
       ['Bao', 'We may delay.'],
-      ['Bao', 'Visitor, where would you start?'],
+      ['Ada', 'Visitor, where would you start?'],
     ]);
     conversation.close();
   });
 
-  it('uses the pushing colleague alone in the first-topic brief', async () => {
+  it('starts the brief with the topic teller and lets the named colleagues react from their angles', async () => {
+    const tellerScenario = {
+      ...scenario,
+      roles: [...scenario.roles, { id: 'host', label: 'Host', facilitator: true }],
+      attendees: [
+        ...scenario.attendees,
+        { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai (Cashier)' },
+        { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' },
+      ],
+      agenda: [
+        { title: 'Warm-up', minutes: 5, ownerRole: 'chef' as const },
+        {
+          ...scenario.agenda[0]!,
+          title: 'Seats',
+          briefing: 'Laptop users took half the seats at the trial.',
+          decision: 'how do we keep seats turning?',
+          tellers: [
+            { attendee: 'Ada', why: 'you were on the floor at the trial' },
+            { attendee: 'Bao', why: 'your crew got shouted at' },
+          ],
+          discussion: {
+            openingViews: [
+              { attendee: 'Ada', angle: 'the floor team' },
+              { attendee: 'Cai', angle: 'the breakfast trays' },
+            ],
+            tradeOffs: [],
+          },
+        },
+      ],
+      npcs: [
+        scenario.npcs[0]!,
+        scenario.npcs[1]!,
+        { attendee: 'Cai', voice: 'v3', personality: 'Practical', agenda: 'Open on time', concerns: [] },
+        { attendee: 'Sam', role: 'host' as const, voice: 'v4', personality: 'Calm', agenda: 'Keep time', concerns: [] },
+      ],
+    };
+    const h = harness(tellerScenario);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: tellerScenario, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'chef' });
+    conversation.agendaMoved('Seats');
+    await vi.advanceTimersByTimeAsync(1);
+    const cue = String(h.calls[0]?.messages.at(-1)?.content);
+    expect(cue).toContain('Begin with "Bao:"');
+    expect(cue).toContain('Cai answers Bao in one short sentence');
+    expect(cue).toContain('"the breakfast trays"');
+    expect(cue).toContain('Last, Sam asks Visitor one question from this decision: "how do we keep seats turning?"');
+    expect(cue).toContain('Ask it by name, ask only one question, and let Sam close the turn.');
+    expect(cue).toContain('Hold back at least one catch');
+    expect(cue).not.toContain('Ada answers');
+    conversation.close();
+  });
+
+  it('logs a brief whose first speaker is not the teller but does not drop the turn', async () => {
+    const withThree = briefingScenario();
+    const h = harness(withThree);
+    const conversation = new NpcConversation<Utterance>(h.ports, {
+      scenario: withThree, observeDelayMs: 1, responseDelayMs: 0, speakerGapMs: 0, sentenceGapMs: 0,
+    });
+    conversation.setHuman({ name: 'Visitor', role: 'Guest' });
+    conversation.agendaMoved('Prep');
+    await vi.advanceTimersByTimeAsync(1);
+    h.calls[0]?.push('Cai: Supplies are low. Bao: The stock arrived late.');
+    h.calls[0]?.end();
+    await h.flush();
+    for (let index = 0; index < 5 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.logs).toContainEqual(expect.stringContaining('[brief] first speaker was Cai, expected teller Bao'));
+    expect(h.transcript).toContainEqual(['Cai', 'Supplies are low.']);
+    expect(h.transcript).toContainEqual(['Bao', 'The stock arrived late.']);
+    conversation.close();
+  });
+
+  it('turns a spoken semicolon into two sentences before it is played', async () => {
+    const h = harness();
+    await h.say('Hello.');
+    h.calls.at(-1)?.push('Ada: The till is down; we can still take cash.');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    for (let index = 0; index < 4 && h.playing.at(-1) !== undefined; index += 1) {
+      h.playing.at(-1)?.finish();
+      await h.flush();
+    }
+    expect(h.transcript).toContainEqual(['Ada', 'The till is down. We can still take cash.']);
+    expect(h.transcript.every(([, text]) => !text.includes(';'))).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining('[speech] Ada: split a semicolon'));
+    h.conversation.close();
+  });
+
+  it('uses the pushing colleague alone when no teller is named', async () => {
     const withOwner = {
       ...scenario,
       agenda: [{ ...scenario.agenda[0]!, contested: true, briefing: 'The stock arrived late.', discussion: {
-        openingViews: [{ attendee: 'Bao', view: 'One concern' }, { attendee: 'Cai', view: 'Another concern' }],
+        openingViews: [{ attendee: 'Bao', angle: 'One concern' }, { attendee: 'Cai', angle: 'Another concern' }],
         tradeOffs: [],
       } }],
       attendees: [
@@ -1009,7 +1101,7 @@ describe('NpcConversation', () => {
     const cue = h.calls[0]?.messages.at(-1)?.content;
     expect(cue).toContain('Begin with "Ada:"');
     expect(cue).toContain('Only Ada speaks');
-    expect(cue).not.toContain("Bao's view");
+    expect(cue).not.toContain('Bao answers');
   });
 
   const briefingScenario = () => ({
@@ -1171,7 +1263,7 @@ describe('NpcConversation', () => {
       ['Ada', "Right, let's move on to Service."],
       ['Bao', 'The stock arrived late.'],
       ['Bao', 'We may delay.'],
-      ['Bao', 'How would you handle that, Visitor?'],
+      ['Ada', 'How would you handle that, Visitor?'],
     ]);
     conversation.close();
   });

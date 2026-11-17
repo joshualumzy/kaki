@@ -43,14 +43,67 @@ function spokenList(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
 }
 
-/** Name the colleagues once without reading their job titles aloud. */
+/** Name the colleagues once, with a few plain words for their job instead of a formal title. */
 function colleagueIntroductions(scenario: Scenario, hostName: string | undefined, visitor?: Visitor): string {
   const npcNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
   const colleagues = scenario.attendees.filter((attendee) =>
     attendee.name !== hostName &&
     attendee.name !== visitor?.seat &&
     (npcNames.size === 0 || npcNames.has(attendee.name)));
-  return spokenList(colleagues.map((attendee) => attendee.name));
+  return spokenList(colleagues.map((attendee) =>
+    attendee.spokenJob === undefined ? attendee.name : `${attendee.name} ${attendee.spokenJob}`));
+}
+
+/** The host's own attendee, when the scenario has a facilitator role. */
+function hostAttendeeName(scenario: Scenario): string | undefined {
+  const hostRole = scenario.roles.find((role) => role.facilitator === true);
+  return hostRole === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === hostRole.id)?.name;
+}
+
+/**
+ * The first person who can tell this item's story: not the guest's seat, not the host, and present in the
+ * room. `presentNames` narrows it to the colleagues actually voiced in this session.
+ */
+export function topicTeller(
+  scenario: Scenario,
+  title: string,
+  options: { visitorSeat?: string; hostName?: string; presentNames?: readonly string[] } = {},
+): { attendee: string; why: string } | undefined {
+  const item = findAgendaItem(scenario, title);
+  if (item?.tellers === undefined) return undefined;
+  const hostName = options.hostName ?? hostAttendeeName(scenario);
+  const present = options.presentNames === undefined
+    ? new Set(scenario.attendees.map((attendee) => attendee.name))
+    : new Set(options.presentNames);
+  return item.tellers.find((teller) =>
+    teller.attendee !== options.visitorSeat &&
+    teller.attendee !== hostName &&
+    present.has(teller.attendee));
+}
+
+/**
+ * The host's topic line: the topic in plain words, then the hand-over to the colleague who tells it,
+ * with the reason it is theirs. When no teller can be found it falls back to the old announcement and
+ * says so in the log, never leaving the room without a way in.
+ */
+export function topicHandover(
+  scenario: Scenario,
+  title: string,
+  lead: string,
+  visitor?: Visitor,
+  log?: (line: string) => void,
+): { text: string; teller?: { attendee: string; why: string } } {
+  const topic = spokenAgendaName(scenario, title);
+  const teller = topicTeller(scenario, title, { visitorSeat: visitor?.seat });
+  if (teller === undefined) {
+    log?.(`[handover] no teller for "${title}"; announcing the topic without a hand-over`);
+    return { text: `${lead} ${topic}.` };
+  }
+  const why = teller.why.trim().replace(/[.,;:!?]+$/, '');
+  return {
+    text: `${lead} ${topic}. ${teller.attendee}, ${why}, what happened?`,
+    teller,
+  };
 }
 
 export function cleanSpokenTopic(title: string): string {
@@ -89,18 +142,24 @@ export function spokenAgendaName(scenario: Scenario, title: string): string {
  * flows like a real human colleague kicking off a quick team huddle rather than reading bullet points.
  * Pulls the first sentence of `scenario.situation` when available so any scenario is introduced in plain words.
  */
-export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
+export function liveOpeningLine(
+  scenario: Scenario,
+  visitor?: Visitor,
+  log?: (line: string) => void,
+): string {
   const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
   const hostRole = scenario.roles.find((role) => role.facilitator === true);
   const hostAttendee = hostRole === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === hostRole.id);
-  const hostIntro = hostAttendee === undefined ? '' : ` I'm ${hostAttendee.name}`;
+  const hostIntro = hostAttendee === undefined ? '' : ` I'm ${hostAttendee.name},`;
   const first = scenario.agenda[0];
   const colleagues = colleagueIntroductions(scenario, hostAttendee?.name, visitor);
   const role = visitor !== undefined && seat !== undefined ? `, our ${roleLabel(scenario, seat.role)}` : '';
   const lead = `${OPENING_PREFIX}${scenario.organisation}${visitor === undefined ? '' : `, ${visitor.name}${role}`}`;
-  const welcome = hostIntro !== ''
-    ? `${lead};${hostIntro}${colleagues === '' ? '' : `, with ${colleagues} here`}.`
-    : `${lead}${colleagues === '' ? '' : `; ${colleagues} are here`}.`;
+  const welcome = hostIntro !== '' && colleagues !== ''
+    ? `${lead}.${hostIntro} and with us are ${colleagues}.`
+    : hostIntro !== ''
+      ? `${lead}.${hostIntro} and that's the room.`
+      : `${lead}${colleagues === '' ? '.' : `. With us are ${colleagues}.`}`;
   // The guest must hear that the decisions are theirs, or they wait for Sam to lead.
   const visitorLead = scenario.hostBrief?.goal.match(/\bvisitor as ([^.]+)/i)?.[1]?.trim();
   const decisionLead = visitor === undefined || visitorLead === undefined ? '' : ` You're ${visitorLead}, so the calls are yours.`;
@@ -114,7 +173,7 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
     .replace(/,\s*and the team needs your call.*$/i, '')
     .replace(/\.$/, '');
 
-  const handoff = first === undefined ? '' : ` First, ${spokenAgendaName(scenario, first.title)}.`;
+  const handoff = first === undefined ? '' : ` ${topicHandover(scenario, first.title, 'First up,', visitor, log).text}`;
 
   if (situationLead !== undefined && situationLead.length > 0 && situationLead.length <= 200) {
     const situationSentence = /[.!?]$/.test(situationLead) ? situationLead : `${situationLead}.`;
@@ -125,11 +184,11 @@ export function liveOpeningLine(scenario: Scenario, visitor?: Visitor): string {
   return `${welcome}${decisionLead}${handoff}`.replace(/\s+/g, ' ').trim();
 }
 
-const NEXT_ITEM_LINES: ReadonlyArray<(topic: string) => string> = [
-  (topic) => `Next up, ${topic}.`,
-  (topic) => `Right, let's move on to ${topic}.`,
-  (topic) => `Okay, on to ${topic}.`,
-  (topic) => `Let's move to ${topic} now.`,
+const NEXT_ITEM_LEADS: readonly string[] = [
+  'Next up,',
+  "Right, let's move on to",
+  'Okay, on to',
+  "Let's move to",
 ];
 
 const WRAP_UP_LINES: ReadonlyArray<(topic: string) => string> = [
@@ -139,31 +198,39 @@ const WRAP_UP_LINES: ReadonlyArray<(topic: string) => string> = [
   (topic) => `Right, that settles ${topic}.`,
 ];
 
+function agendaIndex(scenario: Scenario, title: string): number {
+  return scenario.agenda.findIndex((item) => item.title === findAgendaItem(scenario, title)?.title);
+}
+
 function agendaLine(lines: ReadonlyArray<(topic: string) => string>, scenario: Scenario, title: string): string {
-  const index = scenario.agenda.findIndex((item) => item.title === findAgendaItem(scenario, title)?.title);
-  return lines[Math.max(0, index) % lines.length]!(spokenAgendaName(scenario, title));
+  return lines[Math.max(0, agendaIndex(scenario, title)) % lines.length]!(spokenAgendaName(scenario, title));
 }
 
 /**
  * A natural spoken transition when the AI host moves the room to the next agenda item (`main.ts`),
- * handing over by name to the colleague who owns it when that lead is known.
+ * handing the story to the colleague who can tell it. When no teller is named it keeps the old
+ * behaviour, including the owner's "over to you" unless a colleague brief follows.
  */
 export function liveNextItemLine(
   scenario: Scenario,
   title: string,
   visitor?: Visitor,
   briefFollows = false,
+  log?: (line: string) => void,
 ): string {
   const item = findAgendaItem(scenario, title);
+  const lead = NEXT_ITEM_LEADS[Math.max(0, agendaIndex(scenario, title)) % NEXT_ITEM_LEADS.length]!;
+  const handover = topicHandover(scenario, title, lead, visitor, log);
+  if (handover.teller !== undefined) return handover.text;
   const owner = item === undefined ? undefined : scenario.attendees.find((attendee) => attendee.role === item.ownerRole);
   const ownerIsHost = item !== undefined && scenario.roles.find((role) => role.id === item.ownerRole)?.facilitator === true;
-  const lead = owner === undefined || ownerIsHost
+  const ownerName = owner === undefined || ownerIsHost
     ? undefined
     : visitor !== undefined && visitor.seat === owner.name
       ? visitor.name
       : owner.name;
-  const handoff = lead === undefined || briefFollows ? '' : ` ${lead}, over to you.`;
-  return `${agendaLine(NEXT_ITEM_LINES, scenario, title)}${handoff}`;
+  const handoff = ownerName === undefined || briefFollows ? '' : ` ${ownerName}, over to you.`;
+  return `${handover.text}${handoff}`;
 }
 
 /** The host's spoken wrap-up when a topic is left, picked by that topic's place in the agenda. */

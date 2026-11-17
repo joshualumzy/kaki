@@ -1,6 +1,6 @@
-import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
+import { itemMode, type ActionKind, type AgendaItem, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
-import { cleanSpokenTopic, liveWrapUpLine, spokenAgendaName } from '../host/opening';
+import { cleanSpokenTopic, liveWrapUpLine, spokenAgendaName, topicTeller } from '../host/opening';
 import { CardPointer, visitorCardPointerLine } from './cardPointer';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, replyShapeForTurn, replyShapeInstruction, responsibilityFor, TurnParser, type HumanInfo, type ReplyShape, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
@@ -106,6 +106,12 @@ function splitSentences(text: string): string[] {
       .map((part) => part.trim())
       .filter((part) => part.length > 0)
   );
+}
+
+/** A spoken line never carries a semicolon: each clause becomes its own sentence, with a capital after the stop. */
+function splitSemicolons(text: string): string {
+  return text.replace(/;\s*(.)?/gs, (_match, next: string | undefined) =>
+    next === undefined ? '.' : `. ${next.toUpperCase()}`);
 }
 
 /** How long a speaker must not restate a point they already made aloud. */
@@ -522,7 +528,7 @@ export class NpcConversation<Clip> {
   private readonly asked = new Set<string>();
   /** The agenda has moved on and the host has not asked this person yet. */
   private askDue = false;
-    /** Speakers who have already spoken at least once in this meeting, so newcomers introduce themselves on their very first turn. */
+  /** Speakers who have already spoken, so a repeated name or job can be stripped from their later lines. */
   private readonly introduced = new Set<string>();
   /** Items where the AI colleagues have already briefed the room before asking the human for a decision. */
   private readonly briefed = new Set<string>();
@@ -1705,7 +1711,21 @@ export class NpcConversation<Clip> {
     return true;
   }
 
-  /** Brief the item from its own discussion, without assuming the owner is an AI seat. */
+  /** The old choice of first speaker, used only when a scenario names no teller for the item. */
+  private fallbackBriefSpeaker(item: AgendaItem, seat: string | undefined, host: string | undefined): string | undefined {
+    const candidates = [...new Set([
+      ...(item.discussion?.openingViews ?? []).map((view) => view.attendee),
+      ...(item.discussion?.tradeOffs ?? []).map((tradeOff) => tradeOff.attendee),
+    ])].filter((name) => name !== seat && name !== host && this.names.includes(name));
+    const pushing = pushingColleague(this.options.scenario, item, this.human?.role, this.names, host);
+    return [...new Set([
+      ...(pushing === undefined ? [] : [pushing]),
+      ...candidates,
+      ...this.names.filter((name) => name !== seat && name !== host),
+    ])][0];
+  }
+
+  /** Brief the item as a short exchange: the teller, up to two reactions, then the host's one question to the guest. */
   private briefCue(title: string): string | undefined {
     const item = this.options.scenario.agenda.find((candidate) => candidate.title === title);
     const human = this.human;
@@ -1713,24 +1733,36 @@ export class NpcConversation<Clip> {
     const host = this.facilitatorOrCoHost();
     const seat = this.options.scenario.attendees.find((attendee) =>
       attendee.role === this.options.scenario.roles.find((role) => role.id === human.role || role.label === human.role)?.id)?.name;
-    const candidates = [...new Set([
-      ...(item.discussion?.openingViews ?? []).map((view) => view.attendee),
-      ...(item.discussion?.tradeOffs ?? []).map((tradeOff) => tradeOff.attendee),
-    ])].filter((name) => name !== seat && name !== host && this.names.includes(name));
-    const pushing = pushingColleague(this.options.scenario, item, human.role, this.names, host);
-    const speakers = [...new Set([
-      ...(pushing === undefined ? [] : [pushing]),
-      ...candidates,
-      ...this.names.filter((name) => name !== seat && name !== host),
-    ])];
-    const [first] = speakers;
+    const named = topicTeller(this.options.scenario, title, {
+      visitorSeat: seat,
+      hostName: host,
+      presentNames: this.names,
+    });
+    const first = named?.attendee ?? this.fallbackBriefSpeaker(item, seat, host);
     if (first === undefined) return undefined;
-    const firstView = item.discussion?.openingViews.find((view) => view.attendee === first)?.view ??
-      item.discussion?.tradeOffs.find((tradeOff) => tradeOff.attendee === first)?.tradeOff;
+
+    const views = item.discussion?.openingViews ?? [];
     const problem = item.briefing ??
-      item.discussion?.openingViews.find((view) => view.attendee === seat)?.view ??
+      views.find((view) => view.attendee === first)?.angle ??
       item.decision ?? title;
-    return `[We just started "${title}". Begin with "${first}:". Only ${first} speaks two short sentences, each at most 16 words: first state the problem in plain words from "${problem}" with at most the one fact that makes it a problem, then their view "${firstView ?? title}" and what is at stake. Use at most one number in total. End by inviting ${human.name} in with your own short question about what they would do; do not use a stock invitation. No host line, no second colleague. Leave the decision open and hold at least one catch back for ${human.name}'s first idea. Do not add any other fact.]`;
+    const reactors = views.filter((view) =>
+      view.attendee !== first &&
+      view.attendee !== seat &&
+      view.attendee !== host &&
+      this.names.includes(view.attendee));
+    const index = this.options.scenario.agenda.findIndex((candidate) => candidate.title === item.title);
+    const reactionCount = Math.min(reactors.length, Math.max(0, index) % 3);
+    const chosen = reactors.slice(0, reactionCount);
+    const hostName = host ?? first;
+    const reactionText = chosen.length === 0
+      ? `Only ${first} speaks before ${hostName}.`
+      : chosen.map((view, reactionIndex) => {
+          const before = reactionIndex === 0 ? first : chosen[reactionIndex - 1]!.attendee;
+          return `${view.attendee} answers ${before} in one short sentence, reacting to what ${before} just said, from what they care about: "${view.angle}". No new figure.`;
+        }).join(' ');
+    const decision = item.decision ?? title;
+
+    return `[We just started "${title}". Begin with "${first}:". This is the brief, written as one short exchange between colleagues. ${first} tells what happened as they saw it, from "${problem}", in two or three short spoken sentences like telling a colleague, with at most one number. Do not introduce yourself or your job; the host already did. ${reactionText} Last, ${hostName} asks ${human.name} one question from this decision: "${decision}". Ask it by name, ask only one question, and let ${hostName} close the turn. Everyone else stays quiet after that. Every line reacts to the line before it. Hold back at least one catch for ${human.name}'s first idea. Leave the decision open. No report phrases, no semicolons, no lists, no stock invitation, and no other facts.]`;
   }
 
   briefsOnTopic(title: string): boolean {
@@ -2396,12 +2428,17 @@ export class NpcConversation<Clip> {
     // The start of what the model sent, to name it in the log when none of it could be said.
     let received = '';
     let choseSilence = false;
-    const enqueue = (utterance: Utterance, allowRefusal = false, briefQuestion = false): void => {
+    const enqueue = (utterance: Utterance, allowRefusal = false): void => {
       let trimmed = utterance.text
         .replace(/\s*\[(?:cut off|[^\]]*interrupted here[^\]]*)\]\s*/gi, ' ')
         .replace(/^(?:from|on)\s+the\s+(?:menu|floor|kitchen|tech|pos|marketing|operations|ops|store)\s+side,\s*/i, '')
         .trim();
       if (trimmed.length === 0) return;
+      if (trimmed.includes(';')) {
+        const before = trimmed;
+        trimmed = splitSemicolons(trimmed);
+        this.ports.log?.(`[speech] ${utterance.speaker}: split a semicolon into sentences: "${before}"`);
+      }
       if (trimmed !== utterance.text.trim()) {
         trimmed = trimmed[0]!.toUpperCase() + trimmed.slice(1);
         utterance = { speaker: utterance.speaker, text: trimmed };
@@ -2459,16 +2496,33 @@ export class NpcConversation<Clip> {
       if (isQuestionToVisitor(trimmed, utterance.speaker, this.names, this.human?.name) &&
           (this.askedGuestInRound || turn.enqueued.some((line) =>
             isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name)))) {
-        this.ports.log?.(`[question] ${utterance.speaker}: dropped a second question to the visitor this round: "${trimmed}"`);
+        this.ports.log?.(`${turn.briefSpeaker !== undefined ? '[brief]' : '[question]'} ${utterance.speaker}: dropped a second question to the visitor this round: "${trimmed}"`);
         return;
       }
-      // A brief is two short sentences plus, at most, the colleague's own question inviting the visitor in.
-      const briefInvitation = turn.enqueued.length === 2 && trimmed.trim().endsWith('?');
-      if (turn.briefSpeaker !== undefined &&
-          (utterance.speaker !== turn.briefSpeaker ||
-            (turn.enqueued.length >= 2 && !briefQuestion && !briefInvitation))) {
-        this.ports.log?.(`[brief] dropped extra line from ${utterance.speaker}`);
-        return;
+      // A brief is one short exchange: the teller, at most two reacting colleagues, then the host's
+      // single question to the visitor. The host closes it; nobody speaks after that.
+      if (turn.briefSpeaker !== undefined) {
+        const briefHost = aiHost ?? this.facilitatorOrCoHost();
+        const isTeller = utterance.speaker === turn.briefSpeaker;
+        const isHost = briefHost !== undefined && utterance.speaker === briefHost;
+        const hostHasAsked = briefHost !== undefined && turn.enqueued.some((line) =>
+          line.speaker === briefHost && isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name));
+        if (turn.enqueued.length === 0 && !isTeller) {
+          this.ports.log?.(`[brief] first speaker was ${utterance.speaker}, expected teller ${turn.briefSpeaker}`);
+        }
+        if (hostHasAsked && !isHost) {
+          this.ports.log?.(`[brief] dropped a line from ${utterance.speaker} after ${briefHost} closed the turn`);
+          return;
+        }
+        if (!isTeller && !isHost) {
+          const reactors = new Set(turn.enqueued
+            .map((line) => line.speaker)
+            .filter((speaker) => speaker !== turn.briefSpeaker && speaker !== briefHost));
+          if (!reactors.has(utterance.speaker) && reactors.size >= 2) {
+            this.ports.log?.(`[brief] dropped extra line from ${utterance.speaker}`);
+            return;
+          }
+        }
       }
       if (aiHost !== undefined && utterance.speaker === aiHost && LOCK_ASK_RE.test(trimmed) &&
           Date.now() - this.lastLockAskAt < DEFAULT_REPEAT_WINDOW_MS) {
@@ -2675,11 +2729,14 @@ export class NpcConversation<Clip> {
           for (const utterance of parser.push(speechBuffer)) enqueue(utterance);
         }
         for (const utterance of parser.flush()) enqueue(utterance);
-        if (turn.briefSpeaker !== undefined && turn.enqueued.length >= 1 && turn.enqueued.length <= 2 &&
-            !turn.enqueued[turn.enqueued.length - 1]!.text.trim().endsWith('?')) {
+        if (turn.briefSpeaker !== undefined && turn.enqueued.length >= 1 &&
+            !turn.enqueued.some((line) => isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name))) {
           const who = this.human?.name ?? 'Everyone';
-          enqueue({ speaker: turn.briefSpeaker,
-            text: this.nextGuestInvite(who, turn.topic) }, false, true);
+          const item = this.options.scenario.agenda.find((candidate) => candidate.title === turn.topic);
+          const text = item?.decision === undefined
+            ? this.nextGuestInvite(who, turn.topic)
+            : `${who}, ${item.decision}`;
+          enqueue({ speaker: this.facilitatorOrCoHost() ?? turn.briefSpeaker, text });
         }
         choseSilence = parser.saidNone;
         if (heldRefusal !== undefined) {
@@ -2834,7 +2891,7 @@ export class NpcConversation<Clip> {
           continue;
         }
         if (isQuestionToVisitor(utterance.text, utterance.speaker, this.names, this.human?.name) && this.askedGuestInRound) {
-          this.ports.log?.(`[question] ${utterance.speaker}: dropped a queued second question to the visitor this round: "${utterance.text}"`);
+          this.ports.log?.(`${turn.briefSpeaker !== undefined ? '[brief]' : '[question]'} ${utterance.speaker}: dropped a queued second question to the visitor this round: "${utterance.text}"`);
           continue;
         }
       }

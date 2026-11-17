@@ -54,22 +54,26 @@
     {
       "name": "Wei Ling",
       "role": "producer",
-      "zoomDisplayName": "Wei Ling"
+      "zoomDisplayName": "Wei Ling",
+      "spokenJob": "who looks after the floor team and the money"
     },
     {
       "name": "Arjun",
       "role": "lead_programmer",
-      "zoomDisplayName": "Arjun"
+      "zoomDisplayName": "Arjun",
+      "spokenJob": "on tills and tech"
     },
     {
       "name": "Mei",
       "role": "game_designer",
-      "zoomDisplayName": "Mei"
+      "zoomDisplayName": "Mei",
+      "spokenJob": "on the menu and the store"
     },
     {
       "name": "Daniel",
       "role": "marketing_lead",
-      "zoomDisplayName": "Daniel"
+      "zoomDisplayName": "Daniel",
+      "spokenJob": "on marketing"
     },
     {
       "name": "Sam",
@@ -121,11 +125,11 @@
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "We're one person short for the 8 o'clock rush. I don't want anyone left alone on that counter."
+            "angle": "the roster and what covering the counter costs"
           },
           {
             "attendee": "Daniel",
-            "view": "The free-kopi flyers went to the whole building, so if we pull the offer at the door on day one, we look terrible."
+            "angle": "the free-kopi promise to the whole building and how it looks on day one"
           }
         ],
         "tradeOffs": [
@@ -143,7 +147,17 @@
           }
         ]
       },
-      "art": "/scenario/crisis-counter.svg"
+      "art": "/scenario/crisis-counter.svg",
+      "tellers": [
+        {
+          "attendee": "Wei Ling",
+          "why": "you got the text this morning"
+        },
+        {
+          "attendee": "Mei",
+          "why": "you've been setting up the counter"
+        }
+      ]
     },
     {
       "title": "Old regulars and the new kopi prices",
@@ -191,11 +205,11 @@
         "openingViews": [
           {
             "attendee": "Mei",
-            "view": "Those uncles built this shop's name. Their story's on our menu board, and now we're charging them $2.40 for kopi."
+            "angle": "the old shop's regulars and the story on the menu board"
           },
           {
             "attendee": "Wei Ling",
-            "view": "I want the uncles back too, but on this rent each cup costs us $1.60, so we can't sell kopi at $1.30 all morning."
+            "angle": "the rent and what each cup costs to serve"
           }
         ],
         "tradeOffs": [
@@ -213,7 +227,17 @@
           }
         ]
       },
-      "art": "/scenario/crisis-regulars.svg"
+      "art": "/scenario/crisis-regulars.svg",
+      "tellers": [
+        {
+          "attendee": "Mei",
+          "why": "you were there when the regulars walked out"
+        },
+        {
+          "attendee": "Daniel",
+          "why": "you've seen the Facebook post"
+        }
+      ]
     },
     {
       "title": "Laptop campers and the breakfast seat crunch",
@@ -255,11 +279,11 @@
         "openingViews": [
           {
             "attendee": "Arjun",
-            "view": "I can change the booth power and the Wi-Fi before eight, but tell me what we're going for first."
+            "angle": "can change the booth plugs and Wi-Fi before eight, but needs to know the goal first"
           },
           {
             "attendee": "Daniel",
-            "view": "More than half that laptop crowd works upstairs. I don't want to turn away offices that have asked us about bulk orders."
+            "angle": "the laptop crowd works upstairs and their offices might order in bulk"
           }
         ],
         "tradeOffs": [
@@ -277,7 +301,17 @@
           }
         ]
       },
-      "art": "/scenario/crisis-laptop.svg"
+      "art": "/scenario/crisis-laptop.svg",
+      "tellers": [
+        {
+          "attendee": "Mei",
+          "why": "you were on the floor at the trial"
+        },
+        {
+          "attendee": "Wei Ling",
+          "why": "it was your crew who got shouted at"
+        }
+      ]
     },
     {
       "title": "Food safety complaint before the 9 AM inspection",
@@ -325,11 +359,11 @@
         "openingViews": [
           {
             "attendee": "Wei Ling",
-            "view": "The chef threw out the spoiled stock, so there's no Set A until the 10 o'clock delivery, and the inspector comes at 9."
+            "angle": "the fridge log, the signed disposal log and the insurance cover"
           },
           {
             "attendee": "Daniel",
-            "view": "She's waiting for a reply and says she'll post a review tonight. We need to answer her this morning."
+            "angle": "the customer's email and the review she says she'll post tonight"
           }
         ],
         "tradeOffs": [
@@ -347,7 +381,17 @@
           }
         ]
       },
-      "art": "/scenario/crisis-food-safety.svg"
+      "art": "/scenario/crisis-food-safety.svg",
+      "tellers": [
+        {
+          "attendee": "Wei Ling",
+          "why": "you've been through the fridge log"
+        },
+        {
+          "attendee": "Daniel",
+          "why": "her email came to you"
+        }
+      ]
     },
     {
       "title": "Delivery app commission squeeze",
@@ -394,11 +438,11 @@
         "openingViews": [
           {
             "attendee": "Daniel",
-            "view": "We're losing 50 cents on every single set on GrabFood, but I don't want to lose the office crowd on day one or drop our launch banner."
+            "angle": "the app orders, the office managers and the launch banner"
           },
           {
             "attendee": "Wei Ling",
-            "view": "240 app orders is no good to us if we lose 50 cents on every one."
+            "angle": "the numbers: 50 cents lost on a set and the platter that makes $5"
           }
         ],
         "tradeOffs": [
@@ -416,7 +460,17 @@
           }
         ]
       },
-      "art": "/scenario/crisis-delivery.svg"
+      "art": "/scenario/crisis-delivery.svg",
+      "tellers": [
+        {
+          "attendee": "Daniel",
+          "why": "you've been watching the app orders"
+        },
+        {
+          "attendee": "Wei Ling",
+          "why": "you've run the numbers"
+        }
+      ]
     }
   ],
   "situation": "It's 7 AM on opening day at our refurbished Raffles Place flagship, and doors open at 8. Yesterday's trial day and this morning have left us a few things to sort out first.",

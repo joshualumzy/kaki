@@ -149,6 +149,22 @@ describe('shipped Kopitiam story', () => {
     }
   });
 
+  it('names tellers for every topic and plain job words for each colleague', () => {
+    const scenario = loadScenario();
+    const names = new Set(scenario.attendees.map((attendee) => attendee.name));
+    for (const attendee of scenario.attendees) {
+      if (attendee.name === 'Sam') expect(attendee.spokenJob).toBeUndefined();
+      else expect(attendee.spokenJob?.trim().length, `${attendee.name} spokenJob`).toBeGreaterThan(0);
+    }
+    for (const item of scenario.agenda) {
+      expect(item.tellers?.length, `${item.title} tellers`).toBeGreaterThan(0);
+      for (const teller of item.tellers ?? []) {
+        expect(names.has(teller.attendee), `${item.title} teller ${teller.attendee}`).toBe(true);
+        expect(teller.why.trim().length, `${item.title} teller reason`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('keeps proposed answers out of company records and dates opening-day mail consistently', () => {
     const records = filesUnder(seedDir).map((file) => readFileSync(file, 'utf8')).join('\n').toLowerCase();
     for (const direction of ['options raised', 'options discussed', 'the ways to keep',

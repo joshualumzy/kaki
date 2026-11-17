@@ -227,7 +227,7 @@ describe('pushingColleague', () => {
   const item = {
     ...testScenario.agenda[0]!,
     discussion: {
-      openingViews: [{ attendee: 'Hal', view: 'Host view' }, { attendee: 'Bao', view: 'Other view' }],
+      openingViews: [{ attendee: 'Hal', angle: 'Host view' }, { attendee: 'Bao', angle: 'Other view' }],
       tradeOffs: [],
     },
   };
@@ -247,7 +247,7 @@ describe('pushingColleague', () => {
   });
   it('uses trade-offs, then any present colleague, then no name', () => {
     const fallback = { ...item, ownerRole: 'host', discussion: {
-      openingViews: [{ attendee: 'Hal', view: 'Host view' }],
+      openingViews: [{ attendee: 'Hal', angle: 'Host view' }],
       tradeOffs: [{ attendee: 'Bao', role: 'cashier', tradeOff: 'A cost', question: 'Which cost?' }],
     } };
     expect(pushingColleague(scenario, fallback, 'Guest', present, 'Hal')).toBe('Bao');

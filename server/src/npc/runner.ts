@@ -657,10 +657,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const nextTitle = isNextUp ? text.replace(/^Next up:\s*/, '').replace(/\.$/, '') : undefined;
     let spoken =
       isWelcome && visitor !== undefined
-        ? liveOpeningLine(scenario, visitor)
+        ? liveOpeningLine(scenario, visitor, log)
         : isNextUp && nextTitle !== undefined
           ? liveNextItemLine(scenario, nextTitle, visitor,
-              conversation?.briefsOnTopic(nextTitle) === true)
+              conversation?.briefsOnTopic(nextTitle) === true, log)
           : text;
     if (!isWelcome && !isNextUp && visitor !== undefined && visitor.seat !== visitor.name) {
       const escapedSeat = visitor.seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

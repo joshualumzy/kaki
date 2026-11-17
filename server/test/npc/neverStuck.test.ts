@@ -103,7 +103,7 @@ describe('never-stuck visitor path', () => {
         await vi.advanceTimersByTimeAsync(1500);
         await h.conversation.settled();
         expect(h.spoken).toContain('Here is the problem.');
-        expect(h.spoken).toContain(n === 0 ? 'Visitor, what would you do?' : 'How would you handle that, Visitor?');
+        expect(h.spoken).toContain(`Visitor, ${agenda[n]!.decision!}`);
         await h.say(`I choose a workable plan for ${agenda[n]!.title}.`);
         expect(h.tasks[n]).toMatchObject({ agendaItemTitle: agenda[n]!.title, suggestedAssignee: role.id });
         expect(h.tasks[n]!.context).toContain(`I choose a workable plan for ${agenda[n]!.title}.`);
@@ -750,7 +750,7 @@ describe('never-stuck visitor path', () => {
     await vi.advanceTimersByTimeAsync(100);
     await h.conversation.settled();
     expect(h.spoken).toContain('Here is the problem.');
-    expect(h.spoken).toContain('Visitor, what would you do?');
+    expect(h.spoken).toContain(`Visitor, ${scenario.agenda[0]!.decision!}`);
     h.conversation.close();
   });
 
@@ -769,7 +769,7 @@ describe('never-stuck visitor path', () => {
     await h.conversation.settled();
     expect(h.spoken).toContain('Walk us through what happened.');
     expect(h.spoken).toContain('Here is the problem.');
-    expect(h.spoken).toContain('Visitor, what would you do?');
+    expect(h.spoken).toContain(`Visitor, ${scenario.agenda[0]!.decision!}`);
     h.conversation.close();
   });
 
@@ -788,11 +788,11 @@ describe('never-stuck visitor path', () => {
       [`${control('open')}\n${colleague}: Here is the problem.`],
       { observeDelayMs: 100 }, slowSynthesize);
     h.conversation.announce('Sam', 'Let me set the scene for a while.');
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     await h.conversation.settled();
     expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
     expect(h.spoken).toContain('Here is the problem.');
-    expect(h.spoken).toContain('Visitor, what would you do?');
+    expect(h.spoken).toContain(`Visitor, ${scenario.agenda[0]!.decision!}`);
     h.conversation.close();
   });
 

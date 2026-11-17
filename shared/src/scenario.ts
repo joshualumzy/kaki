@@ -29,6 +29,8 @@ export interface Attendee {
   name: string;
   role: Role;
   zoomDisplayName: string;
+  /** A few plain words for their job, said after their name when the host introduces them, for example "on tills and tech". */
+  spokenJob?: string;
 }
 
 /** One agenda item with its time limit and the role that owns it. */
@@ -40,8 +42,10 @@ export interface AgendaItem {
   decision?: string;
   /** The characters disagree on this item, so the person is asked to settle it; optional. */
   contested?: boolean;
-  /** Structured opening views and trade-offs the AI colleagues can draw on; optional. */
+  /** Structured opening angles and trade-offs the AI colleagues can draw on; optional. */
   discussion?: AgendaDiscussion;
+  /** Who can tell the room what happened on this item, in order, and why it is theirs to tell; optional. */
+  tellers?: AgendaTeller[];
   /** Neutral problem statement for the opening briefing, independent of who plays the owner. */
   briefing?: string;
   /** Short name used when the host refers to the item aloud, e.g. "the food safety complaint". */
@@ -83,23 +87,31 @@ export interface AgendaLink {
 }
 
 /**
- * What the AI colleagues bring to one agenda item: each speaker's opening view and the distinct
+ * What the AI colleagues bring to one agenda item: each speaker's opening angle and the distinct
  * trade-offs that keep the decision open. It is data, not a script: it names what is at stake and
  * the question still to answer, never the solution or a required number of turns.
  */
 export interface AgendaDiscussion {
-  /** What each colleague says at the start of the item, in their own words. */
+  /** What each colleague cares about at the start of the item, as an angle, never a line to read aloud. */
   openingViews: AgendaOpeningView[];
   /** The distinct tensions the person deciding must weigh. */
   tradeOffs: AgendaTradeOff[];
 }
 
-/** One colleague's opening view on an agenda item. */
+/** One colleague's opening angle on an agenda item. */
 export interface AgendaOpeningView {
-  /** The `name` of the attendee whose view this is. */
+  /** The `name` of the attendee whose angle this is. */
   attendee: string;
-  /** Their opening position, with no prescribed answer. */
-  view: string;
+  /** What that person cares about on this item, as a short phrase, never a line to read aloud. */
+  angle: string;
+}
+
+/** Someone who can tell the room what happened on an agenda item, and why it is theirs to tell. */
+export interface AgendaTeller {
+  /** The `name` of the attendee who tells it. */
+  attendee: string;
+  /** Why this person is the one who knows, said after their name, for example "you were on the floor at the trial". */
+  why: string;
 }
 
 /** One distinct trade-off the room wants the person deciding to weigh. */
@@ -293,6 +305,9 @@ function readAttendees(value: unknown, roleIds: Set<string>, problems: string[])
     } else if (!roleIds.has(attendee.role)) {
       problems.push(`attendees[${index}].role "${attendee.role}" is not a known role`);
     }
+    if (attendee.spokenJob !== undefined && !isNonEmptyString(attendee.spokenJob)) {
+      problems.push(`attendees[${index}].spokenJob must be a non-empty string when present`);
+    }
   });
 }
 
@@ -449,6 +464,22 @@ function readAgenda(
         }
       }
     }
+    if (item.tellers !== undefined) {
+      if (!Array.isArray(item.tellers) || item.tellers.length === 0) {
+        problems.push(`agenda[${index}].tellers must be a non-empty array when present`);
+      } else {
+        item.tellers.forEach((teller, tellerIndex) => {
+          const where = `agenda[${index}].tellers[${tellerIndex}]`;
+          if (!isObject(teller) || !isNonEmptyString(teller.attendee) || !isNonEmptyString(teller.why)) {
+            problems.push(`${where} must have a non-empty "attendee" and "why"`);
+            return;
+          }
+          if (!attendeeNames.has(teller.attendee)) {
+            problems.push(`${where}.attendee "${teller.attendee}" is not one of the attendees`);
+          }
+        });
+      }
+    }
     if (item.links !== undefined) {
       if (!Array.isArray(item.links) || item.links.length === 0) {
         problems.push(`agenda[${index}].links must be a non-empty array when present`);
@@ -495,8 +526,8 @@ function readAgendaDiscussion(
     const seen = new Set<string>();
     value.openingViews.forEach((view, index) => {
       const where = `${label}.openingViews[${index}]`;
-      if (!isObject(view) || !isNonEmptyString(view.attendee) || !isNonEmptyString(view.view)) {
-        problems.push(`${where} must have a non-empty "attendee" and "view"`);
+      if (!isObject(view) || !isNonEmptyString(view.attendee) || !isNonEmptyString(view.angle)) {
+        problems.push(`${where} must have a non-empty "attendee" and "angle"`);
         return;
       }
       if (!attendeeNames.has(view.attendee)) {

@@ -138,7 +138,7 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/sensitive must be true or false/);
   });
 
-  it('accepts validated opening views and trade-offs on an agenda item', () => {
+  it('accepts validated opening angles and trade-offs on an agenda item', () => {
     const scenario = cloneScenario();
     scenario.agenda = [
       {
@@ -147,8 +147,8 @@ describe('parseScenario', () => {
         ownerRole: 'chef',
         discussion: {
           openingViews: [
-            { attendee: 'Ada', view: 'We should make the menu easier to read.' },
-            { attendee: 'Bao', view: 'We cannot slow the till down.' },
+            { attendee: 'Ada', angle: 'We should make the menu easier to read.' },
+            { attendee: 'Bao', angle: 'We cannot slow the till down.' },
           ],
           tradeOffs: [
             { attendee: 'Ada', role: 'chef', tradeOff: 'The queue is getting longer.', question: 'How do we speed up prep?' },
@@ -163,7 +163,7 @@ describe('parseScenario', () => {
   it('rejects agenda discussions with unknown attendees or roles and empty fields', () => {
     const scenario = cloneScenario();
     const valid = {
-      openingViews: [{ attendee: 'Ada', view: 'A view.' }],
+      openingViews: [{ attendee: 'Ada', angle: 'A view.' }],
       tradeOffs: [{ attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' }],
     };
     scenario.agenda = [{ title: 'Prep', minutes: 5, ownerRole: 'chef', discussion: valid }];
@@ -175,7 +175,7 @@ describe('parseScenario', () => {
         minutes: 5,
         ownerRole: 'chef',
         discussion: {
-          openingViews: [{ attendee: 'Nobody', view: 'A view.' }, { attendee: 'Ada', view: ' ' }],
+          openingViews: [{ attendee: 'Nobody', angle: 'A view.' }, { attendee: 'Ada', angle: ' ' }],
           tradeOffs: [
             { attendee: 'Nobody', role: 'waiter', tradeOff: ' ', question: '' },
             { attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' },
@@ -195,7 +195,7 @@ describe('parseScenario', () => {
     }
   });
 
-  it('rejects a duplicate opening view and empty discussion lists', () => {
+  it('rejects a duplicate opening angle and empty discussion lists', () => {
     const scenario = cloneScenario();
     scenario.agenda = [
       {
@@ -204,8 +204,8 @@ describe('parseScenario', () => {
         ownerRole: 'chef',
         discussion: {
           openingViews: [
-            { attendee: 'Ada', view: 'One.' },
-            { attendee: 'Ada', view: 'Two.' },
+            { attendee: 'Ada', angle: 'One.' },
+            { attendee: 'Ada', angle: 'Two.' },
           ],
           tradeOffs: [],
         },
@@ -213,6 +213,29 @@ describe('parseScenario', () => {
     ];
     expect(() => parseScenario(scenario)).toThrow(/openingViews\[1\]\.attendee "Ada" is duplicated/);
     expect(() => parseScenario(scenario)).toThrow(/tradeOffs must be a non-empty array/);
+  });
+
+  it('accepts tellers and plain job words, and rejects a teller who is not an attendee', () => {
+    const scenario = cloneScenario();
+    (scenario.attendees as Array<Record<string, unknown>>)[0]!.spokenJob = 'on the line';
+    scenario.agenda = [{
+      title: 'Prep',
+      minutes: 5,
+      ownerRole: 'chef',
+      tellers: [{ attendee: 'Ada', why: 'you saw the stock arrive' }],
+    }];
+    const parsed = parseScenario(scenario);
+    expect(parsed.attendees[0]?.spokenJob).toBe('on the line');
+    expect(parsed.agenda[0]?.tellers).toEqual([{ attendee: 'Ada', why: 'you saw the stock arrive' }]);
+
+    (scenario.agenda as Array<Record<string, unknown>>)[0]!.tellers = [{ attendee: 'Nobody', why: 'you saw it' }];
+    expect(() => parseScenario(scenario)).toThrow(/tellers\[0\]\.attendee "Nobody" is not one of the attendees/);
+
+    (scenario.agenda as Array<Record<string, unknown>>)[0]!.tellers = [{ attendee: 'Ada', why: ' ' }];
+    expect(() => parseScenario(scenario)).toThrow(/tellers\[0\] must have a non-empty "attendee" and "why"/);
+
+    (scenario.attendees as Array<Record<string, unknown>>)[0]!.spokenJob = ' ';
+    expect(() => parseScenario(scenario)).toThrow(/attendees\[0\]\.spokenJob must be a non-empty string/);
   });
 
   it('accepts the v2 story fields and rejects bad ones', () => {
