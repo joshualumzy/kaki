@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Scenario, Task } from '@kaki/shared';
+import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 
 const mocks = vi.hoisted(() => ({
   useKaki: vi.fn(),
@@ -57,6 +57,18 @@ function mockTasks(tasks: Task[]): void {
   });
 }
 
+/** The role socket carries tasks; topic changes arrive only on the shared screen socket, as on the server. */
+function mockSockets({ screenEvents, tasks }: { screenEvents: KakiEvent[]; tasks: Map<string, Task> } & Record<string, unknown>): void {
+  mocks.useKaki.mockImplementation((audience: string) => ({
+    events: audience === 'screen' ? screenEvents : [],
+    tasks: audience === 'screen' ? new Map() : tasks,
+    connected: true,
+    rejections: [],
+    rejection: null,
+    send: vi.fn(),
+  }));
+}
+
 beforeEach(() => {
   mockTasks([task]);
 });
@@ -82,5 +94,70 @@ describe('task review card', () => {
     render(<ActiveRoleCards role="producer" viewer={{ name: 'Joshua' }} />);
 
     expect(screen.queryByText('Accepted decision')).toBeNull();
+  });
+});
+
+describe('earlier topic cards', () => {
+  it('collapses a settled earlier topic to one line and opens its draft on Review', () => {
+    const withAgenda: Scenario = {
+      ...scenario,
+      agenda: [
+        { title: 'Prep', minutes: 5, ownerRole: 'producer' },
+        { title: 'Stock', minutes: 5, ownerRole: 'producer' },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(withAgenda);
+    mockSockets({
+      screenEvents: [{
+        type: 'MEETING_RECORD_UPDATED',
+        audience: { kind: 'screen' },
+        payload: {
+          agendaIndex: 1, openQuestions: [], elapsedSeconds: 0, speakerTalkSeconds: {},
+          notetakerStatus: 'ok', quietRoles: [],
+        },
+      }],
+      tasks: new Map([[task.id, { ...task, agendaItemTitle: 'Prep' }]]),
+      connected: true,
+      rejections: [],
+      rejection: null,
+      send: vi.fn(),
+    });
+
+    render(<ActiveRoleCards role="producer" viewer={{ name: 'Joshua' }} />);
+
+    expect(screen.queryByText(task.draft!.body)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Review/ }));
+    expect(screen.getByText(task.draft!.body)).toBeTruthy();
+  });
+
+  it('keeps a card for the current topic fully open', () => {
+    const withAgenda: Scenario = {
+      ...scenario,
+      agenda: [
+        { title: 'Prep', minutes: 5, ownerRole: 'producer' },
+        { title: 'Stock', minutes: 5, ownerRole: 'producer' },
+      ],
+    };
+    mocks.useScenario.mockReturnValue(withAgenda);
+    mockSockets({
+      screenEvents: [{
+        type: 'MEETING_RECORD_UPDATED',
+        audience: { kind: 'screen' },
+        payload: {
+          agendaIndex: 1, openQuestions: [], elapsedSeconds: 0, speakerTalkSeconds: {},
+          notetakerStatus: 'ok', quietRoles: [],
+        },
+      }],
+      tasks: new Map([[task.id, { ...task, agendaItemTitle: 'Stock' }]]),
+      connected: true,
+      rejections: [],
+      rejection: null,
+      send: vi.fn(),
+    });
+
+    render(<ActiveRoleCards role="producer" viewer={{ name: 'Joshua' }} />);
+
+    expect(screen.getByText(task.draft!.body)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull();
   });
 });

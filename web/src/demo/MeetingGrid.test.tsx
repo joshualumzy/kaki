@@ -2,9 +2,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { KakiEvent, Task } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeStageTaskFor, cardFactForItem, MeetingGrid, reactionForColleague } from './MeetingGrid';
+import { activeStageTaskFor, cardFactForItem, MeetingGrid, reactionForColleague, tracksWithSpeakerFirst } from './MeetingGrid';
 
-const mocks = vi.hoisted(() => ({ screenEvents: [] as KakiEvent[], roleEvents: [] as KakiEvent[] }));
+const mocks = vi.hoisted(() => ({
+  screenEvents: [] as KakiEvent[],
+  roleEvents: [] as KakiEvent[],
+  screenTasks: new Map<string, Task>(),
+}));
 
 vi.mock('@livekit/components-react', () => ({
   ControlBar: () => null, GridLayout: () => null, ParticipantTile: () => null, RoomAudioRenderer: () => null,
@@ -23,7 +27,7 @@ vi.mock('../kaki', () => ({
     npcs: [{ attendee: 'Sam', role: 'host' }],
   }),
   useKaki: (audience: string) => audience === 'screen'
-    ? { events: mocks.screenEvents, tasks: [] }
+    ? { events: mocks.screenEvents, tasks: mocks.screenTasks }
     : { tasks: [], events: mocks.roleEvents },
 }));
 vi.mock('./TypeBar', () => ({ ConnectedTypeBar: () => null }));
@@ -62,6 +66,7 @@ function fact(agendaIndex: number, text: string): KakiEvent {
 }
 
 beforeEach(() => {
+  mocks.screenTasks.clear();
   mocks.roleEvents.splice(0, mocks.roleEvents.length);
   mocks.screenEvents.splice(0, mocks.screenEvents.length,
     line('Sam', 'What is your decision?'),
@@ -188,5 +193,35 @@ describe('AI colleague reactions', () => {
   it('does not infer a badge from decision or agreement words in transcripts', () => {
     const now = Date.now();
     expect(reactionForColleague('Sam', [line('Visitor', 'Good call, let us lock that in.')], now)).toBeUndefined();
+  });
+});
+
+describe('phone stage ordering and settled topic', () => {
+  function track(identity: string) {
+    return { participant: { identity } };
+  }
+
+  it('moves the speaking colleague to the front of the page', () => {
+    const tracks = [track('Sam'), track('Arjun'), track('Mei')];
+    expect(tracksWithSpeakerFirst(tracks, 'Mei').map((entry) => entry.participant.identity))
+      .toEqual(['Mei', 'Sam', 'Arjun']);
+    expect(tracksWithSpeakerFirst(tracks, 'Sam').map((entry) => entry.participant.identity))
+      .toEqual(['Sam', 'Arjun', 'Mei']);
+    expect(tracksWithSpeakerFirst(tracks, undefined).map((entry) => entry.participant.identity))
+      .toEqual(['Sam', 'Arjun', 'Mei']);
+  });
+
+  it('hides the Jump in hint once the current topic has a follow-up card to review', () => {
+    mocks.screenEvents.splice(0, mocks.screenEvents.length,
+      record(0),
+      line('Sam', 'What do you think about stock?'),
+      line('Chef', 'We should order more.'),
+    );
+    mocks.screenTasks.set('follow-up', {
+      id: 'follow-up', title: 'Share the decision', context: '', suggestedAssignee: 'chef',
+      agendaItemTitle: 'Prep', status: 'DRAFT_READY', updatedAt: '2026-11-13T10:05:00.000Z',
+    });
+    render(<MeetingGrid role="chef" />);
+    expect(screen.queryByRole('region', { name: /Your turn and starter questions/ })).toBeNull();
   });
 });

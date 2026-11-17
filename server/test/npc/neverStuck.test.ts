@@ -93,7 +93,7 @@ describe('never-stuck visitor path', () => {
       const scenario = { ...fullScenario, agenda };
       const replies = agenda.flatMap((_item, n) => [
         `${control('open')}\n${briefingColleague(scenario, role.id, agenda[n]!)}: Here is the problem.`,
-        `${control('settled', `Post decision ${n + 1}`)}\n${briefingColleague(scenario, role.id, agenda[n]!)}: Could you Post decision ${n + 1}?`,
+        `${control('settled', `Post decision ${n + 1}`)}\n${briefingColleague(scenario, role.id, agenda[n]!)}: That's the call on ${agenda[n]!.title}.`,
       ]);
       const h = meeting(scenario, role.id, replies, { observeDelayMs: 1500 });
       h.conversation.announce('Sam', 'Welcome to the huddle.');
@@ -107,7 +107,7 @@ describe('never-stuck visitor path', () => {
         await h.say(`I choose a workable plan for ${agenda[n]!.title}.`);
         expect(h.tasks[n]).toMatchObject({ agendaItemTitle: agenda[n]!.title, suggestedAssignee: role.id });
         expect(h.tasks[n]!.context).toContain(`I choose a workable plan for ${agenda[n]!.title}.`);
-        expect(h.spoken).toContain(`Could you Post decision ${n + 1}?`);
+        expect(h.spoken).toContain(`That's the call on ${agenda[n]!.title}.`);
         h.conversation.taskStatus(`task-${n}`, agenda[n]!.title, 'DISPATCHED', true);
         h.conversation.taskStatus(`task-${n}`, agenda[n]!.title, 'SYNCED', true);
         await vi.advanceTimersByTimeAsync(2);
@@ -238,7 +238,9 @@ describe('never-stuck visitor path', () => {
     expect(h.logs).toContainEqual(expect.stringMatching(/^\[tts\] retry Sam: voice down$/));
     expect(h.logs).toContainEqual(expect.stringMatching(/^\[tts\] shown as text: Sam$/));
     expect(h.logs.some((line) => line.includes('lost the whole reply'))).toBe(false);
+    // The bridge line plays, then the held silence nudge is written; let its target time pass.
     await vi.advanceTimersByTimeAsync(1_001);
+    await vi.advanceTimersByTimeAsync(1_000);
     await h.conversation.settled();
     expect(h.spoken).toContain('Are you still there?');
     h.conversation.close();
@@ -264,7 +266,7 @@ describe('never-stuck visitor path', () => {
     h.conversation.close();
   });
 
-  it('re-arms the silence prompt after the lost-you cue without repeating it while the models stay down', async () => {
+  it('asks a typist to send it again, not "say that again", when a typed request cannot be answered', async () => {
     vi.useFakeTimers();
     const role = humanRoles(fullScenario)[0]!.id;
     const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
@@ -277,13 +279,87 @@ describe('never-stuck visitor path', () => {
     });
     await h.say('Hello team.');
     expect(calls).toBe(2);
-    expect(h.spoken.filter((line) => line.includes('say that again'))).toHaveLength(1);
+    expect(h.spoken.filter((line) => line.includes('could you send it again'))).toHaveLength(1);
+    expect(h.spoken.some((line) => /lost you|say that again/i.test(line))).toBe(false);
     await vi.advanceTimersByTimeAsync(5_000);
     await h.conversation.settled();
     expect(calls).toBeGreaterThan(2);
     await vi.advanceTimersByTimeAsync(120_000);
     await h.conversation.settled();
+    expect(h.spoken.filter((line) => line.includes('could you send it again'))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('still asks a speaking visitor to say it again when the microphone line cannot be answered', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [], { silencePromptMs: 60_000 }, {
+      async *stream() {
+        throw new Error('LLM request failed: timed out after 20000 ms');
+      },
+    });
+    h.conversation.humanSpeech(true);
+    h.conversation.humanText('Hello team.');
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(0);
+    await h.conversation.settled();
     expect(h.spoken.filter((line) => line.includes('say that again'))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('lets the room hear the silence nudge about 22 seconds after it goes quiet', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: What do we tell people at the counter?`,
+      `${control('open')}\nSam: Are you still there?`,
+    ], { silencePromptMs: 22_000 });
+    await h.say('Hello team.');
+    const quietAt = Date.now();
+    await vi.advanceTimersByTimeAsync(19_000);
+    expect(h.spoken.some((line) => /still there/.test(line))).toBe(false);
+    // The nudge is being written, but the room must not look busy while the visitor thinks.
+    expect(h.states.at(-1)?.kind).not.toBe('thinking');
+    await vi.advanceTimersByTimeAsync(4_000);
+    await h.conversation.settled();
+    // The model left the name out; the nudge still names the visitor so they know the pause is theirs.
+    expect(h.spoken).toContain('Visitor, are you still there?');
+    expect(Date.now() - quietAt).toBeGreaterThanOrEqual(22_000);
+    expect(Date.now() - quietAt).toBeLessThanOrEqual(25_000);
+    h.conversation.close();
+  });
+
+  it('stops a colleague asking a new question in the reply that settles the call', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const colleague = briefingColleague(scenario, role, scenario.agenda[0]!);
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: What do you think?`,
+      `${control('settled', 'Share the decision')}\nSam: Understood, that's the call.\n${colleague}: So what do we tell people at the counter?`,
+    ]);
+    await h.say('Hello team.');
+    await h.say('We will use the window bar.');
+    expect(h.tasks).toHaveLength(1);
+    expect(h.spoken).not.toContain('So what do we tell people at the counter?');
+    expect(h.logs.some((line) => line.includes('dropped a new question after'))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('folds a question already on the table into the follow-up when the visitor settles', async () => {
+    vi.useFakeTimers();
+    const role = humanRoles(fullScenario)[0]!.id;
+    const scenario = { ...fullScenario, agenda: [fullScenario.agenda[0]!] };
+    const h = meeting(scenario, role, [
+      `${control('open')}\nSam: What do we tell people at the counter?`,
+      `${control('settled', 'Share the decision')}\nSam: Understood, that's the call.`,
+    ]);
+    await h.say('Hello team.');
+    await h.say('We will use the window bar.');
+    expect(h.tasks).toHaveLength(1);
+    expect(h.tasks[0]!.context).toContain('What do we tell people at the counter');
     h.conversation.close();
   });
 
@@ -659,7 +735,7 @@ describe('never-stuck visitor path', () => {
     await vi.advanceTimersByTimeAsync(0);
     await h.conversation.settled();
     expect(h.replies()).toBe(2);
-    expect(h.spoken.filter((line) => line.includes('say that again'))).toHaveLength(1);
+    expect(h.spoken.filter((line) => line.includes('could you send it again'))).toHaveLength(1);
     h.conversation.close();
   });
 

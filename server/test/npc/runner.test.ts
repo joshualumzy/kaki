@@ -62,7 +62,7 @@ describe('visitorDispatchLine', () => {
 });
 
 describe('startNpcRunner visitor pointer count', () => {
-  it('starts plainly on the first dispatch of each topic', async () => {
+  it('points at the card once per topic, however many dispatches arrive', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
@@ -86,9 +86,10 @@ describe('startNpcRunner visitor pointer count', () => {
         `Daniel, I've sent you a task: ${title}. Accept or decline it on your phone.`;
 
       runner.announce(dispatch('Send the note'));
-      await vi.waitFor(() => expect(transcript.some((line) => line.includes("the follow-up's on your screen"))).toBe(true));
+      await vi.waitFor(() => expect(transcript.filter((line) => line.includes("the follow-up's on your screen"))).toHaveLength(1));
       runner.announce(dispatch('Book the call'));
-      await vi.waitFor(() => expect(transcript.some((line) => line.includes("the follow-up's still on your screen"))).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(transcript.filter((line) => line.includes("on your screen"))).toHaveLength(1);
 
       runner.agendaMoved(scenario.agenda[1]?.title);
       runner.announce(dispatch('Check the till'));

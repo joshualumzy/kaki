@@ -74,6 +74,23 @@ export function reactionForColleague(
   return { emoji: latest.payload.emoji, label: 'Reacted', tone };
 }
 
+/**
+ * Put a speaking participant's track first so a paginated phone stage shows whoever is talking.
+ * The order is unchanged when the speaker is already on the visible page.
+ */
+export function tracksWithSpeakerFirst<T extends { participant: { identity: string } }>(
+  tracks: readonly T[],
+  speaker: string | undefined,
+): T[] {
+  if (speaker === undefined) return [...tracks];
+  const index = tracks.findIndex((track) => track.participant.identity === speaker);
+  if (index <= 0) return [...tracks];
+  const reordered = [...tracks];
+  const [speaking] = reordered.splice(index, 1);
+  if (speaking !== undefined) reordered.unshift(speaking);
+  return reordered;
+}
+
 interface Stage {
   scenario: Scenario;
   chunks: TranscriptChunk[];
@@ -226,6 +243,19 @@ export function MeetingGrid({
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(interval);
+  }, []);
+
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 700px)').matches
+      : false,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(max-width: 700px)');
+    const update = (): void => setNarrow(query.matches);
+    query.addEventListener?.('change', update);
+    return () => query.removeEventListener?.('change', update);
   }, []);
 
   const [npcState, setNpcState] = useState<NpcStateMessage>({ kind: 'idle' });
@@ -429,8 +459,12 @@ export function MeetingGrid({
         badge: myTask.status === 'DRAFT_READY' ? 'Kaki Action · Draft Ready' : 'Kaki Action · Assigned to You',
         text:
           myTask.status === 'DRAFT_READY'
-            ? `"${myTask.title}" is drafted. Review and click Approve & publish in Kaki →`
-            : `"${myTask.title}": click "Let Kaki do it" in Kaki →`,
+            ? narrow
+              ? `"${myTask.title}" is drafted — review in Kaki →`
+              : `"${myTask.title}" is drafted. Review and click Approve & publish in Kaki →`
+            : narrow
+              ? `"${myTask.title}" needs you in Kaki →`
+              : `"${myTask.title}": click "Let Kaki do it" in Kaki →`,
       };
     }
     const publishedTask = [...allTasks]
@@ -463,7 +497,37 @@ export function MeetingGrid({
       };
     }
     return undefined;
-  }, [screenTasks, events, role, hasColleagueBriefed, activeAgendaIndex, activeItem]);
+  }, [screenTasks, events, role, hasColleagueBriefed, activeAgendaIndex, activeItem, narrow]);
+
+  const speakingSpeaker = npcState.kind === 'speaking' ? npcState.speaker : undefined;
+  const gridTracks = useMemo(
+    () => (narrow ? tracksWithSpeakerFirst(tracks, speakingSpeaker) : tracks),
+    [narrow, tracks, speakingSpeaker],
+  );
+  const meetingWrappedUp = useMemo(
+    () => screenEvents.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
+    [screenEvents],
+  );
+  const topicSettled = useMemo(() => {
+    const title = activeItem?.title;
+    if (title === undefined) return false;
+    return [...screenTasks.values()].some(
+      (task) => task.agendaItemTitle === title && task.status !== 'SUGGESTED',
+    );
+  }, [screenTasks, activeItem]);
+  const wingmanBannerVisible =
+    wingmanGlideNudge !== undefined &&
+    wingmanGlideNudge.key !== dismissedWingmanGlideKey &&
+    !meetingWrappedUp &&
+    !topicSettled &&
+    !(narrow && activeStageToast !== undefined);
+  const stageToastVisible =
+    activeStageToast !== undefined &&
+    activeStageToast.key !== dismissedToastKey &&
+    !meetingWrappedUp &&
+    (!topicSettled || activeStageToast.key.startsWith('task:') || activeStageToast.key.startsWith('published:')) &&
+    !(!narrow && activeStageToast.key.startsWith('task:') && actionableMyTasksCount > 0) &&
+    (wingmanBannerVisible ? activeStageToast.key.startsWith('task:') : true);
 
   return (
     <StageContext.Provider value={stage}>
@@ -478,7 +542,7 @@ export function MeetingGrid({
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.
           </div>
         )}
-        {wingmanGlideNudge !== undefined && wingmanGlideNudge.key !== dismissedWingmanGlideKey && (
+        {wingmanBannerVisible && wingmanGlideNudge !== undefined && (
           <div
             className="kd-wingman-glide"
             role="status"
@@ -541,9 +605,7 @@ export function MeetingGrid({
             </div>
           </div>
         )}
-        {activeStageToast !== undefined &&
-          activeStageToast.key !== dismissedToastKey &&
-          (wingmanGlideNudge === undefined || wingmanGlideNudge.key === dismissedWingmanGlideKey || activeStageToast.key.startsWith('task:')) && (
+        {stageToastVisible && activeStageToast !== undefined && (
           <div
             className="kd-stage-toast"
             role="status"
@@ -575,7 +637,7 @@ export function MeetingGrid({
           </div>
         )}
         <div className="kd-grid-wrap">
-          <GridLayout tracks={tracks} style={{ height: '100%' }}>
+          <GridLayout tracks={gridTracks} style={{ height: '100%' }}>
             <CaptionedTile />
           </GridLayout>
         </div>
@@ -584,7 +646,7 @@ export function MeetingGrid({
             {voiceNote}
           </div>
         )}
-        {(idleAfterBriefing || showStarterIdeas) && (
+        {(idleAfterBriefing || showStarterIdeas) && !meetingWrappedUp && !topicSettled && (
           <div className="kd-turn-bar" role="region" aria-label="Your turn and starter questions">
             <div className="kd-turn-row">
               <span className="kd-turn-pill">

@@ -300,6 +300,33 @@ describe('streaming', () => {
     }
   });
 
+  it('ignores reasoning chunks but keeps the stream alive until the answer arrives', async () => {
+    const reasoning = `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'thinking' } }] })}\n\n`;
+    const llm = createOpenAiLlm({
+      ...options,
+      firstChunkMs: 20,
+      fetchImpl: async () => sseResponse([reasoning, delta('Hi'), 'data: [DONE]\n\n']),
+    });
+    expect(await collect(llm.stream!([]))).toEqual(['Hi']);
+  });
+
+  it('fails loudly when a stream ends without any content', async () => {
+    const llm = createOpenAiLlm({ ...options, fetchImpl: async () => sseResponse(['data: [DONE]\n\n']) });
+    await expect(collect(llm.stream!([]))).rejects.toThrow(/ended without content/);
+  });
+
+  it('names a reasoning-only reply instead of accepting it as an empty answer', async () => {
+    const reasoning = `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'thinking' } }] })}\n\n`;
+    const llm = createOpenAiLlm({ ...options, fetchImpl: async () => sseResponse([reasoning, 'data: [DONE]\n\n']) });
+    await expect(collect(llm.stream!([]))).rejects.toThrow(/reasoning only/);
+  });
+
+  it('reports an error the gateway put inside the stream instead of silently yielding nothing', async () => {
+    const failure = `data: ${JSON.stringify({ error: { message: 'model is overloaded' } })}\n\n`;
+    const llm = createOpenAiLlm({ ...options, fetchImpl: async () => sseResponse([failure, 'data: [DONE]\n\n']) });
+    await expect(collect(llm.stream!([]))).rejects.toThrow(/model is overloaded/);
+  });
+
   it('does not cut a slow but steady stream at the old whole-reply timeout', async () => {
     vi.useFakeTimers();
     const pieces = 6;
@@ -424,7 +451,7 @@ describe('reasoning control', () => {
         reasoningControl,
         fetchImpl: async (_url, init) => {
           bodies.push(JSON.parse(String(init?.body)));
-          return sseResponse(['data: [DONE]\n\n']);
+          return sseResponse([delta('ok'), 'data: [DONE]\n\n']);
         },
       });
     const assessment = [{ role: 'system' as const, content: '[KAKI_PROPOSAL_ASSESSMENT] rate this' }];
@@ -530,6 +557,22 @@ describe('fallback warnings', () => {
     expect(warnings).toHaveLength(1);
     expectSafeWarning(warnings[0]!);
     expect(warnings[0]).toContain('HTTP 402');
+  });
+
+  it('falls back when the primary stream ends without content', async () => {
+    stubFetch((url) =>
+      url.startsWith('https://secret-primary.example')
+        ? sseResponse(['data: [DONE]\n\n'])
+        : sseResponse([delta('from fallback'), 'data: [DONE]\n\n']),
+    );
+
+    const warnings = await warningFor(async () => {
+      const llm = llmFromEnv({ ...primary, ...fallback })!;
+      expect(await collect(llm.stream!([]))).toEqual(['from fallback']);
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('ended without content');
   });
 
   it('warns once when stream falls back before yielding anything', async () => {

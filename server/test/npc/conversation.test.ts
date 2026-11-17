@@ -710,6 +710,7 @@ describe('NpcConversation', () => {
     await h.say('Where is it?');
     h.calls.at(-1)?.push(
       "Ada: It's on your card on the right. " +
+        "Ada: It's on your card when you're ready. " +
         'Ada: Check your screen. ' +
         'Ada: your panel has the draft.',
     );
@@ -720,8 +721,8 @@ describe('NpcConversation', () => {
       await h.flush();
     }
     const said = h.transcript.map(([, text]) => text);
-    expect(said.some((text) => /your card on the right|check your screen|your panel has the draft/i.test(text))).toBe(false);
-    expect(h.logs.filter((text) => text.startsWith('[card] Ada:'))).toHaveLength(3);
+    expect(said.some((text) => /your card on the right|your card when|check your screen|your panel has the draft/i.test(text))).toBe(false);
+    expect(h.logs.filter((text) => text.startsWith('[card] Ada:'))).toHaveLength(4);
     h.conversation.close();
   });
 

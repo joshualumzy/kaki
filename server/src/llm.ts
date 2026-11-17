@@ -117,12 +117,32 @@ function usageOf(body: unknown): CompletionUsage | undefined {
   return { promptTokens: promptTokens as number, completionTokens: completionTokens as number, totalTokens: totalTokens as number };
 }
 
-// Pull choices[0].delta.content out of one streamed chunk.
-function deltaOf(chunk: unknown): string | undefined {
+interface StreamDelta {
+  content?: string;
+  /** Some gateways stream the model's thinking in its own field before any answer. */
+  reasoning?: string;
+  finishReason?: string;
+}
+
+// Pull the useful parts of one streamed chunk.
+function deltaOf(chunk: unknown): StreamDelta | undefined {
   if (!isObject(chunk) || !Array.isArray(chunk.choices)) return undefined;
   const [first] = chunk.choices as unknown[];
-  if (!isObject(first) || !isObject(first.delta)) return undefined;
-  return typeof first.delta.content === 'string' ? first.delta.content : undefined;
+  if (!isObject(first)) return undefined;
+  const delta = isObject(first.delta) ? first.delta : {};
+  return {
+    content: typeof delta.content === 'string' ? delta.content : undefined,
+    reasoning: typeof delta.reasoning_content === 'string' ? delta.reasoning_content
+      : typeof delta.reasoning === 'string' ? delta.reasoning : undefined,
+    finishReason: typeof first.finish_reason === 'string' ? first.finish_reason : undefined,
+  };
+}
+
+// A gateway can report a failure inside a 200 SSE stream instead of an HTTP error.
+function streamErrorOf(chunk: unknown): string | undefined {
+  if (!isObject(chunk) || !isObject(chunk.error)) return undefined;
+  const message = chunk.error.message;
+  return typeof message === 'string' && message.trim() !== '' ? message : 'unknown error';
 }
 
 /**
@@ -264,6 +284,9 @@ export function createOpenAiLlm({
       };
 
       let firstChunkSeen = false;
+      let sawContent = false;
+      let sawReasoning = false;
+      let finishReason: string | undefined;
       try {
         armDeadline(firstChunkMs, `the first chunk did not arrive within ${firstChunkMs} ms`);
         const response = await post(request, signal, () => (deadline.signal.aborted ? deadlineReason : undefined));
@@ -274,24 +297,49 @@ export function createOpenAiLlm({
         if (response.body === null) throw new LlmError('LLM reply has no body');
 
         const chunks = serverSentData(response.body)[Symbol.asyncIterator]();
+        const finish = (): void => {
+          if (sawContent) return;
+          throw new LlmError(
+            sawReasoning
+              ? `LLM stream ended without content (reasoning only${finishReason === undefined ? '' : `, finish_reason=${finishReason}`})`
+              : `LLM stream ended without content${finishReason === undefined ? '' : ` (finish_reason=${finishReason})`}`,
+          );
+        };
         for (;;) {
           if (firstChunkSeen) armDeadline(idleMs, `the reply stalled for ${idleMs} ms between chunks`);
           const next = await chunks.next();
-          if (next.done === true) return;
+          if (next.done === true) {
+            finish();
+            return;
+          }
           const data = next.value;
-          if (data === '[DONE]') return;
+          if (data === '[DONE]') {
+            finish();
+            return;
+          }
           let piece: unknown;
           try {
             piece = JSON.parse(data);
           } catch {
             continue; // a keep-alive or a partial line the gateway garbled: skip it
           }
-          const content = deltaOf(piece);
-          if (content === undefined || content.length === 0) continue;
+          const streamError = streamErrorOf(piece);
+          if (streamError !== undefined) throw new LlmError(`LLM stream error: ${streamError}`);
+          const delta = deltaOf(piece);
+          if (delta === undefined) continue;
+          if (delta.finishReason !== undefined) finishReason = delta.finishReason;
+          if (delta.reasoning !== undefined && delta.reasoning.length > 0) {
+            // Thinking is progress: keep the stream alive, but never say it aloud.
+            clearDeadline();
+            firstChunkSeen = true;
+            sawReasoning = true;
+          }
+          if (delta.content === undefined || delta.content.length === 0) continue;
           // Do not run the gap timer while the caller is playing what we just gave it.
           clearDeadline();
           firstChunkSeen = true;
-          yield content;
+          sawContent = true;
+          yield delta.content;
         }
       } catch (error) {
         if (error instanceof LlmError) throw error;

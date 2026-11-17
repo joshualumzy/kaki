@@ -72,6 +72,19 @@ function needsAction(task: Task): boolean {
   }
 }
 
+function taskStatusText(task: Task): string {
+  switch (task.status) {
+    case 'CLAIMED':
+      return task.mode === 'ACTION_AGENT' ? 'drafting…' : 'accepted';
+    case 'DRAFT_READY':
+      return 'reviewing draft…';
+    case 'RUNNING':
+      return 'publishing…';
+    default:
+      return task.status.replace('_', ' ').toLowerCase();
+  }
+}
+
 function openLivePlatformLabel(task: Task): string {
   switch (task.actionKind) {
     case 'mattermost_post':
@@ -463,19 +476,28 @@ export function ActiveRoleCards({
   viewer?: { name: string; seatName?: string };
 }) {
   const scenario = useScenario();
-  const { events, tasks, rejection, send } = useKaki(role);
+  const { tasks, rejection, send } = useKaki(role);
   const activeRef = useRef<HTMLDivElement>(null);
+  const expandedRef = useRef<HTMLDivElement>(null);
   const lastScrolledKey = useRef<string>('');
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
+  // Topic changes and the closing line go to the shared screen only, never to a role's own socket.
+  const { events: screenEvents } = useKaki('screen');
   let currentAgendaTitle: string | undefined;
   let meetingEnded = false;
-  for (const event of events) {
+  for (const event of screenEvents) {
     if (event.type === 'MEETING_RECORD_UPDATED') {
       currentAgendaTitle = scenario.agenda[event.payload.agendaIndex]?.title;
     } else if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') {
       meetingEnded = true;
     }
   }
+
+  const isEarlierTopicTask = (task: Task): boolean =>
+    currentAgendaTitle !== undefined &&
+    task.agendaItemTitle !== undefined &&
+    task.agendaItemTitle !== currentAgendaTitle;
 
   const allTasks = [...tasks.values()];
   const currentTasks = allTasks
@@ -494,6 +516,8 @@ export function ActiveRoleCards({
       return true;
     })
     .sort((left, right) => {
+      const earlierDiff = Number(isEarlierTopicTask(left)) - Number(isEarlierTopicTask(right));
+      if (earlierDiff !== 0) return earlierDiff;
       const rankDiff = actionStepRank(left) - actionStepRank(right);
       if (rankDiff !== 0) return rankDiff;
       return updatedAtMs(right) - updatedAtMs(left);
@@ -517,6 +541,12 @@ export function ActiveRoleCards({
     activeRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }, [scrollTriggerKey]);
 
+  useEffect(() => {
+    if (expandedTaskId === null) return;
+    // The expanded draft can be taller than the dock on a small window: show its action button, not half of it.
+    expandedRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+  }, [expandedTaskId]);
+
   if (currentTasks.length === 0 && rejection === null) {
     return null;
   }
@@ -531,16 +561,57 @@ export function ActiveRoleCards({
           <p className="eyebrow phone-section-eyebrow">
             Needs you now{currentTasks.length > 1 ? ` (${currentTasks.length})` : ''}
           </p>
-          {currentTasks.map((item) => (
-            <TaskCard
-              key={taskKey(item)}
-              task={item}
-              scenario={scenario}
-              send={send}
-              rejection={rejection}
-              viewer={viewer}
-            />
-          ))}
+          {currentTasks.map((item) => {
+            if (!isEarlierTopicTask(item)) {
+              return (
+                <TaskCard
+                  key={taskKey(item)}
+                  task={item}
+                  scenario={scenario}
+                  send={send}
+                  rejection={rejection}
+                  viewer={viewer}
+                />
+              );
+            }
+            const expanded = expandedTaskId === item.id;
+            if (!expanded) {
+              return (
+                <button
+                  key={taskKey(item)}
+                  type="button"
+                  className="kd-role-pending-line"
+                  aria-expanded="false"
+                  onClick={() => setExpandedTaskId(item.id)}
+                >
+                  <span className="kd-role-pending-title">{item.title}</span>
+                  <span className="kd-role-pending-status">{taskStatusText(item)}</span>
+                  <span className="kd-role-pending-action">Review</span>
+                </button>
+              );
+            }
+            return (
+              <div key={taskKey(item)} ref={expandedRef} className="kd-role-pending kd-role-pending-open">
+                <button
+                  type="button"
+                  className="kd-role-pending-line"
+                  aria-expanded="true"
+                  onClick={() => setExpandedTaskId(null)}
+                >
+                  <span className="kd-role-pending-title">{item.title}</span>
+                  <span className="kd-role-pending-status">{taskStatusText(item)}</span>
+                  <span className="kd-role-pending-action">Hide</span>
+                </button>
+                <TaskCard
+                  task={item}
+                  scenario={scenario}
+                  send={send}
+                  rejection={rejection}
+                  viewer={viewer}
+                />
+              </div>
+            );
+          })}
         </section>
       )}
     </div>

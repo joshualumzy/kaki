@@ -1,5 +1,34 @@
 import type { ActionKind } from '@kaki/shared';
 
+/**
+ * Remembers which agenda topics have already had their one spoken pointer at the visitor's card.
+ * Every path that points at the card claims a topic here first, so a topic is pointed at once even
+ * when a host cue and the review timer race each other.
+ */
+export class CardPointer {
+  private readonly pointed = new Set<string>();
+
+  hasPointed(topic: string | undefined): boolean {
+    return topic !== undefined && this.pointed.has(topic);
+  }
+
+  /** Claim the single pointer for a topic. False means another path already pointed at it. */
+  claim(topic: string | undefined): boolean {
+    if (topic === undefined || this.pointed.has(topic)) return false;
+    this.pointed.add(topic);
+    return true;
+  }
+
+  /** Give the claim back when the line was never spoken, so a later path can still point. */
+  release(topic: string | undefined): void {
+    if (topic !== undefined) this.pointed.delete(topic);
+  }
+
+  clear(): void {
+    this.pointed.clear();
+  }
+}
+
 function whoPrefix(name: string | undefined): string {
   return name === undefined || name.trim() === '' ? '' : `${name.trim()}, `;
 }

@@ -666,11 +666,22 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       spoken = spoken.replace(new RegExp(`\\b${escapedSeat}\\b`, 'g'), visitor.name);
     }
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
+    let releaseCardClaimIfDropped = false;
     if (isTaskDispatch) {
-      const alreadyPointed = conversation?.cardPointedOnCurrentTopic() === true;
+      // Every path that points at the card claims the topic first, so a host cue and the review timer
+      // can race without Sam saying the same thing twice.
+      if (conversation?.claimCardPointerOnCurrentTopic() === false) {
+        log(`skipped ${hostName}'s card cue "${spoken}": the visitor was already pointed to their card`);
+        return;
+      }
       visitorTaskDispatches += 1;
+      releaseCardClaimIfDropped = true;
       const dispatchedName = visitor?.name?.trim() || /^([^,]+),/.exec(text)?.[1]?.trim();
-      spoken = visitorDispatchLine(dispatchedName, visitorTaskDispatches + (alreadyPointed ? 1 : 0));
+      const topicTitle = conversation?.currentTopicTitle();
+      const topicIndex = topicTitle === undefined
+        ? undefined
+        : scenario.agenda.findIndex((item) => item.title === topicTitle);
+      spoken = visitorDispatchLine(dispatchedName, 1, topicIndex === undefined || topicIndex < 0 ? undefined : topicIndex);
     }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
@@ -691,7 +702,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       hostName,
       spoken,
       undefined,
-      onDone,
+      releaseCardClaimIfDropped
+        ? (spoken) => {
+            if (!spoken) conversation?.releaseCardPointerOnCurrentTopic();
+            onDone?.(spoken);
+          }
+        : onDone,
       timeoutMatch === null ? shouldStillSpeak : () =>
         conversation?.shouldSkipOvertimeCue() !== true && (shouldStillSpeak?.() ?? true),
     );

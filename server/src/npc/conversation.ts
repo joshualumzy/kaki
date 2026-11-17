@@ -1,7 +1,7 @@
 import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic, liveWrapUpLine, spokenAgendaName } from '../host/opening';
-import { visitorCardPointerLine } from './cardPointer';
+import { CardPointer, visitorCardPointerLine } from './cardPointer';
 import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, replyShapeForTurn, replyShapeInstruction, responsibilityFor, TurnParser, type HumanInfo, type ReplyShape, type Utterance } from './director';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
@@ -68,7 +68,9 @@ export const DEFAULT_ASK_DELAY_MS = 3000;
 /** How long after an item opens, with the person silent, before the characters start talking it through. */
 export const DEFAULT_OBSERVE_DELAY_MS = 1500;
 /** How long the room waits in silence on the person's item before the host gently checks in by name. */
-export const DEFAULT_SILENCE_PROMPT_MS = 28_000;
+export const DEFAULT_SILENCE_PROMPT_MS = 22_000;
+/** Start writing the first silence nudge this long before it should be heard, so model time does not delay it. */
+export const DEFAULT_SILENCE_NUDGE_LEAD_MS = 15_000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
@@ -185,7 +187,7 @@ function assignedByGuest(text: string, name: string): boolean {
  * "your card at the counter" in a kopitiam still get through.
  */
 const MODEL_CARD_MENTION_RE =
-  /\b(?:your (?:card|screen|panel)(?=\s*(?:$|[.,!?]|\b(?:on the right|there|ready|has|holds|shows|contains|whenever)\b))|(?:card|screen|panel) on the right|right-hand panel)\b/i;
+  /\b(?:your (?:card|screen|panel)(?=\s*(?:$|[.,!?]|\b(?:on the right|there|ready|has|holds|shows|contains|whenever|when)\b))|(?:card|screen|panel) on the right|right-hand panel)\b/i;
 
 /** A verb for passing the decision on to other people; a colleague's own task uses none of these. */
 const SHARE_VERB = '(?:post|send|share|email|message|put|drop|pop|circulate|announce|broadcast|text)';
@@ -276,9 +278,13 @@ const HOST_IMPERATIVE_START_RE =
 /** The host's sentence names the visitor or says "you", so it is an instruction to them and not a confirmation. */
 function addressesVisitor(text: string, visitorName: string | undefined): boolean {
   if (/\byou(?:['’]ll|['’]re|['’]ve)?\b|\byour\b/i.test(text)) return true;
-  const name = visitorName?.trim();
-  if (name === undefined || name.length === 0) return false;
-  return new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text);
+  return visitorName !== undefined && namesVisitor(text, visitorName);
+}
+
+/** True when the sentence says the visitor's name (not just "you"). */
+function namesVisitor(text: string, visitorName: string): boolean {
+  const name = visitorName.trim();
+  return name.length > 0 && new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text);
 }
 
 /** True when the sentence names one of the colleagues, so it hands them a task rather than instructing the visitor. */
@@ -299,7 +305,10 @@ export interface ConversationOptions {
   reviewWindowMs?: number;
   openLiveGraceMs?: number;
   observeDelayMs?: number;
+  /** When the visitor should HEAR the silence nudge, counted from the end of the room's speech. */
   silencePromptMs?: number;
+  /** How much of that wait is used to write the nudge, so the model has it ready on time. */
+  silenceNudgeLeadMs?: number;
   bargeInMs?: number;
   /** Pause after an agenda announcement before the host asks the person for their decision. */
   askDelayMs?: number;
@@ -324,6 +333,8 @@ export interface ConversationOptions {
 
 interface Turn {
   topic?: string;
+  /** Do not start playing this turn before this time (the silence nudge is written early and held). */
+  notBefore?: number;
   abort: AbortController;
   spoken: Array<{ utterance: Utterance; complete: boolean }>;
   enqueued: Utterance[];
@@ -430,6 +441,10 @@ export class NpcConversation<Clip> {
   /** The visitor's ideas on this topic, oldest first, so the first one is never accepted outright. */
   private readonly proposalsByTopic = new Map<string | undefined, string[]>();
   private humanSettledOnCurrentItem = false;
+  /** The last thing the room said, when it was a question left open while the visitor made their call. */
+  private openQuestionToGuest: string | undefined;
+  /** That question, captured just before the visitor's latest line, so settling can fold it into the follow-up. */
+  private questionBeforeGuestLine: string | undefined;
   private topicOpenedAt = Date.now();
   private budgetOffered = false;
   private budgetRecoveryPending = false;
@@ -449,8 +464,8 @@ export class NpcConversation<Clip> {
   private readonly reviewActionKind = new Map<string, ActionKind>();
   /** Topics that have already had their one card nudge. */
   private readonly cardNudgedTopics = new Set<string>();
-  /** Topics where the host has already pointed the visitor at their card. */
-  private readonly cardPointedTopics = new Set<string>();
+  /** The single owner of the once-per-topic card pointer, shared by every path that points. */
+  private readonly cardPointer = new CardPointer();
   /** Topics the visitor parked or tabled, so moving on needs no "Let's leave it there" wrap-up. */
   private readonly parkedTopics = new Set<string>();
   /** Lines the room actually heard, for repeat checks and the per-speaker prompt. */
@@ -478,6 +493,8 @@ export class NpcConversation<Clip> {
   /** The agenda item the meeting is on now (the first until the host announces another). */
   private agendaItem: string | undefined;
   private humanTalking = false;
+  /** Whether the visitor's most recent accepted line was typed, so recovery never asks a typist to say it again. */
+  private lastHumanInputWasTyped = false;
   private recognizingSpeech = false;
   private recognizingTimer: ReturnType<typeof setTimeout> | undefined;
   private respondTimer: ReturnType<typeof setTimeout> | undefined;
@@ -541,7 +558,7 @@ export class NpcConversation<Clip> {
     this.proposalsByTopic.clear();
     this.volunteersByTopic.clear();
     this.cardNudgedTopics.clear();
-    this.cardPointedTopics.clear();
+    this.cardPointer.clear();
     this.parkedTopics.clear();
     this.reviewActionKind.clear();
     this.usedGuestInvites.clear();
@@ -579,6 +596,7 @@ export class NpcConversation<Clip> {
     this.pausedScripted = undefined;
     abandonedScripted?.onDone?.(false);
     this.ports.log?.(`typed "${typed}"`);
+    this.lastHumanInputWasTyped = true;
     this.chain = 0;
     this.bridgedStatementOnTurn = false;
     this.recoveryCueSpoken = false;
@@ -804,6 +822,7 @@ export class NpcConversation<Clip> {
     }
 
     const accepted = decision.text ?? heard;
+    this.lastHumanInputWasTyped = false;
     if (this.turn !== undefined && LISTENER_BACKCHANNEL_WHILE_SPEAKING_RE.test(accepted)) {
       this.ports.log?.(`ignored listener backchannel "${accepted}" while an AI colleague is speaking`);
       return;
@@ -915,8 +934,19 @@ export class NpcConversation<Clip> {
 
   /** True when the host has already pointed the visitor at their card on the topic the meeting is on now. */
   cardPointedOnCurrentTopic(): boolean {
-    const title = this.currentItem()?.title;
-    return title !== undefined && this.cardPointedTopics.has(title);
+    return this.cardPointer.hasPointed(this.currentItem()?.title);
+  }
+
+  /**
+   * Claim the single card pointer for the current topic. False means another path already pointed at it,
+   * so the caller must stay quiet. Release it if the line is never spoken.
+   */
+  claimCardPointerOnCurrentTopic(): boolean {
+    return this.cardPointer.claim(this.currentItem()?.title);
+  }
+
+  releaseCardPointerOnCurrentTopic(): void {
+    this.cardPointer.release(this.currentItem()?.title);
   }
 
   /** True when the current topic has, or is about to have, a follow-up card for the visitor. */
@@ -1033,6 +1063,7 @@ export class NpcConversation<Clip> {
     if (isVolunteer(utterance.text)) {
       this.volunteersByTopic.set(topic, new Set([...(this.volunteersByTopic.get(topic) ?? []), utterance.speaker]));
     }
+    this.openQuestionToGuest = utterance.text.trim().endsWith('?') ? utterance.text.trim() : undefined;
     const now = Date.now();
     this.recentSpoken.push({ speaker: utterance.speaker, text: utterance.text, at: now, topic });
     const cutoff = now - DEFAULT_REPEAT_WINDOW_MS * 2;
@@ -1042,9 +1073,7 @@ export class NpcConversation<Clip> {
   /** Remember when the host points the visitor at their follow-up card, so the review nudge does not repeat it. */
   private noteCardPoint(utterance: Utterance): void {
     if (utterance.speaker !== this.facilitatorOrCoHost() || !CARD_POINT_RE.test(utterance.text)) return;
-    const topic = this.currentItem()?.title;
-    if (topic === undefined) return;
-    this.cardPointedTopics.add(topic);
+    this.cardPointer.claim(this.currentItem()?.title);
   }
 
   /** Resolves when no turn is running. */
@@ -1178,6 +1207,7 @@ export class NpcConversation<Clip> {
   private noteHumanLine(text: string): void {
     const topic = this.currentItem()?.title;
     this.guestLinesByTopic.set(topic, [...(this.guestLinesByTopic.get(topic) ?? []), text]);
+    this.questionBeforeGuestLine = this.openQuestionToGuest;
     this.humanLines += 1;
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
     if (!this.humanSettledOnCurrentItem && !this.budgetOffered &&
@@ -1213,12 +1243,16 @@ export class NpcConversation<Clip> {
     const title = chosen?.title ?? `Share the decision on ${item.title}`;
     this.reviewActionKind.set(item.title, kind);
     const decision = this.decisionLines.join(' ');
+    const openQuestion = this.questionBeforeGuestLine;
+    this.questionBeforeGuestLine = undefined;
     const reopening = this.reopenedTitle === item.title;
     const generation = this.memoryGeneration;
     const previousMemory = this.memory.snapshot();
     this.memory.decision(item.title, decision);
     const input: SuggestInput = {
-      title, context: `Agenda: ${item.title}. Visitor decision: ${decision}`,
+      title,
+      context: `Agenda: ${item.title}. Visitor decision: ${decision}` +
+        (openQuestion === undefined ? '' : ` Open question to carry into the follow-up: ${openQuestion}`),
       suggestedAssignee: role, actionKind: kind, agendaItemTitle: item.title,
       decisionSource: decision,
     };
@@ -1368,19 +1402,24 @@ export class NpcConversation<Clip> {
       if (host === undefined) return;
       if (!this.reviewNudged && nudgeAt < total) {
         this.reviewNudged = true;
-        if (this.cardNudgedTopics.has(title) || this.cardPointedTopics.has(title)) {
+        if (this.cardNudgedTopics.has(title) || this.cardPointer.hasPointed(title)) {
           this.ports.log?.(`skipped the card nudge on "${title}": the visitor was already pointed to their card`);
           this.startReviewWindow();
           return;
         }
         const visitor = this.human?.name ?? 'You';
+        if (!this.cardPointer.claim(title)) {
+          this.ports.log?.(`skipped the card nudge on "${title}": the visitor was already pointed to their card`);
+          this.startReviewWindow();
+          return;
+        }
         this.announce(host, this.cardNudgeLine(visitor, title),
           DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
             if (spoken) {
               this.cardNudgedTopics.add(title);
-              this.cardPointedTopics.add(title);
               this.startReviewWindow();
             } else {
+              this.cardPointer.release(title);
               this.reviewNudged = false;
               this.startReviewWindow();
             }
@@ -1394,7 +1433,7 @@ export class NpcConversation<Clip> {
         return;
       }
       const wrapUp = liveWrapUpLine(this.options.scenario, title);
-      const warning = this.cardPointedTopics.has(title)
+      const warning = this.cardPointer.hasPointed(title)
         ? wrapUp
         : `${wrapUp} The follow-up's on your card whenever you're ready.`;
       this.announce(host, warning,
@@ -1522,6 +1561,8 @@ export class NpcConversation<Clip> {
     if (this.closed || this.human === undefined) return;
     this.linesAtMove = this.humanLines;
     this.humanSettledOnCurrentItem = false;
+    this.openQuestionToGuest = undefined;
+    this.questionBeforeGuestLine = undefined;
     this.wingmanHintActive = false;
     this.decisionLines = [];
     this.proposalsByTopic.clear();
@@ -1783,7 +1824,11 @@ export class NpcConversation<Clip> {
       !this.humanSettledOnCurrentItem &&
       this.humanLines - this.linesAtMove <= 1;
     const baseMs = this.options.silencePromptMs ?? DEFAULT_SILENCE_PROMPT_MS;
-    const delayMs = shouldBridgeStatement ? Math.min(baseMs, 10_000) : baseMs;
+    // Write the first nudge early, then hold it until the visitor should hear it. Tests with a small
+    // silencePromptMs start the write at once and still hear it at that moment.
+    const leadMs = Math.min(baseMs, this.options.silenceNudgeLeadMs ?? DEFAULT_SILENCE_NUDGE_LEAD_MS);
+    const delayMs = shouldBridgeStatement ? Math.min(baseMs, 10_000) : Math.max(0, baseMs - leadMs);
+    const scheduledAt = Date.now();
     this.silenceTimer = setTimeout(() => {
       this.silenceTimer = undefined;
       if (
@@ -1838,7 +1883,7 @@ export class NpcConversation<Clip> {
           this.pending.push(
             `[${this.human.name} is taking a moment to think on "${spokenTitle}". Begin your reply with "${host}:". ${host} checks in with ${this.human.name} in one short, warm, plain-English sentence ${checkInContext} — never prescribe an answer, never refer to "the right panel" or UI elements, and do not mention this note.]`,
           );
-          this.startTurn();
+          this.startTurn(false, false, undefined, scheduledAt + baseMs);
         } else {
           this.announce(
             host,
@@ -1881,7 +1926,7 @@ export class NpcConversation<Clip> {
     }, this.speakerGapMs);
   }
 
-  private startTurn(retry = false, recoveryRetry = false, prefetched?: PrefetchedReply): void {
+  private startTurn(retry = false, recoveryRetry = false, prefetched?: PrefetchedReply, notBefore?: number): void {
     if (this.closed || this.paused) return;
     const text = retry ? this.lastText : this.pending.join(' ').trim();
     this.pending = [];
@@ -1930,6 +1975,7 @@ export class NpcConversation<Clip> {
       finalized: false,
       done: Promise.resolve(),
       startedAt: reuse ? prefetched!.startedAt : Date.now(),
+      ...(notBefore === undefined ? {} : { notBefore }),
       forced,
       recoveryRetry,
       shape,
@@ -2189,8 +2235,12 @@ export class NpcConversation<Clip> {
       return true;
     }
     const who = this.human?.name;
-    const line =
-      who === undefined
+    // A typist did not "say" anything and nothing more is coming, so ask them to send it again.
+    const line = this.lastHumanInputWasTyped
+      ? who === undefined
+        ? 'Sorry, I missed that one — could you send it again?'
+        : `Sorry, ${who}, I missed that one — could you send it again?`
+      : who === undefined
         ? 'Sorry, I lost you for a second there — could you say that again?'
         : `Sorry, ${who}, I lost you for a second there — could you say that again?`;
     this.recoveryCueSpoken = true;
@@ -2223,7 +2273,10 @@ export class NpcConversation<Clip> {
     const queue = new SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>();
     signal.addEventListener('abort', () => queue.close(), { once: true });
 
-    this.ports.emitState({ kind: 'thinking', canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
+    // A nudge written early stays invisible: the room must not look busy while the visitor is still thinking.
+    if (turn.notBefore === undefined) {
+      this.ports.emitState({ kind: 'thinking', canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
+    }
     const player = this.playAll(turn, queue);
 
     const handover = new HandoverGuard(this.names, this.human?.name);
@@ -2317,6 +2370,10 @@ export class NpcConversation<Clip> {
           return;
         }
       }
+      if (turn.settle !== undefined && /\?["')\]]*$/.test(trimmed)) {
+        this.ports.log?.(`[settle] ${utterance.speaker}: dropped a new question after the visitor's call: "${trimmed}"`);
+        return;
+      }
       if (MODEL_CARD_MENTION_RE.test(trimmed)) {
         this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; the handoff line does that: "${trimmed}"`);
         return;
@@ -2337,6 +2394,13 @@ export class NpcConversation<Clip> {
             return;
           }
         }
+      }
+      // The silence nudge (the only turn held with notBefore) must name the visitor, so a first-timer
+      // knows the pause is theirs to fill; the model sometimes drops the name.
+      if (turn.notBefore !== undefined && turn.enqueued.length === 0 && this.human !== undefined &&
+          !namesVisitor(trimmed, this.human.name)) {
+        trimmed = `${this.human.name}, ${/^I\b/.test(trimmed) ? trimmed : trimmed[0]!.toLowerCase() + trimmed.slice(1)}`;
+        utterance = { speaker: utterance.speaker, text: trimmed };
       }
       if (turn.firstSentenceAt === undefined) {
         turn.firstSentenceAt = Date.now();
@@ -2635,8 +2699,15 @@ export class NpcConversation<Clip> {
     transcribe = true,
   ): Promise<void> {
     const { signal } = turn.abort;
+    let heldForTarget = false;
     let previousSpeaker: string | undefined;
     for await (const { utterance, clip } of queue) {
+      if (!heldForTarget && turn.notBefore !== undefined) {
+        heldForTarget = true;
+        const waitMs = turn.notBefore - Date.now();
+        if (waitMs > 0) await this.wait(waitMs, signal);
+        if (signal.aborted) return;
+      }
       const audio = await clip;
       if (signal.aborted) return;
       const textOnly = audio === undefined;
