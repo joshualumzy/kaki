@@ -536,18 +536,30 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     const afterRobot = Math.max(from, lastRobotLineIndex(index) + 1);
     const fresh = transcript.slice(afterRobot).filter((line) =>
       line.agendaIndex === index && !/robot visitor/i.test(line.speaker) && !reacted.has(lineKey(line)));
-    for (const line of fresh) {
+    for (const [position, line] of fresh.entries()) {
+      // A host line can arrive split into sentences ("Robot Visitor, so your call is X." then "Is that right?"):
+      // read the question together with the same speaker's sentence just before it.
+      const before = fresh[position - 1];
+      const asked = before !== undefined && before.speaker === line.speaker ? `${before.text} ${line.text}` : line.text;
+      const isLatestQuestion = latest !== undefined && lineKey(latest) === lineKey(line) &&
+        /\?\s*$/.test(line.text.trim()) && /robot visitor/i.test(asked);
+      // A real guest answers Sam's read-back of their own call; without it the topic can never settle.
+      const readBack = isLatestQuestion && decision !== undefined &&
+        /\b(?:your call|is that right|shall we go with)\b/i.test(asked);
       let reply: string | undefined;
+      let intent = `Reply to this latest colleague line and move the discussion forward: ${asked}`;
       if (/\brecap\b/i.test(line.text)) reply = `No need, here's my call: ${decision ?? "let's table it and settle it in the follow-up."}`;
       else if (isActionRequest(line.text)) reply = 'Yes, please draft that for me.';
-      else if (latest !== undefined && lineKey(latest) === lineKey(line) &&
-        /\?\s*$/.test(line.text.trim()) && /robot visitor/i.test(line.text)) {
+      else if (readBack) {
+        reply = "Yes, that's my call.";
+        intent = `Sam is checking your call back to you: "${asked}". If it matches what you decided, say yes in a few words; if it does not, correct it in one short line.`;
+      } else if (isLatestQuestion) {
         reply = decision === undefined ? "Let's settle that in the follow-up." : `My call stands: ${reasonFor(title)}`;
       }
       if (reply === undefined) { reacted.add(lineKey(line)); continue; }
-      if (robotLineCount(index) >= 4) { reacted.add(lineKey(line)); return; }
+      if (robotLineCount(index) >= (readBack ? 6 : 4)) { reacted.add(lineKey(line)); return; }
       if (!await quietBeforeTyping(index)) return;
-      if (await speak(reply, `Reply to this latest colleague line and move the discussion forward: ${line.text}`)) reacted.add(lineKey(line));
+      if (await speak(reply, intent)) reacted.add(lineKey(line));
       return;
     }
   }
