@@ -543,9 +543,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       const asked = before !== undefined && before.speaker === line.speaker ? `${before.text} ${line.text}` : line.text;
       const isLatestQuestion = latest !== undefined && lineKey(latest) === lineKey(line) &&
         /\?\s*$/.test(line.text.trim()) && /robot visitor/i.test(asked);
-      // A real guest answers Sam's read-back of their own call; without it the topic can never settle.
-      const readBack = isLatestQuestion && decision !== undefined &&
-        /\b(?:your call|is that right|shall we go with)\b/i.test(asked);
+      // A real guest answers Sam's read-back of their own call; without it the topic can never settle. Sam writes
+      // the read-back in his own words and may not name the guest, so any question from him after the robot's
+      // call counts; the persona model is told to correct it if it does not match.
+      const hostQuestion = latest !== undefined && lineKey(latest) === lineKey(line) &&
+        /\?\s*$/.test(line.text.trim()) && line.speaker === hostName;
+      const readBack = hostQuestion && decision !== undefined && robotLineCount(index) > 0;
       let reply: string | undefined;
       let intent = `Reply to this latest colleague line and move the discussion forward: ${asked}`;
       if (/\brecap\b/i.test(line.text)) reply = `No need, here's my call: ${decision ?? "let's table it and settle it in the follow-up."}`;
