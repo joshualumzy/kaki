@@ -689,8 +689,14 @@ export class NpcConversation<Clip> {
   private replyRun: OpeningRun | undefined;
   /** One reader call per finished guest line, started as soon as the line is final. */
   private readonly readingJobs = new Map<string, Promise<void>>();
-  /** The AI speaker whose line was playing when each guest line was heard, for the reader's backchannel rule. */
-  private readonly guestLineContext = new Map<string, { saidWhileSpeaking?: string }>();
+  /**
+   * What the room looked like just before each guest line was recorded: the AI speaker whose line was playing
+   * (for the reader's backchannel rule) and the open question the guest was answering.
+   */
+  private readonly guestLineContext = new Map<string, {
+    saidWhileSpeaking?: string;
+    openQuestion?: { from: string; to?: string; text: string };
+  }>();
   /**
    * Bumped whenever the topic moves on, reopens, is settled or closes unresolved. A reading that finishes
    * against an older epoch belongs to a topic the room has left, so it changes nothing.
@@ -1668,6 +1674,9 @@ export class NpcConversation<Clip> {
     // The one-speaker path waits for the reader to say what kind of line this is; it never guesses from words.
     const legacy = this.replyMode === 'legacy';
     const addressed = legacy ? addressedCharacter(text, this.options.scenario.npcs ?? []) : undefined;
+    // Capture the question as it stood before this line: recording the guest line clears it from the view
+    // until the reader says whether the line answers, so afterwards the reader would be told there was none.
+    const openQuestion = legacy ? undefined : this.meetingState.view(Date.now()).openQuestion;
     this.meetingState.lineStarted({
       id: eventId,
       speaker: guest,
@@ -1684,7 +1693,12 @@ export class NpcConversation<Clip> {
       const saidWhileSpeaking = turn === undefined
         ? undefined
         : turn.spoken.at(-1)?.utterance.speaker ?? turn.planned?.lastUtterance?.speaker ?? turn.scriptedUtterance?.speaker;
-      if (saidWhileSpeaking !== undefined) this.guestLineContext.set(eventId, { saidWhileSpeaking });
+      this.guestLineContext.set(eventId, {
+        ...(saidWhileSpeaking === undefined ? {} : { saidWhileSpeaking }),
+        ...(openQuestion === undefined
+          ? {}
+          : { openQuestion: { from: openQuestion.from, to: openQuestion.to, text: openQuestion.text } }),
+      });
       void this.readingJob(eventId);
     }
     return eventId;
@@ -2030,6 +2044,8 @@ export class NpcConversation<Clip> {
     this.clearDeferredFollowUpTimer();
     if (this.topicBudgetTimer !== undefined) clearTimeout(this.topicBudgetTimer);
     this.topicBudgetTimer = undefined;
+    // A budget ask owed to the topic being closed must never fire on the next one.
+    this.budgetRecoveryPending = false;
     this.meetingState.setConfirmationAsked(false);
     this.meetingState.setOfferAsked(false);
   }
@@ -2053,45 +2069,45 @@ export class NpcConversation<Clip> {
       }, undefined, { endsOnCutoff: true });
   }
 
-  /** Settle once and create the matching visitor task through the task store. */
+  /**
+   * Settle once and create the matching visitor task through the task store. In one-speaker mode it returns
+   * whether a confirmation or offer was actually queued, so the budget is not spent on a call it never made.
+   */
   lockDecision(
     followUp?: { kind: ActionKind; title: string },
     options: { timeout?: boolean; confirmed?: boolean } = {},
-  ): void {
+  ): boolean {
     const item = this.currentItem();
     const human = this.human;
     if (this.closed || this.concluded || item === undefined || human === undefined ||
-        this.humanSettledOnCurrentItem || this.decisionLines.length === 0) return;
+        this.humanSettledOnCurrentItem || this.decisionLines.length === 0) return false;
     if (this.readinessApplies() && options.confirmed !== true) {
       const view = this.meetingState.view(Date.now());
       if (options.timeout === true) {
         this.ports.log?.('[lock] time is up with no confirmed call; marking the topic unresolved');
         this.resolveUnresolved();
-        return;
+        return false;
       }
       // A one-speaker reply already producing Sam's line owns the next move; a lock must not queue a second
       // confirmation behind a line that may itself restate the call.
       if (this.turn !== undefined && this.turn.planned?.kind === 'reply' && this.turn.finalized !== true) {
         this.ports.log?.('[lock] a reply line is already being spoken; its plan owns the confirmation');
-        return;
+        return false;
       }
       if (readinessMet(view)) {
         this.ports.log?.('[lock] readiness holds, but the guest has not confirmed the call yet');
-        this.askConfirmation(view);
-        return;
+        return this.askConfirmation(view);
       }
       if (mergedReadiness(view).action.covered) {
         this.ports.log?.('[lock] the guest has an action but has not confirmed it; asking for confirmation');
-        this.askConfirmation(view);
-        return;
+        return this.askConfirmation(view);
       }
       this.ports.log?.('[lock] nothing usable is covered; offering a concrete call');
-      this.askOffer(view);
-      return;
+      return this.askOffer(view);
     }
     const role = this.options.scenario.roles.find((candidate) =>
       candidate.id === human.role || candidate.label === human.role)?.id;
-    if (role === undefined) return;
+    if (role === undefined) return false;
     this.humanSettledOnCurrentItem = true;
     this.decisionWrappedUpOnItem = true;
     this.closeTopicTurn(`the topic "${item.title}" was settled`);
@@ -2157,6 +2173,7 @@ export class NpcConversation<Clip> {
       else void result.then(succeeded, failed);
     } catch (error) { failed(error); }
     this.ports.emitState(this.idleState());
+    return true;
   }
 
   /**
@@ -2204,10 +2221,16 @@ export class NpcConversation<Clip> {
     if (this.decisionLines.length === 0) return;
     if (this.readinessApplies()) {
       // The budget only asks a gate the planner understands; the guest's checked reading still decides.
-      this.budgetOffered = true;
-      this.budgetOfferAtLine = this.humanLines;
       this.ports.log?.('[lock] the budget is up; readiness decides the call');
-      this.lockDecision();
+      // The budget is only spent once a confirmation or offer was actually queued. A reply line still speaking
+      // owns the next move, so keep the budget owed and retry as soon as that run finishes.
+      if (this.lockDecision()) {
+        this.budgetOffered = true;
+        this.budgetOfferAtLine = this.humanLines;
+      } else {
+        this.budgetRecoveryPending = true;
+        this.ports.log?.('[lock] the budget could not ask yet; it will retry when the line finishes');
+      }
       return;
     }
     const remaining = DEFAULT_REPEAT_WINDOW_MS - (Date.now() - this.lastLockAskAt);
@@ -3691,7 +3714,11 @@ export class NpcConversation<Clip> {
       : view.offerAsked && view.offer !== undefined
         ? view.offer
         : undefined;
-    const saidWhileSpeaking = this.guestLineContext.get(line.eventId)?.saidWhileSpeaking;
+    // The view after the guest line no longer shows the question the guest was answering, so use the one
+    // captured before it was recorded.
+    const context = this.guestLineContext.get(line.eventId);
+    const saidWhileSpeaking = context?.saidWhileSpeaking;
+    const openQuestion = context === undefined ? view.openQuestion : context.openQuestion;
     return {
       topic: {
         title: view.topic ?? '',
@@ -3700,9 +3727,9 @@ export class NpcConversation<Clip> {
         deadline: view.deadline ?? 'soon',
       },
       guest,
-      ...(view.openQuestion === undefined
+      ...(openQuestion === undefined
         ? {}
-        : { openQuestion: { from: view.openQuestion.from, to: view.openQuestion.to, text: view.openQuestion.text } }),
+        : { openQuestion: { from: openQuestion.from, to: openQuestion.to, text: openQuestion.text } }),
       guestLines: view.lines
         .filter((entry) => entry.complete && entry.speaker === guest)
         .map((entry) => entry.text),
@@ -3867,16 +3894,16 @@ export class NpcConversation<Clip> {
   }
 
   /** Sam turns the guest's own idea, or two realistic directions, into one concrete call and asks them to agree. */
-  private askOffer(view: MeetingView, offer?: OfferDecision): void {
+  private askOffer(view: MeetingView, offer?: OfferDecision): boolean {
     const host = this.facilitatorOrCoHost();
     const guest = this.human?.name;
     const title = this.currentItem()?.title;
-    if (host === undefined || guest === undefined || !this.names.includes(host) || title === undefined) return;
+    if (host === undefined || guest === undefined || !this.names.includes(host) || title === undefined) return false;
     const fresh = this.meetingState.view(Date.now());
     if (view.offers >= MAX_OFFERS || fresh.offers >= MAX_OFFERS) {
       this.ports.log?.('[offer] two offers have already been made; closing the topic honestly instead of offering again');
       this.resolveUnresolved('two offers have already been made and the guest did not choose a call');
-      return;
+      return false;
     }
     const choices = offer?.choices === undefined ? this.offerChoices(view) : [...offer.choices];
     const line = this.offerAskLine(guest, offer ?? (choices.length > 0 ? { choices } : { openAsk: true }));
@@ -3897,14 +3924,15 @@ export class NpcConversation<Clip> {
       this.meetingState.noteOffer();
       this.meetingState.setOfferAsked(true, put);
     });
+    return true;
   }
 
   /** Sam restates the guest's own call from the evidence and asks whether that is the call. */
-  private askConfirmation(view: MeetingView, retry = true): void {
+  private askConfirmation(view: MeetingView, retry = true): boolean {
     const host = this.facilitatorOrCoHost();
     const guest = this.human?.name;
     const title = this.currentItem()?.title;
-    if (host === undefined || guest === undefined || !this.names.includes(host) || title === undefined) return;
+    if (host === undefined || guest === undefined || !this.names.includes(host) || title === undefined) return false;
     const evidence = mergedReadiness(view).action.evidence;
     const practical = mergedReadiness(view).practical;
     const direction = practical.covered ? undefined : view.directions[0];
@@ -3933,6 +3961,7 @@ export class NpcConversation<Clip> {
       this.meetingState.setOfferAsked(false);
       this.meetingState.setConfirmationAsked(true, evidence);
     });
+    return true;
   }
 
   /** The guest agreed to one specific call: commit exactly that call through the normal task-store path. */

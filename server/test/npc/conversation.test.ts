@@ -5,7 +5,7 @@ import { visitorDispatchLine } from '../../src/npc/cardPointer';
 import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { loadScenario } from '../../src/loadScenario';
-import type { GuestReaderInput, GuestReading } from '../../src/npc/guestReader';
+import { readGuestLine, type GuestReaderInput, type GuestReading } from '../../src/npc/guestReader';
 import { testScenario } from '../fixtures/scenario';
 
 const scenario = {
@@ -3087,6 +3087,99 @@ describe('one-speaker replies to the guest', () => {
     await h.say('Yes.');
     await finishPlaying(h);
     expect(settleTopic).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('retries the budget when a reply line blocked it, so a backchannel still gets an offer', async () => {
+    const off = {
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const h = harness(scenario, 60_000, undefined, 'one-speaker', (input) =>
+      input.line.trim().toLowerCase().startsWith('hmm')
+        ? { ...off, kind: 'backchannel' as const }
+        : { ...off, kind: 'idea' as const },
+    { topicTurnBudget: 2, topicTimeBudgetMs: 600_000, silencePromptMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('Let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That could work, but who covers the counter?');
+    first.end();
+    await h.flush();
+    expect(h.playing.some((entry) => !entry.finished)).toBe(true);
+
+    // The second line trips the budget while Ada is still speaking; it must stay owed, not be spent.
+    h.conversation.humanSpeech(true);
+    h.conversation.humanText('Hmm.');
+    await h.flush();
+    expect(h.transcript.some(([, text]) => text.includes('what would you rather do'))).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('the budget could not ask yet'));
+
+    // The guest stops after Ada's line finishes, so the backchannel gets its reply and the budget retries.
+    await finishPlaying(h);
+    h.conversation.humanSpeech(false);
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('what would you rather do')); i += 1) {
+      await vi.advanceTimersByTimeAsync(900);
+      await finishPlaying(h);
+    }
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, what would you rather do?']);
+    h.conversation.close();
+  });
+
+  it('gives the reader the question the guest was answering, so a clear call gets confirmed', async () => {
+    const samHosted = {
+      ...scenario,
+      roles: [...scenario.roles, { id: 'host', label: 'Host' }],
+      attendees: [...scenario.attendees, { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' }],
+      npcs: [...scenario.npcs,
+        { attendee: 'Sam', role: 'host' as const, voice: 'v4', personality: 'Calm', agenda: 'Keep time', concerns: [] }],
+    };
+    const readerInputs: GuestReaderInput[] = [];
+    const payload = (covered: boolean): string => JSON.stringify({
+      kind: covered ? 'idea' : 'off_topic',
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: covered ? { covered: true, evidence: 'small cup at old price' } : { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    });
+    const h = harness(samHosted, 0, undefined, 'one-speaker', async (input) => {
+      readerInputs.push(input);
+      const text = payload(input.line.startsWith('Small cup'));
+      return readGuestLine(input, {
+        stream: () => (async function* () { yield text; })(),
+        log: () => undefined,
+      });
+    }, { topicTimeBudgetMs: 600_000, silencePromptMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('Can we talk about the weather?');
+    const first = await waitForCall(h, 0);
+    first.push('Sam: Josh, where is your head at on the regulars and the price?');
+    first.end();
+    await h.flush();
+    await finishPlaying(h);
+
+    await h.say('Small cup at old price.');
+    const asked = readerInputs.find((input) => input.line === 'Small cup at old price.');
+    expect(asked?.openQuestion).toEqual({
+      from: 'Sam', to: 'Josh', text: 'Josh, where is your head at on the regulars and the price?',
+    });
+
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('so your call is')); i += 1) {
+      await h.flush();
+      await finishPlaying(h);
+    }
+    expect(h.transcript).toContainEqual(['Sam', 'Josh, so your call is "small cup at old price".']);
     h.conversation.close();
   });
 
