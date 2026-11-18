@@ -110,6 +110,16 @@ export function isFillerGuestLine(text: string): boolean {
   return FILLER_ONLY_RE.test(text.trim());
 }
 
+/** A guest line that asks something: a question mark anywhere at the end, or a question word at the start. */
+const QUESTION_START_RE =
+  /^\s*(?:what|why|how|who|whom|whose|when|where|which|would|could|can|will|should|shall|do|does|did|is|are|was|were|has|have|had|am|may|might)\b/i;
+
+/** True when the guest line is a question the room should answer, not a statement to react to. */
+export function isGuestQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.endsWith('?') || QUESTION_START_RE.test(trimmed);
+}
+
 /** The AI attendees the guest names anywhere in their line, including a second one named after the first. */
 function namedColleagues(view: MeetingView, text: string): string[] {
   const found: string[] = [];
@@ -127,6 +137,23 @@ function addressedColleague(view: MeetingView, text: string): string | undefined
   }));
   const named = addressedCharacter(text, cast);
   return named !== undefined && isColleague(view, named) ? named : undefined;
+}
+
+/** Every colleague named as a vocative anywhere in the line: set off by commas, or followed by a question mark/word. */
+function vocativeColleagues(view: MeetingView, text: string): string[] {
+  const found: string[] = [];
+  for (const name of view.present) {
+    if (!isColleague(view, name)) continue;
+    const escaped = escapeRegExp(name);
+    const setOff = new RegExp(`(?:^|[,—–-])\\s*${escaped}\\s*(?:[,—–-]|$)`, 'i');
+    const asked = new RegExp(`\\b${escaped}\\s*\\?`, 'i');
+    const beforeQuestion = new RegExp(
+      `(?:^|[,—–-])\\s*${escaped}\\s*,?\\s+(?:would|could|can|will|should|shall|what|how|why|when|where|who|whom|whose|which)\\b`,
+      'i',
+    );
+    if (setOff.test(text) || asked.test(text) || beforeQuestion.test(text)) found.push(name);
+  }
+  return found;
 }
 
 /** The complete AI lines heard since the guest last spoke, so a guest line gets at most two answers. */
@@ -170,7 +197,9 @@ function guestLineDecision(view: MeetingView, line: HeardLine): PlannerDecision 
   if (isFillerGuestLine(line.text)) return wait(`"${line.text.trim()}" is only a filler or acknowledgement`);
 
   const recorded = line.question?.to !== undefined && isColleague(view, line.question.to) ? line.question.to : undefined;
-  const addressed = recorded ?? addressedColleague(view, line.text);
+  const vocatives = vocativeColleagues(view, line.text);
+  const addressed = recorded ??
+    (vocatives.length === 1 ? vocatives[0] : vocatives.length > 1 ? undefined : addressedColleague(view, line.text));
   if (addressed !== undefined) {
     return speak(addressed, 'answer', line.eventId, `the guest addressed ${addressed} by name`);
   }
@@ -190,12 +219,17 @@ function guestLineDecision(view: MeetingView, line: HeardLine): PlannerDecision 
     }
   }
 
+  const question = isGuestQuestion(line.text);
   const closest = closestColleague(view, line.text);
   if (closest !== undefined) {
-    return speak(closest, 'clarify', line.eventId, `${closest}'s own work is closest to the guest's point`);
+    return question
+      ? speak(closest, 'answer', line.eventId, `${closest} can answer the guest's question directly`)
+      : speak(closest, 'clarify', line.eventId, `${closest}'s own work is closest to the guest's point`);
   }
   if (view.host !== undefined && isColleague(view, view.host)) {
-    return speak(view.host, 'clarify', line.eventId, 'nobody else has something to add, so the host clarifies');
+    return question
+      ? speak(view.host, 'answer', line.eventId, 'nobody else has something to add, so the host answers')
+      : speak(view.host, 'clarify', line.eventId, 'nobody else has something to add, so the host clarifies');
   }
   return wait('no colleague can answer the guest');
 }

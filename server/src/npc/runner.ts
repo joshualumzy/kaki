@@ -56,6 +56,8 @@ export interface RunnerOptions {
   bargeInMs?: number;
   /** The Director's reply as it is written. */
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
+  /** The backup model, used for the one retry after a first sentence misses its deadline. */
+  fallbackStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** A sentence as 16 kHz mono samples. */
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Int16Array>;
   /** A line said in the meeting, under the name Kaki's transcript uses; `textOnly` marks a line shown as text because its voice failed. */
@@ -281,6 +283,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     return new NpcConversation<Int16Array>(
       {
         stream: options.stream,
+        ...(options.fallbackStream === undefined ? {} : { fallbackStream: options.fallbackStream }),
         synthesize: options.synthesize,
         play: (speaker, clip, signal) => {
           const character = characters.get(speaker);

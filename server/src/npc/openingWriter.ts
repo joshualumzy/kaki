@@ -55,7 +55,9 @@ export interface ReplySpeakerRequest {
 }
 
 const CONTROL_LINE_RE = /^\s*(?:KAKI_CONTROL|\[|\()/i;
-const CARD_OR_SCREEN_RE = /\b(?:card|screen|panel|dashboard|on your phone)\b/i;
+/** Points at the game's follow-up card or the player's screen, not a table card or a loyalty card. */
+const CARD_OR_SCREEN_RE =
+  /\b(?:follow[- ]up\s+card|card\s+on\s+your|on\s+your\s+(?:screen|phone)|panel|dashboard)\b/i;
 const META_LINE_RE = /\b(?:as an ai|language model|system prompt|prompt leak|these instructions|this note)\b/i;
 
 function escapeRegExp(text: string): string {
@@ -141,7 +143,7 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
     'One or two short spoken sentences, like answering a colleague. Keep any numbers or times you are given, written as digits, and add no others.',
     'No report phrases, no semicolons, no lists, no options or menus. Do not introduce yourself or your job; the host already did.',
     'Never read the topic title aloud, and never mention the screen, the card, the notes or this request.',
-    'Ask at most one question in the whole reply.',
+    'Ask a question only when the point leaves a real gap in your own work that the guest must decide; otherwise do not ask one.',
     'Do not repeat or rephrase a line the room has already heard; respond to the latest point instead.',
   ].join(' ');
   const transcript = request.transcript.length === 0
@@ -161,10 +163,13 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
     ].join(' ');
   } else if (request.purpose === 'answer') {
     purpose = request.facts === undefined || request.facts.length === 0
-      ? 'Answer the point directly, in your own words, from what you know. Do not invent figures or a new problem.'
-      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}".`;
+      ? 'Answer the point directly, in your own words, from what you know. Do not invent figures or a new problem. Do not ask the guest a question back.'
+      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}". Do not ask the guest a question back.`;
   } else {
-    purpose = 'Respond to what the guest actually said, in your own words, and ask at most one short question to understand what they want.';
+    purpose = [
+      'React to what the guest actually said: say what their point means for your own work in one or two sentences, in your own words.',
+      "Ask one short question only when the guest's call leaves a real gap in your own area that they must decide; otherwise end with no question.",
+    ].join(' ');
   }
 
   const task = [

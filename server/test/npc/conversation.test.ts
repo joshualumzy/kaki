@@ -2510,7 +2510,7 @@ describe('one-speaker replies to the guest', () => {
     expect(h.calls).toHaveLength(1);
     const request = String(h.calls[0]?.messages.map((message) => message.content).join('\n'));
     expect(request).toContain('You are Ada');
-    expect(request).toContain('Respond to what the guest actually said');
+    expect(request).toContain('React to what the guest actually said');
     expect(request).not.toContain('ONE colleague answers');
     expect(h.logs).toContainEqual(expect.stringContaining('[reply] Ada (clarify) asked; responding to "Let us call Auntie Mary in.'));
 

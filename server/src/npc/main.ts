@@ -62,16 +62,26 @@ if (llm?.stream === undefined) {
 }
 const stream = llm.stream.bind(llm);
 const temperature = numberEnv('NPC_TEMPERATURE', 0.8);
-// NPC_REASONING sets how long the model thinks before each spoken line (none|low|medium|high); unset keeps the
-// model's default. Thinking delays the first sentence the room hears.
-const reasoningEffort = reasoningEnv('NPC_REASONING');
-if (reasoningEffort !== undefined) log(`spoken lines use reasoning effort "${reasoningEffort}"`);
+// NPC_REASONING sets how long the model thinks before each spoken line (none|low|medium|high). Default none:
+// thinking added ~4 s before the first sentence, sometimes over 12 s, and judged lines were no better with it.
+const reasoningEffort = reasoningEnv('NPC_REASONING') ?? 'none';
+log(`spoken lines use reasoning effort "${reasoningEffort}"`);
 const streamWithFault = faultyStream(
   (messages, signal) =>
-    stream(messages, { signal, temperature, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }),
+    stream(messages, { signal, temperature, reasoningEffort }),
   fault,
   numberEnv('KAKI_LLM_IDLE_MS', 10_000),
 );
+// The backup model, used for the one retry after a spoken line misses its first-sentence deadline.
+const fallback = llm.fallbackStream?.bind(llm);
+const fallbackStreamWithFault = fallback === undefined
+  ? undefined
+  : faultyStream(
+    (messages, signal) =>
+      fallback(messages, { signal, temperature, reasoningEffort }),
+    fault,
+    numberEnv('KAKI_LLM_IDLE_MS', 10_000),
+  );
 
 const azureHint = 'Add your Azure Speech key and region to .env (see .env.example).';
 const synthesize = faultySynthesize(
@@ -156,6 +166,7 @@ const runner = await startNpcRunner({
   scenario,
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
   stream: streamWithFault,
+  ...(fallbackStreamWithFault === undefined ? {} : { fallbackStream: fallbackStreamWithFault }),
   synthesize,
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),

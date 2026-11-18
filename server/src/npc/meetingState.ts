@@ -2,8 +2,9 @@
  * The room's state on one topic at a time, built only from lines that were actually heard.
  *
  * The ledger is append-only: a line starts when playback begins and ends when playback finishes or is cut off.
- * Everything the planner needs is derived from those events, so a line that was written but never played, or a
- * line that was interrupted before its end, can never answer a question or count a fact as told.
+ * Everything the planner needs is derived from those events, so a line that was written but never played can
+ * never answer a question or count a fact as told. A cut-off line still counts the complete sentences the room
+ * actually heard: it can close a question its addressee began answering, and a fact told before the cut stands.
  */
 
 import type { AgendaItem } from '@kaki/shared';
@@ -70,6 +71,10 @@ export interface HeardLine {
   catchId?: string;
   /** The line was marked as raising a catch, whatever speaker said it. */
   catch: boolean;
+  /** The briefing facts the room actually heard before this line was cut off. */
+  heardFactIds?: readonly string[];
+  /** How many complete sentences of this line the room heard before it was cut off. */
+  sentencesHeard?: number;
 }
 
 export interface MeetingFactView {
@@ -143,7 +148,16 @@ export interface HeardLineStart {
 
 type LedgerEvent =
   | ({ kind: 'start' } & HeardLineStart)
-  | { kind: 'end'; id: string; complete: boolean; at: number };
+  | {
+    kind: 'end';
+    id: string;
+    complete: boolean;
+    at: number;
+    /** Facts carried by the sentences actually heard, even when the whole line was cut off. */
+    heardFactIds?: readonly string[];
+    /** Complete sentences heard before the line was cut off. */
+    sentencesHeard?: number;
+  };
 
 interface Ledger {
   events: LedgerEvent[];
@@ -273,6 +287,8 @@ function derive(
       ...(start.factIds === undefined ? {} : { factIds: start.factIds }),
       ...(start.catchId === undefined ? {} : { catchId: start.catchId }),
       catch: start.catch === true,
+      ...(end?.heardFactIds === undefined ? {} : { heardFactIds: end.heardFactIds }),
+      ...(end?.sentencesHeard === undefined ? {} : { sentencesHeard: end.sentencesHeard }),
     });
   }
 
@@ -297,7 +313,27 @@ function derive(
   let explicitCatch = false;
 
   lines.forEach((line, index) => {
-    if (!line.complete) return;
+    if (!line.complete) {
+      // A colleague the question was put to has started answering it, even if the line was cut off.
+      if (openQuestion !== undefined && line.speaker === openQuestion.to && (line.sentencesHeard ?? 0) > 0) {
+        openQuestion = undefined;
+        if (lastQuestion !== undefined) lastQuestion = { ...lastQuestion, answered: true };
+      }
+      // The sentences the room actually heard still tell their facts when the rest of the line is lost.
+      const canNarrate = line.speaker !== guest && line.speaker !== host;
+      if (canNarrate && line.heardFactIds !== undefined) {
+        for (const id of line.heardFactIds) {
+          const fact = facts.find((candidate) =>
+            !candidate.told && candidate.id === id && candidate.knownBy.includes(line.speaker));
+          if (fact !== undefined) {
+            fact.told = true;
+            fact.toldBy = line.speaker;
+            fact.eventId = line.eventId;
+          }
+        }
+      }
+      return;
+    }
 
     if (openQuestion !== undefined && line.speaker === openQuestion.to) {
       openQuestion = undefined;
@@ -458,14 +494,23 @@ export class MeetingState {
   }
 
   /** A line finished (`complete`) or was cut off (`complete: false`). Idempotent for the same id. */
-  lineEnded(id: string, complete: boolean, at: number): HeardLine | undefined {
+  lineEnded(
+    id: string,
+    complete: boolean,
+    at: number,
+    heard?: { factIds?: readonly string[]; sentencesHeard?: number },
+  ): HeardLine | undefined {
     const title = this.lineTopics.get(id);
     if (title === undefined) return undefined;
     const ledger = this.ledgers.get(title);
     if (ledger === undefined) return undefined;
     const ended = ledger.events.some((event) => event.kind === 'end' && event.id === id);
     if (ended) return undefined;
-    ledger.events.push({ kind: 'end', id, complete, at });
+    ledger.events.push({
+      kind: 'end', id, complete, at,
+      ...(heard?.factIds === undefined ? {} : { heardFactIds: heard.factIds }),
+      ...(heard?.sentencesHeard === undefined ? {} : { sentencesHeard: heard.sentencesHeard }),
+    });
     return derive(this.topics.get(title), ledger, at, this.guestName, this.hostName, this.presentNames, this.colleagues)
       .lines.find((line) => line.eventId === id);
   }

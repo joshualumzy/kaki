@@ -32,6 +32,8 @@ export interface LlmClient {
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>;
   /** The reply as it is written, piece by piece; absent on clients that cannot stream. */
   stream?(messages: ChatMessage[], options?: CompleteOptions): AsyncIterable<string>;
+  /** The backup model on its own, so a caller can go straight to it after a stalled first sentence. */
+  fallbackStream?(messages: ChatMessage[], options?: CompleteOptions): AsyncIterable<string>;
 }
 
 /** An LLM call that failed: HTTP error, timeout, or an unusable reply. */
@@ -428,6 +430,11 @@ export function llmFromEnv(env: NodeJS.ProcessEnv = process.env): LlmClient | un
         return await fallback.complete(messages, options);
       }
     },
+    ...(fallback.stream === undefined ? {} : {
+      fallbackStream(messages: ChatMessage[], options?: CompleteOptions): AsyncIterable<string> {
+        return fallback.stream!(messages, options);
+      },
+    }),
     async *stream(messages, options) {
       if (primary.stream === undefined) {
         if (fallback.stream !== undefined) yield* fallback.stream(messages, options);

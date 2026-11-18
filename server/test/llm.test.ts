@@ -300,6 +300,30 @@ describe('streaming', () => {
     }
   });
 
+  it('exposes the backup stream on its own so a stalled first sentence can retry with it directly', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: unknown) => {
+      urls.push(String(url));
+      return sseResponse([delta('from fallback'), 'data: [DONE]\n\n']);
+    });
+    try {
+      const llm = llmFromEnv({
+        KAKI_LLM_BASE_URL: 'https://primary.example',
+        KAKI_LLM_API_KEY: 'k',
+        KAKI_LLM_MODEL: 'primary-model',
+        KAKI_LLM_FALLBACK_BASE_URL: 'https://fallback.example',
+        KAKI_LLM_FALLBACK_API_KEY: 'k2',
+        KAKI_LLM_FALLBACK_MODEL: 'fallback-model',
+      })!;
+
+      expect(llm.fallbackStream).toBeDefined();
+      expect(await collect(llm.fallbackStream!([]))).toEqual(['from fallback']);
+      expect(urls).toEqual(['https://fallback.example/chat/completions']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('ignores reasoning chunks but keeps the stream alive until the answer arrives', async () => {
     const reasoning = `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'thinking' } }] })}\n\n`;
     const llm = createOpenAiLlm({

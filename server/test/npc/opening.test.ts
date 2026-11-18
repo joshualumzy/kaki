@@ -3,7 +3,7 @@ import { aiCast, humanRoles, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../../src/llm';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
-import { replySpeakerMessages } from '../../src/npc/openingWriter';
+import { parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
 import { loadScenario } from '../../src/loadScenario';
 
 interface LlmCall {
@@ -874,6 +874,81 @@ describe('one-speaker topic opening', () => {
     const next = await waitCall(h.calls, 1);
     expect(requestText(next)).toContain(`You are ${steps[1]!.speaker}`);
     h.conversation.close();
+  });
+
+  it('counts a brief sentence the room heard before a cut-off, so the same fact is not told again', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = 'Laptop campers and the breakfast seat crunch';
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const facts = itemFor(scenario, title).briefing!.map((fact) => fact.text);
+    const h = harness(scenario, roleId);
+
+    h.conversation.agendaMoved(title);
+    h.conversation.announce('Sam', 'Mei, you were on the floor at the trial, what happened?');
+    await flush();
+    await playOut(h.playing);
+
+    const brief = await waitCall(h.calls, 0);
+    brief.push(`Mei: ${facts.join(' ')}`);
+    brief.end();
+    await flush();
+    // The first fact has been heard; the second sentence is still playing when the guest cuts in.
+    h.playing.find((entry) => entry.speaker === 'Mei' && !entry.finished)!.finish();
+    await flush();
+    expect(h.playing.some((entry) => entry.speaker === 'Mei' && !entry.finished)).toBe(true);
+    h.conversation.humanTyped('Did laptop users really hold half our seats on just one kopi?');
+    await flush();
+
+    const reply = await waitCall(h.calls, 1);
+    expect(requestText(reply)).not.toContain(`You may tell only this: "${facts[0]}"`);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('Speak Mei (answer) because Mei was asked'));
+    h.conversation.close();
+  });
+
+  it('rejects pointing at the follow-up card or the player\'s screen, but not a plain table or loyalty card', () => {
+    const names = (KOPITIAM.npcs ?? []).map((npc) => npc.attendee);
+    const parse = (speaker: string, text: string) => parsePlannedReply(`${speaker}: ${text}`, {
+      expectedSpeaker: speaker,
+      names,
+      guestName: 'Josh',
+      purpose: 'answer',
+    });
+
+    for (const text of [
+      'A 60-minute breakfast card on every table, with one friendly mention at the till.',
+      'Cardholders get one friendly mention at the till, and nobody has to police it.',
+    ]) {
+      expect(parse('Arjun', text)).toMatchObject({ ok: true });
+    }
+    for (const text of [
+      'The follow-up card is on your screen.',
+      'You can see it on your phone.',
+      'I put the panel in front of you.',
+    ]) {
+      expect(parse('Arjun', text)).toEqual({ ok: false, reason: 'pointed at the card or screen' });
+    }
+  });
+
+  it('asks the writer for a direct answer with no question back, and only a real gap for clarify', () => {
+    const messages = (purpose: 'answer' | 'clarify') => replySpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Arjun',
+      topicTitle: TOPICS[0]!,
+      purpose,
+      transcript: [],
+      respondsTo: { speaker: 'Josh', text: 'Would a small table sign actually move people, or just get ignored?' },
+    }).map((message) => message.content).join('\n');
+
+    const answer = messages('answer');
+    expect(answer).toContain('Answer the point directly');
+    expect(answer).toContain('Do not ask the guest a question back');
+    expect(answer).not.toContain('ask at most one short question to understand what they want');
+
+    const clarify = messages('clarify');
+    expect(clarify).toContain("what their point means for your own work");
+    expect(clarify).toContain('otherwise end with no question');
+    expect(clarify).not.toContain('ask at most one short question to understand what they want');
   });
 
   it('lets a reply control line carry reopen, reactions and wingman tips, not only settle or park', () => {

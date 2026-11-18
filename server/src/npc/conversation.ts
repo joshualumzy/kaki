@@ -19,6 +19,8 @@ export type NpcUiState = NpcStateMessage;
 export interface NpcPorts<Clip> {
   /** Stream the Director's reply; must stop promptly when `signal` aborts. */
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
+  /** The backup model, used for the one retry after a first sentence misses its deadline. */
+  fallbackStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** Turn a sentence into audio. */
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Clip>;
   /** Play a clip as `speaker`. Resolves when it finished, or straight after `signal` aborts and the sound has stopped. */
@@ -1510,9 +1512,13 @@ export class NpcConversation<Clip> {
   }
 
   /** Mark a played line complete or cut off, then ask the planner what the room would do next. */
-  private shadowLineEnded(eventId: string | undefined, complete: boolean): void {
+  private shadowLineEnded(
+    eventId: string | undefined,
+    complete: boolean,
+    heard?: { factIds?: readonly string[]; sentencesHeard?: number },
+  ): void {
     if (eventId === undefined) return;
-    const line = this.meetingState.lineEnded(eventId, complete, Date.now());
+    const line = this.meetingState.lineEnded(eventId, complete, Date.now(), heard);
     if (line === undefined) return;
     this.planNextTurn({ kind: complete ? 'heard' : 'interrupted', line });
   }
@@ -1537,7 +1543,16 @@ export class NpcConversation<Clip> {
 
   /** Close a planned call's single heard event; it is complete only when every sentence was heard. */
   private endPlannedLine(turn: Turn, complete: boolean): void {
-    this.shadowLineEnded(turn.planned?.eventId, complete);
+    const planned = turn.planned;
+    if (planned === undefined) return;
+    const spoken = turn.spoken.filter((entry) => entry.complete);
+    const heardText = spoken.map((entry) => entry.utterance.text).join(' ');
+    const view = this.meetingState.view(Date.now());
+    const heardFactIds = heardText.length === 0 ? [] : (planned.factIds ?? []).filter((id) => {
+      const text = view.facts.find((fact) => fact.id === id)?.text;
+      return text !== undefined && carriesFact(heardText, text);
+    });
+    this.shadowLineEnded(planned.eventId, complete, { factIds: heardFactIds, sentencesHeard: spoken.length });
   }
 
   /** A guest line is heard whole the moment it is typed or recognised; it never has a partial playback. */
@@ -2663,14 +2678,22 @@ export class NpcConversation<Clip> {
     previous: HeardLine | undefined,
   ): Promise<HeardLine | undefined> {
     let prefetched = this.takeOpeningPrefetch(decision);
+    let useFallback = false;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (run.cancelled || this.closed || this.paused) return undefined;
-      const result = await this.playPlannedStep(run, decision, previous, attempt === 0 ? prefetched : undefined);
+      const result = await this.playPlannedStep(
+        run, decision, previous, attempt === 0 ? prefetched : undefined, useFallback);
       if (result.line !== undefined) return result.line;
       if (run.cancelled) return undefined;
+      const missedFirstSentence = result.reason !== undefined &&
+        /first (?:spoken )?sentence did not arrive/.test(result.reason);
+      if (attempt === 0 && missedFirstSentence && this.ports.fallbackStream !== undefined) {
+        useFallback = true;
+        this.ports.log?.(`[llm-fallback] ${decision.speaker}'s first sentence missed its deadline; using the backup model`);
+      }
       const nextStep = attempt === 0
-        ? 'retrying once with a fresh request'
-        : run.kind === 'opening' ? 'skipping to the host question' : 'ending this reply';
+        ? (useFallback ? 'retrying once on the backup model' : 'retrying once with a fresh request')
+        : (run.kind === 'opening' ? 'skipping to the host question' : 'ending this reply');
       this.ports.log?.(
         `[${run.kind}] ${decision.speaker} (${decision.purpose}) rejected: ${result.reason ?? 'unknown'}; ${nextStep}`,
       );
@@ -2685,6 +2708,7 @@ export class NpcConversation<Clip> {
     decision: SpeakDecision,
     previous: HeardLine | undefined,
     prefetched: PrefetchedOpening | undefined,
+    useFallback = false,
   ): Promise<{ line?: HeardLine; reason?: string }> {
     const view = run.kind === 'reply'
       ? this.replyPlanView(run, this.meetingState.view(Date.now()))
@@ -2764,7 +2788,11 @@ export class NpcConversation<Clip> {
     }, completionMs);
     completionTimer.unref?.();
     try {
-      const stream = prefetched !== undefined ? this.openingPrefetchedStream(prefetched) : this.ports.stream(messages, abort.signal);
+      const stream = prefetched !== undefined
+        ? this.openingPrefetchedStream(prefetched)
+        : useFallback && this.ports.fallbackStream !== undefined
+          ? this.ports.fallbackStream(messages, abort.signal)
+          : this.ports.stream(messages, abort.signal);
       const iterator = stream[Symbol.asyncIterator]();
       for (;;) {
         const raced = await Promise.race([iterator.next(), deadline.then(() => DEADLINE), stopped.then(() => STOPPED)]);
@@ -3351,18 +3379,13 @@ export class NpcConversation<Clip> {
     this.scheduleSilencePrompt();
   }
 
-  /** Both writes for one reply failed: use the meeting's own bounded ask-to-repeat cue, as the old path did. */
+  /** Both writes for one reply failed: say honestly that the room is still working on it, not that it missed the guest. */
   private recoverFromFailedReply(): void {
     if (this.closed || this.concluded || this.paused || this.recoveryCueSpoken) return;
     const host = this.facilitatorOrCoHost();
     if (host === undefined) return;
-    const who = this.human?.name;
-    const typed = this.lastHumanInputWasTyped;
-    const line = typed
-      ? who === undefined ? 'Sorry, I missed that one, could you send it again?' : `Sorry, ${who}, I missed that one, could you send it again?`
-      : who === undefined ? 'Sorry, I lost you for a second there, could you say that again?' : `Sorry, ${who}, I lost you for a second there, could you say that again?`;
     this.recoveryCueSpoken = true;
-    this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, () => this.scheduleSilencePrompt());
+    this.announce(host, 'Sorry, give me a second on that.', DEFAULT_ANNOUNCE_GIVE_UP_MS, () => this.scheduleSilencePrompt());
   }
 
   /** The guest spoke again, the topic changed, or the meeting stopped: no more reply lines, including the prefetched one. */

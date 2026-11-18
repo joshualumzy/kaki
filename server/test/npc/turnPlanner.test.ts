@@ -176,6 +176,124 @@ describe('turn planner', () => {
     expect(decision).toMatchObject({ kind: 'Speak', speaker: 'Sam', purpose: 'clarify', respondsTo: 'josh-1' });
   });
 
+  it('answers an unnamed guest question through the closest colleague, without asking one back', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service',
+        facts: [], catches: [],
+      }],
+      present: ['Ada', 'Bao', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+      colleagues: [{ name: 'Ada', text: 'table signs and breakfast seats' }],
+    });
+    state.openTopic('Prep', 0);
+    const guest = heard(state, {
+      id: 'josh-1', speaker: 'Josh',
+      text: 'Would a small table sign actually move people, or just get ignored?', proposal: false,
+    });
+
+    expect(next(state.view(1), { kind: 'heard', line: guest })).toMatchObject({
+      kind: 'Speak', speaker: 'Ada', purpose: 'answer', respondsTo: 'josh-1',
+    });
+  });
+
+  it('still lets the closest colleague react to a guest statement rather than answer it', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service',
+        facts: [], catches: [],
+      }],
+      present: ['Ada', 'Bao', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+      colleagues: [{ name: 'Ada', text: 'table signs and breakfast seats' }],
+    });
+    state.openTopic('Prep', 0);
+    const guest = heard(state, {
+      id: 'josh-1', speaker: 'Josh',
+      text: 'I think table signs are the way to go.', proposal: true,
+    });
+
+    expect(next(state.view(1), { kind: 'heard', line: guest })).toMatchObject({
+      kind: 'Speak', speaker: 'Ada', purpose: 'clarify', respondsTo: 'josh-1',
+    });
+  });
+
+  it('finds a colleague named mid-line as a vocative, not only at the start', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service',
+        facts: [], catches: [],
+      }],
+      present: ['Arjun', 'Mei', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+      colleagues: [
+        { name: 'Arjun', text: 'tills and tech' },
+        { name: 'Mei', text: 'menu and stock' },
+      ],
+    });
+    state.openTopic('Prep', 0);
+    const guest = heard(state, {
+      id: 'josh-1', speaker: 'Josh', proposal: true,
+      text: "I'm still leaning toward the laptop tables at the back, but before I commit, Arjun, would a 45-minute limit only on those back tables be enough backup?",
+    });
+
+    expect(next(state.view(1), { kind: 'heard', line: guest })).toMatchObject({
+      kind: 'Speak', speaker: 'Arjun', purpose: 'answer', respondsTo: 'josh-1',
+    });
+  });
+
+  it('finds a colleague named later in the line before a question word', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service',
+        facts: [], catches: [],
+      }],
+      present: ['Arjun', 'Mei', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+      colleagues: [
+        { name: 'Arjun', text: 'tills and tech' },
+        { name: 'Mei', text: 'menu and stock' },
+      ],
+    });
+    state.openTopic('Prep', 0);
+    const guest = heard(state, {
+      id: 'josh-1', speaker: 'Josh', proposal: false,
+      text: 'Before we decide on the stock and the chef, Mei, can you check what the kitchen actually needs?',
+    });
+
+    expect(next(state.view(1), { kind: 'heard', line: guest })).toMatchObject({
+      kind: 'Speak', speaker: 'Mei', purpose: 'answer', respondsTo: 'josh-1',
+    });
+  });
+
+  it('keeps a line that names several colleagues as vocatives with the room', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep', minutes: 5, canWait: false, deadline: 'before service',
+        facts: [], catches: [],
+      }],
+      present: ['Arjun', 'Mei', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+      colleagues: [
+        { name: 'Arjun', text: 'tills and tech' },
+        { name: 'Mei', text: 'menu and stock' },
+      ],
+    });
+    state.openTopic('Prep', 0);
+    const guest = heard(state, {
+      id: 'josh-1', speaker: 'Josh', proposal: true,
+      text: 'Arjun, Mei, what should we do about the back tables?',
+    });
+
+    const decision = next(state.view(1), { kind: 'heard', line: guest });
+    expect(decision).toMatchObject({ kind: 'Speak', speaker: 'Sam', respondsTo: 'josh-1' });
+  });
+
   it('gives a guest line at most two AI speakers', () => {
     const state = makeWith({
       title: 'Prep',
