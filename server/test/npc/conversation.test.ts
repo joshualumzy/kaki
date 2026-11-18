@@ -37,6 +37,7 @@ function harness(
   scenarioUsed: typeof scenario = scenario,
   bargeInMs = 0,
   assessment?: (messages: ChatMessage[], call: number) => string,
+  replies: 'one-speaker' | 'legacy' = 'legacy',
 ) {
   const calls: LlmCall[] = [];
   const assessments: ChatMessage[][] = [];
@@ -99,7 +100,7 @@ function harness(
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
   };
-  const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, bargeInMs, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0 });
+  const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, bargeInMs, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0, replies });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -482,7 +483,7 @@ describe('NpcConversation', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
-      speakerGapMs: 0, sentenceGapMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     conversation.announce('Ada', 'Josh, the card is waiting for you.');
@@ -514,7 +515,7 @@ describe('NpcConversation', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
-      speakerGapMs: 0, sentenceGapMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     conversation.humanSpeech(true);
@@ -545,7 +546,7 @@ describe('NpcConversation', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
-      speakerGapMs: 0, sentenceGapMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     conversation.humanSpeech(true);
@@ -577,7 +578,7 @@ describe('NpcConversation', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
-      speakerGapMs: 0, sentenceGapMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     conversation.humanSpeech(true);
@@ -607,7 +608,7 @@ describe('NpcConversation', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
     const conversation = new NpcConversation<Utterance>(h.ports, {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
-      speakerGapMs: 0, sentenceGapMs: 0,
+      speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
     conversation.setHuman({ name: 'Josh', role: 'Producer' });
     conversation.humanSpeech(true);
@@ -1934,6 +1935,7 @@ describe('NpcConversation', () => {
       responseDelayMs: 900,
       speakerGapMs: 700,
       sentenceGapMs: 300,
+      replies: 'legacy',
     });
     gapped.setHuman({ name: 'Josh', role: 'Producer' });
     gapped.humanSpeech(true);
@@ -2445,6 +2447,439 @@ describe('NpcConversation', () => {
       expect(h.transcript.filter(([speaker]) => speaker === 'Ada').map(([, text]) => text)).toEqual(['We are short today.']);
     });
 
+  });
+
+});
+
+describe('one-speaker replies to the guest', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  type H = ReturnType<typeof harness>;
+
+  async function waitForCall(h: H, index: number): Promise<LlmCall> {
+    for (let i = 0; i < 80 && h.calls.length <= index; i += 1) await h.flush();
+    if (h.calls.length <= index) throw new Error(`expected call ${index}, got ${h.calls.length}`);
+    return h.calls[index]!;
+  }
+
+  async function finishPlaying(h: H): Promise<void> {
+    for (let i = 0; i < 80; i += 1) {
+      await h.flush();
+      const next = h.playing.find((entry) => !entry.finished);
+      if (next === undefined) return;
+      next.finish();
+      await h.flush();
+    }
+    throw new Error('playback did not finish');
+  }
+
+  async function reply(h: H, text: string): Promise<void> {
+    const call = h.calls.at(-1);
+    if (call === undefined) throw new Error('no call to answer');
+    call.push(text);
+    call.end();
+    await h.flush();
+    await finishPlaying(h);
+  }
+
+  const catchScenario = {
+    ...scenario,
+    agenda: [
+      {
+        title: 'Prep',
+        minutes: 5,
+        canWait: false,
+        deadline: 'before service',
+        ownerRole: 'chef',
+        decision: 'how do we cover prep?',
+        discussion: {
+          openingViews: [],
+          tradeOffs: [
+            { attendee: 'Bao', role: 'cashier', tradeOff: 'Calling Auntie Mary in means double pay.', question: 'Who covers it?' },
+          ],
+        },
+      },
+    ],
+  };
+
+  it('answers a substantive guest line with one planned speaker, then waits for the guest', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker');
+    await h.say('Let us call Auntie Mary in.');
+
+    expect(h.calls).toHaveLength(1);
+    const request = String(h.calls[0]?.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Ada');
+    expect(request).toContain('Respond to what the guest actually said');
+    expect(request).not.toContain('ONE colleague answers');
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] Ada (clarify) asked; responding to "Let us call Auntie Mary in.'));
+
+    await reply(h, 'Ada: Who would cover the counter?');
+    expect(h.transcript).toContainEqual(['Ada', 'Who would cover the counter?']);
+    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('lets the colleague the guest names answer first, one call per speaker', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker');
+    await h.say('Bao, what about the till?');
+
+    expect(h.calls).toHaveLength(1);
+    const request = String(h.calls[0]?.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Bao');
+    expect(request).toContain('Answer the point directly');
+    await reply(h, 'Bao: I can cover the till before opening.');
+    expect(h.transcript).toContainEqual(['Bao', 'I can cover the till before opening.']);
+    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('raises the first idea catch with a second planned speaker, then waits', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+
+    const first = await waitForCall(h, 0);
+    const firstRequest = String(first.messages.map((message) => message.content).join('\n'));
+    expect(firstRequest).toContain('You are Ada');
+    await reply(h, 'Ada: That could work.');
+
+    const second = await waitForCall(h, 1);
+    const secondRequest = String(second.messages.map((message) => message.content).join('\n'));
+    expect(secondRequest).toContain('You are Bao');
+    expect(secondRequest).toContain('Acknowledge briefly what works');
+    expect(secondRequest).toContain('Calling Auntie Mary in means double pay.');
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] Bao (catch) asked; responding to "That could work.'));
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+
+    await h.flush();
+    expect(h.transcript).toContainEqual(['Bao', 'Calling her in means double pay for her rest day.']);
+    expect(h.calls).toHaveLength(2);
+    h.conversation.close();
+  });
+
+  it('keeps the settlement-capable old path for a bare acknowledgement', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker');
+    await h.say('Okay.');
+    expect(h.calls).toHaveLength(1);
+    const request = String(h.calls[0]?.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('KAKI_CONTROL');
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[reply]'));
+    h.conversation.close();
+  });
+
+  it('discards the prefetched second speaker when the guest speaks again', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That could work.');
+    first.end();
+    await h.flush();
+    expect(h.playing.some((entry) => !entry.finished)).toBe(true);
+    const prefetched = await waitForCall(h, 1);
+
+    h.conversation.humanTyped('Wait, what about the till?');
+    await h.flush();
+    expect(prefetched.signal.aborted).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] cancelled: the guest typed'));
+    expect(h.transcript.some(([speaker]) => speaker === 'Bao')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('rejects a prefetched reply whole before any of it plays, then retries fresh', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That could work.');
+    first.end();
+    await h.flush();
+    const prefetched = await waitForCall(h, 1);
+    prefetched.push('Ada: We should not do that.');
+    prefetched.end();
+    await finishPlaying(h);
+
+    expect(h.transcript.some(([, text]) => text === 'We should not do that.')).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] Bao (catch) rejected: another speaker'));
+    const retry = await waitForCall(h, 2);
+    const request = String(retry.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Bao');
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+    expect(h.transcript).toContainEqual(['Bao', 'Calling her in means double pay for her rest day.']);
+    h.conversation.close();
+  });
+
+  it('still settles the topic from the reply control line', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker');
+    h.conversation.setHuman({ name: 'Josh', role: 'chef', transcriptName: 'Ada (Chef)' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+
+    await h.say('Let us call Auntie Mary in.');
+    await reply(h, 'Ada: That could work.');
+    await h.say('Okay, let us do that and pay the double pay.');
+    const decision = await waitForCall(h, h.calls.length - 1);
+    const request = String(decision.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('KAKI_CONTROL');
+    await reply(h, 'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: Fine, we will pay the double pay.');
+
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    expect(h.transcript).toContainEqual(['Ada', 'Fine, we will pay the double pay.']);
+    h.conversation.close();
+  });
+
+  it('rejects an answer that does not carry its promised fact, then retries', async () => {
+    const factScenario = {
+      ...scenario,
+      agenda: [
+        {
+          title: 'Prep',
+          minutes: 5,
+          canWait: false,
+          deadline: 'before service',
+          ownerRole: 'chef',
+          decision: 'how do we cover prep?',
+          briefing: [
+            { text: 'The till needs a new login before opening.', knownBy: [{ attendee: 'Bao', why: 'you run the tills' }] },
+          ],
+        },
+      ],
+    };
+    const h = harness(factScenario, 0, undefined, 'one-speaker');
+    await h.say('What about the till login?');
+
+    const first = await waitForCall(h, 0);
+    const request = String(first.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Bao');
+    expect(request).toContain('The till needs a new login before opening.');
+    first.push('Bao: We can sort that out.');
+    first.end();
+    await h.flush();
+    expect(h.transcript.some(([, text]) => text === 'We can sort that out.')).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('did not carry the fact'));
+
+    const retry = await waitForCall(h, 1);
+    expect(String(retry.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    await reply(h, 'Bao: The till needs a new login before opening.');
+    expect(h.transcript).toContainEqual(['Bao', 'The till needs a new login before opening.']);
+    h.conversation.close();
+  });
+
+  it('resumes a stopped reply from the last line the room heard', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker');
+    await h.say('Let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: Who would cover the counter?');
+    first.end();
+    await h.flush();
+    expect(h.playing.some((entry) => !entry.finished)).toBe(true);
+
+    h.conversation.stop();
+    await h.flush();
+    const before = h.calls.length;
+    h.conversation.resumeFromPause();
+    await h.flush();
+
+    const resumed = await waitForCall(h, before);
+    expect(String(resumed.messages.map((message) => message.content).join('\n'))).toContain('You are Ada');
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] resuming'));
+    await reply(h, 'Ada: Who would cover the counter?');
+    expect(h.transcript).toContainEqual(['Ada', 'Who would cover the counter?']);
+    h.conversation.close();
+  });
+  it('resumes a stopped second speaker after the first one was fully heard', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That could work.');
+    first.end();
+    await h.flush();
+    await finishPlaying(h);
+
+    const second = await waitForCall(h, 1);
+    second.push('Bao: Calling her in means double pay for her rest day.');
+    second.end();
+    await h.flush();
+    expect(h.playing.some((entry) => !entry.finished)).toBe(true);
+
+    h.conversation.stop();
+    await h.flush();
+    const before = h.calls.length;
+    h.conversation.resumeFromPause();
+    await h.flush();
+
+    const resumed = await waitForCall(h, before);
+    expect(String(resumed.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    expect(h.logs).toContainEqual(expect.stringContaining('[reply] resuming'));
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+    expect(h.transcript).toContainEqual(['Bao', 'Calling her in means double pay for her rest day.']);
+    h.conversation.close();
+  });
+
+  it('rejects a catch reply that does not carry the catch, then retries with a paraphrase', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    await reply(h, 'Ada: That could work.');
+
+    const second = await waitForCall(h, 1);
+    expect(String(second.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    second.push('Bao: That could work for me too.');
+    second.end();
+    await h.flush();
+    expect(h.transcript.some(([, text]) => text === 'That could work for me too.')).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('did not carry the catch'));
+
+    const retry = await waitForCall(h, 2);
+    expect(String(retry.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    retry.push('Bao: We would have to pay Auntie Mary double for her rest day.');
+    retry.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Bao', 'We would have to pay Auntie Mary double for her rest day.']);
+    await h.flush();
+    expect(h.calls).toHaveLength(3);
+    h.conversation.close();
+  });
+
+  it('counts a two-sentence reply as one speaker when choosing the second colleague', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That could work. I will check the rota.');
+    first.end();
+    await h.flush();
+
+    const second = await waitForCall(h, 1);
+    const request = String(second.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Bao');
+    expect(request).toContain('Acknowledge briefly what works');
+    expect(request).toContain('Calling Auntie Mary in means double pay.');
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+
+    expect(h.transcript.filter(([speaker]) => speaker === 'Ada')).toEqual([
+      ['Ada', 'That could work.'],
+      ['Ada', 'I will check the rota.'],
+    ]);
+    expect(h.calls).toHaveLength(2);
+    h.conversation.close();
+  });
+
+  it('stops a third AI speaker after the second responder asks them a question', async () => {
+    const withCai = {
+      ...scenario,
+      npcs: [...scenario.npcs,
+        { attendee: 'Cai', voice: 'v3', personality: 'Quiet', agenda: 'Open on time', concerns: [] }],
+      attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai' }],
+    };
+    const h = harness(withCai, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us check the till.');
+    await reply(h, 'Ada: Bao, can you check the till? I will watch the counter.');
+
+    const second = await waitForCall(h, 1);
+    expect(String(second.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    second.push('Bao: The till is fine. Cai, can you cover drinks?');
+    second.end();
+    await h.flush();
+    await finishPlaying(h);
+
+    await h.flush();
+    expect(h.calls).toHaveLength(2);
+    expect(h.transcript.some(([speaker]) => speaker === 'Cai')).toBe(false);
+    h.conversation.close();
+  });
+
+  it('answers the guest point after a rejoin welcome when the reply was unfinished', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That could work. I will check the rota.');
+    first.end();
+    await h.flush();
+    expect(h.playing.some((entry) => !entry.finished)).toBe(true);
+
+    h.conversation.stop();
+    await h.flush();
+    const before = h.calls.length;
+    h.conversation.resumeAfterRejoin('Ada', 'Welcome back, Josh.');
+    await h.flush();
+    expect(h.playing.some((entry) => entry.text === 'Welcome back, Josh.')).toBe(true);
+    await finishPlaying(h);
+
+    const resumed = await waitForCall(h, before);
+    const request = String(resumed.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('The guest just said');
+    expect(request).toContain('Ada, let us call Auntie Mary in.');
+    await reply(h, 'Ada: Let us check the rota first.');
+    expect(h.transcript).toContainEqual(['Ada', 'Let us check the rota first.']);
+    expect(h.transcript.filter(([, text]) => text === 'That could work.')).toHaveLength(1);
+    expect(h.transcript.filter(([, text]) => text === 'Welcome back, Josh.')).toHaveLength(1);
+    await h.flush();
+    expect(h.calls).toHaveLength(before + 1);
+    h.conversation.close();
+  });
+
+  it('treats guest lines gathered for one response as one turn and raises the first idea catch', async () => {
+    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    h.conversation.humanSpeech(true);
+    h.conversation.humanText('Let us call Auntie Mary in.');
+    h.conversation.humanText('What will that cost us?');
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(900);
+
+    const first = await waitForCall(h, 0);
+    const request = String(first.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Bao');
+    expect(request).toContain('Acknowledge briefly what works');
+    expect(request).toContain('Let us call Auntie Mary in.');
+    expect(request).toContain('What will that cost us?');
+    await reply(h, 'Bao: It means double pay for Auntie Mary.');
+    expect(h.transcript).toContainEqual(['Bao', 'It means double pay for Auntie Mary.']);
+    h.conversation.close();
+  });
+
+  it('speaks the host move-back line when a second reopen is refused on the reply path', async () => {
+    const twoItems = { ...scenario, agenda: [scenario.agenda[0]!,
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
+    const h = harness(twoItems, 0, undefined, 'one-speaker');
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+
+    await h.say('Use the first plan.');
+    await reply(h, 'Ada: Understood.');
+    h.conversation.lockDecision();
+    await h.flush();
+    expect(h.conversation.memorySnapshot()).toContainEqual({ kind: 'decision', item: 'Prep', text: 'Use the first plan.' });
+
+    h.conversation.agendaMoved('Service');
+    await h.say('Actually, change the Prep plan.');
+    await reply(h, 'KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\nAda: Changing that means extra setup.');
+    expect(h.conversation.onCurrentAgenda('Prep')).toBe(true);
+
+    h.conversation.humanTyped('Use the revised plan.');
+    h.conversation.lockDecision();
+    await h.flush();
+    expect(h.conversation.onCurrentAgenda('Service')).toBe(true);
+
+    const beforeAgain = h.calls.length;
+    await h.say('Actually, change Prep again.');
+    const reopenedAgain = await waitForCall(h, beforeAgain);
+    const callsAfterAgain = h.calls.length;
+    reopenedAgain.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\nAda: I will change it again.');
+    reopenedAgain.end();
+    for (let i = 0; i < 12 && !h.playing.some((entry) => entry.text === "Let's keep going with Service."); i += 1) {
+      await h.flush();
+      await vi.advanceTimersByTimeAsync(600);
+      await finishPlaying(h);
+    }
+
+    expect(h.logs).toContainEqual(expect.stringContaining('[control] dropped reopen: Prep was already reopened'));
+    expect(h.playing.some((entry) => entry.text === "Let's keep going with Service.")).toBe(true);
+    expect(h.transcript).toContainEqual(['Ada', "Let's keep going with Service."]);
+    expect(h.conversation.onCurrentAgenda('Service')).toBe(true);
+    await h.flush();
+    expect(h.calls.length).toBe(callsAfterAgain);
+    h.conversation.close();
   });
 
 });

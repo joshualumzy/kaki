@@ -3,6 +3,7 @@ import { aiCast, humanRoles, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../../src/llm';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
+import { replySpeakerMessages } from '../../src/npc/openingWriter';
 import { loadScenario } from '../../src/loadScenario';
 
 interface LlmCall {
@@ -405,6 +406,31 @@ describe('one-speaker topic opening', () => {
     h.conversation.close();
   });
 
+  it('tells a briefing colleague to link truthfully to the previous line, never to say it caused their news', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const steps = expectedSteps(scenario, title, seat);
+    const h = harness(scenario, roleId);
+    h.conversation.agendaMoved(title);
+    h.conversation.announce('Sam', handoverLine(scenario, title, seat));
+    await flush();
+    await playOut(h.playing);
+
+    const first = await waitCall(h.calls, 0);
+    first.push(`${steps[0]!.speaker}: ${steps[0]!.facts.join(' ')}`);
+    first.end();
+    await flush();
+    await playOut(h.playing);
+
+    const second = await waitCall(h.calls, 1);
+    const request = requestText(second);
+    expect(request).toContain('Start by linking to that point in a way that is true from what you know');
+    expect(request).toContain('Never claim their news caused or changed yours');
+    h.conversation.close();
+  });
+
   it('strips a self-introduction before anything is played', async () => {
     const roleId = 'producer';
     const seat = 'Wei Ling';
@@ -682,6 +708,90 @@ describe('one-speaker topic opening', () => {
     h.conversation.close();
   });
 
+  it('keeps one transcript entry for a cut sentence and adds no dash marker', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const steps = expectedSteps(scenario, title, seat);
+    const h = harness(scenario, roleId);
+    h.conversation.agendaMoved(title);
+    h.conversation.announce('Sam', handoverLine(scenario, title, seat));
+    await flush();
+    await playOut(h.playing);
+
+    const first = await waitCall(h.calls, 0);
+    first.push(`${steps[0]!.speaker}: ${steps[0]!.facts.join(' ')}`);
+    first.end();
+    await flush();
+    await playOut(h.playing);
+
+    const line = `${steps[1]!.speaker}: ${steps[1]!.facts.join(' ')}`;
+    const second = await waitCall(h.calls, 1);
+    second.push(line);
+    second.end();
+    await flush();
+    expect(h.playing.some((entry) => !entry.finished)).toBe(true);
+    const before = h.transcript.filter(([, text]) => text === steps[1]!.facts.join(' ')).length;
+    expect(before).toBe(1);
+
+    h.conversation.stop();
+    await flush();
+    expect(h.transcript.some(([, text]) => text === '—')).toBe(false);
+    expect(h.transcript.filter(([, text]) => text === steps[1]!.facts.join(' '))).toHaveLength(1);
+
+    const resumeAt = h.calls.length;
+    h.conversation.resumeFromPause();
+    await flush();
+    const resumed = await waitCall(h.calls, resumeAt);
+    resumed.push(line);
+    resumed.end();
+    await flush();
+    await playOut(h.playing);
+
+    expect(h.transcript.some(([, text]) => text === '—')).toBe(false);
+    expect(h.transcript.filter(([, text]) => text === steps[1]!.facts.join(' '))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('rejects a prefetched brief that does not carry its fact before any of it plays', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const steps = expectedSteps(scenario, title, seat);
+    const h = harness(scenario, roleId);
+    h.conversation.agendaMoved(title);
+    h.conversation.announce('Sam', handoverLine(scenario, title, seat));
+    await flush();
+    await playOut(h.playing);
+
+    const first = await waitCall(h.calls, 0);
+    first.push(`${steps[0]!.speaker}: ${steps[0]!.facts.join(' ')}`);
+    first.end();
+    await flush();
+    // The next speaker's line is written early, while the first line still plays.
+    const prefetched = await waitCall(h.calls, 1);
+    expect(requestText(prefetched)).toContain(`You are ${steps[1]!.speaker}`);
+    prefetched.push(`${steps[1]!.speaker}: That's what worries me most.`);
+    prefetched.end();
+    await flush();
+    await playOut(h.playing);
+
+    expect(h.transcript.some(([, text]) => text === "That's what worries me most.")).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('did not carry the fact'));
+    const retry = await waitCall(h.calls, 2);
+    expect(requestText(retry)).toContain(`You are ${steps[1]!.speaker}`);
+    expect(requestText(retry)).toContain('Tell only this');
+    retry.push(`${steps[1]!.speaker}: ${steps[1]!.facts.join(' ')}`);
+    retry.end();
+    await flush();
+    await playOut(h.playing);
+
+    expect(h.transcript).toContainEqual([steps[1]!.speaker, steps[1]!.facts.join(' ')]);
+    h.conversation.close();
+  });
+
   it('rejects a brief reply that does not carry its fact, retries once, then skips to the host', async () => {
     const roleId = 'producer';
     const seat = 'Wei Ling';
@@ -764,5 +874,22 @@ describe('one-speaker topic opening', () => {
     const next = await waitCall(h.calls, 1);
     expect(requestText(next)).toContain(`You are ${steps[1]!.speaker}`);
     h.conversation.close();
+  });
+
+  it('lets a reply control line carry reopen, reactions and wingman tips, not only settle or park', () => {
+    const messages = replySpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Sam',
+      topicTitle: TOPICS[0]!,
+      purpose: 'clarify',
+      transcript: [],
+      respondsTo: { speaker: 'Josh', text: 'Let us go back to the earlier plan.' },
+      asksControl: true,
+    });
+    const text = messages.map((message) => message.content).join('\n');
+    expect(text).toContain('"reactions"');
+    expect(text).toContain('"wingmanTip"');
+    expect(text).toContain('"reopen"');
+    expect(text).toContain('Use "open" when the guest reopens an earlier item');
   });
 });

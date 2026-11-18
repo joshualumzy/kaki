@@ -66,6 +66,8 @@ export interface HeardLine {
   factId?: string;
   /** Every briefing fact this line was written to tell, marked only when the whole line is heard. */
   factIds?: readonly string[];
+  /** The real catch this line raises, marked only when the whole line is heard. */
+  catchId?: string;
   /** The line was marked as raising a catch, whatever speaker said it. */
   catch: boolean;
 }
@@ -113,6 +115,8 @@ export interface MeetingView {
   guest: string | undefined;
   host: string | undefined;
   present: readonly string[];
+  /** What each colleague's role, worries and knowledge are about, for choosing who a point touches. */
+  colleagues: readonly { name: string; text: string }[];
 }
 
 export interface MeetingStateOptions {
@@ -120,6 +124,7 @@ export interface MeetingStateOptions {
   present: readonly string[];
   host?: string;
   guest?: string;
+  colleagues?: readonly { name: string; text: string }[];
 }
 
 /** The event shape recorded when a line starts; its id makes the end event match it. */
@@ -132,6 +137,7 @@ export interface HeardLineStart {
   proposal?: boolean;
   factId?: string;
   factIds?: readonly string[];
+  catchId?: string;
   catch?: boolean;
 }
 
@@ -166,6 +172,20 @@ function overlapCount(left: string, right: string): number {
   return count;
 }
 
+/**
+ * True when a heard line still carries a catch after a paraphrase: at least two of its content words and
+ * a third of them survive. Used only for lines the planner did not tag with an exact catch id, such as the
+ * legacy multi-speaker path; a line whose owner merely speaks must not raise a catch.
+ */
+export function carriesCatchText(line: string, catchText: string): boolean {
+  const catchWords = contentWords(catchText);
+  if (catchWords.size === 0) return false;
+  const lineWords = contentWords(line);
+  let shared = 0;
+  for (const word of catchWords) if (lineWords.has(word)) shared += 1;
+  return shared >= Math.min(2, catchWords.size) && shared / catchWords.size >= 1 / 3;
+}
+
 /** Map a validated agenda item to the state's topic shape. */
 export function meetingTopic(item: AgendaItem, index: number): MeetingTopicInfo {
   return {
@@ -187,7 +207,7 @@ export function meetingTopic(item: AgendaItem, index: number): MeetingTopicInfo 
   };
 }
 
-function emptyView(topic: MeetingTopicInfo | undefined, guest: string | undefined, host: string | undefined, present: readonly string[]): MeetingView {
+function emptyView(topic: MeetingTopicInfo | undefined, guest: string | undefined, host: string | undefined, present: readonly string[], colleagues: readonly { name: string; text: string }[]): MeetingView {
   return {
     topic: topic?.title,
     phase: 'handover',
@@ -211,6 +231,7 @@ function emptyView(topic: MeetingTopicInfo | undefined, guest: string | undefine
     guest,
     host,
     present,
+    colleagues,
   };
 }
 
@@ -221,9 +242,10 @@ function derive(
   guest: string | undefined,
   host: string | undefined,
   present: readonly string[],
+  colleagues: readonly { name: string; text: string }[],
 ): MeetingView {
   if (topic === undefined || ledger === undefined) {
-    return emptyView(topic, guest, host, present);
+    return emptyView(topic, guest, host, present, colleagues);
   }
 
   const starts = new Map<string, Extract<LedgerEvent, { kind: 'start' }>>();
@@ -249,6 +271,7 @@ function derive(
       proposal: start.proposal === true,
       ...(start.factId === undefined ? {} : { factId: start.factId }),
       ...(start.factIds === undefined ? {} : { factIds: start.factIds }),
+      ...(start.catchId === undefined ? {} : { catchId: start.catchId }),
       catch: start.catch === true,
     });
   }
@@ -325,9 +348,13 @@ function derive(
     }
 
     if (line.catch) explicitCatch = true;
-    if (firstIdeaIndex >= 0 && index > firstIdeaIndex) {
+    const canRaiseCatch = speaker !== guest && speaker !== host;
+    if (canRaiseCatch && line.catchId !== undefined) {
+      const raised = catches.find((entry) => entry.id === line.catchId);
+      if (raised !== undefined) raised.raised = true;
+    } else if (canRaiseCatch && firstIdeaIndex >= 0 && index > firstIdeaIndex) {
       for (const raised of catches) {
-        if (!raised.raised && raised.attendee === speaker && raised.attendee !== guest && raised.attendee !== host) {
+        if (!raised.raised && raised.attendee === speaker && carriesCatchText(line.text, raised.text)) {
           raised.raised = true;
         }
       }
@@ -372,6 +399,7 @@ function derive(
     guest,
     host,
     present,
+    colleagues,
   };
 }
 
@@ -383,12 +411,14 @@ export class MeetingState {
   private guestName: string | undefined;
   private readonly presentNames: readonly string[];
   private readonly hostName: string | undefined;
+  private readonly colleagues: readonly { name: string; text: string }[];
 
   constructor(options: MeetingStateOptions) {
     for (const topic of options.topics) this.topics.set(topic.title, topic);
     this.presentNames = [...options.present];
     this.hostName = options.host;
     this.guestName = options.guest;
+    this.colleagues = options.colleagues ?? [];
   }
 
   /** The person taking the guest seat. */
@@ -436,7 +466,7 @@ export class MeetingState {
     const ended = ledger.events.some((event) => event.kind === 'end' && event.id === id);
     if (ended) return undefined;
     ledger.events.push({ kind: 'end', id, complete, at });
-    return derive(this.topics.get(title), ledger, at, this.guestName, this.hostName, this.presentNames)
+    return derive(this.topics.get(title), ledger, at, this.guestName, this.hostName, this.presentNames, this.colleagues)
       .lines.find((line) => line.eventId === id);
   }
 
@@ -449,6 +479,6 @@ export class MeetingState {
   view(now: number): MeetingView {
     const topic = this.current === undefined ? undefined : this.topics.get(this.current);
     const ledger = this.current === undefined ? undefined : this.ledgers.get(this.current);
-    return derive(topic, ledger, now, this.guestName, this.hostName, this.presentNames);
+    return derive(topic, ledger, now, this.guestName, this.hostName, this.presentNames, this.colleagues);
   }
 }

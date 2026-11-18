@@ -62,6 +62,7 @@ function meeting(
     scenario: { ...scenario, npcs: cast }, responseDelayMs: 0,
     speakerGapMs: 0, sentenceGapMs: 0, openLiveGraceMs: 1,
     observeDelayMs: 60_000, silencePromptMs: 60_000, firstIdeaCatch: false, opening: 'legacy',
+    replies: 'legacy',
     ...overrides,
   });
   conversation.setHuman({ name: 'Visitor', role });

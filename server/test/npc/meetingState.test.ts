@@ -136,6 +136,38 @@ describe('meeting state', () => {
     expect(state.view(3).guestLaterIdeas.map((line) => line.eventId)).toEqual(['josh-2']);
   });
 
+  it('raises only the exact catch a complete line carries, not every catch its owner has', () => {
+    const state = new MeetingState({
+      topics: [{
+        title: 'Prep',
+        minutes: 5,
+        canWait: false,
+        deadline: 'before doors open at 8',
+        facts: [],
+        catches: [
+          { id: '0:catch:0', attendee: 'Ada', text: 'Calling Ada in means double pay.' },
+          { id: '0:catch:1', attendee: 'Ada', text: 'The oven needs ten more minutes.' },
+        ],
+      }],
+      present: ['Ada', 'Bao', 'Sam'],
+      host: 'Sam',
+      guest: 'Josh',
+    });
+    state.openTopic('Prep', 0);
+    state.heard({ id: 'josh-1', speaker: 'Josh', text: 'Let us call Ada in.', at: 1, proposal: true });
+
+    state.heard({ id: 'ada-1', speaker: 'Ada', text: 'That could work.', at: 2 });
+    expect(state.view(2).catchRaised).toBe(false);
+    expect(state.view(2).catches.every((entry) => !entry.raised)).toBe(true);
+
+    state.lineStarted({ id: 'ada-2', speaker: 'Ada', text: 'Calling Ada in means double pay.', at: 3, catchId: '0:catch:0' });
+    expect(state.view(3).catches[0]?.raised).toBe(false);
+    state.lineEnded('ada-2', true, 4);
+    expect(state.view(4).catches[0]?.raised).toBe(true);
+    expect(state.view(4).catches[1]?.raised).toBe(false);
+    expect(state.view(4).catchRaised).toBe(true);
+  });
+
   it('resets the view on a topic change and restores the earlier ledger when it reopens', () => {
     const state = make();
     state.openTopic('Prep', 0);

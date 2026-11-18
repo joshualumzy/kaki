@@ -4,7 +4,8 @@
  * Pure: no I/O, no timers, no model. The caller decides how to speak the line; in shadow mode it only logs it.
  */
 
-import { contentWords, type HeardLine, type MeetingCatchView, type MeetingFactView, type MeetingView } from './meetingState';
+import { addressedCharacter } from './director';
+import { carriesCatchText, contentWords, type HeardLine, type MeetingCatchView, type MeetingFactView, type MeetingView } from './meetingState';
 
 export type SpeakPurpose = 'handover' | 'brief' | 'answer' | 'catch' | 'invite' | 'confirm' | 'clarify';
 
@@ -16,6 +17,8 @@ export interface SpeakDecision {
   respondsTo: string | undefined;
   /** The briefing facts this step is written to tell, if any. */
   factIds?: readonly string[];
+  /** The real catch this step raises, if any. */
+  catchId?: string;
   reason: string;
 }
 
@@ -64,8 +67,14 @@ function speak(
   respondsTo: string | undefined,
   reason: string,
   factIds?: readonly string[],
+  catchId?: string,
 ): SpeakDecision {
-  return { kind: 'Speak', speaker, purpose, respondsTo, ...(factIds === undefined ? {} : { factIds }), reason };
+  return {
+    kind: 'Speak', speaker, purpose, respondsTo,
+    ...(factIds === undefined ? {} : { factIds }),
+    ...(catchId === undefined ? {} : { catchId }),
+    reason,
+  };
 }
 
 function wait(reason: string): WaitDecision {
@@ -90,6 +99,135 @@ export function describeDecision(decision: PlannerDecision): string {
 
 function isColleague(view: MeetingView, name: string): boolean {
   return name !== view.guest && view.present.includes(name);
+}
+
+/** A whole guest line that only greets, acknowledges or stalls: it does not ask the room for anything. */
+const FILLER_ONLY_RE =
+  /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+|ok|okay|sure|yes|no|yeah|yep|nope|right|fine|thanks|thank you|got it)(?:[ ,]+(?:team|all|everyone|folks))?[,.!?]*\s*)+$/i;
+
+/** True when a guest line only greets, acknowledges or stalls, so the room need not answer it. */
+export function isFillerGuestLine(text: string): boolean {
+  return FILLER_ONLY_RE.test(text.trim());
+}
+
+/** The AI attendees the guest names anywhere in their line, including a second one named after the first. */
+function namedColleagues(view: MeetingView, text: string): string[] {
+  const found: string[] = [];
+  for (const name of view.present) {
+    if (!isColleague(view, name)) continue;
+    if (new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(text)) found.push(name);
+  }
+  return found;
+}
+
+/** The one colleague the guest speaks to first, using the same rules as the old addressee check. */
+function addressedColleague(view: MeetingView, text: string): string | undefined {
+  const cast = view.present.map((attendee) => ({
+    attendee, voice: '', personality: '', agenda: '', concerns: [],
+  }));
+  const named = addressedCharacter(text, cast);
+  return named !== undefined && isColleague(view, named) ? named : undefined;
+}
+
+/** The complete AI lines heard since the guest last spoke, so a guest line gets at most two answers. */
+function respondersSinceGuest(view: MeetingView): HeardLine[] {
+  let guestIndex = -1;
+  for (let index = view.lines.length - 1; index >= 0; index -= 1) {
+    const line = view.lines[index]!;
+    if (line.complete && line.speaker === view.guest) {
+      guestIndex = index;
+      break;
+    }
+  }
+  return guestIndex < 0
+    ? []
+    : view.lines.slice(guestIndex + 1).filter((line) => line.complete && line.speaker !== view.guest);
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The colleague whose role, worries and knowledge the guest's point touches most, if any. */
+function closestColleague(view: MeetingView, text: string): string | undefined {
+  let best: { name: string; overlap: number } | undefined;
+  for (const name of view.present) {
+    if (!isColleague(view, name) || name === view.host) continue;
+    const known = [
+      view.colleagues.find((profile) => profile.name === name)?.text ?? '',
+      ...view.facts.filter((fact) => fact.knownBy.includes(name)).map((fact) => fact.text),
+      ...view.catches.filter((entry) => entry.attendee === name).map((entry) => entry.text),
+    ].join(' ');
+    const overlap = countOverlap(known, text);
+    if (overlap === 0) continue;
+    if (best === undefined || overlap > best.overlap) best = { name, overlap };
+  }
+  return best?.name;
+}
+
+/** How the room answers a guest line: one named colleague, the first idea's catch, a fact, or a clarification. */
+function guestLineDecision(view: MeetingView, line: HeardLine): PlannerDecision {
+  if (isFillerGuestLine(line.text)) return wait(`"${line.text.trim()}" is only a filler or acknowledgement`);
+
+  const recorded = line.question?.to !== undefined && isColleague(view, line.question.to) ? line.question.to : undefined;
+  const addressed = recorded ?? addressedColleague(view, line.text);
+  if (addressed !== undefined) {
+    return speak(addressed, 'answer', line.eventId, `the guest addressed ${addressed} by name`);
+  }
+
+  if (view.guestFirstIdea?.eventId === line.eventId && !view.catchRaised) {
+    const owner = unraisedCatchOwner(view, line.speaker);
+    if (owner !== undefined) {
+      return speak(owner.attendee, 'catch', line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
+    }
+  }
+
+  const fact = matchingFact(view, line.text);
+  if (fact !== undefined) {
+    const knower = canTell(view, fact);
+    if (knower !== undefined) {
+      return speak(knower, 'answer', line.eventId, `${knower} knows a fact that answers the guest's last point`, [fact.id]);
+    }
+  }
+
+  const closest = closestColleague(view, line.text);
+  if (closest !== undefined) {
+    return speak(closest, 'clarify', line.eventId, `${closest}'s own work is closest to the guest's point`);
+  }
+  if (view.host !== undefined && isColleague(view, view.host)) {
+    return speak(view.host, 'clarify', line.eventId, 'nobody else has something to add, so the host clarifies');
+  }
+  return wait('no colleague can answer the guest');
+}
+
+/** A second colleague speaks only when the guest's line gives them a reason of their own. */
+function secondSpeakerDecision(view: MeetingView, responders: readonly HeardLine[]): PlannerDecision {
+  if (responders.length === 0) return wait('the guest has the floor');
+  if (responders.length >= 2) return wait('the guest line already has its two speakers');
+  const first = responders[0]!;
+  const guestLine = view.guestLastLine;
+
+  if (guestLine !== undefined) {
+    const named = new Set(namedColleagues(view, guestLine.text));
+    if (guestLine.question?.to !== undefined && isColleague(view, guestLine.question.to)) {
+      named.add(guestLine.question.to);
+    }
+    named.delete(first.speaker);
+    const second = [...named][0];
+    if (second !== undefined) {
+      return speak(second, 'answer', guestLine.eventId, `the guest also addressed ${second}`);
+    }
+  }
+
+  if (view.guestFirstIdea !== undefined && view.guestLastLine?.eventId === view.guestFirstIdea.eventId && !view.catchRaised) {
+    const owner = unraisedCatchOwner(view, first.speaker);
+    if (owner !== undefined) {
+      return speak(owner.attendee, 'catch', view.guestFirstIdea.eventId,
+        `${first.speaker} did not raise ${owner.attendee}'s catch on the first idea`, undefined, owner.id);
+    }
+  }
+
+  return wait('nothing new to add; waiting for the guest');
 }
 
 function canTell(view: MeetingView, fact: MeetingFactView): string | undefined {
@@ -150,12 +288,6 @@ function countOverlap(left: string, right: string): number {
   return count;
 }
 
-/** The knower of the fact that most closely answers the guest's last point. */
-function knowerForGuestPoint(view: MeetingView, text: string): string | undefined {
-  const fact = matchingFact(view, text);
-  return fact === undefined ? undefined : canTell(view, fact);
-}
-
 /** One colleague with a real catch on the first idea that the room has not heard yet. */
 function unraisedCatchOwner(view: MeetingView, exclude: string | undefined): MeetingCatchView | undefined {
   return view.catches.find((entry) =>
@@ -204,6 +336,16 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
     }
   }
 
+  // The guest's own line outranks any question left open before it: a colleague they just named answers.
+  if (event.kind === 'heard' && event.line.speaker === view.guest) {
+    return guestLineDecision(view, event.line);
+  }
+
+  // A guest line gets at most two AI speakers, even when the second one asks a third colleague a question.
+  if (event.kind === 'heard' && view.guest !== undefined && respondersSinceGuest(view).length >= 2) {
+    return wait('the guest line already has its two AI speakers');
+  }
+
   const question = view.openQuestion;
   if (question !== undefined) {
     if (question.to === view.guest) return wait(`the open question is addressed to ${view.guest}`);
@@ -217,29 +359,15 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
     return wait('the last line was cut off before it was fully heard');
   }
 
-  if (event.kind === 'heard' && event.line.speaker === view.guest) {
-    const knower = knowerForGuestPoint(view, event.line.text);
-    if (knower !== undefined) {
-      return speak(knower, 'answer', event.line.eventId, `${knower} knows a fact that answers ${event.line.speaker}'s last point`);
-    }
-    if (view.guestFirstIdea?.eventId === event.line.eventId && !view.catchRaised) {
-      const owner = unraisedCatchOwner(view, event.line.speaker);
-      if (owner !== undefined) {
-        return speak(owner.attendee, 'catch', event.line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`);
-      }
-    }
-    return wait('nothing new to add; the guest has the floor');
-  }
-
   if (event.kind === 'heard') {
-    return wait('nothing new to add; waiting for the guest');
+    return secondSpeakerDecision(view, respondersSinceGuest(view));
   }
 
   if (event.kind === 'guestDecision') {
     if (view.guestFirstIdea !== undefined && !view.catchRaised) {
       const owner = unraisedCatchOwner(view, undefined);
       if (owner !== undefined) {
-        return speak(owner.attendee, 'catch', event.line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`);
+        return speak(owner.attendee, 'catch', event.line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
       }
     }
     return {
@@ -280,6 +408,19 @@ export function projectHeard(view: MeetingView, line: HeardLine, factIds: readon
     (line.speaker === view.host && line.question?.to !== undefined && line.question.to === view.guest);
   const guestFirstIdea = view.guestFirstIdea ??
     (line.speaker === view.guest && line.proposal ? line : undefined);
+  // A line raises one exact catch, or a legacy untagged line raises the catch its own words actually carry.
+  const canRaiseCatch = line.speaker !== view.guest && line.speaker !== view.host;
+  const catches = !canRaiseCatch
+    ? view.catches
+    : line.catchId !== undefined
+      ? view.catches.map((entry) =>
+        !entry.raised && entry.id === line.catchId ? { ...entry, raised: true } : entry)
+      : guestFirstIdea !== undefined
+        ? view.catches.map((entry) =>
+          !entry.raised && entry.attendee === line.speaker && carriesCatchText(line.text, entry.text)
+            ? { ...entry, raised: true }
+            : entry)
+        : view.catches;
   return {
     ...view,
     lines,
@@ -287,9 +428,11 @@ export function projectHeard(view: MeetingView, line: HeardLine, factIds: readon
     lastLine: line,
     facts,
     factsTold: facts.filter((fact) => fact.told).map((fact) => fact.id),
+    catches,
     openQuestion,
     guestInvited,
     guestFirstIdea,
     guestLastLine: line.speaker === view.guest ? line : view.guestLastLine,
+    catchRaised: view.catchRaised || line.catch || catches.some((entry) => entry.raised),
   };
 }

@@ -24,13 +24,35 @@ export interface OpeningReplyOptions {
   expectedSpeaker: string;
   names: readonly string[];
   guestName?: string;
-  purpose: 'brief' | 'invite';
+  purpose: PlannedPurpose;
   topicTitle?: string;
 }
+
+export type PlannedPurpose = 'brief' | 'invite' | 'answer' | 'catch' | 'clarify';
 
 export type OpeningReply =
   | { ok: true; text: string; sentences: string[] }
   | { ok: false; reason: string };
+
+/** One reply speaker's request: their own persona, the point to answer and the one thing they may add. */
+export interface ReplySpeakerRequest {
+  scenario: Scenario;
+  speaker: string;
+  human?: HumanInfo;
+  topicTitle: string;
+  decision?: string;
+  purpose: 'answer' | 'catch' | 'clarify';
+  /** The last fully heard lines on this topic, oldest first. */
+  transcript: readonly { speaker: string; text: string }[];
+  /** The exact heard line this reply answers. */
+  respondsTo: { speaker: string; text: string };
+  /** The untold fact(s) an answer may state. */
+  facts?: readonly string[];
+  /** The real catch a catch reply raises. */
+  catchText?: string;
+  /** Ask the model for its hidden KAKI_CONTROL line, used only on the first reply of a guest line. */
+  asksControl?: boolean;
+}
 
 const CONTROL_LINE_RE = /^\s*(?:KAKI_CONTROL|\[|\()/i;
 const CARD_OR_SCREEN_RE = /\b(?:card|screen|panel|dashboard|on your phone)\b/i;
@@ -86,11 +108,74 @@ export function openingSpeakerMessages(request: OpeningSpeakerRequest): Array<{ 
       `The meeting is on "${request.topicTitle}".`,
       request.previous === undefined
         ? 'The host has just handed you the topic.'
-        : `The room just heard ${request.previous.speaker}: "${request.previous.text}". Respond directly to that; do not repeat it.`,
+        : `The room just heard ${request.previous.speaker}: "${request.previous.text}". Start by linking to that point in a way that is true from what you know, as it lands on your own side. Never claim their news caused or changed yours; your point is your own. Do not repeat their line.`,
       `Tell only this, in your own words: "${request.facts.join(' ')}".`,
       'Use only these details. Do not ask the guest anything. Do not mention any other problem, cost or catch; the room will raise that later.',
     ].join(' ');
   }
+
+  return [
+    { role: 'system', content: `${describeSpeaker(request.scenario, request.speaker, request.human)}\n\n${rules}` },
+    { role: 'user', content: task },
+  ];
+}
+
+/** The hidden control contract, so settlement, parking, reactions and reopening still reach the old code. */
+function controlInstruction(): string {
+  return [
+    'Begin with one hidden control line exactly like one of these whenever it applies:',
+    'KAKI_CONTROL {"state":"open","wingmanNeeded":false}',
+    'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"short deliverable"},"wingmanNeeded":false}',
+    'Use "open" when the guest reopens an earlier item, or when a reaction, a Wingman tip or a small new fact genuinely applies. Use "settled" only for a clear settled call, and "deferred" only when they chose to park the topic.',
+    'You may add "reactions":[{"who":"a colleague name","emoji":"👍"}], "wingmanTip":"one short helpful fact", "newFacts":["one small new detail"] or "reopen":"exact earlier agenda title" only when they genuinely apply.',
+    'When none of these apply, put no control line at all. No other line may start with KAKI_CONTROL.',
+  ].join(' ');
+}
+
+/** The messages for one reply speaker. The speaker is fixed; the reply must be about the point just heard. */
+export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role: 'system' | 'user'; content: string }> {
+  const rules = [
+    'This is a live spoken meeting. Reply with exactly one line, in this form:',
+    `"${request.speaker}: <the words said aloud>"`,
+    'No control line unless this request asks for one, no notes, no other speaker, no stage directions.',
+    'One or two short spoken sentences, like answering a colleague. Keep any numbers or times you are given, written as digits, and add no others.',
+    'No report phrases, no semicolons, no lists, no options or menus. Do not introduce yourself or your job; the host already did.',
+    'Never read the topic title aloud, and never mention the screen, the card, the notes or this request.',
+    'Ask at most one question in the whole reply.',
+    'Do not repeat or rephrase a line the room has already heard; respond to the latest point instead.',
+  ].join(' ');
+  const transcript = request.transcript.length === 0
+    ? 'Nothing has been heard on this topic yet.'
+    : request.transcript.map((line) => `${line.speaker}: ${line.text}`).join('\n');
+  const isGuest = request.human !== undefined && request.respondsTo.speaker === request.human.name;
+  const heard = isGuest
+    ? `The guest just said: "${request.respondsTo.text}"`
+    : `The room just heard ${request.respondsTo.speaker}: "${request.respondsTo.text}"`;
+
+  let purpose: string;
+  if (request.purpose === 'catch') {
+    purpose = [
+      'Acknowledge briefly what works in the guest\'s idea.',
+      `Then raise this real catch in your own words: "${request.catchText ?? 'the cost their idea does not cover'}".`,
+      'Do not solve it for them and do not list fixes; leave them something to answer.',
+    ].join(' ');
+  } else if (request.purpose === 'answer') {
+    purpose = request.facts === undefined || request.facts.length === 0
+      ? 'Answer the point directly, in your own words, from what you know. Do not invent figures or a new problem.'
+      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}".`;
+  } else {
+    purpose = 'Respond to what the guest actually said, in your own words, and ask at most one short question to understand what they want.';
+  }
+
+  const task = [
+    `The meeting is on "${request.topicTitle}".`,
+    request.decision === undefined ? '' : `The decision on the table: "${request.decision}".`,
+    `What the room has heard on this topic, in order:\n${transcript}`,
+    `${heard}.`,
+    purpose,
+    `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
+    request.asksControl === true ? controlInstruction() : '',
+  ].filter((part) => part.length > 0).join('\n');
 
   return [
     { role: 'system', content: `${describeSpeaker(request.scenario, request.speaker, request.human)}\n\n${rules}` },
@@ -174,21 +259,32 @@ function valueTokens(text: string): Set<string> {
  * True when a spoken line still carries the fact it was asked to tell: every number, clock time and price
  * appears in it, and at least half of the fact's content words survive the paraphrase.
  */
-export function carriesFact(line: string, fact: string): boolean {
+export function carriesFact(line: string, fact: string, options: { minShare?: number; minShared?: number } = {}): boolean {
   const factWords = contentWords(fact);
   if (factWords.size > 0) {
     const lineWords = contentWords(line);
     let shared = 0;
     for (const word of factWords) if (lineWords.has(word)) shared += 1;
-    if (shared / factWords.size < 0.5) return false;
+    const minShare = options.minShare ?? 0.5;
+    const minShared = options.minShared ?? 0;
+    if (shared < minShared || shared / factWords.size < minShare) return false;
   }
   const lineValues = valueTokens(line);
   for (const value of valueTokens(fact)) if (!lineValues.has(value)) return false;
   return true;
 }
 
-/** Clean and check one opening reply. A reply with another speaker, no speech or the wrong shape is rejected whole. */
-export function parseOpeningReply(reply: string, options: OpeningReplyOptions): OpeningReply {
+/**
+ * True when a catch survives a paraphrase: at least two of its content words and a third of them appear,
+ * and every number or price it names is still there. Looser than a briefing fact because the prompt asks
+ * the speaker to raise the catch "in their own words".
+ */
+export function carriesCatch(line: string, catchText: string): boolean {
+  return carriesFact(line, catchText, { minShare: 1 / 3, minShared: 2 });
+}
+
+/** Clean and check one planned reply. A reply with another speaker, no speech or the wrong shape is rejected whole. */
+export function parsePlannedReply(reply: string, options: OpeningReplyOptions): OpeningReply {
   const cast = [...options.names, ...(options.guestName === undefined ? [] : [options.guestName])];
   const alternatives = cast.map(escapeRegExp).join('|');
   const tagPattern = new RegExp(`^(${alternatives})\\s*:\\s*(.*)$`, 'i');
@@ -240,6 +336,10 @@ export function parseOpeningReply(reply: string, options: OpeningReplyOptions): 
     if (guest !== undefined && !new RegExp(`\\b${escapeRegExp(guest)}\\b`, 'i').test(text)) {
       text = `${guest}, ${text[0]!.toLowerCase()}${text.slice(1)}`;
     }
+  }
+  if ((options.purpose === 'answer' || options.purpose === 'catch' || options.purpose === 'clarify') &&
+      (text.match(/\?/g) ?? []).length > 1) {
+    return { ok: false, reason: 'asked more than one question' };
   }
 
   const sentences = text
