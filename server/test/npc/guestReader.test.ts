@@ -89,6 +89,34 @@ describe('guest line reader', () => {
     expect(p.logs).toContainEqual(expect.stringMatching(/^\[reader\] kind=idea addressee=Ada covered=action,practical ms=/));
   });
 
+  it('keeps a reading whose extra fields the model left out (seen live)', async () => {
+    // The exact shape the school model returned in live runs: no answersOpenQuestion.
+    const p = ports({ stream: streamOf(JSON.stringify({
+      kind: 'agree', relevantFactIds: [], relevantCatchIds: [],
+      readiness: { action: { covered: false }, catchAddressed: { covered: false }, practical: { covered: false } },
+    })) });
+    const result = await readGuestLine(input, p);
+    expect(result).toMatchObject({ kind: 'agree', answersOpenQuestion: false });
+    expect(p.logs).toContainEqual('[reader] defaulted missing fields: answersOpenQuestion');
+  });
+
+  it('defaults every missing field but the kind, and treats a null slot as uncovered', async () => {
+    const p = ports({ stream: streamOf(JSON.stringify({ kind: 'question', readiness: { action: null } })) });
+    const result = await readGuestLine(input, p);
+    expect(result).toMatchObject({
+      kind: 'question', answersOpenQuestion: false, relevantFactIds: [], relevantCatchIds: [],
+      readiness: { action: { covered: false }, catchAddressed: { covered: false }, practical: { covered: false } },
+    });
+    expect(p.fallbackStream).toBeUndefined();
+  });
+
+  it('logs the raw reply when the kind itself is unusable', async () => {
+    const p = ports({ stream: streamOf(JSON.stringify({ kind: 'banana' })) });
+    const result = await readGuestLine(input, p);
+    expect(result.kind).toBe('unsure');
+    expect(p.logs).toContainEqual(expect.stringContaining('not a valid reading: "{\\"kind\\":\\"banana\\"}"'));
+  });
+
   it('retries on the backup model after invalid JSON', async () => {
     const calls: string[] = [];
     const p = ports({

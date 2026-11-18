@@ -123,9 +123,9 @@ export function evidenceIsSupported(quote: string, guestLines: readonly string[]
   return normalise(guestLines.join(' ')).includes(wanted);
 }
 
-function readSlot(value: unknown, guestLines: readonly string[], log: (message: string) => void): DecisionSlot | undefined {
-  if (!isObject(value) || typeof value.covered !== 'boolean') return undefined;
-  if (!value.covered) return { covered: false };
+function readSlot(value: unknown, guestLines: readonly string[], log: (message: string) => void): DecisionSlot {
+  // A missing or malformed slot means "not covered": only the kind is essential to a reading.
+  if (!isObject(value) || value.covered !== true) return { covered: false };
   const evidence = typeof value.evidence === 'string' ? value.evidence.trim() : '';
   if (evidence.length === 0) {
     log('[reader] dropped unsupported evidence: a covered slot had no verbatim quote');
@@ -150,11 +150,14 @@ function validateReading(
 ): GuestReading | undefined {
   if (!isObject(value)) return undefined;
   if (typeof value.kind !== 'string' || !KINDS.includes(value.kind as GuestLineKind)) return undefined;
-  if (typeof value.answersOpenQuestion !== 'boolean') return undefined;
-  const factIds = stringArray(value.relevantFactIds);
-  const catchIds = stringArray(value.relevantCatchIds);
-  if (factIds === undefined || catchIds === undefined) return undefined;
-  if (!isObject(value.readiness)) return undefined;
+  // Only the kind is essential. Models often omit the other fields; each falls back to its safe default
+  // (not answering, no ids, nothing covered), so a usable reading is never thrown away for a missing extra.
+  const missing: string[] = [];
+  if (typeof value.answersOpenQuestion !== 'boolean') missing.push('answersOpenQuestion');
+  const factIds = stringArray(value.relevantFactIds) ?? (missing.push('relevantFactIds'), []);
+  const catchIds = stringArray(value.relevantCatchIds) ?? (missing.push('relevantCatchIds'), []);
+  const readiness = isObject(value.readiness) ? value.readiness : (missing.push('readiness'), {});
+  if (missing.length > 0) log(`[reader] defaulted missing fields: ${missing.join(', ')}`);
 
   const present = new Set(input.colleagues.map((colleague) => colleague.name));
   const knownFactIds = new Set(input.colleagues.flatMap((colleague) => colleague.facts.map((fact) => fact.id)));
@@ -174,9 +177,7 @@ function validateReading(
 
   const slots: Partial<GuestReadiness> = {};
   for (const name of SLOTS) {
-    const slot = readSlot(value.readiness[name], input.guestLines, log);
-    if (slot === undefined) return undefined;
-    slots[name] = slot;
+    slots[name] = readSlot(readiness[name], input.guestLines, log);
   }
 
   let chosenOption: number | undefined;
@@ -193,7 +194,7 @@ function validateReading(
   return {
     kind: value.kind as GuestLineKind,
     ...(addressee === undefined ? {} : { addressee }),
-    answersOpenQuestion: value.answersOpenQuestion,
+    answersOpenQuestion: value.answersOpenQuestion === true,
     relevantFactIds: keptFactIds,
     relevantCatchIds: keptCatchIds,
     readiness: {
@@ -362,9 +363,14 @@ async function attempt(
   try {
     const content = await collect(
       stream(readerMessages(input), signal), firstOutputMs, budgetMs, () => abort.abort());
-    const parsed = parseJsonReply(content);
+    let parsed: unknown;
+    try {
+      parsed = parseJsonReply(content);
+    } catch {
+      throw new Error(`the reply was not JSON: ${JSON.stringify(content.slice(0, 200))}`);
+    }
     const reading = validateReading(parsed, input, log);
-    if (reading === undefined) throw new Error('the reply was not a valid reading');
+    if (reading === undefined) throw new Error(`the reply was not a valid reading: ${JSON.stringify(content.slice(0, 200))}`);
     return reading;
   } finally {
     if (!signal.aborted) abort.abort();
