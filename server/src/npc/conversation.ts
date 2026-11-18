@@ -467,6 +467,8 @@ interface Turn {
   held?: boolean;
   /** A silence nudge (a check-in, a colleague line or the statement bridge); its note is dropped if it is never heard. */
   nudge?: boolean;
+  /** This scripted line re-asks a live confirmation or offer, so it must not clear that gate. */
+  gateReask?: boolean;
   /** The history entry the nudge note was written from, removed when the visitor speaks before any of it is heard. */
   nudgeNote?: ChatMessage;
   /** Wakes the playback loop when a held turn carries on or is discarded. */
@@ -1211,7 +1213,7 @@ export class NpcConversation<Clip> {
     giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS,
     onDone?: (spoken: boolean) => void,
     shouldStillSpeak?: () => boolean,
-    options: { endsOnCutoff?: boolean } = {},
+    options: { endsOnCutoff?: boolean; gateReask?: boolean } = {},
   ): void {
     const line = text.trim();
     if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
@@ -1223,7 +1225,8 @@ export class NpcConversation<Clip> {
     }
     this.cueWhenQuiet(
       `${speaker}'s cue "${line}"`,
-      () => this.startScripted({ speaker, text: line }, onDone, options.endsOnCutoff === true),
+      () => this.startScripted(
+        { speaker, text: line }, onDone, options.endsOnCutoff === true, options.gateReask === true),
       giveUpMs,
       () => onDone?.(false),
       shouldStillSpeak,
@@ -1714,7 +1717,7 @@ export class NpcConversation<Clip> {
    * heard, so an "agree" can no longer commit it. Only a direct reply to that exact line can.
    */
   private clearAskedGates(): void {
-    if (this.reaskingWhichOne) return;
+    if (this.reaskingWhichOne || this.turn?.gateReask === true) return;
     const view = this.meetingState.view(Date.now());
     if (!view.offerAsked && !view.confirmationAsked) return;
     this.meetingState.setOfferAsked(false);
@@ -2046,6 +2049,12 @@ export class NpcConversation<Clip> {
         this.resolveUnresolved();
         return;
       }
+      // A one-speaker reply already producing Sam's line owns the next move; a lock must not queue a second
+      // confirmation behind a line that may itself restate the call.
+      if (this.turn !== undefined && this.turn.planned?.kind === 'reply' && this.turn.finalized !== true) {
+        this.ports.log?.('[lock] a reply line is already being spoken; its plan owns the confirmation');
+        return;
+      }
       if (readinessMet(view)) {
         this.ports.log?.('[lock] readiness holds, but the guest has not confirmed the call yet');
         this.askConfirmation(view);
@@ -2130,6 +2139,20 @@ export class NpcConversation<Clip> {
     this.ports.emitState(this.idleState());
   }
 
+  /**
+   * A legacy model settle tag may only lock the topic on the legacy reply path. In one-speaker mode the guest's
+   * checked reading is the one owner of the decision, so the tag is ignored rather than racing the planner.
+   */
+  private applyTurnSettle(turn: Turn, requireSpoken = true): void {
+    if (turn.settle === undefined) return;
+    if (requireSpoken && turn.spoken.length === 0) return;
+    if (this.readinessApplies()) {
+      this.ports.log?.('[settle] ignored the model settle tag; readiness decides in one-speaker mode');
+      return;
+    }
+    this.lockDecision(turn.settle.followUp);
+  }
+
   /** Task lifecycle is the only normal reason to leave a settled topic. */
   taskStatus(id: string, origin: string | undefined, status: string, isVisitorTask: boolean, declined = false): void {
     const title = this.currentItem()?.title;
@@ -2159,6 +2182,14 @@ export class NpcConversation<Clip> {
       return;
     }
     if (this.decisionLines.length === 0) return;
+    if (this.readinessApplies()) {
+      // The budget only asks a gate the planner understands; the guest's checked reading still decides.
+      this.budgetOffered = true;
+      this.budgetOfferAtLine = this.humanLines;
+      this.ports.log?.('[lock] the budget is up; readiness decides the call');
+      this.lockDecision();
+      return;
+    }
     const remaining = DEFAULT_REPEAT_WINDOW_MS - (Date.now() - this.lastLockAskAt);
     if (remaining > 0) {
       this.clearBudgetTimer();
@@ -3180,7 +3211,7 @@ export class NpcConversation<Clip> {
     this.startPlannedPrefetch(run, decision, parsed.text, factIds);
     queue.close();
     await player;
-    if (turn.settle !== undefined && turn.spoken.length > 0) this.lockDecision(turn.settle.followUp);
+    this.applyTurnSettle(turn);
     if (turn.control !== undefined && turn.topic !== undefined && turn.spoken.length > 0) {
       this.memory.invented(this.reopenedTitle ?? turn.topic, turn.control.newFacts ?? []);
     }
@@ -3641,9 +3672,10 @@ export class NpcConversation<Clip> {
         canWait: view.canWait,
         deadline: view.deadline ?? 'soon',
       },
+      guest,
       ...(view.openQuestion === undefined
         ? {}
-        : { openQuestion: { from: view.openQuestion.from, text: view.openQuestion.text } }),
+        : { openQuestion: { from: view.openQuestion.from, to: view.openQuestion.to, text: view.openQuestion.text } }),
       guestLines: view.lines
         .filter((entry) => entry.complete && entry.speaker === guest)
         .map((entry) => entry.text),
@@ -3783,6 +3815,30 @@ export class NpcConversation<Clip> {
     return view.directions.slice(0, 2).map(plainDirection).filter((choice) => choice.length > 0);
   }
 
+  /** The exact offer line for an offer already put to the guest, so a silence re-ask repeats it. */
+  private offerAskLine(guest: string, offer: MeetingView['offer']): string {
+    if (offer?.openAsk === true) return `${guest}, what would you rather do?`;
+    if (offer?.proposal !== undefined) return `${guest}, shall we go with "${offer.proposal}"?`;
+    const choices = offer?.choices ?? [];
+    if (choices.length >= 2) return `${guest}, shall we go with "${choices[0]}" or "${choices[1]}"?`;
+    if (choices.length === 1) return `${guest}, shall we go with "${choices[0]}"?`;
+    return `${guest}, shall we make the smallest call you can live with now?`;
+  }
+
+  /** The live confirmation or offer Sam should re-ask after silence instead of a generic nudge. */
+  private liveGateReask(): { line: string; gate: 'confirmation' | 'offer' } | undefined {
+    const guest = this.human?.name;
+    if (guest === undefined) return undefined;
+    const view = this.meetingState.view(Date.now());
+    if (view.confirmationAsked && view.confirmationCall !== undefined) {
+      return { line: `${guest}, is "${view.confirmationCall}" your call?`, gate: 'confirmation' };
+    }
+    if (view.offerAsked && view.offer !== undefined) {
+      return { line: this.offerAskLine(guest, view.offer), gate: 'offer' };
+    }
+    return undefined;
+  }
+
   /** Sam turns the guest's own idea, or two realistic directions, into one concrete call and asks them to agree. */
   private askOffer(view: MeetingView, offer?: OfferDecision): void {
     const host = this.facilitatorOrCoHost();
@@ -3796,18 +3852,7 @@ export class NpcConversation<Clip> {
       return;
     }
     const choices = offer?.choices === undefined ? this.offerChoices(view) : [...offer.choices];
-    let line: string;
-    if (offer?.openAsk === true) {
-      line = `${guest}, what would you rather do?`;
-    } else if (offer?.proposal !== undefined) {
-      line = `${guest}, shall we go with "${offer.proposal}"?`;
-    } else if (choices.length >= 2) {
-      line = `${guest}, shall we go with "${choices[0]}" or "${choices[1]}"?`;
-    } else if (choices.length === 1) {
-      line = `${guest}, shall we go with "${choices[0]}"?`;
-    } else {
-      line = `${guest}, shall we make the smallest call you can live with now?`;
-    }
+    const line = this.offerAskLine(guest, offer ?? (choices.length > 0 ? { choices } : { openAsk: true }));
     const put = offer?.openAsk === true
       ? { openAsk: true }
       : offer?.proposal !== undefined
@@ -4043,6 +4088,18 @@ export class NpcConversation<Clip> {
         this.scheduleSilencePrompt();
         return;
       }
+      // A live confirmation or offer is re-asked as that same question, so the gate stays the last thing heard.
+      // It counts as this stage of the silence escalation, so the existing cap still stops it looping.
+      const gateReask = this.liveGateReask();
+      if (gateReask !== undefined) {
+        this.silencePromptStage = stageAtSchedule + 1;
+        this.ports.log?.(`[silence] re-asking the live ${gateReask.gate} instead of a generic nudge`);
+        this.announce(host, gateReask.line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+          if (!spoken) this.ports.log?.(`[silence] the ${gateReask.gate} re-ask was not heard; the gate stays live`);
+          this.scheduleSilencePrompt();
+        }, undefined, { gateReask: true });
+        return;
+      }
       if (shouldBridgeStatement) {
         this.bridgedStatementOnTurn = true;
         const npcs = this.options.scenario.npcs ?? [];
@@ -4234,7 +4291,12 @@ export class NpcConversation<Clip> {
     this.ports.emitState(this.idleState());
   }
 
-  private startScripted(utterance: Utterance, onDone?: (spoken: boolean) => void, endsOnCutoff = false): void {
+  private startScripted(
+    utterance: Utterance,
+    onDone?: (spoken: boolean) => void,
+    endsOnCutoff = false,
+    gateReask = false,
+  ): void {
     const abort = new AbortController();
     const turn: Turn = {
       abort,
@@ -4247,6 +4309,7 @@ export class NpcConversation<Clip> {
       done: Promise.resolve(),
       startedAt: Date.now(),
       scripted: true,
+      gateReask,
       scriptedUtterance: utterance,
       onScriptedDone: onDone,
       ...(endsOnCutoff ? { endsOnCutoff } : {}),
@@ -4394,7 +4457,7 @@ export class NpcConversation<Clip> {
     turn.soundAbort.abort();
     this.gate.setAiAudible(false);
     // The visitor heard the room accept their decision before the reply was cut short: it still counts.
-    if (reason !== 'agenda moved' && turn.settle !== undefined && turn.spoken.length > 0) this.lockDecision(turn.settle.followUp);
+    if (reason !== 'agenda moved') this.applyTurnSettle(turn);
     this.ports.emitState(this.idleState());
   }
 
@@ -4439,7 +4502,7 @@ export class NpcConversation<Clip> {
     turn.abort.abort();
     turn.soundAbort.abort();
     this.gate.setAiAudible(false);
-    if (turn.settle !== undefined && turn.spoken.length > 0) this.lockDecision(turn.settle.followUp);
+    this.applyTurnSettle(turn);
     this.finishDispatchCue(turn);
     this.ports.emitState(this.idleState());
   }
@@ -5041,7 +5104,7 @@ export class NpcConversation<Clip> {
     }
 
     this.finalize(turn);
-    if (turn.settle !== undefined) this.lockDecision(turn.settle.followUp);
+    this.applyTurnSettle(turn, false);
     this.turn = undefined;
     // A task cue is not an answer: no brief, hand-over, silence prompt or recovery cue follows it.
     if (turn.dispatchCue !== undefined) {

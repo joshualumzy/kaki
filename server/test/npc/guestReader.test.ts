@@ -98,6 +98,85 @@ describe('guest line reader', () => {
     const result = await readGuestLine(input, p);
     expect(result).toMatchObject({ kind: 'agree', answersOpenQuestion: false });
     expect(p.logs).toContainEqual('[reader] defaulted missing fields: answersOpenQuestion');
+    expect(p.logs).toContainEqual(expect.stringContaining('[reader] derived answersOpenQuestion=false'));
+  });
+
+  it('derives answersOpenQuestion from the kind when the guest answers the question put to them (seen live)', async () => {
+    // The live line chose a call while answering Sam, but the model left the field out.
+    const live: GuestReaderInput = {
+      ...input,
+      openQuestion: { from: 'Sam', to: 'Josh', text: 'Where is your head at on the regulars and the price?' },
+      guest: 'Josh',
+      guestLines: ['Uncle Lim vouches, small cup at old price, floor team knows the rest.'],
+      line: 'Uncle Lim vouches, small cup at old price, floor team knows the rest.',
+    };
+    const p = ports({ stream: streamOf(JSON.stringify({
+      kind: 'idea',
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'small cup at old price' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    })) });
+
+    const result = await readGuestLine(live, p);
+    expect(result).toMatchObject({ kind: 'idea', answersOpenQuestion: true });
+    expect(p.logs).toContainEqual('[reader] defaulted missing fields: answersOpenQuestion');
+    expect(p.logs).toContainEqual(expect.stringContaining('[reader] derived answersOpenQuestion=true'));
+  });
+
+  it('does not derive an answer when the open question was put to a colleague', async () => {
+    const toColleague: GuestReaderInput = {
+      ...input,
+      openQuestion: { from: 'Sam', to: 'Ada', text: 'Ada, can the counter take a new login?' },
+      guest: 'Josh',
+    };
+    const p = ports({ stream: streamOf(JSON.stringify({
+      kind: 'idea',
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'call Auntie Mary in' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    })) });
+
+    const result = await readGuestLine(toColleague, p);
+    expect(result.answersOpenQuestion).toBe(false);
+    expect(p.logs).toContainEqual(expect.stringContaining('[reader] derived answersOpenQuestion=false'));
+  });
+
+  it('shows every field in a filled skeleton and says when no question is open', async () => {
+    let seen: ChatMessage[] = [];
+    const capture = (messages: ChatMessage[]): AsyncIterable<string> => {
+      seen = messages;
+      return streamOf(reading())(messages, new AbortController().signal);
+    };
+    const p = ports({ stream: capture });
+
+    await readGuestLine({ ...input, openQuestion: undefined }, p);
+    const prompt = seen.map((message) => message.content).join('\n');
+    expect(prompt).toContain('"kind":"idea"');
+    expect(prompt).toContain('"answersOpenQuestion":false');
+    expect(prompt).toContain('"relevantFactIds":[]');
+    expect(prompt).toContain('"chosenOption":null');
+    expect(prompt).toContain('There is no open question.');
+  });
+
+  it('names who an open question is addressed to', async () => {
+    let seen: ChatMessage[] = [];
+    const capture = (messages: ChatMessage[]): AsyncIterable<string> => {
+      seen = messages;
+      return streamOf(reading())(messages, new AbortController().signal);
+    };
+    const p = ports({ stream: capture });
+
+    await readGuestLine({ ...input, openQuestion: { from: 'Sam', to: 'Josh', text: 'Josh, what is your call?' } }, p);
+    const prompt = seen.map((message) => message.content).join('\n');
+    expect(prompt).toContain('Open question from Sam to Josh: "Josh, what is your call?"');
   });
 
   it('defaults every missing field but the kind, and treats a null slot as uncovered', async () => {

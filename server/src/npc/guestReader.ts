@@ -67,7 +67,9 @@ export interface GuestReaderColleague {
 
 export interface GuestReaderInput {
   topic: GuestReaderTopic;
-  openQuestion?: { from: string; text: string };
+  openQuestion?: { from: string; to?: string; text: string };
+  /** The guest whose line is being read, so an open question addressed to them can be closed by their answer. */
+  guest?: string;
   /** The guest's own heard lines on this topic, oldest first, including the new line. */
   guestLines: readonly string[];
   /** Everyone present except the guest, with the fact and catch ids they can speak to. */
@@ -150,14 +152,29 @@ function validateReading(
 ): GuestReading | undefined {
   if (!isObject(value)) return undefined;
   if (typeof value.kind !== 'string' || !KINDS.includes(value.kind as GuestLineKind)) return undefined;
+  const kind = value.kind as GuestLineKind;
   // Only the kind is essential. Models often omit the other fields; each falls back to its safe default
   // (not answering, no ids, nothing covered), so a usable reading is never thrown away for a missing extra.
   const missing: string[] = [];
-  if (typeof value.answersOpenQuestion !== 'boolean') missing.push('answersOpenQuestion');
+  const answersMissing = typeof value.answersOpenQuestion !== 'boolean';
+  if (answersMissing) missing.push('answersOpenQuestion');
   const factIds = stringArray(value.relevantFactIds) ?? (missing.push('relevantFactIds'), []);
   const catchIds = stringArray(value.relevantCatchIds) ?? (missing.push('relevantCatchIds'), []);
   const readiness = isObject(value.readiness) ? value.readiness : (missing.push('readiness'), {});
   if (missing.length > 0) log(`[reader] defaulted missing fields: ${missing.join(', ')}`);
+  let answersOpenQuestion = value.answersOpenQuestion === true;
+  if (answersMissing) {
+    // A live answer must close the question it was put to, or readiness can never hold. Derive it only from
+    // the reader's own kind and who the question was for, never from the guest's words.
+    const addressedToGuest = input.openQuestion !== undefined &&
+      input.openQuestion.to !== undefined && input.openQuestion.to === input.guest;
+    const answersKind = kind === 'idea' || kind === 'answer' || kind === 'agree' || kind === 'park';
+    answersOpenQuestion = addressedToGuest && answersKind;
+    log(
+      `[reader] derived answersOpenQuestion=${answersOpenQuestion}` +
+      ` (kind "${kind}", question ${addressedToGuest ? 'to the guest' : 'not to the guest'})`,
+    );
+  }
 
   const present = new Set(input.colleagues.map((colleague) => colleague.name));
   const knownFactIds = new Set(input.colleagues.flatMap((colleague) => colleague.facts.map((fact) => fact.id)));
@@ -181,7 +198,7 @@ function validateReading(
   }
 
   let chosenOption: number | undefined;
-  if (value.chosenOption !== undefined) {
+  if (value.chosenOption !== undefined && value.chosenOption !== null) {
     const choices = input.offer?.choices ?? [];
     const index = typeof value.chosenOption === 'number' ? value.chosenOption : Number.NaN;
     if (Number.isInteger(index) && index >= 0 && index < choices.length) {
@@ -192,9 +209,9 @@ function validateReading(
   }
 
   return {
-    kind: value.kind as GuestLineKind,
+    kind,
     ...(addressee === undefined ? {} : { addressee }),
-    answersOpenQuestion: value.answersOpenQuestion === true,
+    answersOpenQuestion,
     relevantFactIds: keptFactIds,
     relevantCatchIds: keptCatchIds,
     readiness: {
@@ -228,8 +245,9 @@ function describeInput(input: GuestReaderInput): string {
     ? `This topic can wait; its later slot is "${input.topic.deadline}".`
     : `This topic is urgent; it must be decided "${input.topic.deadline}".`);
   lines.push(input.openQuestion === undefined
-    ? 'No question is open right now.'
-    : `Open question from ${input.openQuestion.from}: "${input.openQuestion.text}"`);
+    ? 'There is no open question.'
+    : `Open question from ${input.openQuestion.from}` +
+      `${input.openQuestion.to === undefined ? '' : ` to ${input.openQuestion.to}`}: "${input.openQuestion.text}"`);
   const heard = input.recentHeard.length === 0
     ? 'Nothing has been heard on this topic yet.'
     : input.recentHeard.map((line) => `${line.speaker}: ${line.text}`).join('\n');
@@ -267,14 +285,18 @@ function readerMessages(input: GuestReaderInput): ChatMessage[] {
     '',
     'Fields:',
     '"kind": one of "idea", "question", "answer", "agree", "backchannel", "unsure", "park", "off_topic", "noise".',
-    '"addressee": a present colleague\'s exact name when the guest is clearly speaking to them, otherwise omit it.',
-    '"answersOpenQuestion": true only when the guest is answering the open question shown.',
+    '"addressee": a present colleague\'s exact name when the guest is clearly speaking to them, otherwise null.',
+    '"answersOpenQuestion": true only when the guest is answering the open question shown. When there is no open question shown, this must be false.',
     '"relevantFactIds": fact ids from the list that the guest\'s point touches, or [].',
     '"relevantCatchIds": catch ids from the list that the guest\'s point touches, or [].',
-    '"chosenOption": when Sam has put a list of numbered choices to the guest and the guest clearly picked one, the zero-based index of that choice. Otherwise omit it. Never guess an option the guest did not pick.',
+    '"chosenOption": when Sam has put a list of numbered choices to the guest and the guest clearly picked one, the zero-based index of that choice, otherwise null. Never guess an option the guest did not pick.',
     '"readiness": {"action": slot, "catchAddressed": slot, "practical": slot}.',
     'A slot is {"covered": true, "evidence": "<the guest\'s exact words, copied verbatim>"} or {"covered": false}.',
     'The evidence must be a word-for-word substring of one of the guest\'s own lines. Never paraphrase it.',
+    '',
+    'Return exactly this JSON shape, with every field present:',
+    '{"kind":"idea","addressee":null,"answersOpenQuestion":false,"relevantFactIds":[],"relevantCatchIds":[],"chosenOption":null,"readiness":{"action":{"covered":false},"catchAddressed":{"covered":false},"practical":{"covered":false}}}',
+    'Replace the example values with your reading, keeping every field. Use null for "addressee" and "chosenOption" when they do not apply.',
     '"action" means the guest has actually chosen what to do about this topic.',
     '"catchAddressed" means the guest has answered the real catch or cost that was raised against their idea.',
     '"practical" means the immediate who/what/when is clear, or the guest has named a safe interim step.',

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiCast } from '@kaki/shared';
 import type { ChatMessage } from '../../src/llm';
 import { visitorDispatchLine } from '../../src/npc/cardPointer';
-import { NpcConversation, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
+import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { loadScenario } from '../../src/loadScenario';
 import type { GuestReaderInput, GuestReading } from '../../src/npc/guestReader';
@@ -78,6 +78,7 @@ function harness(
   assessment?: (messages: ChatMessage[], call: number) => string,
   replies: 'one-speaker' | 'legacy' = 'legacy',
   reader: (input: GuestReaderInput) => GuestReading | Promise<GuestReading> = fakeReading,
+  optionOverrides: Partial<ConversationOptions> = {},
 ) {
   const calls: LlmCall[] = [];
   const assessments: ChatMessage[][] = [];
@@ -141,7 +142,7 @@ function harness(
       log: (message) => logs.push(message),
   };
   const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, bargeInMs, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0, replies,
-    readGuestLine: async (input) => reader(input) });
+    readGuestLine: async (input) => reader(input), ...optionOverrides });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -2905,6 +2906,137 @@ describe('one-speaker replies to the guest', () => {
     expect(request).toContain('What will that cost us?');
     await reply(h, 'Bao: It means double pay for Auntie Mary.');
     expect(h.transcript).toContainEqual(['Bao', 'It means double pay for Auntie Mary.']);
+    h.conversation.close();
+  });
+
+  it('re-asks the live confirmation after silence instead of killing it, then commits the guest\'s yes', async () => {
+    const ready = {
+      kind: 'answer' as const,
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'Old price only on the small cup' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const agree = { ...ready, kind: 'agree' as const, answersOpenQuestion: true };
+    const h = harness(scenario, 0, undefined, 'one-speaker',
+      (input) => (input.line.trim().toLowerCase().startsWith('yes') ? agree : ready),
+      { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+
+    await h.say('Old price only on the small cup.');
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, so your call is "Old price only on the small cup".']);
+    expect(h.transcript).toContainEqual(['Ada', 'Is that right?']);
+
+    // Nobody answers: the silence nudge re-asks that exact question and keeps the gate live.
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text === 'Josh, is "Old price only on the small cup" your call?'); i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, is "Old price only on the small cup" your call?']);
+    expect(h.transcript.some(([, text]) => text.includes("What's your gut"))).toBe(false);
+
+    await h.say('Yes.');
+    await finishPlaying(h);
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    expect(settleTopic).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionSource: 'Old price only on the small cup' }), false);
+    h.conversation.close();
+  });
+
+  it('ignores a legacy settle tag so only the planner\'s confirmation speaks after readiness', async () => {
+    const vague = {
+      kind: 'answer' as const,
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const ready = {
+      ...vague,
+      kind: 'idea' as const,
+      readiness: {
+        action: { covered: true, evidence: 'Old price only on the small cup' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const h = harness(scenario, 0, undefined, 'one-speaker',
+      (input) => (input.line.toLowerCase().includes('old price') ? ready : vague),
+      { topicTimeBudgetMs: 600_000 });
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+
+    await h.say('We should do something.');
+    await reply(h, 'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: Let us look at the counter first.');
+    await h.say('Old price only on the small cup.');
+    await finishPlaying(h);
+
+    const confirmations = h.transcript.filter(([speaker, text]) => speaker === 'Ada' && text.includes('Is that right?'));
+    expect(confirmations).toHaveLength(1);
+    expect(h.transcript.some(([, text]) => text.toLowerCase().includes('shall we lock in'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('routes the one-speaker budget through a confirmation the planner recognises, and a following yes commits', async () => {
+    const ready = {
+      kind: 'idea' as const,
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'Let us call Auntie Mary in' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const backchannel = {
+      ...ready,
+      kind: 'backchannel' as const,
+      readiness: {
+        action: { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const agree = { ...ready, kind: 'agree' as const, answersOpenQuestion: true };
+    const h = harness(catchScenario, 0, undefined, 'one-speaker', (input) => {
+      const text = input.line.trim().toLowerCase();
+      if (text.startsWith('yes')) return agree;
+      if (text.startsWith('hmm')) return backchannel;
+      return ready;
+    }, { topicTurnBudget: 2, topicTimeBudgetMs: 600_000, silencePromptMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+
+    await h.say('Let us call Auntie Mary in.');
+    const catchCall = await waitForCall(h, 0);
+    expect(String(catchCall.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+
+    // The second guest line trips the turn budget; the budget must ask a gate the planner can commit.
+    await h.say('Hmm.');
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('so your call is')); i += 1) {
+      await vi.advanceTimersByTimeAsync(100);
+      await finishPlaying(h);
+    }
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, so your call is "Let us call Auntie Mary in".']);
+    expect(h.transcript).toContainEqual(['Ada', 'Is that right?']);
+    expect(h.transcript.some(([, text]) => text.toLowerCase().includes('shall we lock in'))).toBe(false);
+
+    await h.say('Yes.');
+    await finishPlaying(h);
+    expect(settleTopic).toHaveBeenCalledTimes(1);
     h.conversation.close();
   });
 

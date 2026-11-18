@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MeetingState, type HeardLine, type MeetingTopicInfo } from '../../src/npc/meetingState';
 import { describeDecision, mergedReadiness, next, readinessMet } from '../../src/npc/turnPlanner';
-import type { GuestLineKind, GuestReading } from '../../src/npc/guestReader';
+import { readGuestLine, type GuestLineKind, type GuestReading } from '../../src/npc/guestReader';
 
 function topics(overrides: Partial<MeetingTopicInfo> = {}): MeetingTopicInfo[] {
   return [
@@ -247,6 +247,52 @@ describe('turn planner', () => {
     }));
 
     expect(readinessMet(state.view(2))).toBe(false);
+  });
+
+  it('confirms the guest\'s answer even when the reader left answersOpenQuestion out (seen live)', async () => {
+    const state = make({ catches: [] });
+    heard(state, {
+      id: 'sam-1', speaker: 'Sam', text: 'Where is your head at on the regulars and the price?',
+      question: { to: 'Josh', text: 'Where is your head at on the regulars and the price?' },
+    });
+    const guest = heard(state, {
+      id: 'josh-1', speaker: 'Josh',
+      text: 'Uncle Lim vouches, small cup at old price, floor team knows the rest.',
+    }, 2);
+    // The exact reading the school model returned: a covered action, with answersOpenQuestion omitted.
+    const stream = (): AsyncIterable<string> => (async function* () {
+      yield JSON.stringify({
+        kind: 'idea',
+        relevantFactIds: [],
+        relevantCatchIds: [],
+        readiness: {
+          action: { covered: true, evidence: 'small cup at old price' },
+          catchAddressed: { covered: false },
+          practical: { covered: false },
+        },
+      });
+    })();
+    const value = await readGuestLine({
+      topic: {
+        title: 'Prep', decision: 'how do we cover the counter?', canWait: false, deadline: 'before doors open at 8',
+      },
+      openQuestion: { from: 'Sam', to: 'Josh', text: 'Where is your head at on the regulars and the price?' },
+      guest: 'Josh',
+      guestLines: [guest.text],
+      colleagues: [
+        { name: 'Ada', facts: [], catches: [] },
+        { name: 'Bao', facts: [], catches: [] },
+        { name: 'Sam', facts: [], catches: [] },
+      ],
+      recentHeard: [{ speaker: 'Sam', text: 'Where is your head at on the regulars and the price?' }],
+      line: guest.text,
+    }, { stream, log: () => undefined });
+    state.recordReading('josh-1', value);
+
+    expect(value.answersOpenQuestion).toBe(true);
+    expect(next(state.view(2), { kind: 'heard', line: guest, reading: value })).toMatchObject({
+      kind: 'ConfirmDecision',
+    });
   });
 
   it('commits when the guest agrees to the host\'s confirmation', () => {
