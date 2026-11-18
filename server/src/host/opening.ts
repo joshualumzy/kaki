@@ -86,9 +86,10 @@ export function topicSpeaker(
 }
 
 /**
- * The host's topic line: the topic in plain words, then the hand-over to the colleague who tells the first fact,
- * with the reason it is theirs. When no speaker can be found it falls back to the old announcement and
- * says so in the log, never leaving the room without a way in.
+ * The host's topic line: the topic in plain words, then the hand-over to the colleague who tells the first fact.
+ * The scenario's `why` note stays private to the writer; it is a reason, never words for the host to say.
+ * When no speaker can be found it falls back to the old announcement and says so in the log, never leaving
+ * the room without a way in.
  */
 export function topicHandover(
   scenario: Scenario,
@@ -103,9 +104,8 @@ export function topicHandover(
     log?.(`[handover] no speaker for "${title}"; announcing the topic without a hand-over`);
     return { text: `${lead} ${topic}.` };
   }
-  const why = speaker.why.trim().replace(/[.,;:!?]+$/, '');
   return {
-    text: `${lead} ${topic}. ${speaker.attendee}, ${why}, what happened?`,
+    text: `${lead} ${topic}. ${speaker.attendee}, what happened?`,
     speaker,
   };
 }

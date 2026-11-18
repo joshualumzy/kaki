@@ -179,8 +179,8 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
     ].join(' ');
   } else if (request.purpose === 'answer') {
     purpose = request.facts === undefined || request.facts.length === 0
-      ? 'Answer the point directly, in your own words, from what you know. Do not invent figures or a new problem. Do not ask the guest a question back.'
-      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}". Do not ask the guest a question back.`;
+      ? "Answer the point directly, in your own words, from what you know. If you do not know the answer, say plainly that you don't know; never invent figures or a new problem. Do not ask the guest a question back."
+      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}". If that does not answer what was asked, say plainly that you don't know rather than inventing. Do not ask the guest a question back.`;
   } else if (request.purpose === 'defer') {
     purpose = [
       'The guest wants to leave this for later, and this topic can wait.',

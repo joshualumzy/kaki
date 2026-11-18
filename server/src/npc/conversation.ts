@@ -1234,6 +1234,26 @@ export class NpcConversation<Clip> {
   }
 
   /**
+   * Sam announces the agenda item the meeting has moved to. A cue for a topic whose opening already ran is stale
+   * and is dropped, so an announcement can never arrive after the room has already started discussing it.
+   */
+  announceNextTopic(speaker: string, title: string, text: string, onDone?: (spoken: boolean) => void): void {
+    if (this.topicAlreadyOpened(title)) {
+      this.ports.log?.(`[opening] dropped a stale announcement for "${title}": the topic already opened`);
+      onDone?.(false);
+      return;
+    }
+    this.announce(speaker, text, DEFAULT_ANNOUNCE_GIVE_UP_MS, onDone);
+  }
+
+  /** True once the one-speaker opening for `title` has started (or its brief has been delivered). */
+  private topicAlreadyOpened(title: string): boolean {
+    const wanted = cleanSpokenTopic(title).toLowerCase();
+    const matches = (candidate: string): boolean => cleanSpokenTopic(candidate).toLowerCase() === wanted;
+    return [...this.briefed].some(matches) || (this.openingRun !== undefined && matches(this.openingRun.title));
+  }
+
+  /**
    * Sam asks an AI colleague in the room to take on a task: the request comes from the model, in his own words,
    * from `note`. It waits for a quiet moment, and `onDone` runs when it was heard or skipped. A line that reads
    * the task title aloud is dropped; if nothing can be said, the ask is skipped rather than read from a template.
@@ -2471,6 +2491,10 @@ export class NpcConversation<Clip> {
       if (previousTitle !== undefined && previousTitle !== incomingTitle) {
         this.closeTopicTurn(`the agenda moved from "${previousTitle}" to "${incomingTitle}"`);
         this.interrupt('agenda moved');
+        // A reply that was cut off belongs to the topic the room just left; it must not hold back the new announcement.
+        this.unanswered = false;
+        this.cutOff = false;
+        this.cutOffSpeaker = undefined;
       }
       this.agendaItem = incomingTitle;
       this.silencePromptStage = 0;
@@ -2542,7 +2566,8 @@ export class NpcConversation<Clip> {
       this.humanTalking ||
       this.recognizingSpeech ||
       this.pending.length > 0 ||
-      this.respondTimer !== undefined
+      this.respondTimer !== undefined ||
+      this.pendingAnnouncements > 0
     ) {
       return false;
     }
@@ -3143,13 +3168,15 @@ export class NpcConversation<Clip> {
     }
     if (decision.purpose === 'brief' || (run.kind === 'reply' && decision.purpose === 'answer' && factIds.length > 0)) {
       const missing = factIds
-        .map((id) => view.facts.find((fact) => fact.id === id)?.text)
-        .find((text) => text !== undefined && !carriesFact(parsed.text, text));
+        .map((id) => view.facts.find((fact) => fact.id === id))
+        .find((fact) => fact !== undefined &&
+          !(run.kind === 'reply' && decision.purpose === 'answer' && fact.told) &&
+          !carriesFact(parsed.text, fact.text));
       if (missing !== undefined) {
         queue.close();
         await player;
         this.finishPlannedStep(turn);
-        return { reason: `did not carry the fact "${missing.slice(0, 80)}"` };
+        return { reason: `did not carry the fact "${missing.text.slice(0, 80)}"` };
       }
     }
     if (run.kind === 'reply' && decision.purpose === 'catch' && decision.catchId !== undefined) {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
-import { createTestApp } from '../helpers';
+import { connectClient, createTestApp, portOf, settle } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
 describe('auto-dispatch', () => {
@@ -67,6 +67,21 @@ describe('auto-dispatch', () => {
     expect(app.tasks.get(early.id)?.status).toBe('DISPATCHED');
     expect(app.tasks.get(distinct.id)?.status).toBe('DISPATCHED');
     expect(app.tasks.get(duplicate.id)?.status).toBe('DISMISSED');
+  });
+
+  it('dismisses a held task when its topic moves on without settling, so an unresolved topic never gets a card', async () => {
+    const published: KakiEvent[] = [];
+    app.hub.subscribe((event) => published.push(event));
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    const early = app.tasks.suggest({ title: 'Post decision', context: 'x', suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
+    expect(app.tasks.get(early.id)?.status).toBe('SUGGESTED');
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    await settle();
+    expect(app.tasks.get(early.id)?.status).toBe('DISMISSED');
+    expect(published.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'DISPATCH')).toBe(false);
+    screen.close();
   });
 
   it('leaves the task for a person when the role is the facilitator', () => {

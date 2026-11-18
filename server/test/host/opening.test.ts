@@ -13,7 +13,7 @@ describe('liveOpeningLine', () => {
     expect(line).not.toContain('Wei Ling');
     expect(line).toContain('our Operations Director');
     expect(line).toContain('doors open at 8');
-    expect(line).toContain("First up, the staffing gap. Mei, you've been setting up the counter, what happened?");
+    expect(line).toContain('First up, the staffing gap. Mei, what happened?');
   });
 
   it('announces the next item and hands over without reading its briefing', () => {
@@ -26,7 +26,8 @@ describe('liveOpeningLine', () => {
     };
     const line = liveNextItemLine(scenario, 'Prep', { name: 'Visitor', seat: 'Bao' });
     expect(line).not.toContain('Fresh stock arrived late.');
-    expect(line).toBe('Next up, Prep. Ada, you signed for the delivery, what happened?');
+    expect(line).toBe('Next up, Prep. Ada, what happened?');
+    expect(line).not.toContain('you signed for the delivery');
     expect(liveNextItemLine(scenario, 'Prep')).toBe(line);
   });
 
@@ -134,15 +135,18 @@ describe('topic handover', () => {
     }],
   };
 
-  it('names the first fact speaker with the reason they know', () => {
+  it('names the first fact speaker without reading the private why note aloud', () => {
     expect(liveNextItemLine(factScenario, 'Prep'))
-      .toBe('Next up, the prep gap. Ada, you saw the stock arrive, what happened?');
+      .toBe('Next up, the prep gap. Ada, what happened?');
+    expect(liveNextItemLine(factScenario, 'Prep')).not.toContain('you saw the stock arrive');
     expect(topicSpeaker(factScenario, 'Prep')).toEqual({ attendee: 'Ada', why: 'you saw the stock arrive' });
   });
 
   it('skips a guest sitting in the speaker\'s seat and uses the next knower', () => {
     expect(liveNextItemLine(factScenario, 'Prep', { name: 'Visitor', seat: 'Ada' }))
-      .toBe('Next up, the prep gap. Bao, you counted the trays, what happened?');
+      .toBe('Next up, the prep gap. Bao, what happened?');
+    expect(liveNextItemLine(factScenario, 'Prep', { name: 'Visitor', seat: 'Ada' }))
+      .not.toContain('you counted the trays');
   });
 
   it('falls back and logs when the item has no briefing fact', () => {

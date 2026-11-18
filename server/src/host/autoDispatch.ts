@@ -128,6 +128,11 @@ export function installAutoDispatch({
       held.delete(task.id);
       const current = tasks.get(task.id);
       if (current?.status !== 'SUGGESTED') continue;
+      // A topic that moved on without settling was closed unresolved: its held card must never be dispatched.
+      if (current.agendaItemTitle === undefined || !settledTopics.has(current.agendaItemTitle)) {
+        tasks.transition(current.id, 'DISMISSED');
+        continue;
+      }
       if (released.some((earlier) => earlier.agendaItemTitle === task.agendaItemTitle &&
           earlier.suggestedAssignee === current.suggestedAssignee && earlier.actionKind === current.actionKind &&
           earlier.title.trim().toLowerCase() === current.title.trim().toLowerCase())) {

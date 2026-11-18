@@ -732,16 +732,21 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     if (isWelcome) welcomed = true;
     // After the welcome, the first agenda item begins: the person is asked, or the characters start talking it through.
+    const finalOnDone = releaseCardClaimIfDropped
+      ? (spokenNow: boolean) => {
+          if (!spokenNow) conversation?.releaseCardPointerOnCurrentTopic();
+          onDone?.(spokenNow);
+        }
+      : onDone;
+    if (isNextUp && nextTitle !== undefined) {
+      conversation.announceNextTopic(hostName, nextTitle, spoken, finalOnDone);
+      return;
+    }
     conversation.announce(
       hostName,
       spoken,
       undefined,
-      releaseCardClaimIfDropped
-        ? (spoken) => {
-            if (!spoken) conversation?.releaseCardPointerOnCurrentTopic();
-            onDone?.(spoken);
-          }
-        : onDone,
+      finalOnDone,
       timeoutMatch === null ? shouldStillSpeak : () =>
         conversation?.shouldSkipOvertimeCue() !== true && (shouldStillSpeak?.() ?? true),
     );

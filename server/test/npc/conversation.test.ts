@@ -2737,6 +2737,56 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
+  it('answers a question about a fact the room already heard without demanding that fact, and never recovers', async () => {
+    const factScenario = {
+      ...scenario,
+      agenda: [
+        {
+          title: 'Prep',
+          minutes: 5,
+          canWait: false,
+          deadline: 'before service',
+          ownerRole: 'chef',
+          decision: 'how do we cover prep?',
+          briefing: [
+            { text: 'The till needs a new login before opening.', knownBy: [{ attendee: 'Bao', why: 'you run the tills' }] },
+          ],
+        },
+      ],
+    };
+    const h = harness(factScenario, 0, undefined, 'one-speaker', () => ({
+      kind: 'question',
+      answersOpenQuestion: false,
+      relevantFactIds: ['0:0'],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    }));
+
+    await h.say('What about the till login?');
+    const first = await waitForCall(h, 0);
+    expect(String(first.messages.map((message) => message.content).join('\n'))).toContain('You may tell only this');
+    await reply(h, 'Bao: The till needs a new login before opening.');
+    expect(h.transcript).toContainEqual(['Bao', 'The till needs a new login before opening.']);
+
+    await h.say('And has anyone said what she actually ate yesterday?');
+    const second = await waitForCall(h, 1);
+    const secondRequest = String(second.messages.map((message) => message.content).join('\n'));
+    expect(secondRequest).not.toContain('You may tell only this');
+    expect(secondRequest).toContain("say plainly that you don't know");
+    const speaker = /You are (\w+)/.exec(secondRequest)?.[1];
+    expect(speaker).toBeDefined();
+    await reply(h, `${speaker}: I don't know what she ate.`);
+
+    expect(h.transcript).toContainEqual([speaker!, "I don't know what she ate."]);
+    expect(h.transcript.some(([, text]) => text === 'Sorry, give me a second on that.')).toBe(false);
+    expect(h.calls).toHaveLength(2);
+    h.conversation.close();
+  });
+
   it('resumes a stopped reply from the last line the room heard', async () => {
     const h = harness(scenario, 0, undefined, 'one-speaker');
     await h.say('Let us call Auntie Mary in.');

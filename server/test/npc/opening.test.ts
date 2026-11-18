@@ -174,7 +174,7 @@ function firstTeller(scenario: Scenario, title: string, seat: string): { speaker
 
 function handoverLine(scenario: Scenario, title: string, seat: string): string {
   const teller = firstTeller(scenario, title, seat);
-  return `First up, ${title}. ${teller.speaker}, ${teller.why}, what happened?`;
+  return `First up, ${title}. ${teller.speaker}, what happened?`;
 }
 
 const TOPICS = [
@@ -250,6 +250,48 @@ describe('one-speaker topic opening', () => {
       h.conversation.close();
     },
   );
+
+  it('speaks the host announcement before the opening when the room was busy as it was queued', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[1]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const h = harness(scenario, roleId);
+
+    h.conversation.humanSpeech(true);
+    h.conversation.agendaMoved(title);
+    h.conversation.announce('Sam', `Next up: ${title}.`);
+    h.conversation.humanSpeech(false);
+    await flush();
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[opening] starting'));
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flush();
+    expect(h.transcript).toContainEqual(['Sam', `Next up: ${title}.`]);
+    expect(h.playing.map((entry) => entry.speaker)).toEqual(['Sam']);
+
+    await playOut(h.playing);
+    expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+    h.conversation.close();
+  });
+
+  it('drops a stale next-topic announcement after the topic has already opened', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[1]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const h = harness(scenario, roleId);
+
+    h.conversation.agendaMoved(title);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+
+    h.conversation.announceNextTopic('Sam', title, `Next up: ${title}.`);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.transcript).not.toContainEqual(['Sam', `Next up: ${title}.`]);
+    expect(h.logs).toContainEqual(expect.stringContaining('dropped a stale announcement'));
+    h.conversation.close();
+  });
 
   it('rejects a reply with another speaker or no speech whole, retries once, then skips to the host question', async () => {
     const roleId = 'producer';

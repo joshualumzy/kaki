@@ -296,6 +296,12 @@ function factKnower(view: MeetingView, id: string): string | undefined {
   return fact === undefined ? undefined : canTell(view, fact);
 }
 
+/** A relevant fact the room has not heard yet: an answer may use a told fact from the transcript, never be required to. */
+function untoldFactKnower(view: MeetingView, id: string): string | undefined {
+  const fact = view.facts.find((entry) => entry.id === id);
+  return fact === undefined || fact.told ? undefined : canTell(view, fact);
+}
+
 /** The colleague whose fact best helps from the ids the reader picked, if any. */
 function factHelper(view: MeetingView, reading: GuestReading): string | undefined {
   for (const id of reading.relevantFactIds) {
@@ -438,7 +444,7 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
     }
     if (reading.kind === 'question') {
       for (const id of reading.relevantFactIds) {
-        const knower = factKnower(view, id);
+        const knower = untoldFactKnower(view, id);
         if (knower !== undefined) {
           return speak(knower, 'answer', line.eventId, `${knower} knows a fact that answers the guest's point`, [id]);
         }
@@ -510,7 +516,7 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
 
   if (reading.kind === 'question' || reading.kind === 'answer' || reading.kind === 'idea' || reading.kind === 'agree') {
     for (const id of reading.relevantFactIds) {
-      const knower = factKnower(view, id);
+      const knower = untoldFactKnower(view, id);
       if (knower !== undefined) {
         return speak(knower, 'answer', line.eventId, `${knower} knows a fact that answers the guest's point`, [id]);
       }
