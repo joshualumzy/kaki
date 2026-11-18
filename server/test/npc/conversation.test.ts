@@ -1523,6 +1523,54 @@ describe('robustness with real people', () => {
     h.conversation.close();
   });
 
+  it('drops a colleague claiming a step the visitor gave someone else', async () => {
+    const toAda = {
+      kind: 'idea' as const,
+      addressee: 'Ada',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: { action: { covered: false }, catchAddressed: { covered: false }, practical: { covered: false } },
+    };
+    const h = harness(scenario, 0, () => toAda);
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    await h.say('Add the regulars price tonight, and Bao will test the rule before 8.');
+    const call = await waitForCall(h, 0);
+    call.push("Ada: I'd sooner be the one testing that button before eight. I'll put the button on the till tonight.");
+    call.end();
+    await h.flush();
+    await finishPlaying(h);
+    const said = h.transcript.map(([, text]) => text);
+    expect(said.join(' ')).toContain("I'll put the button on the till tonight.");
+    expect(h.transcript.some(([speaker, text]) => speaker === 'Ada' && /test/i.test(text))).toBe(false);
+    expect(h.logs.filter((text) => text.includes('claims a step the visitor gave someone else'))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('keeps the assignee taking their own step, and steps nobody was given', async () => {
+    const toAda = {
+      kind: 'idea' as const,
+      addressee: 'Ada',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: { action: { covered: false }, catchAddressed: { covered: false }, practical: { covered: false } },
+    };
+    const h = harness(scenario, 0, () => toAda);
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    await h.say('Bao will test the rule before 8.');
+    const call = await waitForCall(h, 0);
+    call.push("Ada: I'll print the new price cards. I can help Bao with anything he needs.");
+    call.end();
+    await h.flush();
+    await finishPlaying(h);
+    const said = h.transcript.map(([, text]) => text).join(' ');
+    expect(said).toContain("I'll print the new price cards.");
+    expect(said).toContain('I can help Bao with anything he needs.');
+    expect(h.logs.some((text) => text.includes('claims a step the visitor gave someone else'))).toBe(false);
+    h.conversation.close();
+  });
+
   it('keeps a second AI question to the visitor who has gone quiet, and says so loudly', async () => {
     const h = harness(scenario, 0, undefined, { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
     h.conversation.setHuman({ name: 'Josh', role: 'chef' });

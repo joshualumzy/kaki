@@ -344,6 +344,59 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
   return undefined;
 }
 
+/** A colleague volunteering for a step themselves ("I'll test it", "I'd sooner be the one testing that"). */
+const SELF_CLAIM_RE =
+  /\b(?:i['’]ll|i will|i can|let me|i['’]d (?:sooner|rather)|leave (?:it|that) (?:to|with) me|be the one)\b/i;
+
+/** Verbs too general to tell one step from another ("take", "handle"): never used to match a claimed step. */
+const GENERIC_STEP_VERBS = new Set(['take', 'handle', 'sort', 'make', 'have', 'keep', 'help', 'look', 'work', 'just', 'also', 'then', 'need']);
+
+/** The first four letters of a step's verb, so "test", "tests" and "testing" match. */
+function stepStem(word: string): string | undefined {
+  const stem = word.toLowerCase().slice(0, 4);
+  return word.length >= 4 && !GENERIC_STEP_VERBS.has(word.toLowerCase()) ? stem : undefined;
+}
+
+/** The verbs of steps a visitor line gives to `name` ("Mei will test the rule" gives Mei "test"). */
+function stepsGivenTo(text: string, name: string): Set<string> {
+  const who = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const stems = new Set<string>();
+  if (who.length === 0) return stems;
+  const re = new RegExp(
+    `\\b(?:${who}(?:['’]ll| will| to| can| should)|let ${who}|get ${who} to|${who},? (?:can|could|would|will) you|${who},? please)\\s+(?:also\\s+|just\\s+)?([a-z]+)`,
+    'gi',
+  );
+  for (const match of text.matchAll(re)) {
+    const stem = stepStem(match[1] ?? '');
+    if (stem !== undefined) stems.add(stem);
+  }
+  return stems;
+}
+
+/**
+ * A colleague's sentence that claims a step the visitor explicitly gave someone else on this topic ("Mei will test
+ * the rule" -> Arjun: "I'd sooner be the one testing that"). Steps nobody was given, and the assignee's own, pass.
+ */
+function claimsStepGivenToOther(
+  text: string,
+  speaker: string,
+  guestLines: readonly string[],
+  names: readonly string[],
+): boolean {
+  if (!SELF_CLAIM_RE.test(text)) return false;
+  const givenToSpeaker = new Set(guestLines.flatMap((line) => [...stepsGivenTo(line, speaker)]));
+  const givenToOthers = new Set(
+    names
+      .filter((name) => name !== speaker)
+      .flatMap((name) => guestLines.flatMap((line) => [...stepsGivenTo(line, name)])),
+  );
+  const words = text.match(/[a-z]+/gi) ?? [];
+  return words.some((word) => {
+    const stem = stepStem(word);
+    return stem !== undefined && givenToOthers.has(stem) && !givenToSpeaker.has(stem);
+  });
+}
+
 /** The host is pointing the visitor at their follow-up card. */
 const CARD_POINT_RE =
   /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel|on your screen)\b/i;
@@ -3243,6 +3296,10 @@ export class NpcConversation<Clip> {
             (HOST_IMPERATIVE_START_RE.test(sentence) || addressesVisitor(sentence, this.human?.name))))) {
       return `[card] dropped host send-instruction: ${sentence}`;
     }
+    if (this.human !== undefined &&
+        claimsStepGivenToOther(sentence, speaker, this.guestLinesByTopic.get(this.currentItem()?.title) ?? [], this.names)) {
+      return `[owner] ${speaker}: dropped a sentence that claims a step the visitor gave someone else: "${sentence}"`;
+    }
     if (this.human !== undefined) {
       const addressed = addressedShareTarget(sentence, this.names);
       if (addressed !== undefined || MODEL_SHARE_TAKEOVER_RE.test(sentence)) {
@@ -5009,6 +5066,11 @@ export class NpcConversation<Clip> {
           (HOST_SEND_PLACE_RE.test(trimmed) || (HOST_SEND_INSTRUCTION_RE.test(trimmed) &&
             (HOST_IMPERATIVE_START_RE.test(trimmed) || addressesVisitor(trimmed, this.human?.name))))) {
         this.ports.log?.(`[card] dropped host send-instruction: ${trimmed}`);
+        return;
+      }
+      if (this.human !== undefined &&
+          claimsStepGivenToOther(trimmed, utterance.speaker, this.guestLinesByTopic.get(this.currentItem()?.title) ?? [], this.names)) {
+        this.ports.log?.(`[owner] ${utterance.speaker}: dropped a sentence that claims a step the visitor gave someone else: "${trimmed}"`);
         return;
       }
       if (this.human !== undefined) {
