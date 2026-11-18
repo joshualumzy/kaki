@@ -28,7 +28,7 @@ export interface OpeningReplyOptions {
   topicTitle?: string;
 }
 
-export type PlannedPurpose = 'brief' | 'invite' | 'answer' | 'catch' | 'clarify';
+export type PlannedPurpose = 'brief' | 'invite' | 'answer' | 'catch' | 'clarify' | 'defer';
 
 export type OpeningReply =
   | { ok: true; text: string; sentences: string[] }
@@ -41,7 +41,7 @@ export interface ReplySpeakerRequest {
   human?: HumanInfo;
   topicTitle: string;
   decision?: string;
-  purpose: 'answer' | 'catch' | 'clarify';
+  purpose: 'answer' | 'catch' | 'clarify' | 'defer';
   /** The last fully heard lines on this topic, oldest first. */
   transcript: readonly { speaker: string; text: string }[];
   /** The exact heard line this reply answers. */
@@ -50,6 +50,10 @@ export interface ReplySpeakerRequest {
   facts?: readonly string[];
   /** The real catch a catch reply raises. */
   catchText?: string;
+  /** A precise instruction for a clarification, when the generic clarify line would be too vague. */
+  clarifyNote?: string;
+  /** The later slot this topic can be deferred to, when the guest wants to park a topic that can wait. */
+  laterSlot?: string;
   /** Ask the model for its hidden KAKI_CONTROL line, used only on the first reply of a guest line. */
   asksControl?: boolean;
 }
@@ -67,6 +71,18 @@ function escapeRegExp(text: string): string {
 function roleLabel(scenario: Scenario, speaker: string): string {
   const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);
   return scenario.roles.find((role) => role.id === attendee?.role)?.label ?? 'colleague';
+}
+
+function describeOffScreen(scenario: Scenario, topicTitle: string): string | undefined {
+  const item = scenario.agenda.find((candidate) => candidate.title === topicTitle);
+  const offScreen = item?.offScreen;
+  if (offScreen === undefined) return undefined;
+  return [
+    `Off-screen for this topic only: ${offScreen.name} (${offScreen.role}).`,
+    `A colleague must say they will ask ${offScreen.name} first.`,
+    `Only on a later reply, once that offer is in the earlier lines, may this person answer once, relayed in one sentence as a message they sent back ("${offScreen.name}'s texted back: ..."), never as a meeting in person.`,
+    `If asked, ${offScreen.name} answers once, in character. How they answer: ${offScreen.howTheyAnswer}`,
+  ].join(' ');
 }
 
 function describeSpeaker(scenario: Scenario, speaker: string, human?: HumanInfo): string {
@@ -165,10 +181,17 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
     purpose = request.facts === undefined || request.facts.length === 0
       ? 'Answer the point directly, in your own words, from what you know. Do not invent figures or a new problem. Do not ask the guest a question back.'
       : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}". Do not ask the guest a question back.`;
+  } else if (request.purpose === 'defer') {
+    purpose = [
+      'The guest wants to leave this for later, and this topic can wait.',
+      `Confirm in one short sentence that the room will come back to it ${request.laterSlot === undefined ? 'later' : `"${request.laterSlot}"`}.`,
+      'Do not settle it now, do not start the work, and do not ask the guest a question back.',
+    ].join(' ');
   } else {
     purpose = [
       'React to what the guest actually said: say what their point means for your own work in one or two sentences, in your own words.',
       "Ask one short question only when the guest's call leaves a real gap in your own area that they must decide; otherwise end with no question.",
+      ...(request.clarifyNote === undefined ? [] : [request.clarifyNote]),
     ].join(' ');
   }
 
@@ -182,9 +205,10 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
     request.asksControl === true ? controlInstruction() : '',
   ].filter((part) => part.length > 0).join('\n');
 
+  const offScreen = describeOffScreen(request.scenario, request.topicTitle);
   return [
     { role: 'system', content: `${describeSpeaker(request.scenario, request.speaker, request.human)}\n\n${rules}` },
-    { role: 'user', content: task },
+    { role: 'user', content: offScreen === undefined ? task : `${task}\n\n${offScreen}` },
   ];
 }
 

@@ -58,6 +58,10 @@ export interface RunnerOptions {
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** The backup model, used for the one retry after a first sentence misses its deadline. */
   fallbackStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
+  /** A low-temperature stream for the guest-line reader; falls back to `stream` when absent. */
+  readerStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
+  /** The backup reader stream; falls back to `fallbackStream` when absent. */
+  readerFallbackStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** A sentence as 16 kHz mono samples. */
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Int16Array>;
   /** A line said in the meeting, under the name Kaki's transcript uses; `textOnly` marks a line shown as text because its voice failed. */
@@ -284,6 +288,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       {
         stream: options.stream,
         ...(options.fallbackStream === undefined ? {} : { fallbackStream: options.fallbackStream }),
+        ...(options.readerStream === undefined ? {} : { readerStream: options.readerStream }),
+        ...(options.readerFallbackStream === undefined ? {} : { readerFallbackStream: options.readerFallbackStream }),
         synthesize: options.synthesize,
         play: (speaker, clip, signal) => {
           const character = characters.get(speaker);

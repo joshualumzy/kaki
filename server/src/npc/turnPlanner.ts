@@ -4,10 +4,10 @@
  * Pure: no I/O, no timers, no model. The caller decides how to speak the line; in shadow mode it only logs it.
  */
 
-import { addressedCharacter } from './director';
-import { carriesCatchText, contentWords, type HeardLine, type MeetingCatchView, type MeetingFactView, type MeetingView } from './meetingState';
+import { carriesCatchText, type HeardLine, type MeetingCatchView, type MeetingFactView, type MeetingView } from './meetingState';
+import type { DecisionSlotName, GuestReadiness, GuestReading } from './guestReader';
 
-export type SpeakPurpose = 'handover' | 'brief' | 'answer' | 'catch' | 'invite' | 'confirm' | 'clarify';
+export type SpeakPurpose = 'handover' | 'brief' | 'answer' | 'catch' | 'invite' | 'confirm' | 'clarify' | 'defer';
 
 export interface SpeakDecision {
   kind: 'Speak';
@@ -19,12 +19,20 @@ export interface SpeakDecision {
   factIds?: readonly string[];
   /** The real catch this step raises, if any. */
   catchId?: string;
+  /** A precise instruction for a clarification line, when a generic one would be too vague. */
+  clarifyNote?: string;
+  /** This clarify line asks the guest for a missing decision detail; it counts towards the two-follow-up cap. */
+  followUp?: boolean;
+  /** This clarify line asks which of two offered options the guest means; it is not a new offer. */
+  whichOne?: boolean;
   reason: string;
 }
 
 export interface WaitDecision {
   kind: 'Wait';
   reason: string;
+  /** A silence the owner rule allows: a second noise in a row needs no reply. */
+  allowedSilence?: boolean;
 }
 
 export interface ConfirmDecision {
@@ -39,6 +47,35 @@ export interface PointCardDecision {
   respondsTo?: string;
 }
 
+/** The guest accepted one specific call that was put to them: it can now be committed to the task store. */
+export interface CommitDecision {
+  kind: 'CommitDecision';
+  reason: string;
+  respondsTo?: string;
+  /** The exact call the guest agreed to: never a bare "yes" or a concatenation of their words. */
+  call: string;
+}
+
+/** Sam turns the guest's own idea, or two realistic directions, into one concrete call and asks them to agree. */
+export interface OfferDecision {
+  kind: 'Offer';
+  reason: string;
+  respondsTo?: string;
+  /** The concrete call built from the guest's own latest idea. */
+  proposal?: string;
+  /** Two plain-language directions when the guest has not given an idea at all. */
+  choices?: readonly string[];
+  /** The second offer after the two-direction choice was already put: ask what they would rather do, once. */
+  openAsk?: boolean;
+}
+
+/** The topic closes honestly with no call made: no task, no decision, and the meeting moves on. */
+export interface UnresolvedDecision {
+  kind: 'Unresolved';
+  reason: string;
+  respondsTo?: string;
+}
+
 export interface AdvanceDecision {
   kind: 'Advance';
   reason: string;
@@ -48,15 +85,18 @@ export type PlannerDecision =
   | SpeakDecision
   | WaitDecision
   | ConfirmDecision
+  | CommitDecision
+  | OfferDecision
+  | UnresolvedDecision
   | PointCardDecision
   | AdvanceDecision;
 
 /** What just happened and caused the planner to look at the state. */
 export type PlannerEvent =
   | { kind: 'topicOpened' }
-  | { kind: 'heard'; line: HeardLine }
+  | { kind: 'heard'; line: HeardLine; reading?: GuestReading }
   | { kind: 'interrupted'; line: HeardLine }
-  | { kind: 'guestDecision'; line: HeardLine }
+  | { kind: 'guestDecision'; line: HeardLine; reading?: GuestReading }
   | { kind: 'decisionConfirmed' }
   | { kind: 'cardDue' }
   | { kind: 'cardSent' };
@@ -68,17 +108,27 @@ function speak(
   reason: string,
   factIds?: readonly string[],
   catchId?: string,
+  clarifyNote?: string,
+  followUp?: boolean,
+  whichOne?: boolean,
 ): SpeakDecision {
   return {
     kind: 'Speak', speaker, purpose, respondsTo,
     ...(factIds === undefined ? {} : { factIds }),
     ...(catchId === undefined ? {} : { catchId }),
+    ...(clarifyNote === undefined ? {} : { clarifyNote }),
+    ...(followUp === undefined ? {} : { followUp }),
+    ...(whichOne === undefined ? {} : { whichOne }),
     reason,
   };
 }
 
-function wait(reason: string): WaitDecision {
-  return { kind: 'Wait', reason };
+function wait(reason: string, allowedSilence = false): WaitDecision {
+  return { kind: 'Wait', reason, ...(allowedSilence ? { allowedSilence: true } : {}) };
+}
+
+function unresolved(reason: string, respondsTo?: string): UnresolvedDecision {
+  return { kind: 'Unresolved', reason, ...(respondsTo === undefined ? {} : { respondsTo }) };
 }
 
 /** One line for the shadow log: `Speak Sam (handover)`, `Wait`, and so on. */
@@ -90,6 +140,12 @@ export function describeDecision(decision: PlannerDecision): string {
       return 'Wait';
     case 'ConfirmDecision':
       return 'ConfirmDecision';
+    case 'CommitDecision':
+      return 'CommitDecision';
+    case 'Offer':
+      return 'Offer';
+    case 'Unresolved':
+      return 'Unresolved';
     case 'PointCard':
       return 'PointCard';
     case 'Advance':
@@ -99,61 +155,6 @@ export function describeDecision(decision: PlannerDecision): string {
 
 function isColleague(view: MeetingView, name: string): boolean {
   return name !== view.guest && view.present.includes(name);
-}
-
-/** A whole guest line that only greets, acknowledges or stalls: it does not ask the room for anything. */
-const FILLER_ONLY_RE =
-  /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+|ok|okay|sure|yes|no|yeah|yep|nope|right|fine|thanks|thank you|got it)(?:[ ,]+(?:team|all|everyone|folks))?[,.!?]*\s*)+$/i;
-
-/** True when a guest line only greets, acknowledges or stalls, so the room need not answer it. */
-export function isFillerGuestLine(text: string): boolean {
-  return FILLER_ONLY_RE.test(text.trim());
-}
-
-/** A guest line that asks something: a question mark anywhere at the end, or a question word at the start. */
-const QUESTION_START_RE =
-  /^\s*(?:what|why|how|who|whom|whose|when|where|which|would|could|can|will|should|shall|do|does|did|is|are|was|were|has|have|had|am|may|might)\b/i;
-
-/** True when the guest line is a question the room should answer, not a statement to react to. */
-export function isGuestQuestion(text: string): boolean {
-  const trimmed = text.trim();
-  return trimmed.endsWith('?') || QUESTION_START_RE.test(trimmed);
-}
-
-/** The AI attendees the guest names anywhere in their line, including a second one named after the first. */
-function namedColleagues(view: MeetingView, text: string): string[] {
-  const found: string[] = [];
-  for (const name of view.present) {
-    if (!isColleague(view, name)) continue;
-    if (new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(text)) found.push(name);
-  }
-  return found;
-}
-
-/** The one colleague the guest speaks to first, using the same rules as the old addressee check. */
-function addressedColleague(view: MeetingView, text: string): string | undefined {
-  const cast = view.present.map((attendee) => ({
-    attendee, voice: '', personality: '', agenda: '', concerns: [],
-  }));
-  const named = addressedCharacter(text, cast);
-  return named !== undefined && isColleague(view, named) ? named : undefined;
-}
-
-/** Every colleague named as a vocative anywhere in the line: set off by commas, or followed by a question mark/word. */
-function vocativeColleagues(view: MeetingView, text: string): string[] {
-  const found: string[] = [];
-  for (const name of view.present) {
-    if (!isColleague(view, name)) continue;
-    const escaped = escapeRegExp(name);
-    const setOff = new RegExp(`(?:^|[,—–-])\\s*${escaped}\\s*(?:[,—–-]|$)`, 'i');
-    const asked = new RegExp(`\\b${escaped}\\s*\\?`, 'i');
-    const beforeQuestion = new RegExp(
-      `(?:^|[,—–-])\\s*${escaped}\\s*,?\\s+(?:would|could|can|will|should|shall|what|how|why|when|where|who|whom|whose|which)\\b`,
-      'i',
-    );
-    if (setOff.test(text) || asked.test(text) || beforeQuestion.test(text)) found.push(name);
-  }
-  return found;
 }
 
 /** The complete AI lines heard since the guest last spoke, so a guest line gets at most two answers. */
@@ -171,87 +172,401 @@ function respondersSinceGuest(view: MeetingView): HeardLine[] {
     : view.lines.slice(guestIndex + 1).filter((line) => line.complete && line.speaker !== view.guest);
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** The reading the planner should use for this line: the event's, the line's, or the one stored in the view. */
+function readingFor(view: MeetingView, line: HeardLine, fromEvent?: GuestReading): GuestReading | undefined {
+  return fromEvent ?? line.reading ?? view.readings.find((entry) => entry.eventId === line.eventId)?.reading;
 }
 
-/** The colleague whose role, worries and knowledge the guest's point touches most, if any. */
-function closestColleague(view: MeetingView, text: string): string | undefined {
-  let best: { name: string; overlap: number } | undefined;
-  for (const name of view.present) {
-    if (!isColleague(view, name) || name === view.host) continue;
-    const known = [
-      view.colleagues.find((profile) => profile.name === name)?.text ?? '',
-      ...view.facts.filter((fact) => fact.knownBy.includes(name)).map((fact) => fact.text),
-      ...view.catches.filter((entry) => entry.attendee === name).map((entry) => entry.text),
-    ].join(' ');
-    const overlap = countOverlap(known, text);
-    if (overlap === 0) continue;
-    if (best === undefined || overlap > best.overlap) best = { name, overlap };
+/** The reading before this line, used to spot a second noise attempt in a row. */
+function previousReading(view: MeetingView, line: HeardLine): GuestReading | undefined {
+  for (let index = view.readings.length - 1; index >= 0; index -= 1) {
+    const entry = view.readings[index]!;
+    if (entry.eventId !== line.eventId) return entry.reading;
   }
-  return best?.name;
+  return undefined;
 }
 
-/** How the room answers a guest line: one named colleague, the first idea's catch, a fact, or a clarification. */
-function guestLineDecision(view: MeetingView, line: HeardLine): PlannerDecision {
-  if (isFillerGuestLine(line.text)) return wait(`"${line.text.trim()}" is only a filler or acknowledgement`);
+/**
+ * Every slot covered by any reading on this topic; a slot once covered with valid evidence stays covered,
+ * and the latest valid evidence for a slot is the one the host restates. Practical is kept for wording only.
+ */
+export function mergedReadiness(view: MeetingView): GuestReadiness {
+  const merged: GuestReadiness = {
+    action: { covered: false },
+    catchAddressed: { covered: false },
+    practical: { covered: false },
+  };
+  for (const { reading } of view.readings) {
+    for (const name of ['action', 'catchAddressed', 'practical'] as const) {
+      if (reading.readiness[name].covered) merged[name] = reading.readiness[name];
+    }
+  }
+  return merged;
+}
 
-  const recorded = line.question?.to !== undefined && isColleague(view, line.question.to) ? line.question.to : undefined;
-  const vocatives = vocativeColleagues(view, line.text);
-  const addressed = recorded ??
-    (vocatives.length === 1 ? vocatives[0] : vocatives.length > 1 ? undefined : addressedColleague(view, line.text));
-  if (addressed !== undefined) {
-    return speak(addressed, 'answer', line.eventId, `the guest addressed ${addressed} by name`);
+/** The first decision slot the guest has not covered yet, in the order action, catch addressed, practical. */
+export function firstUncoveredSlot(view: MeetingView): DecisionSlotName | undefined {
+  const readiness = mergedReadiness(view);
+  return (['action', 'catchAddressed', 'practical'] as const).find((slot) => !readiness[slot].covered);
+}
+
+/** True when a present colleague really has a catch that the first idea must hear. */
+function hasPresentCatch(view: MeetingView): boolean {
+  return view.catches.some((entry) =>
+    entry.attendee !== view.guest && entry.attendee !== view.host && view.present.includes(entry.attendee));
+}
+
+function firstIdeaIndex(view: MeetingView): number {
+  if (view.guestFirstIdea === undefined) return -1;
+  return view.lines.findIndex((line) => line.eventId === view.guestFirstIdea?.eventId);
+}
+
+function catchIndexAfterIdea(view: MeetingView): number {
+  const ideaIndex = firstIdeaIndex(view);
+  if (ideaIndex < 0) return -1;
+  return view.lines.findIndex((line, index) =>
+    index > ideaIndex && line.complete && line.speaker !== view.guest && line.speaker !== view.host &&
+    (line.catch || line.catchId !== undefined));
+}
+
+/** The guest has heard the first idea's catch and answered it with any line of their own. */
+function guestSpokeAfterCatch(view: MeetingView): boolean {
+  if (!view.catchRaised) return false;
+  const ideaIndex = firstIdeaIndex(view);
+  if (ideaIndex < 0) return true;
+  const catchIndex = catchIndexAfterIdea(view);
+  let lastGuestIndex = -1;
+  view.lines.forEach((line, index) => {
+    if (line.complete && line.speaker === view.guest) lastGuestIndex = index;
+  });
+  return catchIndex < 0 ? lastGuestIndex > ideaIndex : lastGuestIndex > catchIndex;
+}
+
+/**
+ * Workable readiness: the guest has chosen an action with valid evidence, the first idea's real catch (if any)
+ * has been raised, and the guest has spoken once after it. They need not solve the catch, and who/when is not a gate.
+ */
+export function readinessMet(view: MeetingView): boolean {
+  if (view.guest !== undefined && view.openQuestion?.to === view.guest) return false;
+  if (view.guestFirstIdea !== undefined && hasPresentCatch(view) && !guestSpokeAfterCatch(view)) return false;
+  return mergedReadiness(view).action.covered;
+}
+
+/** Keep at most two colleague questions for missing details; after that Sam offers a call instead. */
+export const MAX_FOLLOW_UPS = 2;
+
+/** A topic gets at most two concrete offers: first the guest's idea or the directions, then the directions or one open ask. */
+export const MAX_OFFERS = 2;
+
+/** The first sentence of one scenario direction, in plain words. */
+export function plainDirection(text: string): string {
+  const first = text.split(/(?<=[.!?])\s+/)[0]?.trim() ?? text.trim();
+  return first.replace(/[.!?]+$/u, '').trim();
+}
+
+/**
+ * The first offer turns the guest's own latest idea, or two realistic directions, into one concrete call.
+ * The second offer puts the two directions (or, if they were already offered, one open "what would you rather do?").
+ */
+export function offerDecision(view: MeetingView, line: HeardLine, reason: string): OfferDecision {
+  const withIdea = [...view.readings].reverse()
+    .find(({ reading }) => reading.kind === 'idea' && reading.readiness.action.covered);
+  const choices = view.directions.slice(0, 2).map(plainDirection).filter((choice) => choice.length > 0);
+  if (view.offers === 0) {
+    const proposal = withIdea?.reading.readiness.action.evidence ?? mergedReadiness(view).action.evidence;
+    if (proposal !== undefined) {
+      return { kind: 'Offer', reason, respondsTo: line.eventId, proposal };
+    }
+    return { kind: 'Offer', reason, respondsTo: line.eventId, ...(choices.length === 0 ? {} : { choices }) };
+  }
+  // Offer 1 was the guest's own call: offer 2 puts the two realistic directions instead.
+  if (withIdea !== undefined && choices.length > 0) {
+    return { kind: 'Offer', reason, respondsTo: line.eventId, choices };
+  }
+  // Offer 1 was already the two-direction choice: offer 2 asks what they would rather do, once.
+  return { kind: 'Offer', reason, respondsTo: line.eventId, openAsk: true };
+}
+
+function hostOf(view: MeetingView): string | undefined {
+  return view.host !== undefined && isColleague(view, view.host) ? view.host : undefined;
+}
+
+function factKnower(view: MeetingView, id: string): string | undefined {
+  const fact = view.facts.find((entry) => entry.id === id);
+  return fact === undefined ? undefined : canTell(view, fact);
+}
+
+/** The colleague whose fact best helps from the ids the reader picked, if any. */
+function factHelper(view: MeetingView, reading: GuestReading): string | undefined {
+  for (const id of reading.relevantFactIds) {
+    const knower = factKnower(view, id);
+    if (knower !== undefined) return knower;
+  }
+  return undefined;
+}
+
+/** The colleague best placed to help with a confused guest: a relevant fact knower, the topic owner, then the host. */
+function bestHelper(view: MeetingView, reading: GuestReading): string | undefined {
+  const knower = factHelper(view, reading);
+  if (knower !== undefined) return knower;
+  if (view.owner !== undefined && isColleague(view, view.owner)) return view.owner;
+  return hostOf(view);
+}
+
+/** The first idea's catch: the reader's requested catch if it is still open, otherwise an unraised one. */
+function requestedCatch(view: MeetingView, reading: GuestReading, exclude?: string): MeetingCatchView | undefined {
+  for (const id of reading.relevantCatchIds) {
+    const catchEntry = view.catches.find((entry) =>
+      entry.id === id && !entry.raised && entry.attendee !== view.guest && entry.attendee !== view.host &&
+      entry.attendee !== exclude && view.present.includes(entry.attendee));
+    if (catchEntry !== undefined) return catchEntry;
+  }
+  return unraisedCatchOwner(view, exclude);
+}
+
+/** An urgent park: explain the deadline once, then offer a concrete call; never park it and never loop. */
+function parkDecision(view: MeetingView, line: HeardLine, _reading: GuestReading): PlannerDecision {
+  const host = hostOf(view);
+  if (view.canWait) {
+    return host === undefined
+      ? wait('the guest parked a topic that can wait, but no host is present to confirm the later slot')
+      : speak(host, 'defer', line.eventId,
+        `the guest parked a topic that can wait; confirm the later slot "${view.deadline ?? 'later'}"`);
+  }
+  const attempts = view.readings.filter((entry) => entry.reading.kind === 'park').length;
+  if (attempts >= 3) {
+    return unresolved('the guest has left this urgent topic open three times; no call made', line.eventId);
+  }
+  if (attempts === 2) {
+    return view.offers >= MAX_OFFERS
+      ? unresolved('the guest parked the topic again after two offers; no call made', line.eventId)
+      : offerDecision(view, line, 'a second park attempt on an urgent topic: offer one concrete call');
+  }
+  const owner = view.owner !== undefined && isColleague(view, view.owner) ? view.owner : undefined;
+  if (owner !== undefined && owner !== host) {
+    return speak(owner, 'clarify', line.eventId,
+      `${owner} explains the deadline "${view.deadline ?? 'today'}" once, because this topic cannot wait`, undefined, undefined,
+      `Explain plainly once that this must be decided "${view.deadline ?? 'today'}" and why it cannot wait. Then stop.`);
+  }
+  return host === undefined
+    ? wait('the guest parked an urgent topic, but no host is present')
+    : speak(host, 'clarify', line.eventId,
+      'explain the deadline once, then stop and give the guest the floor', undefined, undefined,
+      `Explain plainly that this must be decided "${view.deadline ?? 'today'}". Do not ask a question.`);
+}
+
+/** How the room answers a guest line, from the reader's structured meaning and never from its words. */
+function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestReading | undefined): PlannerDecision {
+  if (reading === undefined) return wait('the guest line has no reading yet');
+  const host = hostOf(view);
+
+  // A short listener sound said while someone else was talking means "go on": no reply and no gate answer.
+  if (reading.kind === 'backchannel') return wait('a listener backchannel; the room carries on', true);
+
+  const confirmationCall = view.confirmationCall ?? mergedReadiness(view).action.evidence;
+  if (view.confirmationAsked && reading.kind === 'agree' && confirmationCall !== undefined) {
+    return {
+      kind: 'CommitDecision',
+      reason: "the guest agreed to the host's confirmation",
+      respondsTo: line.eventId,
+      call: confirmationCall,
+    };
   }
 
-  if (view.guestFirstIdea?.eventId === line.eventId && !view.catchRaised) {
-    const owner = unraisedCatchOwner(view, line.speaker);
+  if (view.offerAsked) {
+    const choices = view.offer?.choices;
+    if (reading.chosenOption !== undefined && choices !== undefined && choices[reading.chosenOption] !== undefined) {
+      return {
+        kind: 'CommitDecision',
+        reason: 'the guest chose one of the options Sam offered',
+        respondsTo: line.eventId,
+        call: choices[reading.chosenOption]!,
+      };
+    }
+    if (reading.kind === 'agree') {
+      if (view.offer?.proposal !== undefined) {
+        return {
+          kind: 'CommitDecision',
+          reason: "the guest agreed to Sam's offer",
+          respondsTo: line.eventId,
+          call: view.offer.proposal,
+        };
+      }
+      if (view.offer?.choices !== undefined || view.offer?.openAsk === true) {
+        // A bare yes does not pick between two calls: ask which one once, then close honestly.
+        if (view.whichOneAsked) {
+          return unresolved('the guest agreed again without choosing one of the offers; no call made', line.eventId);
+        }
+        return host === undefined
+          ? unresolved('the guest agreed without choosing, but no host is present to ask which one', line.eventId)
+          : speak(host, 'clarify', line.eventId,
+            'the guest agreed to a two-option offer; ask which one, once', undefined, undefined,
+            'Ask the guest which of the offered options they mean, in one short line. Do not make a new offer.',
+            undefined, true);
+      }
+      // An offer stored without details (an older state): commit the call the guest actually covered.
+      const fallback = mergedReadiness(view).action.evidence;
+      if (fallback !== undefined) {
+        return {
+          kind: 'CommitDecision',
+          reason: "the guest agreed to Sam's offer",
+          respondsTo: line.eventId,
+          call: fallback,
+        };
+      }
+    }
+    if (view.whichOneAsked && (reading.kind === 'unsure' || reading.kind === 'noise')) {
+      return unresolved('the guest did not choose between the offers; no call made', line.eventId);
+    }
+  }
+
+  if (reading.kind === 'noise') {
+    if (previousReading(view, line)?.kind === 'noise') {
+      return wait('a second noise in a row; the silence timers will follow up from here', true);
+    }
+    return host === undefined
+      ? wait('the guest may not be heard, but no host is present to check')
+      : speak(host, 'clarify', line.eventId, 'the guest may not be heard; check once and restate the question', undefined, undefined,
+        'Check once that they can be heard, then restate the open question in one short line.');
+  }
+
+  // Two offers are the cap. A question or an addressed line is still answered normally; a covered call is
+  // confirmed; anything else closes the topic honestly rather than offering a third time.
+  if (view.offers >= MAX_OFFERS) {
+    if (reading.addressee !== undefined && isColleague(view, reading.addressee)) {
+      return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
+    }
+    if (reading.kind === 'question') {
+      for (const id of reading.relevantFactIds) {
+        const knower = factKnower(view, id);
+        if (knower !== undefined) {
+          return speak(knower, 'answer', line.eventId, `${knower} knows a fact that answers the guest's point`, [id]);
+        }
+      }
+      const helper = bestHelper(view, reading);
+      if (helper !== undefined) {
+        return speak(helper, 'answer', line.eventId, `${helper} can answer the guest's question directly`);
+      }
+      return unresolved('the guest asked a question after two offers, but nobody present can answer it', line.eventId);
+    }
+    if (reading.readiness.action.covered || readinessMet(view)) {
+      return {
+        kind: 'ConfirmDecision',
+        reason: 'the guest chose a call after two offers; confirm it instead of offering again',
+        respondsTo: line.eventId,
+      };
+    }
+    return unresolved('two offers have already been made and the guest did not choose a call', line.eventId);
+  }
+
+  if (reading.kind === 'park') return parkDecision(view, line, reading);
+
+  if (reading.kind === 'unsure') {
+    const helpLines = view.readings.filter((entry) => entry.reading.kind === 'unsure').length;
+    if (helpLines >= 3) {
+      return offerDecision(view, line, 'a third confused line: offer one concrete call instead of another help line');
+    }
+    const helper = factHelper(view, reading) ?? host;
+    return helper === undefined
+      ? unresolved('the guest is unsure, but nobody present can offer help', line.eventId)
+      : speak(helper, 'clarify', line.eventId, 'the guest is unsure; offer a short, specific help line', undefined, undefined,
+        'Offer the two most realistic options for this topic in plain words, then ask which one they want.');
+  }
+
+  if (reading.kind === 'off_topic') {
+    return host === undefined
+      ? unresolved('the guest is off topic, but no host is present to steer back', line.eventId)
+      : speak(host, 'clarify', line.eventId, "steer back to this topic's decision in one line", undefined, undefined,
+        'Steer back to this topic and its decision in one short line. Do not answer the off-topic remark.');
+  }
+
+  if (reading.addressee !== undefined && isColleague(view, reading.addressee)) {
+    return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
+  }
+
+  // After any offer, a guest line that chooses a call is confirmed straight away, with no new follow-ups.
+  if ((view.offers > 0 || view.offerAsked) && reading.kind !== 'agree' && reading.readiness.action.covered) {
+    return {
+      kind: 'ConfirmDecision',
+      reason: 'the guest corrected the offer; confirm the corrected call straight away',
+      respondsTo: line.eventId,
+    };
+  }
+
+  // Two colleague follow-ups are enough: the next step is Sam's concrete offer, even if the guest now adds an idea.
+  if (view.followUps >= MAX_FOLLOW_UPS && !view.offerAsked && !view.confirmationAsked &&
+      (reading.kind === 'idea' || reading.kind === 'answer')) {
+    return offerDecision(view, line, 'two follow-ups have already been asked; offer one concrete call');
+  }
+
+  if (reading.kind === 'idea' && view.guestFirstIdea?.eventId === line.eventId &&
+      hasPresentCatch(view) && !view.catchRaised) {
+    const owner = requestedCatch(view, reading);
     if (owner !== undefined) {
-      return speak(owner.attendee, 'catch', line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
+      return speak(owner.attendee, 'catch', line.eventId,
+        `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
     }
   }
 
-  const fact = matchingFact(view, line.text);
-  if (fact !== undefined) {
-    const knower = canTell(view, fact);
-    if (knower !== undefined) {
-      return speak(knower, 'answer', line.eventId, `${knower} knows a fact that answers the guest's last point`, [fact.id]);
+  if (reading.kind === 'question' || reading.kind === 'answer' || reading.kind === 'idea' || reading.kind === 'agree') {
+    for (const id of reading.relevantFactIds) {
+      const knower = factKnower(view, id);
+      if (knower !== undefined) {
+        return speak(knower, 'answer', line.eventId, `${knower} knows a fact that answers the guest's point`, [id]);
+      }
     }
   }
 
-  const question = isGuestQuestion(line.text);
-  const closest = closestColleague(view, line.text);
-  if (closest !== undefined) {
-    return question
-      ? speak(closest, 'answer', line.eventId, `${closest} can answer the guest's question directly`)
-      : speak(closest, 'clarify', line.eventId, `${closest}'s own work is closest to the guest's point`);
+  if (reading.kind === 'question') {
+    const helper = bestHelper(view, reading);
+    if (helper !== undefined) {
+      return speak(helper, 'answer', line.eventId, `${helper} can answer the guest's question directly`);
+    }
+    return unresolved('the guest asked a question, but nobody present can answer it', line.eventId);
   }
-  if (view.host !== undefined && isColleague(view, view.host)) {
-    return question
-      ? speak(view.host, 'answer', line.eventId, 'nobody else has something to add, so the host answers')
-      : speak(view.host, 'clarify', line.eventId, 'nobody else has something to add, so the host clarifies');
+
+  if (readinessMet(view)) {
+    return {
+      kind: 'ConfirmDecision',
+      reason: `the guest has chosen a workable action; ${host ?? 'the host'} should confirm it`,
+      respondsTo: line.eventId,
+    };
   }
-  return wait('no colleague can answer the guest');
+
+  if (!mergedReadiness(view).action.covered) {
+    if (view.followUps >= MAX_FOLLOW_UPS) {
+      return offerDecision(view, line, 'the guest has not chosen an action after two follow-ups; offer one concrete call');
+    }
+    const helper = bestHelper(view, reading) ?? host;
+    if (helper !== undefined) {
+      return speak(helper, 'clarify', line.eventId, 'the guest has not chosen an action yet; ask for one missing detail',
+        undefined, undefined,
+        'Ask the guest one short question about what they want to do. Do not offer a menu and do not ask about who or when.',
+        true);
+    }
+    return unresolved('the guest has not chosen an action and nobody present can ask for one', line.eventId);
+  }
+
+  // The action is covered but the topic is not ready: raise the first idea's catch, or restate what is still open.
+  if (view.guestFirstIdea !== undefined && hasPresentCatch(view) && !view.catchRaised) {
+    const owner = unraisedCatchOwner(view, undefined);
+    if (owner !== undefined) {
+      return speak(owner.attendee, 'catch', line.eventId,
+        `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
+    }
+  }
+  if (host !== undefined) {
+    return speak(host, 'clarify', line.eventId, 'the guest has not answered what is still open; restate it once',
+      undefined, undefined, 'Restate the one thing still open in a short line. Do not add a new question.');
+  }
+  return unresolved('the guest has a call, but nothing present can move the topic on', line.eventId);
 }
 
-/** A second colleague speaks only when the guest's line gives them a reason of their own. */
+/** A second colleague speaks only for the first idea's unraised catch; otherwise the guest has the floor. */
 function secondSpeakerDecision(view: MeetingView, responders: readonly HeardLine[]): PlannerDecision {
   if (responders.length === 0) return wait('the guest has the floor');
   if (responders.length >= 2) return wait('the guest line already has its two speakers');
   const first = responders[0]!;
-  const guestLine = view.guestLastLine;
-
-  if (guestLine !== undefined) {
-    const named = new Set(namedColleagues(view, guestLine.text));
-    if (guestLine.question?.to !== undefined && isColleague(view, guestLine.question.to)) {
-      named.add(guestLine.question.to);
-    }
-    named.delete(first.speaker);
-    const second = [...named][0];
-    if (second !== undefined) {
-      return speak(second, 'answer', guestLine.eventId, `the guest also addressed ${second}`);
-    }
-  }
 
   if (view.guestFirstIdea !== undefined && view.guestLastLine?.eventId === view.guestFirstIdea.eventId && !view.catchRaised) {
     const owner = unraisedCatchOwner(view, first.speaker);
@@ -304,24 +619,6 @@ function factsSettled(view: MeetingView): boolean {
   return view.facts.every((fact) => fact.told || canTell(view, fact) === undefined);
 }
 
-function matchingFact(view: MeetingView, text: string): MeetingFactView | undefined {
-  let best: { fact: MeetingFactView; overlap: number } | undefined;
-  for (const fact of view.facts) {
-    if (fact.told || canTell(view, fact) === undefined) continue;
-    const overlap = countOverlap(fact.text, text);
-    if (overlap === 0) continue;
-    if (best === undefined || overlap > best.overlap) best = { fact, overlap };
-  }
-  return best?.fact;
-}
-
-function countOverlap(left: string, right: string): number {
-  const rightWords = contentWords(right);
-  let count = 0;
-  for (const word of contentWords(left)) if (rightWords.has(word)) count += 1;
-  return count;
-}
-
 /** One colleague with a real catch on the first idea that the room has not heard yet. */
 function unraisedCatchOwner(view: MeetingView, exclude: string | undefined): MeetingCatchView | undefined {
   return view.catches.find((entry) =>
@@ -354,7 +651,7 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
 
   // The opening is planner-owned: the handover's question is answered by the brief step, not by an answer turn.
   if (event.kind === 'heard' && event.line.speaker !== view.guest &&
-      view.guestFirstIdea === undefined && !view.guestInvited) {
+      view.guestFirstIdea === undefined && !view.guestInvited && view.guestLastLine === undefined) {
     const step = nextBriefStep(view);
     if (step !== undefined) {
       return speak(
@@ -370,9 +667,9 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
     }
   }
 
-  // The guest's own line outranks any question left open before it: a colleague they just named answers.
+  // The guest's own line outranks any question left open before it: the reading decides who answers.
   if (event.kind === 'heard' && event.line.speaker === view.guest) {
-    return guestLineDecision(view, event.line);
+    return guestLineDecision(view, event.line, readingFor(view, event.line, event.reading));
   }
 
   // A guest line gets at most two AI speakers, even when the second one asks a third colleague a question.
@@ -398,12 +695,13 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
   }
 
   if (event.kind === 'guestDecision') {
-    if (view.guestFirstIdea !== undefined && !view.catchRaised) {
+    if (view.guestFirstIdea !== undefined && hasPresentCatch(view) && !view.catchRaised) {
       const owner = unraisedCatchOwner(view, undefined);
       if (owner !== undefined) {
         return speak(owner.attendee, 'catch', event.line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
       }
     }
+    if (!readinessMet(view)) return wait('the guest has not chosen a workable action yet');
     return {
       kind: 'ConfirmDecision',
       reason: `${view.host ?? 'the host'} can confirm ${view.guest ?? 'the guest'}'s call before the card`,
@@ -414,6 +712,7 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
   if (event.kind === 'decisionConfirmed' || event.kind === 'cardDue') {
     if (view.openQuestion !== undefined) return wait('a question is still open before the card');
     if (!view.catchRaised && view.guestFirstIdea !== undefined) return wait('the first idea has not had its catch yet');
+    if (!readinessMet(view)) return wait('the decision is not ready for the card');
     return { kind: 'PointCard', reason: 'the call is confirmed and nothing is still open' };
   }
 

@@ -98,6 +98,17 @@ function harness(scenarioUsed: Scenario, role: string, options: {
     briefFirstChunkMs: 5_000,
     ...(options.silencePromptMs === undefined ? {} : { silencePromptMs: options.silencePromptMs }),
     ...(options.silenceNudgeLeadMs === undefined ? {} : { silenceNudgeLeadMs: options.silenceNudgeLeadMs }),
+    readGuestLine: async () => ({
+      kind: 'agree',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    }),
   });
   conversation.setHuman({ name: 'Josh', role });
   return { conversation, ports, calls, playing, transcript, logs };
@@ -395,7 +406,7 @@ describe('one-speaker topic opening', () => {
 
     const before = h.calls.length;
     h.conversation.humanTyped('Use the window bar.');
-    h.conversation.lockDecision();
+    h.conversation.lockDecision(undefined, { confirmed: true });
     await flush();
     const next = await waitCall(h.calls, before);
     const expectedTeller = firstTeller(scenario, nextTitle, seat).speaker;

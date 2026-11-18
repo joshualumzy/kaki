@@ -82,6 +82,19 @@ const fallbackStreamWithFault = fallback === undefined
     fault,
     numberEnv('KAKI_LLM_IDLE_MS', 10_000),
   );
+// The reader only classifies one line, so it gets a low temperature and no thinking; spoken lines keep their settings.
+const readerStreamWithFault = faultyStream(
+  (messages, signal) => stream(messages, { signal, temperature: 0.2, reasoningEffort: 'none' }),
+  fault,
+  numberEnv('KAKI_LLM_IDLE_MS', 10_000),
+);
+const readerFallbackStreamWithFault = fallback === undefined
+  ? undefined
+  : faultyStream(
+    (messages, signal) => fallback(messages, { signal, temperature: 0.2, reasoningEffort: 'none' }),
+    fault,
+    numberEnv('KAKI_LLM_IDLE_MS', 10_000),
+  );
 
 const azureHint = 'Add your Azure Speech key and region to .env (see .env.example).';
 const synthesize = faultySynthesize(
@@ -167,6 +180,8 @@ const runner = await startNpcRunner({
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
   stream: streamWithFault,
   ...(fallbackStreamWithFault === undefined ? {} : { fallbackStream: fallbackStreamWithFault }),
+  readerStream: readerStreamWithFault,
+  ...(readerFallbackStreamWithFault === undefined ? {} : { readerFallbackStream: readerFallbackStreamWithFault }),
   synthesize,
   postTranscript,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),

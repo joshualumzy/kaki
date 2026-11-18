@@ -8,6 +8,7 @@
  */
 
 import type { AgendaItem } from '@kaki/shared';
+import type { GuestReading } from './guestReader';
 
 export type MeetingPhase =
   | 'handover'
@@ -40,6 +41,10 @@ export interface MeetingTopicInfo {
   deadline: string;
   /** The call the host puts to the guest once the briefing is done. */
   decision?: string;
+  /** The colleague whose role owns this topic, who explains an urgent deadline. */
+  owner?: string;
+  /** Realistic ways the topic could be handled, used only as a plain proposal when the guest leaves a gap. */
+  directions?: readonly string[];
   facts: readonly MeetingFactInfo[];
   catches: readonly MeetingCatchInfo[];
 }
@@ -75,6 +80,8 @@ export interface HeardLine {
   heardFactIds?: readonly string[];
   /** How many complete sentences of this line the room heard before it was cut off. */
   sentencesHeard?: number;
+  /** The structured reading of this guest line, once the reader has returned it. */
+  reading?: GuestReading;
 }
 
 export interface MeetingFactView {
@@ -91,6 +98,13 @@ export interface MeetingCatchView {
   attendee: string;
   text: string;
   raised: boolean;
+}
+
+/** The exact call or choices Sam put to the guest, kept so a later yes can only commit what was offered. */
+export interface MeetingOffer {
+  proposal?: string;
+  choices?: readonly string[];
+  openAsk?: boolean;
 }
 
 export interface MeetingView {
@@ -115,8 +129,28 @@ export interface MeetingView {
   factsTold: readonly string[];
   facts: readonly MeetingFactView[];
   catches: readonly MeetingCatchView[];
+  /** Realistic ways this topic could be handled, for a plain proposal when the guest leaves a gap. */
+  directions: readonly string[];
+  /** The reader's readings on this topic, oldest first. */
+  readings: readonly { eventId: string; reading: GuestReading }[];
   catchRaised: boolean;
   guestInvited: boolean;
+  /** The host has asked the guest to confirm the call and the guest has not answered yet. */
+  confirmationAsked: boolean;
+  /** Sam has offered a concrete call and is waiting for the guest to agree or correct it. */
+  offerAsked: boolean;
+  /** The exact call or choices Sam put in that offer. */
+  offer: MeetingOffer | undefined;
+  /** The specific call Sam asked the guest to confirm, when a confirmation is open. */
+  confirmationCall: string | undefined;
+  /** Sam has already asked "which one?" after a bare yes to a choice offer. */
+  whichOneAsked: boolean;
+  /** How many concrete offers Sam has made on this topic; a topic gets at most two. */
+  offers: number;
+  /** Colleague questions asked for a missing decision detail on this topic. */
+  followUps: number;
+  /** The colleague whose role owns this topic. */
+  owner: string | undefined;
   guest: string | undefined;
   host: string | undefined;
   present: readonly string[];
@@ -162,6 +196,15 @@ type LedgerEvent =
 interface Ledger {
   events: LedgerEvent[];
   openedAt: number;
+  /** The reader's structured reading of each guest line, by event id. */
+  readings: Map<string, GuestReading>;
+  confirmationAsked: boolean;
+  confirmationCall: string | undefined;
+  offerAsked: boolean;
+  offer: MeetingOffer | undefined;
+  whichOneAsked: boolean;
+  offers: number;
+  followUps: number;
 }
 
 const STOP_WORDS = new Set([
@@ -208,6 +251,7 @@ export function meetingTopic(item: AgendaItem, index: number): MeetingTopicInfo 
     canWait: item.canWait,
     deadline: item.deadline,
     decision: item.decision,
+    ...(item.directions === undefined ? {} : { directions: item.directions }),
     facts: (item.briefing ?? []).map((fact, factIndex) => ({
       id: `${index}:${factIndex}`,
       text: fact.text,
@@ -240,8 +284,18 @@ function emptyView(topic: MeetingTopicInfo | undefined, guest: string | undefine
     factsTold: [],
     facts: [],
     catches: [],
+    directions: topic?.directions ?? [],
+    readings: [],
     catchRaised: false,
     guestInvited: false,
+    confirmationAsked: false,
+    offerAsked: false,
+    offer: undefined,
+    confirmationCall: undefined,
+    whichOneAsked: false,
+    offers: 0,
+    followUps: 0,
+    owner: topic?.owner,
     guest,
     host,
     present,
@@ -275,6 +329,7 @@ function derive(
   const lines: HeardLine[] = [];
   for (const start of starts.values()) {
     const end = ends.get(start.id);
+    const reading = ledger.readings.get(start.id);
     lines.push({
       eventId: start.id,
       speaker: start.speaker,
@@ -282,13 +337,14 @@ function derive(
       at: start.at,
       complete: end?.complete === true,
       ...(start.question === undefined ? {} : { question: start.question }),
-      proposal: start.proposal === true,
+      proposal: start.proposal === true || reading?.kind === 'idea',
       ...(start.factId === undefined ? {} : { factId: start.factId }),
       ...(start.factIds === undefined ? {} : { factIds: start.factIds }),
       ...(start.catchId === undefined ? {} : { catchId: start.catchId }),
       catch: start.catch === true,
       ...(end?.heardFactIds === undefined ? {} : { heardFactIds: end.heardFactIds }),
       ...(end?.sentencesHeard === undefined ? {} : { sentencesHeard: end.sentencesHeard }),
+      ...(reading === undefined ? {} : { reading }),
     });
   }
 
@@ -305,7 +361,8 @@ function derive(
     raised: false,
   }));
 
-  const firstIdeaIndex = lines.findIndex((line) => line.complete && line.speaker === guest && line.proposal);
+  const firstIdeaIndex = lines.findIndex((line) =>
+    line.complete && line.speaker === guest && (line.reading?.kind === 'idea' || line.proposal));
   let openQuestion: OpenQuestionView | undefined;
   let lastQuestion: (OpenQuestionView & { answered: boolean }) | undefined;
   let guestInvited = false;
@@ -315,7 +372,9 @@ function derive(
   lines.forEach((line, index) => {
     if (!line.complete) {
       // A colleague the question was put to has started answering it, even if the line was cut off.
-      if (openQuestion !== undefined && line.speaker === openQuestion.to && (line.sentencesHeard ?? 0) > 0) {
+      // The guest counts as answering only when the reader says the line answers the open question.
+      const guestAnswered = line.speaker !== guest || line.reading === undefined || line.reading.answersOpenQuestion;
+      if (openQuestion !== undefined && line.speaker === openQuestion.to && guestAnswered && (line.sentencesHeard ?? 0) > 0) {
         openQuestion = undefined;
         if (lastQuestion !== undefined) lastQuestion = { ...lastQuestion, answered: true };
       }
@@ -335,7 +394,8 @@ function derive(
       return;
     }
 
-    if (openQuestion !== undefined && line.speaker === openQuestion.to) {
+    const guestAnswered = line.speaker !== guest || line.reading === undefined || line.reading.answersOpenQuestion;
+    if (openQuestion !== undefined && line.speaker === openQuestion.to && guestAnswered) {
       openQuestion = undefined;
       if (lastQuestion !== undefined) lastQuestion = { ...lastQuestion, answered: true };
     }
@@ -400,7 +460,8 @@ function derive(
   const catchRaised = explicitCatch || catches.some((entry) => entry.raised);
   const lastHeard = [...lines].reverse().find((line) => line.complete);
   const lastLine = lines.at(-1);
-  const guestIdeas = lines.filter((line) => line.complete && line.speaker === guest && line.proposal);
+  const guestIdeas = lines.filter((line) =>
+    line.complete && line.speaker === guest && (line.reading?.kind === 'idea' || line.proposal));
 
   const phase: MeetingPhase = lines.length === 0
     ? 'handover'
@@ -430,8 +491,19 @@ function derive(
     factsTold: facts.filter((fact) => fact.told).map((fact) => fact.id),
     facts,
     catches,
+    directions: topic.directions ?? [],
+    readings: lines.flatMap((line) =>
+      line.reading === undefined ? [] : [{ eventId: line.eventId, reading: line.reading }]),
     catchRaised,
     guestInvited,
+    confirmationAsked: ledger.confirmationAsked,
+    offerAsked: ledger.offerAsked,
+    offer: ledger.offer,
+    confirmationCall: ledger.confirmationCall,
+    whichOneAsked: ledger.whichOneAsked,
+    offers: ledger.offers,
+    followUps: ledger.followUps,
+    owner: topic.owner,
     guest,
     host,
     present,
@@ -475,10 +547,75 @@ export class MeetingState {
     this.current = title;
     if (title !== undefined) {
       const ledger = this.ledgers.get(title);
-      if (ledger === undefined) this.ledgers.set(title, { events: [], openedAt: at });
-      else ledger.openedAt = at;
+      if (ledger === undefined) {
+        this.ledgers.set(title, {
+          events: [], openedAt: at, readings: new Map(),
+          confirmationAsked: false, confirmationCall: undefined,
+          offerAsked: false, offer: undefined, whichOneAsked: false,
+          offers: 0, followUps: 0,
+        });
+      } else {
+        ledger.openedAt = at;
+        ledger.confirmationAsked = false;
+        ledger.confirmationCall = undefined;
+        ledger.offerAsked = false;
+        ledger.offer = undefined;
+        ledger.whichOneAsked = false;
+      }
     }
     return true;
+  }
+
+  /** Attach the reader's structured reading to a guest line that is already in the ledger. */
+  recordReading(eventId: string, reading: GuestReading): void {
+    const title = this.lineTopics.get(eventId);
+    if (title === undefined) return;
+    this.ledgers.get(title)?.readings.set(eventId, reading);
+  }
+
+  /** Mark the host's confirmation question as asked with its exact call, or clear it when corrected. */
+  setConfirmationAsked(asked: boolean, call?: string): void {
+    const title = this.current;
+    if (title === undefined) return;
+    const ledger = this.ledgers.get(title);
+    if (ledger === undefined) return;
+    ledger.confirmationAsked = asked;
+    ledger.confirmationCall = asked ? call : undefined;
+  }
+
+  /** Mark Sam's concrete offer as asked with the exact call or choices, or clear it once it is answered. */
+  setOfferAsked(asked: boolean, offer?: MeetingOffer): void {
+    const title = this.current;
+    if (title === undefined) return;
+    const ledger = this.ledgers.get(title);
+    if (ledger === undefined) return;
+    ledger.offerAsked = asked;
+    ledger.offer = asked ? offer : undefined;
+    if (!asked) ledger.whichOneAsked = false;
+  }
+
+  /** Remember that Sam has already asked which of two offered options the guest means. */
+  noteWhichOneAsked(): void {
+    const title = this.current;
+    if (title === undefined) return;
+    const ledger = this.ledgers.get(title);
+    if (ledger !== undefined) ledger.whichOneAsked = true;
+  }
+
+  /** Count one concrete offer the room heard on this topic. */
+  noteOffer(): void {
+    const title = this.current;
+    if (title === undefined) return;
+    const ledger = this.ledgers.get(title);
+    if (ledger !== undefined) ledger.offers += 1;
+  }
+
+  /** Count one colleague question that asked the guest for a missing decision detail. */
+  noteFollowUp(): void {
+    const title = this.current;
+    if (title === undefined) return;
+    const ledger = this.ledgers.get(title);
+    if (ledger !== undefined) ledger.followUps += 1;
   }
 
   /** A line has started playing: it is heard from here, but not yet complete. */

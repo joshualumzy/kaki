@@ -885,7 +885,7 @@ describe('never-stuck visitor path', () => {
       async *stream() {}, async synthesize(utterance) { return utterance; }, async play() {},
       emitTranscript() {}, emitState(state) { states.push(state); }, log(message) { logs.push(message); },
       settleTopic,
-    }, { scenario, responseDelayMs: 60_000 });
+    }, { scenario, responseDelayMs: 60_000, replies: 'legacy' });
     conversation.setHuman({ name: 'Visitor', role });
     conversation.agendaMoved(scenario.agenda[0]!.title);
     conversation.humanTyped('Use the window bar.');

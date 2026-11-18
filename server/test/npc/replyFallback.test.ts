@@ -70,6 +70,18 @@ function harness(fallback?: (messages: ChatMessage[], signal: AbortSignal) => As
     bargeInMs: 0,
     briefFirstChunkMs: 40,
     replies: 'one-speaker',
+    readGuestLine: async () => ({
+      kind: 'question',
+      addressee: 'Ada',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: false },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    }),
   });
   conversation.setHuman({ name: 'Josh', role: 'chef', transcriptName: 'Ada (Chef)' });
   return { conversation, primary, backup, playing, transcript, logs };

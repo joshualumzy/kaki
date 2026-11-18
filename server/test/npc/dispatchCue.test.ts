@@ -73,6 +73,7 @@ function meeting(scenario: Scenario, role: string, cast: ReturnType<typeof aiCas
     observeDelayMs: 60_000,
     silencePromptMs: 60_000,
     firstIdeaCatch: false,
+    replies: 'legacy',
   });
   conversation.setHuman({ name: 'Josh', role });
   return { conversation, spoken, logs };
