@@ -46,11 +46,12 @@ function options(): PlaytestOptions {
 
 function decisionFor(title: string): string {
   const name = title.toLowerCase();
-  if (name.includes('counter staff')) return 'I would ask Auntie Mary in on double pay only if she agrees, and have a manager cover the counter if she says no. We keep the free-kopi crowd moving by pushing drinks to the kiosk.';
-  if (name.includes('regulars')) return 'I would hold the kopi price and explain it at the counter, reply to the Facebook post, and have Arjun add a regulars price button only once we agree who counts as a regular.';
-  if (name.includes('laptop')) return 'I would put a laptop zone on the 10 window-bar stools, add breakfast-table signs and set the booth socket timer, without asking staff to confront anyone.';
-  if (name.includes('food safety')) return 'I would open at 8 without Set A until the 10 o clock delivery, give the officer both logs, and answer the customer before her review tonight.';
-  if (name.includes('delivery')) return 'I would keep the office orders, price the $50 Office Platter and the 10%-off direct pickup code, and check the app change against the time Arjun has.';
+  // Each line uses only what the producer seat can know (its role-card fact + the spoken briefing), in plain speech.
+  if (name.includes('counter staff')) return "Let's ring Auntie Mary and offer her the double pay. If she says no, I'll take the counter myself till ten.";
+  if (name.includes('regulars')) return "We can't go back to a dollar thirty, we lose money on every cup. Let's keep the price and have someone at the counter explain it to the regulars this morning.";
+  if (name.includes('laptop')) return "Let's put signs on the tables saying they're for breakfast from eight to ten. Staff don't ask anyone to move, they just point at the sign.";
+  if (name.includes('food safety')) return "We open at eight, but nothing from that fridge goes out. I'll give the officer both logs, and someone calls the customer back this morning.";
+  if (name.includes('delivery')) return "Let's push the fifty-dollar platter to the offices instead of single sets, since that one actually makes money.";
   throw new Error(`No scenario decision prepared for: ${title}`);
 }
 
