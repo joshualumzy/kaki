@@ -156,6 +156,12 @@ function harness(options: {
       if (options.reader !== undefined) return options.reader(input);
       return readings.shift() ?? reading();
     },
+    gateStream: (request) => (async function* () {
+      const lower = request.call.length === 0 ? request.call : `${request.call[0]!.toLowerCase()}${request.call.slice(1)}`;
+      yield request.purpose === 'readback'
+        ? `${request.speaker}: So it's ${lower}. That's the call?`
+        : `${request.speaker}: How about we ${lower}?`;
+    })(),
   });
   conversation.setHuman({ name: 'Josh', role: 'chef' });
   conversation.agendaMoved('Prep');
@@ -198,9 +204,8 @@ describe('checkpoint 4 review fixes', () => {
     const h = harness({ replies: ['Sam: The choice is how we cover the counter.', 'Sam: Pick the one that feels workable.'] });
     await reachChoiceOffer(h);
 
-    const offer = h.playing.filter((entry) => /shall we go with/i.test(entry.text)).at(-1);
-    expect(offer?.text).toContain('Ask Auntie Mary to come in');
-    expect(offer?.text).toContain('agency temp needs notice');
+    const offer = h.playing.filter((entry) => /how about we/i.test(entry.text)).at(-1);
+    expect(offer?.text.toLowerCase()).toContain('ask auntie mary to come in');
 
     await say(h, 'The first one.', reading({ kind: 'agree', chosenOption: 0 }));
     await finishPlaying(h);
@@ -213,54 +218,49 @@ describe('checkpoint 4 review fixes', () => {
     h.conversation.close();
   });
 
-  it('asks which one once when a bare yes answers a two-option offer, then closes honestly', async () => {
+  it('commits a bare yes to the one concrete offer', async () => {
     const h = harness({
       replies: [
         'Sam: The choice is how we cover the counter.',
         'Sam: Pick the one that feels workable.',
-        'Sam: Which one do you mean, the Auntie Mary one or the agency temp?',
       ],
     });
     await reachChoiceOffer(h);
 
     await say(h, 'Yes.', reading({ kind: 'agree' }));
     await finishPlaying(h);
-    expect(h.settle).not.toHaveBeenCalled();
-    expect(h.playing.some((entry) => /which one do you mean/i.test(entry.text)), h.logs.join('\n')).toBe(true);
-
-    await say(h, 'Yes, that one.', reading({ kind: 'agree' }));
-    await finishPlaying(h);
     await flush();
-    await finishPlaying(h);
 
-    expect(h.settle).not.toHaveBeenCalled();
-    expect(h.advanced).toContain('next');
-    expect(h.playing.some((entry) => entry.text.includes('no call made'))).toBe(true);
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    expect(h.settle.mock.calls[0]?.[0]?.decisionSource?.toLowerCase()).toContain('ask auntie mary to come in');
     h.conversation.close();
   });
 
-  it('closes honestly when the second reply to a two-option offer is still unclear', async () => {
+  it('names the other realistic direction in a second offer, then closes honestly', async () => {
     const h = harness({
       replies: [
         'Sam: The choice is how we cover the counter.',
         'Sam: Pick the one that feels workable.',
-        'Sam: Which one do you mean, the Auntie Mary one or the agency temp?',
       ],
     });
     await reachChoiceOffer(h);
-
-    await say(h, 'Yes.', reading({ kind: 'agree' }));
-    await finishPlaying(h);
-    expect(h.playing.some((entry) => /which one do you mean/i.test(entry.text))).toBe(true);
+    expect(h.playing.filter((entry) => /how about we/i.test(entry.text))).toHaveLength(1);
 
     await say(h, 'I still do not know.', reading({ kind: 'unsure' }));
+    await finishPlaying(h);
+    const offers = h.playing.filter((entry) => /how about we/i.test(entry.text));
+    expect(offers).toHaveLength(2);
+    expect(offers.at(-1)?.text.toLowerCase()).toContain('agency temp needs notice');
+    expect(offers.at(-1)?.text).not.toContain(' or ');
+
+    await say(h, 'Still not sure.', reading({ kind: 'unsure' }));
     await finishPlaying(h);
     await flush();
     await finishPlaying(h);
 
     expect(h.settle).not.toHaveBeenCalled();
     expect(h.advanced).toContain('next');
-    expect(h.playing.some((entry) => entry.text.includes('no call made'))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
     h.conversation.close();
   });
 
@@ -275,7 +275,7 @@ describe('checkpoint 4 review fixes', () => {
     await finishPlaying(h);
 
     await vi.advanceTimersByTimeAsync(100);
-    expect(h.playing.some((entry) => entry.text.includes('no call made'))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
 
     h.conversation.humanSpeech(true);
     await vi.advanceTimersByTimeAsync(2_000);
@@ -293,7 +293,7 @@ describe('checkpoint 4 review fixes', () => {
     await flush();
 
     await vi.advanceTimersByTimeAsync(100);
-    expect(h.playing.some((entry) => entry.text.includes('no call made'))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
 
     resolveReading?.(readyReading('Use the window bar'));
     for (let i = 0; i < 20; i += 1) await flush();
@@ -319,7 +319,7 @@ describe('checkpoint 4 review fixes', () => {
     await flush();
     await finishPlaying(h);
 
-    expect(h.playing.some((entry) => entry.text.includes('so your call is')), h.logs.join('\n')).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes("So it's")), h.logs.join('\n')).toBe(true);
 
     await say(h, 'Yes.', reading({ kind: 'agree' }));
     await vi.advanceTimersByTimeAsync(1_000);
@@ -362,7 +362,7 @@ describe('checkpoint 4 review fixes', () => {
     });
     await say(h, 'Bao covers the till from 8.');
     await flush();
-    expect(h.playing.some((entry) => entry.text.includes('so your call is'))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes("So it's"))).toBe(true);
 
     h.conversation.humanSpeech(true);
     h.conversation.humanText('Use the window bar instead.');
@@ -389,7 +389,7 @@ describe('checkpoint 4 review fixes', () => {
     });
     await say(h, 'Bao covers the till from 8.');
     await flush();
-    expect(h.playing.some((entry) => entry.text.includes('so your call is'))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes("So it's"))).toBe(true);
     const before = h.calls.length;
 
     h.conversation.humanSpeech(true);
@@ -414,7 +414,7 @@ describe('checkpoint 4 review fixes', () => {
     });
     await say(h, 'Bao covers the till from 8.');
     await flush();
-    expect(h.playing.some((entry) => entry.text.includes('so your call is'))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes("So it's"))).toBe(true);
     const before = h.calls.length;
 
     h.conversation.humanTyped('mm');

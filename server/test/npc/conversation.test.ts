@@ -142,7 +142,14 @@ function harness(
       log: (message) => logs.push(message),
   };
   const conversation = new NpcConversation<Utterance>(ports, { scenario: scenarioUsed, bargeInMs, responseDelayMs: 900, speakerGapMs: 0, sentenceGapMs: 0, replies,
-    readGuestLine: async (input) => reader(input), ...optionOverrides });
+    readGuestLine: async (input) => reader(input),
+    gateStream: (request) => (async function* () {
+      const lower = request.call.length === 0 ? request.call : `${request.call[0]!.toLowerCase()}${request.call.slice(1)}`;
+      yield request.purpose === 'readback'
+        ? `${request.speaker}: So it's ${lower}. That's the call?`
+        : `${request.speaker}: How about we ${lower}?`;
+    })(),
+    ...optionOverrides });
   conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
@@ -2557,8 +2564,47 @@ describe('one-speaker replies to the guest', () => {
     ],
   };
 
+  const withDirections = (directions: string[]) => ({
+    ...scenario,
+    agenda: scenario.agenda.map((item) => ({ ...item, directions })),
+  });
+
+  const readyFor = (evidence: string) => ({
+    kind: 'answer' as const,
+    answersOpenQuestion: false,
+    relevantFactIds: [],
+    relevantCatchIds: [],
+    readiness: {
+      action: { covered: true, evidence },
+      catchAddressed: { covered: false },
+      practical: { covered: false },
+    },
+  });
+
+  const nothingCovered = {
+    kind: 'answer' as const,
+    answersOpenQuestion: false,
+    relevantFactIds: [],
+    relevantCatchIds: [],
+    readiness: {
+      action: { covered: false },
+      catchAddressed: { covered: false },
+      practical: { covered: false },
+    },
+  };
+
+  const withColleagueHost = (base: typeof scenario) => ({
+    ...base,
+    roles: [...base.roles, { id: 'host', label: 'Host' }],
+    attendees: [...base.attendees, { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' }],
+    npcs: [
+      ...base.npcs,
+      { attendee: 'Sam', voice: 'v0', role: 'host' as const, personality: 'Calm', agenda: 'Keep time', concerns: [] },
+    ],
+  });
+
   it('answers a substantive guest line with one planned speaker, then waits for the guest', async () => {
-    const h = harness(scenario, 0, undefined, 'one-speaker');
+    const h = harness(withColleagueHost(scenario), 0, undefined, 'one-speaker');
     await h.say('Let us call Auntie Mary in.');
 
     expect(h.calls).toHaveLength(1);
@@ -2591,7 +2637,7 @@ describe('one-speaker replies to the guest', () => {
   });
 
   it('raises the first idea catch with a second planned speaker, then waits', async () => {
-    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    const h = harness(withColleagueHost(catchScenario), 0, undefined, 'one-speaker');
     await h.say('Ada, let us call Auntie Mary in.');
 
     const first = await waitForCall(h, 0);
@@ -2614,7 +2660,7 @@ describe('one-speaker replies to the guest', () => {
   });
 
   it('answers a terse yes instead of treating it as filler', async () => {
-    const h = harness(scenario, 0, undefined, 'one-speaker', () => ({
+    const h = harness(withColleagueHost(scenario), 0, undefined, 'one-speaker', () => ({
       kind: 'agree',
       addressee: 'Ada',
       answersOpenQuestion: true,
@@ -2635,7 +2681,7 @@ describe('one-speaker replies to the guest', () => {
   });
 
   it('discards the prefetched second speaker when the guest speaks again', async () => {
-    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    const h = harness(withColleagueHost(catchScenario), 0, undefined, 'one-speaker');
     await h.say('Ada, let us call Auntie Mary in.');
     const first = await waitForCall(h, 0);
     first.push('Ada: That could work.');
@@ -2653,7 +2699,7 @@ describe('one-speaker replies to the guest', () => {
   });
 
   it('rejects a prefetched reply whole before any of it plays, then retries fresh', async () => {
-    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    const h = harness(withColleagueHost(catchScenario), 0, undefined, 'one-speaker');
     await h.say('Ada, let us call Auntie Mary in.');
     const first = await waitForCall(h, 0);
     first.push('Ada: That could work.');
@@ -2839,7 +2885,7 @@ describe('one-speaker replies to the guest', () => {
   });
 
   it('rejects a catch reply that does not carry the catch, then retries with a paraphrase', async () => {
-    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    const h = harness(withColleagueHost(catchScenario), 0, undefined, 'one-speaker');
     await h.say('Ada, let us call Auntie Mary in.');
     await reply(h, 'Ada: That could work.');
 
@@ -2864,7 +2910,7 @@ describe('one-speaker replies to the guest', () => {
   });
 
   it('counts a two-sentence reply as one speaker when choosing the second colleague', async () => {
-    const h = harness(catchScenario, 0, undefined, 'one-speaker');
+    const h = harness(withColleagueHost(catchScenario), 0, undefined, 'one-speaker');
     await h.say('Ada, let us call Auntie Mary in.');
     const first = await waitForCall(h, 0);
     first.push('Ada: That could work. I will check the rota.');
@@ -2914,7 +2960,8 @@ describe('one-speaker replies to the guest', () => {
     const h = harness(catchScenario, 0, undefined, 'one-speaker');
     await h.say('Ada, let us call Auntie Mary in.');
     const first = await waitForCall(h, 0);
-    first.push('Ada: That could work. I will check the rota.');
+    expect(String(first.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    first.push('Bao: Calling her in means double pay for her rest day.');
     first.end();
     await h.flush();
     expect(h.playing.some((entry) => !entry.finished)).toBe(true);
@@ -2922,7 +2969,7 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.stop();
     await h.flush();
     const before = h.calls.length;
-    h.conversation.resumeAfterRejoin('Ada', 'Welcome back, Josh.');
+    h.conversation.resumeAfterRejoin('Bao', 'Welcome back, Josh.');
     await h.flush();
     expect(h.playing.some((entry) => entry.text === 'Welcome back, Josh.')).toBe(true);
     await finishPlaying(h);
@@ -2931,9 +2978,8 @@ describe('one-speaker replies to the guest', () => {
     const request = String(resumed.messages.map((message) => message.content).join('\n'));
     expect(request).toContain('The guest just said');
     expect(request).toContain('Ada, let us call Auntie Mary in.');
-    await reply(h, 'Ada: Let us check the rota first.');
-    expect(h.transcript).toContainEqual(['Ada', 'Let us check the rota first.']);
-    expect(h.transcript.filter(([, text]) => text === 'That could work.')).toHaveLength(1);
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+    expect(h.transcript.filter(([, text]) => text === 'Calling her in means double pay for her rest day.')).toHaveLength(2);
     expect(h.transcript.filter(([, text]) => text === 'Welcome back, Josh.')).toHaveLength(1);
     await h.flush();
     expect(h.calls).toHaveLength(before + 1);
@@ -2981,15 +3027,17 @@ describe('one-speaker replies to the guest', () => {
 
     await h.say('Old price only on the small cup.');
     await finishPlaying(h);
-    expect(h.transcript).toContainEqual(['Ada', 'Josh, so your call is "Old price only on the small cup".']);
-    expect(h.transcript).toContainEqual(['Ada', 'Is that right?']);
+    expect(h.transcript).toContainEqual(['Ada', "So it's old price only on the small cup."]);
+    expect(h.transcript).toContainEqual(['Ada', "That's the call?"]);
 
-    // Nobody answers: the silence nudge re-asks that exact question and keeps the gate live.
-    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text === 'Josh, is "Old price only on the small cup" your call?'); i += 1) {
+    // Nobody answers: the silence nudge repeats that exact read-back and keeps the gate live.
+    for (let i = 0; i < 40 &&
+      h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.").length < 2; i += 1) {
       await vi.advanceTimersByTimeAsync(5);
       await finishPlaying(h);
     }
-    expect(h.transcript).toContainEqual(['Ada', 'Josh, is "Old price only on the small cup" your call?']);
+    expect(h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.")).toHaveLength(2);
+    expect(h.transcript.filter(([, text]) => text === "That's the call?")).toHaveLength(2);
     expect(h.transcript.some(([, text]) => text.includes("What's your gut"))).toBe(false);
 
     await h.say('Yes.');
@@ -3031,9 +3079,125 @@ describe('one-speaker replies to the guest', () => {
     await h.say('Old price only on the small cup.');
     await finishPlaying(h);
 
-    const confirmations = h.transcript.filter(([speaker, text]) => speaker === 'Ada' && text.includes('Is that right?'));
+    const confirmations = h.transcript.filter(([speaker, text]) => speaker === 'Ada' && text.includes("That's the call?"));
     expect(confirmations).toHaveLength(1);
     expect(h.transcript.some(([, text]) => text.toLowerCase().includes('shall we lock in'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('reads the guest call back in plain words, with no quotes and no extra direction', async () => {
+    const written = "So it's signs only this morning, and we leave the sockets alone. That's the call?";
+    const h = harness(withDirections(['Raise the app price.']), 0, undefined, 'one-speaker',
+      () => readyFor('Signs only this morning'), {
+        gateStream: () => (async function* () { yield `Ada: ${written}`; })(),
+      });
+    await h.say('Signs only this morning.');
+    await finishPlaying(h);
+
+    expect(h.logs).toContainEqual(`[confirm] read-back: ${written}`);
+    expect(h.transcript).toContainEqual(['Ada', "So it's signs only this morning, and we leave the sockets alone."]);
+    expect(h.transcript).toContainEqual(['Ada', "That's the call?"]);
+    expect(h.transcript.some(([, text]) => text.includes('"'))).toBe(false);
+    expect(h.transcript.some(([, text]) => /raise the app price/i.test(text))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('falls back to a plain check when the read-back writer quotes the guest', async () => {
+    const h = harness(withDirections(['Raise the app price.']), 0, undefined, 'one-speaker',
+      () => readyFor('Signs only this morning'), {
+        gateStream: () => (async function* () { yield 'Ada: So your call is "signs only". Is that right?'; })(),
+      });
+    await h.say('Signs only this morning.');
+    await finishPlaying(h);
+
+    expect(h.logs).toContainEqual('[confirm] read-back: Josh, is that your call?');
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, is that your call?']);
+    expect(h.transcript.some(([, text]) => text.includes('"'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('offers one concrete call in plain words and commits it on agree', async () => {
+    const agree = {
+      ...readyFor('Ask Auntie Mary to come in'),
+      kind: 'agree' as const,
+      answersOpenQuestion: true,
+    };
+    const readerInputs: GuestReaderInput[] = [];
+    const h = harness(withDirections(['Ask Auntie Mary to come in.', 'An agency temp needs notice.']),
+      0, undefined, 'one-speaker',
+      (input) => {
+        readerInputs.push(input);
+        return input.line.trim().toLowerCase().startsWith('yes') ? agree : nothingCovered;
+      }, {
+        gateStream: () => (async function* () { yield 'Ada: How about we ask Auntie Mary in, nicely?'; })(),
+      });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('We should do something.');
+    const clarify = await waitForCall(h, 0);
+    clarify.push('Ada: What do you want to do?');
+    clarify.end();
+    await h.flush();
+    await finishPlaying(h);
+    h.conversation.lockDecision();
+    h.conversation.lockDecision();
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => /how about we/i.test(text)); i += 1) {
+      await vi.advanceTimersByTimeAsync(600);
+      await finishPlaying(h);
+    }
+    await finishPlaying(h);
+    expect(h.logs.filter((line) => line.startsWith('[offer] spoken:')).length).toBe(1);
+    expect(h.transcript).toContainEqual(['Ada', 'How about we ask Auntie Mary in, nicely?']);
+    expect(h.transcript.some(([, text]) => text.includes('"'))).toBe(false);
+    expect(h.transcript.some(([, text]) => /agency temp needs notice/i.test(text))).toBe(false);
+
+    await h.say('Yes.');
+    await finishPlaying(h);
+    expect(readerInputs.find((input) => input.line === 'Yes.')?.offer?.proposal)
+      .toBe('How about we ask Auntie Mary in, nicely?');
+    expect(settleTopic).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionSource: 'Ask Auntie Mary to come in' }), false);
+    h.conversation.close();
+  });
+
+  it('does not queue a second confirmation while one is queued or speaking', async () => {
+    const h = harness(withDirections([]), 0, undefined, 'one-speaker',
+      () => readyFor('Signs only this morning'));
+    await h.say('Signs only this morning.');
+    h.conversation.lockDecision();
+    h.conversation.lockDecision();
+    await finishPlaying(h);
+    h.conversation.lockDecision();
+    await h.flush();
+
+    expect(h.logs.filter((line) => line.startsWith('[confirm] read-back:')).length).toBe(1);
+    expect(h.transcript.filter(([, text]) => text.includes("That's the call?"))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('does not queue a second offer while one is queued or speaking', async () => {
+    const h = harness(withDirections(['Ask Auntie Mary to come in.']), 0, undefined, 'one-speaker',
+      () => nothingCovered);
+    await h.say('We should do something.');
+    const clarify = await waitForCall(h, 0);
+    clarify.push('Ada: What do you want to do?');
+    clarify.end();
+    await h.flush();
+    await finishPlaying(h);
+    h.conversation.lockDecision();
+    h.conversation.lockDecision();
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => /how about we/i.test(text)); i += 1) {
+      await vi.advanceTimersByTimeAsync(600);
+      await finishPlaying(h);
+    }
+    await finishPlaying(h);
+    h.conversation.lockDecision();
+    await h.flush();
+
+    expect(h.logs.filter((line) => line.startsWith('[offer] spoken:')).length).toBe(1);
+    expect(h.transcript.filter(([, text]) => /how about we/i.test(text))).toHaveLength(1);
     h.conversation.close();
   });
 
@@ -3076,12 +3240,12 @@ describe('one-speaker replies to the guest', () => {
 
     // The second guest line trips the turn budget; the budget must ask a gate the planner can commit.
     await h.say('Hmm.');
-    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('so your call is')); i += 1) {
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes("That's the call?")); i += 1) {
       await vi.advanceTimersByTimeAsync(100);
       await finishPlaying(h);
     }
-    expect(h.transcript).toContainEqual(['Ada', 'Josh, so your call is "Let us call Auntie Mary in".']);
-    expect(h.transcript).toContainEqual(['Ada', 'Is that right?']);
+    expect(h.transcript).toContainEqual(['Ada', "So it's let us call Auntie Mary in."]);
+    expect(h.transcript).toContainEqual(['Ada', "That's the call?"]);
     expect(h.transcript.some(([, text]) => text.toLowerCase().includes('shall we lock in'))).toBe(false);
 
     await h.say('Yes.');
@@ -3119,13 +3283,13 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.humanSpeech(true);
     h.conversation.humanText('Hmm.');
     await h.flush();
-    expect(h.transcript.some(([, text]) => text.includes('what would you rather do'))).toBe(false);
+    expect(h.transcript.some(([, text]) => text.includes('how about we'))).toBe(false);
     expect(h.logs).toContainEqual(expect.stringContaining('the budget could not ask yet'));
 
     // The guest stops after Ada's line finishes, so the backchannel gets its reply and the budget retries.
     await finishPlaying(h);
     h.conversation.humanSpeech(false);
-    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('what would you rather do')); i += 1) {
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('how about we')); i += 1) {
       await vi.advanceTimersByTimeAsync(900);
       await finishPlaying(h);
     }
@@ -3175,11 +3339,11 @@ describe('one-speaker replies to the guest', () => {
       from: 'Sam', to: 'Josh', text: 'Josh, where is your head at on the regulars and the price?',
     });
 
-    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes('so your call is')); i += 1) {
+    for (let i = 0; i < 40 && !h.transcript.some(([, text]) => text.includes("That's the call?")); i += 1) {
       await h.flush();
       await finishPlaying(h);
     }
-    expect(h.transcript).toContainEqual(['Sam', 'Josh, so your call is "small cup at old price".']);
+    expect(h.transcript).toContainEqual(['Sam', "So it's small cup at old price."]);
     h.conversation.close();
   });
 
@@ -3198,7 +3362,7 @@ describe('one-speaker replies to the guest', () => {
         practical: { covered: true, evidence: 'the plan' },
       },
     };
-    const h = harness(twoItems, 0, undefined, 'one-speaker', () => ready);
+    const h = harness(withColleagueHost(twoItems), 0, undefined, 'one-speaker', () => ready);
     h.conversation.setHuman({ name: 'Josh', role: 'chef' });
     const settleTopic = vi.fn().mockResolvedValue(undefined);
     h.ports.settleTopic = settleTopic;
@@ -3234,7 +3398,7 @@ describe('one-speaker replies to the guest', () => {
 
     expect(h.logs).toContainEqual(expect.stringContaining('[control] dropped reopen: Prep was already reopened'));
     expect(h.playing.some((entry) => entry.text === "Let's keep going with Service.")).toBe(true);
-    expect(h.transcript).toContainEqual(['Ada', "Let's keep going with Service."]);
+    expect(h.transcript).toContainEqual(['Sam', "Let's keep going with Service."]);
     expect(h.conversation.onCurrentAgenda('Service')).toBe(true);
     await h.flush();
     expect(h.calls.length).toBe(callsAfterAgain);

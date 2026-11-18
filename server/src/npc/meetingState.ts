@@ -105,6 +105,8 @@ export interface MeetingOffer {
   proposal?: string;
   choices?: readonly string[];
   openAsk?: boolean;
+  /** The exact plain sentence Sam spoke for this offer, repeated verbatim on a silence re-ask. */
+  spoken?: string;
 }
 
 export interface MeetingView {
@@ -143,6 +145,8 @@ export interface MeetingView {
   offer: MeetingOffer | undefined;
   /** The specific call Sam asked the guest to confirm, when a confirmation is open. */
   confirmationCall: string | undefined;
+  /** The exact plain sentence Sam spoke to read that call back, repeated verbatim on a silence re-ask. */
+  confirmationSpoken: string | undefined;
   /** Sam has already asked "which one?" after a bare yes to a choice offer. */
   whichOneAsked: boolean;
   /** How many concrete offers Sam has made on this topic; a topic gets at most two. */
@@ -200,6 +204,7 @@ interface Ledger {
   readings: Map<string, GuestReading>;
   confirmationAsked: boolean;
   confirmationCall: string | undefined;
+  confirmationSpoken: string | undefined;
   offerAsked: boolean;
   offer: MeetingOffer | undefined;
   whichOneAsked: boolean;
@@ -292,6 +297,7 @@ function emptyView(topic: MeetingTopicInfo | undefined, guest: string | undefine
     offerAsked: false,
     offer: undefined,
     confirmationCall: undefined,
+    confirmationSpoken: undefined,
     whichOneAsked: false,
     offers: 0,
     followUps: 0,
@@ -500,6 +506,7 @@ function derive(
     offerAsked: ledger.offerAsked,
     offer: ledger.offer,
     confirmationCall: ledger.confirmationCall,
+    confirmationSpoken: ledger.confirmationSpoken,
     whichOneAsked: ledger.whichOneAsked,
     offers: ledger.offers,
     followUps: ledger.followUps,
@@ -550,7 +557,7 @@ export class MeetingState {
       if (ledger === undefined) {
         this.ledgers.set(title, {
           events: [], openedAt: at, readings: new Map(),
-          confirmationAsked: false, confirmationCall: undefined,
+          confirmationAsked: false, confirmationCall: undefined, confirmationSpoken: undefined,
           offerAsked: false, offer: undefined, whichOneAsked: false,
           offers: 0, followUps: 0,
         });
@@ -558,6 +565,7 @@ export class MeetingState {
         ledger.openedAt = at;
         ledger.confirmationAsked = false;
         ledger.confirmationCall = undefined;
+        ledger.confirmationSpoken = undefined;
         ledger.offerAsked = false;
         ledger.offer = undefined;
         ledger.whichOneAsked = false;
@@ -573,14 +581,15 @@ export class MeetingState {
     this.ledgers.get(title)?.readings.set(eventId, reading);
   }
 
-  /** Mark the host's confirmation question as asked with its exact call, or clear it when corrected. */
-  setConfirmationAsked(asked: boolean, call?: string): void {
+  /** Mark the host's confirmation question as asked with its exact call and spoken read-back, or clear it. */
+  setConfirmationAsked(asked: boolean, call?: string, spoken?: string): void {
     const title = this.current;
     if (title === undefined) return;
     const ledger = this.ledgers.get(title);
     if (ledger === undefined) return;
     ledger.confirmationAsked = asked;
     ledger.confirmationCall = asked ? call : undefined;
+    ledger.confirmationSpoken = asked ? spoken : undefined;
   }
 
   /** Mark Sam's concrete offer as asked with the exact call or choices, or clear it once it is answered. */

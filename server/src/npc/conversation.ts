@@ -11,7 +11,7 @@ import { TopicRecord, type OpenQuestion, type TopicPromptView } from './topicRec
 import { meetingTopic, MeetingState, type HeardLine, type MeetingView } from './meetingState';
 import { describeDecision, MAX_OFFERS, mergedReadiness, next as nextPlannerDecision, plainDirection, projectHeard, readinessMet, type OfferDecision, type PlannerDecision, type PlannerEvent, type SpeakDecision } from './turnPlanner';
 import { readGuestLine, type GuestReaderInput, type GuestReaderPorts, type GuestReading } from './guestReader';
-import { carriesCatch, carriesFact, openingSpeakerMessages, parsePlannedReply, replySpeakerMessages } from './openingWriter';
+import { carriesCatch, carriesFact, gateSpeakerMessages, openingSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages, type GateSpeakerRequest } from './openingWriter';
 
 /** What the people in the meeting should see the AI attendees doing. */
 export type NpcUiState = NpcStateMessage;
@@ -435,6 +435,8 @@ export interface ConversationOptions {
   readerTimeoutMs?: number;
   /** Tests supply a fake reading; the live meeting uses the real reader. */
   readGuestLine?: (input: GuestReaderInput, ports: GuestReaderPorts) => Promise<GuestReading>;
+  /** Tests supply the read-back/offer writer; the live meeting streams it from the model. */
+  gateStream?: (request: GateSpeakerRequest, signal: AbortSignal) => AsyncIterable<string>;
   gate?: SpeechGate;
   memory?: MeetingMemory;
 }
@@ -743,6 +745,8 @@ export class NpcConversation<Clip> {
   } | undefined;
   /** Host cues waiting for a quiet moment to play. */
   private pendingAnnouncements = 0;
+  /** The one decision gate being written, queued or spoken for the current topic. */
+  private pendingGate: { title: string; kind: 'confirmation' | 'offer'; abort: AbortController } | undefined;
   /** Consecutive follow-up turns the AI started by itself after a hand-over; the person speaking again resets it. */
   private chain = 0;
   private forcedSpeaker: { target: string; from: string } | undefined;
@@ -1996,6 +2000,8 @@ export class NpcConversation<Clip> {
 
   /** The person said another line: ask if they have talked a long time without being asked. */
   private noteHumanLine(text: string): void {
+    // The guest's own line is what the room answers now, so any gate still being written or waiting is stale.
+    this.clearPendingGate();
     const topic = this.currentItem()?.title;
     this.guestLinesByTopic.set(topic, [...(this.guestLinesByTopic.get(topic) ?? []), text]);
     this.startTopic(topic);
@@ -2048,6 +2054,7 @@ export class NpcConversation<Clip> {
     this.budgetRecoveryPending = false;
     this.meetingState.setConfirmationAsked(false);
     this.meetingState.setOfferAsked(false);
+    this.clearPendingGate();
   }
 
   /** The topic closed with nothing usable: record it unresolved honestly, with no decision and no card. */
@@ -2057,12 +2064,11 @@ export class NpcConversation<Clip> {
     if (item === undefined || host === undefined || this.advanced.has(item.title)) return;
     this.advanced.add(item.title);
     this.closeTopicTurn(`the topic "${item.title}" closed unresolved`);
-    const who = this.human?.name ?? 'We';
     const topicName = spokenAgendaName(this.options.scenario, item.title);
     this.ports.log?.(`[topic] "${item.title}" is unresolved: ${reason}`);
     this.humanSettledOnCurrentItem = false;
     this.budgetOffered = false;
-    this.announce(host, `${who}, no call made on ${topicName}; we'll mark it open and come back if time allows.`,
+    this.announce(host, `Okay, we'll leave ${topicName} open for now, and come back if there's time.`,
       DEFAULT_ANNOUNCE_GIVE_UP_MS, () => {
         if (this.closed || this.currentItem()?.title !== item.title) return;
         this.advanceOrEnd();
@@ -3710,9 +3716,9 @@ export class NpcConversation<Clip> {
   private readerInput(view: MeetingView, line: HeardLine): GuestReaderInput {
     const guest = this.human?.name ?? '';
     const openOffer = view.confirmationAsked && view.confirmationCall !== undefined
-      ? { proposal: view.confirmationCall }
+      ? { proposal: view.confirmationSpoken ?? view.confirmationCall }
       : view.offerAsked && view.offer !== undefined
-        ? view.offer
+        ? (view.offer.spoken === undefined ? view.offer : { proposal: view.offer.spoken })
         : undefined;
     // The view after the guest line no longer shows the question the guest was answering, so use the one
     // captured before it was recorded.
@@ -3869,13 +3875,19 @@ export class NpcConversation<Clip> {
     return view.directions.slice(0, 2).map(plainDirection).filter((choice) => choice.length > 0);
   }
 
+  /** A call written so it fits after "we": no trailing stop and no leading capital. */
+  private plainCall(text: string): string {
+    const plain = plainDirection(text);
+    return plain.length === 0 ? plain : `${plain[0]!.toLowerCase()}${plain.slice(1)}`;
+  }
+
   /** The exact offer line for an offer already put to the guest, so a silence re-ask repeats it. */
   private offerAskLine(guest: string, offer: MeetingView['offer']): string {
+    if (offer?.spoken !== undefined) return offer.spoken;
     if (offer?.openAsk === true) return `${guest}, what would you rather do?`;
-    if (offer?.proposal !== undefined) return `${guest}, shall we go with "${offer.proposal}"?`;
+    if (offer?.proposal !== undefined) return `How about we ${this.plainCall(offer.proposal)}?`;
     const choices = offer?.choices ?? [];
-    if (choices.length >= 2) return `${guest}, shall we go with "${choices[0]}" or "${choices[1]}"?`;
-    if (choices.length === 1) return `${guest}, shall we go with "${choices[0]}"?`;
+    if (choices.length >= 1) return `How about we ${this.plainCall(choices[0]!)}?`;
     return `${guest}, shall we make the smallest call you can live with now?`;
   }
 
@@ -3884,8 +3896,12 @@ export class NpcConversation<Clip> {
     const guest = this.human?.name;
     if (guest === undefined) return undefined;
     const view = this.meetingState.view(Date.now());
-    if (view.confirmationAsked && view.confirmationCall !== undefined) {
-      return { line: `${guest}, is "${view.confirmationCall}" your call?`, gate: 'confirmation' };
+    if (view.confirmationAsked &&
+        (view.confirmationCall !== undefined || view.confirmationSpoken !== undefined)) {
+      return {
+        line: view.confirmationSpoken ?? `${guest}, is that your call?`,
+        gate: 'confirmation',
+      };
     }
     if (view.offerAsked && view.offer !== undefined) {
       return { line: this.offerAskLine(guest, view.offer), gate: 'offer' };
@@ -3893,12 +3909,76 @@ export class NpcConversation<Clip> {
     return undefined;
   }
 
-  /** Sam turns the guest's own idea, or two realistic directions, into one concrete call and asks them to agree. */
+  /** Stop the gate being written or waiting to speak, so a closed topic never hears it. */
+  private clearPendingGate(abort?: AbortController): void {
+    const pending = this.pendingGate;
+    if (pending === undefined || (abort !== undefined && pending.abort !== abort)) return;
+    pending.abort.abort();
+    this.pendingGate = undefined;
+  }
+
+  /** Write one gate line with the model; a failed, timed-out or badly shaped line falls back to plain speech. */
+  private async writeGateLine(request: GateSpeakerRequest, signal: AbortSignal): Promise<string | undefined> {
+    const timeoutMs = this.options.briefFirstChunkMs ?? DEFAULT_BRIEF_FIRST_CHUNK_MS;
+    const controller = new AbortController();
+    const stop = (): void => controller.abort();
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', stop, { once: true });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    timer.unref?.();
+    let reply = '';
+    try {
+      const stream = this.options.gateStream !== undefined
+        ? this.options.gateStream(request, controller.signal)
+        : this.ports.stream(gateSpeakerMessages(request), controller.signal);
+      for await (const chunk of stream) reply += chunk;
+    } catch {
+      // The fallback below needs no model at all.
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', stop);
+    }
+    if (timedOut || signal.aborted) return undefined;
+    const parsed = parseGateReply(reply, {
+      speaker: request.speaker,
+      ...(request.human === undefined ? {} : { guestName: request.human.name }),
+    });
+    if (!parsed.ok) {
+      this.ports.log?.(`[gate] no usable ${request.purpose} line: ${parsed.reason}`);
+      return undefined;
+    }
+    return parsed.text;
+  }
+
+  private gateGuestLines(view: MeetingView): string[] {
+    return view.lines
+      .filter((line) => line.complete && line.speaker === this.human?.name)
+      .map((line) => line.text)
+      .slice(-6);
+  }
+
+  /** Sam proposes ONE concrete call in plain spoken words and asks the guest to agree. */
   private askOffer(view: MeetingView, offer?: OfferDecision): boolean {
     const host = this.facilitatorOrCoHost();
     const guest = this.human?.name;
     const title = this.currentItem()?.title;
     if (host === undefined || guest === undefined || !this.names.includes(host) || title === undefined) return false;
+    if (view.offerAsked) {
+      this.ports.log?.('[offer] an offer is already live; not offering again');
+      return true;
+    }
+    if (this.pendingGate?.title === title) {
+      this.ports.log?.(`[offer] a ${this.pendingGate.kind} is already queued or speaking; not offering again`);
+      return true;
+    }
+    if (view.confirmationAsked) {
+      this.ports.log?.('[offer] a confirmation is already live; not offering a call');
+      return true;
+    }
     const fresh = this.meetingState.view(Date.now());
     if (view.offers >= MAX_OFFERS || fresh.offers >= MAX_OFFERS) {
       this.ports.log?.('[offer] two offers have already been made; closing the topic honestly instead of offering again');
@@ -3906,61 +3986,116 @@ export class NpcConversation<Clip> {
       return false;
     }
     const choices = offer?.choices === undefined ? this.offerChoices(view) : [...offer.choices];
-    const line = this.offerAskLine(guest, offer ?? (choices.length > 0 ? { choices } : { openAsk: true }));
-    const put = offer?.openAsk === true
-      ? { openAsk: true }
-      : offer?.proposal !== undefined
-        ? { proposal: offer.proposal }
-        : choices.length > 0
-          ? { choices }
-          : { openAsk: true };
-    this.ports.log?.(`[offer] asking ${guest} to choose${offer?.proposal === undefined ? '' : `: "${offer.proposal}"`}`);
+    const proposal = offer?.proposal ?? (choices.length === 0
+      ? undefined
+      : choices[Math.min(view.offers, choices.length - 1)]);
+    const put = proposal === undefined ? { openAsk: true as const } : { proposal };
+    const fallback = proposal === undefined
+      ? `${guest}, what would you rather do?`
+      : `How about we ${this.plainCall(proposal)}?`;
+    const item = this.currentItem();
+    const request: GateSpeakerRequest = {
+      scenario: this.options.scenario,
+      speaker: host,
+      human: this.human,
+      topicTitle: item?.title ?? title,
+      purpose: 'offer',
+      guestLines: this.gateGuestLines(view),
+      call: proposal ?? 'the smallest call you can live with now',
+      ...(view.lastHeard === undefined ? {} : {
+        previous: { speaker: view.lastHeard.speaker, text: view.lastHeard.text },
+      }),
+    };
+    const abort = new AbortController();
+    this.pendingGate = { title, kind: 'offer', abort };
     this.meetingState.setConfirmationAsked(false);
-    this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-      if (!spoken) {
-        this.ports.log?.('[offer] the offer was not fully heard; the topic clock will close it honestly if no answer comes');
+    this.ports.log?.(`[offer] asking ${guest} to choose${proposal === undefined ? '' : `: "${proposal}"`}`);
+    const speak = (line: string): void => {
+      if (this.closed || this.paused || this.currentItem()?.title !== title) {
+        this.clearPendingGate(abort);
         return;
       }
-      this.meetingState.noteOffer();
-      this.meetingState.setOfferAsked(true, put);
-    });
+      this.ports.log?.(`[offer] spoken: ${line}`);
+      this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+        this.clearPendingGate(abort);
+        if (!spoken) {
+          this.ports.log?.('[offer] the offer was not fully heard; the topic clock will close it honestly if no answer comes');
+          return;
+        }
+        this.meetingState.noteOffer();
+        this.meetingState.setOfferAsked(true, { ...put, spoken: line });
+      });
+    };
+    if (proposal === undefined) {
+      speak(fallback);
+      return true;
+    }
+    void this.writeGateLine(request, abort.signal).then((written) => speak(written ?? fallback));
     return true;
   }
 
-  /** Sam restates the guest's own call from the evidence and asks whether that is the call. */
+  /** Sam restates the guest's own call in plain words and asks whether that is the call. */
   private askConfirmation(view: MeetingView, retry = true): boolean {
     const host = this.facilitatorOrCoHost();
     const guest = this.human?.name;
     const title = this.currentItem()?.title;
     if (host === undefined || guest === undefined || !this.names.includes(host) || title === undefined) return false;
+    if (view.confirmationAsked) {
+      this.ports.log?.('[confirm] a confirmation is already live; not asking again');
+      return true;
+    }
+    if (this.pendingGate?.title === title) {
+      this.ports.log?.(`[confirm] a ${this.pendingGate.kind} is already queued or speaking; not asking again`);
+      return true;
+    }
     const evidence = mergedReadiness(view).action.evidence;
-    const practical = mergedReadiness(view).practical;
-    const direction = practical.covered ? undefined : view.directions[0];
-    const proposal = direction === undefined ? undefined : plainDirection(direction);
-    const proposalPart = proposal === undefined || proposal.length === 0
-      ? ''
-      : ` We'll ${proposal[0]!.toLowerCase()}${proposal.slice(1)} as the first step.`;
-    const line = evidence === undefined
-      ? `${guest}, is that your call?`
-      : `${guest}, so your call is "${evidence}".${proposalPart} Is that right?`;
-    this.ports.log?.(`[confirm] asking ${guest} to confirm${evidence === undefined ? '' : `: "${evidence}"`}`);
-    this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-      if (!spoken) {
-        this.ports.log?.('[confirm] the confirmation was not fully heard; it will be asked again, not counted');
-        if (!retry || this.closed || this.paused || this.currentItem()?.title !== title ||
-            this.humanSettledOnCurrentItem) return;
-        const delay = Math.max(this.speakerGapMs, 500);
-        setTimeout(() => {
-          if (this.closed || this.paused || this.currentItem()?.title !== title || this.humanSettledOnCurrentItem) return;
-          const fresh = this.meetingState.view(Date.now());
-          if (fresh.confirmationAsked || !readinessMet(fresh)) return;
-          this.askConfirmation(fresh, false);
-        }, delay).unref();
+    const item = this.currentItem();
+    const fallback = `${guest}, is that your call?`;
+    const abort = new AbortController();
+    this.pendingGate = { title, kind: 'confirmation', abort };
+    const speak = (line: string): void => {
+      if (this.closed || this.paused || this.currentItem()?.title !== title) {
+        this.clearPendingGate(abort);
         return;
       }
-      this.meetingState.setOfferAsked(false);
-      this.meetingState.setConfirmationAsked(true, evidence);
-    });
+      this.ports.log?.(`[confirm] read-back: ${line}`);
+      this.ports.log?.(`[confirm] asking ${guest} to confirm${evidence === undefined ? '' : `: "${evidence}"`}`);
+      this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+        this.clearPendingGate(abort);
+        if (!spoken) {
+          this.ports.log?.('[confirm] the confirmation was not fully heard; it will be asked again, not counted');
+          if (!retry || this.closed || this.paused || this.currentItem()?.title !== title ||
+              this.humanSettledOnCurrentItem) return;
+          const delay = Math.max(this.speakerGapMs, 500);
+          setTimeout(() => {
+            if (this.closed || this.paused || this.currentItem()?.title !== title || this.humanSettledOnCurrentItem) return;
+            const fresh = this.meetingState.view(Date.now());
+            if (fresh.confirmationAsked || !readinessMet(fresh)) return;
+            this.askConfirmation(fresh, false);
+          }, delay).unref();
+          return;
+        }
+        this.meetingState.setOfferAsked(false);
+        this.meetingState.setConfirmationAsked(true, evidence, line);
+      });
+    };
+    if (evidence === undefined) {
+      speak(fallback);
+      return true;
+    }
+    const request: GateSpeakerRequest = {
+      scenario: this.options.scenario,
+      speaker: host,
+      human: this.human,
+      topicTitle: item?.title ?? title,
+      purpose: 'readback',
+      guestLines: this.gateGuestLines(view),
+      call: evidence,
+      ...(view.lastHeard === undefined ? {} : {
+        previous: { speaker: view.lastHeard.speaker, text: view.lastHeard.text },
+      }),
+    };
+    void this.writeGateLine(request, abort.signal).then((written) => speak(written ?? fallback));
     return true;
   }
 

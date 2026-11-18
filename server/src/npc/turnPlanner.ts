@@ -439,7 +439,8 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
   // Two offers are the cap. A question or an addressed line is still answered normally; a covered call is
   // confirmed; anything else closes the topic honestly rather than offering a third time.
   if (view.offers >= MAX_OFFERS) {
-    if (reading.addressee !== undefined && isColleague(view, reading.addressee)) {
+    if (reading.addressee !== undefined && reading.addressee !== view.host &&
+        isColleague(view, reading.addressee)) {
       return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
     }
     if (reading.kind === 'question') {
@@ -486,7 +487,10 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
         'Steer back to this topic and its decision in one short line. Do not answer the off-topic remark.');
   }
 
-  if (reading.addressee !== undefined && isColleague(view, reading.addressee)) {
+  // The host is the one Sam is speaking to, so a line addressed to the host is the guest answering Sam,
+  // not a hand-off to a colleague. Readiness decides the next step, as for any other guest answer.
+  if (reading.addressee !== undefined && reading.addressee !== view.host &&
+      isColleague(view, reading.addressee)) {
     return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
   }
 

@@ -3,7 +3,7 @@ import { aiCast, humanRoles, type Scenario } from '@kaki/shared';
 import type { ChatMessage } from '../../src/llm';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
-import { parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
+import { gateSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
 import { loadScenario } from '../../src/loadScenario';
 
 interface LlmCall {
@@ -109,6 +109,12 @@ function harness(scenarioUsed: Scenario, role: string, options: {
         practical: { covered: false },
       },
     }),
+    gateStream: (request) => (async function* () {
+      const lower = request.call.length === 0 ? request.call : `${request.call[0]!.toLowerCase()}${request.call.slice(1)}`;
+      yield request.purpose === 'readback'
+        ? `${request.speaker}: So it's ${lower}. That's the call?`
+        : `${request.speaker}: How about we ${lower}?`;
+    })(),
   });
   conversation.setHuman({ name: 'Josh', role });
   return { conversation, ports, calls, playing, transcript, logs };
@@ -1002,6 +1008,43 @@ describe('one-speaker topic opening', () => {
     expect(clarify).toContain("what their point means for your own work");
     expect(clarify).toContain('otherwise end with no question');
     expect(clarify).not.toContain('ask at most one short question to understand what they want');
+  });
+
+  it('accepts a plain read-back and rejects quotation marks or a menu', () => {
+    const parse = (text: string) => parseGateReply(`Sam: ${text}`, { speaker: 'Sam', guestName: 'Josh' });
+
+    expect(parse("So it's signs only this morning, and we leave the sockets alone. That's the call?"))
+      .toMatchObject({ ok: true, text: "So it's signs only this morning, and we leave the sockets alone. That's the call?" });
+    expect(parse('So your call is "signs only". Is that right?')).toEqual({ ok: false, reason: 'used quotation marks' });
+    expect(parse('Shall we do the signs? Or the sockets?')).toEqual({ ok: false, reason: 'did not end with exactly one short question' });
+    expect(parse('The signs only, then. Is that the call?')).toMatchObject({ ok: true });
+  });
+
+  it('asks the gate writer for one plain line with no quotes and no new details', () => {
+    const readback = gateSpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Sam',
+      human: { name: 'Josh', role: 'Producer' },
+      topicTitle: TOPICS[0]!,
+      purpose: 'readback',
+      guestLines: ['Signs only this morning, then.'],
+      call: 'Signs only this morning',
+    }).map((message) => message.content).join('\n');
+    expect(readback).toContain('Say that call back in your own plain words');
+    expect(readback).toContain('Do not quote them or use quotation marks');
+    expect(readback).toContain('Add no new step, no new owner, no number and no time');
+
+    const offer = gateSpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Sam',
+      human: { name: 'Josh', role: 'Producer' },
+      topicTitle: TOPICS[0]!,
+      purpose: 'offer',
+      guestLines: [],
+      call: 'Ask Auntie Mary to come in',
+    }).map((message) => message.content).join('\n');
+    expect(offer).toContain('Propose exactly one concrete call');
+    expect(offer).toContain('do not offer an either/or choice');
   });
 
   it('lets a reply control line carry reopen, reactions and wingman tips, not only settle or park', () => {

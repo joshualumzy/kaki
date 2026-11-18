@@ -77,6 +77,24 @@ describe('turn planner', () => {
     expect(decision).toMatchObject({ kind: 'Speak', speaker: 'Ada', purpose: 'answer', respondsTo: 'josh-1' });
   });
 
+  it('treats a line addressed to the host as the guest answering the host, so readiness confirms', () => {
+    const state = make({ catches: [] });
+    const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Signs only this morning, Sam.' });
+    const value = record(state, 'josh-1', reading({
+      kind: 'answer',
+      addressee: 'Sam',
+      readiness: {
+        action: { covered: true, evidence: 'signs only this morning' },
+        catchAddressed: off,
+        practical: off,
+      },
+    }));
+
+    expect(next(state.view(1), { kind: 'heard', line: guest, reading: value })).toMatchObject({
+      kind: 'ConfirmDecision', respondsTo: 'josh-1',
+    });
+  });
+
   it('drops an addressee who is not in the room', () => {
     const state = make();
     const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Ask Arjun about it.' });

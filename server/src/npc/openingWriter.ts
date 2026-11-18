@@ -29,6 +29,22 @@ export interface OpeningReplyOptions {
 }
 
 export type PlannedPurpose = 'brief' | 'invite' | 'answer' | 'catch' | 'clarify' | 'defer';
+export type GatePurpose = 'readback' | 'offer';
+
+/** One short host line for a decision gate: either the guest's call read back, or one concrete offer. */
+export interface GateSpeakerRequest {
+  scenario: Scenario;
+  speaker: string;
+  human?: HumanInfo;
+  topicTitle: string;
+  purpose: GatePurpose;
+  /** The guest's own heard lines on this topic, oldest first. */
+  guestLines: readonly string[];
+  /** The one call to restate (read-back) or propose (offer): never a menu and never quoted notes. */
+  call: string;
+  /** The last fully heard line on this topic, when there is one. */
+  previous?: { speaker: string; text: string };
+}
 
 export type OpeningReply =
   | { ok: true; text: string; sentences: string[] }
@@ -212,6 +228,42 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
   ];
 }
 
+/** The messages for Sam's read-back or offer: one plain spoken line, never a quote or a menu. */
+export function gateSpeakerMessages(request: GateSpeakerRequest): Array<{ role: 'system' | 'user'; content: string }> {
+  const rules = [
+    'This is a live spoken meeting. Reply with exactly one line, in this form:',
+    `"${request.speaker}: <the words said aloud>"`,
+    'No control line, no notes, no other speaker, no stage directions.',
+    'One or two short spoken sentences, like talking to a colleague. Keep any numbers or times you are given, written as digits, and add no others.',
+    'Never use quotation marks. Never read a written note, a list or a menu aloud. Do not mention the screen, the card, the notes or this request.',
+  ].join(' ');
+  const guest = request.human?.name ?? 'the guest';
+  const transcript = request.guestLines.length === 0
+    ? 'The guest has not spoken on this topic yet.'
+    : request.guestLines.map((line) => `- ${line}`).join('\n');
+  const task = request.purpose === 'readback'
+    ? [
+      `The meeting is on "${request.topicTitle}".`,
+      `What ${guest} said on this topic, in order:\n${transcript}`,
+      `The room's reading of their call: "${request.call}".`,
+      `Say that call back in your own plain words, in one short sentence of about 15 words or fewer. Then add a short check that asks ${guest} if that is their call.`,
+      'Restate only what the guest said. Add no new step, no new owner, no number and no time. Do not quote them or use quotation marks.',
+      `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
+    ].join('\n')
+    : [
+      `The meeting is on "${request.topicTitle}".`,
+      `What ${guest} has said on this topic, in order:\n${transcript}`,
+      request.previous === undefined ? '' : `The room just heard ${request.previous.speaker}: "${request.previous.text}".`,
+      `Propose exactly one concrete call in your own plain words, from this: "${request.call}".`,
+      `One or two short spoken sentences that ask ${guest} to agree. Do not quote, do not list options and do not offer an either/or choice.`,
+      `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
+    ].filter((part) => part.length > 0).join('\n');
+  return [
+    { role: 'system', content: `${describeSpeaker(request.scenario, request.speaker, request.human)}\n\n${rules}` },
+    { role: 'user', content: task },
+  ];
+}
+
 function sentenceCount(text: string): number {
   return text
     .split(/(?<=(?:(?<!\b(?:Prof|Dr|Mr|Mrs|Ms|St|Jr|Sr))[.!?…])["')\]]*)\s+/i)
@@ -369,6 +421,51 @@ export function parsePlannedReply(reply: string, options: OpeningReplyOptions): 
   if ((options.purpose === 'answer' || options.purpose === 'catch' || options.purpose === 'clarify') &&
       (text.match(/\?/g) ?? []).length > 1) {
     return { ok: false, reason: 'asked more than one question' };
+  }
+
+  const sentences = text
+    .split(/(?<=(?:(?<!\b(?:Prof|Dr|Mr|Mrs|Ms|St|Jr|Sr))[.!?…])["')\]]*)\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return { ok: true, text, sentences };
+}
+
+/**
+ * Check one read-back or offer line. Quotation marks are rejected whole, so the guest hears plain speech,
+ * and the line must end with one short check so an "agree" has something exact to map to.
+ */
+export function parseGateReply(reply: string, options: { speaker: string; guestName?: string }): OpeningReply {
+  const cast = [options.speaker, ...(options.guestName === undefined ? [] : [options.guestName])];
+  const alternatives = cast.map(escapeRegExp).join('|');
+  const tagPattern = new RegExp(`^(${alternatives})\\s*:\\s*(.*)$`, 'i');
+  const tagged: string[] = [];
+  const stray: string[] = [];
+  for (const raw of reply.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    if (line.length === 0 || CONTROL_LINE_RE.test(line)) continue;
+    const tag = tagPattern.exec(line);
+    if (tag !== null) {
+      const name = tag[1] ?? '';
+      const canonical = cast.find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+      if (canonical !== undefined && canonical !== options.speaker) {
+        return { ok: false, reason: `another speaker (${canonical}) was written` };
+      }
+      tagged.push(tag[2] ?? '');
+      continue;
+    }
+    stray.push(line);
+  }
+
+  let text = cleanSpoken([...tagged, ...stray].join(' ')).replace(/\s+/g, ' ').trim();
+  text = stripSelfIntro(options.speaker, text);
+  if (text.length === 0 || !/\p{L}|\p{N}/u.test(text)) return { ok: false, reason: 'no speakable line' };
+  if (META_LINE_RE.test(text)) return { ok: false, reason: 'wrote about the instructions' };
+  if (CARD_OR_SCREEN_RE.test(text)) return { ok: false, reason: 'pointed at the card or screen' };
+  if (/["“”„]/.test(text)) return { ok: false, reason: 'used quotation marks' };
+  if (/;/.test(text)) return { ok: false, reason: 'used a semicolon' };
+  if (sentenceCount(text) > 2) return { ok: false, reason: 'wrote more than two sentences' };
+  if ((text.match(/\?/g) ?? []).length !== 1 || !text.endsWith('?')) {
+    return { ok: false, reason: 'did not end with exactly one short question' };
   }
 
   const sentences = text
