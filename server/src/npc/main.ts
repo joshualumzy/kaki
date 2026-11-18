@@ -28,6 +28,13 @@ function numberEnv(name: string, fallback: number): number {
   return value;
 }
 
+function reasoningEnv(name: string): 'none' | 'low' | 'medium' | 'high' | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
+  if (raw === 'none' || raw === 'low' || raw === 'medium' || raw === 'high') return raw;
+  throw new Error(`${name} must be none, low, medium or high, got "${raw}"`);
+}
+
 function requireEnv(name: string, hint: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not set. ${hint}`);
@@ -55,8 +62,13 @@ if (llm?.stream === undefined) {
 }
 const stream = llm.stream.bind(llm);
 const temperature = numberEnv('NPC_TEMPERATURE', 0.8);
+// NPC_REASONING sets how long the model thinks before each spoken line (none|low|medium|high); unset keeps the
+// model's default. Thinking delays the first sentence the room hears.
+const reasoningEffort = reasoningEnv('NPC_REASONING');
+if (reasoningEffort !== undefined) log(`spoken lines use reasoning effort "${reasoningEffort}"`);
 const streamWithFault = faultyStream(
-  (messages, signal) => stream(messages, { signal, temperature }),
+  (messages, signal) =>
+    stream(messages, { signal, temperature, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }),
   fault,
   numberEnv('KAKI_LLM_IDLE_MS', 10_000),
 );
