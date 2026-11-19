@@ -2,6 +2,7 @@ import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TO
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
+import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
 
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void }>);
@@ -81,7 +82,7 @@ describe('startNpcRunner visitor pointer count', () => {
       const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })), participant, undefined, CONTROL_TOPIC);
+      await runner.markStarted();
       await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
       const dispatch = (title: string): string =>
         `Daniel, I've sent you a task: ${title}. Accept or decline it on your phone.`;
@@ -121,13 +122,7 @@ describe('startNpcRunner topic transition', () => {
       const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
       listener.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      listener.emit(
-        'dataReceived',
-        new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })),
-        participant,
-        undefined,
-        CONTROL_TOPIC,
-      );
+      await runner.markStarted();
       await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
       runner.agendaMoved(scenario.agenda[1]!.title);
       runner.announce('Next up: the kopi prices.');
@@ -161,7 +156,7 @@ describe('startNpcRunner visitor transcript identity', () => {
       const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: role };
       listener.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start' })), participant, undefined, CONTROL_TOPIC);
+      await runner.markStarted();
       listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify(message)), participant, undefined, topic);
       await vi.waitFor(() => expect(transcript.some(([, text]) => text === line)).toBe(true));
       const speaker = transcript.find(([, text]) => text === line)![0];
@@ -227,119 +222,80 @@ describe('scenario refresh failure', () => {
   });
 });
 
-describe('start receipt acknowledgement', () => {
-  const starts = (lines: string[]) => lines.filter((line) => line.includes('started the meeting')).length;
-  const startAcks = () => published.filter((entry) => (entry.message as { kind?: string }).kind === 'started');
-
-  it('retries an early Start after the listener is ready and opens exactly once, acknowledging every retry', async () => {
+describe('server-owned start preparation', () => {
+  it('initializes the cast for a Start without speaking, so a timed-out Start never opens', async () => {
     rooms.length = 0;
     published.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const transcript: string[] = [];
-    const log: string[] = [];
-    const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
-    const start = new TextEncoder().encode(
-      JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' }),
-    );
-    startup.hold = true;
+    startup.hold = false;
     startup.release = undefined;
-    const pending = startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: (_speaker, text) => transcript.push(text),
-      log: (line) => log.push(line),
-      responseDelayMs: 0,
-    });
-    await vi.waitFor(() => expect(startup.release).toBeTypeOf('function'));
-    // The visitor pressed Start before the NPC installed DataReceived: this publish is lost.
-    rooms[0]!.emit('dataReceived', start, participant, undefined, CONTROL_TOPIC);
-    startup.release!();
-    const runner = await pending;
-    try {
-      rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      // The first publish is the retry after the early one was lost before the listener existed.
-      rooms[0]!.emit('dataReceived', start, participant, undefined, CONTROL_TOPIC);
-      await vi.waitFor(() => expect(starts(log)).toBe(1));
-      await vi.waitFor(() => expect(startAcks()).toHaveLength(1));
-      expect(startAcks()[0]!.message).toEqual({ kind: 'started', requestId: 'req-1', session: 'visitor-1' });
-      // The same request retried again is acknowledged without opening the meeting twice.
-      rooms[0]!.emit('dataReceived', start, participant, undefined, CONTROL_TOPIC);
-      await vi.waitFor(() => expect(startAcks()).toHaveLength(2));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(starts(log)).toBe(1);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('acknowledges each present participant without reopening or welcoming twice', async () => {
-    rooms.length = 0;
-    published.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
-    const log: string[] = [];
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      log: (line) => log.push(line),
       responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'First Visitor', metadata: 'producer' };
-      const second = { identity: 'visitor-2', name: 'Second Visitor', metadata: 'marketing_lead' };
-      rooms[0]!.emit('participantConnected', first);
-      rooms[0]!.emit('participantConnected', second);
-      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      // Hold the cast join that the arriving person triggers, then queue the server's prepare behind it.
+      startup.hold = true;
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(startup.release).toBeTypeOf('function'));
 
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })), first, undefined, CONTROL_TOPIC);
-      await vi.waitFor(() => expect(starts(log)).toBe(1));
-      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to')).length).toBe(1));
-
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-2', session: 'visitor-2' })), second, undefined, CONTROL_TOPIC);
-      await vi.waitFor(() => expect(startAcks()).toHaveLength(2));
-      expect(startAcks().map((entry) => entry.message)).toEqual([
-        { kind: 'started', requestId: 'req-1', session: 'visitor-1' },
-        { kind: 'started', requestId: 'req-2', session: 'visitor-2' },
-      ]);
+      const prepared = runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' });
       await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(starts(log)).toBe(1);
-      expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
+      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
+
+      startup.release!();
+      await prepared;
+      expect(runner.wasPreparedFor('meeting-1')).toBe(true);
+      // Preparing is not opening: a server Start that timed out must leave the room silent.
+      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
+
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
     } finally {
       await runner.stop();
     }
   });
 
-  it('does not acknowledge a start claimed for another participant session', async () => {
+  it('clears the old meeting after a missed reset and really opens the new one', async () => {
     rooms.length = 0;
     published.length = 0;
+    startup.hold = false;
     const scenario = await loadScenario('kopitiam');
-    const log: string[] = [];
+    const transcript: string[] = [];
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
-      postTranscript: () => undefined,
-      log: (line) => log.push(line),
+      postTranscript: (_speaker, text) => transcript.push(text),
       responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
     });
     try {
       const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      const spoofed = new TextEncoder().encode(
-        JSON.stringify({ kind: 'start', requestId: 'req-9', session: 'visitor-2' }),
-      );
-      rooms[0]!.emit('dataReceived', spoofed, participant, undefined, CONTROL_TOPIC);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(starts(log)).toBe(0);
-      expect(startAcks()).toHaveLength(0);
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      // The service socket was down for the reset; its reconnect fetch shows a different meeting.
+      runner.reconcileMeeting({ meetingId: 'meeting-2', started: false });
+      expect(runner.meetingId()).toBe('meeting-2');
+      await expect(runner.markStarted({ meetingId: 'meeting-1' })).rejects.toThrow(/this runner is on meeting-2/);
+
+      await runner.prepareMeeting({ meetingId: 'meeting-2', attempt: 'attempt-2' });
+      await runner.markStarted({ meetingId: 'meeting-2' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(2));
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
     } finally {
       await runner.stop();
     }
@@ -364,17 +320,17 @@ describe('start receipt acknowledgement', () => {
       const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })), first, undefined, CONTROL_TOPIC);
-      await vi.waitFor(() => expect(starts(log)).toBe(1));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
       rooms[0]!.emit('participantDisconnected', first);
       await new Promise((resolve) => setTimeout(resolve, 20));
       // The server's MEETING_RESET arrives after the grace window: no rejoin, a fresh meeting.
-      runner.resetMeeting();
+      runner.resetMeeting('meeting-2');
       const second = { identity: 'visitor-2', name: 'Second Visitor', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', second);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-2', session: 'visitor-2' })), second, undefined, CONTROL_TOPIC);
-      await vi.waitFor(() => expect(starts(log)).toBe(2));
+      await runner.markStarted({ meetingId: 'meeting-2' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(2));
     } finally {
       await runner.stop();
     }
@@ -401,7 +357,7 @@ describe('start receipt acknowledgement', () => {
       const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-1', session: 'visitor-1' })), first, undefined, CONTROL_TOPIC);
+      await runner.markStarted({ meetingId: 'meeting-1' });
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
 
       rooms[0]!.emit('participantDisconnected', first);
@@ -413,8 +369,8 @@ describe('start receipt acknowledgement', () => {
       await vi.waitFor(() => expect(pauses.at(-1)).toBe(false));
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome back')).length).toBe(1));
 
-      // The same person starts again (a page refresh resets the browser's Start state): no second welcome.
-      rooms[0]!.emit('dataReceived', new TextEncoder().encode(JSON.stringify({ kind: 'start', requestId: 'req-2', session: 'visitor-1' })), back, undefined, CONTROL_TOPIC);
+      // The same person starts again (a page refresh, then the server's no-op Start): no second welcome.
+      await runner.markStarted({ meetingId: 'meeting-1' });
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(1);
@@ -445,12 +401,19 @@ describe('startNpcRunner serialized start', () => {
       listener.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
 
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
       const opening = runner.markStarted();
       // A coalesced host cue: the welcome is spoken before the queued syncCast has run.
       runner.announce(openingLine(scenario));
-      await opening;
+      try {
+        await opening;
 
-      await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
+        await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
+        // Opening the topic is a real initialization, not just the default agenda item: its timer is armed.
+        expect(timeoutSpy.mock.calls.some((call) => call[1] === DEFAULT_TOPIC_TIME_BUDGET_MS)).toBe(true);
+      } finally {
+        timeoutSpy.mockRestore();
+      }
     } finally {
       await runner.stop();
     }

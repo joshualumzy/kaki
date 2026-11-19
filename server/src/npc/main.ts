@@ -10,7 +10,8 @@ import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
-import { startNpcRunner } from './runner';
+import { startNpcRunner, type RunnerMeetingState } from './runner';
+import { createMeetingSync } from './meetingSync';
 import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
@@ -263,10 +264,16 @@ const runner = await startNpcRunner({
 // An AI attendee has no phone. When a task is dispatched to their role they answer aloud and this sends their
 // Accept or Decline (and approves the draft), over a socket opened as that role like a phone would.
 const roleSockets = new Map<Role | 'screen', { socket: WebSocket; queue: string[] }>();
+const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
 function sendAs(role: Role | 'screen', command: KakiCommand): void {
   let entry = roleSockets.get(role);
   if (entry === undefined || entry.socket.readyState > WebSocket.OPEN) {
-    const socket = new WebSocket(`${kakiUrl.replace(/^http/, 'ws')}/ws?role=${encodeURIComponent(role)}`);
+    const socket = new WebSocket(
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?role=${encodeURIComponent(role)}`,
+      serviceToken === undefined || serviceToken === ''
+        ? undefined
+        : { headers: { authorization: `Bearer ${serviceToken}` } },
+    );
     entry = { socket, queue: [] };
     const current = entry;
     socket.on('open', () => {
@@ -298,13 +305,32 @@ const taskResponder = createTaskResponder({
 });
 
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
-// This is the runner's authenticated service channel: it can read those cues with auth on, and the server asks it to
-// open the meeting here. What the hub replays on connecting (the retained opening) is old news: only cues after the
-// first second are spoken.
+// This is the runner's authenticated service channel: it can read those cues with auth on, prepares the cast for a
+// server Start, and opens the meeting only when MEETING_STARTED names the meeting it prepared. What the hub replays on
+// connecting (the retained opening) is old news: only cues after the first second are spoken.
 const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
-const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
+async function fetchMeetingState(): Promise<RunnerMeetingState> {
+  const response = await fetch(`${kakiUrl}/api/meeting/state`);
+  const state = (await response.json().catch(() => ({}))) as {
+    meetingId?: unknown;
+    started?: unknown;
+    agendaIndex?: unknown;
+  };
+  if (!response.ok) throw new Error(`meeting state fetch returned HTTP ${response.status}`);
+  if (typeof state.meetingId !== 'string' || state.meetingId === '' || typeof state.started !== 'boolean') {
+    throw new Error('meeting state has no meetingId and started flag');
+  }
+  return {
+    meetingId: state.meetingId,
+    started: state.started,
+    ...(typeof state.agendaIndex === 'number' ? { agendaIndex: state.agendaIndex } : {}),
+  };
+}
+
+const meetingSync = createMeetingSync({ runner, fetchState: fetchMeetingState, log });
+
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service`;
   const socket = new WebSocket(
@@ -317,33 +343,57 @@ function followHostCues(): void {
   socket.on('open', () => {
     openedAt.at = Date.now();
     log('the AI service channel is connected');
+    // A reset may have happened while this socket was down; never carry the old meeting into it.
+    meetingSync.connected();
   });
 
-  const acknowledge = (requestId: string, opened: boolean, reason?: string): void => {
+  const acknowledge = (
+    requestId: string,
+    attempt: string,
+    meetingId: string,
+    opened: boolean,
+    reason?: string,
+  ): void => {
     if (socket.readyState !== WebSocket.OPEN) {
-      logError(`could not tell the server the meeting ${opened ? 'opened' : 'failed to open'}: the service channel is closed`);
+      logError(`could not tell the server the meeting ${opened ? 'opened' : 'failed to prepare'}: the service channel is closed`);
       return;
     }
     socket.send(
       JSON.stringify(
         opened
-          ? { kind: 'ready', requestId }
-          : { kind: 'failed', requestId, ...(reason === undefined ? {} : { reason }) },
+          ? { kind: 'ready', requestId, attempt, meetingId }
+          : { kind: 'failed', requestId, attempt, meetingId, ...(reason === undefined ? {} : { reason }) },
       ),
     );
   };
 
-  const openMeeting = (request: { requestId: string; agendaIndex?: number; resumed?: boolean }): void => {
+  const prepareMeeting = (request: {
+    requestId: string;
+    attempt: string;
+    meetingId: string;
+    agendaIndex?: number;
+    resumed?: boolean;
+  }): void => {
+    // Anything the runner learned from a state read before this attempt is already out of date.
+    meetingSync.prepareStarted();
     void runner
-      .markStarted({ agendaIndex: request.agendaIndex, resumed: request.resumed === true })
+      .prepareMeeting({
+        meetingId: request.meetingId,
+        attempt: request.attempt,
+        ...(request.agendaIndex === undefined ? {} : { agendaIndex: request.agendaIndex }),
+        ...(request.resumed === undefined ? {} : { resumed: request.resumed }),
+      })
       .then(() => {
-        log(`opened the meeting for server Start request ${request.requestId}`);
-        acknowledge(request.requestId, true);
+        if (runner.meetingId() !== request.meetingId) {
+          throw new Error(`the runner moved to meeting ${runner.meetingId()} while preparing ${request.meetingId}`);
+        }
+        log(`prepared meeting ${request.meetingId} for server Start attempt ${request.attempt}`);
+        acknowledge(request.requestId, request.attempt, request.meetingId, true);
       })
       .catch((error: unknown) => {
         const reason = error instanceof Error ? error.message : String(error);
-        logError(`the meeting failed to open for server Start request ${request.requestId}: ${reason}`);
-        acknowledge(request.requestId, false, reason);
+        logError(`the meeting failed to prepare for server Start attempt ${request.attempt}: ${reason}`);
+        acknowledge(request.requestId, request.attempt, request.meetingId, false, reason);
       });
   };
 
@@ -351,51 +401,67 @@ function followHostCues(): void {
     try {
       const event = JSON.parse(data.toString()) as {
         kind?: string;
-        request?: { requestId?: unknown; agendaIndex?: unknown; resumed?: unknown };
+        request?: {
+          requestId?: unknown;
+          attempt?: unknown;
+          meetingId?: unknown;
+          agendaIndex?: unknown;
+          resumed?: unknown;
+        };
         type?: string;
-        payload?: { text?: unknown; speaker?: unknown; agendaIndex?: unknown; resumed?: unknown };
+        payload?: {
+          text?: unknown;
+          speaker?: unknown;
+          meetingId?: unknown;
+          agendaIndex?: unknown;
+          resumed?: unknown;
+        };
       };
-      if (event.kind === 'start') {
-        const requestId = event.request?.requestId;
-        if (typeof requestId !== 'string' || requestId === '') {
-          logError('ignored a server Start request with no id');
+      if (event.kind === 'prepare') {
+        const request = event.request;
+        const requestId = request?.requestId;
+        const attempt = request?.attempt;
+        const meetingId = request?.meetingId;
+        if (
+          typeof requestId !== 'string' ||
+          requestId === '' ||
+          typeof attempt !== 'string' ||
+          attempt === '' ||
+          typeof meetingId !== 'string' ||
+          meetingId === ''
+        ) {
+          logError('ignored a server prepare request without its meeting id and attempt');
           return;
         }
-        openMeeting({
+        prepareMeeting({
           requestId,
-          ...(typeof event.request?.agendaIndex === 'number' ? { agendaIndex: event.request.agendaIndex } : {}),
-          ...(typeof event.request?.resumed === 'boolean' ? { resumed: event.request.resumed } : {}),
+          attempt,
+          meetingId,
+          ...(typeof request?.agendaIndex === 'number' ? { agendaIndex: request.agendaIndex } : {}),
+          ...(typeof request?.resumed === 'boolean' ? { resumed: request.resumed } : {}),
         });
         return;
       }
       if (event.type === 'MEETING_STARTED') {
-        // A start event that reaches the runner before any Start request is a meeting that was
-        // already running (for example the NPC restarted alone): hydrate from the server's live
-        // state so the runner resumes the saved item instead of welcoming again at item zero.
-        const eventIndex =
-          typeof event.payload?.agendaIndex === 'number' ? event.payload.agendaIndex : undefined;
-        void fetch(`${kakiUrl}/api/meeting/state`)
-          .then(async (response) => {
-            const state = (await response.json().catch(() => ({}))) as { agendaIndex?: unknown };
-            return response.ok && typeof state.agendaIndex === 'number' ? state.agendaIndex : eventIndex;
-          })
-          .catch((error: unknown) => {
-            logError(`could not read the meeting state; using the start event instead: ${String(error)}`);
-            return eventIndex;
-          })
-          .then((agendaIndex) =>
-            runner
-              .markStarted({
-                ...(agendaIndex === undefined ? {} : { agendaIndex }),
-                resumed: true,
-              })
-              .catch((error: unknown) => logError(`the restored meeting failed to open: ${String(error)}`)),
-          );
+        const meetingId = event.payload?.meetingId;
+        if (typeof meetingId !== 'string' || meetingId === '') {
+          logError('ignored MEETING_STARTED without a meeting id');
+          return;
+        }
+        meetingSync.started({
+          meetingId,
+          ...(typeof event.payload?.agendaIndex === 'number' ? { agendaIndex: event.payload.agendaIndex } : {}),
+          ...(typeof event.payload?.resumed === 'boolean' ? { resumed: event.payload.resumed } : {}),
+        });
         return;
       }
       if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
       if (event.type === 'MEETING_RESET') {
-        runner.resetMeeting();
+        const meetingId = event.payload?.meetingId;
+        if (typeof meetingId !== 'string' || meetingId === '') {
+          logError('MEETING_RESET carried no meeting id; clearing the local meeting anyway');
+        }
+        meetingSync.reset(typeof meetingId === 'string' && meetingId !== '' ? meetingId : undefined);
         taskStatusByTitle.clear();
         syncedTaskIds.clear();
         declinedTaskIds.clear();

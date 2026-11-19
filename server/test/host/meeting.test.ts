@@ -34,7 +34,7 @@ function startMeeting(): void {
   app!.hub.publish({
     type: 'MEETING_STARTED',
     audience: { kind: 'all' },
-    payload: { startedAt: new Date().toISOString() },
+    payload: { meetingId: 'meeting-1', startedAt: new Date().toISOString() },
   });
 }
 

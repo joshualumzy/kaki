@@ -17,9 +17,14 @@ import {
  */
 export type ClientAudience = 'screen' | Role | 'service' | 'lifecycle';
 
-/** A server-owned request asking the AI runner to open the meeting. */
+/** A server-owned request asking the AI runner to prepare the meeting before Start commits. */
 export interface RunnerStartRequest {
+  /** Unique for this Start attempt; the runner echoes it back with the meeting id. */
   requestId: string;
+  /** The same id as `requestId`, carried under the name the Start protocol uses. */
+  attempt: string;
+  /** The meeting this attempt belongs to; an acknowledgement for any other meeting is ignored. */
+  meetingId: string;
   startedAt: string;
   agendaIndex: number;
   /** True when this is a saved meeting being resumed after a restart, not a fresh opening. */
@@ -28,8 +33,8 @@ export interface RunnerStartRequest {
 
 /** A message the AI runner sends back over the service channel. */
 export type ServiceMessage =
-  | { kind: 'ready'; requestId: string }
-  | { kind: 'failed'; requestId: string; reason?: string };
+  | { kind: 'ready'; requestId: string; attempt: string; meetingId: string }
+  | { kind: 'failed'; requestId: string; attempt: string; meetingId: string; reason?: string };
 
 /** A command failure whose message is safe to show the sending client. */
 export class CommandError extends Error {}
@@ -114,19 +119,48 @@ function tokenMatches(presented: string | undefined, expected: string): boolean 
   return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
 function parseServiceMessage(value: unknown): ServiceMessage | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const message = value as { kind?: unknown; requestId?: unknown; reason?: unknown };
-  if (typeof message.requestId !== 'string' || message.requestId === '') return undefined;
-  if (message.kind === 'ready') return { kind: 'ready', requestId: message.requestId };
+  const message = value as {
+    kind?: unknown;
+    requestId?: unknown;
+    attempt?: unknown;
+    meetingId?: unknown;
+    reason?: unknown;
+  };
+  if (!nonEmptyString(message.requestId) || !nonEmptyString(message.attempt) || !nonEmptyString(message.meetingId)) {
+    return undefined;
+  }
+  if (message.kind === 'ready') {
+    return { kind: 'ready', requestId: message.requestId, attempt: message.attempt, meetingId: message.meetingId };
+  }
   if (message.kind === 'failed') {
     return {
       kind: 'failed',
       requestId: message.requestId,
+      attempt: message.attempt,
+      meetingId: message.meetingId,
       ...(typeof message.reason === 'string' ? { reason: message.reason } : {}),
     };
   }
   return undefined;
+}
+
+/**
+ * The commands the AI runner may send on its authenticated command sockets. It acts for the screen
+ * to advance/end/pause and for its own roles to accept or approve a task, and nothing else.
+ */
+const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_PAUSED', 'SET_HOST_MODE']);
+const RUNNER_ROLE_COMMANDS = new Set(['CLAIM_TASK', 'DECLINE_TASK', 'APPROVE_ACTION', 'RETRY_ACTION']);
+
+function runnerMaySend(audience: ClientAudience, commandType: string): boolean {
+  if (audience === 'screen') return RUNNER_SCREEN_COMMANDS.has(commandType);
+  if (audience === 'service' || audience === 'lifecycle') return false;
+  return RUNNER_ROLE_COMMANDS.has(commandType);
 }
 
 function rejectionFor(audience: ClientAudience, commandType: string, reason: string): KakiEvent {
@@ -141,7 +175,11 @@ function rejectionFor(audience: ClientAudience, commandType: string, reason: str
 export function createHub(httpServer: Server, scenario: Scenario, options: HubOptions = {}): Hub {
   const authorize = options.authorize;
   const serviceToken = options.serviceToken?.trim();
-  const verified = authorize === undefined && (serviceToken === undefined || serviceToken === '');
+  const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
+  /** True when a socket presents the AI runner's own token, on any audience. */
+  const isRunnerRequest = (request: IncomingMessage): boolean =>
+    serviceTokenConfigured && tokenMatches(presentedServiceToken(request), serviceToken ?? '');
+  const verified = authorize === undefined && !serviceTokenConfigured;
   const wss = new WebSocketServer(
     verified
       ? { server: httpServer, path: '/ws' }
@@ -156,16 +194,22 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
               return;
             }
             if (audience === 'service') {
-              if (serviceToken === undefined || serviceToken === '') {
+              if (!serviceTokenConfigured) {
                 console.error('kaki hub: refused the AI runner service channel because no service token is configured');
                 done(false, 401, 'Service token not configured');
                 return;
               }
-              if (!tokenMatches(presentedServiceToken(info.req), serviceToken)) {
+              if (!tokenMatches(presentedServiceToken(info.req), serviceToken ?? '')) {
                 console.error('kaki hub: refused the AI runner service channel: wrong or missing service token');
                 done(false, 401, 'Service sign-in required');
                 return;
               }
+              done(true);
+              return;
+            }
+            // The runner also drives its own commands (agenda advance, end, pause, task answers)
+            // as the screen or its AI roles; its token stands in for a person's session there.
+            if (isRunnerRequest(info.req)) {
               done(true);
               return;
             }
@@ -197,6 +241,8 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const commandHandlers: CommandHandler[] = [];
   const serviceHandlers = new Set<(message: ServiceMessage) => void>();
   const serviceSockets = new Set<WebSocket>();
+  /** Command sockets opened with the AI runner's token instead of a person's session. */
+  const runnerSockets = new Set<WebSocket>();
 
   function sendTo(socket: WebSocket, audience: ClientAudience, message: string): void {
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -263,6 +309,16 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       return;
     }
 
+    if (runnerSockets.has(socket) && !runnerMaySend(audience, parsed.type)) {
+      console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audience}: not one of its commands`);
+      sendTo(
+        socket,
+        audience,
+        JSON.stringify(rejectionFor(audience, parsed.type, 'The AI runner may not send that command')),
+      );
+      return;
+    }
+
     if (commandHandlers.length === 0) {
       sendTo(
         socket,
@@ -297,15 +353,18 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
 
     clients.set(socket, audience);
     if (audience === 'service') serviceSockets.add(socket);
+    else if (isRunnerRequest(request)) runnerSockets.add(socket);
     sendRetained(socket, audience);
     socket.on('close', () => {
       clients.delete(socket);
       serviceSockets.delete(socket);
+      runnerSockets.delete(socket);
     });
     socket.on('error', (error) => {
       console.error(`kaki hub: socket error for ${audience}`, error);
       clients.delete(socket);
       serviceSockets.delete(socket);
+      runnerSockets.delete(socket);
     });
     socket.on('message', (data) => {
       void handleClientMessage(socket, audience, data);
@@ -347,7 +406,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     },
     requestStart(request) {
       if (serviceSockets.size === 0) return false;
-      const message = JSON.stringify({ kind: 'start', request });
+      const message = JSON.stringify({ kind: 'prepare', request });
       let sent = false;
       for (const socket of serviceSockets) {
         if (socket.readyState !== WebSocket.OPEN) continue;
@@ -366,6 +425,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       for (const socket of clients.keys()) socket.terminate();
       clients.clear();
       serviceSockets.clear();
+      runnerSockets.clear();
       serviceHandlers.clear();
       retained.clear();
       subscribers.clear();

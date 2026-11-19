@@ -39,6 +39,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const attempts = useRef(0);
   /** Bumped by every lifecycle event so a slow state fetch cannot overwrite newer news. */
   const lifecycleRevision = useRef(0);
+  /** The newest meeting the browser has seen, so an answer for an older one is thrown away. */
+  const meetingId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     setEvents([]);
@@ -68,13 +70,24 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         setConnected(true);
         if (audience === 'lifecycle') {
           // A reset may have happened while this tab was disconnected; ask instead of inferring.
+          const askedOn = current;
           const askedAtRevision = lifecycleRevision.current;
+          meetingId.current = undefined;
           void fetch('/api/meeting/state')
             .then(async (response) => {
-              const body = (await response.json().catch(() => ({}))) as { started?: unknown };
+              const body = (await response.json().catch(() => ({}))) as {
+                meetingId?: unknown;
+                started?: unknown;
+              };
               if (!response.ok || typeof body.started !== 'boolean') return;
+              if (typeof body.meetingId !== 'string' || body.meetingId === '') return;
+              // Only the connection that is still current may apply an answer, and only for the
+              // newest meeting: a fetch from a closed or replaced socket belongs to the past.
+              if (closed || socketRef.current !== askedOn || askedOn.readyState !== WebSocket.OPEN) return;
               // A start/reset event that arrived while this answer was in flight is newer.
-              if (closed || lifecycleRevision.current !== askedAtRevision) return;
+              if (lifecycleRevision.current !== askedAtRevision) return;
+              if (meetingId.current !== undefined && meetingId.current !== body.meetingId) return;
+              meetingId.current = body.meetingId;
               setStarted(body.started);
             })
             .catch((error: unknown) => {
@@ -109,11 +122,13 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
 
         if (parsed.type === 'MEETING_STARTED') {
           lifecycleRevision.current += 1;
+          meetingId.current = parsed.payload.meetingId;
           setStarted(true);
         }
 
         if (parsed.type === 'MEETING_RESET') {
           lifecycleRevision.current += 1;
+          meetingId.current = parsed.payload.meetingId;
           setStarted(false);
           setEvents((previous) => {
             const last = previous.at(-1);

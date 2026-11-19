@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { codeProblem, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
@@ -74,8 +75,10 @@ interface RequestContext {
   meetingCode: { value: string; fixed: boolean };
   /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
   rejoin: RejoinGuard;
-  /** The one server-owned lifecycle flag: whether this meeting has started. */
-  meeting: { started: boolean; startedAt?: string };
+  /** The one server-owned lifecycle state: the meeting's identity and whether it has started. */
+  meeting: { id: string; started: boolean; startedAt?: string };
+  /** Start a new meeting identity; returns it for the MEETING_RESET payload and cancels any Start in flight. */
+  rotateMeeting(): string;
   /** Run the one Start: wait for the AI runner to open the meeting before declaring it started. */
   startMeeting(): Promise<StartOutcome>;
   /** Seats handed out but not yet visible in LiveKit's roster. */
@@ -286,8 +289,7 @@ async function handleRequest(
           const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
           if (rejoin?.reset === true) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
-            context.meeting.started = false;
-            context.meeting.startedAt = undefined;
+            const meetingId = context.rotateMeeting();
             context.tasks.reset();
             context.hub.clearRetained('meeting:started');
             context.hub.clearRetained('record');
@@ -305,7 +307,7 @@ async function handleRequest(
               );
               setMeetingAgenda(context.scenario, context.fullScenario, reordered);
             }
-            context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+            context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId } });
           }
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
@@ -354,6 +356,7 @@ async function handleRequest(
     if (request.method === 'GET' && path === '/api/meeting/state') {
       const agendaIndex = context.meetingAgendaIndex?.();
       sendJson(response, 200, {
+        meetingId: context.meeting.id,
         started: context.meeting.started,
         ...(context.meeting.startedAt === undefined ? {} : { startedAt: context.meeting.startedAt }),
         ...(agendaIndex === undefined ? {} : { agendaIndex }),
@@ -633,9 +636,12 @@ export async function createApp({
   const restoredStarted = savedMeeting?.state.clock.started === true && savedMeeting.state.clock.ended !== true;
   const restoredAgendaIndex = restoredStarted ? (savedMeeting?.state.clock.agendaIndex ?? 0) : 0;
   const meeting = {
+    id: savedMeeting?.state.meetingId ?? randomUUID(),
     started: restoredStarted,
     startedAt: restoredStarted ? savedMeeting?.startedAt : undefined,
   };
+  /** Bumped whenever the meeting identity changes, so an acknowledgement for the old one can be refused. */
+  let meetingGeneration = 0;
   const memory: MeetingMemoryEntry[] = [];
   const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
   const reservations = createSeatReservations(admissionReservationMs);
@@ -658,7 +664,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, meeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
@@ -667,31 +673,62 @@ export async function createApp({
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
 
-  // The AI runner must confirm it opened the meeting before Start succeeds. Without that
+  // The AI runner must confirm it prepared the meeting before Start succeeds. Without that
   // acknowledgement a guest would sit on "Starting..." forever while nobody speaks.
   const hasAi = (scenario.npcs?.length ?? 0) > 0;
-  const runnerWaiters = new Map<string, { resolve(): void; reject(error: Error): void }>();
+  interface RunnerWaiter {
+    meetingId: string;
+    resolve(): void;
+    reject(error: Error): void;
+  }
+  const runnerWaiters = new Map<string, RunnerWaiter>();
+  /** A Start attempt whose acknowledgement must still match this exact meeting. */
+  interface ActiveStart {
+    attempt: string;
+    meetingId: string;
+    promise: Promise<StartOutcome>;
+  }
+  let starting: ActiveStart | undefined;
+  /** Acknowledgements already refused, so a late one is logged once rather than on every retry. */
+  const ignoredAcks = new Set<string>();
+
+  function logIgnoredAck(key: string, reason: string): void {
+    if (ignoredAcks.has(key)) return;
+    ignoredAcks.add(key);
+    if (ignoredAcks.size > 100) ignoredAcks.clear();
+    console.warn(`kaki server: ignored a runner acknowledgement (${reason})`);
+  }
+
   hub.onServiceMessage?.((message) => {
+    if (message.attempt !== message.requestId) {
+      logIgnoredAck(message.requestId, `attempt ${message.attempt} does not match request ${message.requestId}`);
+      return;
+    }
     const waiter = runnerWaiters.get(message.requestId);
     if (waiter === undefined) {
-      console.warn(`kaki server: ignored a runner message for an unknown start request ${message.requestId}`);
+      logIgnoredAck(message.requestId, `no Start is waiting for ${message.requestId}`);
+      return;
+    }
+    if (waiter.meetingId !== message.meetingId || message.meetingId !== meeting.id) {
+      runnerWaiters.delete(message.requestId);
+      logIgnoredAck(message.requestId, `it names meeting ${message.meetingId}, not the current ${meeting.id}`);
+      waiter.reject(new Error('the meeting changed while it was starting'));
       return;
     }
     runnerWaiters.delete(message.requestId);
     if (message.kind === 'ready') waiter.resolve();
-    else waiter.reject(new Error(message.reason ?? 'the AI attendees could not open the meeting'));
+    else waiter.reject(new Error(message.reason ?? 'the AI attendees could not prepare the meeting'));
   });
 
-  let starting: Promise<StartOutcome> | undefined;
-
-  function waitForRunner(requestId: string): Promise<void> {
+  function waitForRunner(attempt: string, meetingId: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
-        runnerWaiters.delete(requestId);
+        runnerWaiters.delete(attempt);
         reject(new Error('no acknowledgement from the AI attendees'));
       }, Math.max(1, startAckTimeoutMs));
       timer.unref?.();
-      runnerWaiters.set(requestId, {
+      runnerWaiters.set(attempt, {
+        meetingId,
         resolve: () => {
           clearTimeout(timer);
           resolve();
@@ -704,16 +741,47 @@ export async function createApp({
     });
   }
 
+  /** Abandon every Start in flight because its meeting is gone; a late acknowledgement cannot revive it. */
+  function cancelPendingStart(reason: string): void {
+    for (const [attempt, waiter] of [...runnerWaiters]) {
+      runnerWaiters.delete(attempt);
+      waiter.reject(new Error(reason));
+    }
+    starting = undefined;
+  }
+
+  /** Start a new meeting identity; the reset event carries the id every client and runner must adopt. */
+  function rotateMeeting(): string {
+    meetingGeneration += 1;
+    cancelPendingStart('the meeting was reset while it was starting');
+    meeting.id = randomUUID();
+    meeting.started = false;
+    meeting.startedAt = undefined;
+    return meeting.id;
+  }
+
   function startMeeting(): Promise<StartOutcome> {
     if (meeting.started) {
       return Promise.resolve({ status: 200, body: { started: true, alreadyStarted: true } });
     }
-    if (starting !== undefined) return starting;
-    const attempt = (async (): Promise<StartOutcome> => {
+    // A Start for the same meeting joins the attempt already in flight. A new meeting never inherits it.
+    if (starting !== undefined && starting.meetingId === meeting.id) return starting.promise;
+    const attempt = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const meetingId = meeting.id;
+    const generation = meetingGeneration;
+    const outcome = (async (): Promise<StartOutcome> => {
       const startedAt = new Date().toISOString();
       if (hasAi) {
-        const requestId = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-        if (hub.requestStart?.({ requestId, startedAt, agendaIndex: 0, resumed: false }) !== true) {
+        if (
+          hub.requestStart?.({
+            requestId: attempt,
+            attempt,
+            meetingId,
+            startedAt,
+            agendaIndex: 0,
+            resumed: false,
+          }) !== true
+        ) {
           return {
             status: 503,
             body: {
@@ -724,10 +792,10 @@ export async function createApp({
           };
         }
         try {
-          await waitForRunner(requestId);
+          await waitForRunner(attempt, meetingId);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
-          console.warn(`[start] the AI attendees did not open the meeting: ${reason}`);
+          console.warn(`[start] the AI attendees did not prepare the meeting: ${reason}`);
           return {
             status: 503,
             body: {
@@ -736,6 +804,17 @@ export async function createApp({
             },
           };
         }
+      }
+      // A reset during preparation must never let this old attempt start the replacement meeting.
+      if (meeting.id !== meetingId || meetingGeneration !== generation) {
+        console.warn(`[start] refused to start meeting ${meetingId}: the meeting changed while it was starting`);
+        return {
+          status: 503,
+          body: {
+            error: 'The meeting was reset while it was starting. Press Start again for the new meeting.',
+            retryable: true,
+          },
+        };
       }
       if (meeting.started) {
         return { status: 200, body: { started: true, alreadyStarted: true } };
@@ -746,19 +825,32 @@ export async function createApp({
       meeting.startedAt = startedAt;
       rejoin.began();
       hub.publish(
-        { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt, agendaIndex: 0, resumed: false } },
+        {
+          type: 'MEETING_STARTED',
+          audience: { kind: 'all' },
+          payload: { meetingId, startedAt, agendaIndex: 0, resumed: false },
+        },
         { retainKey: 'meeting:started' },
       );
-      console.log('[start] the meeting has started');
-      return { status: 200, body: { started: true } };
+      console.log(`[start] meeting ${meetingId} has started`);
+      return { status: 200, body: { started: true, meetingId } };
     })();
-    starting = attempt.finally(() => {
-      starting = undefined;
+    const pending: ActiveStart = { attempt, meetingId, promise: undefined! };
+    pending.promise = outcome.finally(() => {
+      if (starting === pending) starting = undefined;
     });
-    return starting;
+    starting = pending;
+    return pending.promise;
   }
   hub.subscribe((event) => {
     if (event.type !== 'MEETING_RESET') return;
+    // A publisher owned by the server rotates before publishing. Anything else (a module or a test)
+    // still gets a coherent identity: adopt the id it announced and cancel any Start for the old meeting.
+    if (event.payload.meetingId !== meeting.id) {
+      meetingGeneration += 1;
+      cancelPendingStart('the meeting was reset while it was starting');
+      meeting.id = event.payload.meetingId;
+    }
     memory.splice(0);
     meeting.started = false;
     meeting.startedAt = undefined;
@@ -827,7 +919,16 @@ export async function createApp({
 
   for (const feature of modules) {
     try {
-      const stop = feature.start({ hub, tasks, scenario, memory, draftOnly, persistence });
+      const stop = feature.start({
+        hub,
+        tasks,
+        scenario,
+        memory,
+        draftOnly,
+        persistence,
+        meetingId: () => meeting.id,
+        resetMeetingIdentity: rotateMeeting,
+      });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {
       for (const cleanup of cleanups.reverse()) {
@@ -861,7 +962,12 @@ export async function createApp({
       {
         type: 'MEETING_STARTED',
         audience: { kind: 'all' },
-        payload: { startedAt: meeting.startedAt, agendaIndex: restoredAgendaIndex, resumed: true },
+        payload: {
+          meetingId: meeting.id,
+          startedAt: meeting.startedAt,
+          agendaIndex: restoredAgendaIndex,
+          resumed: true,
+        },
       },
       { retainKey: 'meeting:started' },
     );

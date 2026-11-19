@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { KakiEvent } from '@kaki/shared';
 import { CommandError } from '../hub';
 import type { LlmClient } from '../llm';
@@ -42,7 +43,15 @@ export function createMeetingModule({
 }: MeetingModuleOptions = {}): KakiModule {
   return {
     name: 'host-meeting',
-    start({ hub, tasks, scenario, persistence }: KakiContext) {
+    start({ hub, tasks, scenario, persistence, meetingId, resetMeetingIdentity }: KakiContext) {
+      // The app server owns the identity; a module run on its own (tests) still gets a stable one.
+      let localMeetingId = randomUUID();
+      const currentMeetingId = (): string => meetingId?.() ?? localMeetingId;
+      const beginNewMeeting = (): string => {
+        if (resetMeetingIdentity !== undefined) return resetMeetingIdentity();
+        localMeetingId = randomUUID();
+        return localMeetingId;
+      };
       const clock = sharedClock ?? createAgendaClock({ agenda: scenario.agenda, speed });
       const notetaker = createNotetaker({
         scenario,
@@ -73,6 +82,7 @@ export function createMeetingModule({
         return {
           startedAt: meetingStartedAt,
           state: {
+            meetingId: currentMeetingId(),
             agenda: scenario.agenda.map((item) => item.title),
             clock: {
               started: now.started,
@@ -234,7 +244,12 @@ export function createMeetingModule({
         lastPublishedAt = 0;
         announcedAgendaIndex = -1;
         startTicker();
-        const reset: KakiEvent = { type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} };
+        // The reset starts a new meeting: the server rotates the identity before anyone sees the event.
+        const reset: KakiEvent = {
+          type: 'MEETING_RESET',
+          audience: { kind: 'all' },
+          payload: { meetingId: beginNewMeeting() },
+        };
         ownResetEvent = reset;
         hub.publish(reset);
         ownResetEvent = undefined;

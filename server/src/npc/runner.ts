@@ -115,6 +115,21 @@ export interface RunnerStartState {
   resumed?: boolean;
 }
 
+/** The server's request to initialize the cast for one Start attempt, before the meeting opens. */
+export interface RunnerPrepareRequest extends RunnerStartState {
+  /** The meeting this attempt belongs to; a different id means the old meeting is gone. */
+  meetingId: string;
+  /** Unique per attempt, echoed in the ready acknowledgement. */
+  attempt: string;
+}
+
+/** The server's authoritative meeting state, read after a service-channel (re)connect. */
+export interface RunnerMeetingState {
+  meetingId: string;
+  started: boolean;
+  agendaIndex?: number;
+}
+
 export interface NpcRunner {
   /**
    * The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there).
@@ -170,8 +185,23 @@ export interface NpcRunner {
    * Resolves only after the cast and first topic are ready (or rejects if opening failed), so the
    * server can confirm the AI attendees really opened the meeting before telling the guest so.
    * `agendaIndex`/`resumed` let a restored runner pick up the saved item without a second welcome.
+   * `meetingId` fences a stale start: a start for another meeting is refused instead of opening this one.
    */
-  markStarted(state?: RunnerStartState): Promise<void>;
+  markStarted(state?: RunnerStartState & { meetingId?: string }): Promise<void>;
+  /** The server meeting this runner currently belongs to, or undefined before it has heard one. */
+  meetingId(): string | undefined;
+  /** True when this runner prepared exactly this meeting and the server has not opened it yet. */
+  wasPreparedFor(meetingId: string): boolean;
+  /**
+   * Server Start, step one: initialize the cast for `meetingId` without speaking or starting the meeting.
+   * Resolves once the runner is genuinely ready for the server to commit Start.
+   */
+  prepareMeeting(request: RunnerPrepareRequest): Promise<void>;
+  /**
+   * Align with the server's state after a reconnect: a different meeting id clears the local start,
+   * topic and welcome; a running meeting resumes at its item without opening again.
+   */
+  reconcileMeeting(state: RunnerMeetingState): void;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -179,7 +209,7 @@ export interface NpcRunner {
   /** Leave the room and stop everything. */
   stop(): Promise<void>;
   /** Start a fresh meeting after the server's MEETING_RESET: close the conversation and forget the welcome. */
-  resetMeeting(): void;
+  resetMeeting(meetingId?: string): void;
 }
 
 export { visitorDispatchLine } from './cardPointer';
@@ -376,6 +406,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    */
   let started = false;
   let paused = false;
+  /** Which server meeting this runner's local state belongs to. */
+  let meetingId: string | undefined;
+  /** The Start attempt that prepared the cast, if the server has not opened the meeting yet. */
+  let prepared: { meetingId: string; attempt: string } | undefined;
+  /** Bumped whenever the local meeting is cleared, so a prepare that was overtaken cannot report ready. */
+  let runnerGeneration = 0;
   /** The server's authoritative place for this start: item 0 normally, the saved item after a restore. */
   let startAgendaIndex = 0;
   let startResumed = false;
@@ -410,6 +446,52 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     return startWait?.promise ?? Promise.resolve();
   }
   const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
+
+  /** Make the room match the people in it and have a conversation ready, without opening the meeting. */
+  async function ensureCast(): Promise<void> {
+    if (closing) throw new Error('the AI runner is stopping');
+    if (humans.size === 0) return;
+    const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
+    const wanted = npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
+    for (const npc of wanted) await joinCharacter(npc);
+    for (const [name, character] of [...characters]) {
+      if (name === listenerProfile.attendee || wanted.some((npc) => npc.attendee === name)) continue;
+      characters.delete(name);
+      await character.room.disconnect().catch(() => undefined);
+      log(`${name} left ${roomName}`);
+    }
+
+    const names = wanted.map((npc) => npc.attendee).join(',');
+    if (conversation === undefined || names !== castNames || !started) {
+      if (options.fetchScenario !== undefined) {
+        let failure: string | undefined;
+        const latest = await options.fetchScenario().catch((error: unknown) => {
+          failure = String(error).slice(0, 300);
+          return undefined;
+        });
+        if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
+          setMeetingAgenda(scenario, latest, latest.agenda);
+        } else {
+          log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);
+        }
+      }
+      if (conversation === undefined || names !== castNames) {
+        conversation?.close();
+        conversation = makeConversation(wanted);
+        castNames = names;
+      }
+      const person = [...humans.values()].at(-1)!;
+      const role = scenario.roles.find(
+        (candidate) => candidate.id.toLowerCase() === person.role.trim().toLowerCase() || candidate.label.toLowerCase() === person.role.trim().toLowerCase(),
+      );
+      conversation.setHuman({
+        name: person.name,
+        role: person.role,
+        transcriptName: role === undefined ? person.name : `${person.name} (${role.label})`,
+      });
+    }
+  }
+
   function syncCast(): void {
     castQueue = castQueue
       .then(async () => {
@@ -424,45 +506,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           settleStart();
           return;
         }
-        const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
-        const wanted = npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
-        for (const npc of wanted) await joinCharacter(npc);
-        for (const [name, character] of [...characters]) {
-          if (name === listenerProfile.attendee || wanted.some((npc) => npc.attendee === name)) continue;
-          characters.delete(name);
-          await character.room.disconnect().catch(() => undefined);
-          log(`${name} left ${roomName}`);
-        }
-
-        const names = wanted.map((npc) => npc.attendee).join(',');
-        if (conversation === undefined || names !== castNames || !started) {
-          if (options.fetchScenario !== undefined) {
-            let failure: string | undefined;
-            const latest = await options.fetchScenario().catch((error: unknown) => {
-              failure = String(error).slice(0, 300);
-              return undefined;
-            });
-            if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
-              setMeetingAgenda(scenario, latest, latest.agenda);
-            } else {
-              log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);
-            }
-          }
-          if (conversation === undefined || names !== castNames) {
-            conversation?.close();
-            conversation = makeConversation(wanted);
-            castNames = names;
-          }
-          const person = [...humans.values()].at(-1)!;
-          const role = scenario.roles.find(
-            (candidate) => candidate.id.toLowerCase() === person.role.trim().toLowerCase() || candidate.label.toLowerCase() === person.role.trim().toLowerCase(),
-          );
-          conversation.setHuman({
-            name: person.name,
-            role: person.role,
-            transcriptName: role === undefined ? person.name : `${person.name} (${role.label})`,
-          });
-        }
+        await ensureCast();
         // Open the first topic once per meeting, through this one serialized path. It must not depend
         // on the welcome: a coalesced host cue may already have spoken the welcome and set `welcomed`
         // before this queue runs, which used to leave the briefing, question and timer uninitialized.
@@ -502,6 +546,74 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         }
         settleStart(error);
       });
+  }
+
+  /** Forget every local trace of the meeting; a new one may follow under `nextMeetingId`. */
+  function clearMeeting(nextMeetingId?: string): void {
+    runnerGeneration += 1;
+    settleStart(new Error('the meeting was reset before it opened'));
+    prepared = undefined;
+    meetingId = nextMeetingId;
+    conversation?.close();
+    conversation = undefined;
+    castNames = '';
+    welcomed = false;
+    visitorTaskDispatches = 0;
+    visitorDispatchTopic = undefined;
+    started = false;
+    startInitialized = false;
+    startAgendaIndex = 0;
+    startResumed = false;
+    paused = false;
+    emptyPaused = false;
+    rejoinPending = false;
+    memory.reset();
+    lastConversationState = { kind: 'idle' };
+    publishState(lastConversationState);
+    if (humans.size > 0) syncCast();
+  }
+
+  function prepareMeeting(request: RunnerPrepareRequest): Promise<void> {
+    if (closing) return Promise.reject(new Error('the AI runner is stopping'));
+    if (meetingId !== undefined && meetingId !== request.meetingId) {
+      log(`the server is preparing meeting ${request.meetingId}; clearing the old meeting ${meetingId}`);
+      clearMeeting(request.meetingId);
+    } else {
+      meetingId = request.meetingId;
+    }
+    prepared = undefined;
+    const generation = runnerGeneration;
+    const work = castQueue.then(async () => {
+      if (closing) throw new Error('the AI runner is stopping');
+      if (generation !== runnerGeneration) throw new Error('the meeting changed before the cast was ready');
+      await ensureCast();
+      if (generation !== runnerGeneration) throw new Error('the meeting changed before the cast was ready');
+      prepared = { meetingId: request.meetingId, attempt: request.attempt };
+    });
+    castQueue = work.catch(() => undefined);
+    return work;
+  }
+
+  function reconcileMeeting(state: RunnerMeetingState): void {
+    const held = meetingId;
+    const changed = held !== undefined && held !== state.meetingId;
+    const lostStart = started && !state.started;
+    if (changed || lostStart) {
+      log(
+        changed
+          ? `the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`
+          : `the server no longer has meeting ${state.meetingId} started; clearing it`,
+      );
+      clearMeeting(state.meetingId);
+    } else {
+      meetingId = state.meetingId;
+    }
+    if (state.started && !started) {
+      void markMeetingStarted(`the server says meeting ${state.meetingId} is running`, {
+        ...(state.agendaIndex === undefined ? {} : { agendaIndex: state.agendaIndex }),
+        resumed: true,
+      }).catch((error: unknown) => log(`could not resume the running meeting: ${String(error)}`));
+    }
   }
 
   let lastHostHuman = false;
@@ -694,17 +806,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         typingUntil = Date.now() + TYPING_QUIET_MS;
         conversation?.humanTyping();
       } else if (message.kind === 'start') {
-        const session = message.session ?? participant.identity;
-        log(`received Start from ${participant.identity} (requestId=${message.requestId ?? 'none'}, session=${session})`);
-        if (session !== participant.identity) {
-          log(`ignored a Start for another session (${session})`);
-          return;
-        }
-        if (!started) markMeetingStarted(`${participant.identity} started the meeting`);
-        if (message.requestId !== undefined) {
-          log(`acknowledged Start requestId=${message.requestId} for ${session}`);
-          publishState({ kind: 'started', requestId: message.requestId, session });
-        }
+        // The server owns Start now: it prepares the cast, commits the meeting and announces
+        // MEETING_STARTED. A browser Start that still arrives here must not open anything.
+        log(`ignored a LiveKit Start from ${participant.identity}: the meeting starts on the server`);
       } else if (message.kind === 'stop') {
         if (!started && !hostIsHuman()) {
           log('ignored stop: the meeting has not started');
@@ -837,28 +941,29 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   return {
     announce,
+    meetingId() {
+      return meetingId;
+    },
+    wasPreparedFor(id) {
+      return prepared?.meetingId === id && meetingId === id;
+    },
+    prepareMeeting,
+    reconcileMeeting,
     markStarted(state) {
+      const requested = state?.meetingId;
+      if (requested !== undefined) {
+        if (meetingId !== undefined && meetingId !== requested) {
+          const reason = `ignored a start for meeting ${requested}: this runner is on ${meetingId}`;
+          log(reason);
+          return Promise.reject(new Error(reason));
+        }
+        meetingId = requested;
+      }
+      prepared = undefined;
       return markMeetingStarted('the server started the meeting', state);
     },
-    resetMeeting() {
-      settleStart(new Error('the meeting was reset before it opened'));
-      conversation?.close();
-      conversation = undefined;
-      castNames = '';
-      welcomed = false;
-      visitorTaskDispatches = 0;
-      visitorDispatchTopic = undefined;
-      started = false;
-      startInitialized = false;
-      startAgendaIndex = 0;
-      startResumed = false;
-      paused = false;
-      emptyPaused = false;
-      rejoinPending = false;
-      memory.reset();
-      lastConversationState = { kind: 'idle' };
-      publishState(lastConversationState);
-      if (humans.size > 0) syncCast();
+    resetMeeting(nextMeetingId) {
+      clearMeeting(nextMeetingId);
     },
     plays(attendee) {
       return conversation?.plays(attendee) ?? false;

@@ -4,6 +4,7 @@ import type { MeetingStateStore, SavedMeetingState, StoredMeeting } from '../../
 
 function stateWithAgenda(agendaIndex: number): SavedMeetingState {
   return {
+    meetingId: 'meeting-1',
     agenda: ['Prep', 'Service', 'Close'],
     clock: {
       started: true,

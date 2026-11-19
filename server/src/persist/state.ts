@@ -14,7 +14,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 2;
+export const MEETING_STATE_SCHEMA_VERSION = 3;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -59,6 +59,8 @@ export interface SavedNotetakerState {
 
 /** The meeting record, the notetaker and every task, as one versioned snapshot. */
 export interface SavedMeetingState {
+  /** The identity of this meeting; a reset starts a new one and the runner must not carry state across. */
+  meetingId: string;
   /** The agenda titles in the order this meeting was using, so restored indices mean the same topics. */
   agenda: string[];
   clock: SavedClockState;
@@ -218,6 +220,7 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   }
   const state = saved.state as unknown;
   if (!isObject(state)) return 'its meeting state is missing';
+  if (!isNonEmptyString(state.meetingId)) return 'its meeting identity is missing';
   const agenda = agendaProblem(state.agenda);
   if (agenda !== undefined) return agenda;
   const clock = clockProblem(state.clock, (state.agenda as string[]).length);

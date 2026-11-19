@@ -456,7 +456,7 @@ describe('knowledge module', () => {
     try {
       fake.emit(recordUpdate('q-1'));
       await waitFor(() => fake.published.length === 1, 'first meeting fact card');
-      fake.emit({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+      fake.emit({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'reset-meeting' } });
       fake.emit(recordUpdate('q-1'));
       await waitFor(() => fake.published.length === 2, 'second meeting fact card after reset');
       expect(search).toHaveBeenCalledTimes(2);

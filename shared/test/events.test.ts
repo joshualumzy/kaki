@@ -105,7 +105,11 @@ describe('isKakiEvent', () => {
     ).toBe(true);
     expect(
       isKakiEvent(
-        { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt: '2026-11-19T09:00:00.000Z' } },
+        {
+          type: 'MEETING_STARTED',
+          audience: { kind: 'all' },
+          payload: { meetingId: 'm1', startedAt: '2026-11-19T09:00:00.000Z' },
+        },
         testScenario,
       ),
     ).toBe(true);
@@ -114,14 +118,18 @@ describe('isKakiEvent', () => {
         {
           type: 'MEETING_STARTED',
           audience: { kind: 'all' },
-          payload: { startedAt: '2026-11-19T09:00:00.000Z', agendaIndex: 1, resumed: true },
+          payload: { meetingId: 'm1', startedAt: '2026-11-19T09:00:00.000Z', agendaIndex: 1, resumed: true },
         },
         testScenario,
       ),
     ).toBe(true);
     expect(
       isKakiEvent(
-        { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt: 'not a time' } },
+        {
+          type: 'MEETING_STARTED',
+          audience: { kind: 'all' },
+          payload: { meetingId: 'm1', startedAt: 'not a time' },
+        },
         testScenario,
       ),
     ).toBe(false);

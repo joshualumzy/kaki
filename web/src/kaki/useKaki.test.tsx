@@ -51,19 +51,19 @@ class FakeWebSocket {
   }
 }
 
-function startEvent(): { data: string } {
+function startEvent(meetingId = 'meeting-a'): { data: string } {
   return {
     data: JSON.stringify({
       type: 'MEETING_STARTED',
       audience: { kind: 'all' },
-      payload: { startedAt: '2026-11-19T09:00:00.000Z' },
+      payload: { meetingId, startedAt: '2026-11-19T09:00:00.000Z' },
     }),
   };
 }
 
-function resetEvent(): { data: string } {
+function resetEvent(meetingId = 'meeting-b'): { data: string } {
   return {
-    data: JSON.stringify({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} }),
+    data: JSON.stringify({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId } }),
   };
 }
 
@@ -99,7 +99,7 @@ describe('useKaki lifecycle state', () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ started: false }),
+      json: async () => ({ meetingId: 'meeting-a', started: false }),
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
@@ -109,5 +109,48 @@ describe('useKaki lifecycle state', () => {
     act(() => socket.emit('open'));
     await waitFor(() => expect(result.current.started).toBe(false));
     expect(fetchMock).toHaveBeenCalledWith('/api/meeting/state');
+  });
+
+  it('discards a state answer from a socket that has been replaced', async () => {
+    const answers: Array<(value: unknown) => void> = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('lifecycle'));
+    const first = sockets[0]!;
+
+    act(() => first.emit('open'));
+    // The first socket closes before its answer arrives; the hook reconnects on its own.
+    act(() => first.emit('close'));
+    await waitFor(() => expect(sockets[1]).toBeDefined());
+    const second = sockets[1]!;
+    act(() => second.emit('open'));
+
+    await act(async () => {
+      answers[1]!({
+        ok: true,
+        status: 200,
+        json: async () => ({ meetingId: 'meeting-new', started: false }),
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.started).toBe(false));
+
+    await act(async () => {
+      answers[0]!({
+        ok: true,
+        status: 200,
+        json: async () => ({ meetingId: 'meeting-old', started: true }),
+      });
+      await Promise.resolve();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The closed socket's old answer must not reopen Start after the reset.
+    expect(result.current.started).toBe(false);
   });
 });

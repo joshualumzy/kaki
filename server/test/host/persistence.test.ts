@@ -86,6 +86,7 @@ function savedState({
     startedAt: '2026-01-01T00:00:00.000Z',
     savedAt: '2026-01-01T00:05:00.000Z',
     state: {
+      meetingId: 'meeting-1',
       agenda,
       clock: {
         started: true,
@@ -149,7 +150,7 @@ function say(app: KakiApp, speaker: string, text: string): void {
   app.hub.publish({
     type: 'MEETING_STARTED',
     audience: { kind: 'all' },
-    payload: { startedAt: new Date().toISOString() },
+    payload: { meetingId: 'meeting-1', startedAt: new Date().toISOString() },
   });
   app.hub.publish({
     type: 'TRANSCRIPT_CHUNK',
@@ -278,6 +279,7 @@ describe('meeting persistence across a restart', () => {
       startedAt: '2026-01-01T00:00:00.000Z',
       savedAt: '2026-01-01T00:00:00.000Z',
       state: {
+        meetingId: 'meeting-1',
         agenda: ['Prep'],
         clock: {
           started: true,

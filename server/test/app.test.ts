@@ -54,7 +54,7 @@ describe('app', () => {
     expect((await post(entries)).status).toBe(200);
     expect(app.memory).toEqual(entries);
     expect((await post([{ kind: 'invented', item: 'Outside this meeting', text: 'No.' }])).status).toBe(400);
-    app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+    app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'reset-meeting' } });
     expect(app.memory).toEqual([]);
   });
 
@@ -773,12 +773,17 @@ describe('one server-owned meeting start', () => {
 
       runner = await connectService(port);
       runner.on('message', (data) => {
-        const message = JSON.parse(data.toString()) as { kind?: string; request?: { requestId?: string } };
-        const requestId = message.request?.requestId;
-        if (message.kind !== 'start' || requestId === undefined) return;
-        if (mode === 'ready') runner?.send(JSON.stringify({ kind: 'ready', requestId }));
+        const message = JSON.parse(data.toString()) as {
+          kind?: string;
+          request?: { requestId?: string; attempt?: string; meetingId?: string };
+        };
+        const { requestId, attempt, meetingId } = message.request ?? {};
+        if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) {
+          return;
+        }
+        if (mode === 'ready') runner?.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
         else if (mode === 'failed') {
-          runner?.send(JSON.stringify({ kind: 'failed', requestId, reason: 'cast initialization failed' }));
+          runner?.send(JSON.stringify({ kind: 'failed', requestId, attempt, meetingId, reason: 'cast initialization failed' }));
         }
       });
 
@@ -800,6 +805,84 @@ describe('one server-owned meeting start', () => {
       await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'the acknowledged start');
     } finally {
       runner?.terminate();
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('never starts a reset replacement from a late acknowledgement', async () => {
+    const scenario: Scenario = {
+      ...testScenario,
+      npcs: [
+        { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' },
+      ],
+    };
+    const app = await createApp({
+      scenario,
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+      startAckTimeoutMs: 1_000,
+    });
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    const runner = await connectService(port);
+    let ackMode: 'none' | 'ready' = 'none';
+    const prepares: Array<{ requestId: string; attempt: string; meetingId: string }> = [];
+    try {
+      runner.on('message', (data) => {
+        const message = JSON.parse(data.toString()) as {
+          kind?: string;
+          request?: { requestId?: string; attempt?: string; meetingId?: string };
+        };
+        const { requestId, attempt, meetingId } = message.request ?? {};
+        if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) {
+          return;
+        }
+        prepares.push({ requestId, attempt, meetingId });
+        if (ackMode === 'ready') {
+          runner.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
+        }
+      });
+
+      const firstStart = startMeeting(app);
+      await waitFor(() => (prepares[0] === undefined ? undefined : prepares[0]), 'the first prepare');
+      const oldPrepare = prepares[0]!;
+
+      // The meeting is reset while the runner is still preparing the old one.
+      app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'replacement' } });
+      runner.send(
+        JSON.stringify({
+          kind: 'ready',
+          requestId: oldPrepare.requestId,
+          attempt: oldPrepare.attempt,
+          meetingId: oldPrepare.meetingId,
+        }),
+      );
+
+      const resetStart = await firstStart;
+      expect(resetStart.status).toBe(503);
+      await settle(100);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
+      const afterReset = (await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as {
+        meetingId: string;
+        started: boolean;
+      };
+      expect(afterReset).toMatchObject({ meetingId: 'replacement', started: false });
+
+      // The replacement meeting gets its own attempt; the old acknowledgement cannot satisfy it.
+      ackMode = 'ready';
+      const secondStart = await startMeeting(app);
+      expect(secondStart.status).toBe(200);
+      expect(prepares).toHaveLength(2);
+      expect(prepares[1]!.meetingId).toBe('replacement');
+      expect(prepares[1]!.attempt).not.toBe(oldPrepare.attempt);
+      await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'the replacement start');
+      const startedEvent = screen.messages.find((event) => event.type === 'MEETING_STARTED');
+      expect(startedEvent?.type === 'MEETING_STARTED' ? startedEvent.payload.meetingId : undefined).toBe('replacement');
+    } finally {
+      runner.terminate();
       screen.close();
       await app.close();
     }

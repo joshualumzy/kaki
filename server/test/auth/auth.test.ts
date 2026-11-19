@@ -5,7 +5,7 @@ import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken, verifyPassword } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
-import { createTestApp, portOf } from '../helpers';
+import { createTestApp, portOf, waitFor } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
 const HOST_PASSWORD = 'correct-horse-battery';
@@ -301,6 +301,47 @@ describe('auth', () => {
     const runner = await connect(port, 'service', undefined, 'Bearer runner-secret');
     expect(runner.ok).toBe(true);
     if (runner.ok) sockets.push({ ws: runner.ws });
+  });
+
+  it('lets the AI runner command with its token, while a browser without it cannot', async () => {
+    const task = app.tasks.suggest({ title: 'Approve the order', context: 'Lunch prep', suggestedAssignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    app.tasks.transition(task.id, 'CLAIMED', { mode: 'MANUAL' });
+    const draft = { target: 'orders@example.com', subject: 'Order', body: 'Please confirm.' };
+    app.tasks.transition(task.id, 'DRAFT_READY', { draft });
+
+    const runnerRole = await connect(port, 'chef', undefined, 'Bearer runner-secret');
+    expect(runnerRole.ok).toBe(true);
+    if (!runnerRole.ok) return;
+    sockets.push({ ws: runnerRole.ws });
+    const roleEvents: Array<{ type?: string }> = [];
+    runnerRole.ws.on('message', (data) => roleEvents.push(JSON.parse(data.toString()) as { type?: string }));
+
+    runnerRole.ws.send(JSON.stringify({ type: 'APPROVE_ACTION', taskId: task.id, draft }));
+    await waitFor(() => (app.tasks.get(task.id)?.status === 'RUNNING' ? true : undefined), 'the runner to approve');
+    expect(roleEvents.some((event) => event.type === 'COMMAND_REJECTED')).toBe(false);
+
+    // The runner may act only for its own roles: dispatching a task is not one of its commands.
+    runnerRole.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' }));
+    await waitFor(
+      () => (roleEvents.some((event) => event.type === 'COMMAND_REJECTED') ? true : undefined),
+      'the forbidden runner command to be refused',
+    );
+
+    const runnerScreen = await connect(port, 'screen', undefined, 'Bearer runner-secret');
+    expect(runnerScreen.ok).toBe(true);
+    if (!runnerScreen.ok) return;
+    sockets.push({ ws: runnerScreen.ws });
+    const screenEvents: Array<{ type?: string }> = [];
+    runnerScreen.ws.on('message', (data) => screenEvents.push(JSON.parse(data.toString()) as { type?: string }));
+    runnerScreen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screenEvents.some((event) => event.type === 'COMMAND_REJECTED')).toBe(false);
+
+    // The command path is the runner's: a browser without the service token still cannot use it.
+    const anonymousService = await connect(port, 'service');
+    expect(anonymousService.ok).toBe(false);
+    if (!anonymousService.ok) expect(anonymousService.status).toBe(401);
   });
 
   it('rejects an expired session cookie over HTTP and WebSocket', async () => {

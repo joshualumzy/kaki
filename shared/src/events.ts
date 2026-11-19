@@ -89,9 +89,9 @@ export type KakiEvent =
    * `agendaIndex` and `resumed` let a runner restored after a restart open the saved item without
    * replaying the welcome or resetting to item zero.
    */
-  | KakiEventOf<'MEETING_STARTED', { startedAt: string; agendaIndex?: number; resumed?: boolean }>
+  | KakiEventOf<'MEETING_STARTED', { meetingId: string; startedAt: string; agendaIndex?: number; resumed?: boolean }>
   /** A new meeting is starting: pages drop the old record, feed and tasks. */
-  | KakiEventOf<'MEETING_RESET', Record<string, never>>
+  | KakiEventOf<'MEETING_RESET', { meetingId: string }>
   /** The server kept this meeting across a restart; the screen says so and offers a fresh start. */
   | KakiEventOf<'MEETING_RESTORED', { startedAt: string }>
   /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
@@ -120,6 +120,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim() !== '';
 }
 
 // True for a finite number that is zero or more.
@@ -202,11 +206,12 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isAgendaIndex(payload.agendaIndex),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_STARTED: (payload) =>
+    isNonEmptyString(payload.meetingId) &&
     isString(payload.startedAt) &&
     Number.isFinite(Date.parse(payload.startedAt)) &&
     (payload.agendaIndex === undefined || isAgendaIndex(payload.agendaIndex)) &&
     (payload.resumed === undefined || typeof payload.resumed === 'boolean'),
-  MEETING_RESET: () => true,
+  MEETING_RESET: (payload) => isNonEmptyString(payload.meetingId),
   MEETING_RESTORED: (payload) => isString(payload.startedAt) && Number.isFinite(Date.parse(payload.startedAt)),
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),
   COLLEAGUE_REACTION: (payload, scenario) =>
