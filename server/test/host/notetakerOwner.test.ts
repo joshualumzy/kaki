@@ -21,7 +21,12 @@ beforeAll(async () => {
 });
 
 // One pass: `speaker` says `line`, and the model proposes a task for `modelAssignee` quoting that line.
-async function assigneeAfter(speaker: string, line: string, modelAssignee: string): Promise<string | undefined> {
+async function assigneeAfter(
+  speaker: string,
+  line: string,
+  modelAssignee: string,
+  visitorOwnerShortcut?: () => boolean,
+): Promise<string | undefined> {
   const tasks = createTaskStore({ hub: quietHub, scenario });
   const notetaker = createNotetaker({
     scenario,
@@ -36,6 +41,7 @@ async function assigneeAfter(speaker: string, line: string, modelAssignee: strin
       }),
     ),
     agendaIndex: () => 0,
+    ...(visitorOwnerShortcut === undefined ? {} : { visitorOwnerShortcut }),
   });
   notetaker.addChunk({ speaker, text: line });
   await notetaker.run();
@@ -69,6 +75,25 @@ describe('who owns a task', () => {
 
   it('is the visitor when a colleague asks "can you" without naming anyone', () => {
     expect(addressedRole('Sounds right. Can you post that to the team?', scenario, visitorLines, 'marketing_lead')).toBe('producer');
+  });
+
+  it('does not route an unaddressed "can you" to a visitor when two or more people are in the room', async () => {
+    expect(addressedRole(
+      'Can you email the venue confirmation to the team?',
+      scenario, visitorLines, 'marketing_lead', { visitorShortcut: false },
+    )).toBeUndefined();
+    // With two humans the model's own owner stands instead of falling back to the one visitor.
+    expect(await assigneeAfter(
+      'Wei Ling',
+      'Can you email the venue confirmation to the team?',
+      'marketing_lead',
+      () => false,
+    )).toBe('marketing_lead');
+    // The single-human demo keeps the visitor shortcut exactly as before (see the direct cases above).
+    expect(addressedRole(
+      'Can you email the venue confirmation to the team?',
+      scenario, visitorLines, 'marketing_lead', { visitorShortcut: true },
+    )).toBe('producer');
   });
 
   it('volunteerRole needs both a commitment and a known role', () => {

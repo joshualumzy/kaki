@@ -4,6 +4,7 @@ import {
   defaultMeetingSetup,
   demoPackNpcProfileForRole,
   demoPackNpcProfileForSeat,
+  isPackFreeMeeting,
   parseMeetingSetup,
   type MeetingSetup,
   type SetupFieldError,
@@ -204,5 +205,26 @@ describe('meeting setup parser', () => {
     const setup = validSetup();
     setup.pace = pace;
     expect(fields(errorsFor(setup))).toContain(field);
+  });
+});
+
+describe('isPackFreeMeeting', () => {
+  it('is true when every seat is a person and no agenda item is a pack topic', () => {
+    const setup = validSetup();
+    setup.agenda = [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }];
+    expect(isPackFreeMeeting(setup, packScenario)).toBe(true);
+  });
+
+  it('keeps the pack when an agenda item is a pack topic, even with no AI seats', () => {
+    const setup = validSetup();
+    expect(setup.agenda[0]?.title).toBe(packScenario.agenda[0]?.title);
+    expect(isPackFreeMeeting(setup, packScenario)).toBe(false);
+  });
+
+  it('keeps the pack when any seat is an AI stand-in', () => {
+    const setup = validSetup();
+    setup.agenda = [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }];
+    setup.seats[1] = { displayName: 'Bao', roleId: 'cashier', kind: 'ai', npcProfileId: 'Bao' };
+    expect(isPackFreeMeeting(setup, packScenario)).toBe(false);
   });
 });

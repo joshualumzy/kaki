@@ -70,6 +70,19 @@ const topicScenario: Scenario = {
   ],
 };
 
+/** A typed, pack-free setup for two real people, with no AI seat and no demo-pack topic. */
+function humanOnlySetup(pack: Scenario): MeetingSetup {
+  return {
+    ...defaultMeetingSetup(pack),
+    title: 'Floor huddle',
+    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'producer' }],
+    seats: [
+      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+      { displayName: 'Arjun', roleId: 'lead_programmer', kind: 'person' },
+    ],
+  };
+}
+
 /** A fresh copy every time: Start mutates the active scenario, so tests must not share one. */
 function freshTopicScenario(): Scenario {
   const scenario = structuredClone(topicScenario);
@@ -214,10 +227,23 @@ async function connectHeldService(port: number): Promise<{
 }
 
 function join(app: KakiApp, participantName: string, participantRole: string): Promise<Response> {
-  return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
+  return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ roomName: 'test-room', participantName, participantRole }),
+  });
+}
+
+function joinWithCode(
+  app: KakiApp,
+  participantName: string,
+  participantRole: string,
+  meetingCode: string,
+): Promise<Response> {
+  return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roomName: 'test-room', participantName, participantRole, meetingCode }),
   });
 }
 
@@ -764,6 +790,100 @@ describe('Start applies the validated setup', () => {
     expect(after.roles).toEqual(before.roles);
     expect(after.npcs).toEqual(before.npcs);
     expect(after.excludedPairs).toEqual(before.excludedPairs);
+  });
+
+  it('seats exactly the setup person seats: two people join, a third is refused', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack);
+    expect((await putSetup(app, humanOnlySetup(pack))).status).toBe(200);
+    expect((await getScenario(app)).joinSeats).toEqual(['producer', 'lead_programmer']);
+
+    const first = await join(app, 'Alice', 'producer');
+    expect(first.status).toBe(200);
+    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+
+    expect((await joinWithCode(app, 'Ben', 'lead_programmer', code)).status).toBe(200);
+    const third = await joinWithCode(app, 'Cara', 'producer', code);
+    expect(third.status).toBe(409);
+    expect(((await third.json()) as { error: string }).error).toMatch(/seat is taken|full/i);
+  });
+
+  it('starts a pack-free human-only meeting with no AI runner connected', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack);
+    expect((await putSetup(app, humanOnlySetup(pack))).status).toBe(200);
+    const first = await join(app, 'Alice', 'producer');
+    expect(first.status).toBe(200);
+    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+    expect((await joinWithCode(app, 'Ben', 'lead_programmer', code)).status).toBe(200);
+
+    const started = await startMeeting(app);
+    expect(started.status).toBe(200);
+    expect(await started.json()).toEqual(expect.objectContaining({ started: true }));
+    expect((await getScenario(app)).npcs ?? []).toEqual([]);
+  });
+
+  it('treats an edited draft a meeting ended with as consumed after a restart', async () => {
+    const pack = await loadScenario('kopitiam');
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(structuredClone(pack), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+    });
+    await connectService(portOf(first));
+    const setup = await getSetup(first);
+    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
+    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
+    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
+    weiLing.kind = 'person';
+    delete weiLing.npcProfileId;
+    arjun.kind = 'ai';
+    arjun.npcProfileId = 'Arjun';
+    expect((await putSetup(first, setup)).status).toBe(200);
+    expect((await join(first, 'First Visitor', 'producer')).status).toBe(200);
+    expect((await startMeeting(first)).status).toBe(200);
+
+    const screen = await connectClient(portOf(first), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      'the meeting to end',
+    );
+    screen.close();
+    await firstPersistence.flush();
+    expect(store.saved?.state.clock.ended).toBe(true);
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(structuredClone(pack), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    });
+    expect(await getSetup(restored)).toEqual(defaultMeetingSetup(pack));
+    expect((await join(restored, 'Second Visitor', 'lead_programmer')).status).toBe(200);
+  });
+
+  it('tells the owner a departed seat holder has left instead of naming them as present', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack, { rejoinGraceMs: 20, rejoinPollMs: 5 });
+    expect((await join(app, 'Departed', 'lead_programmer')).status).toBe(200);
+    // The room poll sees the empty room and the short grace runs out.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const setup = humanOnlySetup(pack);
+    setup.seats = [
+      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+      { displayName: 'Mei', roleId: 'game_designer', kind: 'person' },
+    ];
+    expect((await putSetup(app, setup)).status).toBe(200);
+
+    const response = await startMeeting(app);
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toMatch(
+      /Departed has left the meeting.*rejoin.*reset/i,
+    );
   });
 
   it('lets a new visitor take any human seat after an untouched demo ends and the server restarts', async () => {

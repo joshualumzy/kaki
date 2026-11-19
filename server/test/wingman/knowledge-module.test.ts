@@ -125,9 +125,15 @@ function start(
   hub: Hub,
   activeScenario: Scenario = scenario,
   now?: () => number,
+  packFree?: () => boolean,
 ): () => void {
   const module = createKnowledgeModule({ search, env: {}, ...(now === undefined ? {} : { now }) });
-  const stop = module.start({ hub, tasks: {} as TaskStore, scenario: activeScenario });
+  const stop = module.start({
+    hub,
+    tasks: {} as TaskStore,
+    scenario: activeScenario,
+    ...(packFree === undefined ? {} : { packFree }),
+  });
   if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
   return stop;
 }
@@ -304,6 +310,48 @@ describe('knowledge module', () => {
     } finally {
       stop();
       error.mockRestore();
+    }
+  });
+
+  it('never searches company records in a pack-free meeting, and says why once', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const calls: string[] = [];
+    const search: SearchCompanyData = async (question, role) => {
+      calls.push(`${question}:${role}`);
+      return [fact];
+    };
+    const fake = fakeHub();
+    const stop = start(search, fake.hub, scenario, undefined, () => true);
+
+    try {
+      fake.emit(recordUpdate());
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle(20);
+
+      expect(calls).toEqual([]);
+      expect(fake.published.filter((event) => event.type === 'FACT_FOUND')).toEqual([]);
+      const packFreeLogs = log.mock.calls.filter((call) =>
+        String(call[0]).includes('pack-free'),
+      );
+      expect(packFreeLogs).toHaveLength(1);
+    } finally {
+      stop();
+      log.mockRestore();
+    }
+  });
+
+  it('still searches company records when the meeting is not pack-free', async () => {
+    const fake = fakeHub();
+    const stop = start(async () => [fact], fake.hub, scenario, undefined, () => false);
+
+    try {
+      fake.emit(recordUpdate());
+      await waitFor(
+        () => fake.published.some((event) => event.type === 'FACT_FOUND'),
+        'the company fact',
+      );
+    } finally {
+      stop();
     }
   });
 

@@ -20,6 +20,11 @@ export interface KakiContext {
   resetMeetingIdentity?(): string;
   /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
   meetingDetails?(): SavedMeetingDetails;
+  /**
+   * True when the sealed meeting carries no demo-pack content: every seat is a person and no agenda
+   * item is a pack topic. Such a meeting must not use the demo pack's company knowledge.
+   */
+  packFree?(): boolean;
 }
 
 /** A team-owned feature that plugs into the server without editing shared files. */

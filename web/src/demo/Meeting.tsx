@@ -114,6 +114,8 @@ export default function Meeting() {
   const markMeetingReset = useCallback(() => setStarted(false), []);
 
   const hasAi = (scenario.npcs ?? []).length > 0;
+  // A human-only setup names its person seats; those are the seats to offer even with no AI cast.
+  const offersSeats = hasAi || scenario.joinSeats !== undefined;
 
   async function join(name: string, roleLabel: string, media: MediaChoice, meetingCode?: string): Promise<void> {
     setBusy(true);
@@ -156,10 +158,10 @@ export default function Meeting() {
     return (
       <JoinForm
         meetingTitle={scenario.meetingTitle}
-        roles={hasAi ? roles : []}
+        roles={offersSeats ? roles : []}
         agenda={scenario.agenda}
         busy={busy}
-        error={hasAi ? error : `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`}
+        error={offersSeats ? error : `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`}
         askCode={needsCode}
         initialCode={linkCode}
         onJoin={(name, roleLabel, media, code) => void join(name, roleLabel, media, code)}

@@ -567,6 +567,17 @@ export function meetingAgendaFromSetup(
 }
 
 /**
+ * True when a sealed setup owns no demo-pack content at all: every seat is a person and no agenda
+ * item is a pack topic. Such a meeting is pack-free, so the demo pack's company records and facts
+ * must stay out of it.
+ */
+export function isPackFreeMeeting(setup: MeetingSetup, pack: Scenario): boolean {
+  if (setup.seats.some((seat) => seat.kind === 'ai')) return false;
+  const packTitles = new Set(pack.agenda.map((item) => item.title));
+  return setup.agenda.every((item) => !packTitles.has(item.title));
+}
+
+/**
  * The NPC profiles the runner may voice for a sealed setup: only the profiles of seats marked `ai`.
  * A pack seat switched to a person, or a typed seat with no profile, is left out.
  */

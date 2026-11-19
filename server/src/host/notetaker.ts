@@ -91,6 +91,12 @@ export interface NotetakerOptions {
   meetingElapsedSeconds?: () => number;
   /** Called when the LLM hears the meeting move on to a later agenda item; omit to ignore it. */
   onAgendaIndex?: (agendaIndex: number) => void;
+  /**
+   * Whether an unaddressed "can you..." may fall back to the one human in the room. In a meeting
+   * with two or more people that shortcut cannot know who was asked, so it is off and the model's
+   * own owner stays. Defaults to on, which keeps the single-human demo exactly as it was.
+   */
+  visitorOwnerShortcut?: () => boolean;
 }
 
 /** A task the LLM proposes, with the words it heard it in. */
@@ -603,6 +609,7 @@ export function addressedRole(
   scenario: Scenario,
   lines: ReadonlyArray<{ speaker?: string; role?: Role; text?: string }>,
   sourceRole?: Role,
+  { visitorShortcut = true }: { visitorShortcut?: boolean } = {},
 ): Role | undefined {
   // Check the evidence line itself first so earlier lines in the batch don't hijack the assignee.
   const evidenceLower = evidence.toLowerCase();
@@ -631,7 +638,7 @@ export function addressedRole(
   // ("Right, four seats. Daniel, can you print the signs?" is Daniel's).
   const request = /\b(?:can you|could you|would you|will you)\b/i;
   const sentences = evidence.split(/(?<=[.!?])\s+/);
-  if (request.test(evidence)) {
+  if (visitorShortcut && request.test(evidence)) {
     const asking = sentences.filter((sentence) => request.test(sentence));
     const startsWithNpc = scenario.attendees.some((attendee) => {
       const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -653,7 +660,10 @@ export function addressedRole(
       return attendee.role;
     }
   }
-  if (/\b(?:can you|could you|would you|will you|get\s+[a-z]+\s+to|ask\s+[a-z]+\s+to)\b/i.test(checkText)) {
+  if (
+    visitorShortcut &&
+    /\b(?:can you|could you|would you|will you|get\s+[a-z]+\s+to|ask\s+[a-z]+\s+to)\b/i.test(checkText)
+  ) {
     const visitorRole = findVisitorRole();
     if (visitorRole !== undefined) return visitorRole;
   }
@@ -966,6 +976,7 @@ export function createNotetaker({
   agendaIndex,
   meetingElapsedSeconds,
   onAgendaIndex,
+  visitorOwnerShortcut = () => true,
 }: NotetakerOptions): Notetaker {
   let pending: TranscriptLine[] = [];
   // The batch being analysed right now; saved with the notetaker so a restart does not lose it.
@@ -1142,10 +1153,12 @@ export function createNotetaker({
         continue;
       }
       // Whoever is explicitly asked by role ("as Operations Director, can you...") or by name ("<colleague name>, can you...") owns it;
-      // otherwise whoever says "I'll do it" owns it.
+      // otherwise whoever says "I'll do it" owns it. With two or more people in the meeting an
+      // unaddressed "can you..." cannot be pinned on one visitor, so the model's own owner stands.
       const owner =
-        addressedRole(source.text, scenario, groundingPool, source.role) ??
-        volunteerRole(ownershipEvidence, source);
+        addressedRole(source.text, scenario, groundingPool, source.role, {
+          visitorShortcut: visitorOwnerShortcut(),
+        }) ?? volunteerRole(ownershipEvidence, source);
       let cleanedTitle = task.title.replace(attendeeNamePattern, '');
       let cleanedContext = task.context.replace(attendeeNamePattern, '');
       for (const attendee of scenario.attendees) {

@@ -37,31 +37,41 @@ function timeText(request: NudgeRequest): string {
   return request.seconds <= 0 ? 'has no time left' : `has ${minutesLabel(request.seconds)} left`;
 }
 
-function nudgeText(request: NudgeRequest, factText: string | undefined): string {
+function nudgeText(request: NudgeRequest, factText: string | undefined, factsOn: boolean): string {
   const lead = `${request.topic} ${timeText(request)}.`;
+  if (!factsOn) {
+    return `${lead} Ask the room for the details.`;
+  }
   if (factText === undefined) {
     return `${lead} No company records were found on this. Ask the room for the details.`;
   }
   return `${lead} ${factText} Tap the fact card to read the details.`;
 }
 
-function sendNudge(ctx: KakiContext, search: SearchCompanyData, request: NudgeRequest): void {
+function sendNudge(
+  ctx: KakiContext,
+  search: SearchCompanyData | undefined,
+  request: NudgeRequest,
+): void {
   void (async () => {
+    const factsOn = search !== undefined;
     let factText: string | undefined;
-    try {
-      const facts = await search(request.topic, request.role);
-      factText = facts[0]?.text.trim();
-      if (factText === undefined || factText.length === 0) {
-        factText = undefined;
+    if (search !== undefined) {
+      try {
+        const facts = await search(request.topic, request.role);
+        factText = facts[0]?.text.trim();
+        if (factText === undefined || factText.length === 0) {
+          factText = undefined;
+          console.error(
+            `kaki wingman: no company facts found for nudge on "${request.topic}" (${request.role})`,
+          );
+        }
+      } catch (error) {
         console.error(
-          `kaki wingman: no company facts found for nudge on "${request.topic}" (${request.role})`,
+          `kaki wingman: company search failed for nudge on "${request.topic}" (${request.role}):`,
+          error,
         );
       }
-    } catch (error) {
-      console.error(
-        `kaki wingman: company search failed for nudge on "${request.topic}" (${request.role}):`,
-        error,
-      );
     }
 
     try {
@@ -69,7 +79,7 @@ function sendNudge(ctx: KakiContext, search: SearchCompanyData, request: NudgeRe
         {
           type: 'NUDGE',
           audience: { kind: 'role', role: request.role },
-          payload: { text: nudgeText(request, factText), agendaIndex: request.agendaIndex },
+          payload: { text: nudgeText(request, factText, factsOn), agendaIndex: request.agendaIndex },
         },
         { retainKey: `nudge:${request.kind}:${request.agendaIndex}` },
       );
@@ -84,7 +94,7 @@ function sendNudge(ctx: KakiContext, search: SearchCompanyData, request: NudgeRe
 
 function handleEvent(
   ctx: KakiContext,
-  search: SearchCompanyData,
+  search: SearchCompanyData | undefined,
   fired: Set<string>,
   pace: MeetingPace,
   event: KakiEvent,
@@ -164,7 +174,9 @@ export function createNudgeModule(options: NudgeModuleOptions = {}): KakiModule 
       const pace = (): MeetingPace => ctx.meetingDetails?.().setup.pace ?? DEFAULT_MEETING_PACE;
       const unsubscribe = ctx.hub.subscribe((event) => {
         try {
-          handleEvent(ctx, activeSearch, fired, pace(), event);
+          // A pack-free meeting still gets its time nudges, just without another pack's facts.
+          const factsSearch = ctx.packFree?.() === true ? undefined : activeSearch;
+          handleEvent(ctx, factsSearch, fired, pace(), event);
         } catch (error) {
           console.error('kaki wingman: nudge subscriber failed', error);
         }

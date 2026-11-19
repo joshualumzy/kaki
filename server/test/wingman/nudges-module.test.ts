@@ -81,7 +81,12 @@ function recordUpdate(
   };
 }
 
-function start(search: SearchCompanyData, hub: Hub, pace?: MeetingPace): () => void {
+function start(
+  search: SearchCompanyData,
+  hub: Hub,
+  pace?: MeetingPace,
+  packFree?: () => boolean,
+): () => void {
   const module = createNudgeModule({ search, env: {} });
   const meetingDetails =
     pace === undefined
@@ -92,6 +97,7 @@ function start(search: SearchCompanyData, hub: Hub, pace?: MeetingPace): () => v
     tasks: {} as TaskStore,
     scenario,
     ...(meetingDetails === undefined ? {} : { meetingDetails }),
+    ...(packFree === undefined ? {} : { packFree }),
   });
   if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
   return stop;
@@ -318,6 +324,26 @@ describe('nudge module', () => {
       expect(nudges(fake.published)[0]).toMatchObject({
         audience: { kind: 'role', role: 'game_designer' },
         payload: { agendaIndex: 1 },
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  it('still nudges in a pack-free meeting without searching company records', async () => {
+    const search = vi.fn<SearchCompanyData>(async () => [fact]);
+    const fake = fakeHub();
+    const stop = start(search, fake.hub, undefined, () => true);
+
+    try {
+      fake.emit(recordUpdate(0, 120, { lead_programmer: 5 }));
+      await waitFor(() => nudges(fake.published).length > 0, 'the quiet-owner nudge');
+
+      expect(search).not.toHaveBeenCalled();
+      expect(nudges(fake.published)[0]).toEqual({
+        type: 'NUDGE',
+        audience: { kind: 'role', role: 'lead_programmer' },
+        payload: { text: 'Build and bugs has 8 min left. Ask the room for the details.', agendaIndex: 0 },
       });
     } finally {
       stop();

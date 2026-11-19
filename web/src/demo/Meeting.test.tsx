@@ -127,6 +127,32 @@ describe('Meeting join', () => {
     expect(screen.getByTestId('join-roles').textContent).toBe('Producer');
   });
 
+  it('offers the setup person seats when the meeting has no AI attendees', () => {
+    mocks.useScenario.mockReturnValue({
+      ...scenario,
+      npcs: [],
+      roles: [
+        ...scenario.roles,
+        { id: 'lead_programmer', label: 'Tech & POS Lead' },
+      ],
+      attendees: [
+        ...scenario.attendees,
+        { name: 'Arjun', role: 'lead_programmer', zoomDisplayName: 'Arjun' },
+      ],
+      joinSeats: ['producer', 'lead_programmer'],
+    });
+    render(<Meeting />);
+
+    expect(screen.getByTestId('join-roles').textContent).toBe('Producer,Tech & POS Lead');
+  });
+
+  it('still shows no join seats for a scenario with no AI and no setup seats', () => {
+    mocks.useScenario.mockReturnValue({ ...scenario, npcs: [] });
+    render(<Meeting />);
+
+    expect(screen.getByTestId('join-roles').textContent).toBe('');
+  });
+
   it('shows the Start prompt again when the server says the meeting was reset', async () => {
     replyWith({ started: true });
     const { rerender } = render(<Meeting />);

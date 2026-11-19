@@ -51,6 +51,12 @@ if (fault !== undefined) log(`[fault] ${fault} active`);
 
 const scenario = await loadScenario();
 const npcs = scenario.npcs ?? [];
+// A human-only meeting has no AI attendees to run. Started anyway, this process has nothing to do,
+// so say so and stop cleanly instead of crashing or joining an empty cast.
+if (npcs.length === 0) {
+  log('this scenario has no AI attendees, so the AI runner has nothing to do. Leave it stopped; the meeting is all people.');
+  process.exit(0);
+}
 /** The AI host's name, chosen the same way the conversation chooses who chairs; the host never speaks these cues when a person is in that seat. */
 const hostName =
   npcs.find((npc) => npc.role === 'host')?.attendee ??

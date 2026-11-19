@@ -59,6 +59,8 @@ export function createMeetingModule({
         llm,
         agendaIndex: () => clock.snapshot().agendaIndex,
         meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
+        // The "can you..." -> the one visitor shortcut only makes sense with a single person in the room.
+        visitorOwnerShortcut: () => (meetingDetails?.().seats.length ?? 0) < 2,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
 

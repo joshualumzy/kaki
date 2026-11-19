@@ -29,6 +29,8 @@ interface QuestionLog {
   lastAttemptAt: Map<string, number>;
   /** The agenda item whose company records were last searched for every Wingman role. */
   lastAgendaIndex?: number;
+  /** Whether this meeting's pack-free reason has already been logged. */
+  packFreeLogged?: boolean;
   stopped?: boolean;
 }
 
@@ -100,9 +102,21 @@ function handleEvent(
     log.attempts.clear();
     log.lastAttemptAt.clear();
     log.lastAgendaIndex = undefined;
+    log.packFreeLogged = false;
     return;
   }
   if (event.type !== 'MEETING_RECORD_UPDATED') return;
+
+  // A pack-free meeting (no AI seats and no demo-pack topic) must never show another pack's records.
+  if (ctx.packFree?.() === true) {
+    if (log.packFreeLogged !== true) {
+      log.packFreeLogged = true;
+      console.log(
+        'kaki wingman: company knowledge is off for this pack-free meeting; it has no AI seats and no demo-pack topics',
+      );
+    }
+    return;
+  }
 
   const { agendaIndex } = event.payload;
   searchAgendaTopic(ctx, search, log, agendaIndex);
