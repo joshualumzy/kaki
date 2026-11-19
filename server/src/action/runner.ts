@@ -1,6 +1,7 @@
 import type { ActionDraft, ActionKind, MeetingMemoryEntry, Scenario, Task, TaskStatus } from '@kaki/shared';
 import type { KakiContext, KakiModule } from '../modules';
 import type { TaskStore } from '../tasks';
+import { withActionFooter } from './footer';
 
 /** An expected action failure whose message can go straight onto the task. */
 export class ActionError extends Error {}
@@ -61,6 +62,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
       const shutdown = new AbortController();
       let stopped = false;
       const visitorNameByRole = new Map<string, string>();
+      const warnedNoSourceTime = new Set<string>();
 
       const unsubscribeHub = hub.subscribe((event) => {
         if (event.type === 'MEETING_RESET') {
@@ -143,8 +145,18 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
         }
         background('running the action', async () => {
           let artifactUrl: string;
+          const draft = task.draft;
+          if (draft !== undefined && task.sourceSeconds === undefined && !warnedNoSourceTime.has(task.id)) {
+            warnedNoSourceTime.add(task.id);
+            console.warn(`[action] card ${task.id} has no source time`);
+          }
+          // Every artifact ends with where in the meeting it came from, whatever the tool writes.
+          const runnable =
+            draft === undefined
+              ? task
+              : { ...task, draft: { ...draft, body: withActionFooter(draft.body, task, scenario.meetingTitle) } };
           try {
-            artifactUrl = await run(task, shutdown.signal, scenario, visitorFor(task));
+            artifactUrl = await run(runnable, shutdown.signal, scenario, visitorFor(task));
           } catch (error) {
             fail(task, messageOf(error));
             return;

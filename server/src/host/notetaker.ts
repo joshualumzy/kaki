@@ -57,6 +57,8 @@ interface TranscriptLine {
   text: string;
   /** The agenda item this line was heard on, stamped when it arrives so a queued line keeps its origin. */
   agendaItemTitle?: string;
+  /** Seconds since the meeting started when the line was heard, stamped on arrival so a queued line keeps its moment. */
+  atSeconds?: number;
 }
 
 /** The notetaker's part of the Meeting Record. */
@@ -88,6 +90,8 @@ export interface NotetakerOptions {
   llm?: LlmClient;
   /** The agenda item the meeting is on now. */
   agendaIndex: () => number;
+  /** Seconds since the meeting started; omit when there is no meeting clock. */
+  meetingElapsedSeconds?: () => number;
   /** Called when the LLM hears the meeting move on to a later agenda item; omit to ignore it. */
   onAgendaIndex?: (agendaIndex: number) => void;
 }
@@ -958,7 +962,14 @@ function userPrompt(
 }
 
 /** Create the notetaker; call `run` every 5–10 s while the meeting is on. */
-export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaIndex }: NotetakerOptions): Notetaker {
+export function createNotetaker({
+  scenario,
+  tasks,
+  llm,
+  agendaIndex,
+  meetingElapsedSeconds,
+  onAgendaIndex,
+}: NotetakerOptions): Notetaker {
   let pending: TranscriptLine[] = [];
   let recentGrounded: TranscriptLine[] = [];
   // Lines already heard on the current agenda item. They carry the accepted decision into later batches, where the
@@ -1184,7 +1195,11 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         );
       }
       try {
-        tasks.suggest(withOrigin, selfVolunteeredAssignment(source, withOrigin, scenario));
+        tasks.suggest(
+          withOrigin,
+          selfVolunteeredAssignment(source, withOrigin, scenario),
+          source.atSeconds,
+        );
       } catch (error) {
         console.error('kaki notetaker: could not suggest a task', error);
       }
@@ -1220,9 +1235,16 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         if (!isTaskRequestFromSam) return;
       }
       const agendaItemTitle = scenario.agenda[agendaIndex()]?.title;
+      const atSeconds = meetingElapsedSeconds?.();
       keepPending([
         ...pending,
-        role === undefined ? { speaker, text, agendaItemTitle } : { speaker, role, text, agendaItemTitle },
+        {
+          ...(role === undefined ? {} : { role }),
+          speaker,
+          text,
+          ...(agendaItemTitle === undefined ? {} : { agendaItemTitle }),
+          ...(atSeconds === undefined ? {} : { atSeconds }),
+        },
       ]);
     },
 

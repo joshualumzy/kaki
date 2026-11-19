@@ -1471,6 +1471,37 @@ describe('task agenda origin', () => {
     expect(tasks.list()[0]?.agendaItemTitle).toBe(scenario.agenda[0]?.title);
   });
 
+  it('stamps a task with the meeting second its source line was heard, not the one when run sends it', async () => {
+    const tasks = createTaskStore({ hub: quietHub(), scenario });
+    let meetingSeconds = 930;
+    const notetaker = createNotetaker({
+      scenario,
+      tasks,
+      llm: createFakeLlm(() =>
+        reply({
+          newTasks: [
+            {
+              title: 'Post the opening plan',
+              context: 'Share the agreed opening plan with the team.',
+              suggestedAssignee: 'producer',
+              actionKind: 'mattermost_post',
+              evidence: "Mei: I'll post the opening plan in the team channel today.",
+            },
+          ],
+        }),
+      ),
+      agendaIndex: () => 0,
+      meetingElapsedSeconds: () => meetingSeconds,
+    });
+
+    notetaker.addChunk({ speaker: 'Mei', text: "I'll post the opening plan in the team channel today." });
+    meetingSeconds = 1200;
+    await notetaker.run();
+
+    expect(tasks.list()).toHaveLength(1);
+    expect(tasks.list()[0]?.sourceSeconds).toBe(930);
+  });
+
   it('keeps a repeated handover on the agenda item of its unique decision source', async () => {
     const handover = 'Wei Ling, can you post this plan in Mattermost today?';
     const seatingPlan =

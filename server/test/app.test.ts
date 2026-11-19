@@ -252,6 +252,36 @@ describe('app', () => {
     } finally { release(); }
   });
 
+  it('stamps a settled card with the meeting second the call was made, and a retry keeps it', async () => {
+    let meetingSeconds = 930;
+    const clocked = await createApp({
+      scenario: testScenario,
+      devRoutes: true,
+      meetingElapsedSeconds: () => meetingSeconds,
+    });
+    try {
+      const clockedPort = portOf(clocked);
+      const post = async (): Promise<{ id: string; sourceSeconds?: number }> => {
+        const response = await fetch(`http://127.0.0.1:${clockedPort}/dev/settle-topic`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+            suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep',
+            decisionSource: 'use fresh stock' }),
+        });
+        expect(response.status).toBe(200);
+        return (await response.json()) as { id: string; sourceSeconds?: number };
+      };
+      const first = await post();
+      expect(first.sourceSeconds).toBe(930);
+      meetingSeconds = 1200;
+      const retried = await post();
+      expect(retried.id).toBe(first.id);
+      expect(retried.sourceSeconds).toBe(930);
+    } finally {
+      await clocked.close();
+    }
+  });
+
   it('settles a held card whose decision is worded exactly like the settlement', async () => {
     const { installAutoDispatch } = await import('../src/host/autoDispatch');
     const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });

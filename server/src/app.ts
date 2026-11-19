@@ -23,6 +23,8 @@ export interface CreateAppOptions {
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
   draftOnly?: boolean;
+  /** Seconds since the meeting started, for stamping settled cards with their source time; omit when unknown. */
+  meetingElapsedSeconds?: () => number | undefined;
   /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
   rejoinGraceMs?: number;
   /** How often the app server checks who is in the room; defaults to 5 seconds. */
@@ -56,6 +58,8 @@ interface RequestContext {
   rejoin: RejoinGuard;
   /** Remember the room someone joined and start watching it for the meeting's next empty spell. */
   watchRoom: (roomName: string) => void;
+  /** Seconds since the meeting started, read when a settled card is created or revised. */
+  meetingElapsedSeconds?: () => number | undefined;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -437,6 +441,7 @@ async function handleRequest(
         return;
       }
       const followUp = body.value;
+      const sourceSeconds = context.meetingElapsedSeconds?.();
       const reopening = new URL(request.url ?? '/', 'http://localhost').searchParams.get('reopen') === '1';
       const agendaTitle = followUp.agendaItemTitle;
       if (agendaTitle === undefined) {
@@ -461,8 +466,8 @@ async function handleRequest(
       }
       const task = settled !== undefined && (!reopening || sameDecision) ? settled :
         (suggested[0] === undefined
-          ? context.tasks.suggest(followUp)
-          : context.tasks.reviseSuggested(suggested[0].id, followUp));
+          ? context.tasks.suggest(followUp, undefined, sourceSeconds)
+          : context.tasks.reviseSuggested(suggested[0].id, followUp, sourceSeconds));
       for (const duplicate of settled === undefined ? suggested.slice(1) : suggested) {
         context.tasks.transition(duplicate.id, 'DISMISSED');
       }
@@ -520,6 +525,7 @@ export async function createApp({
   calendar,
   roomRoster = livekitRoster(),
   draftOnly = false,
+  meetingElapsedSeconds,
   rejoinGraceMs,
   rejoinPollMs,
 }: CreateAppOptions): Promise<KakiApp> {
@@ -548,7 +554,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, watchRoom });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, watchRoom, meetingElapsedSeconds });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

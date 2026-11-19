@@ -2,7 +2,7 @@ import type { KakiEvent } from '@kaki/shared';
 import { CommandError } from '../hub';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
-import { createAgendaClock } from './clock';
+import { createAgendaClock, type AgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
 import { createNotetaker, hasTaskAssignment } from './notetaker';
 import { cleanSpokenTopic, openingLine, spokenAgendaName } from './opening';
@@ -23,6 +23,8 @@ export interface MeetingModuleOptions {
   /** Meeting time per real second while replaying (2 = twice as fast). */
   speed?: number;
   notetakerIntervalMs?: number;
+  /** Share the meeting clock with another module (the app stamps settled cards with it); omit to create one. */
+  clock?: AgendaClock;
 }
 
 /**
@@ -35,16 +37,18 @@ export function createMeetingModule({
   replay,
   speed = 1,
   notetakerIntervalMs = DEFAULT_NOTETAKER_INTERVAL_MS,
+  clock: sharedClock,
 }: MeetingModuleOptions = {}): KakiModule {
   return {
     name: 'host-meeting',
     start({ hub, tasks, scenario }: KakiContext) {
-      const clock = createAgendaClock({ agenda: scenario.agenda, speed });
+      const clock = sharedClock ?? createAgendaClock({ agenda: scenario.agenda, speed });
       const notetaker = createNotetaker({
         scenario,
         tasks,
         llm,
         agendaIndex: () => clock.snapshot().agendaIndex,
+        meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
       let humanHost = false;

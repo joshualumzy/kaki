@@ -65,6 +65,11 @@ export interface Task {
   decisionSource?: string;
   /** The agenda item this task came from, stamped by the notetaker so later callbacks stay on their own topic. */
   agendaItemTitle?: string;
+  /**
+   * Seconds since the meeting started at which the source transcript line was spoken, stamped by trusted server code
+   * when the card is created. Artifacts use it to say where in the meeting they came from.
+   */
+  sourceSeconds?: number;
   /** The assignee's own grounded commitment this task came from, if they volunteered for it directly. */
   assignmentEvidence?: AssignmentEvidence;
   mode?: 'ACTION_AGENT' | 'MANUAL';
@@ -191,6 +196,8 @@ export function isTask(value: unknown, scenario: Scenario): value is Task {
     (value.actionKind === undefined || isActionKind(value.actionKind)) &&
     (value.decisionSource === undefined || isNonEmptyString(value.decisionSource)) &&
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle)) &&
+    (value.sourceSeconds === undefined ||
+      (typeof value.sourceSeconds === 'number' && Number.isFinite(value.sourceSeconds) && value.sourceSeconds >= 0)) &&
     (value.assignmentEvidence === undefined || isAssignmentEvidence(value.assignmentEvidence)) &&
     (value.mode === undefined || value.mode === 'ACTION_AGENT' || value.mode === 'MANUAL') &&
     (value.draft === undefined || isActionDraft(value.draft)) &&

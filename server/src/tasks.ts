@@ -22,12 +22,13 @@ type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft'
 /** The single owner of task state; every other module changes tasks through it. */
 export interface TaskStore {
   /**
-   * Suggest a task. `assignmentEvidence` is a separate trusted argument, never part of the public SuggestInput body,
-   * so an API caller cannot forge a commitment and have the assignee's responder auto-accept it.
+   * Suggest a task. `assignmentEvidence` and `sourceSeconds` are separate trusted arguments, never part of the public
+   * SuggestInput body, so an API caller cannot forge a commitment or a source time and have the assignee's responder
+   * auto-accept it.
    */
-  suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence): Task;
+  suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence, sourceSeconds?: number): Task;
   /** Replace an early suggestion with the visitor's final wording before dispatch. */
-  reviseSuggested(id: string, input: SuggestInput): Task;
+  reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task;
   supersede(id: string): Task;
   get(id: string): Task | undefined;
   list(): Task[];
@@ -138,10 +139,17 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     return next;
   }
 
-  function suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence): Task {
+  function isSourceSeconds(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  }
+
+  function suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence, sourceSeconds?: number): Task {
     if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
     if (assignmentEvidence !== undefined && !isAssignmentEvidence(assignmentEvidence)) {
       throw new CommandError('Invalid assignment evidence');
+    }
+    if (sourceSeconds !== undefined && !isSourceSeconds(sourceSeconds)) {
+      throw new CommandError('Invalid source time');
     }
 
     const task: Task = {
@@ -152,6 +160,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       actionKind: input.actionKind,
       ...(input.decisionSource === undefined ? {} : { decisionSource: input.decisionSource }),
       ...(input.agendaItemTitle === undefined ? {} : { agendaItemTitle: input.agendaItemTitle }),
+      ...(sourceSeconds === undefined ? {} : { sourceSeconds }),
       ...(assignmentEvidence === undefined ? {} : { assignmentEvidence: copyAssignmentEvidence(assignmentEvidence) }),
       status: 'SUGGESTED',
       updatedAt: new Date().toISOString(),
@@ -162,13 +171,23 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     return task;
   }
 
-  function reviseSuggested(id: string, input: SuggestInput): Task {
+  function reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task {
     if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
+    if (sourceSeconds !== undefined && !isSourceSeconds(sourceSeconds)) {
+      throw new CommandError('Invalid source time');
+    }
     const current = requireTask(id);
     if (current.status !== 'SUGGESTED') throw new CommandError('Only a suggested task can be revised');
     // Evidence for the old scope cannot authorise a changed deliverable.
     const { assignmentEvidence: _oldEvidence, ...base } = current;
-    const revised: Task = { ...base, ...input, updatedAt: new Date().toISOString() };
+    // Where the card came from is fixed once known: a retried settlement must not move it later in the meeting.
+    const source = current.sourceSeconds ?? sourceSeconds;
+    const revised: Task = {
+      ...base,
+      ...input,
+      ...(source === undefined ? {} : { sourceSeconds: source }),
+      updatedAt: new Date().toISOString(),
+    };
     tasks.set(id, revised);
     publishTask(revised);
     notifyChange(revised, current.status);
