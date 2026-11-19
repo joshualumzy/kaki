@@ -185,6 +185,10 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
         </div>
       </form>
 
+      <p className="kd-hint" style={{ marginTop: 0 }}>
+        Meeting owner? <a href="/setup">Set up meeting</a>
+      </p>
+
       {(() => {
         const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
         return (
