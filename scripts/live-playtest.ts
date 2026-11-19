@@ -1,5 +1,8 @@
 /// <reference lib="dom" />
-/** One visible, one-visitor rehearsal. The operator starts the draft-only stack separately. */
+/**
+ * One visible, one-visitor rehearsal. The operator starts the draft-only stack separately.
+ * `--act` needs a stack started without KAKI_DRAFT_ONLY, and writes to the local mock tools only.
+ */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -7,6 +10,9 @@ import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
+import {
+  draftOnlyRefusal, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction, wingmanFactVerdicts,
+} from './playtest-actions';
 
 /** The demo to test; set KAKI_PLAYTEST_URL (e.g. the cloud URL) to test a deployed copy instead of the local stack. */
 const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
@@ -16,7 +22,7 @@ type Check = { at: string; name: string; status: 'PASS' | 'WARN' | 'FAIL'; detai
 export type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
-export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean };
+export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean; act?: boolean };
 export type AnswerContext = { scenario: Scenario; role: string; topicTitle: string; transcript: Line[]; intent: string };
 export type FinishContext = { scenario?: Scenario; transcript: Line[]; playedTopics: number[] };
 export type PlaytestHooks = {
@@ -31,6 +37,7 @@ function options(): PlaytestOptions {
   let role: string | undefined;
   let phone = false;
   let shots = false;
+  let act = false;
   let maxMinutes = 25;
   for (let i = 2; i < process.argv.length; i += 1) {
     const arg = process.argv[i];
@@ -38,10 +45,11 @@ function options(): PlaytestOptions {
     else if (arg === '--max-minutes' && process.argv[i + 1]) maxMinutes = Number(process.argv[++i]);
     else if (arg === '--phone') phone = true;
     else if (arg === '--shots') shots = true;
+    else if (arg === '--act') act = true;
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
-  return { role, maxMinutes, phone, shots };
+  return { role, maxMinutes, phone, shots, act };
 }
 
 function decisionFor(title: string): string {
@@ -86,6 +94,10 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   const settled = new Set<string>();
   const offerHandled = new Set<number>();
   const accepted = new Set<string>();
+  const claimed = new Set<string>();
+  const approved = new Set<string>();
+  const actedTitles = new Map<string, { title: string; approvedAt: number }>();
+  const factTopics = new Set<number>();
   const reacted = new Set<string>();
   const playedTopics = new Set<number>();
   let extraReportLines: string[] = [];
@@ -172,6 +184,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       tasks.clear();
       settled.clear();
       reacted.clear();
+      factTopics.clear();
       agendaIndex = 0;
       lastProgressAt = now;
     } else if (event.type === 'MEETING_RECORD_UPDATED') {
@@ -196,6 +209,10 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
         taskHistory.push(`${stamp()} ${event.payload.task.id} ${event.payload.task.agendaItemTitle ?? '(no agenda item)'} ${event.payload.task.actionKind ?? '(no kind)'} ${event.payload.task.status} ${event.payload.task.title}`);
       }
       if (previous?.status !== event.payload.task.status) lastProgressAt = now;
+    } else if (event.type === 'FACT_FOUND') {
+      if (event.audience.kind === 'role' && event.audience.role === visitorRole) {
+        factTopics.add(event.payload.agendaIndex);
+      }
     } else if (event.type === 'TOPIC_SETTLED') {
       settled.add(event.payload.title);
       lastProgressAt = now;
@@ -443,6 +460,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   }
 
   async function acceptVisitorTasks(index: number): Promise<void> {
+    // With --act each card is claimed and approved through actOnRobotTasks instead.
+    if (parsed.act === true) return;
     if (page === undefined || scenario === undefined) return;
     const title = scenario.agenda[index]?.title;
     if (title === undefined) return;
@@ -454,6 +473,78 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
         accepted.add(task.id);
         notes.push(`${stamp()} Accepted visitor task ${task.id} for draft review; no publish action was pressed.`);
       }
+    }
+  }
+
+  /** Click Approve & publish for a card whose draft is on screen, waiting for the draft to appear first. */
+  async function approveRobotTask(task: { id: string; title: string }): Promise<void> {
+    if (page === undefined) return;
+    const button = page.locator('.kd-role-active').getByRole('button', { name: 'Approve & publish' }).first();
+    try {
+      await button.waitFor({ state: 'visible', timeout: 60_000 });
+      await button.click({ timeout: 5_000 });
+      approved.add(task.id);
+      actedTitles.set(task.id, { title: task.title, approvedAt: Date.now() });
+      notes.push(`${stamp()} Act: approved card ${task.id} (${task.title}) as ${visitorRole}`);
+    } catch (error) {
+      approved.add(task.id);
+      await check(`Card ${task.title} approve control`, false, `No approve control within 60 s: ${String(error)}`);
+    }
+  }
+
+  /** --act: handle every card assigned to the robot's role through the same controls a guest uses. */
+  async function actOnRobotTasks(): Promise<void> {
+    if (parsed.act !== true || page === undefined || page.isClosed() || visitorRole === '') return;
+    for (;;) {
+      const next = nextRobotTaskAction(tasks.values(), visitorRole, claimed, approved);
+      if (next === undefined) return;
+      if (next.step === 'claim') {
+        const accept = page.locator('.kd-role-active').getByRole('button', { name: 'Accept · Let Kaki do it' }).first();
+        try {
+          await accept.waitFor({ state: 'visible', timeout: 10_000 });
+          await accept.click({ timeout: 5_000 });
+          claimed.add(next.task.id);
+          notes.push(`${stamp()} Act: claimed card ${next.task.id} (${next.task.title}) as ${visitorRole}`);
+        } catch (error) {
+          claimed.add(next.task.id);
+          await check(`Card ${next.task.title} accept control`, false, `No accept control within 10 s: ${String(error)}`);
+          continue;
+        }
+      }
+      await approveRobotTask(next.task);
+    }
+  }
+
+  /** --act: wait out each approved card, verify its artifact, then check the facts the wingman surfaced. */
+  async function finishActedCards(): Promise<void> {
+    for (const [id, acted] of actedTitles) {
+      const deadline = acted.approvedAt + 60_000;
+      let task = tasks.get(id);
+      while (Date.now() < deadline && task?.status !== 'COMPLETED' && task?.status !== 'FAILED') {
+        await delay(350);
+        task = tasks.get(id);
+      }
+      const timedOut = task?.status !== 'COMPLETED' && task?.status !== 'FAILED';
+      const verdict = judgeCardCompletion(task, timedOut);
+      await check(`Card ${acted.title} reached COMPLETED`, verdict.ok, verdict.detail);
+      if (verdict.ok && task?.artifactUrl !== undefined) {
+        let status: number | undefined;
+        let error: string | undefined;
+        try {
+          const response = await fetch(task.artifactUrl, { redirect: 'manual', signal: AbortSignal.timeout(10_000) });
+          status = response.status;
+        } catch (cause) {
+          error = cause instanceof Error ? cause.message : String(cause);
+        }
+        const artifact = judgeArtifactReachability(task.artifactUrl, status, error);
+        await check(`Artifact ${task.artifactUrl} reachable`, artifact.ok, artifact.detail);
+      }
+    }
+    for (const verdict of wingmanFactVerdicts([...playedTopics], factTopics)) {
+      const title = scenario?.agenda[verdict.topic]?.title;
+      const topic = `topic ${verdict.topic + 1}${title === undefined ? '' : ` (${title})`}`;
+      await check(`Wingman fact for topic ${verdict.topic + 1}`, verdict.ok,
+        verdict.ok ? `FACT_FOUND for ${visitorRole} on ${topic}` : `No FACT_FOUND for ${visitorRole} on ${topic}`, 'warn');
     }
   }
 
@@ -796,6 +887,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       while (!settled.has(title) && agendaIndex === i && Date.now() < settleEnd) {
         if (robotLineCount(i) < 4) await handleOffer(i);
         await acceptVisitorTasks(i);
+        await actOnRobotTasks();
         await reactToRoom(i, title, i === 1 ? undefined : decision, before);
         await delay(350);
       }
@@ -814,6 +906,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
           [...tasks.values()].some((task) => task.agendaItemTitle === title), 20_000),
         `TASK_UPDATED with agendaItemTitle=${title}`);
         await keepShot(`topic ${i + 1} card`);
+        await actOnRobotTasks();
       }
 
       if (i === 0 && hooks?.behaviour === 'flip-flop') {
@@ -837,6 +930,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       if (i === 0 && hooks?.behaviour === 'rejoin' && !rejoined) {
         rejoined = true;
         await acceptVisitorTasks(i);
+        await actOnRobotTasks();
         await leaveAndRejoin();
       }
 
@@ -861,6 +955,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
             await reactToRoom(i, title, i === 1 ? undefined : decision, before);
           }
           await acceptVisitorTasks(i);
+          await actOnRobotTasks();
           if (Date.now() - lastAiLineAt > 120_000 && Date.now() - lastProgressAt > 120_000) {
             await check(`Topic ${i + 1} stuck`, false, 'No AI line or progress for over 120 seconds');
             lastProgressAt = Date.now();
@@ -889,6 +984,10 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     await check('Meeting reached wrap-up', closing, closing ? 'HOST_SPEECH_TRIGGERED CLOSING received' : 'No closing event');
     await checkPhoneLayout('at wrap-up');
     await keepShot('at wrap-up');
+    if (parsed.act === true) {
+      await actOnRobotTasks();
+      await finishActedCards();
+    }
     const storedUiLines = await page.evaluate('window.__playtestLines ?? []') as UiLine[];
     uiLines.push(...storedUiLines);
     uiTaskCards = await page.locator('.kd-task-card, .kd-role-active .card-title').allTextContents();
@@ -1004,5 +1103,13 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runLivePlaytest(options()).then((result) => { process.exitCode = result.passed ? 0 : 1; });
+  const parsed = options();
+  if (parsed.act === true) {
+    const refusal = draftOnlyRefusal(process.env);
+    if (refusal !== undefined) {
+      console.error(refusal);
+      process.exit(2);
+    }
+  }
+  void runLivePlaytest(parsed).then((result) => { process.exitCode = result.passed ? 0 : 1; });
 }
