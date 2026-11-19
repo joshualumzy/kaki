@@ -92,6 +92,21 @@ export async function importKopitiamDemo(): Promise<SetupResponse> {
   return parseSetupResponse(await readJson(response), 'Could not load the Kopitiam demo.');
 }
 
+export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
+  let response: Response;
+  try {
+    response = await fetch('/api/setup', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(setup),
+    });
+  } catch {
+    throw networkFailure('save the setup');
+  }
+  if (!response.ok) throw await failure(response, 'Could not save the setup');
+  return parseSetupResponse(await readJson(response), 'Could not save the setup.');
+}
+
 export async function loadTools(): Promise<ToolStatus[]> {
   let response: Response;
   try {

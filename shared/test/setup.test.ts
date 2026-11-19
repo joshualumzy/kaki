@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Scenario } from '../src/scenario';
 import {
   defaultMeetingSetup,
+  demoPackNpcProfileForRole,
+  demoPackNpcProfileForSeat,
   parseMeetingSetup,
   type MeetingSetup,
   type SetupFieldError,
@@ -73,6 +75,35 @@ describe('meeting setup parser', () => {
     expect(ai[0]?.npcProfileId).toBe('Bao');
     expect(setup.pace).toEqual({ ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 });
     expect(parseMeetingSetup(setup, { npcProfileIds: ['Ada', 'Bao'] }).ok).toBe(true);
+  });
+
+  it('finds the demo-pack profile a seat can switch to, and none for a typed seat', () => {
+    expect(demoPackNpcProfileForRole(packScenario, 'chef')).toBe('Ada');
+    expect(demoPackNpcProfileForRole(packScenario, 'waiter')).toBeUndefined();
+    expect(demoPackNpcProfileForRole(testScenario, 'chef')).toBeUndefined();
+
+    expect(
+      demoPackNpcProfileForSeat(packScenario, {
+        displayName: 'Bao',
+        roleId: 'cashier',
+        kind: 'ai',
+        npcProfileId: 'Bao',
+      }),
+    ).toBe('Bao');
+    expect(
+      demoPackNpcProfileForSeat(packScenario, {
+        displayName: 'Renamed cashier',
+        roleId: 'cashier',
+        kind: 'person',
+      }),
+    ).toBe('Bao');
+    expect(
+      demoPackNpcProfileForSeat(packScenario, {
+        displayName: 'Visitor',
+        roleId: 'waiter',
+        kind: 'person',
+      }),
+    ).toBeUndefined();
   });
 
   it('builds a human-only default when the scenario has no demo pack', () => {

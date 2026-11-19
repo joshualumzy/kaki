@@ -39,7 +39,7 @@ function formatMinutes(minutes: number): string {
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
 }
 
-function formatSeconds(seconds: number): string {
+export function formatSeconds(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   const minutePart = minutes === 0 ? '' : `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;

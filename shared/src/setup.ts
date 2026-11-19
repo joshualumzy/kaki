@@ -422,6 +422,42 @@ export function demoPackNpcProfileIds(scenario: Scenario): string[] {
   return (scenario.npcs ?? []).map((npc) => npc.attendee);
 }
 
+/** The demo-pack NPC profile that plays a role, if the pack has one. */
+export function demoPackNpcProfileForRole(
+  scenario: Scenario,
+  roleId: string,
+): string | undefined {
+  const profileIds = new Set(demoPackNpcProfileIds(scenario));
+  return scenario.attendees.find(
+    (attendee) => attendee.role === roleId && profileIds.has(attendee.name),
+  )?.name;
+}
+
+/**
+ * The demo-pack NPC profile a seat can switch to, if any. An AI seat keeps its chosen
+ * profile; a person seat matches the pack by name, then by role, so renaming a pack seat
+ * keeps its stand-in available. A typed seat with no pack match stays person-only.
+ */
+export function demoPackNpcProfileForSeat(
+  scenario: Scenario,
+  seat: MeetingSetupSeat,
+): string | undefined {
+  const profileIds = new Set(demoPackNpcProfileIds(scenario));
+  if (
+    seat.kind === 'ai' &&
+    isNonEmptyString(seat.npcProfileId) &&
+    profileIds.has(seat.npcProfileId)
+  ) {
+    return seat.npcProfileId;
+  }
+
+  const name = seat.displayName.trim().toLowerCase();
+  const byName = (scenario.npcs ?? []).find(
+    (npc) => npc.attendee.trim().toLowerCase() === name && profileIds.has(npc.attendee),
+  );
+  return byName?.attendee ?? demoPackNpcProfileForRole(scenario, seat.roleId);
+}
+
 /**
  * The starting setup for the loaded scenario, marked as coming from the demo pack. The first
  * playable attendee is the person's seat and every other attendee is played by their NPC profile;

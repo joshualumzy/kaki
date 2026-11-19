@@ -2,8 +2,54 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MeetingSetup } from '@kaki/shared';
+import type { MeetingSetup, Scenario } from '@kaki/shared';
+import { ScenarioProvider } from '../kaki';
 import { SetupPage } from './SetupPage';
+
+const scenario: Scenario = {
+  id: 'setup-test',
+  organisation: 'Test Kopitiam',
+  meetingTitle: 'Morning huddle',
+  roles: [
+    { id: 'producer', label: 'Producer' },
+    { id: 'game_designer', label: 'Menu Lead' },
+    { id: 'host', label: 'Host', facilitator: true },
+  ],
+  attendees: [
+    { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' },
+    { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
+    { name: 'Cy', role: 'host', zoomDisplayName: 'Cy' },
+  ],
+  agenda: [
+    { title: 'Service handover', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'producer' },
+  ],
+  npcs: [
+    {
+      attendee: 'Wei Ling',
+      voice: 'en-SG-LunaNeural',
+      personality: 'Direct',
+      agenda: 'Keep the floor running',
+      role: 'participant',
+      concerns: [],
+    },
+    {
+      attendee: 'Mei',
+      voice: 'zh-CN-XiaoxiaoNeural',
+      personality: 'Warm',
+      agenda: 'Protect the menu',
+      role: 'participant',
+      concerns: [],
+    },
+    {
+      attendee: 'Cy',
+      voice: 'en-SG-WayneNeural',
+      personality: 'Calm',
+      agenda: 'Keep time',
+      role: 'host',
+      concerns: [],
+    },
+  ],
+};
 
 const draft: MeetingSetup = {
   title: 'Morning huddle',
@@ -17,7 +63,7 @@ const draft: MeetingSetup = {
   ],
   seats: [
     { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
-    { displayName: 'Cy', roleId: 'host', kind: 'ai', npcProfileId: 'cy' },
+    { displayName: 'Cy', roleId: 'host', kind: 'ai', npcProfileId: 'Cy' },
   ],
   pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
   source: {
@@ -40,6 +86,22 @@ const importedDraft: MeetingSetup = {
     seats: 'demo pack',
     pace: 'demo pack',
   },
+};
+
+const twoPeopleOneAi: MeetingSetup = {
+  ...draft,
+  roles: [...draft.roles, { id: 'game_designer', label: 'Menu Lead', facilitator: false }],
+  seats: [
+    { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+    { displayName: 'Mei', roleId: 'game_designer', kind: 'person' },
+    { displayName: 'Cy', roleId: 'host', kind: 'ai', npcProfileId: 'Cy' },
+  ],
+};
+
+const typedSeatDraft: MeetingSetup = {
+  ...draft,
+  roles: [...draft.roles, { id: 'visitor', label: 'Visitor', facilitator: false }],
+  seats: [...draft.seats, { displayName: 'Alex', roleId: 'visitor', kind: 'person' }],
 };
 
 function reply(body: unknown, status = 200): Response {
@@ -67,6 +129,7 @@ function installFetch(routes: Record<string, Handler>): ReturnType<typeof vi.fn>
 function baseRoutes(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     'GET /api/auth/me': () => reply({ authEnabled: false }),
+    'GET /api/scenario': () => reply(scenario),
     'GET /api/setup': () => reply({ setup: draft, started: false }),
     'GET /api/setup/tools': () => reply({ tools: [] }),
     ...overrides,
@@ -76,8 +139,16 @@ function baseRoutes(overrides: Record<string, Handler> = {}): Record<string, Han
 function renderPage(): void {
   render(
     <MemoryRouter initialEntries={['/setup']}>
-      <SetupPage />
+      <ScenarioProvider>
+        <SetupPage />
+      </ScenarioProvider>
     </MemoryRouter>,
+  );
+}
+
+function putCalls(fetchMock: ReturnType<typeof vi.fn>): unknown[][] {
+  return fetchMock.mock.calls.filter(
+    ([input, init]) => String(input) === '/api/setup' && init?.method === 'PUT',
   );
 }
 
@@ -87,8 +158,12 @@ afterEach(() => {
 });
 
 describe('SetupPage', () => {
-  it('renders the saved draft with a source label for every section', async () => {
-    installFetch(baseRoutes());
+  it('renders the saved draft read-only with a source label for every section', async () => {
+    installFetch(
+      baseRoutes({
+        'GET /api/auth/me': () => reply({ authEnabled: true, kind: 'participant', role: 'producer' }),
+      }),
+    );
     renderPage();
 
     expect(await screen.findByText('Morning huddle')).toBeTruthy();
@@ -120,7 +195,7 @@ describe('SetupPage', () => {
     );
     renderPage();
 
-    await screen.findByText('Morning huddle');
+    await screen.findByDisplayValue('Morning huddle');
     const load = screen.getByRole('button', { name: 'Load Kopitiam demo' }) as HTMLButtonElement;
     fireEvent.click(load);
 
@@ -129,8 +204,8 @@ describe('SetupPage', () => {
 
     resolveImport(reply({ setup: importedDraft, started: false }));
 
-    expect(await screen.findByText('Kopitiam launch')).toBeTruthy();
-    expect(screen.queryByText('Morning huddle')).toBeNull();
+    expect(await screen.findByDisplayValue('Kopitiam launch')).toBeTruthy();
+    expect(screen.queryByDisplayValue('Morning huddle')).toBeNull();
     expect((screen.getByRole('button', { name: 'Load Kopitiam demo' }) as HTMLButtonElement).disabled).toBe(false);
     expect(
       fetchMock.mock.calls.filter(
@@ -160,14 +235,14 @@ describe('SetupPage', () => {
     );
     renderPage();
 
-    await screen.findByText('Morning huddle');
+    await screen.findByDisplayValue('Morning huddle');
     fireEvent.click(screen.getByRole('button', { name: 'Load Kopitiam demo' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('The calendar invite does not match the demo pack.');
     expect(alert.textContent).toContain('agenda[0].owner');
     expect(alert.textContent).toContain('"Nobody" is not a seat or role in the demo pack.');
-    expect(screen.getByText('Morning huddle')).toBeTruthy();
+    expect(screen.getByDisplayValue('Morning huddle')).toBeTruthy();
   });
 
   it('shows the server message when the calendar cannot be read', async () => {
@@ -178,12 +253,12 @@ describe('SetupPage', () => {
     );
     renderPage();
 
-    await screen.findByText('Morning huddle');
+    await screen.findByDisplayValue('Morning huddle');
     fireEvent.click(screen.getByRole('button', { name: 'Load Kopitiam demo' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('The calendar could not be read.');
-    expect(screen.getByText('Morning huddle')).toBeTruthy();
+    expect(screen.getByDisplayValue('Morning huddle')).toBeTruthy();
   });
 
   it('lists tools with their connection state and missing settings, then tests with retry', async () => {
@@ -252,6 +327,7 @@ describe('SetupPage', () => {
     expect(
       ((await screen.findByRole('button', { name: 'Test connection' })) as HTMLButtonElement).disabled,
     ).toBe(true);
+    expect(screen.queryByLabelText('Meeting title field')).toBeNull();
   });
 
   it('gives a participant the read-only draft and no action buttons', async () => {
@@ -265,6 +341,7 @@ describe('SetupPage', () => {
     expect(await screen.findByText('Morning huddle')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Load Kopitiam demo' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Test connection' })).toBeNull();
+    expect(screen.queryByLabelText('Meeting title field')).toBeNull();
   });
 
   it('shows a 403 message with a sign-in link and no actions', async () => {
@@ -281,5 +358,165 @@ describe('SetupPage', () => {
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login');
     expect(screen.queryByRole('button', { name: 'Load Kopitiam demo' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Test connection' })).toBeNull();
+  });
+
+  it('rejects 0 minutes on the form and sends no PUT', async () => {
+    const fetchMock = installFetch(baseRoutes());
+    renderPage();
+
+    const minutes = (await screen.findByLabelText('Agenda item 1 minutes')) as HTMLInputElement;
+    fireEvent.change(minutes, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(
+      (await screen.findAllByText('Minutes must be a number greater than 0 and no more than 240.'))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(putCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('rejects an agenda item with no owner and sends no PUT', async () => {
+    const fetchMock = installFetch(baseRoutes());
+    renderPage();
+
+    const owner = (await screen.findByLabelText('Agenda item 1 owner')) as HTMLSelectElement;
+    fireEvent.change(owner, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(
+      (await screen.findAllByText('Choose an owner role that exists in this meeting.')).length,
+    ).toBeGreaterThan(0);
+    expect(putCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('rejects duplicate role names and sends no PUT', async () => {
+    const fetchMock = installFetch(baseRoutes());
+    renderPage();
+
+    const secondRole = (await screen.findByLabelText('Role 2 name')) as HTMLInputElement;
+    fireEvent.change(secondRole, { target: { value: 'Producer' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect((await screen.findAllByText('Role names must be unique.')).length).toBeGreaterThan(0);
+    expect(putCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('blocks removing a role that an agenda item or seat still uses', async () => {
+    installFetch(baseRoutes());
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove role 1' }));
+
+    expect(
+      await screen.findByText(
+        '"Producer" is still used by an agenda item and a seat. Change or remove those first.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByLabelText('Role 1 name')).toBeTruthy();
+  });
+
+  it('shows the AI stand-in room limit when a second person joins', async () => {
+    const fetchMock = installFetch(
+      baseRoutes({
+        'GET /api/setup': () => reply({ setup: twoPeopleOneAi, started: false }),
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByLabelText('Seat 3 AI stand-in')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(
+      (await screen.findAllByText('A meeting with AI stand-ins has room for one person.')).length,
+    ).toBeGreaterThan(0);
+    expect(putCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('shows server 400 field errors next to the field', async () => {
+    installFetch(
+      baseRoutes({
+        'PUT /api/setup': () =>
+          reply(
+            {
+              errors: [
+                {
+                  field: 'agenda[0].minutes',
+                  message: 'Minutes must be a number greater than 0 and no more than 240.',
+                },
+              ],
+            },
+            400,
+          ),
+      }),
+    );
+    renderPage();
+
+    const title = (await screen.findByLabelText('Meeting title field')) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: 'Changed title' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(
+      (await screen.findAllByText('Minutes must be a number greater than 0 and no more than 240.'))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByRole('alert').textContent).toContain('Could not save the setup');
+  });
+
+  it('saves and re-renders the server draft with Typed labels', async () => {
+    const savedDraft: MeetingSetup = {
+      ...draft,
+      title: 'Saved morning huddle',
+      source: {
+        title: 'typed',
+        agenda: 'typed',
+        roles: 'typed',
+        seats: 'typed',
+        pace: 'typed',
+      },
+    };
+    const fetchMock = installFetch(
+      baseRoutes({
+        'PUT /api/setup': () => reply({ setup: savedDraft, started: false }),
+      }),
+    );
+    renderPage();
+
+    const title = (await screen.findByLabelText('Meeting title field')) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: 'Draft title' } });
+    expect(screen.getByText('You have unsaved changes.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(await screen.findByDisplayValue('Saved morning huddle')).toBeTruthy();
+    expect(screen.getAllByText('Typed')).toHaveLength(5);
+    expect(screen.queryByText('You have unsaved changes.')).toBeNull();
+    expect(putCalls(fetchMock)).toHaveLength(1);
+  });
+
+  it('reverts unsaved edits with Cancel', async () => {
+    installFetch(baseRoutes());
+    renderPage();
+
+    const title = (await screen.findByLabelText('Meeting title field')) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: 'Not saved' } });
+    expect(title.value).toBe('Not saved');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(title.value).toBe('Morning huddle');
+  });
+
+  it('shows no AI switch for a typed seat', async () => {
+    installFetch(
+      baseRoutes({
+        'GET /api/setup': () => reply({ setup: typedSeatDraft, started: false }),
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByLabelText('Seat 3 name')).toBeTruthy();
+    expect(screen.getByLabelText('Seat 2 AI stand-in')).toBeTruthy();
+    expect(screen.queryByLabelText('Seat 3 AI stand-in')).toBeNull();
+    expect(screen.getByText('Person only')).toBeTruthy();
   });
 });

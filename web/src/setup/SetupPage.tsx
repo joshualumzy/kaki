@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { MeetingSetup, SetupFieldError } from '@kaki/shared';
 import { useMe } from '../auth/useMe';
+import { useScenario } from '../kaki';
 import { Button, Card } from '../ui';
 import { SetupApiError, importKopitiamDemo, loadSetup } from './api';
 import { SetupDraft } from './SetupDraft';
+import { SetupEditor } from './SetupEditor';
 import { ToolsSection } from './ToolsSection';
 import './setup.css';
 
@@ -44,6 +46,7 @@ function FieldProblems({ errors }: { errors: SetupFieldError[] }) {
 /** The pre-meeting setup page: the saved draft, demo import, and the server's tool connections. */
 export function SetupPage() {
   const auth = useMe();
+  const scenario = useScenario();
   const [state, setState] = useState<SetupState>({ status: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
   const [importing, setImporting] = useState(false);
@@ -171,7 +174,15 @@ export function SetupPage() {
             </section>
           ) : null}
 
-          <SetupDraft setup={state.setup} />
+          {canEdit && !state.started ? (
+            <SetupEditor
+              setup={state.setup}
+              scenario={scenario}
+              onSaved={(setup) => setState({ status: 'ready', setup, started: false })}
+            />
+          ) : (
+            <SetupDraft setup={state.setup} />
+          )}
 
           {canEdit ? <ToolsSection canEdit={canEdit} started={state.started} /> : null}
         </>
