@@ -6,13 +6,14 @@ import type { Scenario } from '@kaki/shared';
 
 const mocks = vi.hoisted(() => ({
   useScenario: vi.fn(),
+  refreshScenario: vi.fn(),
   events: [] as unknown[],
   lifecycleStarted: undefined as boolean | undefined,
 }));
 
 vi.mock('../kaki', () => ({
   useScenario: mocks.useScenario,
-  useRefreshScenario: () => async () => mocks.useScenario(),
+  useRefreshScenario: () => mocks.refreshScenario,
   useKaki: () => ({ events: mocks.events, started: mocks.lifecycleStarted }),
 }));
 
@@ -73,6 +74,8 @@ beforeEach(async () => {
   vi.resetModules();
   mocks.events = [];
   mocks.lifecycleStarted = undefined;
+  mocks.refreshScenario.mockReset();
+  mocks.refreshScenario.mockImplementation(async () => mocks.useScenario());
   Meeting = (await import('./Meeting')).default;
   mocks.useScenario.mockReturnValue(scenario);
 });
@@ -110,6 +113,14 @@ describe('Meeting join', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Join now' })).toBeNull());
     expect(screen.queryByRole('region', { name: 'Before the meeting starts' })).toBeNull();
     expect(document.querySelector('[data-needs-start="true"]')).toBeNull();
+  });
+
+  it('re-fetches the scenario after a successful join', async () => {
+    replyWith({ started: false });
+    render(<Meeting />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
+
+    await waitFor(() => expect(mocks.refreshScenario).toHaveBeenCalledTimes(1));
   });
 
   it('offers only join seats the server would accept', async () => {

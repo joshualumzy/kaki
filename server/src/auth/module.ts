@@ -30,6 +30,12 @@ export interface Auth {
   authorize(request: IncomingMessage, audience: ClientAudience): Promise<AuthDecision>;
   /** The resolved host or seat principal behind a request; undefined otherwise. */
   resolvePrincipal(request: IncomingMessage): Promise<Principal | undefined>;
+  /**
+   * Start the session a successful seat admission creates. `/api/join` and the LiveKit token route
+   * share it: a visitor gets a participant session, while the signed-in host keeps the host and
+   * replaces their session with one that also holds the seat.
+   */
+  startSeatSession(request: IncomingMessage, response: ServerResponse, role: string): Promise<void>;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   close(): Promise<void>;
@@ -118,6 +124,14 @@ function stringField(body: JsonObject, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/** Who a stored session belongs to: a host keeps the host even when it also holds a seat. */
+function principalFor(session: SessionRecord): Principal {
+  if (session.kind === 'host') {
+    return session.role === null ? { kind: 'host' } : { kind: 'host', seat: session.role };
+  }
+  return { kind: 'seat', role: session.role ?? '' };
+}
+
 /** Create the auth feature: endpoints, session cookies and WebSocket gating. */
 export function createAuth({
   store,
@@ -166,6 +180,23 @@ export function createAuth({
       expiresAt: new Date(now() + SESSION_TTL_MS),
     });
     response.setHeader('set-cookie', sessionCookie(token, secureCookies));
+  }
+
+  async function startSeatSession(
+    request: IncomingMessage,
+    response: ServerResponse,
+    role: string,
+  ): Promise<void> {
+    const token = readSessionCookie(request);
+    const session = await currentSession(request);
+    if (session?.kind === 'host') {
+      // A host taking a seat is still the host: swap their session for one that also holds the seat,
+      // so the old token cannot keep acting while the new one carries both roles.
+      if (token !== undefined) await store.deleteSession(hashToken(token));
+      await startSession(response, 'host', role, null);
+      return;
+    }
+    await startSession(response, 'participant', role, meetingCode.value);
   }
 
   async function handleLogin(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -293,7 +324,7 @@ export function createAuth({
       return;
     }
 
-    await startSession(response, 'participant', role, meetingCode.value);
+    await startSeatSession(request, response, role);
     sendJson(response, 200, { kind: 'participant', role });
   }
 
@@ -305,14 +336,13 @@ export function createAuth({
 
   return {
     meetingCodeLimiter: meetingCodeAttempts,
+    startSeatSession,
 
     async resolvePrincipal(request) {
       const session = await currentSession(request);
       if (session === undefined) return undefined;
       if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) return undefined;
-      return session.kind === 'host'
-        ? { kind: 'host' }
-        : { kind: 'seat', role: session.role ?? '' };
+      return principalFor(session);
     },
 
     async handleHttp(request, response) {
@@ -350,8 +380,7 @@ export function createAuth({
       if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) {
         return { ok: false, message: MEETING_ENDED_MESSAGE };
       }
-      const principal: Principal =
-        session.kind === 'host' ? { kind: 'host' } : { kind: 'seat', role: session.role ?? '' };
+      const principal = principalFor(session);
       // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
       if (audience === 'lifecycle') {
         return { ok: true, participant: session.kind === 'participant', principal };
@@ -361,7 +390,12 @@ export function createAuth({
           ? { ok: true, principal }
           : { ok: false, message: 'Host sign-in required' };
       }
-      if (session.kind !== 'participant' || session.role !== audience || !roles.includes(audience)) {
+      // A participant holds their seat; a host may also hold the seat they took, without losing host powers.
+      const holdsSeat =
+        (session.kind === 'participant' || session.kind === 'host') &&
+        session.role === audience &&
+        roles.includes(audience);
+      if (!holdsSeat) {
         return { ok: false, message: 'Join this meeting with that role first' };
       }
       return { ok: true, participant: session.kind === 'participant', principal };

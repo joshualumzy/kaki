@@ -1,14 +1,16 @@
-import type { NpcProfile, Scenario } from '@kaki/shared';
+import { humanSeatRoles, type NpcProfile, type RoleCard, type Scenario } from '@kaki/shared';
 
 /**
  * What a non-runner browser may see of the active scenario. `seat` is the role a signed-in
- * participant holds, or undefined for the shared screen and signed-out visitors. Hidden AI
- * material (agenda directions, every other seat's facts, role cards and private NPC notes) never
- * leaves the server for those audiences; the AI runner reads the full scenario through its
- * service-only route instead.
+ * participant holds, or undefined for the shared screen and signed-out visitors. A playable
+ * seat's `youAre` and `responsibility` stay public so the seat picker works; its facts, every
+ * other seat's facts, agenda directions and private NPC notes never leave the server for those
+ * audiences. The AI runner reads the full scenario through its service-only route instead.
  */
 export function projectScenario(scenario: Scenario, seat?: string): Scenario {
   const projected = structuredClone(scenario) as Scenario;
+  // The seats a person can take: their labels are public, their facts are not.
+  const playable = new Set(humanSeatRoles(scenario).map((role) => role.id));
 
   for (const item of projected.agenda) {
     delete item.directions;
@@ -20,7 +22,17 @@ export function projectScenario(scenario: Scenario, seat?: string): Scenario {
   }
 
   for (const role of projected.roles) {
-    if (seat === undefined || role.id !== seat) delete role.card;
+    if (role.card === undefined || role.id === seat) continue;
+    if (playable.has(role.id)) {
+      // The seat picker needs who the seat is and what it answers for; its facts stay with its holder.
+      role.card = {
+        youAre: role.card.youAre,
+        responsibility: role.card.responsibility,
+      } as RoleCard;
+      continue;
+    }
+    // An AI-only seat's card is hidden from everyone but its own holder (who does not exist here).
+    delete role.card;
   }
 
   if (projected.npcs !== undefined) {

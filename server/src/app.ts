@@ -489,6 +489,11 @@ async function handleRequest(
             { roomName: roomName, participantName, participantRole: seatId },
             npcNames,
           );
+          // Sign-in on: a person admitted to a seat leaves with the same seat session /api/join gives.
+          // A signed-in host stays host and takes the seat in a replacement host session.
+          if (context.auth !== undefined && principal.kind !== 'service') {
+            await context.auth.startSeatSession(request, response, seatId);
+          }
           context.reservations.add({ participantName, seatId });
           if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin, seatId);
           else context.rejoin.remember(participantName, seatId);
@@ -645,13 +650,18 @@ async function handleRequest(
 
     if (request.method === 'GET' && path === '/api/scenario') {
       const active = context.seating().scenario;
+      // A seat holder sees that seat, whether a participant or the host playing it.
+      const seat =
+        principal.kind === 'seat'
+          ? principal.role
+          : principal.kind === 'host'
+            ? principal.seat
+            : undefined;
       // With sign-in off the trusted demo keeps the whole scenario, as it always did.
       const visible =
         context.auth === undefined || principal.kind === 'service'
           ? active
-          : principal.kind === 'seat'
-            ? projectScenario(active, principal.role)
-            : projectScenario(active);
+          : projectScenario(active, seat);
       sendJson(response, 200, visible);
       return;
     }

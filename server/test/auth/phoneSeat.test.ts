@@ -177,8 +177,9 @@ describe('phone and screen seat authority', () => {
     expect(oldSocket.ok).toBe(false);
     if (!oldSocket.ok) expect(oldSocket.status).toBe(401);
 
-    const newCookie = await joinAs(newCode, 'chef');
-    const newSocket = await connect(port, 'chef', newCookie);
+    // The desktop person took the chef seat when they joined the new meeting, so the phone takes cashier.
+    const newCookie = await joinAs(newCode, 'cashier');
+    const newSocket = await connect(port, 'cashier', newCookie);
     expect(newSocket.ok).toBe(true);
     if (newSocket.ok) sockets.push(newSocket.ws);
   });

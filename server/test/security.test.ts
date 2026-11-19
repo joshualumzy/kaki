@@ -72,7 +72,11 @@ function privateScenario(): Scenario {
         label: 'Cashier',
         card: { youAre: 'You run the till.', facts: ['cashier card secret'], responsibility: 'You count the float.' },
       },
-      { id: 'manager', label: 'Manager' },
+      {
+        id: 'manager',
+        label: 'Manager',
+        card: { youAre: 'You manage the shop.', facts: ['manager card secret'], responsibility: 'You approve the roster.' },
+      },
     ],
     attendees: [
       ...testScenario.attendees,
@@ -93,6 +97,32 @@ function privateScenario(): Scenario {
         agenda: 'Keep the kitchen running.',
         concerns: [],
         hiddenGoal: 'npc hidden goal',
+      },
+    ],
+  };
+}
+
+/** A startable, AI-free meeting carrying the same private material, for host seat powers. */
+function hostSeatScenario(): Scenario {
+  return {
+    ...testScenario,
+    roles: [
+      {
+        id: 'chef',
+        label: 'Chef',
+        card: { youAre: 'You run the kitchen.', facts: ['chef card secret'], responsibility: 'You order stock.' },
+      },
+      {
+        id: 'cashier',
+        label: 'Cashier',
+        card: { youAre: 'You run the till.', facts: ['cashier card secret'], responsibility: 'You count the float.' },
+      },
+    ],
+    agenda: [
+      {
+        ...testScenario.agenda[0]!,
+        directions: ['hidden direction'],
+        seatFacts: { chef: 'chef seat secret', cashier: 'cashier seat secret' },
       },
     ],
   };
@@ -267,19 +297,116 @@ describe('one access layer', () => {
     }
   });
 
+  it('starts the same seat session for a LiveKit join so the joiner sees their own card and facts', async () => {
+    const app = await authApp({ scenario: privateScenario() });
+
+    const response = await post(app, '/api/livekit/token', {
+      participantName: 'Ada',
+      participantRole: 'chef',
+      meetingCode: MEETING_CODE,
+    });
+    expect(response.status).toBe(200);
+    const cookie = cookieFrom(response);
+
+    const me = (await (await get(app, '/api/auth/me', cookie)).json()) as { kind: string; role: string };
+    expect(me).toEqual({ kind: 'participant', role: 'chef', authEnabled: true });
+
+    const seatBody = (await (await get(app, '/api/scenario', cookie)).json()) as Scenario;
+    const chefCard = seatBody.roles.find((role) => role.id === 'chef')?.card;
+    expect(chefCard?.facts).toEqual(['chef card secret']);
+    expect(seatBody.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
+    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toBeUndefined();
+    expect(seatBody.agenda[0]?.seatFacts?.cashier).toBeUndefined();
+    expect(seatBody.agenda[0]?.directions).toBeUndefined();
+  });
+
+  it('keeps a playable seat card public but never its facts, and hides AI-only cards', async () => {
+    const app = await authApp({ scenario: privateScenario() });
+
+    const publicBody = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    const chefCard = publicBody.roles.find((role) => role.id === 'chef')?.card;
+    const cashierCard = publicBody.roles.find((role) => role.id === 'cashier')?.card;
+    expect(chefCard).toMatchObject({ youAre: 'You run the kitchen.', responsibility: 'You order stock.' });
+    expect(cashierCard).toMatchObject({ youAre: 'You run the till.', responsibility: 'You count the float.' });
+    expect(chefCard?.facts).toBeUndefined();
+    expect(cashierCard?.facts).toBeUndefined();
+    expect(publicBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
+    expect(publicBody.agenda[0]?.seatFacts).toBeUndefined();
+    expect(publicBody.agenda[0]?.directions).toBeUndefined();
+    expect(publicBody.npcs?.[0]?.hiddenGoal).toBeUndefined();
+  });
+
+  it('keeps a signed-in host who takes a seat as host with that seat’s card and powers', async () => {
+    const app = await authApp({ scenario: hostSeatScenario() });
+    const host = await signInAsHost(app);
+
+    const joined = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
+      host,
+    );
+    expect(joined.status).toBe(200);
+    const seatHost = cookieFrom(joined);
+
+    // The join replaces the host session rather than leaving the old token usable beside the new one.
+    expect((await get(app, '/api/auth/me', host)).status).toBe(401);
+
+    const me = await get(app, '/api/auth/me', seatHost);
+    expect(me.status).toBe(200);
+    expect(await me.json()).toEqual({ kind: 'host', authEnabled: true });
+
+    const body = (await (await get(app, '/api/scenario', seatHost)).json()) as Scenario;
+    expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual(['chef card secret']);
+    expect(body.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
+    expect(body.roles.find((role) => role.id === 'cashier')?.card?.facts).toBeUndefined();
+    expect(body.agenda[0]?.seatFacts?.cashier).toBeUndefined();
+    expect(body.agenda[0]?.directions).toBeUndefined();
+
+    // A host session carrying a seat still carries every host power.
+    expect((await get(app, '/api/meeting-code', seatHost)).status).toBe(200);
+    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
+
+    // The host can follow their seat's feed as well as the host's screen feed.
+    const seatFeed = await connect(portOf(app), 'chef', { cookie: seatHost });
+    const screenFeed = await connect(portOf(app), 'screen', { cookie: seatHost });
+    expect(seatFeed.ok && screenFeed.ok).toBe(true);
+    if (seatFeed.ok) seatFeed.ws.terminate();
+    if (screenFeed.ok) screenFeed.ws.terminate();
+  });
+
+  it('gives the host a plain session again when they sign in later', async () => {
+    const app = await authApp({ scenario: hostSeatScenario() });
+    const host = await signInAsHost(app);
+    const joined = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef', meetingCode: MEETING_CODE },
+      host,
+    );
+    expect(joined.status).toBe(200);
+
+    const again = await signInAsHost(app);
+    const body = (await (await get(app, '/api/scenario', again)).json()) as Scenario;
+    expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toBeUndefined();
+    expect(body.agenda[0]?.seatFacts).toBeUndefined();
+  });
+
   it('projects the scenario for each audience and gives the runner the full one only on its service route', async () => {
     const app = await authApp({ scenario: privateScenario(), serviceToken: 'runner-secret' });
     const publicBody = (await (await get(app, '/api/scenario')).json()) as Scenario;
     expect(publicBody.agenda[0]?.directions).toBeUndefined();
     expect(publicBody.agenda[0]?.seatFacts).toBeUndefined();
-    expect(publicBody.roles.every((role) => role.card === undefined)).toBe(true);
+    expect(publicBody.roles.find((role) => role.id === 'chef')?.card?.facts).toBeUndefined();
+    expect(publicBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
     expect(publicBody.npcs?.[0]?.hiddenGoal).toBeUndefined();
 
     const chef = await join(app, 'chef');
     const seatBody = (await (await get(app, '/api/scenario', chef)).json()) as Scenario;
     expect(seatBody.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
     expect(seatBody.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual(['chef card secret']);
-    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card).toBeUndefined();
+    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toBeUndefined();
+    expect(seatBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
     expect(seatBody.agenda[0]?.directions).toBeUndefined();
 
     const full = await fetch(`${base(app)}/api/scenario/full`, {

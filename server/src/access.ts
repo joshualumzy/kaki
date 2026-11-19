@@ -12,7 +12,8 @@ export const ACCESS_LEVELS: readonly Access[] = ['public', 'session', 'host', 's
 /** Who a request belongs to, once the access layer has resolved it. */
 export type Principal =
   | { kind: 'anonymous' }
-  | { kind: 'host' }
+  /** A host may also hold a seat they took; they keep every host power either way. */
+  | { kind: 'host'; seat?: string }
   | { kind: 'seat'; role: string }
   | { kind: 'service' };
 
