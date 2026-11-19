@@ -64,8 +64,15 @@ export interface RunnerOptions {
   readerFallbackStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   /** A sentence as 16 kHz mono samples. */
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Int16Array>;
-  /** A line said in the meeting, under the name Kaki's transcript uses; `textOnly` marks a line shown as text because its voice failed. */
-  postTranscript(speaker: string, text: string, options?: { textOnly?: boolean }): void;
+  /**
+   * A line said in the meeting, under the name Kaki's transcript uses; `textOnly` marks a line shown as text because
+   * its voice failed, and `catchId` marks the last sentence of the line that raises a catch.
+   */
+  postTranscript(
+    speaker: string,
+    text: string,
+    options?: { textOnly?: boolean; catchId?: string },
+  ): void;
   responseDelayMs?: number;
   /** Called when the last person has left the room (not when the room was empty to begin with). */
   onRoomEmpty?: () => void;

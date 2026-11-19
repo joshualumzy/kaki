@@ -32,8 +32,15 @@ export interface NpcPorts<Clip> {
   play(speaker: string, clip: Clip, signal: AbortSignal): Promise<void>;
   /** Playback length for resuming a scripted sentence after a wordless cut-in. */
   clipDurationMs?(clip: Clip): number;
-  /** A line said in the meeting, for Kaki's transcript; `textOnly` marks a line shown as text because its voice failed. */
-  emitTranscript(speaker: string, text: string, options?: { textOnly?: boolean }): void;
+  /**
+   * A line said in the meeting, for Kaki's transcript; `textOnly` marks a line shown as text because its voice failed,
+   * and `catchId` marks the last sentence of the line that raises a catch.
+   */
+  emitTranscript(
+    speaker: string,
+    text: string,
+    options?: { textOnly?: boolean; catchId?: string },
+  ): void;
   /** What the AI attendees are doing, for the screen. */
   emitState(state: NpcUiState): void;
   log?(message: string): void;
@@ -5543,7 +5550,7 @@ export class NpcConversation<Clip> {
         const transcriptKey = `${utterance.speaker}:${utterance.text}`;
         if (transcribe && transcriptKey !== this.lastTranscriptEmit) {
           this.lastTranscriptEmit = transcriptKey;
-          this.ports.emitTranscript(utterance.speaker, utterance.text, textOnly ? { textOnly: true } : undefined);
+          this.ports.emitTranscript(utterance.speaker, utterance.text, this.transcriptOptions(turn, utterance, textOnly));
         }
         const played = await this.playUtterance(turn, utterance, audio, textOnly);
         let heard = played;
@@ -5604,6 +5611,22 @@ export class NpcConversation<Clip> {
     }
   }
 
+  /** The transcript markers for one sentence: text-only, and the catch id once the planned line reaches its last sentence. */
+  private transcriptOptions(
+    turn: Turn,
+    utterance: Utterance,
+    textOnly: boolean,
+  ): { textOnly?: boolean; catchId?: string } | undefined {
+    const catchId = turn.planned?.catchId !== undefined && turn.planned.lastUtterance === utterance
+      ? turn.planned.catchId
+      : undefined;
+    if (!textOnly && catchId === undefined) return undefined;
+    return {
+      ...(textOnly ? { textOnly: true } : {}),
+      ...(catchId === undefined ? {} : { catchId }),
+    };
+  }
+
   /** Play one sentence (or hold a text-only line up long enough to read), stopping early when the turn is cut. */
   private async playUtterance(
     turn: Turn,
@@ -5630,7 +5653,7 @@ export class NpcConversation<Clip> {
   /** A failed opening playback still reaches the guest on screen, using the same text view as a failed voice. */
   private async showOpeningLineAsText(turn: Turn, utterance: Utterance, transcribe: boolean): Promise<boolean> {
     this.ports.log?.(`[tts] playback failed; showing as text: ${utterance.speaker}`);
-    if (transcribe) this.ports.emitTranscript(utterance.speaker, utterance.text, { textOnly: true });
+    if (transcribe) this.ports.emitTranscript(utterance.speaker, utterance.text, this.transcriptOptions(turn, utterance, true));
     await this.wait(this.textReadingMs(utterance.text), turn.soundAbort.signal);
     return !turn.abort.signal.aborted;
   }

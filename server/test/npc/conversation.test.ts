@@ -85,6 +85,7 @@ function harness(
   const playing: Playing[] = [];
   const states: NpcUiState[] = [];
   const transcript: Array<[string, string]> = [];
+  const transcriptOptions: Array<[string, string, { textOnly?: boolean; catchId?: string } | undefined]> = [];
   const logs: string[] = [];
 
   const ports: NpcPorts<Utterance> = {
@@ -137,7 +138,10 @@ function harness(
           signal.addEventListener('abort', () => resolve());
         });
       },
-      emitTranscript: (speaker, text) => transcript.push([speaker, text]),
+      emitTranscript: (speaker, text, options) => {
+        transcript.push([speaker, text]);
+        transcriptOptions.push([speaker, text, options]);
+      },
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
   };
@@ -162,7 +166,7 @@ function harness(
     conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(900);
   }
-  return { conversation, ports, calls, assessments, playing, states, transcript, logs, flush, say };
+  return { conversation, ports, calls, assessments, playing, states, transcript, transcriptOptions, logs, flush, say };
 }
 
 describe('NpcConversation', () => {
@@ -2656,6 +2660,22 @@ describe('one-speaker replies to the guest', () => {
     await h.flush();
     expect(h.transcript).toContainEqual(['Bao', 'Calling her in means double pay for her rest day.']);
     expect(h.calls).toHaveLength(2);
+    h.conversation.close();
+  });
+
+  it('marks the heard catch line with the catch id the planner raised', async () => {
+    const h = harness(withColleagueHost(catchScenario), 0, undefined, 'one-speaker');
+    await h.say('Ada, let us call Auntie Mary in.');
+    await waitForCall(h, 0);
+    await reply(h, 'Ada: That could work.');
+    await waitForCall(h, 1);
+    await reply(h, 'Bao: Calling her in means double pay for her rest day.');
+
+    expect(h.transcriptOptions).toContainEqual([
+      'Bao',
+      'Calling her in means double pay for her rest day.',
+      { catchId: '0:catch:0' },
+    ]);
     h.conversation.close();
   });
 

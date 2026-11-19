@@ -39,7 +39,17 @@ type KakiEventOf<T extends KakiEventType, P> = { type: T; payload: P; audience: 
 
 /** One message on the Kaki meeting protocol, with its audience. */
 export type KakiEvent =
-  | KakiEventOf<'TRANSCRIPT_CHUNK', { speaker: string; text: string; timestamp: string; textOnly?: boolean }>
+  | KakiEventOf<
+      'TRANSCRIPT_CHUNK',
+      {
+        speaker: string;
+        text: string;
+        timestamp: string;
+        textOnly?: boolean;
+        /** The real catch this line raises, from the scenario's discussion (`<topicIndex>:catch:<i>`). */
+        catchId?: string;
+      }
+    >
   | KakiEventOf<
       'MEETING_RECORD_UPDATED',
       {
@@ -150,7 +160,8 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isString(payload.speaker) &&
     isString(payload.text) &&
     isString(payload.timestamp) &&
-    (payload.textOnly === undefined || typeof payload.textOnly === 'boolean'),
+    (payload.textOnly === undefined || typeof payload.textOnly === 'boolean') &&
+    (payload.catchId === undefined || isString(payload.catchId)),
   MEETING_RECORD_UPDATED: (payload, scenario) =>
     Number.isInteger(payload.agendaIndex) &&
     Array.isArray(payload.openQuestions) &&

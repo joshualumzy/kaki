@@ -148,7 +148,7 @@ describe('MeetingPanel', () => {
     ).toBeTruthy();
   });
 
-  it('progressively reveals colleague trade-off cards without spoiling them upfront', () => {
+  it('shows a catch only after the room has actually raised it, and never spoils an unraised one', () => {
     const scenarioWithTradeOffs: Scenario = {
       ...scenario,
       agenda: [
@@ -183,7 +183,7 @@ describe('MeetingPanel', () => {
     };
     mocks.useScenario.mockReturnValue(scenarioWithTradeOffs);
 
-    // Initial state: Daniel has just uttered a 2-word greeting ("Hey team."), not enough (8+ words) to reveal his standoff card yet
+    // Daniel and Mei have both spoken at length, but neither catch has been raised yet.
     mocks.useKaki.mockReturnValue({
       events: [
         {
@@ -194,7 +194,12 @@ describe('MeetingPanel', () => {
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
-          payload: { speaker: 'Daniel', text: 'Hey team', timestamp: '2026-11-08T10:00:01Z' },
+          payload: { speaker: 'Daniel', text: 'Hey team, Daniel here from Marketing.', timestamp: '2026-11-08T10:00:03Z' },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Mei', text: 'I am Mei from Menu and Store Experience.', timestamp: '2026-11-08T10:00:06Z' },
         },
       ],
       tasks: new Map(),
@@ -207,17 +212,16 @@ describe('MeetingPanel', () => {
       <MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />,
     );
 
-    // No spoilers before anyone finishes their point!
     expect(screen.queryByText('Zack video has 90k views calling butter transparent')).toBeNull();
     expect(screen.queryByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeNull();
 
-    // Daniel delivers his opening point (2 sentences)
+    // Daniel's catch is heard: only his card appears.
     mocks.useKaki.mockReturnValue({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
           audience: { kind: 'all' },
-          payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 5, speakerTalkSeconds: {} },
+          payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 25, speakerTalkSeconds: {} },
         },
         {
           type: 'TRANSCRIPT_CHUNK',
@@ -227,7 +231,17 @@ describe('MeetingPanel', () => {
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
-          payload: { speaker: 'Daniel', text: 'Zack posted a video calling our butter transparent.', timestamp: '2026-11-08T10:00:05Z' },
+          payload: { speaker: 'Mei', text: 'I am Mei from Menu and Store Experience.', timestamp: '2026-11-08T10:00:06Z' },
+        },
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: {
+            speaker: 'Daniel',
+            text: 'Zack posted a video calling our butter transparent.',
+            timestamp: '2026-11-08T10:00:08Z',
+            catchId: '0:catch:0',
+          },
         },
       ],
       tasks: new Map(),
@@ -238,17 +252,16 @@ describe('MeetingPanel', () => {
 
     rerender(<MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />);
 
-    // Daniel's card is now revealed, Mei's is still hidden!
     expect(screen.getByText('Zack video has 90k views calling butter transparent')).toBeTruthy();
     expect(screen.queryByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeNull();
 
-    // Mei delivers her point (2 sentences)
+    // Mei's catch is heard too: both cards are now shown.
     mocks.useKaki.mockReturnValue({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
           audience: { kind: 'all' },
-          payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 8, speakerTalkSeconds: {} },
+          payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 25, speakerTalkSeconds: {} },
         },
         {
           type: 'TRANSCRIPT_CHUNK',
@@ -258,17 +271,27 @@ describe('MeetingPanel', () => {
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
-          payload: { speaker: 'Daniel', text: 'Zack posted a video calling our butter transparent.', timestamp: '2026-11-08T10:00:05Z' },
+          payload: { speaker: 'Mei', text: 'I am Mei from Menu and Store Experience.', timestamp: '2026-11-08T10:00:06Z' },
         },
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
-          payload: { speaker: 'Mei', text: 'I am Mei from Menu & Store Experience.', timestamp: '2026-11-08T10:00:06Z' },
+          payload: {
+            speaker: 'Daniel',
+            text: 'Zack posted a video calling our butter transparent.',
+            timestamp: '2026-11-08T10:00:08Z',
+            catchId: '0:catch:0',
+          },
         },
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
-          payload: { speaker: 'Mei', text: 'Zack bought takeaway toast; the steam melted the butter flat.', timestamp: '2026-11-08T10:00:08Z' },
+          payload: {
+            speaker: 'Mei',
+            text: 'Zack bought takeaway toast; the steam melted the butter flat.',
+            timestamp: '2026-11-08T10:00:10Z',
+            catchId: '0:catch:1',
+          },
         },
       ],
       tasks: new Map(),
@@ -279,7 +302,6 @@ describe('MeetingPanel', () => {
 
     rerender(<MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />);
 
-    // Now both cards are revealed!
     expect(screen.getByText('Zack video has 90k views calling butter transparent')).toBeTruthy();
     expect(screen.getByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeTruthy();
   });
@@ -336,7 +358,12 @@ describe('MeetingPanel', () => {
         {
           type: 'TRANSCRIPT_CHUNK',
           audience: { kind: 'all' },
-          payload: { speaker: 'Daniel', text: 'Zack posted a video.', timestamp: '2026-11-08T10:00:05Z' },
+          payload: {
+            speaker: 'Daniel',
+            text: 'Zack posted a video.',
+            timestamp: '2026-11-08T10:00:05Z',
+            catchId: '0:catch:1',
+          },
         },
       ],
       tasks: new Map(),

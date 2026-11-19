@@ -486,6 +486,17 @@ function artifactLinkText(task: Task): string {
   }
 }
 
+/** The agenda item and trade-off a catch id names, or undefined when it is not a catch id. */
+function catchPosition(id: string | undefined): { agendaIndex: number; tradeOffIndex: number } | undefined {
+  if (id === undefined) return undefined;
+  const parts = id.split(':');
+  if (parts.length !== 3 || parts[1] !== 'catch') return undefined;
+  const agendaIndex = Number(parts[0]);
+  const tradeOffIndex = Number(parts[2]);
+  if (!Number.isInteger(agendaIndex) || !Number.isInteger(tradeOffIndex)) return undefined;
+  return { agendaIndex, tradeOffIndex };
+}
+
 /**
  * Compact context card for the current agenda item so the visitor has the decision and any facts
  * from their own role that match this topic right above the transcript.
@@ -517,48 +528,23 @@ function CurrentTopicCard({
     ? `Your Item to Lead (${role?.label ?? 'Owner'})`
     : `Topic Owner: ${ownerName}`;
 
-  // Progressive Revelation: Only show a colleague's standoff card once they have actually
-  // finished delivering their point (at least 18 words spoken, or another speaker follows them),
-  // so a 5-word self-introduction ("I'm Arjun, Tech Lead.") does not prematurely pop up their trade-off!
-  const currentTopicSpeakers = useMemo(() => {
-    const wordCounts = new Map<string, number>();
-    const sentenceCounts = new Map<string, number>();
-    const completedSpeakers = new Set<string>();
-    if (events === undefined || events.length === 0) return completedSpeakers;
-    let onCurrent = agendaIndex === undefined || agendaIndex === 0;
-    let lastSpeaker: string | undefined;
-
-    for (const event of events) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        if (agendaIndex !== undefined && event.payload.agendaIndex === agendaIndex) {
-          onCurrent = true;
-        } else if (onCurrent && agendaIndex !== undefined && event.payload.agendaIndex !== agendaIndex) {
-          break;
-        }
-      } else if (onCurrent && event.type === 'TRANSCRIPT_CHUNK') {
-        const raw = event.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
-        if (lastSpeaker !== undefined && lastSpeaker !== raw) {
-          completedSpeakers.add(lastSpeaker);
-        }
-        lastSpeaker = raw;
-        const words = event.payload.text.trim().split(/\s+/).filter(Boolean).length;
-        const totalWords = (wordCounts.get(raw) ?? 0) + words;
-        const totalSentences = (sentenceCounts.get(raw) ?? 0) + 1;
-        wordCounts.set(raw, totalWords);
-        sentenceCounts.set(raw, totalSentences);
-
-        // Reveal card once the speaker has delivered their actual point (18+ words or 2+ sentences)
-        if (totalWords >= 18 || totalSentences >= 2) {
-          completedSpeakers.add(raw);
-        }
-      }
+  // Only the catches the room has actually raised on this topic, in the order they were heard.
+  const raisedCatchIds = useMemo(() => {
+    const ids = new Map<string, true>();
+    for (const event of events ?? []) {
+      if (event.type !== 'TRANSCRIPT_CHUNK') continue;
+      const { catchId } = event.payload;
+      const position = catchPosition(catchId);
+      if (catchId === undefined || position === undefined) continue;
+      if (agendaIndex !== undefined && position.agendaIndex !== agendaIndex) continue;
+      ids.delete(catchId);
+      ids.set(catchId, true);
     }
-    return completedSpeakers;
+    return [...ids.keys()];
   }, [events, agendaIndex]);
 
   const visibleTradeOffs = useMemo(() => {
     const tradeOffs = item.discussion?.tradeOffs ?? [];
-    if (events === undefined || events.length === 0) return [];
     const isVisitorSeat = (to: (typeof tradeOffs)[number]) => {
       if (role?.id !== undefined && to.role === role.id) return true;
       if (to.attendee.toLowerCase() === viewer.name.toLowerCase()) return true;
@@ -566,12 +552,17 @@ function CurrentTopicCard({
       return false;
     };
 
-    const filtered = tradeOffs.filter((to) => {
-      if (isVisitorSeat(to)) return false;
-      return currentTopicSpeakers.has(to.attendee.toLowerCase());
-    });
-    return filtered.slice(0, 3);
-  }, [item, events, currentTopicSpeakers, viewer, role]);
+    const seen = new Map<number, true>();
+    for (const id of raisedCatchIds) {
+      const position = catchPosition(id);
+      if (position === undefined) continue;
+      const tradeOff = tradeOffs[position.tradeOffIndex];
+      if (tradeOff === undefined || isVisitorSeat(tradeOff)) continue;
+      seen.delete(position.tradeOffIndex);
+      seen.set(position.tradeOffIndex, true);
+    }
+    return [...seen.keys()].slice(-3).map((index) => tradeOffs[index]!);
+  }, [item, raisedCatchIds, viewer, role]);
 
   const companyFacts =
     companyFact === undefined
@@ -584,7 +575,7 @@ function CurrentTopicCard({
   const heroFacts = liveWingmanBrief !== undefined ? [liveWingmanBrief] : myFacts.slice(0, 1);
 
   const hasTradeOffList = item.discussion?.tradeOffs !== undefined && item.discussion.tradeOffs.length > 0;
-  // Do not pop up the Wingman card at all while the first speaker is only saying their 5-word self-introduction!
+  // Until the room has raised a catch, keep the Wingman card out of the way unless it has something else to say.
   if (hasTradeOffList && visibleTradeOffs.length === 0 && companyFacts.length === 0 && liveWingmanBrief === undefined) return null;
   if (!hasTradeOffList && heroFacts.length === 0 && companyFacts.length === 0) return null;
 

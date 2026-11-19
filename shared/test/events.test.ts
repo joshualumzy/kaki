@@ -79,6 +79,26 @@ describe('isKakiEvent', () => {
     ).toBe(true);
     expect(
       isKakiEvent(
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Ada', text: 'Double pay.', timestamp: '00:01', catchId: '0:catch:0' },
+        },
+        testScenario,
+      ),
+    ).toBe(true);
+    expect(
+      isKakiEvent(
+        {
+          type: 'TRANSCRIPT_CHUNK',
+          audience: { kind: 'all' },
+          payload: { speaker: 'Ada', text: 'Double pay.', timestamp: '00:01', catchId: 1 },
+        },
+        testScenario,
+      ),
+    ).toBe(false);
+    expect(
+      isKakiEvent(
         { type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' }, payload: { kind: 'OPENING', text: 'Welcome' } },
         testScenario,
       ),
