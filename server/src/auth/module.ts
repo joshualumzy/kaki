@@ -192,6 +192,13 @@ export function createAuth({
     return session;
   }
 
+  /** Whether this exact session still holds the role's seat in its meeting generation. */
+  function sessionOwnsSeat(session: SessionRecord, role: string): Promise<boolean> {
+    return session.meetingId === null
+      ? Promise.resolve(false)
+      : store.seatHeldBy({ meetingId: session.meetingId, role, holder: session.tokenHash });
+  }
+
   function notifySessionEnded(tokenHash: string): void {
     for (const handler of sessionEndedHandlers) {
       try {
@@ -202,23 +209,21 @@ export function createAuth({
     }
   }
 
-  async function saveSession(
-    response: ServerResponse,
+  function sessionRecord(
     token: string,
     kind: SessionKind,
     role: string | null,
     code: string | null,
     meetingId: string | null,
-  ): Promise<void> {
-    await store.createSession({
+  ): SessionRecord {
+    return {
       tokenHash: hashToken(token),
       kind,
       role,
       meetingCode: code,
       meetingId,
       expiresAt: new Date(now() + SESSION_TTL_MS),
-    });
-    response.setHeader('set-cookie', sessionCookie(token, secureCookies));
+    };
   }
 
   async function startSession(
@@ -229,7 +234,8 @@ export function createAuth({
     meetingId: string | null = null,
   ): Promise<void> {
     const token = randomBytes(32).toString('base64url');
-    await saveSession(response, token, kind, role, code, meetingId);
+    await store.createSession(sessionRecord(token, kind, role, code, meetingId));
+    response.setHeader('set-cookie', sessionCookie(token, secureCookies));
   }
 
   async function enterSeat(
@@ -238,41 +244,28 @@ export function createAuth({
     role: string,
   ): Promise<boolean> {
     const existing = await currentSession(request);
-    const replaced = existing?.tokenHash;
     const token = randomBytes(32).toString('base64url');
-    const tokenHash = hashToken(token);
     const meetingId = currentMeetingId();
-    // The check and the claim are one store operation: two simultaneous joins cannot both win.
-    const claimed = await store.claimSeat({
-      meetingId,
-      role,
-      holder: tokenHash,
-      ...(replaced === undefined ? {} : { replaces: replaced }),
-    });
-    if (!claimed) return false;
-
     // A host taking a seat is still the host; the new session also carries the seat's meeting.
     const kind: SessionKind = existing?.kind === 'host' ? 'host' : 'participant';
-    try {
-      await saveSession(
-        response,
+    // The claim transfer, the new session and the old session's retirement are one store step:
+    // two simultaneous joins cannot both win, and a failure leaves the old session in charge.
+    const claimed = await store.enterSeat({
+      meetingId,
+      role,
+      session: sessionRecord(
         token,
         kind,
         role,
         kind === 'host' ? null : meetingCode.value,
         meetingId,
-      );
-    } catch (error) {
-      await store.releaseSeats({ holder: tokenHash });
-      throw error;
-    }
+      ),
+      ...(existing === undefined ? {} : { replaces: existing.tokenHash }),
+    });
+    if (!claimed) return false;
 
-    if (replaced !== undefined) {
-      // The transfer already moved a same-role claim to the new holder; any other role is freed.
-      await store.releaseSeats({ holder: replaced });
-      await store.deleteSession(replaced);
-      notifySessionEnded(replaced);
-    }
+    response.setHeader('set-cookie', sessionCookie(token, secureCookies));
+    if (existing !== undefined) notifySessionEnded(existing.tokenHash);
     return true;
   }
 
@@ -328,7 +321,19 @@ export function createAuth({
     }
 
     loginAttempts.clear(key);
-    await startSession(response, 'host', null, null);
+    const existing = await currentSession(request);
+    if (existing === undefined) {
+      await startSession(response, 'host', null, null);
+    } else {
+      // Signing in again retires the previous session and keeps the seat it was holding.
+      const token = randomBytes(32).toString('base64url');
+      await store.replaceSession({
+        session: sessionRecord(token, 'host', existing.role, null, existing.meetingId),
+        replaces: existing.tokenHash,
+      });
+      response.setHeader('set-cookie', sessionCookie(token, secureCookies));
+      notifySessionEnded(existing.tokenHash);
+    }
     sendJson(response, 200, { kind: 'host' });
   }
 
@@ -352,11 +357,18 @@ export function createAuth({
     }
     if (
       session.kind === 'participant' &&
-      (session.meetingCode !== meetingCode.value ||
-        (session.meetingId !== null && session.meetingId !== currentMeetingId()))
+      (session.meetingCode !== meetingCode.value || session.meetingId !== currentMeetingId())
     ) {
       // The phone's meeting is gone: it must join again with the code on the screen.
       sendJson(response, 403, { error: MEETING_ENDED_MESSAGE, authEnabled: true });
+      return;
+    }
+    if (
+      session.kind === 'participant' &&
+      (session.role === null || !(await sessionOwnsSeat(session, session.role)))
+    ) {
+      // The session no longer holds a seat, so it cannot act as one.
+      sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
       return;
     }
     sendJson(
@@ -430,12 +442,18 @@ export function createAuth({
     if (session === undefined) return { ok: false, ended: false };
     const meetingId = currentMeetingId();
     if (session.kind === 'participant') {
-      const ended =
-        session.meetingCode !== meetingCode.value ||
-        (session.meetingId !== null && session.meetingId !== meetingId);
+      const ended = session.meetingCode !== meetingCode.value || session.meetingId !== meetingId;
       if (ended) return { ok: false, ended: true };
     }
-    return { ok: true, session, principal: principalFor(session, meetingId) };
+    let principal = principalFor(session, meetingId);
+    if (principal.kind === 'seat') {
+      // A session that no longer owns its claim is not a seat, whatever role it recorded.
+      if (!(await sessionOwnsSeat(session, principal.role))) return { ok: false, ended: false };
+    } else if (principal.kind === 'host' && principal.seat !== undefined) {
+      // A host keeps every host power, but the seat view belongs only to its current claim owner.
+      if (!(await sessionOwnsSeat(session, principal.seat))) principal = { kind: 'host' };
+    }
+    return { ok: true, session, principal };
   }
 
   log('kaki auth: enabled');

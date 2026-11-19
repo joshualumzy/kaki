@@ -324,7 +324,8 @@ describe('security round 2', () => {
     const body = (await participant.json()) as { meetingCode: string; resumed?: boolean };
     expect(body.meetingCode).toBe(codeBefore);
     expect(body.resumed).toBe(false);
-    expect((await meetingState(app)).meetingId).not.toBe(before.meetingId);
+    // The first arrival keeps the generation that phones already joined under.
+    expect((await meetingState(app)).meetingId).toBe(before.meetingId);
   });
 
   it('refuses a code holder once a meeting has run and the grace has passed, then the host starts the next', async () => {
@@ -615,6 +616,7 @@ describe('security round 2', () => {
 
   it('keeps Mattermost Secure cookies when the public URL is https', async () => {
     vi.stubEnv('MATTERMOST_URL', 'http://mattermost.test');
+    vi.stubEnv('MATTERMOST_PUBLIC_URL', 'https://mm.example');
     vi.stubEnv('MATTERMOST_PASSWORD', 'a-real-password');
     vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example');
     const { app } = await authApp();

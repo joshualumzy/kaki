@@ -33,6 +33,8 @@ export interface RouteMatch {
 export interface AccessContext {
   authEnabled: boolean;
   devRoutes: boolean;
+  /** True when a service token is configured, so service routes must present it in every mode. */
+  serviceTokenConfigured: boolean;
   /** True when the request came from this machine (not a phone). */
   loopback: boolean;
   /** The raw request target, before URL normalisation, for the dev-route dot-segment guard. */
@@ -84,7 +86,7 @@ export function matchRoute(
 /**
  * The one access check. It runs before any handler and returns the refusal to send, if any.
  * With auth off every route behaves as the trusted demo always did, except a service-only route
- * (which needs the runner's token when one is configured) and the dev routes.
+ * (which always needs the runner's token when one is configured) and the dev routes.
  */
 export function accessProblem(
   route: Route,
@@ -103,10 +105,17 @@ export function accessProblem(
       return undefined;
 
     case 'service':
-      if (!context.authEnabled) return undefined;
-      return principal.kind === 'service'
+      // A configured service token always gates its routes, whether user sign-in is on or off.
+      if (context.serviceTokenConfigured || context.authEnabled) {
+        return principal.kind === 'service'
+          ? undefined
+          : { status: 401, error: 'Service sign-in required.' };
+      }
+      // With no credentials configured, the trusted local demo keeps what the old /dev routes
+      // allowed. Nothing new is reachable anonymously when those routes are off.
+      return context.devRoutes && context.loopback
         ? undefined
-        : { status: 401, error: 'Service sign-in required.' };
+        : { status: 404, error: 'Not found' };
 
     case 'session':
       if (!context.authEnabled) return undefined;
@@ -206,6 +215,55 @@ function servesPublicly(host: string, env: NodeJS.ProcessEnv): boolean {
   } catch {
     return true;
   }
+}
+
+/**
+ * Refuse a deployment whose https sign-in would redirect to an http Mattermost: Secure cookies
+ * cannot authenticate that hop. A public base is accepted only when it is https, or can be derived
+ * from an https MATTERMOST_URL; KAKI_ALLOW_OPEN=1 is the explicit trusted-demo escape hatch.
+ */
+export function assertSafeMattermost(
+  authEnabled: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!authEnabled || !publicUrlIsHttps(env) || env.KAKI_ALLOW_OPEN === '1') return;
+  const internal = env.MATTERMOST_URL?.trim();
+  if (internal === undefined || internal === '') return;
+
+  const explicit = env.MATTERMOST_PUBLIC_URL?.trim();
+  if (explicit !== undefined && explicit !== '') {
+    let publicUrl: URL;
+    try {
+      publicUrl = new URL(explicit);
+    } catch {
+      throw new Error(
+        `kaki server: MATTERMOST_PUBLIC_URL "${explicit}" is not a valid URL. ` +
+          'Set it to the https:// address browsers use for Mattermost, or KAKI_ALLOW_OPEN=1 to allow this trusted demo.',
+      );
+    }
+    if (publicUrl.protocol === 'https:') return;
+    throw new Error(
+      'kaki server: refusing to start because KAKI_PUBLIC_URL is https but MATTERMOST_PUBLIC_URL is not. ' +
+        'Secure session cookies cannot authenticate an http Mattermost redirect. ' +
+        'Set MATTERMOST_PUBLIC_URL=https://…, or KAKI_ALLOW_OPEN=1 to allow this trusted demo.',
+    );
+  }
+
+  let internalUrl: URL;
+  try {
+    internalUrl = new URL(internal);
+  } catch {
+    throw new Error(
+      `kaki server: MATTERMOST_URL "${internal}" is not a valid URL, so its public https base cannot be derived. ` +
+        'Fix MATTERMOST_URL, set MATTERMOST_PUBLIC_URL=https://…, or KAKI_ALLOW_OPEN=1 to allow this trusted demo.',
+    );
+  }
+  if (internalUrl.protocol === 'https:') return;
+  throw new Error(
+    'kaki server: refusing to start because KAKI_PUBLIC_URL is https but MATTERMOST_URL is not, ' +
+      'so the Mattermost public base would downgrade to http. ' +
+      'Set MATTERMOST_PUBLIC_URL=https://…, or KAKI_ALLOW_OPEN=1 to allow this trusted demo.',
+  );
 }
 
 /**

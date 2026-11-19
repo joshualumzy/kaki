@@ -102,19 +102,88 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return session;
     },
 
-    async claimSeat({ meetingId, role, holder, replaces }) {
-      // One atomic statement: the row is only taken when it is free, already ours, or being
-      // handed over by the same holder whose session we are replacing.
+    async enterSeat({ session, meetingId, role, replaces }) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        // The row is only taken when it is free, already ours, or being handed over by the same
+        // holder whose session we are replacing.
+        const claimed = await client.query(
+          `insert into seat_claims (meeting_id, role, holder, expires_at)
+           values ($1, $2, $3, $5)
+           on conflict (meeting_id, role) do update
+             set holder = excluded.holder, expires_at = excluded.expires_at
+             where seat_claims.holder = excluded.holder
+                or seat_claims.holder = $4
+                or seat_claims.expires_at <= now()
+           returning holder`,
+          [meetingId, role, session.tokenHash, replaces ?? '', session.expiresAt],
+        );
+        if (claimed.rowCount === null || claimed.rowCount === 0) {
+          await client.query('rollback');
+          return false;
+        }
+        await client.query(
+          `insert into sessions (token_hash, kind, role, meeting_code, meeting_id, expires_at)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [
+            session.tokenHash,
+            session.kind,
+            session.role,
+            session.meetingCode,
+            session.meetingId,
+            session.expiresAt,
+          ],
+        );
+        if (replaces !== undefined && replaces !== session.tokenHash) {
+          await client.query('delete from seat_claims where holder = $1', [replaces]);
+          await client.query('delete from sessions where token_hash = $1', [replaces]);
+        }
+        await client.query('commit');
+        return true;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async replaceSession({ session, replaces }) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await client.query(
+          `insert into sessions (token_hash, kind, role, meeting_code, meeting_id, expires_at)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [
+            session.tokenHash,
+            session.kind,
+            session.role,
+            session.meetingCode,
+            session.meetingId,
+            session.expiresAt,
+          ],
+        );
+        await client.query('update seat_claims set holder = $1 where holder = $2', [
+          session.tokenHash,
+          replaces,
+        ]);
+        await client.query('delete from sessions where token_hash = $1', [replaces]);
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async seatHeldBy({ meetingId, role, holder }) {
       const result = await pool.query(
-        `insert into seat_claims (meeting_id, role, holder, expires_at)
-         values ($1, $2, $3, now() + interval '12 hours')
-         on conflict (meeting_id, role) do update
-           set holder = excluded.holder, expires_at = excluded.expires_at
-           where seat_claims.holder = excluded.holder
-              or seat_claims.holder = $4
-              or seat_claims.expires_at <= now()
-         returning holder`,
-        [meetingId, role, holder, replaces ?? ''],
+        `select 1 from seat_claims
+          where meeting_id = $1 and role = $2 and holder = $3 and expires_at > now()`,
+        [meetingId, role, holder],
       );
       return result.rowCount !== null && result.rowCount > 0;
     },

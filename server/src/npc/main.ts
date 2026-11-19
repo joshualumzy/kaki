@@ -1,7 +1,7 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
 import { llmFromEnv } from '../llm';
-import { aiCast, parseScenario, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
+import { aiCast, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
 import { loadScenario } from '../loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -10,12 +10,12 @@ import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
-import { startNpcRunner, type RunnerMeetingState } from './runner';
+import { startNpcRunner } from './runner';
 import { createMeetingSync, parsePrepareRequest, parseStartedEvent, type PrepareRequest } from './meetingSync';
 import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
-import { postMeetingMemory, postSettledTopic } from './settlement';
+import { createRunnerClient } from './runnerClient';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 import { faultFromEnv, faultyStream, faultySynthesize } from './fault';
 
@@ -135,6 +135,11 @@ const recognizer =
 
 const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
 const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
+const runnerClient = createRunnerClient({
+  baseUrl: kakiUrl,
+  serviceToken,
+  log: logError,
+});
 let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
@@ -145,10 +150,8 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
     lastTranscriptError = Date.now();
     log(message);
   };
-  fetch(`${kakiUrl}/api/runner/emit`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
+  runnerClient
+    .emit({
       type: 'TRANSCRIPT_CHUNK',
       audience: { kind: 'all' },
       payload: {
@@ -158,8 +161,7 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
         ...(options?.textOnly === true ? { textOnly: true } : {}),
         ...(options?.catchId === undefined ? {} : { catchId: options.catchId }),
       },
-    }),
-  })
+    })
     .then(async (response) => {
       if (!response.ok) {
         complain(`Kaki rejected a transcript line (HTTP ${response.status}); check the server and runner token. ${await response.text()}`);
@@ -223,10 +225,8 @@ const runner = await startNpcRunner({
     const today = new Date().toISOString().slice(0, 10);
     const role = runner.visitorRole();
     if (role === undefined) return;
-    fetch(`${kakiUrl}/api/runner/emit`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    runnerClient
+      .emit({
         type: 'FACT_FOUND',
         audience: { kind: 'role', role },
         payload: {
@@ -235,42 +235,41 @@ const runner = await startNpcRunner({
           facts: [{ text: tip, source: 'Live Wingman', date: today }],
           agendaIndex,
         },
-      }),
-    }).then((response) => {
-      if (!response.ok) log(`Wingman tip rejected (HTTP ${response.status})`);
-    }).catch((error: unknown) => log(`Wingman tip failed: ${String(error)}`));
+      })
+      .then((response) => {
+        if (!response.ok) log(`Wingman tip rejected (HTTP ${response.status})`);
+      })
+      .catch((error: unknown) => log(`Wingman tip failed: ${String(error)}`));
   },
   onMemoryChange: (entries) => {
     memorySync = memorySync.catch(() => undefined).then(() =>
-      postMeetingMemory(fetch, `${kakiUrl}/api/runner/meeting-memory`, entries, logError));
+      runnerClient.postMeetingMemory(entries));
     void memorySync.catch(() => undefined);
   },
   onReaction: (who, emoji) => {
-    void fetch(`${kakiUrl}/api/runner/emit`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'COLLEAGUE_REACTION', audience: { kind: 'all' },
-        payload: { who, emoji, timestamp: new Date().toISOString() } }),
-    }).then((response) => { if (!response.ok) logError(`[control] reaction POST rejected: HTTP ${response.status}`); })
+    const reaction: KakiEvent = {
+      type: 'COLLEAGUE_REACTION',
+      audience: { kind: 'all' },
+      payload: {
+        who,
+        emoji: emoji as Extract<KakiEvent, { type: 'COLLEAGUE_REACTION' }>['payload']['emoji'],
+        timestamp: new Date().toISOString(),
+      },
+    };
+    void runnerClient
+      .emit(reaction)
+      .then((response) => { if (!response.ok) logError(`[control] reaction POST rejected: HTTP ${response.status}`); })
       .catch((error: unknown) => logError(`[control] reaction POST failed: ${String(error)}`));
   },
   onTopicSettled: async (followUp, reopened) => {
     await memorySync;
-    await postSettledTopic(fetch, `${kakiUrl}/api/runner/settle-topic`, followUp, logError, reopened);
+    await runnerClient.postSettledTopic(followUp, reopened);
   },
   onDisconnected: () => {
     log('exiting so it can be restarted');
     process.exit(1);
   },
-  fetchScenario: async () => {
-    const response = await fetch(
-      `${kakiUrl}/api/scenario/full`,
-      serviceToken === undefined || serviceToken === ''
-        ? undefined
-        : { headers: { authorization: `Bearer ${serviceToken}` } },
-    );
-    if (!response.ok) throw new Error(`Scenario fetch returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
-    return parseScenario(await response.json());
-  },
+  fetchScenario: () => runnerClient.fetchScenario(),
 });
 
 // An AI attendee has no phone. When a task is dispatched to their role they answer aloud and this sends their
@@ -322,25 +321,12 @@ const taskResponder = createTaskResponder({
 const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
-async function fetchMeetingState(): Promise<RunnerMeetingState> {
-  const response = await fetch(`${kakiUrl}/api/meeting/state`);
-  const state = (await response.json().catch(() => ({}))) as {
-    meetingId?: unknown;
-    started?: unknown;
-    agendaIndex?: unknown;
-  };
-  if (!response.ok) throw new Error(`meeting state fetch returned HTTP ${response.status}`);
-  if (typeof state.meetingId !== 'string' || state.meetingId === '' || typeof state.started !== 'boolean') {
-    throw new Error('meeting state has no meetingId and started flag');
-  }
-  return {
-    meetingId: state.meetingId,
-    started: state.started,
-    ...(typeof state.agendaIndex === 'number' ? { agendaIndex: state.agendaIndex } : {}),
-  };
-}
 
-const meetingSync = createMeetingSync({ runner, fetchState: fetchMeetingState, log });
+const meetingSync = createMeetingSync({
+  runner,
+  fetchState: () => runnerClient.fetchMeetingState(),
+  log,
+});
 
 function followHostCues(): void {
   const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service`;

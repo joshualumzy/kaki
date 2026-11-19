@@ -24,6 +24,9 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
   `);
   // Older deployments added before a meeting generation was part of a seat.
   await pool.query('alter table sessions add column if not exists meeting_id text');
+  // A participant session without a generation cannot be authorized against the current meeting,
+  // so retire it rather than letting a NULL slip through every generation check.
+  await pool.query("delete from sessions where kind = 'participant' and meeting_id is null");
 
   await pool.query(`
     create table if not exists seat_claims (

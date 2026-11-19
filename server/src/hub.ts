@@ -191,6 +191,8 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const verified = authorize === undefined;
   /** Bumped whenever a meeting's code rotates, so upgrades authorized under the old code cannot register. */
   let revocationGeneration = 0;
+  /** Sessions retired while a socket was still authorizing, so its upgrade cannot register afterwards. */
+  const revokedSessions = new Set<string>();
   /** How each pending upgrade was authorized, kept until its socket registers. */
   const pendingAuthorizations = new WeakMap<
     IncomingMessage,
@@ -262,6 +264,14 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     socketSessions.delete(socket);
   }
 
+  /** Drop every authority the socket had before starting the close handshake. */
+  function revokeSocket(socket: WebSocket, code: number, reason: string): void {
+    forgetSocket(socket);
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+      socket.close(code, reason);
+    }
+  }
+
   function sendTo(socket: WebSocket, audience: ClientAudience, message: string): void {
     if (socket.readyState !== WebSocket.OPEN) return;
     try {
@@ -284,6 +294,9 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     audience: ClientAudience,
     data: RawData,
   ): Promise<void> {
+    // Revocation removes the socket from the client set synchronously, while the close handshake
+    // may still allow frames to arrive; those frames must carry no authority.
+    if (!clients.has(socket)) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(rawDataToString(data));
@@ -387,6 +400,14 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       socket.close(4001);
       return;
     }
+    if (
+      authorization?.sessionTokenHash !== undefined &&
+      revokedSessions.has(authorization.sessionTokenHash)
+    ) {
+      // The session was retired after this upgrade authorized, so it must not register now.
+      socket.close(4001);
+      return;
+    }
 
     clients.set(socket, audience);
     if (audience === 'service') serviceSockets.add(socket);
@@ -460,20 +481,21 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     },
     endRoleSessions(reason) {
       revocationGeneration += 1;
-      for (const [socket, audience] of clients) {
+      for (const [socket, audience] of [...clients]) {
         if (audience === 'screen' || audience === 'service') continue;
         if (runnerSockets.has(socket)) continue;
         // A host's read-only lifecycle feed survives; a participant's must not follow the new meeting.
         if (audience === 'lifecycle' && !participantSockets.has(socket)) continue;
-        socket.close(4001, reason);
+        const session = socketSessions.get(socket);
+        if (session !== undefined) revokedSessions.add(session);
+        revokeSocket(socket, 4001, reason);
       }
     },
     endSession(sessionTokenHash) {
-      for (const [socket, session] of socketSessions) {
-        if (session !== sessionTokenHash) continue;
-        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-          socket.close(4001, 'Signed in again elsewhere');
-        }
+      // Retired before the sockets close: a pending upgrade authorized by this session is refused.
+      revokedSessions.add(sessionTokenHash);
+      for (const [socket, session] of [...socketSessions]) {
+        if (session === sessionTokenHash) revokeSocket(socket, 4001, 'Signed in again elsewhere');
       }
     },
     close() {
@@ -483,6 +505,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       runnerSockets.clear();
       participantSockets.clear();
       socketSessions.clear();
+      revokedSessions.clear();
       serviceHandlers.clear();
       retained.clear();
       subscribers.clear();

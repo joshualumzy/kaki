@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { SESSION_TTL_MS } from './cookie';
 
 /** Who a session belongs to. */
 export type SessionKind = 'host' | 'participant';
@@ -38,8 +37,18 @@ export interface AuthStore {
   createSession(session: SessionRecord): Promise<void>;
   /** Return undefined for an unknown or expired session; expired rows are dropped. */
   findSession(tokenHash: string): Promise<SessionRecord | undefined>;
-  /** Atomically take a free seat, keep it for the same holder, or hand it over from `replaces`. */
-  claimSeat(input: SeatClaim & { replaces?: string }): Promise<boolean>;
+  /**
+   * Atomically take a seat, create the session that holds it, and retire the session it replaces.
+   * Returns false when another live holder owns the seat; a failure changes nothing.
+   */
+  enterSeat(input: { session: SessionRecord; meetingId: string; role: string; replaces?: string }): Promise<boolean>;
+  /**
+   * Atomically replace a session, moving every seat it holds to the new holder. Used when a person
+   * signs in again while already holding a session, so they keep their seat.
+   */
+  replaceSession(input: { session: SessionRecord; replaces: string }): Promise<void>;
+  /** Whether this exact session still holds the role's seat in the meeting generation. */
+  seatHeldBy(input: { meetingId: string; role: string; holder: string }): Promise<boolean>;
   /** Release every seat held by one session, or one meeting's seats when `meetingId` is given. */
   releaseSeats(input: { holder?: string; meetingId?: string }): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
@@ -82,13 +91,38 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
       }
       return session;
     },
-    async claimSeat({ meetingId, role, holder, replaces }) {
+    async enterSeat({ session, meetingId, role, replaces }) {
       const key = seatKey(meetingId, role);
       const existing = seats.get(key);
       const live = existing !== undefined && existing.expiresAt > now();
-      if (live && existing.holder !== holder && existing.holder !== replaces) return false;
-      seats.set(key, { meetingId, role, holder, expiresAt: now() + SESSION_TTL_MS });
+      if (live && existing.holder !== session.tokenHash && existing.holder !== replaces) return false;
+      // No awaits before every change below, so the whole replacement is one synchronous step.
+      seats.set(key, {
+        meetingId,
+        role,
+        holder: session.tokenHash,
+        expiresAt: session.expiresAt.getTime(),
+      });
+      sessions.set(session.tokenHash, { ...session });
+      if (replaces !== undefined && replaces !== session.tokenHash) {
+        for (const [seatKeyValue, seat] of seats) {
+          if (seat.holder === replaces) seats.delete(seatKeyValue);
+        }
+        sessions.delete(replaces);
+      }
       return true;
+    },
+    async replaceSession({ session, replaces }) {
+      // No awaits before every change below, so the whole replacement is one synchronous step.
+      sessions.set(session.tokenHash, { ...session });
+      for (const seat of seats.values()) {
+        if (seat.holder === replaces) seat.holder = session.tokenHash;
+      }
+      sessions.delete(replaces);
+    },
+    async seatHeldBy({ meetingId, role, holder }) {
+      const seat = seats.get(seatKey(meetingId, role));
+      return seat !== undefined && seat.holder === holder && seat.expiresAt > now();
     },
     async releaseSeats({ holder, meetingId }) {
       for (const [key, seat] of seats) {

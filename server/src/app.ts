@@ -4,6 +4,7 @@ import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, 
 import {
   accessProblem,
   assertSafeBind,
+  assertSafeMattermost,
   bearerToken,
   clientAddress,
   isLoopbackAddress,
@@ -371,6 +372,7 @@ async function handleRequest(
     const denied = accessProblem(match.route, principal, {
       authEnabled: context.auth !== undefined,
       devRoutes: context.devRoutes,
+      serviceTokenConfigured: context.serviceToken !== undefined && context.serviceToken !== '',
       loopback: isLoopbackAddress(request.socket.remoteAddress),
       rawPath: request.url ?? '',
     });
@@ -500,8 +502,9 @@ async function handleRequest(
           }
           const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
           if (rejoin?.reset === true) {
-            // The first arrival starts this app's first meeting; the code it already shows stays valid.
-            const meetingId = context.rotateMeeting({ rotateCode: meetingExisted });
+            // The first arrival starts this app's first meeting. Its identity already exists, and
+            // phones may have joined under it through /api/join, so keep that generation and code.
+            const meetingId = meetingExisted ? context.rotateMeeting({ rotateCode: true }) : context.meeting.id;
             context.tasks.reset();
             context.hub.clearRetained('meeting:started');
             context.hub.clearRetained('record');
@@ -1096,6 +1099,7 @@ export async function createApp({
   meetingCode: meetingCodeOption,
 }: CreateAppOptions): Promise<KakiApp> {
   if (host !== undefined) assertSafeBind(host, auth !== undefined);
+  assertSafeMattermost(auth !== undefined);
   if (devRoutes && auth !== undefined) {
     throw new Error(
       'kaki server: KAKI_DEV_ROUTES=1 cannot be combined with KAKI_AUTH=1; the dev routes are a local-only tool. Unset one of them.',
@@ -1228,8 +1232,21 @@ export async function createApp({
     request: IncomingMessage,
     audience: ClientAudience,
   ): Promise<Awaited<ReturnType<Auth['authorize']>>> => {
-    if (serviceTokenConfigured && tokenMatches(bearerToken(request), serviceToken ?? '')) {
-      if (audience === 'service' || audience === 'screen') {
+    const runnerRequest =
+      serviceTokenConfigured && tokenMatches(bearerToken(request), serviceToken ?? '');
+    // A configured service token always gates the service channel, even when user sign-in is off.
+    if (audience === 'service') {
+      if (serviceTokenConfigured) {
+        return runnerRequest
+          ? { ok: true, runner: true, principal: { kind: 'service' } }
+          : { ok: false, message: 'Service sign-in required' };
+      }
+      // No credential configured: keep the trusted local demo's open service channel, as before this branch.
+      if (auth === undefined) return { ok: true, principal: { kind: 'service' } };
+      return auth.authorize(request, audience);
+    }
+    if (runnerRequest) {
+      if (audience === 'screen') {
         return { ok: true, runner: true, principal: { kind: 'service' } };
       }
       if (audience === 'lifecycle') {
