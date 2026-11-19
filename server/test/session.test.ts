@@ -38,6 +38,7 @@ function harness({
   const setupDraft = { current: setup };
   const sealedSetup = { current: sealed ? setup : undefined };
   const draftTouchedRef = { current: draftTouched };
+  const draftEditedSinceSeal = { current: false };
 
   const session = createMeetingSession({
     hub: {
@@ -61,6 +62,7 @@ function harness({
     setupDraft,
     sealedSetup,
     draftTouched: draftTouchedRef,
+    draftEditedSinceSeal,
     defaultSetup: setup,
     resetScenario(options) {
       calls.push(`resetScenario:${options.seat ?? 'none'}:${options.draftTouched}`);
@@ -86,6 +88,7 @@ function harness({
     setupDraft,
     sealedSetup,
     draftTouched: draftTouchedRef,
+    draftEditedSinceSeal,
     memory,
     calls,
     clearedKeys,
@@ -273,6 +276,21 @@ describe('meeting session reset', () => {
     h.session.reset({ seat: 'cashier' });
 
     expect(h.calls).toContain('resetScenario:cashier:false');
+  });
+
+  it('drops a consumed seal, but keeps a draft edited after the seal for the next meeting', () => {
+    const consumed = harness({ sealed: true });
+    consumed.session.reset();
+    expect(consumed.setupDraft.current).toBe(consumed.setup);
+    expect(consumed.draftTouched.current).toBe(false);
+
+    const edited = harness({ sealed: true, draftTouched: true });
+    const nextDraft: MeetingSetup = { ...edited.setup, title: 'Next draft' };
+    edited.setupDraft.current = nextDraft;
+    edited.draftEditedSinceSeal.current = true;
+    edited.session.reset();
+    expect(edited.setupDraft.current).toBe(nextDraft);
+    expect(edited.draftTouched.current).toBe(true);
   });
 
   it('keeps the current identity when rotateIdentity is false, without bumping the generation', () => {

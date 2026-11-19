@@ -382,6 +382,7 @@ describe('meeting persistence saver', () => {
       setupDraft: { current: setup },
       sealedSetup: { current: undefined },
       draftTouched: { current: false },
+      draftEditedSinceSeal: { current: false },
       defaultSetup: setup,
       resetScenario: () => testScenario,
       initialScenario: testScenario,

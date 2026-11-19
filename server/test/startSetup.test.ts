@@ -1,14 +1,17 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import {
   aiCast,
+  buildMeetingInviteIcs,
   DEFAULT_MEETING_PACE,
   defaultMeetingSetup,
   humanRoles,
+  KOPITIAM_INVITE_UID,
   parseScenario,
   type MeetingSetup,
   type Scenario,
 } from '@kaki/shared';
+import type { CalendarSettings } from '../src/action/calendar';
 import { createApp, type CreateAppOptions, type KakiApp } from '../src/app';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
@@ -469,6 +472,68 @@ describe('Start applies the validated setup', () => {
     }
   });
 
+  it('starts an untouched demo when the two-topic pick leaves links to topics it dropped', async () => {
+    const previous = process.env.KAKI_AGENDA_PICK;
+    process.env.KAKI_AGENDA_PICK = '0,4';
+    try {
+      const scenario = await loadScenario('kopitiam');
+      const app = await startApp(scenario);
+      await connectService(portOf(app));
+      expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+      const picked = (await getScenario(app)).agenda.map((item) => item.title);
+      expect(picked).toEqual([
+        'One counter staff short for the opening rush',
+        'Delivery app commission squeeze',
+      ]);
+
+      expect((await startMeeting(app)).status).toBe(200);
+      const active = await getScenario(app);
+      expect(active.agenda.map((item) => item.title)).toEqual(picked);
+      expect(() => parseScenario(structuredClone(active))).not.toThrow();
+      expect(
+        active.agenda.every((item) => (item.links ?? []).every((link) => picked.includes(link.with))),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.KAKI_AGENDA_PICK;
+      else process.env.KAKI_AGENDA_PICK = previous;
+    }
+  });
+
+  it('starts an owner-edited setup whose linked topics were narrowed', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const app = await startApp(scenario);
+    await connectService(portOf(app));
+    const setup = await getSetup(app);
+    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
+    if (weiLing === undefined) throw new Error('Expected the Wei Ling seat');
+    weiLing.kind = 'person';
+    delete weiLing.npcProfileId;
+    setup.agenda = [
+      {
+        id: 'agenda-1',
+        title: 'One counter staff short for the opening rush',
+        minutes: 5,
+        ownerRoleId: 'producer',
+      },
+      { id: 'agenda-2', title: 'Delivery app commission squeeze', minutes: 4, ownerRoleId: 'marketing_lead' },
+    ];
+    expect((await putSetup(app, setup)).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+
+    expect((await startMeeting(app)).status).toBe(200);
+    const active = await getScenario(app);
+    expect(active.agenda.map((item) => item.title)).toEqual([
+      'One counter staff short for the opening rush',
+      'Delivery app commission squeeze',
+    ]);
+    expect(
+      active.agenda.every((item) =>
+        (item.links ?? []).every((link) => active.agenda.some((candidate) => candidate.title === link.with)),
+      ),
+    ).toBe(true);
+    expect(() => parseScenario(structuredClone(active))).not.toThrow();
+  });
+
   it('makes the admitted person the one human and keeps their colleague AI-voiced', async () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
@@ -864,6 +929,110 @@ describe('Start applies the validated setup', () => {
     });
     expect(await getSetup(restored)).toEqual(defaultMeetingSetup(pack));
     expect((await join(restored, 'Second Visitor', 'lead_programmer')).status).toBe(200);
+  });
+
+  it('keeps the ended meeting saved intact when the owner edits the next draft', async () => {
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(freshTopicScenario(), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+    });
+    const setup = await getSetup(first);
+    setup.agenda = [{ id: 'agenda-1', title: 'Custom A', minutes: 3, ownerRoleId: 'chef' }];
+    expect((await putSetup(first, setup)).status).toBe(200);
+    expect((await join(first, 'Cook', 'chef')).status).toBe(200);
+    expect((await startMeeting(first)).status).toBe(200);
+    const firstState = await meetingState(first);
+
+    const screen = await connectClient(portOf(first), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      'the meeting to end',
+    );
+    screen.close();
+
+    const next = await getSetup(first);
+    next.agenda = [{ id: 'agenda-1', title: 'Custom B', minutes: 3, ownerRoleId: 'chef' }];
+    expect((await putSetup(first, next)).status).toBe(200);
+    await firstPersistence.flush();
+
+    expect(store.saved?.state.clock.ended).toBe(true);
+    expect(store.saved?.setup.agenda.map((item) => item.title)).toEqual(['Custom A']);
+    expect((await getSetup(first)).agenda.map((item) => item.title)).toEqual(['Custom B']);
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(freshTopicScenario(), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    });
+    const restoredState = await meetingState(restored);
+    expect(restoredState.meetingId).toBe(firstState.meetingId);
+    expect(restoredState.started).toBe(false);
+    expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(['Custom A']);
+    expect((await getSetup(restored)).agenda.map((item) => item.title)).not.toContain('Custom B');
+  });
+
+  it('keeps the ended meeting saved intact when the calendar import replaces the next draft', async () => {
+    const calendar: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
+    const invite = buildMeetingInviteIcs(
+      {
+        uid: KOPITIAM_INVITE_UID,
+        title: 'Calendar B',
+        agenda: [{ title: 'Calendar B', minutes: 5, owner: 'Chef' }],
+        people: ['Ada', 'Bao'],
+      },
+      { start: '2026-11-11 07:30', end: '2026-11-11 08:00' },
+    );
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(freshTopicScenario(), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+      calendar,
+      calendarFetch: vi.fn<typeof fetch>(async () => new Response(invite)),
+    });
+    const setup = await getSetup(first);
+    setup.agenda = [{ id: 'agenda-1', title: 'Custom A', minutes: 3, ownerRoleId: 'chef' }];
+    expect((await putSetup(first, setup)).status).toBe(200);
+    expect((await join(first, 'Cook', 'chef')).status).toBe(200);
+    expect((await startMeeting(first)).status).toBe(200);
+    const firstState = await meetingState(first);
+
+    const screen = await connectClient(portOf(first), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      'the meeting to end',
+    );
+    screen.close();
+
+    const imported = await fetch(`http://127.0.0.1:${portOf(first)}/api/setup/import-calendar`, {
+      method: 'POST',
+    });
+    expect(imported.status).toBe(200);
+    expect(((await imported.json()) as { setup: MeetingSetup }).setup.title).toBe('Calendar B');
+    await firstPersistence.flush();
+
+    expect(store.saved?.state.clock.ended).toBe(true);
+    expect(store.saved?.setup.agenda.map((item) => item.title)).toEqual(['Custom A']);
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(freshTopicScenario(), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    });
+    const restoredState = await meetingState(restored);
+    expect(restoredState.meetingId).toBe(firstState.meetingId);
+    expect(restoredState.started).toBe(false);
+    expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(['Custom A']);
   });
 
   it('tells the owner a departed seat holder has left instead of naming them as present', async () => {

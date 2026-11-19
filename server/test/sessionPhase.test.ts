@@ -224,6 +224,89 @@ describe('Start lifecycle', () => {
     expect(app.session.phase()).toBe('lobby');
   });
 
+  it('makes a Start wait for an in-flight admission so that admission cannot cancel it', async () => {
+    let calls = 0;
+    let releaseRoster: (() => void) | undefined;
+    const rosterGate = new Promise<void>((resolve) => {
+      releaseRoster = resolve;
+    });
+    const app = await startApp(structuredClone(testScenario), {
+      roomRoster: async () => {
+        calls += 1;
+        if (calls === 2) await rosterGate;
+        return [];
+      },
+    });
+    const first = await join(app, 'Guest', 'chef');
+    expect(first.status).toBe(200);
+    const { meetingCode } = (await first.json()) as { meetingCode: string };
+
+    const lateJoin = fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Late', participantRole: 'cashier', meetingCode }),
+    });
+    await waitFor(() => (calls === 2 ? true : undefined), 'the late join to reach the roster');
+    const starting = startMeeting(app);
+    await settle(20);
+    // Start is queued behind the admission, so it has not begun while the roster is still held.
+    expect(app.session.phase()).toBe('lobby');
+
+    releaseRoster?.();
+    expect((await lateJoin).status).toBe(200);
+    const atStart = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+      meetingId: string;
+    };
+
+    const started = await starting;
+    expect(started.status).toBe(200);
+    expect(app.session.phase()).toBe('running');
+    const after = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+      meetingId: string;
+      started: boolean;
+    };
+    expect(after).toMatchObject({ meetingId: atStart.meetingId, started: true });
+  });
+
+  it('refuses an admission whose meeting changed while it waited, without mutating it', async () => {
+    let calls = 0;
+    let releaseRoster: (() => void) | undefined;
+    const rosterGate = new Promise<void>((resolve) => {
+      releaseRoster = resolve;
+    });
+    const app = await startApp(structuredClone(testScenario), {
+      roomRoster: async () => {
+        calls += 1;
+        if (calls === 2) await rosterGate;
+        return [];
+      },
+    });
+    const first = await join(app, 'Guest', 'chef');
+    expect(first.status).toBe(200);
+    const { meetingCode } = (await first.json()) as { meetingCode: string };
+
+    const lateJoin = fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Late', participantRole: 'cashier', meetingCode }),
+    });
+    await waitFor(() => (calls === 2 ? true : undefined), 'the late join to reach the roster');
+    const replacement = app.session.reset({ rotateCode: false });
+    releaseRoster?.();
+
+    const response = await lateJoin;
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'The meeting changed while you were joining; try again in a moment.',
+      retryable: true,
+    });
+    const state = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+      meetingId: string;
+      started: boolean;
+    };
+    expect(state).toMatchObject({ meetingId: replacement, started: false });
+  });
+
   it('refuses Start after the meeting ended and lets the owner write the next draft', async () => {
     const app = await startApp(freshScenario(), {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],

@@ -1,4 +1,4 @@
-import type { MeetingMemoryEntry, MeetingSetup, Scenario } from '@kaki/shared';
+import { parseScenario, type MeetingMemoryEntry, type MeetingSetup, type Scenario } from '@kaki/shared';
 import type { MeetingHub } from './hub';
 import type { MeetingPersistence } from './persist/persistence';
 import type { RejoinGuard } from './rejoin';
@@ -51,6 +51,8 @@ export interface MeetingSessionDeps {
   setupDraft: ResetRef<MeetingSetup>;
   sealedSetup: ResetRef<MeetingSetup | undefined>;
   draftTouched: ResetRef<boolean>;
+  /** True when the owner edited the draft after the seal, so a reset must keep it as the next draft. */
+  draftEditedSinceSeal: ResetRef<boolean>;
   defaultSetup: MeetingSetup;
   /** Build the scenario a reset installs from the pack, shaped for the seat when the draft is untouched. */
   resetScenario(options: { seat?: string; draftTouched: boolean }): Scenario;
@@ -91,12 +93,18 @@ export interface MeetingSession {
 export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let generation = 0;
   let phase = deps.initialPhase;
-  let active = deps.initialScenario;
+  let active = checked(deps.initialScenario);
   let pending: Scenario | undefined;
   const hooks: Array<() => void> = [];
 
   function refuse(transition: string): never {
     throw new Error(`kaki session: cannot ${transition} while the meeting is ${phase}`);
+  }
+
+  /** Every scenario the session will hand to a consumer must parse; fail loudly at the source. */
+  function checked(scenario: Scenario): Scenario {
+    parseScenario(scenario);
+    return scenario;
   }
 
   function replaceSavedState(): void {
@@ -117,16 +125,20 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     deps.memory.splice(0, deps.memory.length);
 
     const consumed = deps.sealedSetup.current !== undefined;
+    // An ended meeting keeps its seal for saving, but a draft the owner edited after END is the next
+    // meeting's setup and must survive the reset; an untouched consumed draft falls back to the pack.
+    const keepDraft = consumed && deps.draftEditedSinceSeal.current;
     deps.sealedSetup.current = undefined;
-    if (consumed) {
+    deps.draftEditedSinceSeal.current = false;
+    if (consumed && !keepDraft) {
       deps.draftTouched.current = false;
       deps.setupDraft.current = deps.defaultSetup;
     }
 
-    active = deps.resetScenario({
+    active = checked(deps.resetScenario({
       seat: options.seat ?? deps.rejoin.identities().at(-1)?.seat,
       draftTouched: deps.draftTouched.current,
-    });
+    }));
 
     for (const hook of hooks) {
       try {
@@ -154,7 +166,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     candidate: () => pending,
     beginStart(candidate) {
       if (phase !== 'lobby') refuse('begin a Start');
-      pending = candidate;
+      pending = checked(candidate);
       phase = 'starting';
     },
     commitStart() {
