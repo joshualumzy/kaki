@@ -515,7 +515,7 @@ describe('rejoining an empty meeting', () => {
 
   async function startApp(
     rejoinGraceMs: number,
-    options: { roster?: () => Roster; rejoinPollMs?: number } = {},
+    options: { roster?: () => Roster; rejoinPollMs?: number; admissionReservationMs?: number } = {},
   ) {
     const scenario = await loadScenario('kopitiam');
     return createApp({
@@ -524,6 +524,7 @@ describe('rejoining an empty meeting', () => {
       rejoinGraceMs,
       // Keep the poll out of the way unless a test is about what the server observes.
       rejoinPollMs: options.rejoinPollMs ?? 60_000,
+      admissionReservationMs: options.admissionReservationMs,
     });
   }
 
@@ -619,7 +620,8 @@ describe('rejoining an empty meeting', () => {
   });
 
   it('starts a fresh meeting for a different person inside the window', async () => {
-    const app = await startApp(60_000);
+    // Let the room's seat reservation expire as it would if LiveKit had shown the first person and they left.
+    const app = await startApp(60_000, { admissionReservationMs: 20 });
     const port = portOf(app);
     const screen = await connectClient(port, 'screen');
     try {
@@ -640,7 +642,7 @@ describe('rejoining an empty meeting', () => {
     }
   });
 
-  it('still says the meeting is full when someone is in the room', async () => {
+  it('still refuses a taken seat when someone is in the room', async () => {
     let people: Roster = [];
     const app = await startApp(60_000, { roster: () => people });
     try {
@@ -650,7 +652,7 @@ describe('rejoining an empty meeting', () => {
 
       const second = await join(app, { participantName: 'Priya', participantRole: 'producer' });
       expect(second.status).toBe(409);
-      expect(((await second.json()) as { error: string }).error).toMatch(/meeting is full/i);
+      expect(((await second.json()) as { error: string }).error).toMatch(/seat is taken/i);
     } finally {
       await app.close();
     }

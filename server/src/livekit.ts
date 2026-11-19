@@ -62,3 +62,63 @@ export function livekitRoster(): RoomRoster {
     }
   };
 }
+
+/** How long a seat stays reserved after a token is issued, before LiveKit is expected to show the person. */
+export const ADMISSION_RESERVATION_MS = 15_000;
+
+/** A seat handed out but not yet visible in LiveKit's roster. */
+export interface AdmissionReservation {
+  participantName: string;
+  /** The canonical role id of the seat. */
+  seatId: string;
+  expiresAt: number;
+}
+
+export interface SeatReservations {
+  /** Live reservations, dropping expired ones and those the roster now shows. */
+  active(rosterNames: readonly string[], at?: number): AdmissionReservation[];
+  /** Reserve a seat for a just-admitted participant, replacing an earlier reservation with their name. */
+  add(reservation: { participantName: string; seatId: string }, at?: number): void;
+}
+
+const sameName = (left: string, right: string): boolean => left.trim().toLowerCase() === right.trim().toLowerCase();
+
+/**
+ * In-process reservations close the gap between issuing a token and LiveKit showing the new person.
+ * Without them two simultaneous joins can both see the same free seat and take it.
+ */
+export function createSeatReservations(
+  ttlMs: number = ADMISSION_RESERVATION_MS,
+  now: () => number = Date.now,
+): SeatReservations {
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+    throw new Error(`The admission reservation timeout must be a non-negative number of milliseconds, got ${ttlMs}`);
+  }
+  let reservations: AdmissionReservation[] = [];
+  return {
+    active(rosterNames, at = now()) {
+      reservations = reservations.filter(
+        (reservation) =>
+          reservation.expiresAt > at && !rosterNames.some((name) => sameName(name, reservation.participantName)),
+      );
+      return [...reservations];
+    },
+    add(reservation, at = now()) {
+      reservations = reservations.filter((existing) => !sameName(existing.participantName, reservation.participantName));
+      reservations.push({ ...reservation, expiresAt: at + ttlMs });
+    },
+  };
+}
+
+/** Run admission tasks one at a time so a roster read and the seat reservation that follows cannot interleave. */
+export function createAdmissionQueue(): <T>(task: () => Promise<T>) => Promise<T> {
+  let tail: Promise<void> = Promise.resolve();
+  return <T>(task: () => Promise<T>): Promise<T> => {
+    const result = tail.then(task, task);
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -98,17 +98,33 @@ describe('demo meeting helpers', () => {
     expect(humanRoles(playable).map((role) => role.id)).not.toContain('manager');
   });
 
-  it('refuses a taken seat, and a join that would leave no AI or pass the cap', () => {
+  it('refuses a taken seat, and takes exactly one person when the meeting has AI stand-ins', () => {
     const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
     const cast = Array.from({ length: 5 }, (_, i) => ({ ...npc, attendee: i === 0 ? testScenario.attendees[0]!.name : `AI ${i}`, role: 'participant' as const, playable: true }));
     const scenario: Scenario = { ...testScenario, npcs: cast };
     const role = humanRoles(scenario)[0]!;
+    expect(humanSeatCapacity(scenario, 3)).toBe(1);
     expect(seatProblem(scenario, [], role.label, 3)).toBeUndefined();
     expect(seatProblem(scenario, [{ role: role.label }], role.label, 3)).toMatch(/seat is taken/);
-    expect(seatProblem(scenario, [{ role: 'a' }, { role: 'b' }, { role: 'c' }], role.label, 3)).toMatch(/full/);
-    // Never every character: at least one stays AI, whatever the cap says.
-    const cap = Math.max(1, cast.length - 1);
-    expect(seatProblem(scenario, Array.from({ length: cap }, () => ({})), role.label, 99)).toMatch(/full/);
+    expect(seatProblem(scenario, [{ role: 'someone else' }], role.label, 3)).toMatch(/full.*AI stand-ins take one person/);
+  });
+
+  it('never exceeds the human seats of a human-only meeting, whatever the requested cap says', () => {
+    expect(seatProblem(testScenario, Array.from({ length: humanSeatCount(testScenario) }, () => ({})), 'chef', 99)).toMatch(/full/);
+  });
+
+  it('takes its default capacity from the configured human seats, not an implicit one-person cap', () => {
+    expect(humanSeatCount(testScenario)).toBe(2);
+    expect(humanSeatCapacity(testScenario)).toBe(2);
+    expect(seatProblem(testScenario, [], 'chef')).toBeUndefined();
+    expect(seatProblem(testScenario, [{ role: 'chef' }], 'cashier')).toBeUndefined();
+    expect(seatProblem(testScenario, [{ role: 'chef' }, { role: 'cashier' }], 'chef')).toMatch(/seat is taken/);
+    expect(seatProblem(testScenario, [{ role: 'chef' }, { role: 'cashier' }], undefined)).toMatch(/full/);
+    // A scenario with one human seat still admits only one person.
+    const oneSeat: Scenario = { ...testScenario, npcs: [{ attendee: 'Bao', voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] }] };
+    expect(humanSeatCount(oneSeat)).toBe(1);
+    expect(humanSeatCapacity(oneSeat)).toBe(1);
+    expect(seatProblem(oneSeat, [{ role: 'chef' }], undefined)).toMatch(/full/);
   });
 });
 

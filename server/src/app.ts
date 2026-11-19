@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
@@ -9,7 +9,7 @@ import type { KakiModule } from './modules';
 import type { MeetingPersistence } from './persist/persistence';
 import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type RejoinGuard } from './rejoin';
 import { createTaskStore, type TaskStore } from './tasks';
-import { createRoomToken, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster } from './livekit';
+import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster, type SeatReservations } from './livekit';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
@@ -33,6 +33,8 @@ export interface CreateAppOptions {
   rejoinGraceMs?: number;
   /** How often the app server checks who is in the room; defaults to 5 seconds. */
   rejoinPollMs?: number;
+  /** How long a seat stays reserved after a token is issued; defaults to 15 seconds. */
+  admissionReservationMs?: number;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -60,6 +62,10 @@ interface RequestContext {
   meetingCode: { value: string; fixed: boolean };
   /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
   rejoin: RejoinGuard;
+  /** Seats handed out but not yet visible in LiveKit's roster. */
+  reservations: SeatReservations;
+  /** Runs admissions one at a time so a roster check and its reservation cannot interleave. */
+  admit: <T>(task: () => Promise<T>) => Promise<T>;
   /** Remember the room someone joined and start watching it for the meeting's next empty spell. */
   watchRoom: (roomName: string) => void;
   /** Seconds since the meeting started, read when a settled card is created or revised. */
@@ -209,28 +215,57 @@ async function handleRequest(
         sendJson(response, 400, { error: 'roomName and participantName are required' });
         return;
       }
+      const roomName = join.roomName;
+      const participantName = join.participantName.trim();
+      const wantedRole = typeof join.participantRole === 'string' ? join.participantRole.trim() : '';
+      if (wantedRole.length === 0) {
+        sendJson(response, 400, { error: 'participantRole is required: pick the seat you are taking.' });
+        return;
+      }
+      const seat = humanAttendeeForRole(context.scenario, wantedRole);
+      if (seat === undefined) {
+        sendJson(response, 400, {
+          error: `"${wantedRole}" is not a human seat in this meeting. Pick one of the roles offered when you join.`,
+        });
+        return;
+      }
+      // The canonical role id is what the roster and transcript use, whatever the person typed.
+      const seatId = seat.role;
       try {
-        const npcNames = (context.scenario.npcs ?? []).map((npc) => npc.attendee);
-        const joiningName = join.participantName.trim().toLowerCase();
-        const roster = await context.roomRoster(join.roomName);
-        const present = (roster ?? []).filter(
-          (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()),
-        );
-        const maxHumans = Number(process.env.NPC_MAX_HUMANS) || DEFAULT_MAX_HUMANS;
-        const problem = seatProblem(context.scenario, present, join.participantRole, maxHumans);
-        if (problem !== undefined) {
-          sendJson(response, 409, { error: problem });
-          return;
-        }
-        // The first person into an empty room starts a new meeting with a new code; later people must know it.
-        // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
-        // a different person arriving in that empty room starts a fresh meeting instead. If LiveKit cannot be asked,
-        // nobody can be told apart from an empty room, so the gate stays open and nothing is reset.
-        const meetingWasRunning = context.rejoin.hasBegun();
-        const rejoin = roster !== undefined && present.length === 0
-          ? context.rejoin.admit(join.participantName)
-          : undefined;
-        if (roster !== undefined) {
+        await context.admit(async () => {
+          const npcNames = (context.scenario.npcs ?? []).map((npc) => npc.attendee);
+          const joiningName = participantName.toLowerCase();
+          const roster = await context.roomRoster(roomName);
+          if (roster === undefined) {
+            sendJson(response, 503, {
+              error: 'Could not check who is in the meeting right now. Try again in a moment.',
+              retryable: true,
+            });
+            return;
+          }
+          const rosterHumans = roster.filter(
+            (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()),
+          );
+          // A reservation made by this same person is a retry, not another seat: let them reclaim it.
+          const otherReservations = context.reservations
+            .active(rosterHumans.map((person) => person.name))
+            .filter((reservation) => reservation.participantName.toLowerCase() !== joiningName);
+          const present = [
+            ...rosterHumans,
+            ...otherReservations.map((reservation) => ({ name: reservation.participantName, role: reservation.seatId })),
+          ];
+          const requestedMax = Number(process.env.NPC_MAX_HUMANS);
+          const maxHumans = Number.isFinite(requestedMax) && requestedMax > 0 ? requestedMax : undefined;
+          const problem = seatProblem(context.scenario, present, seatId, maxHumans);
+          if (problem !== undefined) {
+            sendJson(response, 409, { error: problem });
+            return;
+          }
+          // The first person into an empty room starts a new meeting with a new code; later people must know it.
+          // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
+          // a different person arriving in that empty room starts a fresh meeting instead.
+          const meetingWasRunning = context.rejoin.hasBegun();
+          const rejoin = present.length === 0 ? context.rejoin.admit(participantName) : undefined;
           if (rejoin?.reset === true) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
             if (npcNames.length > 0 && context.fullScenario.agenda.length > 1) {
@@ -242,7 +277,7 @@ async function handleRequest(
               const maxAgendaItems = Number(process.env.KAKI_AGENDA_ITEMS) || 2;
               const reordered = context.pickedAgenda ?? shuffleAgendaForRole(
                 context.fullScenario,
-                join.participantRole,
+                seatId,
                 Math.random,
                 maxAgendaItems,
               );
@@ -257,21 +292,22 @@ async function handleRequest(
           }
           if (present.some((person) => person.name.toLowerCase() === joiningName)) {
             sendJson(response, 409, {
-              error: `"${join.participantName.trim()}" is already in the meeting. Pick another name.`,
+              error: `"${participantName}" is already in the meeting. Pick another name.`,
             });
             return;
           }
-        }
-        const token = await createRoomToken(
-          { roomName: join.roomName, participantName: join.participantName, participantRole: join.participantRole },
-          npcNames,
-        );
-        if (rejoin !== undefined) context.rejoin.joined(join.participantName, rejoin);
-        context.watchRoom(join.roomName);
-        void syncDemoVisitorProfile(join.participantName);
-        const resumed = meetingWasRunning && rejoin?.reset !== true;
-        console.log(`[join] ${join.participantName} (${join.participantRole ?? 'participant'}) room=${join.roomName} reset=${rejoin?.reset === true} resumed=${resumed}`);
-        sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed });
+          const token = await createRoomToken(
+            { roomName: roomName, participantName, participantRole: seatId },
+            npcNames,
+          );
+          context.reservations.add({ participantName, seatId });
+          if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin);
+          context.watchRoom(roomName);
+          void syncDemoVisitorProfile(participantName);
+          const resumed = meetingWasRunning && rejoin?.reset !== true;
+          console.log(`[join] ${participantName} (${seatId}) room=${roomName} reset=${rejoin?.reset === true} resumed=${resumed}`);
+          sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed });
+        });
       } catch (error) {
         if (error instanceof JoinError) {
           sendJson(response, 400, { error: error.message });
@@ -533,6 +569,7 @@ export async function createApp({
   persistence,
   rejoinGraceMs,
   rejoinPollMs,
+  admissionReservationMs = ADMISSION_RESERVATION_MS,
 }: CreateAppOptions): Promise<KakiApp> {
   const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
@@ -548,6 +585,8 @@ export async function createApp({
   }
   const memory: MeetingMemoryEntry[] = [];
   const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
+  const reservations = createSeatReservations(admissionReservationMs);
+  const admit = createAdmissionQueue();
   const npcNames = (scenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
   let watchedRoom: string | undefined;
   const roomPoll = createRoomPoll({
@@ -566,7 +605,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, watchRoom, meetingElapsedSeconds });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, reservations, admit, watchRoom, meetingElapsedSeconds });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });

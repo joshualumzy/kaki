@@ -117,27 +117,45 @@ export function hostRole(scenario: Scenario): ScenarioRole | undefined {
   );
 }
 
-/** How many people may be in the demo meeting at once (the rest of the cast stays AI). */
+/** The one-person booth cap, for callers that deliberately want a single guest. */
 export const DEFAULT_MAX_HUMANS = 1;
+
+/** How many seats a person can take in this scenario: every attendee no AI always plays. */
+export function humanSeatCount(scenario: Scenario): number {
+  return scenario.attendees.filter((attendee) => !isPlayedByAi(scenario, attendee)).length;
+}
+
+/**
+ * How many people may be in the meeting at once: the scenario's configured human seats, optionally
+ * capped further. A meeting with AI stand-ins takes exactly one person: the AI colleagues follow one
+ * human guest and cannot tell two people apart, so only human-only meetings hold several people.
+ */
+export function humanSeatCapacity(scenario: Scenario, maxHumans?: number): number {
+  const hasAiStandIns = (scenario.npcs ?? []).length > 0;
+  const seats = hasAiStandIns ? Math.min(1, humanSeatCount(scenario)) : humanSeatCount(scenario);
+  const requested = maxHumans === undefined || !Number.isFinite(maxHumans) ? seats : Math.floor(maxHumans);
+  return Math.max(0, Math.min(requested, seats));
+}
 
 /**
  * Why a person cannot take a seat right now, or `undefined` if they can. `present` are the people already in the room.
- * Two rules: a seat holds one person, and at least one character must stay AI so the room always has an AI voice.
+ * A seat holds one person, and the meeting never holds more people than it has human seats.
  */
 export function seatProblem(
   scenario: Scenario,
   present: ReadonlyArray<{ role?: string }>,
   wantedRole: string | undefined,
-  maxHumans: number = DEFAULT_MAX_HUMANS,
+  maxHumans?: number,
 ): string | undefined {
-  const castSize = (scenario.npcs ?? []).length;
-  const cap = Math.max(1, Math.min(maxHumans, castSize > 0 ? castSize - 1 : maxHumans));
-  if (present.length >= cap) {
-    return `The meeting is full (${cap} ${cap === 1 ? 'person' : 'people'} at most). Try again when someone leaves.`;
-  }
+  const cap = humanSeatCapacity(scenario, maxHumans);
+  if (cap === 0) return 'No human seats are available in this meeting.';
   const seat = wantedRole === undefined ? undefined : humanAttendeeForRole(scenario, wantedRole);
   if (seat !== undefined && present.some((person) => person.role !== undefined && humanAttendeeForRole(scenario, person.role)?.name === seat.name)) {
     return `${seat.name}'s seat is taken. Pick another role.`;
+  }
+  if (present.length >= cap) {
+    const why = (scenario.npcs ?? []).length > 0 ? ' Meetings with AI stand-ins take one person.' : '';
+    return `The meeting is full (${cap} ${cap === 1 ? 'person' : 'people'} at most).${why} Try again when someone leaves.`;
   }
   return undefined;
 }
