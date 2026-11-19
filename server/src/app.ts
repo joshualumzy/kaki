@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
@@ -104,6 +104,8 @@ interface RequestContext {
   meetingElapsedSeconds?: () => number | undefined;
   /** The live agenda item, for a reconnecting runner. */
   meetingAgendaIndex?: () => number | undefined;
+  /** The pre-Start setup draft; memory only until persistence arrives, and reset with the meeting. */
+  setupDraft: { current: MeetingSetup };
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -477,6 +479,42 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === 'GET' && path === '/api/setup') {
+      if (context.auth !== undefined && (await context.auth.sessionKind(request)) === undefined) {
+        sendJson(response, 401, { error: 'Sign in to see the meeting setup.', authEnabled: true });
+        return;
+      }
+      sendJson(response, 200, { setup: context.setupDraft.current, started: context.meeting.started });
+      return;
+    }
+
+    if (request.method === 'PUT' && path === '/api/setup') {
+      // Only the meeting owner edits setup; everyone else gets the read-only join view.
+      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
+        sendJson(response, 403, { error: 'Only the meeting owner can change the setup.' });
+        return;
+      }
+      if (context.meeting.started) {
+        sendJson(response, 409, { error: "The meeting has started; setup can't change now." });
+        return;
+      }
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      const parsed = parseMeetingSetup(body.value, {
+        npcProfileIds: demoPackNpcProfileIds(context.fullScenario),
+      });
+      if (!parsed.ok) {
+        sendJson(response, 400, { errors: parsed.errors });
+        return;
+      }
+      context.setupDraft.current = parsed.value;
+      sendJson(response, 200, { setup: parsed.value, started: false });
+      return;
+    }
+
     if (request.method === 'GET' && path === '/api/join-info') {
       const join = resolveJoinBaseUrl();
       if (!join.ok) {
@@ -652,6 +690,9 @@ export async function createApp({
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
+  // The draft the setup screen starts from, rebuilt from the packaged scenario for every new meeting.
+  const defaultSetup = defaultMeetingSetup(fullScenario);
+  const setupDraft = { current: defaultSetup };
   // Validate the whole saved meeting before any part of it is applied, then put its agenda back in
   // place so the restored agenda index still names the topic the room was discussing.
   const savedMeeting = persistence?.saved;
@@ -691,7 +732,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
@@ -891,6 +932,7 @@ export async function createApp({
     memory.splice(0);
     meeting.started = false;
     meeting.startedAt = undefined;
+    setupDraft.current = defaultSetup;
     hub.clearRetained('meeting:started');
     // A restored meeting that is replaced before anyone reconnects is gone; the next arrival starts fresh.
     rejoin.forgetRestored();

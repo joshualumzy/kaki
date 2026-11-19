@@ -25,6 +25,8 @@ export interface Auth {
   handleHttp(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   /** Allow or reject a `/ws?role=` upgrade for the requested audience. */
   authorize(request: IncomingMessage, audience: ClientAudience): Promise<AuthDecision>;
+  /** The live session kind behind a request; undefined when signed out or from an ended meeting. */
+  sessionKind(request: IncomingMessage): Promise<SessionKind | undefined>;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   close(): Promise<void>;
@@ -312,6 +314,14 @@ export function createAuth({
 
   return {
     meetingCodeLimiter: meetingCodeAttempts,
+
+    async sessionKind(request) {
+      const session = await currentSession(request);
+      if (session === undefined) return undefined;
+      // A phone signed into the previous meeting must not read the new meeting's setup.
+      if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) return undefined;
+      return session.kind;
+    },
 
     async handleHttp(request, response) {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
