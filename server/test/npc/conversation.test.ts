@@ -1212,7 +1212,7 @@ describe('NpcConversation', () => {
     expect(cue).toContain('Begin with "Mei:"');
     expect(cue).toContain('Mei tells what happened as they saw it, from "The fridge was off three hours last night');
     expect(cue).toContain('Daniel answers Mei');
-    expect(cue).toContain('"A customer from yesterday emailed to say she got sick and had to see a doctor."');
+    expect(cue).toContain('"A customer who ate here yesterday, before the fridge went off, emailed to say she got sick and had to see a doctor."');
     expect(cue).not.toContain('Daniel tells');
     conversation.close();
   });

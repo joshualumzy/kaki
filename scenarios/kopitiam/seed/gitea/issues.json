@@ -79,7 +79,7 @@
         "marketing"
       ],
       "createdAt": "2026-11-10T17:30:00+08:00",
-      "body": "Any app menu change takes about 15 minutes to go live and comes out of Arjun's hour before opening. GrabFood hides shops priced more than 10% above in-store. No opening-day menu change has been submitted."
+      "body": "Any app menu change takes about 15 minutes to go live and comes out of Arjun's hour before opening. GrabFood hides shops that charge more on the app than at the counter. No opening-day menu change has been submitted."
     },
     {
       "title": "PayNow SGQR dynamic timeout on kiosk during concurrent checkout",

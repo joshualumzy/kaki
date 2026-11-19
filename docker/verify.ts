@@ -309,7 +309,7 @@ check('Wiki delivery page carries the 32% commission, margins and tray stock', a
   assert(page, 'delivery page is missing');
   assert(/32%/.test(page) && /0\.50/.test(page) && /120/.test(page), 'the delivery commission numbers are missing');
   assert(/\$5 profit/.test(page) && /30 trays/.test(page), 'the platter margin or tray stock is missing');
-  assert(/10%/.test(page), 'the 10% price rule is missing');
+  assert(/charge more on the app than at the counter/i.test(page), 'the app price rule is missing');
   return 'delivery page present';
 });
 
@@ -325,7 +325,7 @@ check('GrabFood email carries the 32% commission and launch banner terms', async
   const messages = await once('mail', mailMessages);
   const email = messages.find((message) => /featured banner/i.test(message.Subject));
   assert(email, 'GrabFood launch email is missing');
-  assert(/32%/.test(email.Text) && /10%/.test(email.Text), 'the commission or price rule is missing');
+  assert(/32%/.test(email.Text) && /charge more on the app than at the counter/i.test(email.Text), 'the commission or price rule is missing');
   return 'GrabFood launch email present';
 });
 

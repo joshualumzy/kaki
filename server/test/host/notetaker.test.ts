@@ -402,7 +402,7 @@ describe('task precision', () => {
           candidate(
             'Confirm GrabFood platter promotion terms (rate and vouchers)',
             'studio_manager',
-            "GrabFood's opening-month discount on their cut ended today, and we lose about 50 cents on each $10 breakfast set delivered.",
+            "GrabFood's promo rate on its cut for all our shops ended today, and we lose about 50 cents on each $10 breakfast set delivered.",
             { actionKind: 'mattermost_post' },
           ),
           candidate(
@@ -415,7 +415,7 @@ describe('task precision', () => {
       }),
     );
 
-    notetaker.addChunk({ speaker: 'Daniel', text: "GrabFood's opening-month discount on their cut ended today, and we lose about 50 cents on each $10 breakfast set delivered." });
+    notetaker.addChunk({ speaker: 'Daniel', text: "GrabFood's promo rate on its cut for all our shops ended today, and we lose about 50 cents on each $10 breakfast set delivered." });
     notetaker.addChunk({ speaker: 'Wei Ling', text: "I'll post the final plan in the team channel once we settle the pickup code." });
     await notetaker.run();
 

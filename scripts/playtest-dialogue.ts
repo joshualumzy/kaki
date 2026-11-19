@@ -115,7 +115,7 @@ function checkTranscriptQuality(item: AgendaItem, transcript: UtteranceRecord[])
         failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the fridge, the disposal log or the officer visit`);
       }
     } else if (item.title.includes('Delivery')) {
-      if (!/grabfood|platter|pickup|commission|margin|tray|10%/i.test(allSpeaker2Text)) {
+      if (!/grabfood|platter|pickup|commission|margin|tray/i.test(allSpeaker2Text)) {
         failures.push(`${speaker2.speaker}: Missing causal link! Did not explain the commission, platter or pickup margin`);
       }
     } else if (item.title.includes('Laptop')) {

@@ -457,7 +457,7 @@
           ]
         },
         {
-          "text": "A customer from yesterday emailed to say she got sick and had to see a doctor.",
+          "text": "A customer who ate here yesterday, before the fridge went off, emailed to say she got sick and had to see a doctor.",
           "knownBy": [
             {
               "attendee": "Daniel",
@@ -560,7 +560,7 @@
       "contested": true,
       "briefing": [
         {
-          "text": "GrabFood's opening-month discount on their cut ended today, so every breakfast set we deliver now loses us 50 cents.",
+          "text": "GrabFood's promo rate on their cut ended today for all our shops, so every breakfast set we deliver from here now loses us 50 cents.",
           "knownBy": [
             {
               "attendee": "Wei Ling",
@@ -588,21 +588,21 @@
       ],
       "decision": "how do we stop losing 50 cents on every delivered set without losing the office orders?",
       "directions": [
-        "Raise the app price. GrabFood hides shops priced more than 10% above in-store.",
+        "Raise the app price. GrabFood hides shops that charge more on the app than at the counter.",
         "Office Platters for five or more, limited by the large trays.",
         "A direct pickup code for offices. Someone has to come down; a pickup shelf sits by the side door.",
         "Pause single sets on the app from 8 to 10. Daniel's launch deal gives a featured banner only while the full menu is live.",
         "Any app menu change takes 15 minutes to go live and leaves less time for Arjun to test other changes before opening."
       ],
       "background": [
-        "GrabFood's opening-month discount on its cut ended today.",
+        "GrabFood's promo rate on its cut for all our shops ended today.",
         "Commission is 32%: $10.00 less 32% leaves $6.80, and a delivered set costs $7.30 to make and pack, so the loss is $0.50 per set.",
         "A five-set Office Platter at $50 costs $29 with shared packaging, keeps $34 and makes $5 profit.",
         "Direct pickup with 10% off takes $9.00 in, costs $7.00 with no delivery packaging, and makes $2 profit."
       ],
       "seatFacts": {
         "producer": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, and on a full morning that adds up to about $120. A five-set platter at $50 shares packaging and makes $5.",
-        "lead_programmer": "GrabFood hides shops priced more than 10% above dine-in, and any app menu change takes me about 15 minutes to push live before 8.",
+        "lead_programmer": "GrabFood hides shops that charge more on the app than at the counter, and any app menu change takes me about 15 minutes to push live before 8.",
         "game_designer": "Each five-set platter needs one of our large trays, and we only have 30 of those trays in the shop.",
         "marketing_lead": "A dozen office managers have asked me for a direct order code, and most office orders are for several sets. We keep the GrabFood launch banner only while the full menu is live."
       },
@@ -636,7 +636,7 @@
             "attendee": "Arjun",
             "role": "lead_programmer",
             "idea": "Raise app price",
-            "tradeOff": "GrabFood hides shops charging more than 10% over the shop price. We'd just disappear.",
+            "tradeOff": "GrabFood hides shops that charge more on the app than at the counter. We'd just disappear.",
             "question": "What happens to our listing if we raise the app price?"
           },
           {
