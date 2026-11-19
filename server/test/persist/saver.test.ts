@@ -4,6 +4,7 @@ import type { MeetingStateStore, SavedMeetingState, StoredMeeting } from '../../
 
 function stateWithAgenda(agendaIndex: number): SavedMeetingState {
   return {
+    agenda: ['Prep', 'Service', 'Close'],
     clock: {
       started: true,
       ended: false,
@@ -14,6 +15,7 @@ function stateWithAgenda(agendaIndex: number): SavedMeetingState {
     },
     notetaker: {
       pending: [],
+      inFlight: [],
       recentGrounded: [],
       contextAgendaIndex: 0,
       agendaContext: [],
@@ -86,6 +88,41 @@ class FailingStore implements MeetingStateStore {
   async clear(): Promise<void> {}
 }
 
+class OrderedStore implements MeetingStateStore {
+  saved: StoredMeeting | undefined;
+  events: string[] = [];
+  clearFailures = 0;
+  private readonly gate = deferred();
+  private first = true;
+
+  async load(): Promise<StoredMeeting | undefined> {
+    return this.saved;
+  }
+
+  async save(meeting: StoredMeeting): Promise<void> {
+    this.events.push(`save:${meeting.state.clock.agendaIndex}`);
+    if (this.first) {
+      this.first = false;
+      await this.gate.promise;
+    }
+    this.saved = meeting;
+  }
+
+  async clear(): Promise<void> {
+    if (this.clearFailures > 0) {
+      this.clearFailures -= 1;
+      this.events.push('clear:failed');
+      throw new Error('database is down');
+    }
+    this.events.push('clear');
+    this.saved = undefined;
+  }
+
+  releaseFirst(): void {
+    this.gate.resolve();
+  }
+}
+
 describe('meeting persistence saver', () => {
   it('writes once for a burst of changes and keeps the latest state', async () => {
     const store = new SlowStore();
@@ -114,6 +151,56 @@ describe('meeting persistence saver', () => {
     expect(store.saves).toHaveLength(2);
     expect(store.saves[1]?.state.clock.agendaIndex).toBe(2);
     expect(store.maxInFlight).toBe(1);
+  });
+
+  it('keeps save and clear in call order, so a new meeting is not cleared by an earlier reset', async () => {
+    const store = new OrderedStore();
+    let agendaIndex = 0;
+    const persistence = createMeetingPersistence({ store, log: () => undefined });
+    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(agendaIndex) }));
+
+    persistence.scheduleSave();
+    await Promise.resolve();
+    expect(store.events).toEqual(['save:0']);
+
+    // The old meeting is still being written when the host starts a new one and the new meeting speaks.
+    agendaIndex = 1;
+    const cleared = persistence.clearSaved();
+    agendaIndex = 2;
+    persistence.scheduleSave();
+
+    store.releaseFirst();
+    await cleared;
+    await persistence.flush();
+
+    expect(store.events).toEqual(['save:0', 'clear', 'save:2']);
+    expect(store.saved?.state.clock.agendaIndex).toBe(2);
+  });
+
+  it('retries a failed clear before any later save and reports the failure to its caller', async () => {
+    const store = new OrderedStore();
+    store.releaseFirst();
+    const logs: string[] = [];
+    let agendaIndex = 0;
+    const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
+    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(agendaIndex) }));
+
+    persistence.scheduleSave();
+    await persistence.flush();
+    expect(store.events).toEqual(['save:0']);
+
+    store.clearFailures = 1;
+    await expect(persistence.clearSaved()).rejects.toThrow('database is down');
+    expect(store.events).toEqual(['save:0', 'clear:failed']);
+
+    // The next save must clear first; otherwise the discarded meeting would come back.
+    agendaIndex = 2;
+    persistence.scheduleSave();
+    await persistence.flush();
+
+    expect(store.events).toEqual(['save:0', 'clear:failed', 'clear', 'save:2']);
+    expect(store.saved?.state.clock.agendaIndex).toBe(2);
+    expect(logs).toContain('[persist] clear failed: database is down');
   });
 
   it('logs a failed save every time and never throws at the caller', async () => {

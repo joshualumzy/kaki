@@ -24,8 +24,9 @@ const auth = authEnabled
   ? await createAuthFromEnv({ roles: scenario.roles.map((role) => role.id) })
   : undefined;
 
+let app: Awaited<ReturnType<typeof createApp>>;
 try {
-  await createApp({
+  app = await createApp({
     port,
     scenario,
     modules: [...host.modules, ...wingmanModules, ...actionModules],
@@ -47,3 +48,24 @@ console.log(
     authEnabled ? 'on' : 'off'
   })`,
 );
+
+let stopping = false;
+/** Save the meeting (bounded) and close the server, so `npm stop` never loses the last changes. */
+async function stop(signal: NodeJS.Signals): Promise<void> {
+  if (stopping) return;
+  stopping = true;
+  console.log(`kaki server: ${signal} received; saving the meeting and stopping`);
+  const timer = setTimeout(() => {
+    console.error('kaki server: saving the meeting took more than 3 s; stopping anyway');
+    process.exit(1);
+  }, 3_000);
+  try {
+    await app.close();
+  } catch (error) {
+    console.error('kaki server: stopping failed', error);
+  }
+  clearTimeout(timer);
+  process.exit(0);
+}
+process.on('SIGINT', () => void stop('SIGINT'));
+process.on('SIGTERM', () => void stop('SIGTERM'));

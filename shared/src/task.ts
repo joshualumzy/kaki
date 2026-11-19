@@ -76,6 +76,11 @@ export interface Task {
   draft?: ActionDraft;
   artifactUrl?: string;
   error?: string;
+  /**
+   * True when the server restarted while this task was being worked on. It is set by the restore and cleared by the
+   * next transition, so nothing retries it automatically: only the assignee tapping Retry does.
+   */
+  interrupted?: boolean;
   status: TaskStatus;
   updatedAt: string;
 }
@@ -203,6 +208,7 @@ export function isTask(value: unknown, scenario: Scenario): value is Task {
     (value.draft === undefined || isActionDraft(value.draft)) &&
     (value.artifactUrl === undefined || isString(value.artifactUrl)) &&
     (value.error === undefined || isString(value.error)) &&
+    (value.interrupted === undefined || typeof value.interrupted === 'boolean') &&
     isTaskStatus(value.status) &&
     isString(value.updatedAt)
   );

@@ -21,7 +21,8 @@ import { CommandError, type ClientAudience, type Hub } from './hub';
 type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft' | 'artifactUrl' | 'error'>>;
 
 /** Shown on a task that was mid-action when the server stopped; its owner can Retry. */
-export const INTERRUPTED_TASK_ERROR = 'Kaki restarted while this was running — tap Retry.';
+export const INTERRUPTED_TASK_ERROR =
+  'Kaki restarted while this was running. It may already have gone through: check before tapping Retry.';
 
 /** The single owner of task state; every other module changes tasks through it. */
 export interface TaskStore {
@@ -43,8 +44,9 @@ export interface TaskStore {
   /** Every task now, for saving across a restart. */
   snapshot(): Task[];
   /**
-   * Take up the tasks saved before a restart. A task that was RUNNING becomes FAILED with a message,
-   * because whatever was writing cannot have finished: its owner sees Retry and is never left waiting.
+   * Take up the tasks saved before a restart. A task Kaki was working on (running an action or still drafting one)
+   * becomes FAILED and marked interrupted, because whatever was writing cannot have finished: its owner sees Retry
+   * and is never left waiting, and nothing retries it automatically.
    */
   restore(tasks: readonly Task[]): void;
   /**
@@ -88,6 +90,11 @@ function assertPatch(patch: TaskPatch, scenario: Scenario): void {
   if (patch.error !== undefined && typeof patch.error !== 'string') {
     throw new CommandError('Error must be text');
   }
+}
+
+/** True when Kaki itself was mid-work: running the action, or still drafting it for the assignee. */
+function wasBeingWorkedOn(task: Task): boolean {
+  return task.status === 'RUNNING' || (task.status === 'CLAIMED' && task.mode === 'ACTION_AGENT');
 }
 
 /** Create the task store that routes task changes through the hub. */
@@ -139,6 +146,8 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
       status: to,
       updatedAt: new Date().toISOString(),
     };
+    // A restart interruption lasts only until the task moves again (for example when its owner taps Retry).
+    delete next.interrupted;
     if (to === 'FAILED' && error !== undefined) {
       next.error = error;
     } else {
@@ -310,10 +319,15 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
             `Saved task "${id}" does not belong to this scenario. Run \`npm run meeting:reset\` to discard it.`,
           );
         }
-        const next: Task =
-          task.status === 'RUNNING'
-            ? { ...task, status: 'FAILED', error: INTERRUPTED_TASK_ERROR, updatedAt: new Date().toISOString() }
-            : { ...task };
+        const next: Task = wasBeingWorkedOn(task)
+          ? {
+              ...task,
+              status: 'FAILED',
+              error: INTERRUPTED_TASK_ERROR,
+              interrupted: true,
+              updatedAt: new Date().toISOString(),
+            }
+          : { ...task };
         tasks.set(next.id, next);
         publishTask(next);
       }

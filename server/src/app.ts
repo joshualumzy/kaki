@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { codeProblem, DEFAULT_MAX_HUMANS, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
+import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
@@ -538,6 +539,13 @@ export async function createApp({
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
+  // Validate the whole saved meeting before any part of it is applied, then put its agenda back in
+  // place so the restored agenda index still names the topic the room was discussing.
+  const savedMeeting = persistence?.saved;
+  if (savedMeeting !== undefined) {
+    assertReadableSavedMeeting(savedMeeting, scenario);
+    setMeetingAgenda(scenario, fullScenario, resolveSavedAgenda(savedMeeting, scenario));
+  }
   const memory: MeetingMemoryEntry[] = [];
   const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
   const npcNames = (scenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
@@ -563,14 +571,14 @@ export async function createApp({
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
-  hub.subscribe((event) => { if (event.type === 'MEETING_RESET') memory.splice(0); });
+  hub.subscribe((event) => {
+    if (event.type !== 'MEETING_RESET') return;
+    memory.splice(0);
+    // A restored meeting that is replaced before anyone reconnects is gone; the next arrival starts fresh.
+    rejoin.forgetRestored();
+  });
   if (persistence !== undefined) {
     hub.subscribe((event) => {
-      // A new meeting must not leave the old one on disk to reappear after the next restart.
-      if (event.type === 'MEETING_RESET') {
-        void persistence.clearSaved();
-        return;
-      }
       if (
         event.type === 'TRANSCRIPT_CHUNK' ||
         event.type === 'MEETING_RECORD_UPDATED' ||
@@ -582,6 +590,8 @@ export async function createApp({
     });
     if (persistence.saved !== undefined) {
       try {
+        // A meeting that was still running is already in progress: someone coming back resumes it.
+        if (persistence.saved.state.clock.started && !persistence.saved.state.clock.ended) rejoin.restored();
         tasks.restore(persistence.saved.state.tasks);
       } catch (error) {
         closeRejoin();

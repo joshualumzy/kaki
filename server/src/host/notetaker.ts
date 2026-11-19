@@ -968,6 +968,8 @@ export function createNotetaker({
   onAgendaIndex,
 }: NotetakerOptions): Notetaker {
   let pending: TranscriptLine[] = [];
+  // The batch being analysed right now; saved with the notetaker so a restart does not lose it.
+  let inFlight: TranscriptLine[] | undefined;
   let recentGrounded: TranscriptLine[] = [];
   // Lines already heard on the current agenda item. They carry the accepted decision into later batches, where the
   // line that assigns the follow-up often arrives on its own and would otherwise lose the decision's details.
@@ -1257,6 +1259,7 @@ export function createNotetaker({
       running = true;
       const batch = pending;
       pending = [];
+      inFlight = batch;
       const startedIn = generation;
       const currentAgendaIndex = agendaIndex();
       if (currentAgendaIndex !== contextAgendaIndex) {
@@ -1275,6 +1278,8 @@ export function createNotetaker({
         ];
         const reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario);
         if (startedIn !== generation) return; // the meeting was reset while the model was thinking
+        // The model is done; applying is synchronous, so the batch must not be saved as still in flight.
+        inFlight = undefined;
         apply(reply, batch);
         status = 'ok';
         lastError = undefined;
@@ -1288,6 +1293,7 @@ export function createNotetaker({
         console.warn(`kaki notetaker: keeping the last good record; ${lastError}`);
       } finally {
         running = false;
+        inFlight = undefined;
       }
       if (succeeded && startedIn === generation && pending.length > 0) {
         void this.run();
@@ -1297,6 +1303,7 @@ export function createNotetaker({
     reset() {
       generation += 1;
       pending = [];
+      inFlight = undefined;
       recentGrounded = [];
       contextAgendaIndex = agendaIndex();
       agendaContext = [];
@@ -1313,6 +1320,7 @@ export function createNotetaker({
     snapshot() {
       return {
         pending: pending.map((line) => ({ ...line })),
+        inFlight: (inFlight ?? []).map((line) => ({ ...line })),
         recentGrounded: recentGrounded.map((line) => ({ ...line })),
         contextAgendaIndex,
         agendaContext: agendaContext.map((line) => ({ ...line })),
@@ -1330,7 +1338,9 @@ export function createNotetaker({
 
     restore(saved) {
       generation += 1;
-      pending = saved.pending.map((line) => ({ ...line }));
+      // The saved batch was older than anything still pending, so it is analysed first again.
+      pending = [...saved.inFlight, ...saved.pending].map((line) => ({ ...line }));
+      inFlight = undefined;
       recentGrounded = saved.recentGrounded.map((line) => ({ ...line }));
       contextAgendaIndex = saved.contextAgendaIndex;
       agendaContext = saved.agendaContext.map((line) => ({ ...line }));

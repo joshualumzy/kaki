@@ -30,6 +30,10 @@ export interface RejoinGuard {
   joined(name: string, decision: RejoinDecision): void;
   /** The meeting has begun speaking (or is hosted by a human): a returning guest resumes it without the Start tour. */
   began(): void;
+  /** A meeting was restored from disk: the next person to arrive resumes it instead of starting fresh. */
+  restored(): void;
+  /** The restored meeting is gone (the host started a new one): the next arrival starts fresh. */
+  forgetRestored(): void;
   /** Whether the meeting has begun speaking since the last reset. */
   hasBegun(): boolean;
   /** The server observed the room empty: start the grace window. Repeated calls are ignored. */
@@ -61,6 +65,7 @@ export function createRejoinGuard({
   let started = false;
   let begun = false;
   let finished = false;
+  let restoredMeeting = false;
   const humans = new Set<string>();
   let emptySince: number | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -95,9 +100,25 @@ export function createRejoinGuard({
       if (!started || finished) return;
       begun = true;
     },
+    restored() {
+      if (started) return;
+      started = true;
+      begun = true;
+      restoredMeeting = true;
+      log('[rejoin] a saved meeting was restored; the next arrival resumes it');
+    },
+    forgetRestored() {
+      if (!restoredMeeting) return;
+      restoredMeeting = false;
+      if (humans.size > 0) return;
+      started = false;
+      begun = false;
+      finished = false;
+    },
     hasBegun: () => started && begun && !finished,
     ended() {
       if (!started || finished) return;
+      restoredMeeting = false;
       finished = true;
       log('[rejoin] meeting ended, the next arrival starts a new one');
     },
@@ -107,6 +128,8 @@ export function createRejoinGuard({
       if (!started) return { reset: true };
       // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
       if (finished) return { reset: true };
+      // A meeting restored from disk has no known guest yet; whoever comes back first carries it on.
+      if (restoredMeeting) return { reset: false };
       // The grace is off: every arrival into an empty room starts a new meeting.
       if (graceMs <= 0) return { reset: true };
       // The last person may have left after the previous poll: treat this arrival as the moment the
@@ -120,6 +143,7 @@ export function createRejoinGuard({
       return { reset: !humans.has(normalise(name)) };
     },
     joined(name, decision) {
+      restoredMeeting = false;
       if (decision.reset) {
         begun = false;
         finished = false;

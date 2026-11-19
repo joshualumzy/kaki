@@ -1660,4 +1660,52 @@ describe('grounded recovery from a verified assignment decision line', () => {
 
     expect(tasks.list()).toEqual([]);
   });
+
+  it('snapshots the batch the model is analysing so a restart does not lose it', async () => {
+    const tasks = createTaskStore({ hub: quietHub(), scenario });
+    let release!: (replyText: string) => void;
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const blocking = {
+      complete: () =>
+        new Promise<string>((resolve) => {
+          began();
+          release = resolve;
+        }),
+    };
+    const notetaker = createNotetaker({ scenario, tasks, llm: blocking, agendaIndex: () => 0 });
+    notetaker.addChunk({ speaker: 'Ada (Chef)', text: 'The oven tripped again this morning.' });
+    notetaker.addChunk({ speaker: 'Bao (Cashier)', text: 'I will check the temperature log.' });
+
+    const pass = notetaker.run();
+    await started;
+    const saved = notetaker.snapshot();
+    expect(saved.pending).toEqual([]);
+    expect(saved.inFlight.map((line) => line.text)).toEqual([
+      'The oven tripped again this morning.',
+      'I will check the temperature log.',
+    ]);
+
+    release(reply({}));
+    await pass;
+
+    const seen: string[] = [];
+    const second = createNotetaker({
+      scenario,
+      tasks: createTaskStore({ hub: quietHub(), scenario }),
+      llm: createFakeLlm((messages) => {
+        seen.push(newLines(messages));
+        return reply({});
+      }),
+      agendaIndex: () => 0,
+    });
+    second.restore(saved);
+    await second.run();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('The oven tripped again this morning.');
+    expect(seen[0]).toContain('I will check the temperature log.');
+  });
 });

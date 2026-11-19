@@ -157,7 +157,12 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
         const draft: ActionDraft = task.draft;
         log?.(`${who.attendee} is reading the draft for "${task.title}"`);
         setTimeout(() => ports.send(role, { type: 'APPROVE_ACTION', taskId: task.id, draft }), ports.approveDelayMs ?? DEFAULT_APPROVE_DELAY_MS).unref();
-      } else if (!ports.draftOnly && task.status === 'FAILED' && !retried.has(task.id)) {
+      } else if (
+        !ports.draftOnly &&
+        task.status === 'FAILED' &&
+        task.interrupted !== true &&
+        !retried.has(task.id)
+      ) {
         retried.add(task.id);
         log?.(`${who.attendee} is retrying failed task "${task.title}"`);
         setTimeout(

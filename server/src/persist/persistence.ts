@@ -12,8 +12,8 @@ import {
 export type MeetingSnapshotSource = () => { startedAt: string; state: SavedMeetingState } | undefined;
 
 /**
- * Saves the meeting across a restart. `scheduleSave` never writes twice at once: while a write is in
- * flight newer state is remembered and written next, so the latest state wins.
+ * Saves the meeting across a restart. Writes and clears happen in call order, one at a time; only
+ * consecutive saves collapse to the latest state, so a clear can never overtake a save queued after it.
  */
 export interface MeetingPersistence {
   /** The compatible meeting found at startup, if any. */
@@ -22,7 +22,10 @@ export interface MeetingPersistence {
   registerSource(source: MeetingSnapshotSource): void;
   /** Queue a save of the latest state; safe to call on every change. */
   scheduleSave(): void;
-  /** Delete the saved meeting, after any write already in flight. */
+  /**
+   * Delete the saved meeting, after everything queued before it. A failed clear stays at the head of
+   * the queue, is retried before later saves, and rejects this call so the caller can tell the host.
+   */
   clearSaved(): Promise<void>;
   /** Wait for queued writes; used by shutdown and tests. */
   flush(): Promise<void>;
@@ -42,7 +45,20 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Create the coalescing saver over a store; nothing is written until `scheduleSave` is called. */
+interface SaveEntry {
+  kind: 'save';
+}
+
+interface ClearEntry {
+  kind: 'clear';
+  settled: boolean;
+  resolve(): void;
+  reject(error: unknown): void;
+}
+
+type QueueEntry = SaveEntry | ClearEntry;
+
+/** Create the ordered saver over a store; nothing is written until `scheduleSave` is called. */
 export function createMeetingPersistence({
   store,
   saved,
@@ -51,70 +67,99 @@ export function createMeetingPersistence({
   closeStore,
 }: MeetingPersistenceOptions): MeetingPersistence {
   let source: MeetingSnapshotSource | undefined;
-  let dirty = false;
-  let draining = false;
   let closed = false;
-  // One promise chain: a clear queued during a write runs after it, never beside it.
-  let tail: Promise<void> = Promise.resolve();
+  // Writes and clears in call order. The head is what runs next; a failed clear stays there and blocks
+  // later saves until a retry succeeds.
+  const queue: QueueEntry[] = [];
+  let processing: Promise<void> | undefined;
 
-  function enqueue(task: () => Promise<void>): Promise<void> {
-    tail = tail.then(task, task);
-    return tail;
+  async function runSave(): Promise<void> {
+    let snapshot: ReturnType<MeetingSnapshotSource>;
+    try {
+      snapshot = source?.();
+    } catch (error) {
+      log(`[persist] could not read the meeting to save: ${errorMessage(error)}`);
+      return;
+    }
+    if (snapshot === undefined) return;
+    try {
+      await store.save({
+        schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+        savedAt: now().toISOString(),
+        startedAt: snapshot.startedAt,
+        state: snapshot.state,
+      });
+    } catch (error) {
+      // A database problem must not take the meeting down; it is logged every time it happens.
+      log(`[persist] save failed: ${errorMessage(error)}`);
+    }
+  }
+
+  async function drain(): Promise<void> {
+    while (queue.length > 0) {
+      const head = queue[0]!;
+      if (head.kind === 'save') {
+        queue.shift();
+        await runSave();
+        continue;
+      }
+      try {
+        await store.clear();
+        queue.shift();
+        if (!head.settled) {
+          head.settled = true;
+          head.resolve();
+        }
+      } catch (error) {
+        log(`[persist] clear failed: ${errorMessage(error)}`);
+        if (!head.settled) {
+          head.settled = true;
+          head.reject(error);
+        }
+        // Leave the clear at the head: the next save retries it first rather than overwriting it.
+        return;
+      }
+    }
+  }
+
+  function start(): void {
+    if (processing !== undefined) return;
+    processing = drain()
+      .catch((error: unknown) => log(`[persist] the write queue failed: ${errorMessage(error)}`))
+      .finally(() => {
+        processing = undefined;
+        // Work queued just as the queue stopped still runs; a failed clear waits for new work instead.
+        if (queue[0]?.kind === 'save') start();
+      });
   }
 
   function scheduleSave(): void {
     if (closed) return;
-    dirty = true;
-    if (draining) return;
-    draining = true;
-    void enqueue(async () => {
-      try {
-        while (dirty) {
-          dirty = false;
-          let snapshot: ReturnType<MeetingSnapshotSource>;
-          try {
-            snapshot = source?.();
-          } catch (error) {
-            log(`[persist] could not read the meeting to save: ${errorMessage(error)}`);
-            continue;
-          }
-          if (snapshot === undefined) continue;
-          try {
-            await store.save({
-              schemaVersion: MEETING_STATE_SCHEMA_VERSION,
-              savedAt: now().toISOString(),
-              startedAt: snapshot.startedAt,
-              state: snapshot.state,
-            });
-          } catch (error) {
-            // A database problem must not take the meeting down; it is logged every time it happens.
-            log(`[persist] save failed: ${errorMessage(error)}`);
-          }
-        }
-      } finally {
-        draining = false;
-      }
-    });
+    // Only consecutive saves collapse: a clear between two saves keeps both, in order.
+    if (queue[queue.length - 1]?.kind !== 'save') queue.push({ kind: 'save' });
+    // Even a collapsed save asks the queue to run, so it retries a failed clear waiting at the head.
+    start();
   }
 
-  async function clearSaved(): Promise<void> {
-    dirty = false;
-    await enqueue(async () => {
-      try {
-        await store.clear();
-      } catch (error) {
-        log(`[persist] clear failed: ${errorMessage(error)}`);
-      }
+  function clearSaved(): Promise<void> {
+    if (closed) return Promise.reject(new Error('the meeting store is closed'));
+    return new Promise<void>((resolve, reject) => {
+      queue.push({ kind: 'clear', settled: false, resolve, reject });
+      start();
     });
   }
 
   async function flush(): Promise<void> {
     // A change can queue another write while this one is being waited on; wait for those too.
-    let seen: Promise<void>;
+    let seen: Promise<void> | undefined;
     do {
-      seen = tail;
-      await seen;
-    } while (seen !== tail);
+      seen = processing;
+      if (seen !== undefined) await seen.catch(() => undefined);
+    } while (seen !== processing);
+    if (processing === undefined && queue[0]?.kind === 'save') {
+      start();
+      await flush();
+    }
   }
 
   async function close(): Promise<void> {

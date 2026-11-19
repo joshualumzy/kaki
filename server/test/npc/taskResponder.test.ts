@@ -232,6 +232,25 @@ describe('task responder for an AI attendee', () => {
     }
   });
 
+  it('retries an ordinary failure automatically, but never one a restart interrupted', async () => {
+    vi.useFakeTimers();
+    try {
+      const ordinary = setup('{}');
+      ordinary.responder.handle(updated(task({ status: 'FAILED', error: 'not sent' })));
+      await vi.advanceTimersByTimeAsync(3_100);
+      expect(ordinary.sent).toEqual([['chef', { type: 'RETRY_ACTION', taskId: 't-1' }]]);
+
+      const interrupted = setup('{}');
+      interrupted.responder.handle(
+        updated(task({ status: 'FAILED', interrupted: true, error: 'restarted' })),
+      );
+      await vi.advanceTimersByTimeAsync(3_100);
+      expect(interrupted.sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaves the task alone when a person has taken that seat', async () => {
     const { responder, said, sent } = setup('{"accept": true, "line": "x"}', false);
     responder.handle(updated(task({})));

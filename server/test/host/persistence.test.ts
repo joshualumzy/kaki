@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { KakiEvent } from '@kaki/shared';
+import type { KakiEvent, Task } from '@kaki/shared';
+import { createApp } from '../../src/app';
 import { createMeetingModule } from '../../src/host/meeting';
+import { loadScenario } from '../../src/loadScenario';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import {
   assertCompatibleSavedMeeting,
@@ -10,6 +12,7 @@ import {
 } from '../../src/persist/state';
 import type { KakiApp } from '../../src/app';
 import { connectClient, createTestApp, portOf, waitFor, waitForEvent, type TestClient } from '../helpers';
+import { testScenario } from '../fixtures/scenario';
 
 class MemoryStore implements MeetingStateStore {
   saved: StoredMeeting | undefined;
@@ -25,6 +28,85 @@ class MemoryStore implements MeetingStateStore {
   async clear(): Promise<void> {
     this.saved = undefined;
   }
+}
+
+class FailingClearStore extends MemoryStore {
+  clearFailures = 0;
+
+  override async clear(): Promise<void> {
+    if (this.clearFailures > 0) {
+      this.clearFailures -= 1;
+      throw new Error('database is down');
+    }
+    await super.clear();
+  }
+}
+
+class GatedClearStore extends MemoryStore {
+  readonly clearStarted: Promise<void>;
+  private beginClear!: () => void;
+  private releaseClear!: () => void;
+
+  constructor() {
+    super();
+    this.clearStarted = new Promise<void>((resolve) => {
+      this.beginClear = resolve;
+    });
+  }
+
+  override async clear(): Promise<void> {
+    this.beginClear();
+    await new Promise<void>((resolve) => {
+      this.releaseClear = resolve;
+    });
+    await super.clear();
+  }
+
+  finishClear(): void {
+    this.releaseClear();
+  }
+}
+
+
+function savedState({
+  agenda,
+  agendaIndex = 0,
+  tasks = [],
+}: {
+  agenda: string[];
+  agendaIndex?: number;
+  tasks?: Task[];
+}): StoredMeeting {
+  return {
+    schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+    startedAt: '2026-01-01T00:00:00.000Z',
+    savedAt: '2026-01-01T00:05:00.000Z',
+    state: {
+      agenda,
+      clock: {
+        started: true,
+        ended: false,
+        paused: false,
+        agendaIndex,
+        itemElapsedSeconds: 30,
+        meetingElapsedSeconds: 90,
+      },
+      notetaker: {
+        pending: [],
+        inFlight: [],
+        recentGrounded: [],
+        contextAgendaIndex: agendaIndex,
+        agendaContext: [],
+        openQuestions: [],
+        questionCount: 0,
+        status: 'ok',
+        talkByItem: [],
+        talkTotals: [],
+        talkTotal: 0,
+      },
+      tasks,
+    },
+  };
 }
 
 const apps: KakiApp[] = [];
@@ -124,7 +206,10 @@ describe('meeting persistence across a restart', () => {
     expect(app2.tasks.get(open.id)?.status).toBe('SUGGESTED');
     const failed = app2.tasks.get(interrupted.id);
     expect(failed?.status).toBe('FAILED');
-    expect(failed?.error).toBe('Kaki restarted while this was running — tap Retry.');
+    expect(failed?.interrupted).toBe(true);
+    expect(failed?.error).toBe(
+      'Kaki restarted while this was running. It may already have gone through: check before tapping Retry.',
+    );
 
     // The notetaker carries on from the restored talk time instead of starting from nothing.
     say(
@@ -184,6 +269,7 @@ describe('meeting persistence across a restart', () => {
       startedAt: '2026-01-01T00:00:00.000Z',
       savedAt: '2026-01-01T00:00:00.000Z',
       state: {
+        agenda: ['Prep'],
         clock: {
           started: true,
           ended: false,
@@ -194,6 +280,7 @@ describe('meeting persistence across a restart', () => {
         },
         notetaker: {
           pending: [],
+          inFlight: [],
           recentGrounded: [],
           contextAgendaIndex: 0,
           agendaContext: [],
@@ -212,5 +299,155 @@ describe('meeting persistence across a restart', () => {
       `Saved meeting is from an older format (v${MEETING_STATE_SCHEMA_VERSION - 1}, need v${MEETING_STATE_SCHEMA_VERSION}). ` +
         'Run `npm run meeting:reset` to discard it.',
     );
+  });
+
+  it('restores the saved agenda order so its index still means the same topic', async () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [
+        testScenario.agenda[0]!,
+        { ...testScenario.agenda[0]!, title: 'Service', ownerRole: 'cashier' as const },
+      ],
+    };
+    const store = new MemoryStore();
+    store.saved = savedState({ agenda: ['Service', 'Prep'], agendaIndex: 1 });
+    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
+    const app = await createApp({
+      scenario,
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence,
+    });
+    apps.push(app);
+    const screen = await connectClient(portOf(app), 'screen');
+    clients.push(screen);
+
+    const record = (await waitForEvent(screen, isRecord, 'restored record')) as Extract<
+      KakiEvent,
+      { type: 'MEETING_RECORD_UPDATED' }
+    >;
+    expect(record.payload.agendaIndex).toBe(1);
+
+    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`);
+    const restored = (await response.json()) as { agenda: Array<{ title: string }> };
+    expect(restored.agenda.map((item) => item.title)).toEqual(['Service', 'Prep']);
+  });
+
+  it('treats a restored meeting as ongoing so the person coming back resumes it', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const task: Task = {
+      id: 'task-restored',
+      title: 'Keep the plan',
+      context: 'From before the restart.',
+      suggestedAssignee: 'producer',
+      status: 'SUGGESTED',
+      updatedAt: '2026-01-01T00:00:20.000Z',
+    };
+    const agenda = scenario.agenda.slice(0, 2).map((item) => item.title);
+    const store = new MemoryStore();
+    store.saved = savedState({ agenda, tasks: [task] });
+    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
+    const app = await createApp({
+      scenario,
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence,
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+    apps.push(app);
+
+    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Visitor', participantRole: 'producer' }),
+    });
+    expect(response.status).toBe(200);
+    const joined = (await response.json()) as { resumed?: boolean };
+    expect(joined.resumed).toBe(true);
+    expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
+
+    const meeting = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`)).json()) as {
+      agenda: Array<{ title: string }>;
+    };
+    expect(meeting.agenda.map((item) => item.title)).toEqual(agenda);
+  });
+
+  it('refuses to start with a saved meeting whose shape is broken', async () => {
+    const store = new MemoryStore();
+    const broken = savedState({ agenda: ['Prep'] });
+    (broken.state.clock as unknown as { agendaIndex: unknown }).agendaIndex = 'first';
+    store.saved = broken;
+    const persistence = createMeetingPersistence({ store, saved: broken, log: () => undefined });
+
+    await expect(
+      createApp({
+        scenario: testScenario,
+        modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+        persistence,
+      }),
+    ).rejects.toThrow(/Saved meeting is unreadable \(.*\)\. Run `npm run meeting:reset` to discard it\./);
+    await persistence.close();
+  });
+
+  it('tells the host when the old meeting could not be cleared, and keeps the meeting', async () => {
+    const store = new FailingClearStore();
+    const persistence = createMeetingPersistence({ store, log: () => undefined });
+    const app = await startApp(persistence);
+    say(app, 'Ada (Chef)', 'The oven trips the fuse again.');
+    const task = app.tasks.suggest({
+      title: 'Call the oven repair man',
+      context: 'The oven trips the fuse.',
+      suggestedAssignee: 'chef',
+    });
+    await persistence.flush();
+    const screen = await connectScreen(app);
+
+    store.clearFailures = 1;
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    const rejected = await waitForEvent(screen, (event) => event.type === 'COMMAND_REJECTED', 'clear rejection');
+    expect(rejected.type === 'COMMAND_REJECTED' && rejected.payload).toMatchObject({
+      commandType: 'NEW_MEETING',
+      reason: "Couldn't clear the saved meeting — try again",
+    });
+    expect(app.tasks.get(task.id)?.title).toBe('Call the oven repair man');
+    expect(store.saved).toBeDefined();
+
+    // The failed clear stays queued; a second attempt clears it before the host's new meeting starts.
+    store.clearFailures = 0;
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'reset');
+    await waitFor(() => (store.saved === undefined ? true : undefined), 'saved meeting to be cleared');
+    expect(app.tasks.get(task.id)).toBeUndefined();
+  });
+
+  it('does not let a pre-reset save bring the old meeting back while a clear is slow', async () => {
+    const store = new GatedClearStore();
+    const persistence = createMeetingPersistence({ store, log: () => undefined });
+    const app = await startApp(persistence);
+    const screen = await connectScreen(app);
+    say(app, 'Ada (Chef)', 'The oven trips the fuse again.');
+    const task = app.tasks.suggest({
+      title: 'Call the oven repair man',
+      context: 'The oven trips the fuse.',
+      suggestedAssignee: 'chef',
+    });
+    await persistence.flush();
+    const frozen = store.saved!;
+    expect(frozen).toBeDefined();
+
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await store.clearStarted;
+    // The old meeting is still talking while the clear is in progress.
+    say(app, 'Ada (Chef)', 'One more line before the reset lands.');
+    store.finishClear();
+    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'reset');
+    await persistence.flush();
+
+    expect(store.saved).toBeUndefined();
+    expect(app.tasks.get(task.id)).toBeUndefined();
+
+    say(app, 'Ada (Chef)', 'A fresh meeting starts here.');
+    await waitFor(() => (store.saved !== undefined ? true : undefined), 'the new meeting to be saved');
+    expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
   });
 });

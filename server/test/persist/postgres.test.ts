@@ -23,6 +23,7 @@ const meeting: StoredMeeting = {
   startedAt: '2026-02-03T04:05:06.000Z',
   savedAt: '2026-02-03T04:06:07.000Z',
   state: {
+    agenda: ['Prep', 'Service'],
     clock: {
       started: true,
       ended: false,
@@ -33,6 +34,7 @@ const meeting: StoredMeeting = {
     },
     notetaker: {
       pending: [{ speaker: 'Ada (Chef)', text: 'One more thing.' }],
+      inFlight: [],
       recentGrounded: [],
       contextAgendaIndex: 1,
       agendaContext: [],

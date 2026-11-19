@@ -56,6 +56,8 @@ export function createMeetingModule({
       const saved = persistence?.saved;
       const restored = saved !== undefined;
       let meetingStartedAt: string | undefined;
+      // While the host's New meeting is waiting for the old one to be cleared, no pre-reset snapshot may be saved.
+      let resetting = false;
       if (saved !== undefined) {
         clock.restore(saved.state.clock);
         notetaker.restore(saved.state.notetaker);
@@ -64,11 +66,13 @@ export function createMeetingModule({
       }
 
       persistence?.registerSource(() => {
+        if (resetting) return undefined;
         const now = clock.snapshot();
         if (!now.started || meetingStartedAt === undefined) return undefined;
         return {
           startedAt: meetingStartedAt,
           state: {
+            agenda: scenario.agenda.map((item) => item.title),
             clock: {
               started: now.started,
               ended: now.ended,
@@ -194,7 +198,10 @@ export function createMeetingModule({
       }
 
       // The next line said after the meeting ended belongs to a new meeting: nothing carries over.
-      function resetMeeting(): void {
+      // `savedCleared` is set by the host's New meeting, which has already waited for the clear itself.
+      let ownResetEvent: KakiEvent | undefined;
+      function resetMeeting({ savedCleared = false }: { savedCleared?: boolean } = {}): void {
+        if (!savedCleared) void persistence?.clearSaved().catch(() => undefined);
         clock.reset();
         notetaker.reset();
         tasks.reset();
@@ -208,7 +215,10 @@ export function createMeetingModule({
         lastPublishedAt = 0;
         announcedAgendaIndex = -1;
         startTicker();
-        hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
+        const reset: KakiEvent = { type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} };
+        ownResetEvent = reset;
+        hub.publish(reset);
+        ownResetEvent = undefined;
         console.log('kaki host: a new meeting starts; the old record, questions and tasks are cleared');
       }
 
@@ -230,6 +240,8 @@ export function createMeetingModule({
 
       const unsubscribe = hub.subscribe((event) => {
         if (event.type === 'MEETING_RESET') {
+          // A reset published by another module (the join guard) must clear the saved meeting too.
+          if (event !== ownResetEvent) void persistence?.clearSaved().catch(() => undefined);
           const wasActive = clock.snapshot().started || clock.snapshot().ended;
           clock.reset();
           notetaker.reset();
@@ -302,7 +314,7 @@ export function createMeetingModule({
         void runNotetaker();
       }
 
-      hub.onCommand((command, sender) => {
+      hub.onCommand(async (command, sender) => {
         if (
           command.type !== 'END_MEETING' &&
           command.type !== 'NEW_MEETING' &&
@@ -314,7 +326,18 @@ export function createMeetingModule({
         }
         if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
         if (command.type === 'NEW_MEETING') {
-          resetMeeting();
+          // Only say the meeting started once the old one is really gone; otherwise the host must know.
+          if (persistence !== undefined) {
+            resetting = true;
+            try {
+              await persistence.clearSaved();
+            } catch {
+              resetting = false;
+              throw new CommandError("Couldn't clear the saved meeting — try again");
+            }
+          }
+          resetMeeting({ savedCleared: true });
+          resetting = false;
           return;
         }
         if (command.type === 'SET_HOST_MODE') {
