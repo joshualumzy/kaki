@@ -92,7 +92,7 @@
       "contested": true,
       "briefing": [
         {
-          "text": "One of our counter staff texted at 6:45 with a fever, so we're one person short for the 8 o'clock rush.",
+          "text": "Siti texted at quarter to seven, her kid's in hospital, so we're one short at the counter for the rush at 8.",
           "knownBy": [
             {
               "attendee": "Wei Ling",
@@ -105,7 +105,7 @@
           ]
         },
         {
-          "text": "The free-kopi flyers went out to every office in the building.",
+          "text": "We sent free-kopi flyers to every office in the building, about 200 of them.",
           "knownBy": [
             {
               "attendee": "Daniel",
@@ -165,13 +165,13 @@
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "I won't leave one person alone on the counter. Auntie Mary is on her rest day, so calling her in means double pay, and she can say no.",
+            "tradeOff": "It's her rest day though. Double pay, and she's allowed to say no.",
             "question": "Who is actually going to stand on that counter with them from 8?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "About 200 offices in this building got our free-kopi flyer, and they're coming down between 8 and 9.",
+            "tradeOff": "That flyer went to the whole building. Pull it now and day one starts with a broken promise.",
             "question": "How do we get through the 8 o'clock rush without pulling the free kopi we promised?"
           }
         ]
@@ -188,7 +188,7 @@
       "contested": true,
       "briefing": [
         {
-          "text": "Some of our old regulars saw the new kopi price at yesterday's trial and walked out.",
+          "text": "Kopi's gone from $1.30 to $2.40, and some of the old uncles saw that yesterday and just walked out.",
           "knownBy": [
             {
               "attendee": "Mei",
@@ -201,7 +201,7 @@
           ]
         },
         {
-          "text": "One nephew posted on Facebook that we've forgotten our roots.",
+          "text": "One of their nephews posted on Facebook that we've forgotten our roots, and it has a few hundred shares already.",
           "knownBy": [
             {
               "attendee": "Daniel",
@@ -222,7 +222,8 @@
         "Hold the price and explain it: a note at the counter, a reply on Facebook, a free first kopi for regulars this week."
       ],
       "background": [
-        "This flagship is the refurbished old Nanyang shop; many morning regulars have come here for years."
+        "This flagship is the refurbished old Nanyang shop; many morning regulars have come here for years, and photos of the old regulars hang on the wall.",
+        "Uncle Lim has run the kopi bar since the old shop."
       ],
       "offScreen": {
         "name": "Uncle Lim",
@@ -230,9 +231,9 @@
         "howTheyAnswer": "Uncle Lim answers once, in character. He may offer to vouch for the regulars, or say he will not be the one turning people away. Decide his answer from how the guest asks."
       },
       "seatFacts": {
-        "producer": "On Raffles Place rent, a cup of kopi costs us about $1.60 to serve, so selling at $1.30 loses money on every cup.",
+        "producer": "Kopi costs us about $1.60 a cup to serve here. Going back to the old $1.30 loses money on every cup.",
         "lead_programmer": "I can add a regulars' price button on the till in about 10 minutes, but we need a clear rule on who gets it.",
-        "game_designer": "Kopi was $1.30 at the old shop and it's $2.40 on the new menu, right under the board telling the old regulars' story.",
+        "game_designer": "Kopi was $1.30 at the old shop and it's $2.40 on the new menu, right under the photos of the old regulars on our wall.",
         "marketing_lead": "The nephew's Facebook post has been shared a few hundred times since last night. The food blogger reads those local groups."
       },
       "links": [
@@ -253,7 +254,7 @@
         "openingViews": [
           {
             "attendee": "Mei",
-            "angle": "the old shop's regulars and the story on the menu board"
+            "angle": "the old shop's regulars and the photos on the wall"
           },
           {
             "attendee": "Wei Ling",
@@ -264,13 +265,13 @@
           {
             "attendee": "Mei",
             "role": "game_designer",
-            "tradeOff": "Kopi jumped from $1.30 to $2.40, and the regulars we put on our own menu boards walked out yesterday.",
+            "tradeOff": "Funny thing is, we put their photos up on the wall. A note at the counter won't fix that.",
             "question": "How do we look after the old regulars without gutting the new menu?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Every cup of kopi costs us about $1.60 on this rent, so the old $1.30 price loses money on every cup.",
+            "tradeOff": "A cup costs us about $1.60 to make here. At $1.30, we lose money on every one.",
             "question": "How do we do right by the uncles without selling kopi at a loss?"
           }
         ]
@@ -287,7 +288,7 @@
       "contested": true,
       "briefing": [
         {
-          "text": "At yesterday's trial, laptop users held about half our seats for a couple of hours on one kopi.",
+          "text": "Yesterday the laptop crowd took about half our seats, two hours each, on one kopi.",
           "knownBy": [
             {
               "attendee": "Mei",
@@ -300,7 +301,7 @@
           ]
         },
         {
-          "text": "Breakfast customers walked out carrying their trays, and a floor colleague got shouted at for asking someone to move.",
+          "text": "Breakfast customers walked out holding their trays, and one of my floor staff got shouted at for asking someone to move.",
           "knownBy": [
             {
               "attendee": "Wei Ling",
@@ -326,7 +327,7 @@
       "seatFacts": {
         "producer": "Losing those tables cost us about $420 in breakfast sales yesterday, and our floor crew shouldn't be getting yelled at over seats.",
         "lead_programmer": "The booth sockets are all on one timer switch, and I can set the Wi-Fi to print a 45-minute code on each receipt in about 10 minutes.",
-        "game_designer": "Most morning customers come in alone with a hot tray, and we have about ten window-bar stools in the storeroom we can put out.",
+        "game_designer": "Most morning customers come in alone with a hot tray, and we have ten window-bar stools in the storeroom we can put out.",
         "marketing_lead": "Over half the laptop crowd wore lanyards from the offices upstairs, and a couple of those offices have asked about bulk orders."
       },
       "links": [
@@ -357,13 +358,13 @@
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
-            "tradeOff": "The booth sockets run on one timer switch and the Wi-Fi can print a 45-minute receipt code, which takes 10 minutes to set up before opening.",
+            "tradeOff": "I can, the plugs are on one timer. But it's ten minutes, and I can't test it before 8.",
             "question": "What do you want me to change before eight, if anything?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "More than half the laptop crowd wore lanyards from upstairs, and a couple of those offices have asked about bulk orders.",
+            "tradeOff": "Those are the offices I've spent weeks winning over. Push their people out and the bulk orders go with them.",
             "question": "How do we free up the breakfast booths without chasing away the office crowd upstairs?"
           }
         ]
@@ -372,7 +373,7 @@
     },
     {
       "title": "Food safety complaint before the 9 AM inspection",
-      "spoken": "the food safety complaint",
+      "spoken": "food safety and the 9 o'clock routine check",
       "sensitive": true,
       "minutes": 5,
       "canWait": false,
@@ -381,7 +382,7 @@
       "contested": true,
       "briefing": [
         {
-          "text": "The prep fridge was unplugged for about three hours overnight, and the food agency officer comes after opening.",
+          "text": "The fridge was off three hours last night, the chef threw out all the eggs and kaya, and there's no Set A till the 10 o'clock delivery, which is our best seller.",
           "knownBy": [
             {
               "attendee": "Wei Ling",
@@ -394,7 +395,7 @@
           ]
         },
         {
-          "text": "A customer from yesterday's trial emailed to say she got sick and saw a doctor.",
+          "text": "A customer from yesterday emailed to say she got sick and had to see a doctor.",
           "knownBy": [
             {
               "attendee": "Daniel",
@@ -407,7 +408,7 @@
           ]
         }
       ],
-      "decision": "what do we do about opening the doors at 8?",
+      "decision": "do we open at 8, and what do we tell the customer and the inspector?",
       "directions": [
         "Open at 8 without Set A until the 10 o'clock delivery.",
         "Open at 10 after the inspection, with a big loss of morning sales and the free-kopi crowd.",
@@ -420,10 +421,12 @@
         "The head chef found it at 6:10, threw out everything in it and signed a disposal log.",
         "The customer is recovering at home. Nobody is being fired; the cleaner gets retraining and the socket gets a cover.",
         "The eggs and kaya are gone until the 10 o'clock delivery.",
-        "If Set A is off until 10, it comes off the kiosk and the till too, which costs Arjun minutes."
+        "If Set A is off until 10, it comes off the kiosk and the till too, which costs Arjun minutes.",
+        "The food agency officer's visit at 9 is a routine opening-day check booked weeks ago; it is not a response to the complaint.",
+        "The customer ate Set A at yesterday's trial, before the fridge was unplugged overnight, so the fridge is probably not the cause."
       ],
       "seatFacts": {
-        "producer": "I signed the hygiene sign-off for HQ. The chef signed the disposal log, and the fridge log shows the overnight gap. The officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
+        "producer": "I signed the hygiene sign-off for HQ. The chef signed the disposal log, and the fridge log shows the three-hour gap last night. The officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
         "lead_programmer": "The fridge has no alarm. I was asked for a POS temperature alert last month; it takes about ten minutes. I can also remove Set A from the till and kiosk.",
         "game_designer": "I designed Set A. It's our biggest breakfast seller, and it needs eggs and kaya. We have no fresh stock until the 10 o'clock delivery.",
         "marketing_lead": "Her email is polite, but she says she'll post a review tonight. The food blogger is booked for later this morning."
@@ -444,26 +447,26 @@
       "discussion": {
         "openingViews": [
           {
-            "attendee": "Wei Ling",
-            "angle": "the fridge log, the signed disposal log and the insurance cover"
+            "attendee": "Arjun",
+            "angle": "getting Set A off the till and kiosk before opening"
           },
           {
             "attendee": "Daniel",
-            "angle": "the customer's email and the review she says she'll post tonight"
+            "angle": "the crowd at the door and the review tonight"
           }
         ],
         "tradeOffs": [
           {
-            "attendee": "Wei Ling",
-            "role": "producer",
-            "tradeOff": "The disposal log is signed, the fridge log shows the three-hour overnight gap, and our insurance lets us cover her $85 clinic bill as goodwill without admitting fault.",
-            "question": "Do we open at 8 without Set A, and how do we handle the inspector at 9?"
+            "attendee": "Arjun",
+            "role": "lead_programmer",
+            "tradeOff": "Then I've got to pull Set A off the kiosk and the till. That's time I'm not testing anything else.",
+            "question": "What do you want me to pull before opening?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "The customer says she'll post her review tonight, and the food blogger is booked for later this morning.",
-            "question": "What do we send the customer this morning so she knows we're taking care of it?"
+            "tradeOff": "We'd miss the whole free-kopi crowd. The building turns up to a closed door.",
+            "question": "What do we tell the customer and the crowd at the door?"
           }
         ]
       },
@@ -479,7 +482,7 @@
       "contested": true,
       "briefing": [
         {
-          "text": "GrabFood takes a bigger cut from today, so we now lose 50 cents on every breakfast set we deliver.",
+          "text": "GrabFood's opening-month discount on their cut ended today, so every breakfast set we deliver now loses us 50 cents.",
           "knownBy": [
             {
               "attendee": "Wei Ling",
@@ -492,7 +495,7 @@
           ]
         },
         {
-          "text": "The offices nearby ordered about 240 sets on the app at yesterday's trial.",
+          "text": "And most of those orders come from the offices in this building.",
           "knownBy": [
             {
               "attendee": "Daniel",
@@ -514,13 +517,13 @@
         "Any app menu change takes 15 minutes to go live and leaves less time for Arjun to test other changes before opening."
       ],
       "background": [
+        "GrabFood's opening-month discount on its cut ended today.",
         "Commission is 32%: $10.00 less 32% leaves $6.80, and a delivered set costs $7.30 to make and pack, so the loss is $0.50 per set.",
-        "At 240 sets a morning that is $2,400 of sales and a $120 loss.",
         "A five-set Office Platter at $50 costs $29 with shared packaging, keeps $34 and makes $5 profit.",
         "Direct pickup with 10% off takes $9.00 in, costs $7.00 with no delivery packaging, and makes $2 profit."
       ],
       "seatFacts": {
-        "producer": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, whereas a five-set platter at $50 shares packaging and makes $5.",
+        "producer": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, and on a full morning that adds up to about $120. A five-set platter at $50 shares packaging and makes $5.",
         "lead_programmer": "GrabFood hides shops priced more than 10% above dine-in, and any app menu change takes me about 15 minutes to push live before 8.",
         "game_designer": "Each five-set platter needs one of our large trays, and we only have 30 of those trays in the shop.",
         "marketing_lead": "A dozen office managers have asked me for a direct order code, and most office orders are for several sets. We keep the GrabFood launch banner only while the full menu is live."
@@ -554,14 +557,14 @@
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
-            "tradeOff": "Twelve office managers want a direct pickup code, and pausing items on GrabFood drops our launch banner.",
+            "tradeOff": "Pull anything off GrabFood and we lose our launch banner, the free ad at the top of the app.",
             "question": "How do we keep the office orders without losing our GrabFood launch banner?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
-            "tradeOff": "Single delivered sets lose 50 cents each at 32% commission, while a five-set platter shares packaging and makes $5 profit.",
-            "question": "How do we stop bleeding 50 cents on single sets before the 8 AM orders roll in?"
+            "tradeOff": "Someone has to come down to pick it up. At 8 in the morning, will they?",
+            "question": "How do we make a direct pickup code work at 8 in the morning?"
           }
         ]
       },

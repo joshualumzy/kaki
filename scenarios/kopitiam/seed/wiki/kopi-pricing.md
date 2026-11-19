@@ -7,7 +7,7 @@ Last updated: 11 November 2026, before opening
 
 - At the old shop, kopi used to be $1.30 a cup. The new menu charges $2.40.
 - On this rent, a cup of kopi costs us about $1.60 including the rent share. Anything sold at the old price loses money on every cup.
-- The old shop's story is on our menu boards, and many morning regulars have come here for years. Uncle Lim at the kopi bar knows them by name.
+- Photos of the old regulars hang on the wall of the refurbished shop, and many morning regulars have come here for years. Uncle Lim has run the kopi bar since the old shop and knows them by name.
 - About 40 regulars came in most mornings at the old shop.
 
 ## 2. Current record

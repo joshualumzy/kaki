@@ -3,6 +3,8 @@
 > **Purpose of this Document:**
 > This file preserves the **entire design reasoning, user critiques, product philosophy, root-cause bug findings, and "10x better" ideas** from our November 7, 2026 design and playtesting session (`e1fdfa3c-dd5a-4bac-b433-6fabc0f5e0cf`).
 > Any future developer or AI agent starting a new session in this repo can read this file alongside `docs/live-demo.md` to immediately understand every decision made.
+>
+> **Historical note:** this is a dated record of the 2026-11-07 session. Story details quoted here from the earlier scenario drafts (for example the $2.20 Kopi O, the 15-minute queue, tissue-packet chope, and "last week" incidents) were superseded by `planning/kopitiam-story-canon.md` v2. Use the canon, not this archive, for any scenario, seed or demo copy.
 
 ---
 

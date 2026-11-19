@@ -5,7 +5,7 @@ Last reviewed: 11 November 2026, before opening
 
 ## Counter schedule and attendance
 
-Wei Ling signed the opening-day staffing plan for HQ. The opening schedule has two counter staff from 8:00 to 10:00, Uncle Lim's kopi bar team of two and the kitchen. One counter staff texted at 6:45 with a fever, leaving one person at the counter for the rush. Toast sets take the longest at the counter; kiosk drink orders barely touch it.
+Wei Ling signed the opening-day staffing plan for HQ. The opening schedule has two counter staff from 8:00 to 10:00, Uncle Lim's kopi bar team of two and the kitchen. Siti, one of the counter staff, texted at quarter to seven: her kid is in hospital, so she is out for a family emergency and the counter is one person short for the rush. Toast sets take the longest at the counter; kiosk drink orders barely touch it.
 
 ## Staffing records
 

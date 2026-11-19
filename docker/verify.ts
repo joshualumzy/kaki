@@ -289,6 +289,7 @@ check('Wiki staffing page carries the counter cover and rest-day rule', async ()
   const page = pages.get('kopitiam/staffing-plan');
   assert(page, 'staffing page is missing');
   assert(/two counter staff/i.test(page) && /double pay/i.test(page), 'the counter cover or rest-day rule is missing');
+  assert(/Siti/.test(page) && /family emergency/i.test(page), 'Siti or the family emergency is missing');
   assert(/Auntie Mary/.test(page) && /15 minutes/.test(page), 'Auntie Mary or the till login is missing');
   return 'staffing page present';
 });
@@ -306,7 +307,7 @@ check('Wiki delivery page carries the 32% commission, margins and tray stock', a
   const pages = await once('wiki', wikiPages);
   const page = pages.get('kopitiam/delivery-pricing');
   assert(page, 'delivery page is missing');
-  assert(/32%/.test(page) && /0\.50/.test(page) && /2,400|2400/.test(page), 'the delivery commission numbers are missing');
+  assert(/32%/.test(page) && /0\.50/.test(page) && /120/.test(page), 'the delivery commission numbers are missing');
   assert(/\$5 profit/.test(page) && /30 trays/.test(page), 'the platter margin or tray stock is missing');
   assert(/10%/.test(page), 'the 10% price rule is missing');
   return 'delivery page present';
@@ -330,7 +331,7 @@ check('GrabFood email carries the 32% commission and launch banner terms', async
 
 check('Mattermost has the undecided opening-morning thread', async () => {
   const posts = await once('mattermost-posts', mattermostPosts);
-  const root = posts.find((post) => !post.root_id && /counter staff texted at 6:45/i.test(post.message));
+  const root = posts.find((post) => !post.root_id && /Siti texted at quarter to seven/i.test(post.message));
   assert(root, 'opening-morning root post is missing');
   const replies = posts.filter((post) => post.root_id === root.id);
   assert(replies.length >= 1, `opening-morning thread has only ${replies.length} replies`);

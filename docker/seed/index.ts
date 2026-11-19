@@ -59,14 +59,14 @@ async function main(): Promise<void> {
         dtstart: `${openingDay}T063000`,
         dtend: `${openingDay}T070000`,
         summary: 'Opening Day - Counter Cover Call',
-        description: 'Two counter staff planned for 8 to 10; one texted at 6:45 with a fever. Rest-day double pay, agency notice and till login on the table.',
+        description: 'Two counter staff planned for 8 to 10; Siti is out for a family emergency after texting at quarter to seven. Rest-day double pay, agency notice and till login on the table.',
       },
       {
         id: 'seed-opening-fridge-check',
         dtstart: `${openingDay}T061500`,
         dtend: `${openingDay}T064500`,
         summary: 'Opening Day - Prep Fridge Check and Disposal Log',
-        description: 'Head chef found the prep fridge unplugged overnight, threw out the contents and signed the disposal log at 6:10.',
+        description: 'Head chef found the prep fridge unplugged overnight after the trial, threw out the contents and signed the disposal log at 6:10.',
       },
       {
         id: 'seed-opening-delivery-review',
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
         dtstart: `${openingDay}T090000`,
         dtend: `${openingDay}T094500`,
         summary: 'Food Agency On-Site Inspection',
-        description: 'Officer reviews the signed disposal log, the fridge temperature log and the delivery record for the replacement eggs and kaya.',
+        description: 'Routine opening-day inspection booked weeks ago; the officer reviews the signed disposal log, the fridge temperature log and the delivery record for the replacement eggs and kaya.',
       },
       {
         id: 'seed-blogger-visit',

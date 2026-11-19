@@ -18,7 +18,7 @@
       "subject": "Today's breakfast at your Raffles Place shop",
       "date": "2026-11-10T21:40:00+08:00",
       "messageId": "<customer-complaint-20261110@example.com>",
-      "text": "Dear Nanyang Kopi & Toast team,\n\nI ate breakfast at your Raffles Place shop during today's trial and was sick afterwards. I saw a doctor, and the clinic bill came to $85. I am recovering at home now.\n\nI am not writing to make a scene. I liked the shop, and I would like to know what happened and what you are doing about it. I plan to post a review tomorrow night after I have heard from you.\n\nRegards,\nPriya Nair"
+      "text": "Dear Nanyang Kopi & Toast team,\n\nI ate Set A at your Raffles Place shop during today's trial and was sick afterwards. I saw a doctor, and the clinic bill came to $85. I am recovering at home now.\n\nI am not writing to make a scene. I liked the shop, and I would like to know what happened and what you are doing about it. I plan to post a review tomorrow night after I have heard from you.\n\nRegards,\nPriya Nair"
     },
     {
       "from": {
@@ -50,7 +50,7 @@
       "subject": "Post about Nanyang Kopi & Toast is being shared",
       "date": "2026-11-11T06:20:00+08:00",
       "messageId": "<facebook-post-20261111@rafflesplacecommunity.example>",
-      "text": "Hi Daniel,\n\nA nephew of one of the old regulars posted that Nanyang has forgotten its roots after seeing the new kopi prices. The post has been shared a few hundred times since last night, about 300 shares, and it is still moving in the local groups.\n\nWe thought you should know before the shop opens.\n\nRaffles Place Community Page"
+      "text": "Hi Daniel,\n\nOne of the old regulars' nephews posted that Nanyang has forgotten its roots after seeing the new kopi prices. The post has been shared a few hundred times since last night, about 300 shares, and it is still moving in the local groups.\n\nWe thought you should know before the shop opens.\n\nRaffles Place Community Page"
     },
     {
       "from": {
@@ -83,10 +83,10 @@
           "address": "daniel@nanyangkopitiam.example"
         }
       ],
-      "subject": "Notice of on-site food hygiene inspection - Raffles Place (11 November, 9:00 AM)",
+      "subject": "Notice of routine food hygiene inspection - Raffles Place (11 November, 9:00 AM)",
       "date": "2026-11-11T06:30:00+08:00",
       "messageId": "<food-agency-inspection-20261110@foodagency.gov.example>",
-      "text": "Dear Licensee (Nanyang Kopi & Toast - Raffles Place),\n\nFollowing a report from a customer who became unwell after eating at your shop on 10 November, an officer will conduct an on-site kitchen inspection on 11 November at 9:00 AM.\n\nThe officer will ask for the signed disposal log, the fridge temperature log, and the order details for the replacement eggs and kaya.\n\nRegards,\nFood Agency Central Regional Inspection Team"
+      "text": "Dear Licensee (Nanyang Kopi & Toast - Raffles Place),\n\nThis is your routine opening-day kitchen inspection, booked on 21 October 2026 as part of the standard licensing schedule. It is not a response to any customer report. An officer will conduct the on-site inspection on 11 November at 9:00 AM.\n\nThe officer will ask for the signed disposal log, the fridge temperature log, and the order details for the replacement eggs and kaya.\n\nRegards,\nFood Agency Central Regional Inspection Team"
     },
     {
       "from": {
@@ -122,7 +122,7 @@
       "subject": "Launch deal: featured banner while the full menu is live",
       "date": "2026-11-10T19:10:00+08:00",
       "messageId": "<grabfood-launch-deal-20261110@grabfood.example>",
-      "text": "Dear Nanyang Kopi & Toast team,\n\nYour opening-day launch deal includes a featured banner on the breakfast page. The banner stays only while the full menu is live.\n\nCommission from 11 November is 32%, so a $10 set delivered returns $6.80 before the $7.30 cost of making and packing it. Please also note that shops priced more than 10% above in-store are hidden from search; five-set platters are treated as a separate catering item.\n\nGrabFood Key Accounts Singapore"
+      "text": "Dear Nanyang Kopi & Toast team,\n\nYour opening-day launch deal includes a featured banner on the breakfast page. The banner stays only while the full menu is live.\n\nOur opening-month discount on commission ends on 10 November, so commission from 11 November is 32%. A $10 set delivered returns $6.80 before the $7.30 cost of making and packing it. Please also note that shops priced more than 10% above in-store are hidden from search; five-set platters are treated as a separate catering item.\n\nGrabFood Key Accounts Singapore"
     }
   ]
 }

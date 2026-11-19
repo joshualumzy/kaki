@@ -864,7 +864,7 @@ describe('one-speaker topic opening', () => {
     await playOut(h.playing);
 
     const first = await waitCall(h.calls, 0);
-    first.push(`${steps[0]!.speaker}: Our counter staff texted with a fever, so we're short for the rush.`);
+    first.push(`${steps[0]!.speaker}: Our counter staff texted this morning, so we're short for the rush.`);
     first.end();
     await flush();
     const retry = await waitCall(h.calls, 1);
@@ -881,7 +881,7 @@ describe('one-speaker topic opening', () => {
     await flush();
     await playOut(h.playing);
     expect(h.transcript.some(([, text]) => text === "That's tricky.")).toBe(false);
-    expect(h.transcript.some(([, text]) => text.includes('texted with a fever'))).toBe(false);
+    expect(h.transcript.some(([, text]) => text.includes('texted this morning'))).toBe(false);
     expect(h.transcript.at(-1)?.[0]).toBe('Sam');
     h.conversation.close();
   });
@@ -899,7 +899,7 @@ describe('one-speaker topic opening', () => {
     await playOut(h.playing);
 
     const first = await waitCall(h.calls, 0);
-    const paraphrase = 'Our counter staff texted at 6:45 with a fever, so we are short one for the 8 o\'clock rush.';
+    const paraphrase = 'Siti texted at quarter to seven, her kid is in hospital, so we are one short at the counter for the 8 o\'clock rush.';
     first.push(`${steps[0]!.speaker}: ${paraphrase}`);
     first.end();
     await flush();

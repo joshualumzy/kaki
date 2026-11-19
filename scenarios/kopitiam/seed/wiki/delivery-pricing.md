@@ -5,7 +5,7 @@ Last updated: 10 November 2026
 
 ## Pricing ledger for 11 November
 
-GrabFood commission is 32%. A $10.00 single set returns $6.80 after commission and costs $7.30 to make and pack: a $0.50 loss. At 240 sets a morning, gross sales are $2,400 and the loss is $120.
+GrabFood's opening-month discount on its cut ended today. Commission is 32% from 11 November. A $10.00 single set returns $6.80 after commission and costs $7.30 to make and pack: a $0.50 loss. On a full morning, those single-set losses add up to about $120.
 
 The five-set Office Platter is priced at $50. Shared packaging brings its cost to $29; the app returns $34 after commission, leaving $5 profit. There are 30 large trays for platters. Direct pickup with 10% off is $9.00 in and $7.00 cost without delivery packaging, leaving $2 profit.
 

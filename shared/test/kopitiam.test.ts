@@ -42,6 +42,8 @@ const BANNED = [
   '12 of 24',
   '72%',
   'page two',
+  'fever',
+  'menu board',
   'chope',
   'tissue packet',
 ];
@@ -236,7 +238,7 @@ describe('shipped Kopitiam story', () => {
       expect(records.includes(figure), `seat-fact figure ${figure} is in a record`).toBe(true);
     }
     for (const figure of ['200', '1.60', '300', '420', '9 of 16', '60%', '40%', '3,000', '15',
-      '0.50', '240', '120', '5', '2']) {
+      '0.50', '120', '5', '2']) {
       expect(records.includes(figure.replace(/,/g, '')), `canon record figure ${figure}`).toBe(true);
     }
   });

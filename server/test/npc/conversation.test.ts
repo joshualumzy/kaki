@@ -1206,9 +1206,9 @@ describe('NpcConversation', () => {
     expect(h.calls).toHaveLength(1);
     const cue = String(h.calls[0]?.messages.at(-1)?.content);
     expect(cue).toContain('Begin with "Mei:"');
-    expect(cue).toContain('Mei tells what happened as they saw it, from "The prep fridge was unplugged');
+    expect(cue).toContain('Mei tells what happened as they saw it, from "The fridge was off three hours last night');
     expect(cue).toContain('Daniel answers Mei');
-    expect(cue).toContain('"A customer from yesterday\'s trial emailed to say she got sick and saw a doctor."');
+    expect(cue).toContain('"A customer from yesterday emailed to say she got sick and had to see a doctor."');
     expect(cue).not.toContain('Daniel tells');
     conversation.close();
   });

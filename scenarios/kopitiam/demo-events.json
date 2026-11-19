@@ -62,7 +62,7 @@
         "question": "What were the old and new kopi prices?",
         "facts": [
           {
-            "text": "Kopi used to be $1.30 here and the new menu charges $2.40; the old shop's story is on our menu boards.",
+            "text": "Kopi used to be $1.30 here and the new menu charges $2.40; photos of the old regulars hang on the wall.",
             "source": "Wiki: Kopi Pricing",
             "date": "2026-11-11"
           }
@@ -94,7 +94,7 @@
   "tasks": [
     {
       "title": "Check counter cover for the rush",
-      "context": "One counter staff called in sick before opening, leaving the counter one short for the rush. Confirm who is available and what the cover would cost.",
+      "context": "Siti is out for a family emergency before opening, leaving the counter one short for the rush. Confirm who is available and what the cover would cost.",
       "suggestedAssignee": "producer",
       "actionKind": "mattermost_post",
       "agendaItemTitle": "One counter staff short for the opening rush"
