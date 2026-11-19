@@ -117,12 +117,15 @@ interface RequestContext {
   /** Whether the owner changed the draft since the last reset; untouched drafts follow the live meeting. */
   draftTouched: { current: boolean };
   /**
-   * The scenario people see, plus the one admission resolves seats against. An owner-edited draft
-   * marks the person seats it names; otherwise both are the live meeting scenario.
+   * The scenario people see, plus the one admission resolves seats against. A returning seat holder
+   * inside the grace of a running meeting is judged against its sealed setup; every other arrival
+   * starts the next meeting and is judged against the current draft.
    */
-  seating(): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup };
+  seating(returning?: boolean, roomEmpty?: boolean): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup };
   /** Shape an untouched draft's live agenda for the person in `seat`, or restore the pack order. */
   shapeUntouchedAgenda(seat: string | undefined): void;
+  /** True while an admission publishes its own reset, so the reset handler does not shape a stale seat. */
+  admissionReset: { current: boolean };
   /** Why setup cannot change right now, if it cannot. */
   setupLocked(): 'starting' | 'started' | undefined;
   /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
@@ -300,29 +303,6 @@ async function handleRequest(
         sendJson(response, 400, { error: 'participantRole is required: pick the seat you are taking.' });
         return;
       }
-      // An owner-edited draft admits only the person seats it names; an untouched draft stays open.
-      const seating = context.seating();
-      const setupRole = seating.setup === undefined ? undefined : setupRoleFor(seating.setup, wantedRole);
-      if (seating.setup !== undefined) {
-        const isPersonSeat =
-          setupRole !== undefined &&
-          seating.setup.seats.some((candidate) => candidate.kind === 'person' && candidate.roleId === setupRole.id);
-        if (!isPersonSeat) {
-          sendJson(response, 409, {
-            error: `This meeting's setup has no place for ${setupRole?.label ?? wantedRole}; the owner set the seats.`,
-          });
-          return;
-        }
-      }
-      const seat = humanAttendeeForRole(seating.admissionScenario, wantedRole);
-      if (seat === undefined) {
-        sendJson(response, 400, {
-          error: `"${wantedRole}" is not a human seat in this meeting. Pick one of the roles offered when you join.`,
-        });
-        return;
-      }
-      // The canonical role id is what the roster and transcript use, whatever the person typed.
-      const seatId = seat.role;
       try {
         await context.admit(async () => {
           // Admission reads the pack, not the sealed cast: a seat an AI once had stays a reserved name.
@@ -347,6 +327,32 @@ async function handleRequest(
             ...rosterHumans,
             ...otherReservations.map((reservation) => ({ name: reservation.participantName, role: reservation.seatId })),
           ];
+          // A seat holder coming back to an empty room inside the grace joins the running meeting;
+          // everyone else starts the next meeting, which is judged against the current draft.
+          const returning = present.length === 0 && context.rejoin.wouldResume(participantName);
+          const seating = context.seating(returning, present.length === 0);
+          // An owner-edited draft admits only the person seats it names; an untouched draft stays open.
+          const setupRole = seating.setup === undefined ? undefined : setupRoleFor(seating.setup, wantedRole);
+          if (seating.setup !== undefined) {
+            const isPersonSeat =
+              setupRole !== undefined &&
+              seating.setup.seats.some((candidate) => candidate.kind === 'person' && candidate.roleId === setupRole.id);
+            if (!isPersonSeat) {
+              sendJson(response, 409, {
+                error: `This meeting's setup has no place for ${setupRole?.label ?? wantedRole}; the owner set the seats.`,
+              });
+              return;
+            }
+          }
+          const seat = humanAttendeeForRole(seating.admissionScenario, wantedRole);
+          if (seat === undefined) {
+            sendJson(response, 400, {
+              error: `"${wantedRole}" is not a human seat in this meeting. Pick one of the roles offered when you join.`,
+            });
+            return;
+          }
+          // The canonical role id is what the roster and transcript use, whatever the person typed.
+          const seatId = seat.role;
           const requestedMax = Number(process.env.NPC_MAX_HUMANS);
           const maxHumans = Number.isFinite(requestedMax) && requestedMax > 0 ? requestedMax : undefined;
           const problem = seatProblem(seating.admissionScenario, present, seatId, maxHumans);
@@ -370,8 +376,14 @@ async function handleRequest(
             context.hub.clearRetained('fact:');
             context.hub.clearRetained('nudge:');
             context.hub.clearRetained('meeting:restored');
-            // The reset puts the whole pack back first; an untouched draft is then shaped for the visitor.
-            context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId } });
+            // Admission records this visitor only after the reset, so it shapes their seat itself:
+            // the reset handler must not shape the previous holder's stale seat first.
+            context.admissionReset.current = true;
+            try {
+              context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId } });
+            } finally {
+              context.admissionReset.current = false;
+            }
             if (!context.draftTouched.current) context.shapeUntouchedAgenda(seatId);
           }
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
@@ -961,10 +973,11 @@ export async function createApp({
   const restoredStarted = restoredApplied && !savedEnded;
   // A pre-Start setup draft comes back exactly as it was left; a new meeting starts from the pack.
   const setupDraft = { current: savedMeeting?.setup ?? defaultSetup };
-  // The sealed setup is what the running meeting actually uses; it stays apart from the draft.
-  const sealedSetup = { current: restoredApplied ? savedMeeting?.setup : undefined };
-  // A started meeting's sealed setup is effectively owner-shaped; a pre-Start draft keeps its edit mark.
-  const draftTouched = { current: restoredApplied ? true : savedMeeting?.draftTouched === true };
+  // The sealed setup belongs to a meeting that is still running; an ended meeting's next one follows the draft.
+  const sealedSetup = { current: restoredStarted ? savedMeeting?.setup : undefined };
+  // The edit mark says whether an owner-shaped draft is next; Start does not turn an untouched demo into one.
+  const draftTouched = { current: savedMeeting?.draftTouched === true };
+  const admissionReset = { current: false };
   const restoredAgendaIndex = restoredStarted ? (savedMeeting?.state.clock.agendaIndex ?? 0) : 0;
   const meeting = {
     id: savedMeeting?.state.meetingId ?? randomUUID(),
@@ -998,7 +1011,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, sealedSetup, draftTouched, seating, shapeUntouchedAgenda, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, sealedSetup, draftTouched, seating, shapeUntouchedAgenda, admissionReset, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
@@ -1108,8 +1121,12 @@ export async function createApp({
   /** The pre-Start agenda order while Start prepares, so a save cannot persist the sealed agenda early. */
   let preCommitStart: { agendaTitles: string[] } | undefined;
 
+  /** The person seats admission can actually give a role: a person seat whose role has someone to play it. */
   function personSeatRoles(setup: MeetingSetup): string[] {
-    return setup.seats.filter((seat) => seat.kind === 'person').map((seat) => seat.roleId);
+    return setup.seats
+      .filter((seat) => seat.kind === 'person')
+      .map((seat) => seat.roleId)
+      .filter((roleId) => fullScenario.attendees.some((attendee) => attendee.role === roleId));
   }
 
   /** The scenario an owner-edited setup describes, with its AI seats treated as AI-only. */
@@ -1132,18 +1149,42 @@ export async function createApp({
   }
 
   /**
-   * The scenario people see, plus the one admission resolves seats against. An owner-edited draft
-   * narrows the offered seats and, before Start, resolves seats against its own cast; an untouched
-   * draft follows the live pack. Once started, the live scenario is already sealed.
+   * The scenario people see, plus the one admission resolves seats against. A returning seat holder
+   * inside the grace of a running meeting is judged against its sealed setup. Every other arrival
+   * starts the next meeting: an untouched draft stays open, an owner-edited one admits its person
+   * seats, and a setup a Start consumed is already done with.
    */
-  function seating(): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup } {
-    if (!draftTouched.current) return { scenario, admissionScenario: scenario };
-    const setup = sealedSetup.current ?? setupDraft.current;
-    const sealed = sealedSetup.current !== undefined;
+  function seating(
+    returning = false,
+    roomEmpty?: boolean,
+  ): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup } {
+    const sealed = sealedSetup.current;
+    // The sealed setup governs only a running meeting this arrival joins: while people are still
+    // there, or when the person coming back is one of its seat holders.
+    const empty = roomEmpty ?? rejoin.isEmpty();
+    const joiningSealed =
+      sealed !== undefined && meeting.started && rejoin.hasBegun() && (returning || !empty);
+    if (joiningSealed) {
+      return {
+        scenario: { ...scenario, joinSeats: personSeatRoles(sealed) },
+        admissionScenario: scenario,
+        setup: sealed,
+      };
+    }
+    // A setup a Start consumed is discarded when that meeting resets; until then it must not narrow
+    // the next arrival's seats. The next meeting follows the pack, not the sealed cast still live.
+    const consumed = sealed !== undefined;
+    const nextTouched = consumed ? false : draftTouched.current;
+    if (!nextTouched) {
+      return consumed
+        ? { scenario: fullScenario, admissionScenario: fullScenario }
+        : { scenario, admissionScenario: scenario };
+    }
+    const setup = setupDraft.current;
     return {
       // The live view keeps its title, roles and cast; only the seats people may join change.
       scenario: { ...scenario, joinSeats: personSeatRoles(setup) },
-      admissionScenario: sealed ? scenario : scenarioFromSetup(setup),
+      admissionScenario: scenarioFromSetup(setup),
       setup,
     };
   }
@@ -1218,6 +1259,19 @@ export async function createApp({
     }
     // An untouched draft follows the live meeting; an owner-edited one is applied exactly as written.
     const sealed = draftTouched.current ? parsed.value : untouchedSetup();
+    // Everyone already seated must have a person seat in the setup about to become the meeting.
+    const personRoles = new Set(personSeatRoles(sealed));
+    const stranded = rejoin.identities().find((identity) => !personRoles.has(identity.seat));
+    if (stranded !== undefined) {
+      const role = sealed.roles.find((candidate) => candidate.id === stranded.seat);
+      const packRole = fullScenario.roles.find((candidate) => candidate.id === stranded.seat);
+      return Promise.resolve({
+        status: 409,
+        body: {
+          error: `This meeting's setup has no place for ${role?.label ?? packRole?.label ?? stranded.seat}; the owner set the seats.`,
+        },
+      });
+    }
     const roleIds = new Set(sealed.roles.map((role) => role.id));
     const missingRoles = fullScenario.attendees
       .filter((attendee) => !roleIds.has(attendee.role))
@@ -1392,7 +1446,7 @@ export async function createApp({
     scenario.npcs = fullScenario.npcs;
     if (draftTouched.current) {
       setMeetingAgenda(scenario, fullScenario, fullScenario.agenda);
-    } else {
+    } else if (!admissionReset.current) {
       shapeUntouchedAgenda(rejoin.identities().at(-1)?.seat);
     }
     hub.clearRetained('meeting:started');

@@ -4,6 +4,7 @@ import {
   aiCast,
   DEFAULT_MEETING_PACE,
   defaultMeetingSetup,
+  humanRoles,
   parseScenario,
   type MeetingSetup,
   type Scenario,
@@ -742,7 +743,7 @@ describe('Start applies the validated setup', () => {
     const scenario = await loadScenario('kopitiam');
     const pack = structuredClone(scenario);
     const app = await startApp(scenario);
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
     const before = structuredClone(await getScenario(app));
 
     const pair = pack.excludedPairs?.[0];
@@ -763,6 +764,123 @@ describe('Start applies the validated setup', () => {
     expect(after.roles).toEqual(before.roles);
     expect(after.npcs).toEqual(before.npcs);
     expect(after.excludedPairs).toEqual(before.excludedPairs);
+  });
+
+  it('lets a new visitor take any human seat after an untouched demo ends and the server restarts', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const pack = structuredClone(scenario);
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(scenario, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+    });
+    await connectService(portOf(first));
+    expect((await join(first, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await startMeeting(first)).status).toBe(200);
+    const firstState = await meetingState(first);
+
+    const screen = await connectClient(portOf(first), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      'the meeting to end',
+    );
+    screen.close();
+    await firstPersistence.flush();
+    expect(store.saved?.state.clock.ended).toBe(true);
+    expect(store.saved?.draftTouched).toBe(false);
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(await loadScenario('kopitiam'), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    });
+    expect((await meetingState(restored)).meetingId).toBe(firstState.meetingId);
+    const next = await getScenario(restored);
+    expect(next.joinSeats).toBeUndefined();
+    expect(humanRoles(next).map((role) => role.id)).toEqual(
+      expect.arrayContaining(pack.roles.filter((role) => role.facilitator !== true).map((role) => role.id)),
+    );
+    expect((await join(restored, 'Second Visitor', 'producer')).status).toBe(200);
+  });
+
+  it('returns an edited draft to untouched after Start and end, so the next visitor takes any human seat', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const pack = structuredClone(scenario);
+    const app = await startApp(scenario, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      admissionReservationMs: 0,
+    });
+    await connectService(portOf(app));
+    const setup = await getSetup(app);
+    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
+    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
+    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
+    weiLing.kind = 'person';
+    delete weiLing.npcProfileId;
+    arjun.kind = 'ai';
+    arjun.npcProfileId = 'Arjun';
+    expect((await putSetup(app, setup)).status).toBe(200);
+    expect((await join(app, 'First Visitor', 'producer')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      'the meeting to end',
+    );
+    screen.close();
+
+    // The ended meeting's setup is consumed: the next arrival starts an untouched meeting.
+    expect((await getScenario(app)).joinSeats).toBeUndefined();
+    expect((await join(app, 'Second Visitor', 'lead_programmer')).status).toBe(200);
+    expect(await getSetup(app)).toEqual(defaultMeetingSetup(pack));
+    expect((await getScenario(app)).joinSeats).toBeUndefined();
+  });
+
+  it('keeps a returning seat holder in their seat within the grace of a running edited meeting', async () => {
+    const app = await startApp(await loadScenario('kopitiam'), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+    });
+    await connectService(portOf(app));
+    const setup = await getSetup(app);
+    setup.title = 'Friday huddle';
+    expect((await putSetup(app, setup)).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+    const meetingId = (await meetingState(app)).meetingId;
+
+    const back = await join(app, 'Booth Playtest', 'producer');
+    expect(back.status).toBe(200);
+    expect(((await back.json()) as { resumed?: boolean }).resumed).toBe(true);
+    expect((await meetingState(app)).meetingId).toBe(meetingId);
+  });
+
+  it('refuses Start when a joined person is not a person seat in the setup being sealed', async () => {
+    const app = await startApp(await loadScenario('kopitiam'));
+    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    const setup = await getSetup(app);
+    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
+    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
+    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
+    weiLing.kind = 'person';
+    delete weiLing.npcProfileId;
+    arjun.kind = 'ai';
+    arjun.npcProfileId = 'Arjun';
+    expect((await putSetup(app, setup)).status).toBe(200);
+
+    const response = await startMeeting(app);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "This meeting's setup has no place for Tech & POS Lead; the owner set the seats.",
+    });
+    expect((await meetingState(app)).started).toBe(false);
   });
 
   it('gives the friendly message for a malformed saved setup', async () => {

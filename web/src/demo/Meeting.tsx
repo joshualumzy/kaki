@@ -83,11 +83,14 @@ export default function Meeting() {
     if (scenario.joinSeats === undefined) return seats;
     const allowed = new Set(scenario.joinSeats);
     const offered = seats.filter((role) => allowed.has(role.id));
-    // humanRoles hides a facilitator's chair; the setup may still name it as a person seat.
+    // humanRoles hides a facilitator's chair; the setup may still name it as a person seat. Only
+    // offer a seat the server would admit, so never append a role that has nobody to play it.
     for (const id of scenario.joinSeats) {
       if (offered.some((role) => role.id === id)) continue;
       const role = scenario.roles.find((candidate) => candidate.id === id);
-      if (role !== undefined) offered.push(role);
+      if (role === undefined) continue;
+      if (!scenario.attendees.some((attendee) => attendee.role === id)) continue;
+      offered.push(role);
     }
     return offered;
   }, [scenario]);

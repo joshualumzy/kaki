@@ -27,15 +27,19 @@ vi.mock('@livekit/components-react', () => ({
 }));
 
 vi.mock('./JoinForm', () => ({
-  JoinForm: ({ onJoin }: {
+  JoinForm: ({ roles, onJoin }: {
+    roles: Array<{ id: string; label: string }>;
     onJoin(name: string, role: string, media: { microphone: boolean; camera: boolean }): void;
   }) => (
-    <button
-      type="button"
-      onClick={() => onJoin('Josh', 'Producer', { microphone: false, camera: false })}
-    >
-      Join now
-    </button>
+    <>
+      <output data-testid="join-roles">{roles.map((role) => role.label).join(',')}</output>
+      <button
+        type="button"
+        onClick={() => onJoin('Josh', 'Producer', { microphone: false, camera: false })}
+      >
+        Join now
+      </button>
+    </>
   ),
 }));
 
@@ -106,6 +110,21 @@ describe('Meeting join', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Join now' })).toBeNull());
     expect(screen.queryByRole('region', { name: 'Before the meeting starts' })).toBeNull();
     expect(document.querySelector('[data-needs-start="true"]')).toBeNull();
+  });
+
+  it('offers only join seats the server would accept', async () => {
+    mocks.useScenario.mockReturnValue({
+      ...scenario,
+      roles: [
+        ...scenario.roles,
+        { id: 'ghost', label: 'Ghost Seat' },
+        { id: 'studio_manager', label: 'General Manager', facilitator: true },
+      ],
+      joinSeats: ['producer', 'ghost', 'studio_manager'],
+    });
+    render(<Meeting />);
+
+    expect(screen.getByTestId('join-roles').textContent).toBe('Producer');
   });
 
   it('shows the Start prompt again when the server says the meeting was reset', async () => {

@@ -56,6 +56,10 @@ export interface RejoinGuard {
   ended(): void;
   /** Whether a meeting exists: someone has joined since the last reset. */
   hasMeeting(): boolean;
+  /** Whether the room is in its empty-room grace window right now. */
+  isEmpty(): boolean;
+  /** Whether this name would resume the running meeting instead of starting the next one. */
+  wouldResume(name: string): boolean;
   /** What someone arriving in an empty room should get. A known name or seat resumes the meeting. */
   admit(name: string, seat?: string): RejoinDecision;
   /** Stop the grace timer. */
@@ -170,6 +174,21 @@ export function createRejoinGuard({
       log('[rejoin] meeting ended, the next arrival starts a new one');
     },
     hasMeeting: () => started,
+    isEmpty: () => emptySince !== undefined,
+    wouldResume(name) {
+      // Nobody has joined since the last reset: there is no meeting to keep.
+      if (!started) return false;
+      // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
+      if (finished) return false;
+      // A meeting started before anyone arrived, or restored without saved seats, is carried on by
+      // whoever comes first. Otherwise only the people who left may resume it inside the grace.
+      if (startedWithoutPeople) return true;
+      if (restoredMeeting && !restoredSeats) return true;
+      if (graceMs <= 0) return false;
+      const since = emptySince;
+      if (since !== undefined && Math.max(0, now() - since) >= graceMs) return false;
+      return humans.has(normalise(name));
+    },
     admit(name, seat) {
       // Nobody has joined since the last reset: there is no meeting to keep.
       if (!started) return { reset: true };
