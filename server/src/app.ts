@@ -489,14 +489,16 @@ async function handleRequest(
           // a different person arriving in that empty room starts a fresh meeting instead.
           const meetingWasRunning = context.rejoin.hasBegun() || context.meeting.started;
           const meetingExisted = context.rejoin.hasMeeting() || context.meeting.started;
-          const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
-          if (rejoin?.reset === true && authOn && !isHost) {
-            // A code holder may join the owner's live meeting, but only the owner starts the next one.
+          // A code holder may be first into a fresh meeting, but may never wipe one that already ran.
+          // Decide before admit: admit can start the empty-room grace even when it then says "reset".
+          const wouldReset = present.length === 0 && !context.rejoin.wouldResume(participantName, seatId);
+          if (wouldReset && meetingExisted && authOn && !isHost) {
             sendJson(response, 409, {
-              error: 'This meeting has ended; only the meeting owner can start a new one.',
+              error: 'This meeting has ended; the meeting owner must start the next one.',
             });
             return;
           }
+          const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
           if (rejoin?.reset === true) {
             // The first arrival starts this app's first meeting; the code it already shows stays valid.
             const meetingId = context.rotateMeeting({ rotateCode: meetingExisted });

@@ -167,6 +167,9 @@ describe('security round 2', () => {
     secureCookies,
     withHost = true,
     verifyPassword,
+    rejoinGraceMs,
+    rejoinPollMs,
+    admissionReservationMs,
   }: {
     scenario?: Scenario;
     serviceToken?: string;
@@ -175,6 +178,9 @@ describe('security round 2', () => {
     secureCookies?: boolean;
     withHost?: boolean;
     verifyPassword?: AuthOptions['verifyPassword'];
+    rejoinGraceMs?: number;
+    rejoinPollMs?: number;
+    admissionReservationMs?: number;
   } = {}): Promise<{ app: KakiApp; store: AuthStore; meetingCode: MeetingCodeSource }> {
     const store = createMemoryAuthStore();
     if (withHost) {
@@ -195,6 +201,9 @@ describe('security round 2', () => {
         meetingCode,
         roomRoster: roomRoster ?? (async () => []),
         ...(serviceToken === undefined ? {} : { serviceToken }),
+        ...(rejoinGraceMs === undefined ? {} : { rejoinGraceMs }),
+        ...(rejoinPollMs === undefined ? {} : { rejoinPollMs }),
+        ...(admissionReservationMs === undefined ? {} : { admissionReservationMs }),
       }),
     );
     return { app, store, meetingCode };
@@ -301,21 +310,125 @@ describe('security round 2', () => {
     }
   });
 
-  it('lets only the host start a new meeting from an empty room with auth on', async () => {
-    const { app } = await authApp({ roomRoster: async () => [] });
+  it('admits a code holder as the first person into a fresh meeting with auth on', async () => {
+    const { app, meetingCode } = await authApp({ roomRoster: async () => [] });
     const before = await meetingState(app);
+    const codeBefore = meetingCode.value;
 
     const participant = await post(app, '/api/livekit/token', {
       participantName: 'Ada',
       participantRole: 'chef',
       meetingCode: MEETING_CODE,
     });
-    expect(participant.status).toBe(409);
-    expect(await meetingState(app)).toEqual(before);
+    expect(participant.status).toBe(200);
+    const body = (await participant.json()) as { meetingCode: string; resumed?: boolean };
+    expect(body.meetingCode).toBe(codeBefore);
+    expect(body.resumed).toBe(false);
+    expect((await meetingState(app)).meetingId).not.toBe(before.meetingId);
+  });
 
+  it('refuses a code holder once a meeting has run and the grace has passed, then the host starts the next', async () => {
+    const { app, meetingCode } = await authApp({
+      roomRoster: async () => [],
+      rejoinGraceMs: 20,
+      rejoinPollMs: 5,
+      admissionReservationMs: 20,
+    });
     const host = await signInAsHost(app);
-    const hosted = await post(app, '/api/livekit/token', { participantName: 'Ada', participantRole: 'chef' }, host);
+    const seated = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef' },
+      host,
+    );
+    expect(seated.status).toBe(200);
+    const seatHost = cookieFrom(seated);
+    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
+    const codeBefore = meetingCode.value;
+
+    // Everyone has left and the room poll's grace has expired.
+    await settle(80);
+    const before = await meetingState(app);
+
+    const guest = await post(app, '/api/livekit/token', {
+      participantName: 'Mallory',
+      participantRole: 'cashier',
+      meetingCode: MEETING_CODE,
+    });
+    expect(guest.status).toBe(409);
+    expect(((await guest.json()) as { error: string }).error).toMatch(
+      /meeting owner must start the next/i,
+    );
+    expect(await meetingState(app)).toEqual(before);
+    expect(meetingCode.value).toBe(codeBefore);
+
+    const hosted = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef' },
+      seatHost,
+    );
     expect(hosted.status).toBe(200);
+    expect((await meetingState(app)).meetingId).not.toBe(before.meetingId);
+  });
+
+  it('leaves rejoin state untouched when it refuses a guest, so a known person still resumes', async () => {
+    let people: Array<{ name: string; role?: string }> = [];
+    const { app, meetingCode } = await authApp({
+      roomRoster: async () => people,
+      rejoinGraceMs: 20,
+      rejoinPollMs: 60_000,
+      admissionReservationMs: 20,
+    });
+    const host = await signInAsHost(app);
+    const hosted = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef' },
+      host,
+    );
+    expect(hosted.status).toBe(200);
+    const seatHost = cookieFrom(hosted);
+
+    // Booth joins a room Ada is already in, so both are known to the meeting.
+    people = [{ name: 'Ada', role: 'chef' }];
+    const known = await post(app, '/api/livekit/token', {
+      participantName: 'Booth',
+      participantRole: 'cashier',
+      meetingCode: MEETING_CODE,
+    });
+    expect(known.status).toBe(200);
+    const knownCookie = cookieFrom(known);
+    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
+    const codeBefore = meetingCode.value;
+    const before = await meetingState(app);
+
+    // They both left, but no poll saw the empty room yet, so the grace window has not started.
+    people = [];
+    await settle(80);
+
+    const refused = await post(app, '/api/livekit/token', {
+      participantName: 'Mallory',
+      participantRole: 'cashier',
+      meetingCode: MEETING_CODE,
+    });
+    expect(refused.status).toBe(409);
+    expect(await meetingState(app)).toEqual(before);
+    expect(meetingCode.value).toBe(codeBefore);
+
+    // If the refusal had started a grace window, it would have expired by now and Booth would reset.
+    await settle(80);
+    const back = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Booth', participantRole: 'cashier', meetingCode: MEETING_CODE },
+      knownCookie,
+    );
+    expect(back.status).toBe(200);
+    const body = (await back.json()) as { meetingCode: string; resumed?: boolean };
+    expect(body.meetingCode).toBe(codeBefore);
+    expect(body.resumed).toBe(true);
+    expect(await meetingState(app)).toEqual(before);
   });
 
   it('uses one atomic seat record for participants and the host’s seat', async () => {

@@ -58,8 +58,8 @@ export interface RejoinGuard {
   hasMeeting(): boolean;
   /** Whether the room is in its empty-room grace window right now. */
   isEmpty(): boolean;
-  /** Whether this name would resume the running meeting instead of starting the next one. */
-  wouldResume(name: string): boolean;
+  /** Whether this person would resume the running meeting instead of starting the next one. */
+  wouldResume(name: string, seat?: string): boolean;
   /** What someone arriving in an empty room should get. A known name or seat resumes the meeting. */
   admit(name: string, seat?: string): RejoinDecision;
   /** Stop the grace timer. */
@@ -113,6 +113,12 @@ export function createRejoinGuard({
     if (emptySince === undefined) return;
     emptySince = undefined;
     clearExpiry();
+  }
+
+  function isKnown(name: string, seat?: string): boolean {
+    if (humans.has(normalise(name))) return true;
+    const seatKey = seat?.trim().toLowerCase();
+    return seatKey !== undefined && seatKey !== '' && seated.has(`${seatKey}\u0000${normalise(name)}`);
   }
 
   return {
@@ -175,7 +181,7 @@ export function createRejoinGuard({
     },
     hasMeeting: () => started,
     isEmpty: () => emptySince !== undefined,
-    wouldResume(name) {
+    wouldResume(name, seat) {
       // Nobody has joined since the last reset: there is no meeting to keep.
       if (!started) return false;
       // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
@@ -187,7 +193,7 @@ export function createRejoinGuard({
       if (graceMs <= 0) return false;
       const since = emptySince;
       if (since !== undefined && Math.max(0, now() - since) >= graceMs) return false;
-      return humans.has(normalise(name));
+      return isKnown(name, seat);
     },
     admit(name, seat) {
       // Nobody has joined since the last reset: there is no meeting to keep.
@@ -210,11 +216,7 @@ export function createRejoinGuard({
       if (elapsed >= graceMs) return { reset: true };
       // The grace holds the paused meeting only for the people who left, by name or by their seat.
       // Anyone else starts fresh.
-      const seatKey = seat?.trim().toLowerCase();
-      const known =
-        humans.has(normalise(name)) ||
-        (seatKey !== undefined && seatKey !== '' && seated.has(`${seatKey}\u0000${normalise(name)}`));
-      return { reset: !known };
+      return { reset: !isKnown(name, seat) };
     },
     joined(name, decision, seat) {
       restoredMeeting = false;
