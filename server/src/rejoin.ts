@@ -1,13 +1,59 @@
 /** How long an empty live-demo meeting is kept for the same person to return. */
 export const DEFAULT_REJOIN_GRACE_MS = 120_000;
 
+/** What an arriving person gets: carry on the meeting, start the next one, or join the occupied room. */
+export type Admission = 'resume' | 'reset' | 'join';
+
+/** Which person holds which seat, owned by the meeting session. */
+export interface SeatHolder {
+  name: string;
+  seat: string;
+}
+
+export interface AdmissionInput {
+  /** The session's phase; rejoin never derives it from speech or the transcript. */
+  phase: 'lobby' | 'starting' | 'running' | 'ended';
+  /** The seat holders the session knows, so the people who left may come back. */
+  holders: readonly SeatHolder[];
+  /** Everyone already in the room, excluding the joiner. */
+  present: readonly unknown[];
+  name: string;
+  seat?: string;
+  /** Whether the empty-room grace window is open right now. */
+  graceActive: boolean;
+}
+
+const normalise = (name: string): string => name.trim().toLowerCase();
+
+function isHolder(holders: readonly SeatHolder[], name: string, seat?: string): boolean {
+  const wantedName = normalise(name);
+  const wantedSeat = seat?.trim().toLowerCase();
+  return holders.some((holder) => {
+    if (normalise(holder.name) === wantedName) return true;
+    return (
+      wantedSeat !== undefined &&
+      wantedSeat !== '' &&
+      holder.seat.trim().toLowerCase() === wantedSeat &&
+      normalise(holder.name) === wantedName
+    );
+  });
+}
+
 /**
- * What an arriving person gets when the room is empty: either start a fresh meeting, or carry on the
- * paused one because the same person came back inside the grace.
+ * The one admission rule. A running meeting (or a lobby meeting someone already joined) holds for
+ * its seat holders while the room is empty and the grace is open; a stranger starts the next one.
+ * A restored meeting with no holders is carried on by whoever arrives first inside the grace.
  */
-export interface RejoinDecision {
-  /** Start a fresh meeting: new code, cleared tasks, a fresh agenda and record. */
-  reset: boolean;
+export function admission({ phase, holders, present, name, seat, graceActive }: AdmissionInput): Admission {
+  // People are still in the room: this is an ordinary join, never a reset under their feet
+  // (an ended meeting may still have minutes waiting for their approval).
+  if (present.length > 0) return 'join';
+  // The meeting is over and the room is empty: a new guest must never land in a finished meeting.
+  if (phase === 'ended') return 'reset';
+  // Inside the grace, whoever arrives first carries on a meeting that has no saved holders.
+  if (holders.length === 0) return phase === 'running' && graceActive ? 'resume' : 'reset';
+  if (!graceActive) return 'reset';
+  return isHolder(holders, name, seat) ? 'resume' : 'reset';
 }
 
 export interface RejoinGuardOptions {
@@ -21,52 +67,32 @@ export interface RejoinGuardOptions {
 export const REJOIN_POLL_MS = 5_000;
 
 /**
- * The one place that owns "the room has been empty since T". The app server observes the roster
- * itself and decides when an empty meeting is reset; the NPC runner keeps its own local pause and
- * reacts to `MEETING_RESET` rather than guessing from the room on its own.
+ * The one place that owns "the room has been empty since T". The session owns the phase and the
+ * seat holders; this guard only owns the empty-room grace window and tells the app when it ends so
+ * the holders who did not come back can be pruned.
  */
 export interface RejoinGuard {
-  /**
-   * Record a successful join so the people in this meeting may return without the code.
-   * `seat` is the canonical role id: a person who comes back to the same seat keeps the meeting even
-   * if they type their name differently.
-   */
-  joined(name: string, decision: RejoinDecision, seat?: string): void;
-  /** Remember someone admitted into a room that already had people, without touching the grace window. */
-  remember(name: string, seat?: string): void;
-  /** The meeting has begun speaking (or is hosted by a human): a returning guest resumes it without the Start tour. */
-  began(): void;
-  /** A meeting was restored from disk: the next person to arrive resumes it instead of starting fresh. */
-  restored(): void;
-  /** Seed the saved seat holders without marking the meeting as started. */
-  restoreIdentities(entries: ReadonlyArray<{ name: string; seat: string }>): void;
-  /** Who holds which seat, so the same people are recognised after a restart. */
-  identities(): Array<{ name: string; seat: string }>;
-  /** The server started the meeting before anyone arrived: the first arrival carries it on. */
-  startedBeforeAnyoneJoined(): void;
-  /** The restored meeting is gone (the host started a new one): the next arrival starts fresh. */
-  forgetRestored(): void;
-  /** Whether the meeting has begun speaking since the last reset. */
-  hasBegun(): boolean;
   /** The server observed the room empty: start the grace window. Repeated calls are ignored. */
   emptied(): void;
   /** The server observed people again: cancel the grace window without resetting anything. */
   occupied(): void;
-  /** The meeting has ended: nobody resumes it, the next arrival in an empty room starts a new one. */
-  ended(): void;
-  /** Whether a meeting exists: someone has joined since the last reset. */
-  hasMeeting(): boolean;
-  /** Whether the room is in its empty-room grace window right now. */
+  /** Treat this arrival as the moment the room emptied, if no poll saw it (the join race). */
+  beginGrace(): void;
+  /** The grace window is open right now (not merely started and left to expire). */
+  graceActive(): boolean;
+  /** The window has been started and not cleared, even if it has already expired. */
   isEmpty(): boolean;
-  /** Whether this person would resume the running meeting instead of starting the next one. */
-  wouldResume(name: string, seat?: string): boolean;
-  /** What someone arriving in an empty room should get. A known name or seat resumes the meeting. */
-  admit(name: string, seat?: string): RejoinDecision;
+  /** Whether a known holder would be kept if they arrived now (the pre-commit decision). */
+  wouldHold(): boolean;
+  /** A person joined: clear the window and log how long the pause was. */
+  joined(): void;
+  /** A new meeting starts: forget the grace without pruning anything. */
+  reset(): void;
+  /** Run `hook` when the grace expires; the app prunes the holders that did not return. */
+  onGraceExpired(hook: () => void): () => void;
   /** Stop the grace timer. */
   close(): void;
 }
-
-const normalise = (name: string): string => name.trim().toLowerCase();
 
 /** Create the guard that holds the meeting open for `graceMs` after the room empties. */
 export function createRejoinGuard({
@@ -78,23 +104,22 @@ export function createRejoinGuard({
     throw new Error(`The rejoin grace must be a non-negative number of milliseconds, got ${graceMs}`);
   }
 
-  let started = false;
-  let begun = false;
-  let finished = false;
-  let restoredMeeting = false;
-  let startedWithoutPeople = false;
-  // Saved seat holders came back with the meeting, so a stranger may not take one of their seats.
-  let restoredSeats = false;
-  const humans = new Set<string>();
-  // Seat-to-person identity: the same person in the same seat is part of this meeting. A different
-  // person taking that seat is a stranger and starts a new meeting, even inside the grace.
-  const seated = new Set<string>();
   let emptySince: number | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  const expiryHooks = new Set<() => void>();
 
   function clearExpiry(): void {
     if (expiryTimer !== undefined) clearTimeout(expiryTimer);
     expiryTimer = undefined;
+  }
+
+  function elapsed(): number | undefined {
+    return emptySince === undefined ? undefined : Math.max(0, now() - emptySince);
+  }
+
+  function graceActive(): boolean {
+    if (emptySince === undefined || graceMs <= 0) return false;
+    return (elapsed() ?? 0) < graceMs;
   }
 
   function emptied(): void {
@@ -105,6 +130,13 @@ export function createRejoinGuard({
     expiryTimer = setTimeout(() => {
       expiryTimer = undefined;
       log('[rejoin] grace expired, reset on next join');
+      for (const hook of expiryHooks) {
+        try {
+          hook();
+        } catch (error) {
+          console.error('kaki rejoin: a grace-expiry hook failed', error);
+        }
+      }
     }, graceMs);
     expiryTimer.unref?.();
   }
@@ -115,143 +147,35 @@ export function createRejoinGuard({
     clearExpiry();
   }
 
-  function isKnown(name: string, seat?: string): boolean {
-    if (humans.has(normalise(name))) return true;
-    const seatKey = seat?.trim().toLowerCase();
-    return seatKey !== undefined && seatKey !== '' && seated.has(`${seatKey}\u0000${normalise(name)}`);
-  }
-
   return {
     emptied,
     occupied,
-    began() {
-      if (!started || finished) return;
-      begun = true;
+    beginGrace() {
+      emptied();
     },
-    restored() {
-      if (started) return;
-      started = true;
-      begun = true;
-      restoredMeeting = true;
-      // With saved seat holders the restart is an empty-room moment: the grace decides how long they
-      // have to come back, and a stranger still cannot take a saved seat.
-      if (restoredSeats) emptied();
-      log('[rejoin] a saved meeting was restored; the next arrival resumes it');
-    },
-    restoreIdentities(entries) {
-      for (const entry of entries) {
-        const name = normalise(entry.name);
-        const seatKey = entry.seat.trim().toLowerCase();
-        if (name === '' || seatKey === '') continue;
-        humans.add(name);
-        seated.add(`${seatKey}\u0000${name}`);
-        restoredSeats = true;
-      }
-    },
-    identities() {
-      return [...seated].map((key) => {
-        const [seat, name] = key.split('\u0000');
-        return { name: name ?? '', seat: seat ?? '' };
-      });
-    },
-    startedBeforeAnyoneJoined() {
-      if (started) return;
-      started = true;
-      begun = true;
-      startedWithoutPeople = true;
-      log('[rejoin] the meeting started before anyone arrived; the first arrival carries it on');
-    },
-    forgetRestored() {
-      if (!restoredMeeting && !startedWithoutPeople) return;
-      restoredMeeting = false;
-      startedWithoutPeople = false;
-      if (humans.size > 0) return;
-      started = false;
-      begun = false;
-      finished = false;
-    },
-    hasBegun: () => started && begun && !finished,
-    ended() {
-      if (!started || finished) return;
-      restoredMeeting = false;
-      restoredSeats = false;
-      startedWithoutPeople = false;
-      finished = true;
-      log('[rejoin] meeting ended, the next arrival starts a new one');
-    },
-    hasMeeting: () => started,
+    graceActive,
     isEmpty: () => emptySince !== undefined,
-    wouldResume(name, seat) {
-      // Nobody has joined since the last reset: there is no meeting to keep.
-      if (!started) return false;
-      // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
-      if (finished) return false;
-      // A meeting started before anyone arrived, or restored without saved seats, is carried on by
-      // whoever comes first. Otherwise only the people who left may resume it inside the grace.
-      if (startedWithoutPeople) return true;
-      if (restoredMeeting && !restoredSeats) return true;
-      if (graceMs <= 0) return false;
-      const since = emptySince;
-      if (since !== undefined && Math.max(0, now() - since) >= graceMs) return false;
-      return isKnown(name, seat);
+    wouldHold: () => graceMs > 0 && (emptySince === undefined || (elapsed() ?? 0) < graceMs),
+    joined() {
+      if (emptySince === undefined) return;
+      log(`[rejoin] resumed after ${Math.round((elapsed() ?? 0) / 1000)} s`);
+      occupied();
     },
-    admit(name, seat) {
-      // Nobody has joined since the last reset: there is no meeting to keep.
-      if (!started) return { reset: true };
-      // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
-      if (finished) return { reset: true };
-      // A meeting that was started before anyone arrived has no known guest yet; whoever comes first
-      // carries it on. A restored meeting with saved seat holders keeps the same rules as a normal
-      // grace window: those people may return, a stranger starts fresh.
-      if (startedWithoutPeople) return { reset: false };
-      if (restoredMeeting && !restoredSeats) return { reset: false };
-      // The grace is off: every arrival into an empty room starts a new meeting.
-      if (graceMs <= 0) return { reset: true };
-      // The last person may have left after the previous poll: treat this arrival as the moment the
-      // room emptied, so the same person resumes instead of losing the meeting to a cross-process race.
-      if (emptySince === undefined) emptied();
-      const since = emptySince;
-      if (since === undefined) return { reset: true };
-      const elapsed = Math.max(0, now() - since);
-      if (elapsed >= graceMs) return { reset: true };
-      // The grace holds the paused meeting only for the people who left, by name or by their seat.
-      // Anyone else starts fresh.
-      return { reset: !isKnown(name, seat) };
-    },
-    joined(name, decision, seat) {
-      restoredMeeting = false;
-      startedWithoutPeople = false;
-      if (decision.reset) {
-        begun = false;
-        finished = false;
-        restoredSeats = false;
-        humans.clear();
-        seated.clear();
-        emptySince = undefined;
-        clearExpiry();
-      } else {
-        const elapsed = emptySince === undefined ? 0 : Math.max(0, now() - emptySince);
-        log(`[rejoin] resumed after ${Math.round(elapsed / 1000)} s`);
-        emptySince = undefined;
-        clearExpiry();
-      }
-      started = true;
-      humans.add(normalise(name));
-      const seatKey = seat?.trim().toLowerCase();
-      if (seatKey !== undefined && seatKey !== '') seated.add(`${seatKey}\u0000${normalise(name)}`);
-    },
-    remember(name, seat) {
-      started = true;
-      humans.add(normalise(name));
-      const seatKey = seat?.trim().toLowerCase();
-      if (seatKey !== undefined && seatKey !== '') seated.add(`${seatKey}\u0000${normalise(name)}`);
+    reset: occupied,
+    onGraceExpired(hook) {
+      expiryHooks.add(hook);
+      return () => {
+        expiryHooks.delete(hook);
+      };
     },
     close: clearExpiry,
   };
 }
 
 export interface RoomPollOptions {
-  guard: Pick<RejoinGuard, 'hasMeeting' | 'emptied' | 'occupied'>;
+  guard: Pick<RejoinGuard, 'emptied' | 'occupied'>;
+  /** Whether a meeting is worth watching: someone joined, or it is running. */
+  hasMeeting: () => boolean;
   /** Who is in the room, or undefined when LiveKit cannot be asked. */
   roster: (roomName: string) => Promise<readonly { name: string }[] | undefined>;
   /** The room of the last successful join; read on every poll. */
@@ -274,6 +198,7 @@ export interface RoomPoll {
  */
 export function createRoomPoll({
   guard,
+  hasMeeting,
   roster,
   roomName,
   isHuman,
@@ -284,7 +209,7 @@ export function createRoomPoll({
   let closed = false;
 
   async function poll(): Promise<void> {
-    if (polling || closed || !guard.hasMeeting()) return;
+    if (polling || closed || !hasMeeting()) return;
     const name = roomName();
     if (name === undefined) return;
     polling = true;

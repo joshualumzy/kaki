@@ -17,11 +17,15 @@ const setup: MeetingSetup = {
 
 function snapshot(agendaIndex: number, meetingId = 'meeting-1'): MeetingSnapshot {
   return {
+    meetingId,
+    phase: 'running',
+    draft: setup,
+    draftTouched: true,
+    sealed: setup,
+    holders: [],
     startedAt: '2026-01-01T00:00:00.000Z',
-    state: stateWithAgenda(agendaIndex, meetingId),
-    setup,
     meetingCode: 'AB12CD',
-    seats: [],
+    state: stateWithAgenda(agendaIndex),
   };
 }
 
@@ -29,18 +33,12 @@ function stored(snap: MeetingSnapshot): StoredMeeting {
   return {
     schemaVersion: MEETING_STATE_SCHEMA_VERSION,
     savedAt: '2026-01-01T00:00:00.000Z',
-    ...(snap.startedAt === undefined ? {} : { startedAt: snap.startedAt }),
-    state: snap.state,
-    setup: snap.setup,
-    meetingCode: snap.meetingCode,
-    seats: snap.seats,
+    ...snap,
   };
 }
 
-function stateWithAgenda(agendaIndex: number, meetingId = 'meeting-1'): SavedMeetingState {
+function stateWithAgenda(agendaIndex: number): SavedMeetingState {
   return {
-    meetingId,
-    agenda: ['Prep', 'Service', 'Close'],
     clock: {
       started: true,
       ended: false,
@@ -372,26 +370,18 @@ describe('meeting persistence saver', () => {
         },
         clearRetained() {},
       },
-      rejoin: {
-        forgetRestored() {},
-        identities() {
-          return [];
-        },
-      },
       memory,
-      setupDraft: { current: setup },
-      sealedSetup: { current: undefined },
-      draftTouched: { current: false },
-      draftEditedSinceSeal: { current: false },
       defaultSetup: setup,
       resetScenario: () => testScenario,
+      restoreActive: () => testScenario,
       initialScenario: testScenario,
-      initialPhase: 'lobby',
-      meetingId: () => current.state.meetingId,
+      meetingId: () => current.meetingId,
+      meetingCode: () => 'AB12CD',
       rotateIdentity() {
         current = snapshot(0, 'new-meeting');
-        return current.state.meetingId;
+        return current.meetingId;
       },
+      clearGrace() {},
       persistence,
     });
 
@@ -401,8 +391,8 @@ describe('meeting persistence saver', () => {
     expect(publishes).toBe(1);
     expect(store.clears).toBe(1);
     expect(store.saves).toBe(1);
-    expect(store.saved?.state.meetingId).toBe('new-meeting');
-    expect((await store.load())?.state.meetingId).toBe('new-meeting');
+    expect(store.saved?.meetingId).toBe('new-meeting');
+    expect((await store.load())?.meetingId).toBe('new-meeting');
     expect(logs).toContain('[persist] clear failed: delete is denied');
     expect(logs).toContain(
       'kaki persist: the old saved meeting could not be deleted; overwriting it with the new meeting',
@@ -423,7 +413,7 @@ describe('meeting persistence saver', () => {
     persistence.replaceSaved();
     await persistence.flush();
 
-    expect(store.saved?.state.meetingId).toBe('new-meeting');
+    expect(store.saved?.meetingId).toBe('new-meeting');
     expect(logs).toContain('[persist] clear failed: database is down');
     expect(logs).toContain(
       'kaki persist: the old saved meeting could not be deleted; overwriting it with the new meeting',

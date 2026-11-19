@@ -112,12 +112,7 @@ export function createMeetingPersistence({
       await store.save({
         schemaVersion: MEETING_STATE_SCHEMA_VERSION,
         savedAt: now().toISOString(),
-        ...(snapshot.startedAt === undefined ? {} : { startedAt: snapshot.startedAt }),
-        state: snapshot.state,
-        setup: snapshot.setup,
-        ...(snapshot.draftTouched === undefined ? {} : { draftTouched: snapshot.draftTouched }),
-        meetingCode: snapshot.meetingCode,
-        seats: snapshot.seats,
+        ...snapshot,
       });
     } catch (error) {
       // A database problem must not take the meeting down; it is logged every time it happens.
@@ -339,9 +334,9 @@ export async function createMeetingPersistenceFromEnv({
       throw error;
     }
     log(
-      saved.startedAt === undefined
-        ? 'kaki persist: restored the saved meeting setup'
-        : `kaki persist: restored the meeting that started at ${saved.startedAt}`,
+      saved.phase === 'running' || saved.phase === 'ended'
+        ? `kaki persist: restored the meeting that started at ${saved.startedAt ?? saved.savedAt}`
+        : 'kaki persist: restored the saved meeting setup',
     );
   }
 

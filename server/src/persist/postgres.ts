@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import {
   MEETING_STATE_ID,
   type MeetingStateStore,
+  type SavedMeetingPhase,
   type SavedMeetingState,
   type SavedSeatAssignment,
   type StoredMeeting,
@@ -28,6 +29,13 @@ export async function ensureMeetingStateSchema(pool: Pool): Promise<void> {
   await pool.query('alter table meeting_state add column if not exists draft_touched boolean');
   await pool.query('alter table meeting_state add column if not exists meeting_code text');
   await pool.query('alter table meeting_state add column if not exists seats jsonb');
+  // v6 stores one coherent meeting: draft and seal separately, its phase, identity and holders.
+  await pool.query('alter table meeting_state add column if not exists meeting_id text');
+  await pool.query('alter table meeting_state add column if not exists phase text');
+  await pool.query('alter table meeting_state add column if not exists draft jsonb');
+  await pool.query('alter table meeting_state add column if not exists sealed jsonb');
+  await pool.query('alter table meeting_state add column if not exists draft_edited_since_seal boolean');
+  await pool.query('alter table meeting_state add column if not exists holders jsonb');
 }
 
 interface MeetingStateRow {
@@ -35,9 +43,14 @@ interface MeetingStateRow {
   saved_at: Date | string;
   started_at: Date | string | null;
   state: SavedMeetingState;
-  setup: StoredMeeting['setup'] | null;
+  meeting_id: string | null;
+  phase: SavedMeetingPhase | null;
+  draft: StoredMeeting['draft'] | null;
+  sealed: StoredMeeting['sealed'] | null;
   draft_touched: boolean | null;
+  draft_edited_since_seal: boolean | null;
   meeting_code: string | null;
+  holders: SavedSeatAssignment[] | null;
   seats: SavedSeatAssignment[] | null;
 }
 
@@ -46,7 +59,9 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
   return {
     async load() {
       const result = await pool.query<MeetingStateRow>(
-        'select schema_version, saved_at, started_at, state, setup, draft_touched, meeting_code, seats from meeting_state where id = $1',
+        `select schema_version, saved_at, started_at, state, meeting_id, phase, draft, sealed,
+                draft_touched, draft_edited_since_seal, meeting_code, holders, seats
+           from meeting_state where id = $1`,
         [MEETING_STATE_ID],
       );
       const row = result.rows[0];
@@ -56,38 +71,52 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
         savedAt: new Date(row.saved_at).toISOString(),
         ...(row.started_at === null ? {} : { startedAt: new Date(row.started_at).toISOString() }),
         state: row.state,
-        // A row from before the schema bump has no setup; the version check refuses it before use.
-        setup: (row.setup ?? ({} as StoredMeeting['setup'])),
-        ...(row.draft_touched === true ? { draftTouched: true } : {}),
+        // A row from before the schema bump has none of these; the version check refuses it first.
+        meetingId: row.meeting_id ?? '',
+        phase: row.phase ?? 'lobby',
+        draft: row.draft ?? ({} as StoredMeeting['draft']),
+        ...(row.sealed === null ? {} : { sealed: row.sealed }),
+        draftTouched: row.draft_touched === true,
+        ...(row.draft_edited_since_seal === true ? { draftEditedSinceSeal: true } : {}),
         meetingCode: row.meeting_code ?? '',
-        seats: row.seats ?? [],
+        holders: row.holders ?? row.seats ?? [],
       };
       return meeting;
     },
 
     async save(meeting) {
       await pool.query(
-        `insert into meeting_state (id, schema_version, saved_at, started_at, state, setup, draft_touched, meeting_code, seats)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `insert into meeting_state
+           (id, schema_version, saved_at, started_at, state, meeting_id, phase, draft, sealed,
+            draft_touched, draft_edited_since_seal, meeting_code, holders)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          on conflict (id) do update set
            schema_version = excluded.schema_version,
            saved_at = excluded.saved_at,
            started_at = excluded.started_at,
            state = excluded.state,
-           setup = excluded.setup,
+           meeting_id = excluded.meeting_id,
+           phase = excluded.phase,
+           draft = excluded.draft,
+           sealed = excluded.sealed,
            draft_touched = excluded.draft_touched,
+           draft_edited_since_seal = excluded.draft_edited_since_seal,
            meeting_code = excluded.meeting_code,
-           seats = excluded.seats`,
+           holders = excluded.holders`,
         [
           MEETING_STATE_ID,
           meeting.schemaVersion,
           meeting.savedAt,
           meeting.startedAt ?? null,
           JSON.stringify(meeting.state),
-          JSON.stringify(meeting.setup),
-          meeting.draftTouched === true,
+          meeting.meetingId,
+          meeting.phase,
+          JSON.stringify(meeting.draft),
+          meeting.sealed === undefined ? null : JSON.stringify(meeting.sealed),
+          meeting.draftTouched,
+          meeting.draftEditedSinceSeal === true,
           meeting.meetingCode,
-          JSON.stringify(meeting.seats),
+          JSON.stringify(meeting.holders),
         ],
       );
     },

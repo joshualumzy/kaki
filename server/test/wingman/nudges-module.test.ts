@@ -91,7 +91,15 @@ function start(
   const meetingDetails =
     pace === undefined
       ? undefined
-      : () => ({ setup: { ...defaultMeetingSetup(scenario), pace }, meetingCode: 'AB12CD', seats: [] });
+      : () => ({
+          sealed: { ...defaultMeetingSetup(scenario), pace },
+          draft: { ...defaultMeetingSetup(scenario), pace },
+          meetingId: 'meeting-1',
+          phase: 'running' as const,
+          draftTouched: true,
+          holders: [],
+          meetingCode: 'AB12CD',
+        });
   const stop = module.start({
     hub,
     tasks: {} as TaskStore,

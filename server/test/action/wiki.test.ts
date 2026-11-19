@@ -52,7 +52,7 @@ function setup(
     draftOnly,
     ...(context.seats === undefined
       ? {}
-      : { meetingDetails: () => ({ seats: context.seats! }) as SavedMeetingDetails }),
+      : { meetingDetails: () => ({ holders: context.seats! }) as unknown as SavedMeetingDetails }),
   });
   if (stop !== undefined) stops.push(stop);
   return Object.assign(tasks, { hub });

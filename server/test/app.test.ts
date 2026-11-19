@@ -568,7 +568,7 @@ describe('rejoining an empty meeting', () => {
       expect(back.status).toBe(200);
       const resumed = (await back.json()) as { meetingCode: string; resumed?: boolean };
       expect(resumed.meetingCode).toBe(meetingCode);
-      expect(resumed.resumed).toBe(true);
+      expect(resumed.resumed).toBe(false);
 
       expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
       const kept = (await (await fetch(`http://127.0.0.1:${port}/api/scenario`)).json()) as {
@@ -598,6 +598,36 @@ describe('rejoining an empty meeting', () => {
       const rejoined = (await back.json()) as { meetingCode: string; resumed?: boolean };
       expect(rejoined.meetingCode).toBe(meetingCode);
       expect(rejoined.resumed).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('does not let speech or a transcript before Start change admission', async () => {
+    const app = await startApp(60_000);
+    try {
+      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(first.status).toBe(200);
+      const { meetingCode } = (await first.json()) as { meetingCode: string };
+      const kept = app.tasks.suggest({ title: 'Keep me', context: 'Before Start', suggestedAssignee: 'producer' });
+      app.hub.publish({
+        type: 'HOST_SPEECH_TRIGGERED',
+        audience: { kind: 'screen' },
+        payload: { kind: 'OPENING', text: 'Welcome before Start.' },
+      });
+      app.hub.publish({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'screen' },
+        payload: { speaker: 'Booth', text: 'A stray line before Start.', timestamp: new Date().toISOString() },
+      });
+      await settle();
+
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      expect(back.status).toBe(200);
+      const body = (await back.json()) as { meetingCode: string; resumed?: boolean };
+      expect(body.meetingCode).toBe(meetingCode);
+      expect(body.resumed).toBe(false);
+      expect(app.tasks.get(kept.id)?.title).toBe('Keep me');
     } finally {
       await app.close();
     }
@@ -881,6 +911,8 @@ describe('one server-owned meeting start', () => {
       expect(afterReset).toMatchObject({ meetingId: replacement, started: false });
 
       // The replacement meeting gets its own attempt; the old acknowledgement cannot satisfy it.
+      // A reset clears its holders, so the same person joins the replacement before Start.
+      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
       ackMode = 'ready';
       const secondStart = await startMeeting(app);
       expect(secondStart.status).toBe(200);

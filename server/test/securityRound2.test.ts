@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { parseScenario, type Scenario } from '@kaki/shared';
+import { defaultMeetingSetup, parseScenario, type Scenario } from '@kaki/shared';
 import { assertSafeBind, clientAddress } from '../src/access';
 import { createApp, type KakiApp } from '../src/app';
 import { createAuth, secureCookiesFromEnv, type AuthOptions } from '../src/auth/module';
@@ -549,7 +549,7 @@ describe('security round 2', () => {
     runner.ws.send(JSON.stringify({ type: 'DECLINE_TASK', taskId: 'first' }));
     await settle();
     // The active scenario is a value now: swap in one whose cast no longer voices the manager.
-    app.session.beginStart({ ...scenario, npcs: [] });
+    app.session.beginStart({ ...scenario, npcs: [] }, defaultMeetingSetup(scenario));
     app.session.commitStart();
 
     runner.ws.send(JSON.stringify({ type: 'DECLINE_TASK', taskId: 'second' }));

@@ -409,7 +409,7 @@ export function createWikiModule({
               openQuestions,
               context.tasks.list(),
             );
-            const assignee = minutesAssignee(scenario, context.meetingDetails?.().seats ?? []);
+            const assignee = minutesAssignee(scenario, context.meetingDetails?.().holders ?? []);
             if (assignee === undefined) {
               console.warn('kaki action-wiki: no human seat to review the end-of-meeting minutes; nothing was drafted');
               return;

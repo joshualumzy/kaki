@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { KakiEvent } from '@kaki/shared';
 import { CommandError } from '../hub';
 import type { LlmClient } from '../llm';
@@ -48,15 +47,11 @@ export function createMeetingModule({
       tasks,
       activeScenario,
       persistence,
-      meetingId,
       resetMeeting: resetMeetingSession,
       onReset,
       meetingDetails,
       session,
     }: KakiContext) {
-      // The app server owns the identity; a module run on its own (tests) still gets a stable one.
-      const localMeetingId = randomUUID();
-      const currentMeetingId = (): string => meetingId?.() ?? localMeetingId;
       const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
       clock.setAgenda(activeScenario().agenda);
       const notetaker = createNotetaker({
@@ -66,15 +61,23 @@ export function createMeetingModule({
         agendaIndex: () => clock.snapshot().agendaIndex,
         meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
         // The "can you..." -> the one visitor shortcut only makes sense with a single person in the room.
-        visitorOwnerShortcut: () => (meetingDetails?.().seats.length ?? 0) < 2,
+        visitorOwnerShortcut: () => (meetingDetails?.().holders.length ?? 0) < 2,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
 
       // A compatible saved meeting was loaded before the modules started; take up where it stopped.
       // A pre-Start setup draft restores the setup but leaves the clock and record untouched.
       const saved = persistence?.saved;
-      const restoredRunning = saved !== undefined && saved.state.clock.started;
-      let meetingStartedAt = restoredRunning ? saved.startedAt : undefined;
+      const restoredRunning =
+        saved !== undefined &&
+        (saved.phase === 'running' || (saved.state.clock.started && !saved.state.clock.ended));
+      // An ended meeting that came back consumed still needs its start time in the saved shape.
+      let meetingStartedAt =
+        saved !== undefined && (saved.phase === 'running' || saved.phase === 'ended')
+          ? saved.startedAt
+          : restoredRunning
+            ? saved.startedAt
+            : undefined;
       // While the host's New meeting is waiting for the old one to be cleared, no pre-reset snapshot may be saved.
       let resetting = false;
       if (saved !== undefined) {
@@ -93,11 +96,9 @@ export function createMeetingModule({
         if (details === undefined) return undefined;
         const now = clock.snapshot();
         return {
-          ...(meetingStartedAt === undefined ? {} : { startedAt: meetingStartedAt }),
           ...details,
+          ...(meetingStartedAt === undefined ? {} : { startedAt: meetingStartedAt }),
           state: {
-            meetingId: currentMeetingId(),
-            agenda: [...(details.agendaTitles ?? activeScenario().agenda.map((item) => item.title))],
             clock: {
               started: now.started,
               ended: now.ended,

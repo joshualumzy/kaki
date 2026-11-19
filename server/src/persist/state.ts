@@ -19,7 +19,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 5;
+export const MEETING_STATE_SCHEMA_VERSION = 6;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -62,12 +62,11 @@ export interface SavedNotetakerState {
   talkTotal: number;
 }
 
+/** A saved meeting's phase. A Start in flight is saved as `lobby`, never as `running`. */
+export type SavedMeetingPhase = 'lobby' | 'starting' | 'running' | 'ended';
+
 /** The meeting record, the notetaker and every task, as one versioned snapshot. */
 export interface SavedMeetingState {
-  /** The identity of this meeting; a reset starts a new one and the runner must not carry state across. */
-  meetingId: string;
-  /** The agenda titles in the order this meeting was using, so restored indices mean the same topics. */
-  agenda: string[];
   clock: SavedClockState;
   notetaker: SavedNotetakerState;
   tasks: Task[];
@@ -79,34 +78,35 @@ export interface SavedSeatAssignment {
   seat: string;
 }
 
-/** The setup, code and seat holders that belong to the meeting but not to its running record. */
+/**
+ * Everything the session owns at a save point. The draft is always saved; the sealed setup is saved
+ * only for a meeting that has one (running or ended), so an edit made after END cannot lose the
+ * meeting that ran, and the next meeting's draft cannot lose its edit.
+ */
 export interface SavedMeetingDetails {
-  setup: MeetingSetup;
-  /** True when the owner edited the draft after the last reset; untouched drafts follow the live meeting. */
-  draftTouched?: boolean;
-  /**
-   * The agenda titles a pre-commit snapshot should save. The app supplies the order the room had
-   * before Start began, so a crash during preparation cannot save the sealed agenda early.
-   */
-  agendaTitles?: readonly string[];
+  meetingId: string;
+  phase: SavedMeetingPhase;
+  draft: MeetingSetup;
+  draftTouched: boolean;
+  /** An owner edit made after the seal: the next meeting must keep this draft. */
+  draftEditedSinceSeal?: boolean;
+  /** Present iff `phase` is `starting`, `running` or `ended`. */
+  sealed?: MeetingSetup;
+  holders: SavedSeatAssignment[];
   meetingCode: string;
-  seats: SavedSeatAssignment[];
-}
-
-/** Everything one save point writes: the running record plus the meeting's fixed details. */
-export interface MeetingSnapshot extends SavedMeetingDetails {
   /** Absent while the meeting is still a pre-Start setup draft. */
   startedAt?: string;
+}
+
+/** Everything one save point writes: the session's details plus the running record. */
+export interface MeetingSnapshot extends SavedMeetingDetails {
   state: SavedMeetingState;
 }
 
 /** One saved meeting, as stored and loaded. */
-export interface StoredMeeting extends SavedMeetingDetails {
+export interface StoredMeeting extends MeetingSnapshot {
   schemaVersion: number;
-  /** Absent while the meeting is still a pre-Start setup draft. */
-  startedAt?: string;
   savedAt: string;
-  state: SavedMeetingState;
 }
 
 /** The storage the saver writes through; Postgres in the running server, a fake in tests. */
@@ -230,21 +230,13 @@ function clockProblem(value: unknown, agendaLength: number): string | undefined 
   return undefined;
 }
 
-function agendaProblem(value: unknown): string | undefined {
-  if (!Array.isArray(value) || value.length === 0 || !value.every(isNonEmptyString)) {
-    return 'its agenda is not a list of topics';
-  }
-  if (new Set(value).size !== value.length) return 'its agenda repeats a topic';
-  return undefined;
-}
-
 /** Name the first field `parseMeetingSetup` rejects, so the owner knows what to fix or reset. */
 function setupProblem(value: unknown, scenario: Scenario): string | undefined {
   const parsed = parseMeetingSetup(value, { npcProfileIds: demoPackNpcProfileIds(scenario) });
   if (parsed.ok) return undefined;
   const first = parsed.errors[0];
-  if (first === undefined) return 'its setup is invalid';
-  return `its setup is invalid at ${first.field}: ${first.message}`;
+  if (first === undefined) return 'setup is invalid';
+  return `setup is invalid at ${first.field}: ${first.message}`;
 }
 
 function meetingCodeProblem(value: unknown): string | undefined {
@@ -252,7 +244,7 @@ function meetingCodeProblem(value: unknown): string | undefined {
   return undefined;
 }
 
-function seatsProblem(value: unknown): string | undefined {
+function holdersProblem(value: unknown): string | undefined {
   if (!Array.isArray(value)) return 'its seat holders are not a list';
   const seats = new Set<string>();
   for (const entry of value) {
@@ -264,6 +256,21 @@ function seatsProblem(value: unknown): string | undefined {
     seats.add(seat);
   }
   return undefined;
+}
+
+const SAVED_PHASES: readonly SavedMeetingPhase[] = ['lobby', 'starting', 'running', 'ended'];
+
+function phaseProblem(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !(SAVED_PHASES as readonly string[]).includes(value)) {
+    return 'its phase is not valid';
+  }
+  return undefined;
+}
+
+/** The agenda titles the saved meeting ran or was set up with: the seal first, then the draft. */
+export function savedAgendaTitles(saved: Pick<StoredMeeting, 'sealed' | 'draft'>): string[] {
+  const setup = saved.sealed ?? saved.draft;
+  return setup.agenda.map((item) => item.title);
 }
 
 /**
@@ -278,31 +285,39 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (typeof saved.savedAt !== 'string' || Number.isNaN(Date.parse(saved.savedAt))) {
     return 'its save time is not a date';
   }
-  const setup = setupProblem((saved as { setup?: unknown }).setup, scenario);
-  if (setup !== undefined) return setup;
-  if (saved.draftTouched !== undefined && typeof saved.draftTouched !== 'boolean') {
+  if (!isNonEmptyString(saved.meetingId)) return 'its meeting identity is missing';
+  const phase = phaseProblem((saved as { phase?: unknown }).phase);
+  if (phase !== undefined) return phase;
+  const draft = setupProblem((saved as { draft?: unknown }).draft, scenario);
+  if (draft !== undefined) return `its draft ${draft}`;
+  if (typeof saved.draftTouched !== 'boolean') return 'its setup edit mark is not valid';
+  if (saved.draftEditedSinceSeal !== undefined && typeof saved.draftEditedSinceSeal !== 'boolean') {
     return 'its setup edit mark is not valid';
+  }
+  const sealedPhase = saved.phase === 'starting' || saved.phase === 'running' || saved.phase === 'ended';
+  if (sealedPhase) {
+    if (saved.sealed === undefined) return 'its sealed setup is missing';
+    const sealed = setupProblem((saved as { sealed?: unknown }).sealed, scenario);
+    if (sealed !== undefined) return `its sealed ${sealed}`;
+  } else if (saved.sealed !== undefined) {
+    return 'its sealed setup is not valid for this phase';
   }
   const meetingCode = meetingCodeProblem((saved as { meetingCode?: unknown }).meetingCode);
   if (meetingCode !== undefined) return meetingCode;
-  const seats = seatsProblem((saved as { seats?: unknown }).seats);
-  if (seats !== undefined) return seats;
-  const state = saved.state as unknown;
-  if (!isObject(state)) return 'its meeting state is missing';
-  if (!isNonEmptyString(state.meetingId)) return 'its meeting identity is missing';
-  const agenda = agendaProblem(state.agenda);
-  if (agenda !== undefined) return agenda;
-  const clock = clockProblem(state.clock, (state.agenda as string[]).length);
-  if (clock !== undefined) return clock;
-  if (isObject(state.clock) && state.clock.started === true && saved.startedAt === undefined) {
+  const holders = holdersProblem((saved as { holders?: unknown }).holders);
+  if (holders !== undefined) return holders;
+  if ((saved.phase === 'running' || saved.phase === 'ended') && saved.startedAt === undefined) {
     return 'its start time is missing';
   }
+  const state = saved.state as unknown;
+  if (!isObject(state)) return 'its meeting state is missing';
+  const agendaTitles = savedAgendaTitles(saved);
+  const clock = clockProblem(state.clock, agendaTitles.length);
+  if (clock !== undefined) return clock;
   // A started meeting boots from the scenario its sealed setup describes, so refuse one that cannot
   // run with the same friendly message instead of crashing while the boot scenario is validated.
-  if (isObject(state.clock) && state.clock.started === true) {
-    const derived = deriveMeetingScenario(scenario, saved.setup, {
-      agendaOrder: state.agenda as string[],
-    });
+  if ((saved.phase === 'running' || saved.phase === 'ended') && saved.sealed !== undefined) {
+    const derived = deriveMeetingScenario(scenario, saved.sealed, { agendaOrder: agendaTitles });
     if (!derived.ok) {
       const first = derived.errors[0];
       return first === undefined
@@ -339,12 +354,18 @@ function unreadableSavedMeeting(problem: string): Error {
  * friendly saved-meeting message, not an exception from building roles out of broken data.
  */
 export function assertReadableSavedSetup(saved: StoredMeeting, scenario: Scenario): void {
-  const problem =
-    setupProblem((saved as { setup?: unknown }).setup, scenario) ??
-    (saved.draftTouched !== undefined && typeof saved.draftTouched !== 'boolean'
-      ? 'its setup edit mark is not valid'
-      : undefined);
-  if (problem !== undefined) throw unreadableSavedMeeting(problem);
+  const draft = setupProblem((saved as { draft?: unknown }).draft, scenario);
+  if (draft !== undefined) throw unreadableSavedMeeting(`its draft ${draft}`);
+  if (typeof saved.draftTouched !== 'boolean') {
+    throw unreadableSavedMeeting('its setup edit mark is not valid');
+  }
+  if (saved.draftEditedSinceSeal !== undefined && typeof saved.draftEditedSinceSeal !== 'boolean') {
+    throw unreadableSavedMeeting('its setup edit mark is not valid');
+  }
+  if (saved.sealed !== undefined) {
+    const sealed = setupProblem((saved as { sealed?: unknown }).sealed, scenario);
+    if (sealed !== undefined) throw unreadableSavedMeeting(`its sealed ${sealed}`);
+  }
 }
 
 /** Refuse a saved meeting whose shape is broken before any of it is applied. */
@@ -357,12 +378,12 @@ export function assertReadableSavedMeeting(saved: StoredMeeting, scenario: Scena
 /** Resolve the saved agenda titles against this build's scenario, refusing topics that no longer exist. */
 export function resolveSavedAgenda(saved: StoredMeeting, scenario: Scenario): Scenario['agenda'] {
   const byTitle = new Map(scenario.agenda.map((item) => [item.title, item]));
-  const missing = saved.state.agenda.filter((title) => !byTitle.has(title));
+  const missing = savedAgendaTitles(saved).filter((title) => !byTitle.has(title));
   if (missing.length > 0) {
     throw new Error(
       `Saved meeting's agenda has topics this scenario no longer has (${missing.join(', ')}). ` +
         'Run `npm run meeting:reset` to discard it.',
     );
   }
-  return saved.state.agenda.map((title) => byTitle.get(title)!);
+  return savedAgendaTitles(saved).map((title) => byTitle.get(title)!);
 }

@@ -73,6 +73,14 @@ class GatedClearStore extends MemoryStore {
 }
 
 
+function setupWithAgenda(agenda: string[]): MeetingSetup {
+  const base = defaultMeetingSetup(testScenario);
+  return {
+    ...base,
+    agenda: agenda.map((title, index) => ({ id: `agenda-${index + 1}`, title, minutes: 5, ownerRoleId: 'chef' })),
+  };
+}
+
 function savedState({
   agenda,
   agendaIndex = 0,
@@ -84,14 +92,16 @@ function savedState({
 }): StoredMeeting {
   return {
     schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+    meetingId: 'meeting-1',
+    phase: 'running',
+    draft: setupWithAgenda(agenda),
+    draftTouched: true,
+    sealed: setupWithAgenda(agenda),
+    holders: [],
+    meetingCode: 'AB12CD',
     startedAt: '2026-01-01T00:00:00.000Z',
     savedAt: '2026-01-01T00:05:00.000Z',
-    setup: defaultMeetingSetup(testScenario),
-    meetingCode: 'AB12CD',
-    seats: [],
     state: {
-      meetingId: 'meeting-1',
-      agenda,
       clock: {
         started: true,
         ended: false,
@@ -332,38 +342,8 @@ describe('meeting persistence across a restart', () => {
 
   it('refuses the previous format save with a clear message', () => {
     const saved: StoredMeeting = {
+      ...savedState({ agenda: ['Prep'] }),
       schemaVersion: MEETING_STATE_SCHEMA_VERSION - 1,
-      startedAt: '2026-01-01T00:00:00.000Z',
-      savedAt: '2026-01-01T00:00:00.000Z',
-      setup: defaultMeetingSetup(testScenario),
-      meetingCode: 'AB12CD',
-      seats: [],
-      state: {
-        meetingId: 'meeting-1',
-        agenda: ['Prep'],
-        clock: {
-          started: true,
-          ended: false,
-          paused: false,
-          agendaIndex: 0,
-          itemElapsedSeconds: 0,
-          meetingElapsedSeconds: 0,
-        },
-        notetaker: {
-          pending: [],
-          inFlight: [],
-          recentGrounded: [],
-          contextAgendaIndex: 0,
-          agendaContext: [],
-          openQuestions: [],
-          questionCount: 0,
-          status: 'ok',
-          talkByItem: [],
-          talkTotals: [],
-          talkTotal: 0,
-        },
-        tasks: [],
-      },
     };
 
     expect(() => assertCompatibleSavedMeeting(saved)).toThrow(
@@ -431,7 +411,7 @@ describe('meeting persistence across a restart', () => {
     delete weiLing.npcProfileId;
     arjun.kind = 'ai';
     arjun.npcProfileId = 'Arjun';
-    store.saved.setup = setup;
+    store.saved.sealed = { ...setup, agenda: setup.agenda.slice(0, 2) };
     const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
     const app = await createApp({
       scenario,
@@ -571,7 +551,7 @@ describe('meeting persistence across a restart', () => {
     await first.flush();
 
     expect(store.saved?.startedAt).toBeUndefined();
-    expect(store.saved?.setup).toEqual(edited);
+    expect(store.saved?.draft).toEqual(edited);
     const firstMeeting = await meetingState(app1);
     expect(firstMeeting.started).toBe(false);
 
@@ -615,11 +595,11 @@ describe('meeting persistence across a restart', () => {
     await first.flush();
     const frozen = store.saved!;
     const firstMeeting = await meetingState(app1);
-    expect(frozen.seats).toEqual([
+    expect(frozen.holders).toEqual([
       { name: 'ada', seat: 'chef' },
       { name: 'bao', seat: 'cashier' },
     ]);
-    expect(frozen.setup).toEqual(edited);
+    expect(frozen.sealed).toEqual(edited);
 
     await app1.close();
     apps.splice(apps.indexOf(app1), 1);
@@ -678,7 +658,7 @@ describe('meeting persistence across a restart', () => {
   it('refuses a saved meeting with a corrupt setup, naming the field', async () => {
     const store = new MemoryStore();
     const broken = savedState({ agenda: ['Prep'] });
-    broken.setup.agenda[0]!.minutes = 0;
+    broken.draft.agenda[0]!.minutes = 0;
     store.saved = broken;
     const persistence = createMeetingPersistence({ store, saved: broken, log: () => undefined });
 
@@ -688,7 +668,7 @@ describe('meeting persistence across a restart', () => {
         modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
         persistence,
       }),
-    ).rejects.toThrow(/its setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./);
+    ).rejects.toThrow(/its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./);
     await persistence.close();
   });
 

@@ -1,160 +1,99 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRejoinGuard, createRoomPoll } from '../src/rejoin';
+import { admission, createRejoinGuard, createRoomPoll, type AdmissionInput, type SeatHolder } from '../src/rejoin';
+
+const ada: SeatHolder = { name: 'ada', seat: 'chef' };
+
+function decide(overrides: Partial<AdmissionInput> = {}): string {
+  return admission({
+    phase: 'running',
+    holders: [ada],
+    present: [],
+    name: 'Ada',
+    seat: 'chef',
+    graceActive: true,
+    ...overrides,
+  });
+}
+
+describe('admission decision', () => {
+  it.each([
+    ['the first person ever', { phase: 'lobby', holders: [], graceActive: false }, 'reset'],
+    ['a holder returning before Start', { phase: 'lobby', holders: [ada] }, 'resume'],
+    ['a stranger before Start', { phase: 'lobby', holders: [ada], name: 'Priya', seat: 'cashier' }, 'reset'],
+    ['someone joining an occupied lobby', { phase: 'lobby', present: [{ name: 'Ada' }] }, 'join'],
+    ['a holder coming back inside the grace', { phase: 'running' }, 'resume'],
+    ['a holder coming back after the grace', { phase: 'running', graceActive: false }, 'reset'],
+    ['a stranger inside the grace', { phase: 'running', name: 'Priya', seat: 'cashier' }, 'reset'],
+    ['a stranger after the grace', { phase: 'running', name: 'Priya', seat: 'cashier', graceActive: false }, 'reset'],
+    ['someone joining a running room with people', { phase: 'running', present: [{ name: 'Ada' }] }, 'join'],
+    ['a saved running meeting with no holders', { phase: 'running', holders: [] }, 'resume'],
+    ['a running meeting after its holders were pruned', { phase: 'running', holders: [], graceActive: false }, 'reset'],
+    ['anyone after the meeting ended', { phase: 'ended' }, 'reset'],
+    ['someone joining people still in an ended meeting', { phase: 'ended', present: [{ name: 'Ada' }] }, 'join'],
+    ['a holder while a Start is in flight', { phase: 'starting' }, 'resume'],
+  ] as const)('gives %s', (_label, overrides, expected) => {
+    expect(decide(overrides as Partial<AdmissionInput>)).toBe(expected);
+  });
+
+  it('matches a holder by name even when they take another seat', () => {
+    expect(decide({ seat: 'cashier' })).toBe('resume');
+  });
+});
 
 function guardWith(graceMs: number, clock: { now: number }, logs: string[] = []) {
   return createRejoinGuard({ graceMs, now: () => clock.now, log: (line) => logs.push(line) });
 }
 
-describe('rejoin guard', () => {
-  it('starts a fresh meeting for the first person ever', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    expect(guard.admit('Daniel')).toEqual({ reset: true });
-    guard.close();
-  });
-
-  it('has no meeting until the first person joins', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    expect(guard.hasMeeting()).toBe(false);
-    guard.joined('Daniel', guard.admit('Daniel'));
-    expect(guard.hasMeeting()).toBe(true);
-    guard.close();
-  });
-
-  it('starts a new meeting for anyone arriving after the meeting ended, even inside the window', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Daniel', guard.admit('Daniel'));
-    guard.ended();
-    guard.emptied();
-    clock.now += 10_000;
-    expect(guard.admit('Daniel')).toEqual({ reset: true });
-    expect(guard.admit('Priya')).toEqual({ reset: true });
-
-    // The new meeting can be resumed again as usual.
-    guard.joined('Priya', guard.admit('Priya'));
-    guard.emptied();
-    clock.now += 10_000;
-    expect(guard.admit('Priya')).toEqual({ reset: false });
-    guard.close();
-  });
-
-  it('resumes the same person when the room emptied before a poll saw it', () => {
+describe('rejoin grace', () => {
+  it('starts a grace window when the room empties and holds it for a known holder', () => {
     const clock = { now: 1_000 };
     const logs: string[] = [];
     const guard = guardWith(120_000, clock, logs);
-    guard.joined('Daniel', guard.admit('Daniel'));
 
-    // The person left and returned before the next poll, so the guard never observed an empty room.
-    const back = guard.admit('Daniel');
-    expect(back).toEqual({ reset: false });
-    guard.joined('Daniel', back);
+    guard.emptied();
+
+    expect(guard.isEmpty()).toBe(true);
+    expect(guard.graceActive()).toBe(true);
+    expect(logs).toContain('[rejoin] grace started');
+    expect(decide({ graceActive: guard.wouldHold() })).toBe('resume');
+    guard.close();
+  });
+
+  it('treats an unobserved empty room as a fresh grace window for the join race', () => {
+    const clock = { now: 1_000 };
+    const logs: string[] = [];
+    const guard = guardWith(120_000, clock, logs);
+
+    expect(guard.wouldHold()).toBe(true);
+    guard.beginGrace();
+    guard.joined();
+
     expect(logs).toContain('[rejoin] grace started');
     expect(logs).toContain('[rejoin] resumed after 0 s');
+    expect(guard.isEmpty()).toBe(false);
     guard.close();
   });
 
-  it('starts a fresh meeting for a different person before a poll saw the room empty', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Daniel', guard.admit('Daniel'));
-
-    expect(guard.admit('Priya')).toEqual({ reset: true });
-    guard.close();
-  });
-
-  it('keeps the meeting for the same person returning inside the window', () => {
-    const clock = { now: 1_000 };
-    const logs: string[] = [];
-    const guard = guardWith(120_000, clock, logs);
-    const first = guard.admit('Daniel');
-    guard.joined('Daniel', first);
-
-    clock.now += 30_000;
+  it('expires the window, prunes on the hook and refuses the holder afterwards', async () => {
+    const guard = createRejoinGuard({ graceMs: 10, log: () => undefined });
+    let pruned = 0;
+    guard.onGraceExpired(() => {
+      pruned += 1;
+    });
     guard.emptied();
-    clock.now += 30_000;
+    await new Promise((resolve) => setTimeout(resolve, 25));
 
-    const back = guard.admit('Daniel');
-    expect(back).toEqual({ reset: false });
-    guard.joined('Daniel', back);
-    expect(logs).toContain('[rejoin] grace started');
-    expect(logs).toContain('[rejoin] resumed after 30 s');
+    expect(guard.graceActive()).toBe(false);
+    expect(guard.wouldHold()).toBe(false);
+    expect(decide({ graceActive: guard.wouldHold() })).toBe('reset');
     guard.close();
-  });
-
-  it('remembers a person who joined an occupied room by name and seat', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Ada', guard.admit('Ada'), 'chef');
-    guard.remember('Bao', 'cashier');
-    clock.now += 10_000;
-    guard.emptied();
-    clock.now += 5_000;
-
-    // Bao joined a room Ada was already in; when both come back, either order resumes.
-    expect(guard.admit('Bao', 'cashier')).toEqual({ reset: false });
-    expect(guard.admit('Ada', 'chef')).toEqual({ reset: false });
-    guard.close();
-  });
-
-  it('starts a fresh meeting for a stranger taking a seat someone left', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Ada', guard.admit('Ada'), 'chef');
-    guard.emptied();
-    clock.now += 10_000;
-
-    expect(guard.admit('Priya', 'chef')).toEqual({ reset: true });
-    guard.close();
-  });
-
-  it('starts a fresh meeting for a different person inside the window', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Daniel', guard.admit('Daniel'));
-    clock.now += 10_000;
-    guard.emptied();
-    clock.now += 5_000;
-
-    expect(guard.admit('Priya')).toEqual({ reset: true });
-    guard.close();
-  });
-
-  it('lets the new person resume after their fresh meeting, not the one who left', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Daniel', guard.admit('Daniel'));
-    guard.emptied();
-    clock.now += 10_000;
-
-    const fresh = guard.admit('Priya');
-    expect(fresh).toEqual({ reset: true });
-    guard.joined('Priya', fresh);
-    guard.emptied();
-    clock.now += 10_000;
-
-    expect(guard.admit('Priya')).toEqual({ reset: false });
-    expect(guard.admit('Daniel')).toEqual({ reset: true });
-    guard.close();
-  });
-
-  it('resets once the window has passed', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.joined('Daniel', guard.admit('Daniel'));
-    guard.emptied();
-    clock.now += 120_000;
-
-    expect(guard.admit('Daniel')).toEqual({ reset: true });
-    guard.close();
+    expect(pruned).toBe(1);
   });
 
   it('logs when the window expires so the reset is not a surprise', async () => {
     const clock = { now: 1_000 };
     const logs: string[] = [];
     const guard = guardWith(10, clock, logs);
-    guard.joined('Daniel', guard.admit('Daniel'));
     guard.emptied();
     await new Promise((resolve) => setTimeout(resolve, 25));
 
@@ -162,57 +101,42 @@ describe('rejoin guard', () => {
     guard.close();
   });
 
+  it('cancels the window when people are back', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.emptied();
+    guard.occupied();
+
+    expect(guard.isEmpty()).toBe(false);
+    expect(guard.graceActive()).toBe(false);
+    guard.close();
+  });
+
   it('resets as soon as someone joins an empty room when the grace is 0', () => {
     const clock = { now: 1_000 };
     const logs: string[] = [];
     const guard = guardWith(0, clock, logs);
-    guard.joined('Daniel', guard.admit('Daniel'));
     guard.emptied();
 
-    expect(guard.admit('Daniel')).toEqual({ reset: true });
+    expect(guard.wouldHold()).toBe(false);
+    expect(decide({ graceActive: guard.wouldHold() })).toBe('reset');
     expect(logs).toEqual([]);
     guard.close();
   });
 
-  it('restores seat holders without starting the meeting', () => {
+  it('forgets the window on a new meeting without pruning', () => {
     const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.restoreIdentities([
-      { name: 'Ada', seat: 'chef' },
-      { name: 'Bao', seat: 'cashier' },
-    ]);
+    const guard = guardWith(10, clock);
+    let pruned = 0;
+    guard.onGraceExpired(() => {
+      pruned += 1;
+    });
+    guard.emptied();
+    guard.reset();
 
-    expect(guard.hasMeeting()).toBe(false);
-    expect(guard.identities()).toEqual([
-      { name: 'ada', seat: 'chef' },
-      { name: 'bao', seat: 'cashier' },
-    ]);
+    expect(guard.isEmpty()).toBe(false);
     guard.close();
-  });
-
-  it('lets the saved seat holders resume after a restart and refuses a stranger', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.restoreIdentities([
-      { name: 'Ada', seat: 'chef' },
-      { name: 'Bao', seat: 'cashier' },
-    ]);
-    guard.restored();
-
-    expect(guard.admit('Ada', 'chef')).toEqual({ reset: false });
-    expect(guard.admit('Priya', 'chef')).toEqual({ reset: true });
-    guard.close();
-  });
-
-  it('resets a restored meeting once the grace passes', () => {
-    const clock = { now: 1_000 };
-    const guard = guardWith(120_000, clock);
-    guard.restoreIdentities([{ name: 'Ada', seat: 'chef' }]);
-    guard.restored();
-    clock.now += 120_000;
-
-    expect(guard.admit('Ada', 'chef')).toEqual({ reset: true });
-    guard.close();
+    expect(pruned).toBe(0);
   });
 });
 
@@ -227,9 +151,9 @@ describe('room poll', () => {
   function setup(roster: () => Array<{ name: string }> | undefined, graceMs = 120_000) {
     const logs: string[] = [];
     const guard = createRejoinGuard({ graceMs, log: (line) => logs.push(line) });
-    guard.joined('Daniel', guard.admit('Daniel'));
     const poll = createRoomPoll({
       guard,
+      hasMeeting: () => true,
       roster: async () => roster(),
       roomName: () => 'kopitiam',
       isHuman: (name) => name !== 'Sam',
@@ -244,7 +168,7 @@ describe('room poll', () => {
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(logs).toContain('[rejoin] grace started');
-    expect(guard.admit('Daniel')).toEqual({ reset: false });
+    expect(decide({ graceActive: guard.wouldHold() })).toBe('resume');
     poll.close();
     guard.close();
   });
@@ -259,19 +183,19 @@ describe('room poll', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await vi.advanceTimersByTimeAsync(120_000);
 
-    // The window was cleared, so this arrival is treated as a fresh empty spell and resumes.
-    expect(guard.admit('Daniel')).toEqual({ reset: false });
+    expect(guard.isEmpty()).toBe(false);
     expect(logs).not.toContain('[rejoin] grace expired, reset on next join');
     poll.close();
     guard.close();
   });
 
-  it('resets after the window a poll saw has passed', async () => {
+  it('expires after the window a poll saw has passed', async () => {
     const { guard, poll } = setup(() => [], 20);
     await vi.advanceTimersByTimeAsync(5_000);
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(guard.admit('Daniel')).toEqual({ reset: true });
+    expect(guard.wouldHold()).toBe(false);
+    expect(decide({ graceActive: guard.wouldHold() })).toBe('reset');
     poll.close();
     guard.close();
   });
@@ -281,7 +205,26 @@ describe('room poll', () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     expect(logs).not.toContain('[rejoin] grace started');
-    expect(guard.hasMeeting()).toBe(true);
+    expect(guard.isEmpty()).toBe(false);
+    poll.close();
+    guard.close();
+  });
+
+  it('does nothing while there is no meeting to watch', async () => {
+    const logs: string[] = [];
+    const guard = createRejoinGuard({ graceMs: 120_000, log: (line) => logs.push(line) });
+    const poll = createRoomPoll({
+      guard,
+      hasMeeting: () => false,
+      roster: async () => [],
+      roomName: () => 'kopitiam',
+      isHuman: () => true,
+      intervalMs: 5_000,
+    });
+    poll.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(logs).not.toContain('[rejoin] grace started');
     poll.close();
     guard.close();
   });

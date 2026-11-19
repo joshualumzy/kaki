@@ -36,14 +36,16 @@ function setup(): MeetingSetup {
 function saved(): StoredMeeting {
   return {
     schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+    meetingId: 'meeting-1',
+    phase: 'running',
+    draft: setup(),
+    draftTouched: true,
+    sealed: setup(),
+    holders: [{ name: 'ada', seat: 'chef' }],
+    meetingCode: 'AB12CD',
     startedAt: '2026-01-01T00:00:00.000Z',
     savedAt: '2026-01-01T00:01:00.000Z',
-    setup: setup(),
-    meetingCode: 'AB12CD',
-    seats: [{ name: 'ada', seat: 'chef' }],
     state: {
-      meetingId: 'meeting-1',
-      agenda: ['Prep'],
       clock: {
         started: true,
         ended: false,
@@ -119,11 +121,18 @@ describe('saved meeting validation', () => {
       'task 1 is not valid for this scenario',
     ],
     [
-      'a missing agenda',
+      'an invalid phase',
       (meeting: StoredMeeting) => {
-        delete (meeting.state as unknown as { agenda?: string[] }).agenda;
+        (meeting as unknown as { phase: string }).phase = 'paused';
       },
-      'its agenda is not a list of topics',
+      'its phase is not valid',
+    ],
+    [
+      'a lobby meeting with a seal',
+      (meeting: StoredMeeting) => {
+        (meeting as unknown as { phase: string }).phase = 'lobby';
+      },
+      'its sealed setup is not valid for this phase',
     ],
   ])('refuses %s before any part is applied', (_label, make, problem) => {
     const message = refusal(make);
@@ -141,7 +150,10 @@ describe('saved meeting validation', () => {
       ],
     };
     const meeting = saved();
-    meeting.state.agenda = ['Service', 'Prep'];
+    meeting.sealed!.agenda = [
+      { id: 'agenda-1', title: 'Service', minutes: 5, ownerRoleId: 'cashier' },
+      { id: 'agenda-2', title: 'Prep', minutes: 5, ownerRoleId: 'chef' },
+    ];
     meeting.state.clock.agendaIndex = 0;
 
     expect(resolveSavedAgenda(meeting, scenario).map((item) => item.title)).toEqual(['Service', 'Prep']);
@@ -149,7 +161,7 @@ describe('saved meeting validation', () => {
 
   it('refuses a saved agenda with a topic this scenario no longer has', () => {
     const meeting = saved();
-    meeting.state.agenda = ['Retired topic'];
+    meeting.sealed!.agenda = [{ id: 'agenda-1', title: 'Retired topic', minutes: 5, ownerRoleId: 'chef' }];
 
     expect(() => resolveSavedAgenda(meeting, testScenario)).toThrow(
       "Saved meeting's agenda has topics this scenario no longer has (Retired topic). " +
@@ -159,19 +171,30 @@ describe('saved meeting validation', () => {
 
   it('refuses a corrupt saved setup, naming the field and the reset command', () => {
     const meeting = saved();
-    meeting.setup.agenda[0]!.minutes = 0;
+    meeting.draft.agenda[0]!.minutes = 0;
 
     expect(() => assertReadableSavedMeeting(meeting, testScenario)).toThrow(
-      /its setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./,
+      /its draft setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./,
     );
   });
 
   it('accepts a pre-Start draft with no start time', () => {
     const meeting = saved();
     delete meeting.startedAt;
+    meeting.phase = 'lobby';
+    delete meeting.sealed;
     meeting.state.clock.started = false;
     meeting.state.clock.itemElapsedSeconds = 0;
     meeting.state.clock.meetingElapsedSeconds = 0;
+
+    expect(savedMeetingProblem(meeting, testScenario)).toBeUndefined();
+  });
+  it('accepts an ended meeting that kept its seal and the next draft', () => {
+    const meeting = saved();
+    meeting.phase = 'ended';
+    meeting.state.clock.ended = true;
+    meeting.draft = { ...setup(), title: 'Next meeting' };
+    meeting.draftEditedSinceSeal = true;
 
     expect(savedMeetingProblem(meeting, testScenario)).toBeUndefined();
   });

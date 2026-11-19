@@ -171,7 +171,10 @@ export function createNudgeModule(options: NudgeModuleOptions = {}): KakiModule 
       const activeSearch = search;
       const fired = new Set<string>();
       // The sealed setup carries the owner's three pace values; a module started without one keeps the defaults.
-      const pace = (): MeetingPace => ctx.meetingDetails?.().setup.pace ?? DEFAULT_MEETING_PACE;
+      const pace = (): MeetingPace => {
+        const details = ctx.meetingDetails?.();
+        return details?.sealed?.pace ?? details?.draft.pace ?? DEFAULT_MEETING_PACE;
+      };
       const unsubscribe = ctx.hub.subscribe((event) => {
         try {
           // A pack-free meeting still gets its time nudges, just without another pack's facts.

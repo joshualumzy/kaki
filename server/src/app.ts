@@ -15,7 +15,7 @@ import {
   type Route,
 } from './access';
 import { projectScenario } from './scenarioProjection';
-import { assertReadableSavedMeeting, assertReadableSavedSetup, resolveSavedAgenda } from './persist/state';
+import { assertReadableSavedMeeting, assertReadableSavedSetup } from './persist/state';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
@@ -32,8 +32,8 @@ import {
   MEETING_ENDED_MESSAGE,
   type MeetingCodeSource,
 } from './meetingCode';
-import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type RejoinGuard } from './rejoin';
-import { createMeetingSession, phaseFromSaved, type MeetingPhase, type MeetingSession } from './session';
+import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type Admission, type RejoinGuard } from './rejoin';
+import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
 import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster, type SeatReservations } from './livekit';
 
@@ -118,8 +118,8 @@ interface RequestContext {
   /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
   rejoin: RejoinGuard;
   /** The one server-owned identity of the current meeting; its phase lives in the session. */
-  meeting: { id: string; startedAt?: string };
-  /** The one owner of meeting resets and generation bookkeeping. */
+  meeting: { id: string };
+  /** The one owner of meeting resets, phase and generated bookkeeping. */
   session: MeetingSession;
   /** Run the one Start: wait for the AI runner to open the meeting before declaring it started. */
   startMeeting(): Promise<StartOutcome>;
@@ -133,14 +133,6 @@ interface RequestContext {
   meetingElapsedSeconds?: () => number | undefined;
   /** The live agenda item, for a reconnecting runner. */
   meetingAgendaIndex?: () => number | undefined;
-  /** The pre-Start setup draft; saved with the meeting and reset with it. */
-  setupDraft: { current: MeetingSetup };
-  /** The setup Start sealed for this meeting; separate from the draft until the meeting resets. */
-  sealedSetup: { current: MeetingSetup | undefined };
-  /** Whether the owner changed the draft since the last reset; untouched drafts follow the live meeting. */
-  draftTouched: { current: boolean };
-  /** True when the owner edited the draft after the seal, so a reset keeps it as the next draft. */
-  draftEditedSinceSeal: { current: boolean };
   /**
    * The scenario people see, plus the one admission resolves seats against. A returning seat holder
    * inside the grace of a running meeting is judged against its sealed setup; every other arrival
@@ -470,8 +462,18 @@ async function handleRequest(
           }
           // A seat holder coming back to an empty room inside the grace joins the running meeting;
           // everyone else starts the next meeting, which is judged against the current draft.
-          const returning = present.length === 0 && context.rejoin.wouldResume(participantName);
-          const seating = context.seating(returning, present.length === 0);
+          const roomEmpty = present.length === 0;
+          const phase = admissionPhase;
+          // A saved meeting that did not come back running is consumed: the next arrival starts fresh,
+          // even if the person's name was one of its holders.
+          const decisionPhase = context.session.restoredWithoutMeeting() ? 'ended' : phase;
+          const holders = context.session.holders();
+          const wouldHold = context.rejoin.wouldHold();
+          const returning =
+            roomEmpty &&
+            admission({ phase: decisionPhase, holders, present, name: participantName, graceActive: wouldHold }) ===
+              'resume';
+          const seating = context.seating(returning, roomEmpty);
           // An owner-edited draft admits only the person seats it names; an untouched draft stays open.
           const setupRole = seating.setup === undefined ? undefined : setupRoleFor(seating.setup, wantedRole);
           if (seating.setup !== undefined) {
@@ -494,6 +496,16 @@ async function handleRequest(
           }
           // The canonical role id is what the roster and transcript use, whatever the person typed.
           const seatId = seat.role;
+          const decision: Admission = roomEmpty
+            ? admission({
+                phase: decisionPhase,
+                holders,
+                present,
+                name: participantName,
+                seat: seatId,
+                graceActive: wouldHold,
+              })
+            : 'join';
           const requestedMax = Number(process.env.NPC_MAX_HUMANS);
           const envMax = Number.isFinite(requestedMax) && requestedMax > 0 ? requestedMax : undefined;
           // A setup admits exactly its own person seats; an AI meeting still caps at one person in seatProblem.
@@ -522,12 +534,12 @@ async function handleRequest(
           // The first person into an empty room starts a new meeting with a new code; later people must know it.
           // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
           // a different person arriving in that empty room starts a fresh meeting instead.
-          const phase = context.session.phase();
-          const meetingWasRunning = context.rejoin.hasBegun() || phase !== 'lobby';
-          const meetingExisted = context.rejoin.hasMeeting() || phase === 'running' || phase === 'ended';
+          const meetingWasRunning = phase === 'running';
+          const meetingExisted = context.session.restoredWithoutMeeting()
+            ? false
+            : holders.length > 0 || phase === 'running' || phase === 'ended';
           // A code holder may be first into a fresh meeting, but may never wipe one that already ran.
-          // Decide before admit: admit can start the empty-room grace even when it then says "reset".
-          const wouldReset = present.length === 0 && !context.rejoin.wouldResume(participantName, seatId);
+          const wouldReset = decision === 'reset';
           if (wouldReset && meetingExisted && authOn && !isHost) {
             sendJson(response, 409, {
               error: 'This meeting has ended; the meeting owner must start the next one.',
@@ -560,10 +572,9 @@ async function handleRequest(
             return;
           }
 
-          // All checks passed: this is the commit. Admit decides, the session resets if needed, and
-          // the seat claim belongs to the new meeting id.
-          const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
-          if (rejoin?.reset === true) {
+          // All checks passed: this is the commit. Admission decides, the session resets if needed,
+          // and the seat claim belongs to the new meeting id.
+          if (decision === 'reset') {
             // The first arrival starts this app's first meeting. Its identity already exists, and
             // phones may have joined under it through /api/join, so keep that generation and code.
             context.session.reset({
@@ -572,6 +583,7 @@ async function handleRequest(
               rotateCode: true,
             });
           }
+          if (roomEmpty && decision !== 'reset') context.rejoin.beginGrace();
           // Sign-in on: taking the seat and creating its session is one atomic claim shared with
           // /api/join, so a code holder can never take a seat another live holder owns.
           if (context.auth !== undefined && principal.kind !== 'service') {
@@ -584,15 +596,16 @@ async function handleRequest(
             }
           }
           context.reservations.add({ participantName, seatId });
-          if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin, seatId);
-          else context.rejoin.remember(participantName, seatId);
+          context.session.addHolder({ name: participantName, seat: seatId });
+          if (roomEmpty) context.rejoin.joined();
+          else context.rejoin.occupied();
           // Seat holders are part of the meeting: save them so a restart recognises the same people.
           context.scheduleSave();
           context.watchRoom(roomName);
           void syncDemoVisitorProfile(participantName);
-          const resumed = meetingWasRunning && rejoin?.reset !== true;
+          const resumed = meetingWasRunning && decision !== 'reset';
           const started = context.session.phase() === 'running';
-          console.log(`[join] seat=${seatId} room=${roomName} reset=${rejoin?.reset === true} resumed=${resumed} started=${started}`);
+          console.log(`[join] seat=${seatId} room=${roomName} reset=${decision === 'reset'} resumed=${resumed} started=${started}`);
           sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed, started });
         });
       } catch (error) {
@@ -620,7 +633,7 @@ async function handleRequest(
       sendJson(response, 200, {
         meetingId: context.meeting.id,
         started: context.session.phase() === 'running',
-        ...(serviceView && context.meeting.startedAt !== undefined ? { startedAt: context.meeting.startedAt } : {}),
+        ...(serviceView && context.session.startedAt() !== undefined ? { startedAt: context.session.startedAt() } : {}),
         ...(serviceView && agendaIndex !== undefined ? { agendaIndex } : {}),
       });
       return;
@@ -796,7 +809,7 @@ async function handleRequest(
       const phase = context.session.phase();
       sendJson(response, 200, {
         // Only a running meeting shows its seal; every other phase edits the next meeting's draft.
-        setup: phase === 'running' ? (context.sealedSetup.current ?? context.setupDraft.current) : context.setupDraft.current,
+        setup: phase === 'running' ? (context.session.sealed() ?? context.session.draft()) : context.session.draft(),
         started: phase === 'running',
         phase,
       });
@@ -852,10 +865,8 @@ async function handleRequest(
         });
         return;
       }
-      context.setupDraft.current = parsed.value;
-      context.draftTouched.current = true;
       // An ended meeting keeps its seal for saving; this edit is the next meeting's draft.
-      if (context.sealedSetup.current !== undefined) context.draftEditedSinceSeal.current = true;
+      context.session.setDraft(parsed.value);
       context.scheduleSave();
       sendJson(response, 200, { setup: parsed.value, started: false });
       return;
@@ -984,10 +995,8 @@ async function handleRequest(
         return;
       }
 
-      context.setupDraft.current = parsed.value;
-      context.draftTouched.current = true;
       // An ended meeting keeps its seal for saving; this import is the next meeting's draft.
-      if (context.sealedSetup.current !== undefined) context.draftEditedSinceSeal.current = true;
+      context.session.setDraft(parsed.value);
       context.scheduleSave();
       sendJson(response, 200, { setup: parsed.value, started: false });
       return;
@@ -1193,25 +1202,16 @@ export async function createApp({
   const pickedAgenda = agendaPick ? resolveAgendaPick(fullScenario, agendaPick) : undefined;
   // The draft the setup screen starts from, rebuilt from the packaged scenario for every new meeting.
   const defaultSetup = defaultMeetingSetup(fullScenario);
-  // Validate the whole saved meeting before any part of it is applied, then build the scenario the
-  // server boots with so a restored agenda index still names the topic the room was discussing.
+  // Validate the whole saved meeting before any part of it is applied. A started meeting keeps the
+  // sealed setup it ran with, even once it has ended, so its roles are the ones tasks may name.
   const savedMeeting = persistence?.saved;
-  // A saved meeting that had started keeps the sealed setup it ran with, even once it has ended.
-  let restoredApplied = false;
-  let savedEnded = false;
   let restoredRoles: Scenario['roles'] | undefined;
-  let savedClock: { started?: boolean; ended?: boolean } | undefined;
   if (savedMeeting !== undefined) {
     // A malformed save must give the friendly message before its roles are derived from it.
     assertReadableSavedSetup(savedMeeting, fullScenario);
-    const savedClockState = (savedMeeting.state as { clock?: { started?: unknown; ended?: unknown } }).clock;
-    savedClock =
-      savedClockState === undefined
-        ? undefined
-        : { started: savedClockState.started === true, ended: savedClockState.ended === true };
-    restoredApplied = savedClock?.started === true;
-    savedEnded = savedClock?.ended === true;
-    restoredRoles = restoredApplied ? setupScenarioRoles(fullScenario, savedMeeting.setup) : undefined;
+    const sealed =
+      savedMeeting.phase === 'running' || savedMeeting.phase === 'ended' ? savedMeeting.sealed : undefined;
+    restoredRoles = sealed === undefined ? undefined : setupScenarioRoles(fullScenario, sealed);
     // Tasks and talk time may name a role the owner added, so validate against both registries.
     const validationRoles =
       restoredRoles === undefined
@@ -1229,27 +1229,9 @@ export async function createApp({
       meetingCode.restore(savedMeeting.meetingCode);
     }
   }
-  // The one place boot decides what a saved meeting was.
-  const initialPhase: MeetingPhase = phaseFromSaved(savedClock);
-  // A meeting saved while it was running is already started: the first person back joins it directly.
-  const restoredStarted = initialPhase === 'running';
-  // A setup a Start already used is consumed, whether the meeting is still running or has ended, so
-  // the next arrival starts from the pack. A pre-Start draft comes back exactly as it was left.
-  const consumedSavedSetup = restoredApplied && savedEnded;
-  const setupDraft = { current: consumedSavedSetup ? defaultSetup : (savedMeeting?.setup ?? defaultSetup) };
-  // A meeting that has started keeps its seal until the next reset, running or ended, so the saved
-  // meeting stays whole even after the owner edits the next draft. A pure pre-Start draft has none.
-  const sealedSetup = { current: restoredApplied ? savedMeeting?.setup : undefined };
-  // Set when an owner edits setup while an ended meeting's seal is still held: the draft is the next
-  // meeting's setup, and a reset must keep it instead of falling back to the pack.
-  const draftEditedSinceSeal = { current: false };
-  // The edit mark says whether an owner-shaped draft is next; Start does not turn an untouched demo into one.
-  const draftTouched = { current: consumedSavedSetup ? false : savedMeeting?.draftTouched === true };
-  const restoredAgendaIndex = restoredStarted ? (savedMeeting?.state.clock.agendaIndex ?? 0) : 0;
-  const meeting = {
-    id: savedMeeting?.state.meetingId ?? randomUUID(),
-    startedAt: restoredStarted ? savedMeeting?.startedAt : undefined,
-  };
+  const restoredAgendaIndex =
+    savedMeeting?.phase === 'running' ? savedMeeting.state.clock.agendaIndex : 0;
+  const meeting = { id: savedMeeting?.meetingId ?? randomUUID() };
   /** A fresh copy of the pack; the active scenario is a value, never the pack object itself. */
   function packScenario(): Scenario {
     return {
@@ -1305,26 +1287,25 @@ export async function createApp({
   function resetScenario({ seat, draftTouched: touched }: { seat?: string; draftTouched: boolean }): Scenario {
     return meetingScenario({ agenda: touched ? fullScenario.agenda : shapedAgenda(seat) });
   }
-  /** The scenario the server boots with: the restored meeting's sealed or saved agenda, else the pack's. */
+  /** The scenario the server boots with: the restored meeting's sealed setup, else the pack's. */
   function bootScenario(): Scenario {
-    if (savedMeeting === undefined) return meetingScenario({ agenda: fullScenario.agenda });
-    if (restoredApplied) {
-      // A started meeting keeps the sealed setup it ran with, in the order it was actually using.
-      return meetingScenario({
-        meetingTitle: savedMeeting.setup.title,
-        roles: restoredRoles ?? fullScenario.roles,
-        npcs: setupAiCast(fullScenario, savedMeeting.setup),
-        agenda: meetingAgendaFromSetup(savedMeeting.setup, fullScenario, savedMeeting.state.agenda),
-        allowPlain: true,
-      });
-    }
-    return meetingScenario({ agenda: resolveSavedAgenda(savedMeeting, fullScenario) });
+    const sealed =
+      savedMeeting !== undefined && (savedMeeting.phase === 'running' || savedMeeting.phase === 'ended')
+        ? savedMeeting.sealed
+        : undefined;
+    if (sealed === undefined) return meetingScenario({ agenda: fullScenario.agenda });
+    // A started meeting keeps the sealed setup it ran with, in the order it was actually using.
+    return meetingScenario({
+      meetingTitle: sealed.title,
+      roles: restoredRoles ?? fullScenario.roles,
+      npcs: setupAiCast(fullScenario, sealed),
+      agenda: meetingAgendaFromSetup(sealed, fullScenario, sealed.agenda.map((item) => item.title)),
+      allowPlain: true,
+    });
   }
   const initialScenario = bootScenario();
   const memory: MeetingMemoryEntry[] = [];
   const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
-  // Saved seat holders are known before anyone reconnects, so a stranger cannot take their seat.
-  if (savedMeeting !== undefined) rejoin.restoreIdentities(savedMeeting.seats);
   const reservations = createSeatReservations(admissionReservationMs);
   const admit = createAdmissionQueue();
   // The pack owns the reserved names for the whole meeting, whatever cast is active right now.
@@ -1332,6 +1313,8 @@ export async function createApp({
   let watchedRoom: string | undefined;
   const roomPoll = createRoomPoll({
     guard: rejoin,
+    // Someone joined (even before Start), or the meeting is running: keep watching the room.
+    hasMeeting: () => session.holders().length > 0 || session.phase() === 'running',
     roster: roomRoster,
     roomName: () => watchedRoom,
     isHuman: (name) => !packNpcNames.includes(name.toLowerCase()),
@@ -1346,7 +1329,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, sealedSetup, draftTouched, draftEditedSinceSeal, seating, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, seating, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -1358,7 +1341,7 @@ export async function createApp({
     );
   };
   const isHumanSeat = (role: string): boolean =>
-    rejoin.identities().some((identity) => identity.seat === role);
+    session.holders().some((holder) => holder.seat === role);
   const runnerMayUseAudience = (audience: string): boolean =>
     aiVoiceRoles().has(audience) && !isHumanSeat(audience);
   /** One WebSocket authorization path: the runner token first, then the same session principal as HTTP. */
@@ -1491,31 +1474,48 @@ export async function createApp({
     if (auth !== undefined || !meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
     void auth?.releaseMeeting(previousMeetingId);
     cancelPendingStart('the meeting was reset while it was starting');
-    preCommitStart = undefined;
     meeting.id = randomUUID();
-    meeting.startedAt = undefined;
     return meeting.id;
+  }
+
+  /** The holder whose seat is a person seat, taking the first person seat in setup order. */
+  function holderPersonSeat(): string | undefined {
+    const setup = session.sealed() ?? session.draft();
+    const holders = session.holders();
+    for (const roleId of setupPersonSeatRoles(fullScenario, setup)) {
+      const key = roleId.trim().toLowerCase();
+      if (holders.some((holder) => holder.seat.trim().toLowerCase() === key)) return roleId;
+    }
+    // An admitted holder can sit in a seat the untouched draft still marks AI; that person is the
+    // human the next meeting is shaped for.
+    return holders[0]?.seat;
   }
 
   const session = createMeetingSession({
     hub,
-    rejoin,
     memory,
-    setupDraft,
-    sealedSetup,
-    draftTouched,
-    draftEditedSinceSeal,
     defaultSetup,
     resetScenario,
+    restoreActive: () => bootScenario(),
+    saved: savedMeeting,
     initialScenario,
-    initialPhase,
     meetingId: () => meeting.id,
+    meetingCode: () => meetingCode.value,
     rotateIdentity,
+    defaultSeat: holderPersonSeat,
+    clearGrace: () => rejoin.reset(),
     persistence,
   });
   // The task store belongs to the meeting, so a reset forgets its cards too. The session clears
   // every retained key (including 'task:') after these hooks run.
   session.onReset(() => tasks.reset());
+  // A holder who did not come back inside the grace is pruned when it ends; a restored running
+  // meeting starts its grace now, so its saved holders have the same window to return.
+  rejoin.onGraceExpired(() => {
+    session.pruneHolders();
+    persistence?.scheduleSave();
+  });
+  if (savedMeeting?.phase === 'running') rejoin.beginGrace();
 
   /** Setup writes are refused from the moment Start begins until it commits or fails. */
   function setupLocked(): 'starting' | 'started' | undefined {
@@ -1524,9 +1524,6 @@ export async function createApp({
     if (phase === 'starting') return 'starting';
     return undefined;
   }
-
-  /** The pre-Start agenda order while Start prepares, so a save cannot persist the sealed agenda early. */
-  let preCommitStart: { agendaTitles: string[] } | undefined;
 
   /** The person seats admission can actually give a role: a person seat whose role has someone to play it. */
   function personSeatRoles(setup: MeetingSetup): string[] {
@@ -1553,14 +1550,14 @@ export async function createApp({
     returning = false,
     roomEmpty?: boolean,
   ): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup; admissionCap?: number } {
-    const sealed = sealedSetup.current;
+    const sealed = session.sealed();
     const active = session.active();
     const phase = session.phase();
     // The sealed setup governs only a running meeting this arrival joins: while people are still
     // there, or when the person coming back is one of its seat holders.
     const empty = roomEmpty ?? rejoin.isEmpty();
     const joiningSealed =
-      sealed !== undefined && phase === 'running' && rejoin.hasBegun() && (returning || !empty);
+      sealed !== undefined && phase === 'running' && (returning || !empty);
     if (joiningSealed) {
       return {
         scenario: { ...active, joinSeats: personSeatRoles(sealed) },
@@ -1573,14 +1570,14 @@ export async function createApp({
     // the next arrival's seats. The next meeting follows the pack, not the sealed cast still live —
     // unless the owner has edited the draft since that seal, which is exactly the next meeting's setup.
     // A seal kept at boot from an already-ended meeting is history, not a live meeting's cast.
-    const consumed = sealed !== undefined && phase !== 'lobby' && !draftEditedSinceSeal.current;
-    const nextTouched = consumed ? false : draftTouched.current;
+    const consumed = sealed !== undefined && phase !== 'lobby' && !session.draftEditedSinceSeal();
+    const nextTouched = consumed ? false : session.draftTouched();
     if (!nextTouched) {
       return consumed
         ? { scenario: fullScenario, admissionScenario: fullScenario }
         : { scenario: active, admissionScenario: active };
     }
-    const setup = setupDraft.current;
+    const setup = session.draft();
     return {
       // The live view keeps its title, roles and cast; only the seats people may join change.
       scenario: { ...active, joinSeats: personSeatRoles(setup) },
@@ -1592,7 +1589,7 @@ export async function createApp({
 
   /** True when the sealed meeting carries no demo-pack content, so its facts must stay out of it. */
   function packFree(): boolean {
-    const setup = sealedSetup.current;
+    const setup = session.sealed();
     return setup !== undefined && isPackFreeMeeting(setup, fullScenario);
   }
 
@@ -1607,7 +1604,7 @@ export async function createApp({
       minutes: item.minutes,
       ownerRoleId: item.ownerRole,
     }));
-    const humanSeat = rejoin.identities().at(-1)?.seat;
+    const humanSeat = holderPersonSeat();
     if (humanSeat === undefined || (fullScenario.npcs ?? []).length === 0) {
       return { ...defaultSetup, agenda };
     }
@@ -1627,13 +1624,11 @@ export async function createApp({
 
   /** Run the runner acknowledgement and commit, after the admission queue has released. */
   function runStart({
-    sealed,
     attempt,
     meetingId,
     generation,
     activeAi,
   }: {
-    sealed: MeetingSetup;
     attempt: string;
     meetingId: string;
     generation: number;
@@ -1644,7 +1639,6 @@ export async function createApp({
       if (session.phase() === 'starting' && session.generation() === generation) {
         session.abortStart(reason);
       }
-      preCommitStart = undefined;
       persistence?.scheduleSave();
       return outcome;
     };
@@ -1713,14 +1707,7 @@ export async function createApp({
           return resetDuringStart();
         }
         // Start commits here: the candidate becomes the active scenario and the draft becomes the seal.
-        session.commitStart();
-        sealedSetup.current = sealed;
-        draftEditedSinceSeal.current = false;
-        preCommitStart = undefined;
-        meeting.startedAt = startedAt;
-        // A person is already admitted; a restored meeting with saved seats still needs its guard marked.
-        if (!rejoin.hasMeeting()) rejoin.startedBeforeAnyoneJoined();
-        rejoin.began();
+        session.commitStart(startedAt);
         hub.publish(
           {
             type: 'MEETING_STARTED',
@@ -1735,7 +1722,6 @@ export async function createApp({
         console.error('[start] the meeting could not be started', error);
         if (meeting.id === meetingId && session.generation() === generation && session.phase() === 'starting') {
           session.abortStart('the meeting could not be started');
-          preCommitStart = undefined;
           persistence?.scheduleSave();
           return {
             status: 500,
@@ -1781,7 +1767,6 @@ export async function createApp({
           session.phase() === 'starting'
         ) {
           session.abortStart('the meeting did not start in time');
-          preCommitStart = undefined;
           persistence?.scheduleSave();
           cancelPendingStart('the meeting did not start in time');
         }
@@ -1819,7 +1804,7 @@ export async function createApp({
         }
         // Re-validate the whole draft before anything is applied or the runner is asked, so a bad edit
         // made outside the setup screen fails Start loudly and leaves the meeting untouched.
-        const parsed = parseMeetingSetup(setupDraft.current, {
+        const parsed = parseMeetingSetup(session.draft(), {
           npcProfileIds: demoPackNpcProfileIds(fullScenario),
         });
         if (!parsed.ok) {
@@ -1832,20 +1817,20 @@ export async function createApp({
           };
         }
         // Start needs someone in the meeting: an owner cannot open an empty room.
-        if (rejoin.identities().length === 0) {
+        if (session.holders().length === 0) {
           return { status: 409, body: { error: 'Join the meeting before pressing Start.' } };
         }
         // An untouched draft follows the live meeting; an owner-edited one is applied exactly as written.
-        const sealed = draftTouched.current ? parsed.value : untouchedSetup();
+        const sealed = session.draftTouched() ? parsed.value : untouchedSetup();
         // Everyone already seated must have a person seat in the setup about to become the meeting.
         const personRoles = new Set(personSeatRoles(sealed));
-        const stranded = rejoin.identities().find((identity) => !personRoles.has(identity.seat));
+        const stranded = session.holders().find((holder) => !personRoles.has(holder.seat));
         if (stranded !== undefined) {
           const role = sealed.roles.find((candidate) => candidate.id === stranded.seat);
           const packRole = fullScenario.roles.find((candidate) => candidate.id === stranded.seat);
           // The room is empty and the grace is over: that seat holder has left for good, so say what
           // really happened instead of naming them as if they were still in the meeting.
-          const left = rejoin.isEmpty() && !rejoin.wouldResume(stranded.name);
+          const left = rejoin.isEmpty() && !rejoin.wouldHold();
           if (left) {
             return {
               status: 409,
@@ -1893,10 +1878,8 @@ export async function createApp({
         const attempt = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
         const meetingId = requestedMeetingId;
         const generation = requestedGeneration;
-        // Until Start commits, the saved meeting is still the pre-Start draft in its old agenda order.
-        preCommitStart = { agendaTitles: session.active().agenda.map((item) => item.title) };
-        session.beginStart(candidate);
-        return () => runStart({ sealed, attempt, meetingId, generation, activeAi });
+        session.beginStart(candidate, sealed);
+        return () => runStart({ attempt, meetingId, generation, activeAi });
       },
     ).then((result) => (typeof result === 'function' ? result() : result));
     return Promise.race([queued, timedOut]).finally(() => {
@@ -1917,8 +1900,6 @@ export async function createApp({
     });
     if (persistence.saved !== undefined) {
       try {
-        // A meeting that was still running is already in progress: someone coming back resumes it.
-        if (persistence.saved.state.clock.started && !persistence.saved.state.clock.ended) rejoin.restored();
         tasks.restore(persistence.saved.state.tasks);
       } catch (error) {
         closeRejoin();
@@ -1929,12 +1910,6 @@ export async function createApp({
       }
     }
   }
-  hub.subscribe((event) => {
-    // Only speech proves the meeting began; record heartbeats and task updates can fire without anyone talking.
-    if (event.type === 'TRANSCRIPT_CHUNK' || event.type === 'HOST_SPEECH_TRIGGERED') rejoin.began();
-    if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') rejoin.ended();
-  });
-
   async function closeAuth(): Promise<void> {
     if (auth === undefined) return;
     await auth.close().catch((error: unknown) =>
@@ -1976,15 +1951,7 @@ export async function createApp({
         onReset: session.onReset,
         session,
         packFree,
-        meetingDetails: () => ({
-          // Until Start commits, the saved meeting is the draft in its pre-Start agenda order; only
-          // then is the sealed setup and its agenda what a save may persist.
-          setup: preCommitStart === undefined ? (sealedSetup.current ?? setupDraft.current) : setupDraft.current,
-          draftTouched: draftTouched.current,
-          ...(preCommitStart === undefined ? {} : { agendaTitles: preCommitStart.agendaTitles }),
-          meetingCode: meetingCode.value,
-          seats: rejoin.identities(),
-        }),
+        meetingDetails: () => session.snapshot(),
       });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {
@@ -2014,14 +1981,15 @@ export async function createApp({
 
   // A restored meeting is already started: keep the start event available to late clients and the NPC,
   // carrying the saved agenda item so a fresh runner resumes it instead of reopening item zero.
-  if (session.phase() === 'running' && meeting.startedAt !== undefined) {
+  const savedStartAt = session.startedAt();
+  if (session.phase() === 'running' && savedStartAt !== undefined) {
     hub.publish(
       {
         type: 'MEETING_STARTED',
         audience: { kind: 'all' },
         payload: {
           meetingId: meeting.id,
-          startedAt: meeting.startedAt,
+          startedAt: savedStartAt,
           agendaIndex: restoredAgendaIndex,
           resumed: true,
         },

@@ -98,15 +98,16 @@ function producerAsFacilitator(pack: Scenario): MeetingSetup {
 function storedMeetingWithSetup(setup: MeetingSetup, started: boolean): StoredMeeting {
   return {
     schemaVersion: MEETING_STATE_SCHEMA_VERSION,
-    ...(started ? { startedAt: '2026-01-01T00:00:00.000Z' } : {}),
-    savedAt: '2026-01-01T00:05:00.000Z',
-    setup,
+    meetingId: 'saved-invalid-setup',
+    phase: started ? 'running' : 'lobby',
+    draft: setup,
     draftTouched: true,
+    ...(started ? { sealed: setup } : {}),
+    holders: [{ name: 'Wei Ling', seat: 'producer' }],
     meetingCode: 'ABC123',
-    seats: [{ name: 'Wei Ling', seat: 'producer' }],
+    savedAt: '2026-01-01T00:05:00.000Z',
+    ...(started ? { startedAt: '2026-01-01T00:00:00.000Z' } : {}),
     state: {
-      meetingId: 'saved-invalid-setup',
-      agenda: setup.agenda.slice(0, 2).map((item) => item.title),
       clock: {
         started,
         ended: false,
@@ -306,7 +307,7 @@ describe('Start applies the validated setup', () => {
     const corrupt: KakiModule = {
       name: 'corrupt-draft',
       start(context) {
-        const setup = context.meetingDetails?.().setup;
+        const setup = context.meetingDetails?.().draft;
         if (setup !== undefined) setup.agenda[0]!.minutes = 0;
       },
     };
@@ -822,6 +823,8 @@ describe('Start applies the validated setup', () => {
     screen.messages.length = 0;
     screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the New meeting reset');
+    // A reset forgets its holders, so the person joins the new meeting before Start.
+    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
     const afterNew = structuredClone(await getScenario(app));
     expect(afterNew.agenda).toHaveLength(2);
     expect(afterNew.agenda.every((item) => pack.agenda.some((packItem) => packItem.title === item.title))).toBe(true);
@@ -833,6 +836,7 @@ describe('Start applies the validated setup', () => {
     screen.messages.length = 0;
     screen.ws.send(JSON.stringify({ type: 'END_MEETING', silent: true }));
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset after the end');
+    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
     const afterEnd = structuredClone(await getScenario(app));
     expect(afterEnd.agenda).toHaveLength(2);
     expect(await getSetup(app)).toEqual(defaultMeetingSetup(pack));
@@ -1007,7 +1011,7 @@ describe('Start applies the validated setup', () => {
     await firstPersistence.flush();
 
     expect(store.saved?.state.clock.ended).toBe(true);
-    expect(store.saved?.setup.agenda.map((item) => item.title)).toEqual(['Custom A']);
+    expect(store.saved?.sealed?.agenda.map((item) => item.title)).toEqual(['Custom A']);
     expect((await getSetup(first)).agenda.map((item) => item.title)).toEqual(['Custom B']);
 
     await first.close();
@@ -1021,7 +1025,8 @@ describe('Start applies the validated setup', () => {
     expect(restoredState.meetingId).toBe(firstState.meetingId);
     expect(restoredState.started).toBe(false);
     expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(['Custom A']);
-    expect((await getSetup(restored)).agenda.map((item) => item.title)).not.toContain('Custom B');
+    // The ended meeting is consumed, but the draft edited after END is the next meeting's setup.
+    expect((await getSetup(restored)).agenda.map((item) => item.title)).toEqual(['Custom B']);
   });
 
   it('keeps the ended meeting saved intact when the calendar import replaces the next draft', async () => {
@@ -1067,7 +1072,7 @@ describe('Start applies the validated setup', () => {
     await firstPersistence.flush();
 
     expect(store.saved?.state.clock.ended).toBe(true);
-    expect(store.saved?.setup.agenda.map((item) => item.title)).toEqual(['Custom A']);
+    expect(store.saved?.sealed?.agenda.map((item) => item.title)).toEqual(['Custom A']);
 
     await first.close();
     apps.splice(apps.indexOf(first), 1);
@@ -1082,11 +1087,11 @@ describe('Start applies the validated setup', () => {
     expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(['Custom A']);
   });
 
-  it('tells the owner a departed seat holder has left instead of naming them as present', async () => {
+  it('forgets a departed seat holder once the grace ends, so Start asks someone to join', async () => {
     const pack = await loadScenario('kopitiam');
     const app = await startApp(pack, { rejoinGraceMs: 20, rejoinPollMs: 5 });
     expect((await join(app, 'Departed', 'lead_programmer')).status).toBe(200);
-    // The room poll sees the empty room and the short grace runs out.
+    // The room poll sees the empty room and the short grace runs out; the holder is pruned.
     await new Promise((resolve) => setTimeout(resolve, 150));
     const setup = humanOnlySetup(pack);
     setup.seats = [
@@ -1097,9 +1102,7 @@ describe('Start applies the validated setup', () => {
 
     const response = await startMeeting(app);
     expect(response.status).toBe(409);
-    expect(((await response.json()) as { error: string }).error).toMatch(
-      /Departed has left the meeting.*rejoin.*reset/i,
-    );
+    expect(((await response.json()) as { error: string }).error).toMatch(/Join the meeting before pressing Start/i);
   });
 
   it('lets a new visitor take any human seat after an untouched demo ends and the server restarts', async () => {
@@ -1303,7 +1306,7 @@ describe('Start applies the validated setup', () => {
     const store = new MemoryStore();
     const persistence = createMeetingPersistence({ store, saved, log: () => undefined });
     await expect(startApp(testScenario, { persistence })).rejects.toThrow(
-      /Saved meeting is unreadable \(its setup is invalid/,
+      /Saved meeting is unreadable \(its draft setup is invalid/,
     );
   });
 });
