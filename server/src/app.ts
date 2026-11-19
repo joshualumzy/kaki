@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -844,6 +844,14 @@ async function handleRequest(
         sendJson(response, 400, { errors: parsed.errors });
         return;
       }
+      const derived = deriveMeetingScenario(context.fullScenario, parsed.value);
+      if (!derived.ok) {
+        sendJson(response, 422, {
+          error: 'This setup describes a meeting that cannot run. Fix the highlighted setup and try again.',
+          errors: derived.errors,
+        });
+        return;
+      }
       context.setupDraft.current = parsed.value;
       context.draftTouched.current = true;
       // An ended meeting keeps its seal for saving; this edit is the next meeting's draft.
@@ -965,6 +973,14 @@ async function handleRequest(
       });
       if (!parsed.ok) {
         sendJson(response, 422, { error: 'The imported setup is not valid.', errors: parsed.errors });
+        return;
+      }
+      const derived = deriveMeetingScenario(context.fullScenario, parsed.value);
+      if (!derived.ok) {
+        sendJson(response, 422, {
+          error: 'The imported setup describes a meeting that cannot run.',
+          errors: derived.errors,
+        });
         return;
       }
 
@@ -1514,10 +1530,7 @@ export async function createApp({
 
   /** The person seats admission can actually give a role: a person seat whose role has someone to play it. */
   function personSeatRoles(setup: MeetingSetup): string[] {
-    return setup.seats
-      .filter((seat) => seat.kind === 'person')
-      .map((seat) => seat.roleId)
-      .filter((roleId) => fullScenario.attendees.some((attendee) => attendee.role === roleId));
+    return setupPersonSeatRoles(fullScenario, setup);
   }
 
   /** How many real people the setup can seat: one per person seat that has someone to play it. */
@@ -1527,15 +1540,7 @@ export async function createApp({
 
   /** The scenario an owner-edited setup describes, with its AI seats treated as AI-only. */
   function scenarioFromSetup(setup: MeetingSetup): Scenario {
-    return meetingScenario({
-      meetingTitle: setup.title,
-      roles: setupScenarioRoles(fullScenario, setup),
-      // An AI seat is never a human seat, even when the pack marks its character playable.
-      npcs: setupAiCast(fullScenario, setup).map((npc) => ({ ...npc, playable: false })),
-      joinSeats: personSeatRoles(setup),
-      agenda: meetingAgendaFromSetup(setup, fullScenario),
-      allowPlain: true,
-    });
+    return meetingScenarioFromSetup(fullScenario, setup);
   }
 
   /**
@@ -1748,12 +1753,54 @@ export async function createApp({
     return pending.promise;
   }
 
+  function startTimeoutOutcome(): StartOutcome {
+    return {
+      status: 503,
+      body: {
+        error: 'The AI attendees did not open the meeting. Check that npm run npc is running, then try again.',
+        retryable: true,
+      },
+    };
+  }
+
   function startMeeting(): Promise<StartOutcome> {
+    // The meeting this Start was requested for: a reset while it waits for the admission queue must
+    // refuse it rather than let it start the replacement meeting.
+    const requestedMeetingId = meeting.id;
+    const requestedGeneration = session.generation();
+    // The one Start timeout covers the queue wait as well as the runner acknowledgement. A Start
+    // still waiting when it expires never runs later.
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<StartOutcome>((resolve) => {
+      timeout = setTimeout(() => {
+        cancelled = true;
+        if (
+          meeting.id === requestedMeetingId &&
+          session.generation() === requestedGeneration &&
+          session.phase() === 'starting'
+        ) {
+          session.abortStart('the meeting did not start in time');
+          preCommitStart = undefined;
+          persistence?.scheduleSave();
+          cancelPendingStart('the meeting did not start in time');
+        }
+        resolve(startTimeoutOutcome());
+      }, Math.max(1, startAckTimeoutMs));
+      timeout.unref?.();
+    });
     // The phase flip shares the admission queue with joins: a Start waits for an admission already in
     // flight, and an admission waits for beginStart. Only that atomic step is serialized; the runner
     // acknowledgement runs after the queue is released so joins are not held for its whole window.
-    return admit(
+    const queued = admit(
       async (): Promise<StartOutcome | (() => Promise<StartOutcome>)> => {
+        if (cancelled) return startTimeoutOutcome();
+        if (meeting.id !== requestedMeetingId || session.generation() !== requestedGeneration) {
+          return {
+            status: 409,
+            body: { error: 'The meeting was reset before it could start; press Start again.' },
+          };
+        }
         const phase = session.phase();
         if (phase === 'running') {
           return { status: 200, body: { started: true, alreadyStarted: true } };
@@ -1829,18 +1876,32 @@ export async function createApp({
             },
           };
         }
+        // A setup that passes field validation can still describe a meeting the scenario rules refuse.
+        const derived = deriveMeetingScenario(fullScenario, sealed);
+        if (!derived.ok) {
+          return {
+            status: 422,
+            body: {
+              error: 'This setup describes a meeting that cannot run, so the meeting was not started. Fix the setup and try again.',
+              errors: derived.errors,
+            },
+          };
+        }
         // Seal the meeting as a new value; the live scenario keeps serving everyone until this commits.
-        const candidate = scenarioFromSetup(sealed);
+        const candidate = derived.scenario;
         const activeAi = (candidate.npcs ?? []).length > 0;
         const attempt = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-        const meetingId = meeting.id;
-        const generation = session.generation();
+        const meetingId = requestedMeetingId;
+        const generation = requestedGeneration;
         // Until Start commits, the saved meeting is still the pre-Start draft in its old agenda order.
         preCommitStart = { agendaTitles: session.active().agenda.map((item) => item.title) };
         session.beginStart(candidate);
         return () => runStart({ sealed, attempt, meetingId, generation, activeAi });
       },
     ).then((result) => (typeof result === 'function' ? result() : result));
+    return Promise.race([queued, timedOut]).finally(() => {
+      if (timeout !== undefined) clearTimeout(timeout);
+    });
   }
   if (persistence !== undefined) {
     hub.subscribe((event) => {

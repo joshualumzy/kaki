@@ -268,6 +268,102 @@ describe('Start lifecycle', () => {
     expect(after).toMatchObject({ meetingId: atStart.meetingId, started: true });
   });
 
+  it('refuses a Start that waited through a reset instead of starting the replacement meeting', async () => {
+    let calls = 0;
+    let releaseRoster: (() => void) | undefined;
+    const rosterGate = new Promise<void>((resolve) => {
+      releaseRoster = resolve;
+    });
+    const app = await startApp(structuredClone(testScenario), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => {
+        calls += 1;
+        if (calls === 2) await rosterGate;
+        return [];
+      },
+    });
+    const first = await join(app, 'Guest', 'chef');
+    expect(first.status).toBe(200);
+    const { meetingCode } = (await first.json()) as { meetingCode: string };
+
+    const lateJoin = fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Late', participantRole: 'cashier', meetingCode }),
+    });
+    await waitFor(() => (calls === 2 ? true : undefined), 'the late join to reach the roster');
+    const starting = startMeeting(app);
+    await settle(20);
+    expect(app.session.phase()).toBe('lobby');
+
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset');
+    screen.close();
+    const replacement = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+      meetingId: string;
+    };
+
+    releaseRoster?.();
+    expect([403, 409]).toContain((await lateJoin).status);
+
+    const response = await starting;
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'The meeting was reset before it could start; press Start again.',
+    });
+    expect(app.session.phase()).toBe('lobby');
+    const state = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+      meetingId: string;
+      started: boolean;
+    };
+    expect(state).toMatchObject({ meetingId: replacement.meetingId, started: false });
+  });
+
+  it('times out a Start that waited in the admission queue so it never runs later', async () => {
+    let calls = 0;
+    let releaseRoster: (() => void) | undefined;
+    const rosterGate = new Promise<void>((resolve) => {
+      releaseRoster = resolve;
+    });
+    const app = await startApp(structuredClone(testScenario), {
+      startAckTimeoutMs: 50,
+      roomRoster: async () => {
+        calls += 1;
+        if (calls === 2) await rosterGate;
+        return [];
+      },
+    });
+    const first = await join(app, 'Guest', 'chef');
+    expect(first.status).toBe(200);
+    const { meetingCode } = (await first.json()) as { meetingCode: string };
+
+    const lateJoin = fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Late', participantRole: 'cashier', meetingCode }),
+    });
+    await waitFor(() => (calls === 2 ? true : undefined), 'the late join to reach the roster');
+
+    const starting = startMeeting(app);
+    await settle(120);
+    const timedOut = await starting;
+    expect(timedOut.status).toBe(503);
+    expect(await timedOut.json()).toMatchObject({ retryable: true });
+    expect(app.session.phase()).toBe('lobby');
+
+    releaseRoster?.();
+    expect((await lateJoin).status).toBe(200);
+    await settle(50);
+    expect(app.session.phase()).toBe('lobby');
+    const state = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
+      started: boolean;
+    };
+    expect(state.started).toBe(false);
+
+    expect((await startMeeting(app)).status).toBe(200);
+  });
+
   it('refuses an admission whose meeting changed while it waited, without mutating it', async () => {
     let calls = 0;
     let releaseRoster: (() => void) | undefined;

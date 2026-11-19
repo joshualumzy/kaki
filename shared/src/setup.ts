@@ -1,4 +1,6 @@
+import { setMeetingAgenda } from './demo';
 import {
+  parseScenario,
   RESERVED_ROLE_ID,
   ROLE_ID_PATTERN,
   type AgendaItem,
@@ -604,4 +606,145 @@ export function setupScenarioRoles(scenario: Scenario, setup: MeetingSetup): Sce
       : { ...packRole, label: role.label, facilitator: role.facilitator };
   });
   return [...roles, ...scenario.roles.filter((role) => !applied.has(role.id))];
+}
+
+/** The person seats a setup can give a role: a person seat whose role has someone to play it. */
+export function setupPersonSeatRoles(scenario: Scenario, setup: MeetingSetup): string[] {
+  return setup.seats
+    .filter((seat) => seat.kind === 'person')
+    .map((seat) => seat.roleId)
+    .filter((roleId) => scenario.attendees.some((attendee) => attendee.role === roleId));
+}
+
+export interface MeetingScenarioFromSetupOptions {
+  /** The agenda order to run; defaults to the setup's own order. */
+  agendaOrder?: readonly string[];
+}
+
+/**
+ * The meeting scenario a setup describes, built the one way the app builds any meeting scenario:
+ * pack title, roles and cast applied over the pack, and the setup agenda normalized so links to
+ * omitted topics are dropped.
+ */
+export function meetingScenarioFromSetup(
+  scenario: Scenario,
+  setup: MeetingSetup,
+  options: MeetingScenarioFromSetupOptions = {},
+): Scenario {
+  const meeting: Scenario = {
+    ...scenario,
+    meetingTitle: setup.title,
+    roles: setupScenarioRoles(scenario, setup),
+    npcs: setupAiCast(scenario, setup).map((npc) => ({ ...npc, playable: false })),
+    joinSeats: setupPersonSeatRoles(scenario, setup),
+    agenda: [...scenario.agenda],
+    attendees: [...scenario.attendees],
+  };
+  setMeetingAgenda(meeting, scenario, meetingAgendaFromSetup(setup, scenario, options.agendaOrder), {
+    allowPlain: true,
+  });
+  return meeting;
+}
+
+export type MeetingScenarioResult =
+  | { ok: true; scenario: Scenario }
+  | { ok: false; errors: SetupFieldError[] };
+
+const HOST_BRIEFING_PROBLEM =
+  /^agenda\[(\d+)\]\.briefing\[(\d+)\]\.knownBy\[(\d+)\]\.attendee "(.+)" is the host and cannot know a briefing fact$/;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Translate a derived scenario's parse problems into field errors an owner can act on. */
+function scenarioSetupErrors(
+  meeting: Scenario,
+  setup: MeetingSetup,
+  error: unknown,
+): SetupFieldError[] {
+  const problems = errorMessage(error)
+    .split('\n')
+    .map((line) => line.replace(/^-\s*/, '').trim())
+    .filter((line) => line !== '' && line !== 'Invalid scenario:');
+  const errors: SetupFieldError[] = [];
+  for (const problem of problems) {
+    const hostBriefing = HOST_BRIEFING_PROBLEM.exec(problem);
+    if (hostBriefing !== null) {
+      const agendaIndex = Number(hostBriefing[1]);
+      const attendeeName = hostBriefing[4]!;
+      const topic = meeting.agenda[agendaIndex]?.title ?? `agenda item ${agendaIndex + 1}`;
+      const roleId = meeting.attendees.find((attendee) => attendee.name === attendeeName)?.role;
+      const roleIndex = setup.roles.findIndex((role) => role.id === roleId);
+      const roleLabel = setup.roles[roleIndex]?.label ?? roleId ?? 'that role';
+      errors.push({
+        field: roleIndex >= 0 ? `roles[${roleIndex}].facilitator` : 'roles',
+        message:
+          `"${attendeeName}" is the facilitator through the "${roleLabel}" role, so they cannot share ` +
+          `the briefing for "${topic}". Turn off "facilitator" for "${roleLabel}", or give that fact to another seat.`,
+      });
+      continue;
+    }
+    const agenda = /^agenda\[(\d+)\]/.exec(problem);
+    if (agenda !== null) {
+      const index = Number(agenda[1]);
+      const topic = meeting.agenda[index]?.title;
+      errors.push({
+        field: `agenda[${index}]`,
+        message: topic === undefined ? problem : `${problem} (topic "${topic}")`,
+      });
+      continue;
+    }
+    const role = /^roles\[(\d+)\]/.exec(problem);
+    if (role !== null) {
+      const index = Number(role[1]);
+      const roleId = meeting.roles[index]?.id;
+      const setupIndex = setup.roles.findIndex((candidate) => candidate.id === roleId);
+      errors.push({
+        field: setupIndex >= 0 ? `roles[${setupIndex}]` : 'roles',
+        message: roleId === undefined ? problem : `${problem} (role "${roleId}")`,
+      });
+      continue;
+    }
+    if (problem.startsWith('npcs[') || problem.startsWith('attendees[')) {
+      errors.push({ field: 'seats', message: problem });
+      continue;
+    }
+    errors.push({ field: 'setup', message: `The meeting this setup describes is not valid: ${problem}` });
+  }
+  return errors.length > 0
+    ? errors
+    : [{ field: 'setup', message: 'The meeting this setup describes is not valid.' }];
+}
+
+/**
+ * Derive the meeting a setup describes and validate it. A setup can pass field validation and still
+ * describe a meeting the scenario rules refuse (for example, a facilitator who holds a briefing
+ * fact); callers use this before storing, starting or restoring it.
+ */
+export function deriveMeetingScenario(
+  scenario: Scenario,
+  setup: MeetingSetup,
+  options: MeetingScenarioFromSetupOptions = {},
+): MeetingScenarioResult {
+  let meeting: Scenario;
+  try {
+    meeting = meetingScenarioFromSetup(scenario, setup, options);
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [
+        {
+          field: 'setup',
+          message: `The meeting this setup describes could not be built: ${errorMessage(error)}`,
+        },
+      ],
+    };
+  }
+  try {
+    parseScenario(meeting);
+    return { ok: true, scenario: meeting };
+  } catch (error) {
+    return { ok: false, errors: scenarioSetupErrors(meeting, setup, error) };
+  }
 }

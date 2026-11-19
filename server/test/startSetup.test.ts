@@ -86,6 +86,53 @@ function humanOnlySetup(pack: Scenario): MeetingSetup {
   };
 }
 
+/** The real pack's setup with the producer role wrongly marked as the facilitator. */
+function producerAsFacilitator(pack: Scenario): MeetingSetup {
+  const setup = defaultMeetingSetup(structuredClone(pack));
+  const producer = setup.roles.find((role) => role.id === 'producer');
+  if (producer === undefined) throw new Error('Expected the producer role');
+  producer.facilitator = true;
+  return setup;
+}
+
+function storedMeetingWithSetup(setup: MeetingSetup, started: boolean): StoredMeeting {
+  return {
+    schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+    ...(started ? { startedAt: '2026-01-01T00:00:00.000Z' } : {}),
+    savedAt: '2026-01-01T00:05:00.000Z',
+    setup,
+    draftTouched: true,
+    meetingCode: 'ABC123',
+    seats: [{ name: 'Wei Ling', seat: 'producer' }],
+    state: {
+      meetingId: 'saved-invalid-setup',
+      agenda: setup.agenda.slice(0, 2).map((item) => item.title),
+      clock: {
+        started,
+        ended: false,
+        paused: false,
+        agendaIndex: 0,
+        itemElapsedSeconds: started ? 30 : 0,
+        meetingElapsedSeconds: started ? 30 : 0,
+      },
+      notetaker: {
+        pending: [],
+        inFlight: [],
+        recentGrounded: [],
+        contextAgendaIndex: 0,
+        agendaContext: [],
+        openQuestions: [],
+        questionCount: 0,
+        status: 'ok',
+        talkByItem: [],
+        talkTotals: [],
+        talkTotal: 0,
+      },
+      tasks: [],
+    },
+  };
+}
+
 /** A fresh copy every time: Start mutates the active scenario, so tests must not share one. */
 function freshTopicScenario(): Scenario {
   const scenario = structuredClone(topicScenario);
@@ -1170,6 +1217,63 @@ describe('Start applies the validated setup', () => {
       error: "This meeting's setup has no place for Tech & POS Lead; the owner set the seats.",
     });
     expect((await meetingState(app)).started).toBe(false);
+  });
+
+  it('refuses a setup whose facilitator cannot share a briefing, naming the role and topic', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack);
+    const setup = await getSetup(app);
+    const producerIndex = setup.roles.findIndex((role) => role.id === 'producer');
+    if (producerIndex < 0) throw new Error('Expected the producer role');
+    setup.roles[producerIndex]!.facilitator = true;
+
+    const response = await putSetup(app, setup);
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error?: string; errors?: Array<{ field: string; message: string }> };
+    expect(body.errors?.some((problem) => problem.field === `roles[${producerIndex}].facilitator`)).toBe(true);
+    expect(
+      body.errors?.some(
+        (problem) =>
+          /Wei Ling/.test(problem.message) &&
+          /Operations Director/.test(problem.message) &&
+          /One counter staff short/.test(problem.message),
+      ),
+    ).toBe(true);
+    expect((await getSetup(app)).roles[producerIndex]!.facilitator).toBe(false);
+  });
+
+  it('refuses Start with a saved invalid setup as 422 rather than a server error', async () => {
+    const pack = await loadScenario('kopitiam');
+    const setup = producerAsFacilitator(pack);
+    const saved = storedMeetingWithSetup(setup, false);
+    const store = new MemoryStore();
+    const app = await startApp(pack, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved, log: () => undefined }),
+    });
+
+    const response = await startMeeting(app);
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error?: string; errors?: Array<{ field: string; message: string }> };
+    expect(body.errors?.some((problem) => /facilitator/.test(problem.field) || /facilitator/.test(problem.message))).toBe(true);
+    expect(app.session.phase()).toBe('lobby');
+    expect((await meetingState(app)).started).toBe(false);
+  });
+
+  it('refuses to boot a saved meeting whose setup describes a meeting that cannot run', async () => {
+    const pack = await loadScenario('kopitiam');
+    const setup = producerAsFacilitator(pack);
+    const saved = storedMeetingWithSetup(setup, true);
+    const store = new MemoryStore();
+    const persistence = createMeetingPersistence({ store, saved, log: () => undefined });
+    await expect(
+      startApp(pack, {
+        modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+        persistence,
+      }),
+    ).rejects.toThrow(
+      /Saved meeting is unreadable \(its setup describes a meeting that cannot run.*facilitator.*\)\. Run `npm run meeting:reset` to discard it\./,
+    );
   });
 
   it('gives the friendly message for a malformed saved setup', async () => {

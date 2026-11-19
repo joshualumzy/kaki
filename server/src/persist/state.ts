@@ -1,5 +1,6 @@
 import {
   demoPackNpcProfileIds,
+  deriveMeetingScenario,
   isRoleIn,
   isTask,
   normalizeMeetingCode,
@@ -295,6 +296,19 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (clock !== undefined) return clock;
   if (isObject(state.clock) && state.clock.started === true && saved.startedAt === undefined) {
     return 'its start time is missing';
+  }
+  // A started meeting boots from the scenario its sealed setup describes, so refuse one that cannot
+  // run with the same friendly message instead of crashing while the boot scenario is validated.
+  if (isObject(state.clock) && state.clock.started === true) {
+    const derived = deriveMeetingScenario(scenario, saved.setup, {
+      agendaOrder: state.agenda as string[],
+    });
+    if (!derived.ok) {
+      const first = derived.errors[0];
+      return first === undefined
+        ? 'its setup describes a meeting that cannot run'
+        : `its setup describes a meeting that cannot run at ${first.field}: ${first.message}`;
+    }
   }
   if (!Array.isArray(state.tasks)) return 'its task list is not a list';
   for (let index = 0; index < state.tasks.length; index += 1) {
