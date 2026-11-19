@@ -7,7 +7,10 @@ import { MEETING_STATE_ID } from './state';
 
 const connectionString = process.env.POSTGRES_URL?.trim();
 if (connectionString === undefined || connectionString === '') {
-  throw new Error('kaki persist: set POSTGRES_URL to the Postgres connection string, then run npm run meeting:reset.');
+  throw new Error(
+    'kaki persist: POSTGRES_URL is not set. Set it in the shell, in the repo .env, or in docker/.env ' +
+      '(npm run seed writes it there), then run npm run meeting:reset.',
+  );
 }
 
 const pool = new Pool({ connectionString });

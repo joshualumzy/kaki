@@ -609,9 +609,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       meetingId = state.meetingId;
     }
     if (state.started && !started) {
+      // A preparation for exactly this meeting is the Start attempt we were asked to get ready for:
+      // open it through the fresh path so the guest hears the one welcome and the topic initializes.
+      // Only an unprepared meeting (a restart or another runner instance) resumes, and a resume
+      // deliberately skips the welcome.
+      const fresh = prepared?.meetingId === state.meetingId;
+      if (fresh) prepared = undefined;
       void markMeetingStarted(`the server says meeting ${state.meetingId} is running`, {
         ...(state.agendaIndex === undefined ? {} : { agendaIndex: state.agendaIndex }),
-        resumed: true,
+        resumed: !fresh,
       }).catch((error: unknown) => log(`could not resume the running meeting: ${String(error)}`));
     }
   }

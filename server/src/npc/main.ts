@@ -11,7 +11,7 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner, type RunnerMeetingState } from './runner';
-import { createMeetingSync } from './meetingSync';
+import { createMeetingSync, parsePrepareRequest, parseStartedEvent, type PrepareRequest } from './meetingSync';
 import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
@@ -367,13 +367,7 @@ function followHostCues(): void {
     );
   };
 
-  const prepareMeeting = (request: {
-    requestId: string;
-    attempt: string;
-    meetingId: string;
-    agendaIndex?: number;
-    resumed?: boolean;
-  }): void => {
+  const prepareMeeting = (request: PrepareRequest): void => {
     // Anything the runner learned from a state read before this attempt is already out of date.
     meetingSync.prepareStarted();
     void runner
@@ -418,41 +412,21 @@ function followHostCues(): void {
         };
       };
       if (event.kind === 'prepare') {
-        const request = event.request;
-        const requestId = request?.requestId;
-        const attempt = request?.attempt;
-        const meetingId = request?.meetingId;
-        if (
-          typeof requestId !== 'string' ||
-          requestId === '' ||
-          typeof attempt !== 'string' ||
-          attempt === '' ||
-          typeof meetingId !== 'string' ||
-          meetingId === ''
-        ) {
+        const request = parsePrepareRequest(event.request);
+        if (request === undefined) {
           logError('ignored a server prepare request without its meeting id and attempt');
           return;
         }
-        prepareMeeting({
-          requestId,
-          attempt,
-          meetingId,
-          ...(typeof request?.agendaIndex === 'number' ? { agendaIndex: request.agendaIndex } : {}),
-          ...(typeof request?.resumed === 'boolean' ? { resumed: request.resumed } : {}),
-        });
+        prepareMeeting(request);
         return;
       }
       if (event.type === 'MEETING_STARTED') {
-        const meetingId = event.payload?.meetingId;
-        if (typeof meetingId !== 'string' || meetingId === '') {
+        const started = parseStartedEvent(event.payload);
+        if (started === undefined) {
           logError('ignored MEETING_STARTED without a meeting id');
           return;
         }
-        meetingSync.started({
-          meetingId,
-          ...(typeof event.payload?.agendaIndex === 'number' ? { agendaIndex: event.payload.agendaIndex } : {}),
-          ...(typeof event.payload?.resumed === 'boolean' ? { resumed: event.payload.resumed } : {}),
-        });
+        meetingSync.started(started);
         return;
       }
       if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;

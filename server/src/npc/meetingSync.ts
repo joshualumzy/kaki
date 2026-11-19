@@ -7,6 +7,58 @@ export interface StartedEvent {
   resumed?: boolean;
 }
 
+/** A prepare request from the server, once its wire form has been checked. */
+export interface PrepareRequest {
+  requestId: string;
+  attempt: string;
+  meetingId: string;
+  agendaIndex?: number;
+  resumed?: boolean;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function optionalAgendaIndex(value: unknown): { agendaIndex?: number } {
+  return typeof value === 'number' ? { agendaIndex: value } : {};
+}
+
+function optionalResumed(value: unknown): { resumed?: boolean } {
+  return typeof value === 'boolean' ? { resumed: value } : {};
+}
+
+/**
+ * Read a prepare request from the service channel, or undefined when it cannot identify the attempt.
+ * A request without a meeting id cannot be fenced, so it must never reach the runner.
+ */
+export function parsePrepareRequest(value: unknown): PrepareRequest | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const request = value as Record<string, unknown>;
+  if (!isNonEmptyString(request.requestId) || !isNonEmptyString(request.attempt) || !isNonEmptyString(request.meetingId)) {
+    return undefined;
+  }
+  return {
+    requestId: request.requestId,
+    attempt: request.attempt,
+    meetingId: request.meetingId,
+    ...optionalAgendaIndex(request.agendaIndex),
+    ...optionalResumed(request.resumed),
+  };
+}
+
+/** Read a MEETING_STARTED payload, or undefined when it names no meeting to open. */
+export function parseStartedEvent(value: unknown): StartedEvent | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const payload = value as Record<string, unknown>;
+  if (!isNonEmptyString(payload.meetingId)) return undefined;
+  return {
+    meetingId: payload.meetingId,
+    ...optionalAgendaIndex(payload.agendaIndex),
+    ...optionalResumed(payload.resumed),
+  };
+}
+
 /** The runner operations the sync needs; the real one is `startNpcRunner`'s return value. */
 export interface MeetingSyncRunner {
   meetingId(): string | undefined;

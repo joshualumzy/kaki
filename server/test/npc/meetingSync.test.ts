@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createMeetingSync } from '../../src/npc/meetingSync';
+import { createMeetingSync, parsePrepareRequest, parseStartedEvent } from '../../src/npc/meetingSync';
 import type { RunnerMeetingState, RunnerStartState } from '../../src/npc/runner';
 
 function fakeRunner(meetingId: string | undefined) {
@@ -21,6 +21,22 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   });
   return { promise, resolve };
 }
+
+describe('service channel identity', () => {
+  it('refuses a prepare request that names no meeting', () => {
+    expect(parsePrepareRequest({ requestId: 'request-1', attempt: 'attempt-1' })).toBeUndefined();
+    expect(parsePrepareRequest({ requestId: 'request-1', attempt: 'attempt-1', meetingId: '   ' })).toBeUndefined();
+    expect(parsePrepareRequest({ requestId: 'request-1', attempt: 'attempt-1', meetingId: 'meeting-1', agendaIndex: 0, resumed: false }))
+      .toEqual({ requestId: 'request-1', attempt: 'attempt-1', meetingId: 'meeting-1', agendaIndex: 0, resumed: false });
+  });
+
+  it('refuses MEETING_STARTED that names no meeting', () => {
+    expect(parseStartedEvent({})).toBeUndefined();
+    expect(parseStartedEvent({ meetingId: '' })).toBeUndefined();
+    expect(parseStartedEvent({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false }))
+      .toEqual({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false });
+  });
+});
 
 describe('meeting sync', () => {
   it('opens a prepared attempt directly, with the welcome a fresh start expects', () => {

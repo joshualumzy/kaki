@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -135,6 +135,42 @@ describe('generated integration settings', () => {
     const generated = tempEnv('GITEA_TOKEN=from-generated\n');
     const out = run('wire_generated_env "$@"; [ -z "$GITEA_TOKEN" ] && echo "root-wins"', [root, generated], cleanEnv());
     expect(out).toContain('root-wins');
+  });
+});
+
+describe('meeting:reset configuration', () => {
+  function resetProject(rootEnv: string, dockerEnv: string): { dir: string; run: (env?: NodeJS.ProcessEnv) => string } {
+    const dir = tempDir();
+    mkdirSync(join(dir, 'scripts'));
+    copyFileSync(join(repo, 'scripts/live-checks.sh'), join(dir, 'scripts/live-checks.sh'));
+    copyFileSync(join(repo, 'scripts/meeting-reset.sh'), join(dir, 'scripts/meeting-reset.sh'));
+    writeFileSync(join(dir, '.env'), rootEnv);
+    mkdirSync(join(dir, 'docker'));
+    writeFileSync(join(dir, 'docker/.env'), dockerEnv);
+    // Stand in for npx so the wrapper never starts tsx or touches a database; it only reports the
+    // POSTGRES_URL the wrapper resolved.
+    const bin = join(dir, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'npx'), '#!/usr/bin/env bash\nprintf "%s" "$POSTGRES_URL"\n', { mode: 0o755 });
+    return {
+      dir,
+      run: (env = {}) =>
+        execFileSync('bash', ['scripts/meeting-reset.sh'], {
+          cwd: dir,
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, POSTGRES_URL: '', ...env },
+        }),
+    };
+  }
+
+  it('finds POSTGRES_URL in docker/.env when the root .env leaves it empty', () => {
+    const project = resetProject('POSTGRES_URL=\n', 'POSTGRES_URL=postgres://from-docker\n');
+    expect(project.run()).toBe('postgres://from-docker');
+  });
+
+  it('lets a shell POSTGRES_URL win over docker/.env, as npm start does', () => {
+    const project = resetProject('POSTGRES_URL=\n', 'POSTGRES_URL=postgres://from-docker\n');
+    expect(project.run({ POSTGRES_URL: 'postgres://from-shell' })).toBe('postgres://from-shell');
   });
 });
 

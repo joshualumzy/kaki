@@ -888,6 +888,73 @@ describe('one server-owned meeting start', () => {
     }
   });
 
+  it('never commits a meeting whose reset lands after the acknowledgement but before the start', async () => {
+    const scenario: Scenario = {
+      ...testScenario,
+      npcs: [
+        { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' },
+      ],
+    };
+    const app = await createApp({
+      scenario,
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+      startAckTimeoutMs: 1_000,
+    });
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    const runner = await connectService(port);
+    const prepares: Array<{ requestId: string; attempt: string; meetingId: string }> = [];
+    try {
+      runner.on('message', (data) => {
+        const message = JSON.parse(data.toString()) as {
+          kind?: string;
+          request?: { requestId?: string; attempt?: string; meetingId?: string };
+        };
+        const { requestId, attempt, meetingId } = message.request ?? {};
+        if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) {
+          return;
+        }
+        prepares.push({ requestId, attempt, meetingId });
+      });
+
+      const firstStart = startMeeting(app);
+      await waitFor(() => (prepares[0] === undefined ? undefined : prepares[0]), 'the prepare');
+      const oldPrepare = prepares[0]!;
+
+      // The hub calls the app's service handler first, which resolves the Start waiter; ours runs
+      // next, still synchronously, so the reset lands after acknowledgement and before the commit.
+      app.hub.onServiceMessage?.((message) => {
+        if (message.requestId !== oldPrepare.requestId) return;
+        app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'replacement' } });
+      });
+      runner.send(
+        JSON.stringify({
+          kind: 'ready',
+          requestId: oldPrepare.requestId,
+          attempt: oldPrepare.attempt,
+          meetingId: oldPrepare.meetingId,
+        }),
+      );
+
+      const resetStart = await firstStart;
+      expect(resetStart.status).toBe(503);
+      await settle(100);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
+      const afterReset = (await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as {
+        meetingId: string;
+        started: boolean;
+      };
+      expect(afterReset).toMatchObject({ meetingId: 'replacement', started: false });
+    } finally {
+      runner.terminate();
+      screen.close();
+      await app.close();
+    }
+  });
+
   it('needs no runner acknowledgement when the meeting has no AI stand-ins', async () => {
     const app = await startApp({ roster: () => [], startAckTimeoutMs: 100 });
     try {
