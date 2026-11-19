@@ -30,7 +30,7 @@ function quietHub(): Hub {
   };
 }
 
-function setup(draftOnly?: boolean) {
+function setup(draftOnly?: boolean, unconfiguredReason?: string) {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
   const draftSpy = vi.fn(async () => draft);
@@ -40,6 +40,7 @@ function setup(draftOnly?: boolean) {
     kind: 'wiki_page',
     draft: draftSpy,
     run: runSpy,
+    ...(unconfiguredReason === undefined ? {} : { unconfiguredReason }),
   }).start({ hub, tasks, scenario: testScenario, draftOnly });
   if (stop !== undefined) stops.push(stop);
   return { tasks, draftSpy, runSpy };
@@ -124,5 +125,18 @@ describe('action runner draft-only guard', () => {
 
     expect(runSpy).toHaveBeenCalledTimes(1);
     expect(done.artifactUrl).toBe('http://artifact.test/page');
+  });
+});
+
+describe('action runner unconfigured tool guard', () => {
+  it('fails a claimed task before drafting when its tool is not configured', async () => {
+    const reason = 'The wiki is not configured: set WIKI_URL, WIKI_ADMIN_EMAIL and WIKI_ADMIN_PASSWORD';
+    const { tasks, draftSpy, runSpy } = setup(undefined, reason);
+    const task = startTask(tasks);
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    expect(failed.error).toBe(reason);
+    expect(draftSpy).not.toHaveBeenCalled();
+    expect(runSpy).not.toHaveBeenCalled();
   });
 });

@@ -110,6 +110,7 @@ export function createMattermostModule({
   return createActionModule({
     name: 'action-mattermost',
     kind: 'mattermost_post',
+    unconfiguredReason: mattermost === undefined ? CONFIG_MESSAGE : undefined,
     async draft(task, signal, scenario, _visitorName, memory) {
       const settings = requireSettings();
       if (llm === undefined) {

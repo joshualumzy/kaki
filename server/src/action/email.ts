@@ -140,6 +140,7 @@ export function createEmailModule({
   const actionModule = createActionModule({
     name: 'action-email',
     kind: 'email',
+    unconfiguredReason: email === undefined ? CONFIG_MESSAGE : undefined,
     async draft(task, signal, scenario, _visitorName, memory) {
       requireSettings();
       if (llm === undefined) {

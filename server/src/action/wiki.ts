@@ -217,6 +217,7 @@ export function createWikiModule({
   const baseModule = createActionModule({
     name: 'action-wiki',
     kind: 'wiki_page',
+    unconfiguredReason: wiki === undefined ? CONFIG_MESSAGE : undefined,
     async draft(task, signal, scenario, _visitorName, memory) {
       if (wiki === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the page cannot be drafted');

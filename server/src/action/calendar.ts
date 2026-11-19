@@ -343,6 +343,7 @@ export function createCalendarModule({
   return createActionModule({
     name: 'action-calendar',
     kind: 'calendar_event',
+    unconfiguredReason: calendar === undefined ? CONFIG_MESSAGE : undefined,
     async draft(task, signal, _scenario, _visitorName, memory) {
       if (calendar === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the event cannot be drafted');

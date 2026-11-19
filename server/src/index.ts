@@ -1,11 +1,13 @@
 // Must stay the first import: later modules read process.env as they load.
 import './env';
-import { actionModules, calendarFromEnv } from './action';
+import { actionModules, calendarFromEnv, logMissingActionConfig } from './action';
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
 import { hostModules } from './host';
 import { loadScenario } from './loadScenario';
 import { wingmanModules } from './wingman';
+
+logMissingActionConfig();
 
 const rawPort = process.env.PORT ?? '3001';
 const port = Number(rawPort);

@@ -9,6 +9,8 @@ export class ActionError extends Error {}
 export interface ActionModuleOptions {
   name: string;
   kind: ActionKind;
+  /** Why this tool cannot run (with the missing env variable names), when its configuration is absent. */
+  unconfiguredReason?: string;
   draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string, memory?: readonly MeetingMemoryEntry[]): Promise<ActionDraft>;
   run(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string): Promise<string>;
 }
@@ -52,7 +54,7 @@ export function factsForTask(
 }
 
 /** Create a module that drafts on claim, runs on approval and records the result or failure. */
-export function createActionModule({ name, kind, draft, run }: ActionModuleOptions): KakiModule {
+export function createActionModule({ name, kind, unconfiguredReason, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
     start({ hub, tasks, scenario, memory, draftOnly }: KakiContext) {
@@ -155,7 +157,11 @@ export function createActionModule({ name, kind, draft, run }: ActionModuleOptio
       const unsubscribe = tasks.onChange((task) => {
         if (task.actionKind !== kind || task.mode !== 'ACTION_AGENT') return;
         if (task.status === 'CLAIMED') {
-          draftAction(task);
+          if (unconfiguredReason !== undefined) {
+            fail(task, unconfiguredReason);
+          } else {
+            draftAction(task);
+          }
         } else if (task.status === 'RUNNING') {
           runAction(task);
         }

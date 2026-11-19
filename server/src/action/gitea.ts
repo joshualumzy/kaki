@@ -72,6 +72,7 @@ export function createGiteaModule({
   return createActionModule({
     name: 'action-gitea',
     kind: 'gitea_issue',
+    unconfiguredReason: gitea === undefined ? CONFIG_MESSAGE : undefined,
     async draft(task, signal, scenario, _visitorName, memory) {
       if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
       if (llm === undefined) {
