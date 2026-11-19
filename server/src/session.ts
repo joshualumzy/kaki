@@ -1,5 +1,5 @@
-import type { KakiEvent, MeetingMemoryEntry, MeetingSetup, Scenario } from '@kaki/shared';
-import type { Hub } from './hub';
+import type { MeetingMemoryEntry, MeetingSetup, Scenario } from '@kaki/shared';
+import type { MeetingHub } from './hub';
 import type { MeetingPersistence } from './persist/persistence';
 import type { RejoinGuard } from './rejoin';
 
@@ -33,7 +33,7 @@ interface ResetRef<T> {
 }
 
 export interface MeetingSessionDeps {
-  hub: Pick<Hub, 'publish' | 'clearRetained'>;
+  hub: Pick<MeetingHub, 'publishMeetingReset' | 'clearRetained'>;
   rejoin: Pick<RejoinGuard, 'forgetRestored' | 'identities'>;
   memory: MeetingMemoryEntry[];
   setupDraft: ResetRef<MeetingSetup>;
@@ -52,7 +52,7 @@ export interface MeetingSessionDeps {
   setPackAgenda(): void;
   /** Shape an untouched draft's agenda for a seat, or the pack order when there is none. */
   shapeUntouchedAgenda(seat: string | undefined): void;
-  persistence?: Pick<MeetingPersistence, 'clearSaved' | 'scheduleSave'>;
+  persistence?: Pick<MeetingPersistence, 'replaceSaved'>;
 }
 
 export interface MeetingSession {
@@ -62,25 +62,14 @@ export interface MeetingSession {
   onReset(hook: () => void): () => void;
   /** Bumped on every new identity, so a late acknowledgement can be refused. */
   generation(): number;
-  /** True only while this session is publishing its own MEETING_RESET. */
-  ownsResetEvent(event: KakiEvent): boolean;
 }
 
 export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let generation = 0;
   const hooks: Array<() => void> = [];
-  let publishingReset: KakiEvent | undefined;
 
-  function clearSavedState(): void {
-    const persistence = deps.persistence;
-    if (persistence === undefined) return;
-    void persistence.clearSaved().catch((error: unknown) => {
-      const reason = error instanceof Error ? error.message : String(error);
-      console.error(
-        `kaki session: could not clear the saved meeting (${reason}); the next save will overwrite it`,
-      );
-      persistence.scheduleSave();
-    });
+  function replaceSavedState(): void {
+    deps.persistence?.replaceSaved();
   }
 
   function reset(options: MeetingSessionResetOptions = {}): string {
@@ -115,19 +104,13 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
 
     for (const key of MEETING_RETAINED_KEYS) deps.hub.clearRetained(key);
     deps.rejoin.forgetRestored();
-    if (!options.savedAlreadyCleared) clearSavedState();
+    if (!options.savedAlreadyCleared) replaceSavedState();
 
-    const event: KakiEvent = {
+    deps.hub.publishMeetingReset({
       type: 'MEETING_RESET',
       audience: { kind: 'all' },
       payload: { meetingId },
-    };
-    publishingReset = event;
-    try {
-      deps.hub.publish(event);
-    } finally {
-      publishingReset = undefined;
-    }
+    });
     return meetingId;
   }
 
@@ -141,6 +124,5 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       };
     },
     generation: () => generation,
-    ownsResetEvent: (event) => event === publishingReset,
   };
 }

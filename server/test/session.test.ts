@@ -11,11 +11,9 @@ function copyScenario(): Scenario {
 }
 
 function harness({
-  failClear = false,
   draftTouched = true,
   sealed = false,
 }: {
-  failClear?: boolean;
   draftTouched?: boolean;
   sealed?: boolean;
 } = {}) {
@@ -26,17 +24,16 @@ function harness({
   const calls: string[] = [];
   const clearedKeys: string[] = [];
   const published: KakiEvent[] = [];
-  let clears = 0;
-  let saves = 0;
+  let replaces = 0;
   const setupDraft = { current: setup };
   const sealedSetup = { current: sealed ? setup : undefined };
   const draftTouchedRef = { current: draftTouched };
 
   const session = createMeetingSession({
     hub: {
-      publish(event) {
+      publishMeetingReset(event) {
         published.push(event);
-        calls.push('publish');
+        calls.push('publishMeetingReset');
       },
       clearRetained(prefix) {
         clearedKeys.push(prefix);
@@ -72,12 +69,8 @@ function harness({
       calls.push(`shape:${seat ?? 'none'}`);
     },
     persistence: {
-      async clearSaved() {
-        clears += 1;
-        if (failClear) throw new Error('database is down');
-      },
-      scheduleSave() {
-        saves += 1;
+      replaceSaved() {
+        replaces += 1;
       },
     },
   });
@@ -92,8 +85,7 @@ function harness({
     calls,
     clearedKeys,
     published,
-    clears: () => clears,
-    saves: () => saves,
+    replaces: () => replaces,
   };
 }
 
@@ -127,7 +119,7 @@ describe('meeting session reset', () => {
     expect(h.clearedKeys).toEqual([...MEETING_RETAINED_KEYS]);
     expect(h.published).toHaveLength(1);
     expect(h.published[0]).toMatchObject({ type: 'MEETING_RESET', payload: { meetingId: 'new-meeting' } });
-    expect(h.session.ownsResetEvent(h.published[0]!)).toBe(false);
+    expect(h.replaces()).toBe(1);
     expect(h.calls).toEqual([
       'rotate:true',
       'restoreScenario',
@@ -135,7 +127,7 @@ describe('meeting session reset', () => {
       'hook:first',
       'hook:second',
       'forgetRestored',
-      'publish',
+      'publishMeetingReset',
     ]);
   });
 
@@ -168,24 +160,20 @@ describe('meeting session reset', () => {
     expect(h.draftTouched.current).toBe(false);
   });
 
-  it('logs a failed saved-state clear loudly and schedules the next save to overwrite it', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const h = harness({ failClear: true });
+  it('asks persistence to replace the saved meeting on a committed reset', () => {
+    const h = harness();
 
     h.session.reset();
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('database is down'));
-    expect(h.saves()).toBe(1);
+    expect(h.replaces()).toBe(1);
   });
 
-  it('does not clear the saved meeting again when the caller already waited for it', () => {
+  it('does not touch the saved meeting again when the caller already waited for the clear', () => {
     const h = harness();
 
     h.session.reset({ savedAlreadyCleared: true });
 
-    expect(h.clears()).toBe(0);
+    expect(h.replaces()).toBe(0);
   });
 });
 

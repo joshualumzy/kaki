@@ -99,6 +99,12 @@ export interface Hub {
   close(): void;
 }
 
+/** The real hub also owns the one publication path for a meeting reset. */
+export interface MeetingHub extends Hub {
+  /** The only way to publish a MEETING_RESET; `publish` refuses that event. */
+  publishMeetingReset(event: KakiEvent): void;
+}
+
 function rawDataToString(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
   if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8');
@@ -177,7 +183,7 @@ function rejectionFor(audience: ClientAudience, commandType: string, reason: str
 }
 
 /** Create the `/ws` hub attached to an existing HTTP server for one scenario. */
-export function createHub(httpServer: Server, scenario: Scenario, options: HubOptions = {}): Hub {
+export function createHub(httpServer: Server, scenario: Scenario, options: HubOptions = {}): MeetingHub {
   const authorize = options.authorize;
   const isHumanSeat = options.isHumanSeat ?? (() => false);
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -457,29 +463,46 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     });
   });
 
+  function deliver(event: KakiEvent, options: PublishOptions = {}): void {
+    if (options.retainKey !== undefined) {
+      retained.delete(options.retainKey);
+      retained.set(options.retainKey, event);
+    }
+
+    const message = JSON.stringify(event);
+    for (const [socket, audience] of clients) {
+      if (wantsEvent(event, audience)) sendTo(socket, audience, message);
+    }
+
+    for (const handler of subscribers) {
+      try {
+        handler(event);
+      } catch (error) {
+        console.error('kaki hub: a subscriber failed', error);
+      }
+    }
+  }
+
   return {
     publish(event, options = {}) {
       if (!isKakiEvent(event, scenario)) {
         throw new Error(`kaki hub: refusing to publish an invalid event: ${JSON.stringify(event)}`);
       }
-
-      if (options.retainKey !== undefined) {
-        retained.delete(options.retainKey);
-        retained.set(options.retainKey, event);
+      if (event.type === 'MEETING_RESET') {
+        const reason =
+          'MEETING_RESET can only be published by the meeting session; call session.reset instead';
+        console.error(`kaki hub: refused to publish a MEETING_RESET: ${reason}`);
+        throw new Error(`kaki hub: ${reason}`);
       }
-
-      const message = JSON.stringify(event);
-      for (const [socket, audience] of clients) {
-        if (wantsEvent(event, audience)) sendTo(socket, audience, message);
+      deliver(event, options);
+    },
+    publishMeetingReset(event) {
+      if (!isKakiEvent(event, scenario) || event.type !== 'MEETING_RESET') {
+        throw new Error(
+          `kaki hub: refusing to publish an invalid meeting reset: ${JSON.stringify(event)}`,
+        );
       }
-
-      for (const handler of subscribers) {
-        try {
-          handler(event);
-        } catch (error) {
-          console.error('kaki hub: a subscriber failed', error);
-        }
-      }
+      deliver(event);
     },
     subscribe(handler) {
       subscribers.add(handler);

@@ -94,6 +94,7 @@ async function startedMeeting(
     rejoinGraceMs: 60_000,
     rejoinPollMs: 60_000,
     admissionReservationMs: 20,
+    devRoutes: true,
   });
   apps.push(app);
   const port = portOf(app);
@@ -216,19 +217,28 @@ describe('join admission decides before it resets', () => {
   it('resets exactly once when a valid stranger joins the empty room', async () => {
     const meeting = await startedMeeting();
     await emptyRoom(meeting);
+    let subscriberResets = 0;
+    const unsubscribe = meeting.app.hub.subscribe((event) => {
+      if (event.type === 'MEETING_RESET') subscriberResets += 1;
+    });
 
-    const joined = await join(meeting.app, { participantName: 'Guest', participantRole: 'producer' });
-    expect(joined.status).toBe(200);
-    const body = (await joined.json()) as { meetingCode: string; started?: boolean };
-    expect(body.started).toBe(false);
-    expect(meeting.app.tasks.get(meeting.taskId)).toBeUndefined();
+    try {
+      const joined = await join(meeting.app, { participantName: 'Guest', participantRole: 'producer' });
+      expect(joined.status).toBe(200);
+      const body = (await joined.json()) as { meetingCode: string; started?: boolean };
+      expect(body.started).toBe(false);
+      expect(meeting.app.tasks.get(meeting.taskId)).toBeUndefined();
 
-    await waitForEvent(meeting.screen, (event) => event.type === 'MEETING_RESET', 'the one reset');
-    await settle();
-    expect(resetCount(meeting.screen)).toBe(1);
-    expect((await meetingState(meeting.app)).meetingId).not.toBe(meeting.meetingId);
-    expect(body.meetingCode).toBe(meeting.meetingCode.value);
-    expect(body.meetingCode).not.toBe(meeting.code);
+      await waitForEvent(meeting.screen, (event) => event.type === 'MEETING_RESET', 'the one reset');
+      await settle();
+      expect(resetCount(meeting.screen)).toBe(1);
+      expect(subscriberResets).toBe(1);
+      expect((await meetingState(meeting.app)).meetingId).not.toBe(meeting.meetingId);
+      expect(body.meetingCode).toBe(meeting.meetingCode.value);
+      expect(body.meetingCode).not.toBe(meeting.code);
+    } finally {
+      unsubscribe();
+    }
   });
 });
 
@@ -236,20 +246,57 @@ describe('foreign resets', () => {
   it('refuses a MEETING_RESET published outside the meeting session', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const meeting = await startedMeeting();
+    const resetsBefore = resetCount(meeting.screen);
+    let resetSubscriberRuns = 0;
+    const unsubscribe = meeting.app.hub.subscribe((event) => {
+      if (event.type === 'MEETING_RESET') resetSubscriberRuns += 1;
+    });
 
-    meeting.app.hub.publish({
-      type: 'MEETING_RESET',
-      audience: { kind: 'all' },
-      payload: { meetingId: 'foreign-meeting' },
+    try {
+      expect(() =>
+        meeting.app.hub.publish({
+          type: 'MEETING_RESET',
+          audience: { kind: 'all' },
+          payload: { meetingId: 'foreign-meeting' },
+        }),
+      ).toThrow(/MEETING_RESET/);
+      await settle();
+
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('refused to publish a MEETING_RESET'));
+      expect(resetSubscriberRuns).toBe(0);
+      expect(resetCount(meeting.screen)).toBe(resetsBefore);
+      expect(await meetingState(meeting.app)).toMatchObject({
+        meetingId: meeting.meetingId,
+        started: true,
+      });
+      expect(meeting.meetingCode.value).toBe(meeting.code);
+      expect(meeting.app.tasks.get(meeting.taskId)?.title).toBe('Keep this card');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('refuses a MEETING_RESET sent through the event-injection routes', async () => {
+    const meeting = await startedMeeting();
+    const resetsBefore = resetCount(meeting.screen);
+
+    const res = await fetch(`${baseUrl(meeting.app)}/dev/emit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'MEETING_RESET',
+        audience: { kind: 'all' },
+        payload: { meetingId: 'foreign-meeting' },
+      }),
     });
     await settle();
 
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('refused a MEETING_RESET'));
+    expect(res.status).toBe(400);
+    expect(resetCount(meeting.screen)).toBe(resetsBefore);
     expect(await meetingState(meeting.app)).toMatchObject({
       meetingId: meeting.meetingId,
       started: true,
     });
-    expect(meeting.meetingCode.value).toBe(meeting.code);
     expect(meeting.app.tasks.get(meeting.taskId)?.title).toBe('Keep this card');
   });
 });

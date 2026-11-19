@@ -27,6 +27,12 @@ export interface MeetingPersistence {
    * the queue, is retried before later saves, and rejects this call so the caller can tell the host.
    */
   clearSaved(): Promise<void>;
+  /**
+   * Persist the current meeting over the saved one for a committed reset. A delete that fails must
+   * not block the overwrite: the new meeting is saved over the old row instead, and the failure is
+   * logged. Nothing is awaited; the reset does not depend on the database.
+   */
+  replaceSaved(): void;
   /** Wait for queued writes; used by shutdown and tests. */
   flush(): Promise<void>;
   /** Finish queued writes and release the database connection. */
@@ -59,7 +65,12 @@ interface ClearEntry {
   waiters: ClearWaiter[];
 }
 
-type QueueEntry = SaveEntry | ClearEntry;
+/** A committed reset: delete the old meeting, or save the new one over it if deleting fails. */
+interface ReplaceEntry {
+  kind: 'replace';
+}
+
+type QueueEntry = SaveEntry | ClearEntry | ReplaceEntry;
 
 /** Tell everyone waiting on this clear that the attempt succeeded. */
 function resolveClear(entry: ClearEntry): void {
@@ -82,7 +93,7 @@ export function createMeetingPersistence({
   let source: MeetingSnapshotSource | undefined;
   let closed = false;
   // Writes and clears in call order. The head is what runs next; a failed clear stays there and blocks
-  // later saves until a retry succeeds.
+  // later saves until a retry succeeds, unless a committed reset is queued behind it to save over it.
   const queue: QueueEntry[] = [];
   let processing: Promise<void> | undefined;
   // Work arrived while the queue was running: it must run again even if the loop stopped on a failed clear.
@@ -114,6 +125,15 @@ export function createMeetingPersistence({
     }
   }
 
+  /** Save the new meeting over a failed delete, after saying loudly that the delete failed. */
+  async function overwriteAfterFailedClear(error: unknown): Promise<void> {
+    log(`[persist] clear failed: ${errorMessage(error)}`);
+    log(
+      'kaki persist: the old saved meeting could not be deleted; overwriting it with the new meeting',
+    );
+    await runSave();
+  }
+
   async function drain(): Promise<void> {
     while (queue.length > 0) {
       const head = queue[0]!;
@@ -122,13 +142,30 @@ export function createMeetingPersistence({
         await runSave();
         continue;
       }
+      if (head.kind === 'replace') {
+        queue.shift();
+        try {
+          await store.clear();
+        } catch (error) {
+          await overwriteAfterFailedClear(error);
+        }
+        continue;
+      }
       try {
         await store.clear();
       } catch (error) {
-        log(`[persist] clear failed: ${errorMessage(error)}`);
         rejectClear(head, error);
-        // Leave the clear at the head: the next save retries it first rather than overwriting it.
-        return;
+        // A committed reset behind this clear supersedes it: the old meeting is overwritten by the
+        // new one, so neither the failed delete nor the reset entry may stay queued.
+        const replaceIndex = queue.findIndex((entry) => entry.kind === 'replace');
+        if (replaceIndex < 0) {
+          log(`[persist] clear failed: ${errorMessage(error)}`);
+          // Leave the clear at the head: the next save retries it first rather than overwriting it.
+          return;
+        }
+        queue.splice(0, replaceIndex + 1);
+        await overwriteAfterFailedClear(error);
+        continue;
       }
       queue.shift();
       resolveClear(head);
@@ -178,6 +215,17 @@ export function createMeetingPersistence({
     start();
   }
 
+  function replaceSaved(): void {
+    if (closed) return;
+    // One replacement is enough: it deletes the old meeting or saves over it, and any saves queued
+    // after it write the latest state. Converting a queued save otherwise avoids writing it twice.
+    if (!queue.some((entry) => entry.kind === 'replace')) {
+      if (queue[queue.length - 1]?.kind === 'save') queue[queue.length - 1] = { kind: 'replace' };
+      else queue.push({ kind: 'replace' });
+    }
+    start();
+  }
+
   function clearSaved(): Promise<void> {
     if (closed) return Promise.reject(new Error('the meeting store is closed'));
     return new Promise<void>((resolve, reject) => {
@@ -202,6 +250,12 @@ export function createMeetingPersistence({
       }
       if (queue.length === 0) return;
       if (queue[0]!.kind === 'clear') {
+        // A committed reset behind the clear knows how to save over the old row, so let the queue
+        // run; only a clear with nothing to overwrite gets the single shutdown retry.
+        if (queue.some((entry) => entry.kind === 'replace')) {
+          start();
+          continue;
+        }
         await retryClearOnce();
         // Retry a failed clear only once at shutdown: a database that is still down must not spin,
         // and later saves must not overwrite the meeting that clear is protecting.
@@ -232,6 +286,7 @@ export function createMeetingPersistence({
     },
     scheduleSave,
     clearSaved,
+    replaceSaved,
     flush,
     close,
   };

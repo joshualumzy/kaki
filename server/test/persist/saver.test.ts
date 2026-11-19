@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { MeetingSetup } from '@kaki/shared';
+import type { MeetingMemoryEntry, MeetingSetup } from '@kaki/shared';
 import { createMeetingPersistence } from '../../src/persist/persistence';
+import { MEETING_STATE_SCHEMA_VERSION } from '../../src/persist/state';
 import type { MeetingSnapshot, MeetingStateStore, SavedMeetingState, StoredMeeting } from '../../src/persist/state';
+import { createMeetingSession } from '../../src/session';
+import { testScenario } from '../fixtures/scenario';
 
 const setup: MeetingSetup = {
   title: 'Prep',
@@ -12,19 +15,31 @@ const setup: MeetingSetup = {
   source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
 };
 
-function snapshot(agendaIndex: number): MeetingSnapshot {
+function snapshot(agendaIndex: number, meetingId = 'meeting-1'): MeetingSnapshot {
   return {
     startedAt: '2026-01-01T00:00:00.000Z',
-    state: stateWithAgenda(agendaIndex),
+    state: stateWithAgenda(agendaIndex, meetingId),
     setup,
     meetingCode: 'AB12CD',
     seats: [],
   };
 }
 
-function stateWithAgenda(agendaIndex: number): SavedMeetingState {
+function stored(snap: MeetingSnapshot): StoredMeeting {
   return {
-    meetingId: 'meeting-1',
+    schemaVersion: MEETING_STATE_SCHEMA_VERSION,
+    savedAt: '2026-01-01T00:00:00.000Z',
+    ...(snap.startedAt === undefined ? {} : { startedAt: snap.startedAt }),
+    state: snap.state,
+    setup: snap.setup,
+    meetingCode: snap.meetingCode,
+    seats: snap.seats,
+  };
+}
+
+function stateWithAgenda(agendaIndex: number, meetingId = 'meeting-1'): SavedMeetingState {
+  return {
+    meetingId,
     agenda: ['Prep', 'Service', 'Close'],
     clock: {
       started: true,
@@ -107,6 +122,30 @@ class FailingStore implements MeetingStateStore {
   }
 
   async clear(): Promise<void> {}
+}
+
+class DeleteFailingStore implements MeetingStateStore {
+  saved: StoredMeeting | undefined;
+  saves = 0;
+  clears = 0;
+
+  constructor(initial: StoredMeeting | undefined) {
+    this.saved = initial;
+  }
+
+  async load(): Promise<StoredMeeting | undefined> {
+    return this.saved;
+  }
+
+  async save(meeting: StoredMeeting): Promise<void> {
+    this.saves += 1;
+    this.saved = meeting;
+  }
+
+  async clear(): Promise<void> {
+    this.clears += 1;
+    throw new Error('delete is denied');
+  }
 }
 
 class OrderedStore implements MeetingStateStore {
@@ -315,6 +354,80 @@ describe('meeting persistence saver', () => {
     expect(store.saved).toBeDefined();
     expect(logs).toContain(
       'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset to discard it.',
+    );
+  });
+
+  it('saves the new meeting over the old row when a committed reset cannot delete it', async () => {
+    const store = new DeleteFailingStore(stored(snapshot(0, 'old-meeting')));
+    const logs: string[] = [];
+    let current = snapshot(0, 'old-meeting');
+    let publishes = 0;
+    const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
+    persistence.registerSource(() => current);
+    const memory: MeetingMemoryEntry[] = [];
+    const session = createMeetingSession({
+      hub: {
+        publishMeetingReset() {
+          publishes += 1;
+        },
+        clearRetained() {},
+      },
+      rejoin: {
+        forgetRestored() {},
+        identities() {
+          return [];
+        },
+      },
+      memory,
+      setupDraft: { current: setup },
+      sealedSetup: { current: undefined },
+      draftTouched: { current: false },
+      defaultSetup: setup,
+      scenario: testScenario,
+      fullScenario: testScenario,
+      meetingId: () => current.state.meetingId,
+      rotateIdentity() {
+        current = snapshot(0, 'new-meeting');
+        return current.state.meetingId;
+      },
+      restoreScenarioFields() {},
+      setPackAgenda() {},
+      shapeUntouchedAgenda() {},
+      persistence,
+    });
+
+    session.reset();
+    await persistence.flush();
+
+    expect(publishes).toBe(1);
+    expect(store.clears).toBe(1);
+    expect(store.saves).toBe(1);
+    expect(store.saved?.state.meetingId).toBe('new-meeting');
+    expect((await store.load())?.state.meetingId).toBe('new-meeting');
+    expect(logs).toContain('[persist] clear failed: delete is denied');
+    expect(logs).toContain(
+      'kaki persist: the old saved meeting could not be deleted; overwriting it with the new meeting',
+    );
+  });
+
+  it('a committed reset saves even when a failed clear is already at the head of the queue', async () => {
+    const store = new OrderedStore();
+    store.releaseFirst();
+    const logs: string[] = [];
+    let current = snapshot(0, 'old-meeting');
+    const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
+    persistence.registerSource(() => current);
+
+    store.clearFailures = 3;
+    await expect(persistence.clearSaved()).rejects.toThrow('database is down');
+    current = snapshot(0, 'new-meeting');
+    persistence.replaceSaved();
+    await persistence.flush();
+
+    expect(store.saved?.state.meetingId).toBe('new-meeting');
+    expect(logs).toContain('[persist] clear failed: database is down');
+    expect(logs).toContain(
+      'kaki persist: the old saved meeting could not be deleted; overwriting it with the new meeting',
     );
   });
 });

@@ -945,6 +945,10 @@ async function handleRequest(
         sendJson(response, 400, { error: 'Body must be a valid KakiEvent' });
         return;
       }
+      if (body.value.type === 'MEETING_RESET') {
+        sendJson(response, 400, { error: 'MEETING_RESET can only be published by the meeting session' });
+        return;
+      }
 
       // Transcript lines and reactions are live-only: replaying them to a page that opens later shows ghost speech
       // or a stale reaction badge. Everything else a demo emits (nudges, facts, tasks) stays available to phones
@@ -1712,15 +1716,6 @@ export async function createApp({
     starting = pending;
     return pending.promise;
   }
-  hub.subscribe((event) => {
-    if (event.type !== 'MEETING_RESET') return;
-    // The session is the only owner of a reset. A MEETING_RESET from anywhere else is refused loudly
-    // rather than half-applied, so a stray publisher cannot leave the meeting in two states.
-    if (session.ownsResetEvent(event)) return;
-    console.error(
-      `kaki server: refused a MEETING_RESET that did not come from the meeting session (meetingId ${event.payload.meetingId}); call session.reset instead`,
-    );
-  });
   if (persistence !== undefined) {
     hub.subscribe((event) => {
       if (

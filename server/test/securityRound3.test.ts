@@ -401,6 +401,7 @@ describe('security round 3', () => {
       saved: undefined,
       registerSource() {}, scheduleSave() { saves += 1; },
       async clearSaved() { entered(); await gate; },
+      replaceSaved() { saves += 1; },
       async flush() {}, async close() {},
     };
     const { app } = await authApp({ modules: [createMeetingModule()], persistence });
