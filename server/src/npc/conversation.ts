@@ -469,7 +469,7 @@ interface Turn {
   held?: boolean;
   /** A silence nudge (a check-in, a colleague line or the statement bridge); its note is dropped if it is never heard. */
   nudge?: boolean;
-  /** This scripted line re-asks a live confirmation or offer, so it must not clear that gate. */
+  /** This scripted silence line keeps a live confirmation or offer gate open. */
   gateReask?: boolean;
   /** The history entry the nudge note was written from, removed when the visitor speaks before any of it is heard. */
   nudgeNote?: ChatMessage;
@@ -1863,6 +1863,8 @@ export class NpcConversation<Clip> {
   private briefTimer: ReturnType<typeof setTimeout> | undefined;
   private deferredFollowUpTimer: ReturnType<typeof setTimeout> | undefined;
   private silencePromptStage = 0;
+  /** The current read-back has already had its one "Still with me?" nudge. */
+  private confirmationNudged = false;
   private bridgedStatementOnTurn = false;
   /** The host has already asked the visitor to repeat themselves since their last line. */
   private recoveryCueSpoken = false;
@@ -2054,6 +2056,7 @@ export class NpcConversation<Clip> {
     this.budgetRecoveryPending = false;
     this.meetingState.setConfirmationAsked(false);
     this.meetingState.setOfferAsked(false);
+    this.confirmationNudged = false;
     this.clearPendingGate();
   }
 
@@ -2626,10 +2629,9 @@ export class NpcConversation<Clip> {
 
   /** The old choice of first speaker, used only when a scenario gives the item no briefing facts. */
   private fallbackBriefSpeaker(item: AgendaItem, seat: string | undefined, host: string | undefined): string | undefined {
-    const candidates = [...new Set([
-      ...(item.discussion?.openingViews ?? []).map((view) => view.attendee),
-      ...(item.discussion?.tradeOffs ?? []).map((tradeOff) => tradeOff.attendee),
-    ])].filter((name) => name !== seat && name !== host && this.names.includes(name));
+    const candidates = [...new Set(
+      (item.discussion?.openingViews ?? []).map((view) => view.attendee),
+    )].filter((name) => name !== seat && name !== host && this.names.includes(name));
     const pushing = pushingColleague(this.options.scenario, item, this.human?.role, this.names, host);
     return [...new Set([
       ...(pushing === undefined ? [] : [pushing]),
@@ -3744,7 +3746,7 @@ export class NpcConversation<Clip> {
         .map((name) => ({
           name,
           facts: view.facts.filter((fact) => fact.knownBy.includes(name)).map((fact) => ({ id: fact.id, text: fact.text })),
-          catches: view.catches.filter((entry) => entry.attendee === name).map((entry) => ({ id: entry.id, text: entry.text })),
+          catches: view.catches.filter((entry) => entry.attendee === name).map((entry) => ({ id: entry.id, idea: entry.idea, text: entry.text })),
         })),
       recentHeard: view.lines.filter((entry) => entry.complete).slice(-6).map((entry) => ({ speaker: entry.speaker, text: entry.text })),
       ...(openOffer === undefined ? {} : { offer: openOffer }),
@@ -3891,18 +3893,11 @@ export class NpcConversation<Clip> {
     return `${guest}, shall we make the smallest call you can live with now?`;
   }
 
-  /** The live confirmation or offer Sam should re-ask after silence instead of a generic nudge. */
-  private liveGateReask(): { line: string; gate: 'confirmation' | 'offer' } | undefined {
+  /** The live offer Sam should re-ask after silence instead of a generic nudge. */
+  private liveGateReask(): { line: string; gate: 'offer' } | undefined {
     const guest = this.human?.name;
     if (guest === undefined) return undefined;
     const view = this.meetingState.view(Date.now());
-    if (view.confirmationAsked &&
-        (view.confirmationCall !== undefined || view.confirmationSpoken !== undefined)) {
-      return {
-        line: view.confirmationSpoken ?? `${guest}, is that your call?`,
-        gate: 'confirmation',
-      };
-    }
     if (view.offerAsked && view.offer !== undefined) {
       return { line: this.offerAskLine(guest, view.offer), gate: 'offer' };
     }
@@ -4077,6 +4072,7 @@ export class NpcConversation<Clip> {
         }
         this.meetingState.setOfferAsked(false);
         this.meetingState.setConfirmationAsked(true, evidence, line);
+        this.confirmationNudged = false;
       });
     };
     if (evidence === undefined) {
@@ -4097,6 +4093,33 @@ export class NpcConversation<Clip> {
     };
     void this.writeGateLine(request, abort.signal).then((written) => speak(written ?? fallback));
     return true;
+  }
+
+  /** No answer after the one nudge: the call Sam read back is the guest's own call, so commit it and move on. */
+  private commitReadBackOnSilence(view: MeetingView): void {
+    const call = view.confirmationCall ?? mergedReadiness(view).action.evidence;
+    const guest = this.human?.name;
+    if (call === undefined || guest === undefined) {
+      this.ports.log?.('[confirm] no answer after the nudge, but no read-back call to commit');
+      this.resolveUnresolved('the read-back had no call to commit after silence');
+      return;
+    }
+    this.ports.log?.('[confirm] no answer after nudge; committing the read-back call');
+    const line: HeardLine = {
+      eventId: `silence-confirm-${Date.now()}`,
+      speaker: guest,
+      text: call,
+      at: Date.now(),
+      complete: true,
+      proposal: false,
+      catch: false,
+    };
+    this.commitConfirmedDecision({
+      kind: 'CommitDecision',
+      reason: 'the guest did not answer the read-back after one nudge; their own call stands',
+      respondsTo: line.eventId,
+      call,
+    }, line, undefined);
   }
 
   /** The guest agreed to one specific call: commit exactly that call through the normal task-store path. */
@@ -4229,8 +4252,7 @@ export class NpcConversation<Clip> {
       title === undefined ||
       this.pendingBrief === title ||
       this.mode() === 'observe' ||
-      this.decisionWrappedUpOnItem ||
-      this.silencePromptStage >= 2
+      this.decisionWrappedUpOnItem
     ) {
       return;
     }
@@ -4279,7 +4301,23 @@ export class NpcConversation<Clip> {
         this.scheduleSilencePrompt();
         return;
       }
-      // A live confirmation or offer is re-asked as that same question, so the gate stays the last thing heard.
+      // A live read-back gets one fixed nudge, then its own call stands and the meeting moves on.
+      const confirmView = this.meetingState.view(Date.now());
+      if (confirmView.confirmationAsked) {
+        if (!this.confirmationNudged) {
+          this.confirmationNudged = true;
+          this.ports.log?.('[confirm] no answer to the read-back; asking "Still with me?" once');
+          this.announce(host, 'Still with me?', DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+            if (!spoken) this.ports.log?.('[confirm] the nudge was not heard; the read-back stays live');
+            this.scheduleSilencePrompt();
+          }, undefined, { gateReask: true });
+          return;
+        }
+        this.commitReadBackOnSilence(confirmView);
+        return;
+      }
+      if (this.silencePromptStage >= 2) return;
+      // A live offer is re-asked as that same question, so the gate stays the last thing heard.
       // It counts as this stage of the silence escalation, so the existing cap still stops it looping.
       const gateReask = this.liveGateReask();
       if (gateReask !== undefined) {

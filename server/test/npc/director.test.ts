@@ -245,10 +245,10 @@ describe('pushingColleague', () => {
   it('skips a host owner and uses the first eligible opening view', () => {
     expect(pushingColleague(scenario, { ...item, ownerRole: 'host' }, 'Guest', present, 'Hal')).toBe('Bao');
   });
-  it('uses trade-offs, then any present colleague, then no name', () => {
+  it('uses opening views, then any present colleague, then no name', () => {
     const fallback = { ...item, ownerRole: 'host', discussion: {
-      openingViews: [{ attendee: 'Hal', angle: 'Host view' }],
-      tradeOffs: [{ attendee: 'Bao', role: 'cashier', tradeOff: 'A cost', question: 'Which cost?' }],
+      openingViews: [{ attendee: 'Bao', angle: 'Other view' }],
+      tradeOffs: [{ attendee: 'Ada', role: 'chef', idea: 'a change', tradeOff: 'A cost', question: 'Which cost?' }],
     } };
     expect(pushingColleague(scenario, fallback, 'Guest', present, 'Hal')).toBe('Bao');
     expect(pushingColleague(scenario, { ...fallback, discussion: undefined }, 'Guest', present, 'Hal')).toBe('Ada');

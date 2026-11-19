@@ -145,12 +145,14 @@ describe('shipped Kopitiam story', () => {
         ...(npc.tensions ?? []).map((tension) => tension.about)].join(' ');
       for (const fact of seatFacts) expect(profile).not.toContain(fact);
     }
+    expect(scenario.agenda.map((item) => item.discussion?.tradeOffs.length)).toEqual([5, 4, 5, 4, 4]);
     for (const item of scenario.agenda) {
       expect(item.discussion?.openingViews).toHaveLength(2);
-      expect(item.discussion?.tradeOffs).toHaveLength(2);
-      expect(item.discussion?.tradeOffs.map((tradeOff) => tradeOff.attendee)).toEqual(
-        item.discussion?.openingViews.map((view) => view.attendee),
-      );
+      for (const tradeOff of item.discussion?.tradeOffs ?? []) {
+        expect(tradeOff.idea.trim().length, `${item.title} / ${tradeOff.tradeOff} idea`).toBeGreaterThan(0);
+        const attendee = scenario.attendees.find((candidate) => candidate.name === tradeOff.attendee);
+        expect(tradeOff.role, `${item.title} / ${tradeOff.attendee} role`).toBe(attendee?.role);
+      }
       expect(item.art).toMatch(/^\/scenario\/crisis-[a-z-]+\.svg$/);
       expect(existsSync(path.join(scenarioDir, '../../web/public', item.art!))).toBe(true);
     }

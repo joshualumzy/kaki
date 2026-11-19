@@ -44,7 +44,7 @@ const scenario: Scenario = {
       },
       discussion: {
         openingViews: [],
-        tradeOffs: [{ attendee: 'Bao', role: 'cashier', tradeOff: 'A new till login takes fifteen minutes.', question: 'Who covers the till?' }],
+        tradeOffs: [{ attendee: 'Bao', role: 'cashier', idea: 'an agency temp', tradeOff: 'A new till login takes fifteen minutes.', question: 'Who covers the till?' }],
       },
     },
     {

@@ -30,6 +30,8 @@ export interface MeetingFactInfo {
 export interface MeetingCatchInfo {
   id: string;
   attendee: string;
+  /** The guest idea this catch reacts to, in the scenario's own plain words. */
+  idea: string;
   text: string;
 }
 
@@ -96,6 +98,7 @@ export interface MeetingFactView {
 export interface MeetingCatchView {
   id: string;
   attendee: string;
+  idea: string;
   text: string;
   raised: boolean;
 }
@@ -265,6 +268,7 @@ export function meetingTopic(item: AgendaItem, index: number): MeetingTopicInfo 
     catches: (item.discussion?.tradeOffs ?? []).map((tradeOff, catchIndex) => ({
       id: `${index}:catch:${catchIndex}`,
       attendee: tradeOff.attendee,
+      idea: tradeOff.idea,
       text: tradeOff.tradeOff,
     })),
   };
@@ -363,6 +367,7 @@ function derive(
   const catches: MeetingCatchView[] = topic.catches.map((entry) => ({
     id: entry.id,
     attendee: entry.attendee,
+    idea: entry.idea,
     text: entry.text,
     raised: false,
   }));

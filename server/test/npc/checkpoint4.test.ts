@@ -44,7 +44,7 @@ const scenario: Scenario = {
       },
       discussion: {
         openingViews: [],
-        tradeOffs: [{ attendee: 'Bao', role: 'cashier', tradeOff: 'A new till login takes fifteen minutes.', question: 'Who covers the till?' }],
+        tradeOffs: [{ attendee: 'Bao', role: 'cashier', idea: 'an agency temp', tradeOff: 'A new till login takes fifteen minutes.', question: 'Who covers the till?' }],
       },
     },
     {
@@ -607,7 +607,7 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     h.conversation.close();
   });
 
-  it('stops after two offers and closes honestly instead of looping', async () => {
+  it('confirms the covered call after two offers instead of looping', async () => {
     const h = harness({
       replies: [
         'Ada: What do you want to do about the counter?',
@@ -639,8 +639,9 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     await finishPlaying(h);
 
     expect(h.playing.filter((entry) => /how about we/i.test(entry.text))).toHaveLength(2);
-    expect(h.advanced).toContain('next');
-    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
+    expect(h.advanced).not.toContain('next');
+    expect(h.playing.some((entry) => entry.text.endsWith("That's the call?"))).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
     expect(h.settle).not.toHaveBeenCalled();
     h.conversation.close();
   });

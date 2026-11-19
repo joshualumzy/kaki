@@ -165,12 +165,35 @@
           {
             "attendee": "Wei Ling",
             "role": "producer",
+            "idea": "Call Auntie Mary in",
             "tradeOff": "It's her rest day though. Double pay, and she's allowed to say no.",
             "question": "Who is actually going to stand on that counter with them from 8?"
           },
           {
+            "attendee": "Arjun",
+            "role": "lead_programmer",
+            "idea": "Agency temp",
+            "tradeOff": "A temp needs a till login, that's fifteen minutes of mine. And they won't know the menu.",
+            "question": "What do you want me to set up for a temp before eight?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "idea": "A manager covers the counter",
+            "tradeOff": "Then whoever it is drops their own job this morning.",
+            "question": "Which job do we drop if a manager takes the counter?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "game_designer",
+            "idea": "Cut to drinks and toast",
+            "tradeOff": "Then there are no breakfast sets on opening day.",
+            "question": "What do we tell people who came for a breakfast set?"
+          },
+          {
             "attendee": "Daniel",
             "role": "marketing_lead",
+            "idea": "Scale back the free kopi",
             "tradeOff": "That flyer went to the whole building. Pull it now and day one starts with a broken promise.",
             "question": "How do we get through the 8 o'clock rush without pulling the free kopi we promised?"
           }
@@ -263,16 +286,32 @@
         ],
         "tradeOffs": [
           {
-            "attendee": "Mei",
-            "role": "game_designer",
-            "tradeOff": "Funny thing is, we put their photos up on the wall. A note at the counter won't fix that.",
-            "question": "How do we look after the old regulars without gutting the new menu?"
-          },
-          {
             "attendee": "Wei Ling",
             "role": "producer",
+            "idea": "Old price / old-price hour",
             "tradeOff": "A cup costs us about $1.60 to make here. At $1.30, we lose money on every one.",
             "question": "How do we do right by the uncles without selling kopi at a loss?"
+          },
+          {
+            "attendee": "Arjun",
+            "role": "lead_programmer",
+            "idea": "Regulars' price on the till",
+            "tradeOff": "I can add the button in ten minutes. But who decides who's a regular? The cashier?",
+            "question": "How do we decide who gets the regulars' price at the till?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "game_designer",
+            "idea": "Seniors' discount",
+            "tradeOff": "Not all our regulars are seniors. And half the office workers' parents would qualify.",
+            "question": "How do we check who qualifies for a seniors' discount?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "game_designer",
+            "idea": "Keep the price and explain",
+            "tradeOff": "Funny thing is, we put their photos up on the wall. A note at the counter won't fix that.",
+            "question": "How do we look after the old regulars without gutting the new menu?"
           }
         ]
       },
@@ -358,12 +397,35 @@
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
+            "idea": "Cut plugs or Wi-Fi",
             "tradeOff": "I can, the plugs are on one timer. But it's ten minutes, and I can't test it before 8.",
             "question": "What do you want me to change before eight, if anything?"
           },
           {
+            "attendee": "Mei",
+            "role": "game_designer",
+            "idea": "Laptop zone at window bar",
+            "tradeOff": "The window bar's only got ten stools. That won't hold half the shop.",
+            "question": "What do we do when the window bar fills up?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "idea": "Minimum spend",
+            "tradeOff": "Then my floor staff are checking receipts. That's exactly the fight we had yesterday.",
+            "question": "How do we enforce a minimum spend without a fight at the counter?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "producer",
+            "idea": "Deal for offices upstairs",
+            "tradeOff": "A deal doesn't free up a seat by 8.",
+            "question": "How does a deal upstairs free a seat down here by eight?"
+          },
+          {
             "attendee": "Daniel",
             "role": "marketing_lead",
+            "idea": "push laptop users out",
             "tradeOff": "Those are the offices I've spent weeks winning over. Push their people out and the bulk orders go with them.",
             "question": "How do we free up the breakfast booths without chasing away the office crowd upstairs?"
           }
@@ -459,14 +521,30 @@
           {
             "attendee": "Arjun",
             "role": "lead_programmer",
+            "idea": "Open at 8 without Set A",
             "tradeOff": "Then I've got to pull Set A off the kiosk and the till. That's time I'm not testing anything else.",
             "question": "What do you want me to pull before opening?"
           },
           {
             "attendee": "Daniel",
             "role": "marketing_lead",
+            "idea": "Open at 10",
             "tradeOff": "We'd miss the whole free-kopi crowd. The building turns up to a closed door.",
             "question": "What do we tell the customer and the crowd at the door?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "Apology + refund",
+            "tradeOff": "She's posting a review tonight. A refund on its own might read like we're brushing her off.",
+            "question": "What do we say to her beyond an apology?"
+          },
+          {
+            "attendee": "Arjun",
+            "role": "lead_programmer",
+            "idea": "Socket cover + fridge alarm",
+            "tradeOff": "The alarm's ten minutes. Fine, but that's ten minutes less for everything else.",
+            "question": "What do you want me to fix before the inspector arrives?"
           }
         ]
       },
@@ -555,16 +633,32 @@
         ],
         "tradeOffs": [
           {
-            "attendee": "Daniel",
-            "role": "marketing_lead",
-            "tradeOff": "Pull anything off GrabFood and we lose our launch banner, the free ad at the top of the app.",
-            "question": "How do we keep the office orders without losing our GrabFood launch banner?"
+            "attendee": "Arjun",
+            "role": "lead_programmer",
+            "idea": "Raise app price",
+            "tradeOff": "GrabFood hides shops charging more than 10% over the shop price. We'd just disappear.",
+            "question": "What happens to our listing if we raise the app price?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "game_designer",
+            "idea": "Office platters",
+            "tradeOff": "Each platter needs a big tray, and we've only got 30.",
+            "question": "How many platters can we actually make this morning?"
           },
           {
             "attendee": "Wei Ling",
             "role": "producer",
+            "idea": "Direct order code",
             "tradeOff": "Someone has to come down to pick it up. At 8 in the morning, will they?",
             "question": "How do we make a direct pickup code work at 8 in the morning?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "Pause single sets",
+            "tradeOff": "Pull anything off GrabFood and we lose our launch banner, the free ad at the top of the app.",
+            "question": "How do we keep the office orders without losing our GrabFood launch banner?"
           }
         ]
       },

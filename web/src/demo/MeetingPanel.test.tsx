@@ -165,12 +165,14 @@ describe('MeetingPanel', () => {
               {
                 attendee: 'Daniel',
                 role: 'marketing_lead',
+                idea: 'the viral butter video',
                 tradeOff: 'Zack video has 90k views calling butter transparent',
                 question: 'What do we show on camera?',
               },
               {
                 attendee: 'Mei',
                 role: 'game_designer',
+                idea: 'thicker butter slices',
                 tradeOff: 'Takeaway steam melts butter flat; doubling costs $1100',
                 question: 'What do we change?',
               },
@@ -299,12 +301,14 @@ describe('MeetingPanel', () => {
               {
                 attendee: 'Wei Ling',
                 role: 'producer',
+                idea: 'a bigger launch budget',
                 tradeOff: 'Margin limit: Remaining launch budget is capped at $750',
                 question: 'What can we spend?',
               },
               {
                 attendee: 'Daniel',
                 role: 'marketing_lead',
+                idea: 'using the viral video',
                 tradeOff: 'Viral roast: Video has 90k views',
                 question: 'What do we show?',
               },

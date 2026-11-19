@@ -133,6 +133,8 @@ export interface AgendaTradeOff {
   attendee: string;
   /** The role whose work or obligation makes this trade-off matter. */
   role: Role;
+  /** The guest idea this catch reacts to, in a few plain words. */
+  idea: string;
   /** What is at stake, grounded in the company records. */
   tradeOff: string;
   /** The open question the colleague should ask next. */
@@ -583,10 +585,11 @@ function readAgendaDiscussion(
       }
       if (
         !isNonEmptyString(tradeOff.attendee) ||
+        !isNonEmptyString(tradeOff.idea) ||
         !isNonEmptyString(tradeOff.tradeOff) ||
         !isNonEmptyString(tradeOff.question)
       ) {
-        problems.push(`${where} must have a non-empty "attendee", "tradeOff" and "question"`);
+        problems.push(`${where} must have a non-empty "attendee", "idea", "tradeOff" and "question"`);
       }
       if (isNonEmptyString(tradeOff.attendee) && !attendeeNames.has(tradeOff.attendee)) {
         problems.push(`${where}.attendee "${tradeOff.attendee}" is not one of the attendees`);

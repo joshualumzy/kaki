@@ -56,7 +56,6 @@ export function pushingColleague(
   if (eligible(owner)) return owner;
   return [
     ...(item.discussion?.openingViews ?? []).map((view) => view.attendee),
-    ...(item.discussion?.tradeOffs ?? []).map((tradeOff) => tradeOff.attendee),
     ...presentNames,
   ].find(eligible);
 }
@@ -176,8 +175,8 @@ export function buildSystemPrompt(
   const discussionLine =
     discussion === undefined
       ? undefined
-      : `On this item the room has to weigh these competing operational trade-offs in their own natural words (never read them out as a list, never prescribe a solution, and never treat them as a script): ${discussion.tradeOffs
-          .map((tradeOff) => `${tradeOff.attendee === seatAttendee?.name && human !== undefined ? human.name : tradeOff.attendee} (${scenario.roles.find((role) => role.id === tradeOff.role)?.label ?? tradeOff.role}) — ${scrubSeatName(tradeOff.tradeOff)}; open question: ${scrubSeatName(tradeOff.question)}`)
+      : `On this item each colleague has a catch that reacts to one particular idea. Raise a catch only when the guest has actually proposed that idea or one close to it, in your own natural words (never read them out as a list, never prescribe a solution, and never treat them as a script): ${discussion.tradeOffs
+          .map((tradeOff) => `${tradeOff.attendee === seatAttendee?.name && human !== undefined ? human.name : tradeOff.attendee} (${scenario.roles.find((role) => role.id === tradeOff.role)?.label ?? tradeOff.role}) — if someone proposes ${tradeOff.idea}: ${scrubSeatName(tradeOff.tradeOff)}; open question: ${scrubSeatName(tradeOff.question)}`)
           .join(' | ')}.`;
   const humanHosts =
     human !== undefined &&

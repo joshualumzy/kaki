@@ -153,8 +153,8 @@ describe('parseScenario', () => {
             { attendee: 'Bao', angle: 'We cannot slow the till down.' },
           ],
           tradeOffs: [
-            { attendee: 'Ada', role: 'chef', tradeOff: 'The queue is getting longer.', question: 'How do we speed up prep?' },
-            { attendee: 'Bao', role: 'cashier', tradeOff: 'The till screen is full.', question: 'What fits on the screen?' },
+            { attendee: 'Ada', role: 'chef', idea: 'a faster menu', tradeOff: 'The queue is getting longer.', question: 'How do we speed up prep?' },
+            { attendee: 'Bao', role: 'cashier', idea: 'a new till screen', tradeOff: 'The till screen is full.', question: 'What fits on the screen?' },
           ],
         },
       },
@@ -166,7 +166,7 @@ describe('parseScenario', () => {
     const scenario = cloneScenario();
     const valid = {
       openingViews: [{ attendee: 'Ada', angle: 'A view.' }],
-      tradeOffs: [{ attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' }],
+      tradeOffs: [{ attendee: 'Ada', role: 'chef', idea: 'a small change', tradeOff: 'A cost.', question: 'Who pays?' }],
     };
     scenario.agenda = [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef', discussion: valid }];
     expect(parseScenario(scenario)).toBeTruthy();
@@ -181,9 +181,9 @@ describe('parseScenario', () => {
         discussion: {
           openingViews: [{ attendee: 'Nobody', angle: 'A view.' }, { attendee: 'Ada', angle: ' ' }],
           tradeOffs: [
-            { attendee: 'Nobody', role: 'waiter', tradeOff: ' ', question: '' },
-            { attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' },
-            { attendee: 'Zed', role: 'chef', tradeOff: 'Another cost.', question: 'Who pays?' },
+            { attendee: 'Nobody', role: 'waiter', idea: ' ', tradeOff: ' ', question: '' },
+            { attendee: 'Ada', role: 'chef', idea: 'a small change', tradeOff: 'A cost.', question: 'Who pays?' },
+            { attendee: 'Zed', role: 'chef', idea: 'another change', tradeOff: 'Another cost.', question: 'Who pays?' },
           ],
         },
       },
@@ -197,6 +197,22 @@ describe('parseScenario', () => {
     ]) {
       expect(() => parseScenario(scenario)).toThrow(message);
     }
+  });
+
+  it('rejects a trade-off with no idea it reacts to', () => {
+    const scenario = cloneScenario();
+    scenario.agenda = [{
+      title: 'Prep',
+      minutes: 5,
+      canWait: false,
+      deadline: 'before service',
+      ownerRole: 'chef',
+      discussion: {
+        openingViews: [{ attendee: 'Ada', angle: 'A view.' }],
+        tradeOffs: [{ attendee: 'Ada', role: 'chef', tradeOff: 'A cost.', question: 'Who pays?' }],
+      },
+    }];
+    expect(() => parseScenario(scenario)).toThrow(/tradeOffs\[0\] must have a non-empty "attendee", "idea", "tradeOff" and "question"/);
   });
 
   it('rejects a duplicate opening angle and empty discussion lists', () => {

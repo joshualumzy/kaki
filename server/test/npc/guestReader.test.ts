@@ -15,7 +15,7 @@ const input: GuestReaderInput = {
     {
       name: 'Ada',
       facts: [{ id: '0:0', text: 'The fridge log shows a three hour gap.' }],
-      catches: [{ id: '0:catch:0', text: 'Calling Ada in means double pay.' }],
+      catches: [{ id: '0:catch:0', idea: 'calling Ada in', text: 'Calling Ada in means double pay.' }],
     },
     {
       name: 'Bao',
@@ -163,6 +163,8 @@ describe('guest line reader', () => {
     expect(prompt).toContain('"answersOpenQuestion":false');
     expect(prompt).toContain('"relevantFactIds":[]');
     expect(prompt).toContain('"chosenOption":null');
+    expect(prompt).toContain('0:catch:0 (reacts to: calling Ada in): "Calling Ada in means double pay."');
+    expect(prompt).toContain('A catch is relevant only when the guest proposed that idea or one close to it.');
     expect(prompt).toContain('There is no open question.');
   });
 

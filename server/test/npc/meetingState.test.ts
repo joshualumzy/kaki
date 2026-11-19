@@ -12,7 +12,7 @@ function topics(): MeetingTopicInfo[] {
         { id: '0:0', text: 'The fridge log shows a three hour overnight gap.', knownBy: ['Ada'] },
         { id: '0:1', text: 'The till needs a new login before opening.', knownBy: ['Bao'] },
       ],
-      catches: [{ id: '0:catch:0', attendee: 'Ada', text: 'Calling Ada in means double pay.' }],
+      catches: [{ id: '0:catch:0', attendee: 'Ada', idea: 'calling Ada in', text: 'Calling Ada in means double pay.' }],
     },
     {
       title: 'Service',
@@ -145,8 +145,8 @@ describe('meeting state', () => {
         deadline: 'before doors open at 8',
         facts: [],
         catches: [
-          { id: '0:catch:0', attendee: 'Ada', text: 'Calling Ada in means double pay.' },
-          { id: '0:catch:1', attendee: 'Ada', text: 'The oven needs ten more minutes.' },
+          { id: '0:catch:0', attendee: 'Ada', idea: 'calling Ada in', text: 'Calling Ada in means double pay.' },
+          { id: '0:catch:1', attendee: 'Ada', idea: 'using the oven', text: 'The oven needs ten more minutes.' },
         ],
       }],
       present: ['Ada', 'Bao', 'Sam'],
@@ -204,12 +204,12 @@ describe('meeting state', () => {
       discussion: {
         openingViews: [],
         tradeOffs: [
-          { attendee: 'Ada', role: 'chef', tradeOff: 'The oven needs ten minutes.', question: 'When do we start?' },
+          { attendee: 'Ada', role: 'chef', idea: 'using the oven', tradeOff: 'The oven needs ten minutes.', question: 'When do we start?' },
         ],
       },
     }, 2);
 
     expect(topic.facts).toEqual([{ id: '2:0', text: 'The oven is cold.', knownBy: ['Ada'] }]);
-    expect(topic.catches).toEqual([{ id: '2:catch:0', attendee: 'Ada', text: 'The oven needs ten minutes.' }]);
+    expect(topic.catches).toEqual([{ id: '2:catch:0', attendee: 'Ada', idea: 'using the oven', text: 'The oven needs ten minutes.' }]);
   });
 });

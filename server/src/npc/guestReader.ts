@@ -62,7 +62,7 @@ export interface GuestReaderTopic {
 export interface GuestReaderColleague {
   name: string;
   facts: readonly { id: string; text: string }[];
-  catches: readonly { id: string; text: string }[];
+  catches: readonly { id: string; idea: string; text: string }[];
 }
 
 export interface GuestReaderInput {
@@ -268,7 +268,7 @@ function describeInput(input: GuestReaderInput): string {
       : colleague.facts.map((fact) => `${fact.id}: "${fact.text}"`).join('; ');
     const catches = colleague.catches.length === 0
       ? 'no catches'
-      : colleague.catches.map((entry) => `${entry.id}: "${entry.text}"`).join('; ');
+      : colleague.catches.map((entry) => `${entry.id} (reacts to: ${entry.idea}): "${entry.text}"`).join('; ');
     return `- ${colleague.name}: ${facts}; ${catches}`;
   });
   lines.push(`Present colleagues and what they know:\n${colleagues.join('\n')}`);
@@ -288,7 +288,7 @@ function readerMessages(input: GuestReaderInput): ChatMessage[] {
     '"addressee": a present colleague\'s exact name when the guest is clearly speaking to them, otherwise null.',
     '"answersOpenQuestion": true only when the guest is answering the open question shown. When there is no open question shown, this must be false.',
     '"relevantFactIds": fact ids from the list that the guest\'s point touches, or [].',
-    '"relevantCatchIds": catch ids from the list that the guest\'s point touches, or [].',
+    '"relevantCatchIds": catch ids from the list whose "reacts to" idea the guest has actually proposed, or one close to it, or []. A catch is relevant only when the guest proposed that idea or one close to it.',
     '"chosenOption": when Sam has put a list of numbered choices to the guest and the guest clearly picked one, the zero-based index of that choice, otherwise null. Never guess an option the guest did not pick.',
     '"readiness": {"action": slot, "catchAddressed": slot, "practical": slot}.',
     'A slot is {"covered": true, "evidence": "<the guest\'s exact words, copied verbatim>"} or {"covered": false}.',

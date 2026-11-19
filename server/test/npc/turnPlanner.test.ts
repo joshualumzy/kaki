@@ -17,8 +17,8 @@ function topics(overrides: Partial<MeetingTopicInfo> = {}): MeetingTopicInfo[] {
         { id: '0:1', text: 'The till needs a new login before opening.', knownBy: ['Bao'] },
       ],
       catches: [
-        { id: '0:catch:0', attendee: 'Ada', text: 'Calling Ada in means double pay.' },
-        { id: '0:catch:1', attendee: 'Bao', text: 'A new till login takes fifteen minutes.' },
+        { id: '0:catch:0', attendee: 'Ada', idea: 'calling Ada in', text: 'Calling Ada in means double pay.' },
+        { id: '0:catch:1', attendee: 'Bao', idea: 'an agency temp', text: 'A new till login takes fifteen minutes.' },
       ],
       ...overrides,
     },
@@ -116,11 +116,12 @@ describe('turn planner', () => {
     });
   });
 
-  it('takes the first idea\'s unraised catch before it can be ready', () => {
+  it('takes the first idea\'s unraised linked catch before it can be ready', () => {
     const state = make();
     const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Call Auntie Mary in, Bao covers the till from 8.' });
     record(state, 'josh-1', reading({
       kind: 'idea',
+      relevantCatchIds: ['0:catch:0'],
       readiness: {
         action: { covered: true, evidence: 'Call Auntie Mary in' },
         catchAddressed: { covered: true, evidence: 'Call Auntie Mary in' },
@@ -130,6 +131,44 @@ describe('turn planner', () => {
 
     expect(readinessMet(state.view(1))).toBe(false);
     expect(next(state.view(1), { kind: 'heard', line: guest })).toMatchObject({ kind: 'Speak', purpose: 'catch' });
+  });
+
+  it('does not invent a catch when the reader linked none, and lets readiness proceed', () => {
+    const state = make();
+    const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Use the kiosk for orders.' });
+    record(state, 'josh-1', reading({
+      kind: 'idea',
+      readiness: {
+        action: { covered: true, evidence: 'Use the kiosk for orders' },
+        catchAddressed: off,
+        practical: off,
+      },
+    }));
+
+    expect(readinessMet(state.view(1))).toBe(true);
+    const decision = next(state.view(1), { kind: 'heard', line: guest });
+    expect(decision).toMatchObject({ kind: 'ConfirmDecision' });
+    expect(decision).not.toMatchObject({ purpose: 'catch' });
+  });
+
+  it('raises a later idea\'s linked catch when the guest proposes it', () => {
+    const state = make();
+    heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Use the kiosk for orders.' });
+    record(state, 'josh-1', reading({
+      kind: 'idea',
+      readiness: {
+        action: { covered: true, evidence: 'Use the kiosk for orders' },
+        catchAddressed: off,
+        practical: off,
+      },
+    }));
+
+    const second = heard(state, { id: 'josh-2', speaker: 'Josh', text: 'An agency temp could cover it.' }, 2);
+    const value = record(state, 'josh-2', reading({ kind: 'idea', relevantCatchIds: ['0:catch:1'] }));
+
+    expect(next(state.view(2), { kind: 'heard', line: second, reading: value })).toMatchObject({
+      kind: 'Speak', speaker: 'Bao', purpose: 'catch', catchId: '0:catch:1', respondsTo: 'josh-2',
+    });
   });
 
   it('sends a question with relevant facts to a knower of that fact', () => {
@@ -356,7 +395,7 @@ describe('turn planner', () => {
     });
   });
 
-  it('offers the guest\'s own idea first, then the two directions, then closes after the second offer', () => {
+  it('offers the guest\'s own idea first, then the two directions, then confirms the covered call', () => {
     const state = make({ directions: ['Ask Auntie Mary to come in.', 'An agency temp needs notice and a till login.'] });
     const idea = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Use the kiosk for orders.' });
     record(state, 'josh-1', reading({
@@ -383,7 +422,7 @@ describe('turn planner', () => {
     const again = heard(state, { id: 'josh-3', speaker: 'Josh', text: 'Hmm, still no.' }, 3);
     record(state, 'josh-3', reading({ kind: 'answer' }));
     expect(next(state.view(3), { kind: 'heard', line: again })).toMatchObject({
-      kind: 'Unresolved', respondsTo: 'josh-3',
+      kind: 'ConfirmDecision', respondsTo: 'josh-3',
     });
   });
 
@@ -483,11 +522,12 @@ describe('turn planner', () => {
     }
   });
 
-  it('is ready once the catch is raised and the guest has replied, even when they did not solve it', () => {
+  it('is ready once the linked catch is raised and the guest has replied, even when they did not solve it', () => {
     const state = make();
     heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Call Auntie Mary in.' });
     record(state, 'josh-1', reading({
       kind: 'idea',
+      relevantCatchIds: ['0:catch:0'],
       readiness: {
         action: { covered: true, evidence: 'Call Auntie Mary in' },
         catchAddressed: off,

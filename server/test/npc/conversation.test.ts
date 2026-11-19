@@ -2557,7 +2557,7 @@ describe('one-speaker replies to the guest', () => {
         discussion: {
           openingViews: [],
           tradeOffs: [
-            { attendee: 'Bao', role: 'cashier', tradeOff: 'Calling Auntie Mary in means double pay.', question: 'Who covers it?' },
+            { attendee: 'Bao', role: 'cashier', idea: 'calling Auntie Mary in', tradeOff: 'Calling Auntie Mary in means double pay.', question: 'Who covers it?' },
           ],
         },
       },
@@ -3005,7 +3005,53 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
-  it('re-asks the live confirmation after silence instead of killing it, then commits the guest\'s yes', async () => {
+  it('nudges once after read-back silence, then commits the read-back call', async () => {
+    const ready = {
+      kind: 'answer' as const,
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'Old price only on the small cup' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const h = harness(scenario, 0, undefined, 'one-speaker',
+      () => ready,
+      { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+
+    await h.say('Old price only on the small cup.');
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Ada', "So it's old price only on the small cup."]);
+    expect(h.transcript).toContainEqual(['Ada', "That's the call?"]);
+
+    // Nobody answers: one fixed nudge, never a second read-back.
+    for (let i = 0; i < 80 && !h.transcript.some(([, text]) => text === 'Still with me?'); i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    expect(h.transcript.filter(([, text]) => text === 'Still with me?')).toHaveLength(1);
+    expect(h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.")).toHaveLength(1);
+    expect(settleTopic).not.toHaveBeenCalled();
+
+    // Still nobody answers: the call Sam read back is committed and the topic moves on.
+    for (let i = 0; i < 80 && settleTopic.mock.calls.length === 0; i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    expect(settleTopic).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionSource: 'Old price only on the small cup' }), false);
+    expect(h.logs).toContainEqual('[confirm] no answer after nudge; committing the read-back call');
+    expect(h.transcript.filter(([, text]) => text === 'Still with me?')).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('takes an answer after the nudge normally and commits on agree', async () => {
     const ready = {
       kind: 'answer' as const,
       answersOpenQuestion: false,
@@ -3027,24 +3073,19 @@ describe('one-speaker replies to the guest', () => {
 
     await h.say('Old price only on the small cup.');
     await finishPlaying(h);
-    expect(h.transcript).toContainEqual(['Ada', "So it's old price only on the small cup."]);
-    expect(h.transcript).toContainEqual(['Ada', "That's the call?"]);
-
-    // Nobody answers: the silence nudge repeats that exact read-back and keeps the gate live.
-    for (let i = 0; i < 40 &&
-      h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.").length < 2; i += 1) {
+    for (let i = 0; i < 80 && !h.transcript.some(([, text]) => text === 'Still with me?'); i += 1) {
       await vi.advanceTimersByTimeAsync(5);
       await finishPlaying(h);
     }
-    expect(h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.")).toHaveLength(2);
-    expect(h.transcript.filter(([, text]) => text === "That's the call?")).toHaveLength(2);
-    expect(h.transcript.some(([, text]) => text.includes("What's your gut"))).toBe(false);
+    expect(h.transcript.filter(([, text]) => text === 'Still with me?')).toHaveLength(1);
+    expect(settleTopic).not.toHaveBeenCalled();
 
     await h.say('Yes.');
     await finishPlaying(h);
     expect(settleTopic).toHaveBeenCalledTimes(1);
     expect(settleTopic).toHaveBeenCalledWith(
       expect.objectContaining({ decisionSource: 'Old price only on the small cup' }), false);
+    expect(h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.")).toHaveLength(1);
     h.conversation.close();
   });
 
@@ -3206,7 +3247,7 @@ describe('one-speaker replies to the guest', () => {
       kind: 'idea' as const,
       answersOpenQuestion: false,
       relevantFactIds: [],
-      relevantCatchIds: [],
+      relevantCatchIds: ['0:catch:0'],
       readiness: {
         action: { covered: true, evidence: 'Let us call Auntie Mary in' },
         catchAddressed: { covered: false },

@@ -210,10 +210,16 @@ export function firstUncoveredSlot(view: MeetingView): DecisionSlotName | undefi
   return (['action', 'catchAddressed', 'practical'] as const).find((slot) => !readiness[slot].covered);
 }
 
-/** True when a present colleague really has a catch that the first idea must hear. */
-function hasPresentCatch(view: MeetingView): boolean {
-  return view.catches.some((entry) =>
-    entry.attendee !== view.guest && entry.attendee !== view.host && view.present.includes(entry.attendee));
+/** A catch can be raised only by a colleague who is actually in the room. */
+function canBeRaised(view: MeetingView, entry: MeetingCatchView, exclude?: string): boolean {
+  return entry.attendee !== view.guest && entry.attendee !== view.host &&
+    entry.attendee !== exclude && view.present.includes(entry.attendee);
+}
+
+/** True when the reader linked this idea to a catch that a present colleague can raise. */
+function ideaHasLinkedCatch(view: MeetingView, reading: GuestReading): boolean {
+  return reading.relevantCatchIds.some((id) =>
+    view.catches.some((entry) => entry.id === id && canBeRaised(view, entry)));
 }
 
 function firstIdeaIndex(view: MeetingView): number {
@@ -243,12 +249,17 @@ function guestSpokeAfterCatch(view: MeetingView): boolean {
 }
 
 /**
- * Workable readiness: the guest has chosen an action with valid evidence, the first idea's real catch (if any)
- * has been raised, and the guest has spoken once after it. They need not solve the catch, and who/when is not a gate.
+ * Workable readiness: the guest has chosen an action with valid evidence. When the reader linked the first idea
+ * to a catch a present colleague can raise, that catch is raised and the guest speaks once after it. They need
+ * not solve the catch, and who/when is not a gate. An idea with no linked catch is never held back waiting for one.
  */
 export function readinessMet(view: MeetingView): boolean {
   if (view.guest !== undefined && view.openQuestion?.to === view.guest) return false;
-  if (view.guestFirstIdea !== undefined && hasPresentCatch(view) && !guestSpokeAfterCatch(view)) return false;
+  const firstIdea = view.guestFirstIdea;
+  const firstIdeaReading = firstIdea === undefined ? undefined : readingFor(view, firstIdea);
+  if (firstIdeaReading !== undefined && ideaHasLinkedCatch(view, firstIdeaReading) && !guestSpokeAfterCatch(view)) {
+    return false;
+  }
   return mergedReadiness(view).action.covered;
 }
 
@@ -319,15 +330,14 @@ function bestHelper(view: MeetingView, reading: GuestReading): string | undefine
   return hostOf(view);
 }
 
-/** The first idea's catch: the reader's requested catch if it is still open, otherwise an unraised one. */
+/** The catch the reader linked to this idea that is still open, if a present colleague can raise it. */
 function requestedCatch(view: MeetingView, reading: GuestReading, exclude?: string): MeetingCatchView | undefined {
   for (const id of reading.relevantCatchIds) {
     const catchEntry = view.catches.find((entry) =>
-      entry.id === id && !entry.raised && entry.attendee !== view.guest && entry.attendee !== view.host &&
-      entry.attendee !== exclude && view.present.includes(entry.attendee));
+      entry.id === id && !entry.raised && canBeRaised(view, entry, exclude));
     if (catchEntry !== undefined) return catchEntry;
   }
-  return unraisedCatchOwner(view, exclude);
+  return undefined;
 }
 
 /** An urgent park: explain the deadline once, then offer a concrete call; never park it and never loop. */
@@ -509,12 +519,11 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
     return offerDecision(view, line, 'two follow-ups have already been asked; offer one concrete call');
   }
 
-  if (reading.kind === 'idea' && view.guestFirstIdea?.eventId === line.eventId &&
-      hasPresentCatch(view) && !view.catchRaised) {
+  if (reading.kind === 'idea') {
     const owner = requestedCatch(view, reading);
     if (owner !== undefined) {
       return speak(owner.attendee, 'catch', line.eventId,
-        `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
+        `${owner.attendee}'s catch on the guest's idea is still unraised`, undefined, owner.id);
     }
   }
 
@@ -557,9 +566,10 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
     return unresolved('the guest has not chosen an action and nobody present can ask for one', line.eventId);
   }
 
-  // The action is covered but the topic is not ready: raise the first idea's catch, or restate what is still open.
-  if (view.guestFirstIdea !== undefined && hasPresentCatch(view) && !view.catchRaised) {
-    const owner = unraisedCatchOwner(view, undefined);
+  // The action is covered but the topic is not ready: raise the first idea's linked catch, or restate what is open.
+  if (view.guestFirstIdea !== undefined) {
+    const firstIdeaReading = readingFor(view, view.guestFirstIdea);
+    const owner = firstIdeaReading === undefined ? undefined : requestedCatch(view, firstIdeaReading);
     if (owner !== undefined) {
       return speak(owner.attendee, 'catch', line.eventId,
         `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
@@ -579,7 +589,8 @@ function secondSpeakerDecision(view: MeetingView, responders: readonly HeardLine
   const first = responders[0]!;
 
   if (view.guestFirstIdea !== undefined && view.guestLastLine?.eventId === view.guestFirstIdea.eventId && !view.catchRaised) {
-    const owner = unraisedCatchOwner(view, first.speaker);
+    const firstIdeaReading = readingFor(view, view.guestFirstIdea);
+    const owner = firstIdeaReading === undefined ? undefined : requestedCatch(view, firstIdeaReading, first.speaker);
     if (owner !== undefined) {
       return speak(owner.attendee, 'catch', view.guestFirstIdea.eventId,
         `${first.speaker} did not raise ${owner.attendee}'s catch on the first idea`, undefined, owner.id);
@@ -627,16 +638,6 @@ function nextBriefStep(view: MeetingView): { speaker: string; factIds: string[] 
 /** No untold fact is left that someone in the room could tell. */
 function factsSettled(view: MeetingView): boolean {
   return view.facts.every((fact) => fact.told || canTell(view, fact) === undefined);
-}
-
-/** One colleague with a real catch on the first idea that the room has not heard yet. */
-function unraisedCatchOwner(view: MeetingView, exclude: string | undefined): MeetingCatchView | undefined {
-  return view.catches.find((entry) =>
-    !entry.raised &&
-    entry.attendee !== view.guest &&
-    entry.attendee !== view.host &&
-    entry.attendee !== exclude &&
-    view.present.includes(entry.attendee));
 }
 
 /**
@@ -705,8 +706,9 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
   }
 
   if (event.kind === 'guestDecision') {
-    if (view.guestFirstIdea !== undefined && hasPresentCatch(view) && !view.catchRaised) {
-      const owner = unraisedCatchOwner(view, undefined);
+    if (view.guestFirstIdea !== undefined) {
+      const firstIdeaReading = readingFor(view, view.guestFirstIdea);
+      const owner = firstIdeaReading === undefined ? undefined : requestedCatch(view, firstIdeaReading);
       if (owner !== undefined) {
         return speak(owner.attendee, 'catch', event.line.eventId, `${owner.attendee}'s catch on the first idea is still unraised`, undefined, owner.id);
       }
@@ -721,7 +723,10 @@ export function next(view: MeetingView, event: PlannerEvent): PlannerDecision {
 
   if (event.kind === 'decisionConfirmed' || event.kind === 'cardDue') {
     if (view.openQuestion !== undefined) return wait('a question is still open before the card');
-    if (!view.catchRaised && view.guestFirstIdea !== undefined) return wait('the first idea has not had its catch yet');
+    const firstIdeaReading = view.guestFirstIdea === undefined ? undefined : readingFor(view, view.guestFirstIdea);
+    if (firstIdeaReading !== undefined && requestedCatch(view, firstIdeaReading) !== undefined) {
+      return wait('the first idea has not had its linked catch yet');
+    }
     if (!readinessMet(view)) return wait('the decision is not ready for the card');
     return { kind: 'PointCard', reason: 'the call is confirmed and nothing is still open' };
   }
