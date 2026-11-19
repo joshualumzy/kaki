@@ -17,8 +17,21 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
       kind text not null check (kind in ('host', 'participant')),
       role text,
       meeting_code text,
+      meeting_id text,
       expires_at timestamptz not null,
       created_at timestamptz not null default now()
+    )
+  `);
+  // Older deployments added before a meeting generation was part of a seat.
+  await pool.query('alter table sessions add column if not exists meeting_id text');
+
+  await pool.query(`
+    create table if not exists seat_claims (
+      meeting_id text not null,
+      role text not null,
+      holder text not null,
+      expires_at timestamptz not null,
+      primary key (meeting_id, role)
     )
   `);
 }

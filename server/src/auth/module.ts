@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
 import type { ClientAudience } from '../hub';
-import { clientAddress, type Principal } from '../access';
+import { clientAddress, publicUrlIsHttps, type Principal } from '../access';
 import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
 import {
   MEETING_CODE_FAILURE_LIMIT,
@@ -19,7 +19,15 @@ import type { AuthStore, SessionKind, SessionRecord } from './store';
 
 /** The result of checking a WebSocket upgrade against the session cookie. */
 export type AuthDecision =
-  | { ok: true; participant?: boolean; principal?: Principal }
+  | {
+      ok: true;
+      participant?: boolean;
+      principal?: Principal;
+      /** The exact session this socket belongs to, so swapping it can close the socket. */
+      sessionTokenHash?: string;
+      /** True when the AI runner's service token authorized the socket. */
+      runner?: boolean;
+    }
   | { ok: false; message: string };
 
 /** The auth feature the HTTP server and WebSocket hub call into. */
@@ -31,11 +39,18 @@ export interface Auth {
   /** The resolved host or seat principal behind a request; undefined otherwise. */
   resolvePrincipal(request: IncomingMessage): Promise<Principal | undefined>;
   /**
-   * Start the session a successful seat admission creates. `/api/join` and the LiveKit token route
-   * share it: a visitor gets a participant session, while the signed-in host keeps the host and
-   * replaces their session with one that also holds the seat.
+   * Atomically take a seat and start the session that holds it. `/api/join` and the LiveKit token
+   * route share this one record: a visitor gets a participant session, while the signed-in host
+   * keeps the host and replaces their session with one that also carries the seat's meeting.
+   * Returns false when another live holder already owns the seat.
    */
-  startSeatSession(request: IncomingMessage, response: ServerResponse, role: string): Promise<void>;
+  enterSeat(request: IncomingMessage, response: ServerResponse, role: string): Promise<boolean>;
+  /** Bind seat grants to the server's current meeting generation. */
+  bindMeetingIdentity(meetingId: () => string | undefined): void;
+  /** Release every seat grant belonging to a meeting that has rotated away. */
+  releaseMeeting(meetingId: string): Promise<void>;
+  /** Be told when a session is replaced, so its already-open sockets can be closed. */
+  onSessionEnded(handler: (sessionTokenHash: string) => void): void;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   close(): Promise<void>;
@@ -49,6 +64,8 @@ export interface AuthOptions {
   secureCookies?: boolean;
   now?: () => number;
   log?: (message: string) => void;
+  /** Injectable password check, so tests can prove an unknown email still takes that path. */
+  verifyPassword?: typeof verifyPassword;
 }
 
 const MAX_BODY_BYTES = 64_000;
@@ -124,10 +141,14 @@ function stringField(body: JsonObject, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** Who a stored session belongs to: a host keeps the host even when it also holds a seat. */
-function principalFor(session: SessionRecord): Principal {
+/**
+ * Who a stored session belongs to. A host keeps every host power even when it also holds a seat;
+ * the seat view itself only belongs to the meeting generation the host took it in.
+ */
+function principalFor(session: SessionRecord, meetingId: string): Principal {
   if (session.kind === 'host') {
-    return session.role === null ? { kind: 'host' } : { kind: 'host', seat: session.role };
+    const seat = session.role !== null && session.meetingId === meetingId ? session.role : undefined;
+    return seat === undefined ? { kind: 'host' } : { kind: 'host', seat };
   }
   return { kind: 'seat', role: session.role ?? '' };
 }
@@ -140,7 +161,13 @@ export function createAuth({
   secureCookies = false,
   now = Date.now,
   log = () => undefined,
+  verifyPassword: verify = verifyPassword,
 }: AuthOptions): Auth {
+  const sessionEndedHandlers = new Set<(sessionTokenHash: string) => void>();
+  let meetingIdentity: (() => string | undefined) | undefined;
+  const currentMeetingId = (): string => meetingIdentity?.() ?? meetingCode.value;
+  /** A real hash to check against when the email is unknown, so both paths cost the same. */
+  let dummyHash: Promise<string> | undefined;
   const loginAttempts = createAttemptLimiter({
     limit: LOGIN_FAILURE_LIMIT,
     windowMs: LOGIN_WINDOW_MS,
@@ -165,38 +192,88 @@ export function createAuth({
     return session;
   }
 
-  async function startSession(
+  function notifySessionEnded(tokenHash: string): void {
+    for (const handler of sessionEndedHandlers) {
+      try {
+        handler(tokenHash);
+      } catch (error) {
+        log(`kaki auth: a session-ended handler failed: ${String(error)}`);
+      }
+    }
+  }
+
+  async function saveSession(
     response: ServerResponse,
+    token: string,
     kind: SessionKind,
     role: string | null,
     code: string | null,
+    meetingId: string | null,
   ): Promise<void> {
-    const token = randomBytes(32).toString('base64url');
     await store.createSession({
       tokenHash: hashToken(token),
       kind,
       role,
       meetingCode: code,
+      meetingId,
       expiresAt: new Date(now() + SESSION_TTL_MS),
     });
     response.setHeader('set-cookie', sessionCookie(token, secureCookies));
   }
 
-  async function startSeatSession(
+  async function startSession(
+    response: ServerResponse,
+    kind: SessionKind,
+    role: string | null,
+    code: string | null,
+    meetingId: string | null = null,
+  ): Promise<void> {
+    const token = randomBytes(32).toString('base64url');
+    await saveSession(response, token, kind, role, code, meetingId);
+  }
+
+  async function enterSeat(
     request: IncomingMessage,
     response: ServerResponse,
     role: string,
-  ): Promise<void> {
-    const token = readSessionCookie(request);
-    const session = await currentSession(request);
-    if (session?.kind === 'host') {
-      // A host taking a seat is still the host: swap their session for one that also holds the seat,
-      // so the old token cannot keep acting while the new one carries both roles.
-      if (token !== undefined) await store.deleteSession(hashToken(token));
-      await startSession(response, 'host', role, null);
-      return;
+  ): Promise<boolean> {
+    const existing = await currentSession(request);
+    const replaced = existing?.tokenHash;
+    const token = randomBytes(32).toString('base64url');
+    const tokenHash = hashToken(token);
+    const meetingId = currentMeetingId();
+    // The check and the claim are one store operation: two simultaneous joins cannot both win.
+    const claimed = await store.claimSeat({
+      meetingId,
+      role,
+      holder: tokenHash,
+      ...(replaced === undefined ? {} : { replaces: replaced }),
+    });
+    if (!claimed) return false;
+
+    // A host taking a seat is still the host; the new session also carries the seat's meeting.
+    const kind: SessionKind = existing?.kind === 'host' ? 'host' : 'participant';
+    try {
+      await saveSession(
+        response,
+        token,
+        kind,
+        role,
+        kind === 'host' ? null : meetingCode.value,
+        meetingId,
+      );
+    } catch (error) {
+      await store.releaseSeats({ holder: tokenHash });
+      throw error;
     }
-    await startSession(response, 'participant', role, meetingCode.value);
+
+    if (replaced !== undefined) {
+      // The transfer already moved a same-role claim to the new holder; any other role is freed.
+      await store.releaseSeats({ holder: replaced });
+      await store.deleteSession(replaced);
+      notifySessionEnded(replaced);
+    }
+    return true;
   }
 
   async function handleLogin(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -240,9 +317,11 @@ export function createAuth({
     }
 
     const user = await store.findUserByEmail(email);
-    const passwordMatches = user === undefined ? false : await verifyPassword(password, user.passwordHash);
+    // An unknown email still pays for a real scrypt check, so its timing does not reveal that it is unknown.
+    dummyHash ??= hashPassword(randomBytes(16).toString('hex'));
+    const passwordMatches = await verify(password, user?.passwordHash ?? (await dummyHash));
 
-    if (!passwordMatches) {
+    if (user === undefined || !passwordMatches) {
       loginAttempts.recordFailure(key);
       sendJson(response, 401, { error: WRONG_CREDENTIALS });
       return;
@@ -256,7 +335,10 @@ export function createAuth({
   async function handleLogout(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const token = readSessionCookie(request);
     if (token !== undefined) {
-      await store.deleteSession(hashToken(token));
+      const tokenHash = hashToken(token);
+      await store.releaseSeats({ holder: tokenHash });
+      await store.deleteSession(tokenHash);
+      notifySessionEnded(tokenHash);
     }
     response.setHeader('set-cookie', clearSessionCookie(secureCookies));
     sendJson(response, 200, { ok: true });
@@ -268,7 +350,11 @@ export function createAuth({
       sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
       return;
     }
-    if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) {
+    if (
+      session.kind === 'participant' &&
+      (session.meetingCode !== meetingCode.value ||
+        (session.meetingId !== null && session.meetingId !== currentMeetingId()))
+    ) {
       // The phone's meeting is gone: it must join again with the code on the screen.
       sendJson(response, 403, { error: MEETING_ENDED_MESSAGE, authEnabled: true });
       return;
@@ -319,12 +405,10 @@ export function createAuth({
       sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
       return;
     }
-    if (await store.hasParticipant(meetingCode.value, role)) {
+    if (!(await enterSeat(request, response, role))) {
       sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
       return;
     }
-
-    await startSeatSession(request, response, role);
     sendJson(response, 200, { kind: 'participant', role });
   }
 
@@ -332,17 +416,49 @@ export function createAuth({
     sendJson(response, 200, { code: meetingCode.value });
   }
 
+  /**
+   * The one principal resolution shared by HTTP and WebSocket upgrades. A phone belongs to one
+   * meeting, not merely to a code, so a fixed code cannot carry it into the next meeting.
+   */
+  async function resolveRequest(
+    request: IncomingMessage,
+  ): Promise<
+    | { ok: true; session: SessionRecord; principal: Principal }
+    | { ok: false; ended: boolean }
+  > {
+    const session = await currentSession(request);
+    if (session === undefined) return { ok: false, ended: false };
+    const meetingId = currentMeetingId();
+    if (session.kind === 'participant') {
+      const ended =
+        session.meetingCode !== meetingCode.value ||
+        (session.meetingId !== null && session.meetingId !== meetingId);
+      if (ended) return { ok: false, ended: true };
+    }
+    return { ok: true, session, principal: principalFor(session, meetingId) };
+  }
+
   log('kaki auth: enabled');
 
   return {
     meetingCodeLimiter: meetingCodeAttempts,
-    startSeatSession,
+    enterSeat,
+
+    bindMeetingIdentity(meetingId) {
+      meetingIdentity = meetingId;
+    },
+
+    async releaseMeeting(meetingId) {
+      await store.releaseSeats({ meetingId });
+    },
+
+    onSessionEnded(handler) {
+      sessionEndedHandlers.add(handler);
+    },
 
     async resolvePrincipal(request) {
-      const session = await currentSession(request);
-      if (session === undefined) return undefined;
-      if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) return undefined;
-      return principalFor(session);
+      const resolved = await resolveRequest(request);
+      return resolved.ok ? resolved.principal : undefined;
     },
 
     async handleHttp(request, response) {
@@ -372,38 +488,37 @@ export function createAuth({
     },
 
     async authorize(request, audience) {
-      const session = await currentSession(request);
-      if (session === undefined) {
-        return { ok: false, message: 'Sign in required' };
+      const resolved = await resolveRequest(request);
+      if (!resolved.ok) {
+        return { ok: false, message: resolved.ended ? MEETING_ENDED_MESSAGE : 'Sign in required' };
       }
-      // A phone signed into the previous meeting must not follow the new one, even read-only.
-      if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) {
-        return { ok: false, message: MEETING_ENDED_MESSAGE };
-      }
-      const principal = principalFor(session);
+      const { session, principal } = resolved;
+      const participant = session.kind === 'participant';
+      const sessionTokenHash = session.tokenHash;
       // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
       if (audience === 'lifecycle') {
-        return { ok: true, participant: session.kind === 'participant', principal };
+        return { ok: true, participant, principal, sessionTokenHash };
       }
       if (audience === 'screen') {
         return session.kind === 'host'
-          ? { ok: true, principal }
+          ? { ok: true, principal, sessionTokenHash }
           : { ok: false, message: 'Host sign-in required' };
       }
       // A participant holds their seat; a host may also hold the seat they took, without losing host powers.
       const holdsSeat =
-        (session.kind === 'participant' || session.kind === 'host') &&
-        session.role === audience &&
-        roles.includes(audience);
+        roles.includes(audience) &&
+        ((principal.kind === 'seat' && principal.role === audience) ||
+          (principal.kind === 'host' && principal.seat === audience));
       if (!holdsSeat) {
         return { ok: false, message: 'Join this meeting with that role first' };
       }
-      return { ok: true, participant: session.kind === 'participant', principal };
+      return { ok: true, participant, principal, sessionTokenHash };
     },
 
     async close() {
       loginAttempts.clearAll();
       meetingCodeAttempts.clearAll();
+      sessionEndedHandlers.clear();
       await store.close();
     },
   };
@@ -437,6 +552,11 @@ export async function bootstrapHostAccount(
 
   await store.createUser({ email, passwordHash: await hashPassword(password) });
   log(`kaki auth: created the host account ${email}`);
+}
+
+/** Session cookies need `Secure` whenever the public site is served over https. */
+export function secureCookiesFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return publicUrlIsHttps(env);
 }
 
 /** Build the Postgres-backed auth feature from environment variables. */
@@ -475,7 +595,7 @@ export async function createAuthFromEnv({
       store,
       roles,
       meetingCode,
-      secureCookies: (env.KAKI_PUBLIC_URL ?? '').trim().startsWith('https'),
+      secureCookies: secureCookiesFromEnv(env),
       now,
     });
   } catch (error) {

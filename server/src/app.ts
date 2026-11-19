@@ -8,6 +8,7 @@ import {
   clientAddress,
   isLoopbackAddress,
   matchRoute,
+  publicUrlIsHttps,
   tokenMatches,
   type Principal,
   type Route,
@@ -18,7 +19,7 @@ import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEven
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
 import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
-import { CommandError, createHub, type Hub } from './hub';
+import { CommandError, createHub, type ClientAudience, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import type { MeetingPersistence } from './persist/persistence';
@@ -236,6 +237,10 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'PUT', path: '/api/setup', access: 'host' },
     { method: 'POST', path: '/api/setup/import-calendar', access: 'host' },
     { method: 'GET', path: '/api/join-info', access: 'public' },
+    { method: 'POST', path: '/api/runner/emit', access: 'service' },
+    { method: 'POST', path: '/api/runner/suggest-task', access: 'service' },
+    { method: 'POST', path: '/api/runner/meeting-memory', access: 'service' },
+    { method: 'POST', path: '/api/runner/settle-topic', access: 'service' },
     { method: 'POST', path: '/dev/emit', access: 'dev' },
     { method: 'POST', path: '/dev/suggest-task', access: 'dev' },
     { method: 'POST', path: '/dev/meeting-memory', access: 'dev' },
@@ -273,6 +278,23 @@ async function resolvePrincipal(
     if (principal !== undefined) return principal;
   }
   return { kind: 'anonymous' };
+}
+
+/**
+ * Where a person's browser should open Mattermost. The server reaches it at MATTERMOST_URL
+ * (often 127.0.0.1 inside the VM); the browser must use the public host instead.
+ */
+function mattermostPublicBase(internal: URL, env: NodeJS.ProcessEnv = process.env): URL {
+  const explicit = env.MATTERMOST_PUBLIC_URL?.trim();
+  if (explicit !== undefined && explicit !== '') return new URL(explicit);
+  const publicSite = env.KAKI_PUBLIC_URL?.trim();
+  if (publicSite !== undefined && publicSite !== '') {
+    const site = new URL(publicSite);
+    const base = new URL(internal.toString());
+    base.hostname = site.hostname;
+    return base;
+  }
+  return new URL(internal.toString());
 }
 
 async function syncDemoVisitorProfile(participantName: string): Promise<void> {
@@ -410,6 +432,22 @@ async function handleRequest(
             ...rosterHumans,
             ...otherReservations.map((reservation) => ({ name: reservation.participantName, role: reservation.seatId })),
           ];
+          // With sign-in on, prove the right to be here before anything can reset or mutate the meeting.
+          // A person needs the code; the signed-in owner may start or carry on a meeting without it.
+          const authOn = context.auth !== undefined;
+          const isHost = principal.kind === 'host';
+          if (authOn && principal.kind !== 'service' && !isHost) {
+            const codeError = codeProblem(
+              1,
+              context.meetingCode.value,
+              typeof join.meetingCode === 'string' ? join.meetingCode : undefined,
+            );
+            if (codeError !== undefined) {
+              context.meetingCodeAttempts.recordFailure(codeIp);
+              sendJson(response, 403, { error: codeError, needsCode: true });
+              return;
+            }
+          }
           // A seat holder coming back to an empty room inside the grace joins the running meeting;
           // everyone else starts the next meeting, which is judged against the current draft.
           const returning = present.length === 0 && context.rejoin.wouldResume(participantName);
@@ -452,6 +490,13 @@ async function handleRequest(
           const meetingWasRunning = context.rejoin.hasBegun() || context.meeting.started;
           const meetingExisted = context.rejoin.hasMeeting() || context.meeting.started;
           const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
+          if (rejoin?.reset === true && authOn && !isHost) {
+            // A code holder may join the owner's live meeting, but only the owner starts the next one.
+            sendJson(response, 409, {
+              error: 'This meeting has ended; only the meeting owner can start a new one.',
+            });
+            return;
+          }
           if (rejoin?.reset === true) {
             // The first arrival starts this app's first meeting; the code it already shows stays valid.
             const meetingId = context.rotateMeeting({ rotateCode: meetingExisted });
@@ -472,11 +517,18 @@ async function handleRequest(
             }
             if (!context.draftTouched.current) context.shapeUntouchedAgenda(seatId);
           }
-          const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
-          if (codeError !== undefined) {
-            context.meetingCodeAttempts.recordFailure(codeIp);
-            sendJson(response, 403, { error: codeError, needsCode: true });
-            return;
+          if (!authOn) {
+            // The trusted demo keeps its first-arrival rule exactly: the first person is shown the code.
+            const codeError = codeProblem(
+              present.length,
+              context.meetingCode.value,
+              typeof join.meetingCode === 'string' ? join.meetingCode : undefined,
+            );
+            if (codeError !== undefined) {
+              context.meetingCodeAttempts.recordFailure(codeIp);
+              sendJson(response, 403, { error: codeError, needsCode: true });
+              return;
+            }
           }
           context.meetingCodeAttempts.clear(codeIp);
           if (present.some((person) => person.name.toLowerCase() === joiningName)) {
@@ -489,10 +541,13 @@ async function handleRequest(
             { roomName: roomName, participantName, participantRole: seatId },
             npcNames,
           );
-          // Sign-in on: a person admitted to a seat leaves with the same seat session /api/join gives.
-          // A signed-in host stays host and takes the seat in a replacement host session.
+          // Sign-in on: taking the seat and creating its session is one atomic claim shared with
+          // /api/join, so a code holder can never take a seat another live holder owns.
           if (context.auth !== undefined && principal.kind !== 'service') {
-            await context.auth.startSeatSession(request, response, seatId);
+            if (!(await context.auth.enterSeat(request, response, seatId))) {
+              sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
+              return;
+            }
           }
           context.reservations.add({ participantName, seatId });
           if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin, seatId);
@@ -568,18 +623,33 @@ async function handleRequest(
         sendJson(response, 503, { error: 'Mattermost is not configured: MATTERMOST_URL is not a valid URL.' });
         return;
       }
-      // Redirect only within the configured Mattermost server, never to a look-alike host or path.
-      const basePath = mmBase.pathname.endsWith('/') ? mmBase.pathname : `${mmBase.pathname}/`;
+      // Old links were generated with localhost, 127.0.0.1 or the LAN/public host. Match the path
+      // against the configured server, then build the redirect on the configured public base, so
+      // the origin in the link can never send the browser anywhere else.
+      const basePath = mmBase.pathname.replace(/\/+$/, '') || '/';
       const insideBase =
-        parsedTarget.pathname === mmBase.pathname || parsedTarget.pathname.startsWith(basePath);
-      if (
-        (parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') ||
-        parsedTarget.origin !== mmBase.origin ||
-        !insideBase
-      ) {
+        basePath === '/'
+          ? parsedTarget.pathname.startsWith('/')
+          : parsedTarget.pathname === basePath || parsedTarget.pathname.startsWith(`${basePath}/`);
+      if ((parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') || !insideBase) {
         sendJson(response, 400, { error: 'Target must be a link on the Mattermost server.' });
         return;
       }
+      let publicBase: URL;
+      try {
+        publicBase = mattermostPublicBase(mmBase);
+      } catch {
+        sendJson(response, 503, {
+          error: 'Mattermost is not configured: MATTERMOST_PUBLIC_URL or KAKI_PUBLIC_URL is not a valid URL.',
+        });
+        return;
+      }
+      const redirect = new URL(publicBase.toString());
+      redirect.pathname = parsedTarget.pathname;
+      redirect.search = parsedTarget.search;
+      redirect.hash = parsedTarget.hash;
+      const keepSecure = publicUrlIsHttps();
+      const secureAttribute = keepSecure ? '; Secure' : '';
       const baseMmUrl = `${mmBase.origin}${mmBase.pathname}`.replace(/\/+$/, '');
       const setCookies: string[] = [];
       try {
@@ -601,17 +671,22 @@ async function handleRequest(
         if (loginResp?.ok) {
           const rawCookies = loginResp.headers.getSetCookie?.() ?? [];
           for (const cookie of rawCookies) {
-            setCookies.push(cookie.replace(/;\s*Secure/gi, ''));
+            // Keep Secure on an https public site; only a local http demo needs it removed.
+            setCookies.push(keepSecure ? cookie : cookie.replace(/;\s*Secure/gi, ''));
           }
           if (setCookies.length === 0) {
             const sessionToken = loginResp.headers.get('Token');
             const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
             if (sessionToken) {
-              setCookies.push(`MMAUTHTOKEN=${sessionToken}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`);
-              setCookies.push(`MMCSRF=${sessionToken}; Path=/; Max-Age=2592000; SameSite=Lax`);
+              setCookies.push(
+                `MMAUTHTOKEN=${sessionToken}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secureAttribute}`,
+              );
+              setCookies.push(
+                `MMCSRF=${sessionToken}; Path=/; Max-Age=2592000; SameSite=Lax${secureAttribute}`,
+              );
             }
             if (userObj?.id) {
-              setCookies.push(`MMUSERID=${userObj.id}; Path=/; Max-Age=2592000; SameSite=Lax`);
+              setCookies.push(`MMUSERID=${userObj.id}; Path=/; Max-Age=2592000; SameSite=Lax${secureAttribute}`);
             }
           }
         }
@@ -619,7 +694,7 @@ async function handleRequest(
         // Proceed with redirect even if auto-login fails.
       }
       response.writeHead(302, {
-        Location: parsedTarget.toString(),
+        Location: redirect.toString(),
         'Cache-Control': 'no-store',
         ...(setCookies.length > 0 ? { 'Set-Cookie': setCookies } : {}),
       });
@@ -858,7 +933,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/emit') {
+    if (request.method === 'POST' && (path === '/dev/emit' || path === '/api/runner/emit')) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -881,7 +956,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/suggest-task') {
+    if (request.method === 'POST' && (path === '/dev/suggest-task' || path === '/api/runner/suggest-task')) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -895,7 +970,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/meeting-memory') {
+    if (request.method === 'POST' && (path === '/dev/meeting-memory' || path === '/api/runner/meeting-memory')) {
       const body = await readJsonBody(request);
       if (!body.ok) { sendJson(response, body.status, { error: body.error }); return; }
       if (!isMeetingMemoryEntries(body.value, context.scenario.agenda.map((item) => item.title))) {
@@ -908,7 +983,7 @@ async function handleRequest(
 
     // The live demo's engine locked the visitor's decision on an agenda item: create its follow-up and release
     // whatever was held for that item, in one request so the two can never disagree.
-    if (request.method === 'POST' && path === '/dev/settle-topic') {
+    if (request.method === 'POST' && (path === '/dev/settle-topic' || path === '/api/runner/settle-topic')) {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -1134,11 +1209,44 @@ export async function createApp({
   const server = createServer((request, response) => {
     void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, sealedSetup, draftTouched, seating, shapeUntouchedAgenda, admissionReset, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
   });
+  const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
+  /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
+  const aiVoiceRoles = (): Set<string> => {
+    const profiles = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
+    return new Set(
+      scenario.attendees.filter((attendee) => profiles.has(attendee.name)).map((attendee) => attendee.role),
+    );
+  };
+  const isHumanSeat = (role: string): boolean =>
+    rejoin.identities().some((identity) => identity.seat === role);
+  const runnerMayUseAudience = (audience: string): boolean =>
+    aiVoiceRoles().has(audience) && !isHumanSeat(audience);
+  /** One WebSocket authorization path: the runner token first, then the same session principal as HTTP. */
+  const authorizeUpgrade = async (
+    request: IncomingMessage,
+    audience: ClientAudience,
+  ): Promise<Awaited<ReturnType<Auth['authorize']>>> => {
+    if (serviceTokenConfigured && tokenMatches(bearerToken(request), serviceToken ?? '')) {
+      if (audience === 'service' || audience === 'screen') {
+        return { ok: true, runner: true, principal: { kind: 'service' } };
+      }
+      if (audience === 'lifecycle') {
+        return { ok: false, message: 'The AI runner does not follow the lifecycle feed' };
+      }
+      if (runnerMayUseAudience(audience)) {
+        return { ok: true, runner: true, principal: { kind: 'service' } };
+      }
+      return { ok: false, message: 'The AI runner may not act as a human seat' };
+    }
+    if (auth === undefined) return { ok: true };
+    return auth.authorize(request, audience);
+  };
   const hub = createHub(server, scenario, {
-    ...(auth === undefined ? {} : { authorize: auth.authorize }),
-    ...(serviceToken === undefined || serviceToken === '' ? {} : { serviceToken }),
-    isHumanSeat: (role) => rejoin.identities().some((identity) => identity.seat === role),
+    ...(auth === undefined && !serviceTokenConfigured ? {} : { authorize: authorizeUpgrade }),
+    isHumanSeat,
   });
+  auth?.bindMeetingIdentity(() => meeting.id);
+  auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
 
@@ -1220,12 +1328,13 @@ export async function createApp({
 
   /** Start a new meeting identity; the reset event carries the id every client and runner must adopt. */
   function rotateMeeting({ rotateCode = true }: { rotateCode?: boolean } = {}): string {
+    const previousMeetingId = meeting.id;
     meetingGeneration += 1;
-    if (rotateCode) {
-      meetingCode.rotate();
-      // The old code is gone, so its phone sessions cannot follow this meeting any more.
-      if (!meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
-    }
+    if (rotateCode) meetingCode.rotate();
+    // A phone session belongs to one meeting generation: close its sockets and free its seats.
+    // Host screen/lifecycle feeds stay; the runner's own sockets stay.
+    if (auth !== undefined || !meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
+    void auth?.releaseMeeting(previousMeetingId);
     cancelPendingStart('the meeting was reset while it was starting');
     meeting.id = randomUUID();
     meeting.started = false;
@@ -1565,14 +1674,14 @@ export async function createApp({
     // A publisher owned by the server rotates before publishing. Anything else (a module or a test)
     // still gets a coherent identity: adopt the id it announced and cancel any Start for the old meeting.
     if (event.payload.meetingId !== meeting.id) {
+      const previousMeetingId = meeting.id;
       meetingGeneration += 1;
       cancelPendingStart('the meeting was reset while it was starting');
       meeting.id = event.payload.meetingId;
       // A publisher that is not the server's own reset still starts a new meeting: rotate its code too.
-      if (!meetingCode.fixed) {
-        meetingCode.rotate();
-        hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
-      }
+      if (!meetingCode.fixed) meetingCode.rotate();
+      if (auth !== undefined || !meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
+      void auth?.releaseMeeting(previousMeetingId);
     }
     memory.splice(0);
     meeting.started = false;

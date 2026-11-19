@@ -151,19 +151,28 @@ const MAX_ADDRESS_LENGTH = 200;
 
 /**
  * The client's address for rate limiting. Behind the cloud proxy every request arrives from
- * 127.0.0.1, so when KAKI_TRUST_PROXY=1 take the first hop of X-Forwarded-For instead.
+ * 127.0.0.1, so when KAKI_TRUST_PROXY=1 and the direct peer is loopback, take the right-most
+ * address in X-Forwarded-For that is not itself a trusted (loopback) proxy. A client can append
+ * to the header, so the left-most value is never trusted.
  */
 export function clientAddress(
   request: IncomingMessage,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  if (env.KAKI_TRUST_PROXY === '1') {
+  const peer = request.socket.remoteAddress;
+  if (env.KAKI_TRUST_PROXY === '1' && isLoopbackAddress(peer)) {
     const header = request.headers['x-forwarded-for'];
     const raw = Array.isArray(header) ? header[0] : header;
-    const first = raw?.split(',')[0]?.trim();
-    if (first !== undefined && first !== '') return first.slice(0, MAX_ADDRESS_LENGTH);
+    const chain = (raw ?? '')
+      .split(',')
+      .map((address) => address.trim())
+      .filter((address) => address !== '');
+    for (let index = chain.length - 1; index >= 0; index -= 1) {
+      const address = chain[index]!;
+      if (!isLoopbackHost(address)) return address.slice(0, MAX_ADDRESS_LENGTH);
+    }
   }
-  return request.socket.remoteAddress ?? 'unknown';
+  return peer ?? 'unknown';
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '::1', '[::1]', '::ffff:127.0.0.1']);
@@ -179,18 +188,51 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   return address !== undefined && isLoopbackHost(address);
 }
 
+/** Whether the configured public URL uses https and so needs Secure cookies. */
+export function publicUrlIsHttps(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.KAKI_PUBLIC_URL ?? '').trim().toLowerCase().startsWith('https://');
+}
+
 /**
- * Refuse to run an open (sign-in off) server on an address other machines can reach, unless the
- * owner explicitly opts into the trusted demo with KAKI_ALLOW_OPEN=1.
+ * Whether this server is reachable by other machines: a non-loopback bind, or a loopback bind
+ * published through a proxy at a public KAKI_PUBLIC_URL.
+ */
+function servesPublicly(host: string, env: NodeJS.ProcessEnv): boolean {
+  if (!isLoopbackHost(host)) return true;
+  const raw = env.KAKI_PUBLIC_URL?.trim();
+  if (raw === undefined || raw === '') return false;
+  try {
+    return !isLoopbackHost(new URL(raw).hostname);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Refuse a deployment that would leak credentials:
+ * - sign-in off on a public address needs the explicit KAKI_ALLOW_OPEN=1 trusted-demo opt-in;
+ * - sign-in on over a public address needs KAKI_PUBLIC_URL=https so session cookies are Secure.
  */
 export function assertSafeBind(
   host: string,
   authEnabled: boolean,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
-  if (authEnabled || isLoopbackHost(host) || env.KAKI_ALLOW_OPEN === '1') return;
-  throw new Error(
-    `kaki server: refusing to start with sign-in off on the non-loopback bind "${host}". ` +
-      'Set KAKI_AUTH=1 for a public server, or KAKI_ALLOW_OPEN=1 to allow this trusted, open demo.',
-  );
+  const allowOpen = env.KAKI_ALLOW_OPEN === '1';
+  const publicDeployment = servesPublicly(host, env);
+
+  if (!authEnabled) {
+    if (!publicDeployment || allowOpen) return;
+    throw new Error(
+      `kaki server: refusing to start with sign-in off on the public bind "${host}" or KAKI_PUBLIC_URL. ` +
+        'Set KAKI_AUTH=1 for a public server, or KAKI_ALLOW_OPEN=1 to allow this trusted, open demo.',
+    );
+  }
+
+  if (publicDeployment && !publicUrlIsHttps(env) && !allowOpen) {
+    throw new Error(
+      `kaki server: refusing to start with sign-in on over a public bind without an https KAKI_PUBLIC_URL. ` +
+        'Set KAKI_PUBLIC_URL=https://… so session cookies are Secure, or KAKI_ALLOW_OPEN=1 to allow this trusted demo.',
+    );
+  }
 }

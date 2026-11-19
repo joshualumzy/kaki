@@ -44,6 +44,7 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
       kind: 'participant',
       role: 'chef',
       meetingCode: 'K7M2Q9',
+      meetingId: null,
       expiresAt: new Date(Date.now() + 60_000),
     });
 
@@ -66,6 +67,7 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
       kind: 'host',
       role: null,
       meetingCode: null,
+      meetingId: null,
       expiresAt: new Date(Date.now() - 1_000),
     });
     expect(await store.findSession(expiredHash)).toBeUndefined();

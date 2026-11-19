@@ -28,6 +28,7 @@ export function projectScenario(scenario: Scenario, seat?: string): Scenario {
       role.card = {
         youAre: role.card.youAre,
         responsibility: role.card.responsibility,
+        facts: [],
       } as RoleCard;
       continue;
     }

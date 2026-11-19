@@ -145,7 +145,7 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
     lastTranscriptError = Date.now();
     log(message);
   };
-  fetch(`${kakiUrl}/dev/emit`, {
+  fetch(`${kakiUrl}/api/runner/emit`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -162,7 +162,7 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
   })
     .then(async (response) => {
       if (!response.ok) {
-        complain(`Kaki rejected a transcript line (HTTP ${response.status}); is the server running with KAKI_DEV_ROUTES=1? ${await response.text()}`);
+        complain(`Kaki rejected a transcript line (HTTP ${response.status}); check the server and runner token. ${await response.text()}`);
       }
     })
     .catch((error: unknown) => complain(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
@@ -223,7 +223,7 @@ const runner = await startNpcRunner({
     const today = new Date().toISOString().slice(0, 10);
     const role = runner.visitorRole();
     if (role === undefined) return;
-    fetch(`${kakiUrl}/dev/emit`, {
+    fetch(`${kakiUrl}/api/runner/emit`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -242,11 +242,11 @@ const runner = await startNpcRunner({
   },
   onMemoryChange: (entries) => {
     memorySync = memorySync.catch(() => undefined).then(() =>
-      postMeetingMemory(fetch, `${kakiUrl}/dev/meeting-memory`, entries, logError));
+      postMeetingMemory(fetch, `${kakiUrl}/api/runner/meeting-memory`, entries, logError));
     void memorySync.catch(() => undefined);
   },
   onReaction: (who, emoji) => {
-    void fetch(`${kakiUrl}/dev/emit`, {
+    void fetch(`${kakiUrl}/api/runner/emit`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'COLLEAGUE_REACTION', audience: { kind: 'all' },
         payload: { who, emoji, timestamp: new Date().toISOString() } }),
@@ -255,7 +255,7 @@ const runner = await startNpcRunner({
   },
   onTopicSettled: async (followUp, reopened) => {
     await memorySync;
-    await postSettledTopic(fetch, `${kakiUrl}/dev/settle-topic`, followUp, logError, reopened);
+    await postSettledTopic(fetch, `${kakiUrl}/api/runner/settle-topic`, followUp, logError, reopened);
   },
   onDisconnected: () => {
     log('exiting so it can be restarted');

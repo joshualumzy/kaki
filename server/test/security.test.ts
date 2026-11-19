@@ -260,17 +260,21 @@ describe('one access layer', () => {
     const app = await authApp();
 
     expect((await post(app, '/api/meeting/start', {})).status).toBe(401);
-    const participant = await join(app, 'chef');
-    expect((await post(app, '/api/meeting/start', {}, participant)).status).toBe(403);
 
-    const seated = await post(app, '/api/livekit/token', {
-      participantName: 'Ada',
-      participantRole: 'chef',
-    });
-    expect(seated.status).toBe(200);
-
+    // The owner opens the empty room and takes a seat; the old host token is replaced by the seat session.
     const host = await signInAsHost(app);
-    expect((await post(app, '/api/meeting/start', {}, host)).status).toBe(200);
+    const seated = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef' },
+      host,
+    );
+    expect(seated.status).toBe(200);
+    const seatHost = cookieFrom(seated);
+
+    const participant = await join(app, 'cashier');
+    expect((await post(app, '/api/meeting/start', {}, participant)).status).toBe(403);
+    expect((await post(app, '/api/meeting/start', {}, seatHost)).status).toBe(200);
   });
 
   it('denies Mattermost open to strangers, rejects off-site targets, and never falls back to a password', async () => {
@@ -282,7 +286,7 @@ describe('one access layer', () => {
     expect((await get(app, `/api/mattermost/open?url=${target}`)).status).toBe(401);
 
     const participant = await join(app, 'chef');
-    const offSite = encodeURIComponent('https://evil.example/kopitiam/channels/town-square');
+    const offSite = encodeURIComponent('ftp://evil.example/kopitiam/channels/town-square');
     const denied = await get(app, `/api/mattermost/open?url=${offSite}`, participant);
     expect(denied.status).toBe(400);
 
@@ -298,7 +302,13 @@ describe('one access layer', () => {
   });
 
   it('starts the same seat session for a LiveKit join so the joiner sees their own card and facts', async () => {
-    const app = await authApp({ scenario: privateScenario() });
+    // Someone is already in another seat, so this joined person is not the one starting the meeting.
+    const scenario = privateScenario();
+    scenario.npcs = [];
+    const app = await authApp({
+      scenario,
+      roomRoster: async () => [{ name: 'Ghost', role: 'manager' }],
+    });
 
     const response = await post(app, '/api/livekit/token', {
       participantName: 'Ada',
@@ -315,7 +325,7 @@ describe('one access layer', () => {
     const chefCard = seatBody.roles.find((role) => role.id === 'chef')?.card;
     expect(chefCard?.facts).toEqual(['chef card secret']);
     expect(seatBody.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
-    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toBeUndefined();
+    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toEqual([]);
     expect(seatBody.agenda[0]?.seatFacts?.cashier).toBeUndefined();
     expect(seatBody.agenda[0]?.directions).toBeUndefined();
   });
@@ -328,8 +338,8 @@ describe('one access layer', () => {
     const cashierCard = publicBody.roles.find((role) => role.id === 'cashier')?.card;
     expect(chefCard).toMatchObject({ youAre: 'You run the kitchen.', responsibility: 'You order stock.' });
     expect(cashierCard).toMatchObject({ youAre: 'You run the till.', responsibility: 'You count the float.' });
-    expect(chefCard?.facts).toBeUndefined();
-    expect(cashierCard?.facts).toBeUndefined();
+    expect(chefCard?.facts).toEqual([]);
+    expect(cashierCard?.facts).toEqual([]);
     expect(publicBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
     expect(publicBody.agenda[0]?.seatFacts).toBeUndefined();
     expect(publicBody.agenda[0]?.directions).toBeUndefined();
@@ -359,7 +369,7 @@ describe('one access layer', () => {
     const body = (await (await get(app, '/api/scenario', seatHost)).json()) as Scenario;
     expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual(['chef card secret']);
     expect(body.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
-    expect(body.roles.find((role) => role.id === 'cashier')?.card?.facts).toBeUndefined();
+    expect(body.roles.find((role) => role.id === 'cashier')?.card?.facts).toEqual([]);
     expect(body.agenda[0]?.seatFacts?.cashier).toBeUndefined();
     expect(body.agenda[0]?.directions).toBeUndefined();
 
@@ -388,7 +398,7 @@ describe('one access layer', () => {
 
     const again = await signInAsHost(app);
     const body = (await (await get(app, '/api/scenario', again)).json()) as Scenario;
-    expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toBeUndefined();
+    expect(body.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual([]);
     expect(body.agenda[0]?.seatFacts).toBeUndefined();
   });
 
@@ -397,7 +407,7 @@ describe('one access layer', () => {
     const publicBody = (await (await get(app, '/api/scenario')).json()) as Scenario;
     expect(publicBody.agenda[0]?.directions).toBeUndefined();
     expect(publicBody.agenda[0]?.seatFacts).toBeUndefined();
-    expect(publicBody.roles.find((role) => role.id === 'chef')?.card?.facts).toBeUndefined();
+    expect(publicBody.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual([]);
     expect(publicBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
     expect(publicBody.npcs?.[0]?.hiddenGoal).toBeUndefined();
 
@@ -405,7 +415,7 @@ describe('one access layer', () => {
     const seatBody = (await (await get(app, '/api/scenario', chef)).json()) as Scenario;
     expect(seatBody.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
     expect(seatBody.roles.find((role) => role.id === 'chef')?.card?.facts).toEqual(['chef card secret']);
-    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toBeUndefined();
+    expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toEqual([]);
     expect(seatBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
     expect(seatBody.agenda[0]?.directions).toBeUndefined();
 

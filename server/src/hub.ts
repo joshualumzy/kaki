@@ -9,7 +9,7 @@ import {
   type Role,
   type Scenario,
 } from '@kaki/shared';
-import { bearerToken, tokenMatches, type Principal } from './access';
+import type { Principal } from './access';
 
 /**
  * Who a socket belongs to: the shared screen, one role's phone, the AI runner's authenticated service
@@ -44,7 +44,13 @@ export type CommandHandler = (command: KakiCommand, sender: ClientAudience) => v
 
 /** The result of checking whether a socket may connect; the principal is the same one HTTP uses. */
 export type UpgradeDecision =
-  | { ok: true; participant?: boolean; principal?: Principal }
+  | {
+      ok: true;
+      participant?: boolean;
+      principal?: Principal;
+      sessionTokenHash?: string;
+      runner?: boolean;
+    }
   | { ok: false; message: string };
 
 /** One socket message may not exceed this: the clients send small commands, not uploads. */
@@ -53,8 +59,6 @@ const MAX_PAYLOAD_BYTES = 1_000_000;
 /** Options for the hub; auth plugs into the WebSocket upgrade through `authorize`. */
 export interface HubOptions {
   authorize?(request: IncomingMessage, audience: ClientAudience): Promise<UpgradeDecision>;
-  /** Shared secret the AI runner presents on the service channel; required when auth is on. */
-  serviceToken?: string;
   /** True when a person currently holds this role, so the runner's token may not act as it. */
   isHumanSeat?(role: string): boolean;
 }
@@ -80,6 +84,8 @@ export interface Hub {
   clearRetained(prefix: string): void;
   /** Revoke a gone meeting's phone sessions: bump the authorization generation and close their feeds. */
   endRoleSessions?(reason: string): void;
+  /** Close every socket authorized by one session that has been replaced or signed out. */
+  endSession?(sessionTokenHash: string): void;
   /** Close the WebSocket server and drop every client. */
   close(): void;
 }
@@ -164,12 +170,7 @@ function rejectionFor(audience: ClientAudience, commandType: string, reason: str
 /** Create the `/ws` hub attached to an existing HTTP server for one scenario. */
 export function createHub(httpServer: Server, scenario: Scenario, options: HubOptions = {}): Hub {
   const authorize = options.authorize;
-  const serviceToken = options.serviceToken?.trim();
-  const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   const isHumanSeat = options.isHumanSeat ?? (() => false);
-  /** True when a socket presents the AI runner's own token in its Authorization header. */
-  const isRunnerRequest = (request: IncomingMessage): boolean =>
-    serviceTokenConfigured && tokenMatches(bearerToken(request), serviceToken ?? '');
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
   const aiVoiceRoles = (): Set<string> => {
     const profiles = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
@@ -187,13 +188,13 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     if (audience === 'lifecycle') return false;
     return aiVoiceRoles().has(audience) && !isHumanSeat(audience);
   };
-  const verified = authorize === undefined && !serviceTokenConfigured;
+  const verified = authorize === undefined;
   /** Bumped whenever a meeting's code rotates, so upgrades authorized under the old code cannot register. */
   let revocationGeneration = 0;
   /** How each pending upgrade was authorized, kept until its socket registers. */
   const pendingAuthorizations = new WeakMap<
     IncomingMessage,
-    { generation: number; participant: boolean }
+    { generation: number; participant: boolean; sessionTokenHash?: string; runner: boolean }
   >();
   const wss = new WebSocketServer(
     verified
@@ -209,31 +210,6 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
               done(false, 401, 'Unknown role');
               return;
             }
-            if (audience === 'service') {
-              if (!serviceTokenConfigured) {
-                console.error('kaki hub: refused the AI runner service channel because no service token is configured');
-                done(false, 401, 'Service token not configured');
-                return;
-              }
-              if (!tokenMatches(bearerToken(info.req), serviceToken ?? '')) {
-                console.error('kaki hub: refused the AI runner service channel: wrong or missing service token');
-                done(false, 401, 'Service sign-in required');
-                return;
-              }
-              done(true);
-              return;
-            }
-            // The runner also drives its own commands (agenda advance, end, pause, task answers)
-            // as the screen or its AI roles; its token stands in for a person's session there only.
-            if (isRunnerRequest(info.req)) {
-              if (!runnerMayUseAudience(audience)) {
-                console.error(`kaki hub: refused the AI runner on ${audience}: it may not act as a human seat`);
-                done(false, 401, 'The AI runner may not act as a human seat');
-                return;
-              }
-              done(true);
-              return;
-            }
             if (authorize === undefined) {
               done(true);
               return;
@@ -245,6 +221,10 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
                   pendingAuthorizations.set(info.req, {
                     generation,
                     participant: decision.participant === true || decision.principal?.kind === 'seat',
+                    runner: decision.runner === true,
+                    ...(decision.sessionTokenHash === undefined
+                      ? {}
+                      : { sessionTokenHash: decision.sessionTokenHash }),
                   });
                   done(true);
                 } else {
@@ -271,6 +251,16 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const runnerSockets = new Set<WebSocket>();
   /** Sockets behind a participant's phone session, whatever audience they follow. */
   const participantSockets = new Set<WebSocket>();
+  /** The session each person's socket was authorized by, so replacing it can close the socket. */
+  const socketSessions = new Map<WebSocket, string>();
+
+  function forgetSocket(socket: WebSocket): void {
+    clients.delete(socket);
+    serviceSockets.delete(socket);
+    runnerSockets.delete(socket);
+    participantSockets.delete(socket);
+    socketSessions.delete(socket);
+  }
 
   function sendTo(socket: WebSocket, audience: ClientAudience, message: string): void {
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -337,19 +327,20 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       return;
     }
 
-    const runnerOnHumanSeat =
-      runnerSockets.has(socket) &&
-      audience !== 'screen' &&
-      audience !== 'service' &&
-      audience !== 'lifecycle' &&
-      isHumanSeat(audience);
-    if (runnerSockets.has(socket) && (runnerOnHumanSeat || !runnerMaySend(audience, parsed.type))) {
-      const reason = runnerOnHumanSeat
-        ? 'The AI runner may not act as a human seat'
-        : 'The AI runner may not send that command';
-      console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audience}: ${reason}`);
-      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, reason)));
-      return;
+    if (runnerSockets.has(socket)) {
+      // The cast can change when Start seals the setup or a person takes the seat. Re-check the
+      // runner's eligibility on every command and revoke the socket the moment it no longer holds.
+      if (!runnerMayUseAudience(audience)) {
+        console.warn(`kaki hub: closing the AI runner socket on ${audience}: it is no longer an AI-cast role`);
+        socket.close(4008, 'The AI runner may not act as this role');
+        return;
+      }
+      if (!runnerMaySend(audience, parsed.type)) {
+        const reason = 'The AI runner may not send that command';
+        console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audience}: ${reason}`);
+        sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, reason)));
+        return;
+      }
     }
 
     if (commandHandlers.length === 0) {
@@ -385,32 +376,32 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     }
 
     const authorization = pendingAuthorizations.get(request);
+    const seatAudience =
+      audience !== 'screen' && audience !== 'service' && audience !== 'lifecycle';
     if (
-      authorization?.participant === true &&
-      authorization.generation !== revocationGeneration
+      authorization !== undefined &&
+      authorization.generation !== revocationGeneration &&
+      (authorization.participant === true || (seatAudience && authorization.runner !== true))
     ) {
-      // Authorized for the previous meeting's code: the phone belongs to a meeting that is gone.
+      // Authorized for the previous meeting's generation: the phone or seat grant is gone.
       socket.close(4001);
       return;
     }
 
     clients.set(socket, audience);
     if (audience === 'service') serviceSockets.add(socket);
-    else if (isRunnerRequest(request)) runnerSockets.add(socket);
+    else if (authorization?.runner === true) runnerSockets.add(socket);
     else if (authorization?.participant === true) participantSockets.add(socket);
+    if (authorization?.sessionTokenHash !== undefined) {
+      socketSessions.set(socket, authorization.sessionTokenHash);
+    }
     sendRetained(socket, audience);
     socket.on('close', () => {
-      clients.delete(socket);
-      serviceSockets.delete(socket);
-      runnerSockets.delete(socket);
-      participantSockets.delete(socket);
+      forgetSocket(socket);
     });
     socket.on('error', (error) => {
       console.error(`kaki hub: socket error for ${audience}`, error);
-      clients.delete(socket);
-      serviceSockets.delete(socket);
-      runnerSockets.delete(socket);
-      participantSockets.delete(socket);
+      forgetSocket(socket);
     });
     socket.on('message', (data) => {
       void handleClientMessage(socket, audience, data);
@@ -477,12 +468,21 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
         socket.close(4001, reason);
       }
     },
+    endSession(sessionTokenHash) {
+      for (const [socket, session] of socketSessions) {
+        if (session !== sessionTokenHash) continue;
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close(4001, 'Signed in again elsewhere');
+        }
+      }
+    },
     close() {
       for (const socket of clients.keys()) socket.terminate();
       clients.clear();
       serviceSockets.clear();
       runnerSockets.clear();
       participantSockets.clear();
+      socketSessions.clear();
       serviceHandlers.clear();
       retained.clear();
       subscribers.clear();

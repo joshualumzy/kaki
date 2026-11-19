@@ -14,6 +14,7 @@ interface SessionRow {
   kind: string;
   role: string | null;
   meeting_code: string | null;
+  meeting_id: string | null;
   expires_at: Date | string;
 }
 
@@ -32,6 +33,7 @@ function toSession(row: SessionRow): SessionRecord {
     kind: row.kind === 'participant' ? 'participant' : 'host',
     role: row.role,
     meetingCode: row.meeting_code,
+    meetingId: row.meeting_id,
     expiresAt: new Date(row.expires_at),
   };
 }
@@ -69,15 +71,22 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
 
     async createSession(session) {
       await pool.query(
-        `insert into sessions (token_hash, kind, role, meeting_code, expires_at)
-         values ($1, $2, $3, $4, $5)`,
-        [session.tokenHash, session.kind, session.role, session.meetingCode, session.expiresAt],
+        `insert into sessions (token_hash, kind, role, meeting_code, meeting_id, expires_at)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [
+          session.tokenHash,
+          session.kind,
+          session.role,
+          session.meetingCode,
+          session.meetingId,
+          session.expiresAt,
+        ],
       );
     },
 
     async findSession(tokenHash) {
       const result = await pool.query<SessionRow>(
-        `select token_hash, kind, role, meeting_code, expires_at
+        `select token_hash, kind, role, meeting_code, meeting_id, expires_at
            from sessions
           where token_hash = $1`,
         [tokenHash],
@@ -93,14 +102,30 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return session;
     },
 
-    async hasParticipant(meetingCode, role) {
+    async claimSeat({ meetingId, role, holder, replaces }) {
+      // One atomic statement: the row is only taken when it is free, already ours, or being
+      // handed over by the same holder whose session we are replacing.
       const result = await pool.query(
-        `select 1 from sessions
-          where kind = 'participant' and meeting_code = $1 and role = $2 and expires_at > now()
-          limit 1`,
-        [meetingCode, role],
+        `insert into seat_claims (meeting_id, role, holder, expires_at)
+         values ($1, $2, $3, now() + interval '12 hours')
+         on conflict (meeting_id, role) do update
+           set holder = excluded.holder, expires_at = excluded.expires_at
+           where seat_claims.holder = excluded.holder
+              or seat_claims.holder = $4
+              or seat_claims.expires_at <= now()
+         returning holder`,
+        [meetingId, role, holder, replaces ?? ''],
       );
       return result.rowCount !== null && result.rowCount > 0;
+    },
+
+    async releaseSeats({ holder, meetingId }) {
+      if (holder !== undefined) {
+        await pool.query('delete from seat_claims where holder = $1', [holder]);
+      }
+      if (meetingId !== undefined) {
+        await pool.query('delete from seat_claims where meeting_id = $1', [meetingId]);
+      }
     },
 
     async deleteSession(tokenHash) {

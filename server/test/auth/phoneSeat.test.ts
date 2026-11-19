@@ -131,14 +131,28 @@ describe('phone and screen seat authority', () => {
     return cookieFrom(response);
   }
 
-  async function joinRoom(name: string, role: string): Promise<{ meetingCode: string }> {
-    const response = await post('/api/livekit/token', {
-      roomName: 'room',
-      participantName: name,
-      participantRole: role,
-    });
+  async function joinRoom(name: string, role: string, cookie?: string): Promise<{ meetingCode: string }> {
+    const response = await post(
+      '/api/livekit/token',
+      {
+        roomName: 'room',
+        participantName: name,
+        participantRole: role,
+      },
+      cookie,
+    );
     expect(response.status).toBe(200);
     return (await response.json()) as { meetingCode: string };
+  }
+
+  async function loginHost(): Promise<string> {
+    const email = 'host@example.com';
+    if ((await store.findUserByEmail(email)) === undefined) {
+      await store.createUser({ email, passwordHash: await hashPassword('host-password') });
+    }
+    const response = await post('/api/auth/login', { email, password: 'host-password' });
+    expect(response.status).toBe(200);
+    return cookieFrom(response);
   }
 
   it('uses the LiveKit meeting code for phone sign-in and rotates both on reset', async () => {
@@ -146,7 +160,7 @@ describe('phone and screen seat authority', () => {
     await makeApp({ meetingCode });
 
     const shownCode = meetingCode.value;
-    const first = await joinRoom('Ada', 'chef');
+    const first = await joinRoom('Ada', 'chef', await loginHost());
     const oldCode = first.meetingCode;
     // The code already on screen stays valid when the first person starts this app's first meeting.
     expect(oldCode).toBe(shownCode);
@@ -159,8 +173,8 @@ describe('phone and screen seat authority', () => {
       closedWith = code;
     });
 
-    // The room emptied: the next arrival starts a new meeting and rotates the one code both sides use.
-    const second = await joinRoom('Ada', 'chef');
+    // The room emptied: the owner's next arrival starts a new meeting and rotates the one code both sides use.
+    const second = await joinRoom('Ada', 'chef', await loginHost());
     const newCode = second.meetingCode;
     expect(newCode).not.toBe(oldCode);
     expect(meetingCode.value).toBe(newCode);
@@ -264,12 +278,12 @@ describe('phone and screen seat authority', () => {
     });
     port = portOf(app);
 
-    const first = await joinRoom('Ada', 'chef');
+    const first = await joinRoom('Ada', 'chef', await loginHost());
     const oldCookie = await joinAs(first.meetingCode, 'cashier');
 
     const pending = connect(port, 'cashier', oldCookie);
     await didAuthorize;
-    const second = await joinRoom('Ada', 'chef');
+    const second = await joinRoom('Ada', 'chef', await loginHost());
     expect(second.meetingCode).not.toBe(first.meetingCode);
     release?.();
 
@@ -292,14 +306,10 @@ describe('phone and screen seat authority', () => {
     const meetingCode = createMeetingCodeSource('');
     await makeApp({ meetingCode, serviceToken: 'runner-secret' });
 
-    const first = await joinRoom('Ada', 'chef');
+    const first = await joinRoom('Ada', 'chef', await loginHost());
     const participantCookie = await joinAs(first.meetingCode, 'cashier');
-    const login = await post('/api/auth/login', {
-      email: 'host@example.com',
-      password: 'host-password',
-    });
-    expect(login.status).toBe(200);
-    const hostCookie = cookieFrom(login);
+    // A separate host sign-in for the sockets; the next join below replaces only its own session.
+    const hostCookie = await loginHost();
 
     const participantLifecycle = await connect(port, 'lifecycle', participantCookie);
     const hostLifecycle = await connect(port, 'lifecycle', hostCookie);
@@ -327,7 +337,7 @@ describe('phone and screen seat authority', () => {
       runnerClosed = true;
     });
 
-    const second = await joinRoom('Ada', 'chef');
+    const second = await joinRoom('Ada', 'chef', await loginHost());
     expect(second.meetingCode).not.toBe(first.meetingCode);
     await waitFor(() => participantClosed, 'the participant lifecycle feed to close');
     expect(participantClosed).toBe(4001);

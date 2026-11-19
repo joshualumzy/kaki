@@ -373,6 +373,7 @@ describe('auth', () => {
       kind: 'host',
       role: null,
       meetingCode: null,
+      meetingId: null,
       expiresAt: new Date(Date.now() - 1_000),
     });
 
