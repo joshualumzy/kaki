@@ -21,6 +21,8 @@ export interface OpenQuestion {
   from: string;
   to: string;
   text: string;
+  /** A host prompt that keeps the room moving (a nudge, read-back, offer or silence check-in), not a real question to answer. */
+  procedural?: boolean;
 }
 
 export interface TopicPromptView {

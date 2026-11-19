@@ -1776,7 +1776,11 @@ export class NpcConversation<Clip> {
   }
 
   /** The conversation's own memory of a spoken sentence, without touching the heard-event ledger. */
-  private noteSpokenSides(utterance: Utterance, topic: string | undefined): OpenQuestion | undefined {
+  private noteSpokenSides(
+    utterance: Utterance,
+    topic: string | undefined,
+    procedural = false,
+  ): OpenQuestion | undefined {
     this.clearAskedGates();
     if (utterance.speaker === this.facilitatorOrCoHost() && LOCK_ASK_RE.test(utterance.text)) {
       this.lastLockAskAt = Date.now();
@@ -1791,15 +1795,20 @@ export class NpcConversation<Clip> {
     // The colleague the last question was put to has answered it by speaking; a new question then replaces it.
     if (this.topicRecord.openQuestion?.to === utterance.speaker) this.answerTopicQuestion();
     const question = this.questionFrom(utterance);
-    if (question !== undefined) this.topicRecord.ask(question);
+    if (question !== undefined) this.topicRecord.ask(procedural ? { ...question, procedural: true } : question);
     this.topicRecord.said({ speaker: utterance.speaker, text: utterance.text });
     const now = Date.now();
     this.recentSpoken.push({ speaker: utterance.speaker, text: utterance.text, at: now, topic });
     return question;
   }
 
-  private rememberSpoken(utterance: Utterance, topic: string | undefined, factIds?: readonly string[]): string | undefined {
-    const question = this.noteSpokenSides(utterance, topic);
+  private rememberSpoken(
+    utterance: Utterance,
+    topic: string | undefined,
+    factIds?: readonly string[],
+    procedural = false,
+  ): string | undefined {
+    const question = this.noteSpokenSides(utterance, topic, procedural);
     const eventId = this.nextShadowLineId();
     this.meetingState.lineStarted({
       id: eventId,
@@ -2027,7 +2036,9 @@ export class NpcConversation<Clip> {
     this.silencePromptStage = 0;
     this.clearSilenceTimer();
     const open = this.topicRecord.openQuestion;
-    this.questionBeforeGuestLine = open !== undefined && open.to === this.human?.name ? open.text : undefined;
+    this.questionBeforeGuestLine = open !== undefined && open.procedural !== true && open.to === this.human?.name
+      ? open.text
+      : undefined;
     // The visitor speaking is the answer the room was waiting for.
     if (open !== undefined && open.to === this.human?.name) this.answerTopicQuestion();
     this.humanLines += 1;
@@ -5617,7 +5628,12 @@ export class NpcConversation<Clip> {
         }
         this.lastSpoken = utterance.text;
         if (turn.planned === undefined) {
-          entry.shadowLineId = this.rememberSpoken(utterance, turn.topic ?? this.currentItem()?.title);
+          entry.shadowLineId = this.rememberSpoken(
+            utterance,
+            turn.topic ?? this.currentItem()?.title,
+            undefined,
+            turn.scripted === true || turn.nudge === true,
+          );
         } else {
           this.noteSpokenSides(utterance, turn.topic ?? this.currentItem()?.title);
           this.startPlannedLine(turn, utterance);

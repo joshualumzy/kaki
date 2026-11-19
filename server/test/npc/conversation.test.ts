@@ -443,6 +443,30 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
+  it('carries a substantive colleague question onto the follow-up card', async () => {
+    const h = harness();
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+    await h.say('Hello.');
+    h.calls.at(-1)?.push('Ada: What do we do for the regulars?');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    await h.say('Keep the price and explain it at the counter.');
+    h.calls.at(-1)?.push('NONE');
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.conversation.lockDecision();
+    await h.flush();
+    expect(settleTopic).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.stringContaining(
+        'Open question to carry into the follow-up: What do we do for the regulars?'),
+    }), false);
+    h.conversation.close();
+  });
+
   it('knows when a colleague volunteered to handle the follow-up in their own recent line', async () => {
     const h = harness();
     await h.say('Can you handle this?');
@@ -3343,6 +3367,7 @@ describe('one-speaker replies to the guest', () => {
     expect(settleTopic).toHaveBeenCalledTimes(1);
     expect(settleTopic).toHaveBeenCalledWith(
       expect.objectContaining({ decisionSource: 'Old price only on the small cup' }), false);
+    expect(settleTopic.mock.calls[0]?.[0].context).not.toContain('Open question');
     expect(h.transcript.filter(([, text]) => text === "So it's old price only on the small cup.")).toHaveLength(1);
     h.conversation.close();
   });
@@ -3550,6 +3575,7 @@ describe('one-speaker replies to the guest', () => {
     await h.say('Yes.');
     await finishPlaying(h);
     expect(settleTopic).toHaveBeenCalledTimes(1);
+    expect(settleTopic.mock.calls[0]?.[0].context).not.toContain('Open question');
     h.conversation.close();
   });
 
