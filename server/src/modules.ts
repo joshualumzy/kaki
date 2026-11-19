@@ -2,6 +2,7 @@ import type { MeetingMemoryEntry, Scenario } from '@kaki/shared';
 import type { Hub } from './hub';
 import type { MeetingPersistence } from './persist/persistence';
 import type { SavedMeetingDetails } from './persist/state';
+import type { MeetingSession, MeetingSessionResetOptions } from './session';
 import type { TaskStore } from './tasks';
 
 /** Everything a plug-in module may use while the meeting runs. */
@@ -18,8 +19,12 @@ export interface KakiContext {
   persistence?: MeetingPersistence;
   /** The server-owned identity of the current meeting, saved with it so a restart resumes the same one. */
   meetingId?(): string;
-  /** Start a new meeting identity; returns it for the MEETING_RESET payload. */
-  resetMeetingIdentity?(): string;
+  /** Reset the meeting through the one meeting session; returns the new meeting id. */
+  resetMeeting?(options?: MeetingSessionResetOptions): string;
+  /** Register per-module work to run during a meeting reset, instead of reacting to MEETING_RESET. */
+  onReset?(hook: () => void): () => void;
+  /** The session that owns meeting state, for modules that need more than reset and onReset. */
+  session?: MeetingSession;
   /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
   meetingDetails?(): SavedMeetingDetails;
   /**

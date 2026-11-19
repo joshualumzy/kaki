@@ -110,11 +110,7 @@ describe('setup API', () => {
     setup.source.title = 'typed';
     expect((await putSetup(setup)).status).toBe(200);
 
-    app.hub.publish({
-      type: 'MEETING_RESET',
-      audience: { kind: 'all' },
-      payload: { meetingId: 'replacement' },
-    });
+    app.session.reset();
 
     expect((await getSetup()).setup.title).toBe('Edited before reset');
   });

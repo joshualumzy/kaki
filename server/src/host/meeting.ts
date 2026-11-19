@@ -43,15 +43,19 @@ export function createMeetingModule({
 }: MeetingModuleOptions = {}): KakiModule {
   return {
     name: 'host-meeting',
-    start({ hub, tasks, scenario, persistence, meetingId, resetMeetingIdentity, meetingDetails }: KakiContext) {
+    start({
+      hub,
+      tasks,
+      scenario,
+      persistence,
+      meetingId,
+      resetMeeting: resetMeetingSession,
+      onReset,
+      meetingDetails,
+    }: KakiContext) {
       // The app server owns the identity; a module run on its own (tests) still gets a stable one.
-      let localMeetingId = randomUUID();
+      const localMeetingId = randomUUID();
       const currentMeetingId = (): string => meetingId?.() ?? localMeetingId;
-      const beginNewMeeting = (): string => {
-        if (resetMeetingIdentity !== undefined) return resetMeetingIdentity();
-        localMeetingId = randomUUID();
-        return localMeetingId;
-      };
       const clock = sharedClock ?? createAgendaClock({ agenda: scenario.agenda, speed });
       const notetaker = createNotetaker({
         scenario,
@@ -233,34 +237,26 @@ export function createMeetingModule({
         publishRecord();
       }
 
-      // The next line said after the meeting ended belongs to a new meeting: nothing carries over.
-      // `savedCleared` is set by the host's New meeting, which has already waited for the clear itself.
-      let ownResetEvent: KakiEvent | undefined;
-      function resetMeeting({ savedCleared = false }: { savedCleared?: boolean } = {}): void {
-        if (!savedCleared) void persistence?.clearSaved().catch(() => undefined);
+      // A reset clears this module's own state. The meeting session owns the reset itself: identity,
+      // retained keys, saved state and the one MEETING_RESET notification.
+      const stopResetHook = onReset?.(() => {
         clock.reset();
         notetaker.reset();
-        tasks.reset();
-        hub.clearRetained('meeting:started');
-        hub.clearRetained('record');
-        hub.clearRetained('host:opening');
-        hub.clearRetained('fact:');
-        hub.clearRetained('nudge:');
-        hub.clearRetained('meeting:restored');
         meetingStartedAt = undefined;
         lastSignature = undefined;
         lastPublishedAt = 0;
         announcedAgendaIndex = -1;
         startTicker();
-        // The reset starts a new meeting: the server rotates the identity before anyone sees the event.
-        const reset: KakiEvent = {
-          type: 'MEETING_RESET',
-          audience: { kind: 'all' },
-          payload: { meetingId: beginNewMeeting() },
-        };
-        ownResetEvent = reset;
-        hub.publish(reset);
-        ownResetEvent = undefined;
+      });
+
+      // The next line said after the meeting ended belongs to a new meeting: nothing carries over.
+      // `savedCleared` is set by the host's New meeting, which has already waited for the clear itself.
+      function resetMeeting({ savedCleared = false }: { savedCleared?: boolean } = {}): void {
+        if (resetMeetingSession === undefined) {
+          console.error('kaki host: no meeting session is available to reset the meeting');
+          return;
+        }
+        resetMeetingSession({ savedAlreadyCleared: savedCleared });
         console.log('kaki host: a new meeting starts; the old record, questions and tasks are cleared');
       }
 
@@ -281,28 +277,6 @@ export function createMeetingModule({
       }
 
       const unsubscribe = hub.subscribe((event) => {
-        if (event.type === 'MEETING_RESET') {
-          // A reset published by another module (the join guard) must clear the saved meeting too.
-          if (event !== ownResetEvent) void persistence?.clearSaved().catch(() => undefined);
-          const wasActive = clock.snapshot().started || clock.snapshot().ended;
-          clock.reset();
-          notetaker.reset();
-          tasks.reset();
-          hub.clearRetained('meeting:started');
-          hub.clearRetained('record');
-          hub.clearRetained('host:opening');
-          hub.clearRetained('fact:');
-          hub.clearRetained('nudge:');
-          hub.clearRetained('meeting:restored');
-          meetingStartedAt = undefined;
-          lastSignature = undefined;
-          lastPublishedAt = 0;
-          announcedAgendaIndex = -1;
-          if (wasActive) {
-            startTicker();
-          }
-          return;
-        }
         if (event.type === 'MEETING_STARTED') {
           beginMeeting(event.payload.startedAt);
           return;
@@ -441,6 +415,7 @@ export function createMeetingModule({
         stopReplay?.();
         unsubscribe();
         stopAutoDispatch?.();
+        stopResetHook?.();
         stopTicker();
         clearInterval(notetakerTimer);
       };

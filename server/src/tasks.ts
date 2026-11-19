@@ -298,7 +298,6 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     handleCommand,
     reset() {
       tasks.clear();
-      hub.clearRetained('task:');
     },
     snapshot() {
       return [...tasks.values()].map((task) => ({

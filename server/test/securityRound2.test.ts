@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { parseScenario, type Scenario } from '@kaki/shared';
@@ -495,7 +494,7 @@ describe('security round 2', () => {
     if (!oldSeat.ok) return;
     const oldSeatClosed = waitForClose(oldSeat.ws);
 
-    app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: randomUUID() } });
+    app.session.reset();
     await settle();
     expect(await oldSeatClosed).toBe(4001);
 

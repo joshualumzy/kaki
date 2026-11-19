@@ -54,7 +54,7 @@ describe('app', () => {
     expect((await post(entries)).status).toBe(200);
     expect(app.memory).toEqual(entries);
     expect((await post([{ kind: 'invented', item: 'Outside this meeting', text: 'No.' }])).status).toBe(400);
-    app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'reset-meeting' } });
+    app.session.reset();
     expect(app.memory).toEqual([]);
   });
 
@@ -857,7 +857,7 @@ describe('one server-owned meeting start', () => {
       const oldPrepare = prepares[0]!;
 
       // The meeting is reset while the runner is still preparing the old one.
-      app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'replacement' } });
+      const replacement = app.session.reset();
       runner.send(
         JSON.stringify({
           kind: 'ready',
@@ -875,18 +875,18 @@ describe('one server-owned meeting start', () => {
         meetingId: string;
         started: boolean;
       };
-      expect(afterReset).toMatchObject({ meetingId: 'replacement', started: false });
+      expect(afterReset).toMatchObject({ meetingId: replacement, started: false });
 
       // The replacement meeting gets its own attempt; the old acknowledgement cannot satisfy it.
       ackMode = 'ready';
       const secondStart = await startMeeting(app);
       expect(secondStart.status).toBe(200);
       expect(prepares).toHaveLength(2);
-      expect(prepares[1]!.meetingId).toBe('replacement');
+      expect(prepares[1]!.meetingId).toBe(replacement);
       expect(prepares[1]!.attempt).not.toBe(oldPrepare.attempt);
       await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'the replacement start');
       const startedEvent = screen.messages.find((event) => event.type === 'MEETING_STARTED');
-      expect(startedEvent?.type === 'MEETING_STARTED' ? startedEvent.payload.meetingId : undefined).toBe('replacement');
+      expect(startedEvent?.type === 'MEETING_STARTED' ? startedEvent.payload.meetingId : undefined).toBe(replacement);
     } finally {
       runner.terminate();
       screen.close();
@@ -933,9 +933,10 @@ describe('one server-owned meeting start', () => {
 
       // The hub calls the app's service handler first, which resolves the Start waiter; ours runs
       // next, still synchronously, so the reset lands after acknowledgement and before the commit.
+      let replacement: string | undefined;
       app.hub.onServiceMessage?.((message) => {
         if (message.requestId !== oldPrepare.requestId) return;
-        app.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'replacement' } });
+        replacement = app.session.reset();
       });
       runner.send(
         JSON.stringify({
@@ -954,7 +955,7 @@ describe('one server-owned meeting start', () => {
         meetingId: string;
         started: boolean;
       };
-      expect(afterReset).toMatchObject({ meetingId: 'replacement', started: false });
+      expect(afterReset).toMatchObject({ meetingId: replacement, started: false });
     } finally {
       runner.terminate();
       screen.close();
