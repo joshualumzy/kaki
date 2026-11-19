@@ -4,8 +4,10 @@ import WebSocket from 'ws';
 import { createApp } from '../src/app';
 import { CommandError } from '../src/hub';
 import { loadScenario } from '../src/loadScenario';
-import { createTestApp, connectClient, portOf, settle, type TestClient } from './helpers';
+import { createTestApp, connectClient, portOf, settle, waitFor, waitForEvent, type TestClient } from './helpers';
 import { testScenario } from './fixtures/scenario';
+import { createAgendaClock } from '../src/host/clock';
+import { createMeetingModule } from '../src/host/meeting';
 import { parseScenario } from '@kaki/shared';
 
 function closeInfoFor(url: string): Promise<{ code: number; reason: string }> {
@@ -692,6 +694,236 @@ describe('rejoining an empty meeting', () => {
       expect(app.tasks.get(task.id)).toBeUndefined();
       await settle();
       expect(resetCount(screen)).toBeGreaterThan(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+});
+
+describe('one server-owned meeting start', () => {
+  type Roster = Array<{ name: string; role?: string }> | undefined;
+
+  async function startApp(
+    options: {
+      graceMs?: number;
+      pollMs?: number;
+      roster?: () => Roster;
+      modules?: Parameters<typeof createApp>[0]['modules'];
+    } = {},
+  ) {
+    return createApp({
+      scenario: testScenario,
+      modules: options.modules ?? [],
+      roomRoster: async () => (options.roster === undefined ? [] : options.roster()),
+      rejoinGraceMs: options.graceMs ?? 60_000,
+      rejoinPollMs: options.pollMs ?? 60_000,
+      admissionReservationMs: 20,
+    });
+  }
+
+  function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
+    return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', ...body }),
+    });
+  }
+
+  function startMeeting(app: Awaited<ReturnType<typeof startApp>>) {
+    return fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/start`, { method: 'POST' });
+  }
+
+  it('starts once, lets B join a running meeting, and never opens a second time', async () => {
+    let people: Roster = [];
+    const app = await startApp({ roster: () => people, modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })] });
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    try {
+      const a = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      const aBody = (await a.json()) as { meetingCode: string; started?: boolean };
+      expect(a.status).toBe(200);
+      expect(aBody.started).toBe(false);
+      people = [{ name: 'Ada', role: 'chef' }];
+      const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
+
+      const first = await startMeeting(app);
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({ started: true });
+      await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'the start event');
+
+      const b = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: aBody.meetingCode });
+      const bBody = (await b.json()) as { started?: boolean; resumed?: boolean };
+      expect(b.status).toBe(200);
+      expect(bBody.started).toBe(true);
+      expect(bBody.resumed).toBe(true);
+
+      const resets = screen.messages.filter((event) => event.type === 'MEETING_RESET');
+      expect(resets).toHaveLength(resetsBefore);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(1);
+
+      const second = await startMeeting(app);
+      expect(second.status).toBe(200);
+      expect(await second.json()).toMatchObject({ started: true, alreadyStarted: true });
+      await settle(120);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(1);
+
+      // The opening is published by Start, and a later speech line does not open the meeting again.
+      await waitForEvent(
+        screen,
+        (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'OPENING',
+        'the one opening',
+      );
+      app.hub.publish({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'screen' },
+        payload: { speaker: 'Ada (Chef)', text: 'Let us begin.', timestamp: new Date().toISOString() },
+      });
+      await settle(120);
+      const openings = screen.messages.filter(
+        (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'OPENING',
+      );
+      expect(openings).toHaveLength(1);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('lets the owner start before anyone joins, and the first arrival carries it on', async () => {
+    const app = await startApp({ roster: () => [] });
+    try {
+      const started = await startMeeting(app);
+      expect(started.status).toBe(200);
+      expect(await started.json()).toMatchObject({ started: true });
+
+      const joined = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      const body = (await joined.json()) as { started?: boolean };
+      expect(joined.status).toBe(200);
+      expect(body.started).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('starts the agenda clock at Start, not at the first speech', async () => {
+    const clock = createAgendaClock({ agenda: testScenario.agenda });
+    const app = await startApp({
+      roster: () => [],
+      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+    });
+    try {
+      const joined = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      expect(joined.status).toBe(200);
+
+      app.hub.publish({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'screen' },
+        payload: { speaker: 'Ada (Chef)', text: 'We started early.', timestamp: new Date().toISOString() },
+      });
+      await settle(120);
+      expect(clock.snapshot().started).toBe(false);
+
+      const started = await startMeeting(app);
+      expect(started.status).toBe(200);
+      await waitFor(() => (clock.snapshot().started ? true : undefined), 'the clock to start');
+
+      app.hub.publish({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'screen' },
+        payload: { speaker: 'Ada (Chef)', text: 'Now we begin.', timestamp: new Date().toISOString() },
+      });
+      await settle(120);
+      expect(clock.snapshot().meetingElapsedSeconds).toBeGreaterThan(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  async function twoInAStartedMeeting(
+    graceMs: number,
+    pollMs: number,
+  ): Promise<{ app: Awaited<ReturnType<typeof startApp>>; screen: TestClient; people: { value: Roster }; taskId: string; code: string }> {
+    const people: { value: Roster } = { value: [] };
+    const app = await startApp({ graceMs, pollMs, roster: () => people.value });
+    const screen = await connectClient(portOf(app), 'screen');
+    const first = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+    const firstBody = (await first.json()) as { meetingCode: string };
+    people.value = [{ name: 'Ada', role: 'chef' }];
+    const second = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: firstBody.meetingCode });
+    expect(second.status).toBe(200);
+    people.value = [{ name: 'Ada', role: 'chef' }, { name: 'Bao', role: 'cashier' }];
+    expect((await startMeeting(app)).status).toBe(200);
+    const task = app.tasks.suggest({ title: 'Keep this card', context: 'Before the break', suggestedAssignee: 'chef' });
+    await settle(120);
+    return { app, screen, people, taskId: task.id, code: firstBody.meetingCode };
+  }
+
+  it('keeps the meeting when one leaves while the other stays, and when both return in either order', async () => {
+    const { app, screen, people, taskId, code } = await twoInAStartedMeeting(60_000, 5);
+    try {
+      const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
+      // Ada leaves, Bao stays: the poll sees a person, so there is no grace and no reset.
+      people.value = [{ name: 'Bao', role: 'cashier' }];
+      await settle(50);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_RESET')).toHaveLength(resetsBefore);
+
+      // Bao leaves too: the grace starts. Ada returns first, then Bao.
+      people.value = [];
+      await settle(50);
+      const adaBack = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      const adaBody = (await adaBack.json()) as { meetingCode: string; started?: boolean };
+      expect(adaBack.status).toBe(200);
+      expect(adaBody.meetingCode).toBe(code);
+      expect(adaBody.started).toBe(true);
+      people.value = [{ name: 'Ada', role: 'chef' }];
+      const baoBack = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: code });
+      const baoBody = (await baoBack.json()) as { started?: boolean };
+      expect(baoBack.status).toBe(200);
+      expect(baoBody.started).toBe(true);
+      expect(app.tasks.get(taskId)?.title).toBe('Keep this card');
+      expect(screen.messages.filter((event) => event.type === 'MEETING_RESET')).toHaveLength(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('keeps the meeting when both return in the other order', async () => {
+    const { app, screen, people, taskId, code } = await twoInAStartedMeeting(60_000, 5);
+    try {
+      const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
+      people.value = [];
+      await settle(50);
+      const baoBack = await join(app, { participantName: 'Bao', participantRole: 'cashier', meetingCode: code });
+      expect(baoBack.status).toBe(200);
+      people.value = [{ name: 'Bao', role: 'cashier' }];
+      const adaBack = await join(app, { participantName: 'Ada', participantRole: 'chef', meetingCode: code });
+      const adaBody = (await adaBack.json()) as { started?: boolean };
+      expect(adaBack.status).toBe(200);
+      expect(adaBody.started).toBe(true);
+      expect(app.tasks.get(taskId)?.title).toBe('Keep this card');
+      expect(screen.messages.filter((event) => event.type === 'MEETING_RESET')).toHaveLength(resetsBefore);
+    } finally {
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('resets to an unstarted meeting once the grace expires', async () => {
+    const { app, screen, people, taskId } = await twoInAStartedMeeting(20, 5);
+    try {
+      const resetsBefore = screen.messages.filter((event) => event.type === 'MEETING_RESET').length;
+      people.value = [];
+      await settle(60);
+
+      const back = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      const body = (await back.json()) as { started?: boolean };
+      expect(back.status).toBe(200);
+      expect(body.started).toBe(false);
+      expect(app.tasks.get(taskId)).toBeUndefined();
+      await settle(50);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_RESET').length).toBeGreaterThan(resetsBefore);
     } finally {
       screen.close();
       await app.close();

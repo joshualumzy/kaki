@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONTROL_TOPIC, NPC_STATE_TOPIC, type Scenario } from '@kaki/shared';
+import type { Scenario } from '@kaki/shared';
 
 const mocks = vi.hoisted(() => ({ useScenario: vi.fn() }));
 
@@ -30,52 +30,17 @@ const scenario: Scenario = {
   ],
 };
 
-const room = vi.hoisted(() => {
-  const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
-  return {
-    handlers,
-    localParticipant: { identity: 'visitor-1', publishData: vi.fn() },
-    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
-    }),
-    off: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-      handlers.set(event, (handlers.get(event) ?? []).filter((candidate) => candidate !== handler));
-    }),
-  };
-});
-
-vi.mock('@livekit/components-react', () => ({ useRoomContext: () => room }));
-
-function emit(event: string, ...args: unknown[]): void {
-  for (const handler of room.handlers.get(event) ?? []) handler(...args);
-}
-
-function sentStart(): { kind: string; requestId: string; session: string } {
-  const payload = room.localParticipant.publishData.mock.calls.at(-1)![0] as Uint8Array;
-  return JSON.parse(new TextDecoder().decode(payload));
-}
-
-function acknowledge(request: { requestId: string; session: string }, identity = 'Sam'): void {
-  emit(
-    'dataReceived',
-    new TextEncoder().encode(JSON.stringify({ kind: 'started', requestId: request.requestId, session: request.session })),
-    { identity },
-    undefined,
-    NPC_STATE_TOPIC,
-  );
+function replyWith(body: Record<string, unknown>, ok = true, status = 200): void {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok, status, json: async () => body })));
 }
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 beforeEach(() => {
-  room.handlers.clear();
-  room.on.mockClear();
-  room.off.mockClear();
-  room.localParticipant.publishData.mockReset();
-  room.localParticipant.publishData.mockResolvedValue(undefined);
   mocks.useScenario.mockReset();
   mocks.useScenario.mockReturnValue(scenario);
 });
@@ -133,119 +98,84 @@ describe('StartPrompt', () => {
 });
 
 describe('ConnectedStartPrompt', () => {
-  it('retries with the same request and opens only after the matching acknowledgement', () => {
+  it('posts the one Start to the server and opens when it confirms', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ started: true }) }));
+    vi.stubGlobal('fetch', fetchMock);
     const onStarted = vi.fn();
     render(<ConnectedStartPrompt onStarted={onStarted} />);
     pressStart();
-    const request = sentStart();
-    expect(request.kind).toBe('start');
-    expect(request.session).toBe('visitor-1');
-    expect(room.localParticipant.publishData.mock.calls.at(-1)![1]).toEqual({ reliable: true, topic: CONTROL_TOPIC });
     expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
-    expect(onStarted).not.toHaveBeenCalled();
-
-    acknowledge({ ...request, requestId: 'someone-else' });
-    acknowledge(request, 'visitor-1');
-    acknowledge(request, 'Arjun');
-    acknowledge({ ...request, session: 'visitor-2' });
-    expect(onStarted).not.toHaveBeenCalled();
-
-    acknowledge(request);
-    expect(onStarted).toHaveBeenCalledTimes(1);
-    acknowledge(request);
-    expect(onStarted).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith('/api/meeting/start', expect.objectContaining({ method: 'POST' }));
   });
 
   it('fails closed with a recoverable message when the scenario is unavailable', () => {
     mocks.useScenario.mockReturnValue(undefined as never);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
     const onStarted = vi.fn();
     render(<ConnectedStartPrompt onStarted={onStarted} />);
     pressStart();
     expect(screen.getByText(/not ready yet/i)).toBeTruthy();
-    expect(room.localParticipant.publishData).not.toHaveBeenCalled();
-    acknowledge({ requestId: 'req-1', session: 'visitor-1' }, 'Sam');
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(onStarted).not.toHaveBeenCalled();
   });
 
-  it('shows a recoverable failure when the transport rejects and the acknowledgement never comes', () => {
-    vi.useFakeTimers();
-    room.localParticipant.publishData.mockRejectedValue(new Error('transport down'));
+  it('shows the server reason and lets the person try again', async () => {
+    replyWith({ error: 'Join the meeting before starting it.' }, false, 409);
     const onStarted = vi.fn();
     render(<ConnectedStartPrompt onStarted={onStarted} />);
     pressStart();
-    act(() => {
+    expect(await screen.findByText(/Join the meeting before starting it/i)).toBeTruthy();
+    expect(onStarted).not.toHaveBeenCalled();
+
+    replyWith({ started: true });
+    pressStart();
+    await waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not send a second Start while the first is waiting', () => {
+    const fetchMock = vi.fn(() => new Promise(() => undefined));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ConnectedStartPrompt onStarted={vi.fn()} />);
+    pressStart();
+    pressStart();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a server that never confirms the start', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          }),
+      ),
+    );
+    const onStarted = vi.fn();
+    render(<ConnectedStartPrompt onStarted={onStarted} />);
+    pressStart();
+    await act(async () => {
       vi.advanceTimersByTime(8000);
+      await Promise.resolve();
     });
     expect(screen.getByText(/did not confirm the start/i)).toBeTruthy();
     expect(onStarted).not.toHaveBeenCalled();
-
-    room.localParticipant.publishData.mockResolvedValue(undefined);
-    pressStart();
-    const request = sentStart();
-    expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
-    act(() => acknowledge(request));
-    expect(onStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('queues Start when clicked while LiveKit is still connecting and sends it as soon as the room connects', () => {
-    vi.useFakeTimers();
-    const roomWithState = room as typeof room & { state?: string };
-    roomWithState.state = 'connecting';
-    room.localParticipant.identity = '';
-    const onStarted = vi.fn();
-    try {
-      render(<ConnectedStartPrompt onStarted={onStarted} />);
-      pressStart();
-      expect(screen.getByText(/waiting for the room to confirm/i)).toBeTruthy();
-      expect(room.localParticipant.publishData).not.toHaveBeenCalled();
-
-      // Still connecting on the first retry tick: nothing sent yet.
-      act(() => {
-        vi.advanceTimersByTime(750);
-      });
-      expect(room.localParticipant.publishData).not.toHaveBeenCalled();
-
-      // LiveKit finishes connecting and sets the participant identity.
-      roomWithState.state = 'connected';
-      room.localParticipant.identity = 'visitor-1';
-      act(() => {
-        emit('connected');
-      });
-      expect(room.localParticipant.publishData).toHaveBeenCalledTimes(1);
-      const request = sentStart();
-      expect(request.kind).toBe('start');
-      expect(request.session).toBe('visitor-1');
-
-      act(() => acknowledge(request));
-      expect(onStarted).toHaveBeenCalledTimes(1);
-    } finally {
-      delete roomWithState.state;
-      room.localParticipant.identity = 'visitor-1';
-    }
-  });
-
-  it('reports a rejected Start publish instead of hiding the transport failure', async () => {
-    vi.useFakeTimers();
-    room.localParticipant.publishData.mockRejectedValue(new Error('channel closed'));
-    render(<ConnectedStartPrompt onStarted={vi.fn()} />);
-    pressStart();
-    await act(async () => { await Promise.resolve(); });
-    act(() => { vi.advanceTimersByTime(8000); });
-    expect(screen.getByText(/could not send Start \(channel closed\)/i)).toBeTruthy();
-  });
-
-  it('stops retrying and ignores acknowledgements after unmount', () => {
-    vi.useFakeTimers();
+  it('ignores a late answer after unmount', async () => {
+    let resolveFetch: ((value: { ok: boolean; status: number; json: () => Promise<{ started: boolean }> }) => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })));
     const onStarted = vi.fn();
     const { unmount } = render(<ConnectedStartPrompt onStarted={onStarted} />);
     pressStart();
-    const request = sentStart();
     unmount();
-    act(() => acknowledge(request));
-    act(() => {
-      vi.advanceTimersByTime(10000);
+    await act(async () => {
+      resolveFetch?.({ ok: true, status: 200, json: async () => ({ started: true }) });
+      await Promise.resolve();
     });
     expect(onStarted).not.toHaveBeenCalled();
-    expect(room.localParticipant.publishData).toHaveBeenCalledTimes(1);
   });
 });

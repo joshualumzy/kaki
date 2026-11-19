@@ -32,6 +32,7 @@ export type KakiEventType =
   | 'NUDGE'
   | 'FACT_FOUND'
   | 'TASK_UPDATED'
+  | 'MEETING_STARTED'
   | 'MEETING_RESET'
   | 'MEETING_RESTORED'
   | 'TOPIC_SETTLED'
@@ -83,6 +84,8 @@ export type KakiEvent =
   | KakiEventOf<'NUDGE', { text: string; agendaIndex: number }>
   | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[]; agendaIndex: number }>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
+  /** The meeting has started: the agenda clock runs from here and late joiners go straight in. */
+  | KakiEventOf<'MEETING_STARTED', { startedAt: string }>
   /** A new meeting is starting: pages drop the old record, feed and tasks. */
   | KakiEventOf<'MEETING_RESET', Record<string, never>>
   /** The server kept this meeting across a restart; the screen says so and offers a fresh start. */
@@ -99,6 +102,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'NUDGE',
   'FACT_FOUND',
   'TASK_UPDATED',
+  'MEETING_STARTED',
   'MEETING_RESET',
   'MEETING_RESTORED',
   'TOPIC_SETTLED',
@@ -193,6 +197,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     payload.facts.every(isFact) &&
     isAgendaIndex(payload.agendaIndex),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
+  MEETING_STARTED: (payload) => isString(payload.startedAt) && Number.isFinite(Date.parse(payload.startedAt)),
   MEETING_RESET: () => true,
   MEETING_RESTORED: (payload) => isString(payload.startedAt) && Number.isFinite(Date.parse(payload.startedAt)),
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),

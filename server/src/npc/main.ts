@@ -313,6 +313,10 @@ function followHostCues(): void {
   socket.on('message', (data) => {
     try {
       const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
+      if (event.type === 'MEETING_STARTED') {
+        runner.markStarted();
+        return;
+      }
       if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
       if (event.type === 'MEETING_RESET') {
         runner.resetMeeting();

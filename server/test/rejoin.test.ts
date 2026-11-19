@@ -83,6 +83,32 @@ describe('rejoin guard', () => {
     guard.close();
   });
 
+  it('remembers a person who joined an occupied room by name and seat', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.joined('Ada', guard.admit('Ada'), 'chef');
+    guard.remember('Bao', 'cashier');
+    clock.now += 10_000;
+    guard.emptied();
+    clock.now += 5_000;
+
+    // Bao joined a room Ada was already in; when both come back, either order resumes.
+    expect(guard.admit('Bao', 'cashier')).toEqual({ reset: false });
+    expect(guard.admit('Ada', 'chef')).toEqual({ reset: false });
+    guard.close();
+  });
+
+  it('starts a fresh meeting for a stranger taking a seat someone left', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.joined('Ada', guard.admit('Ada'), 'chef');
+    guard.emptied();
+    clock.now += 10_000;
+
+    expect(guard.admit('Priya', 'chef')).toEqual({ reset: true });
+    guard.close();
+  });
+
   it('starts a fresh meeting for a different person inside the window', () => {
     const clock = { now: 1_000 };
     const guard = guardWith(120_000, clock);

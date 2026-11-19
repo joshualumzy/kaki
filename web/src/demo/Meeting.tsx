@@ -3,7 +3,7 @@ import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
 import { demoRoomName, hostRole, humanAttendeeForRole, humanRoles } from '@kaki/shared';
-import { useRefreshScenario, useScenario } from '../kaki';
+import { useKaki, useRefreshScenario, useScenario } from '../kaki';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
 import { LocalSpeechSTT } from './LocalSpeechSTT';
@@ -45,6 +45,25 @@ function CleanDisconnectOnUnload() {
       window.removeEventListener('beforeunload', onUnload);
     };
   }, [room]);
+  return null;
+}
+
+/** Follow the server's one meeting lifecycle: every tab sees the same start, and a reset undoes it. */
+function MeetingLifecycleWatcher({
+  onStarted,
+  onReset,
+}: {
+  onStarted(): void;
+  onReset(): void;
+}) {
+  const { events } = useKaki('screen');
+  const lifecycle = [...events].reverse().find(
+    (event) => event.type === 'MEETING_STARTED' || event.type === 'MEETING_RESET',
+  );
+  useEffect(() => {
+    if (lifecycle?.type === 'MEETING_STARTED') onStarted();
+    else if (lifecycle?.type === 'MEETING_RESET') onReset();
+  }, [lifecycle, onStarted, onReset]);
   return null;
 }
 
@@ -92,7 +111,7 @@ export default function Meeting() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ roomName: demoRoomName(scenario), participantName: name, participantRole: roleLabel, ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }) }),
       });
-      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown; needsCode?: unknown; meetingCode?: unknown; resumed?: unknown };
+      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown; needsCode?: unknown; meetingCode?: unknown; resumed?: unknown; started?: unknown };
       if (body.needsCode === true) setNeedsCode(true);
       if (!response.ok || typeof body.token !== 'string') {
         throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
@@ -103,8 +122,8 @@ export default function Meeting() {
         // Ignore refresh error if scenario already loaded
       }
       setPane('meeting');
-      // A resumed meeting is already talking, so its guest goes straight in instead of the Start tour.
-      setStarted(body.resumed === true);
+      // The server owns whether the meeting has started: a started (or resumed) meeting goes straight in.
+      setStarted(body.started === true || body.resumed === true);
       setSession({
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
@@ -136,8 +155,8 @@ export default function Meeting() {
   }
 
   const seatRole = scenario.roles.find((candidate) => candidate.id === session.role);
-  // Whoever runs the meeting opens it themselves, so only the other roles get the Start button.
-  const needsStart = !started && seatRole?.facilitator !== true;
+  // The meeting is opened by Start, wherever the person sits; a meeting already started goes straight in.
+  const needsStart = !started;
 
   return (
     <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart}>
@@ -166,6 +185,7 @@ export default function Meeting() {
           </ErrorBoundary>
           <LocalSpeechSTT />
           <CleanDisconnectOnUnload />
+          <MeetingLifecycleWatcher onStarted={() => setStarted(true)} onReset={() => setStarted(false)} />
           {needsStart && (
             <ConnectedStartPrompt
               role={seatRole}

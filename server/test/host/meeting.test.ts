@@ -30,7 +30,16 @@ async function connect(role: string): Promise<TestClient> {
   return client;
 }
 
+function startMeeting(): void {
+  app!.hub.publish({
+    type: 'MEETING_STARTED',
+    audience: { kind: 'all' },
+    payload: { startedAt: new Date().toISOString() },
+  });
+}
+
 function say(text: string): void {
+  startMeeting();
   app!.hub.publish({
     type: 'TRANSCRIPT_CHUNK',
     audience: { kind: 'screen' },
@@ -124,6 +133,7 @@ describe('host meeting module', () => {
   it('confirms a pause once a text-only first line has started the meeting', async () => {
     app = await createTestApp({ modules: [createMeetingModule({ notetakerIntervalMs: 50 })] });
     const screen = await connect('screen');
+    startMeeting();
     app.hub.publish({
       type: 'TRANSCRIPT_CHUNK',
       audience: { kind: 'all' },
@@ -343,11 +353,7 @@ describe('host meeting module', () => {
       screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
       await waitFor(() => screen.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'not running yet');
 
-      app.hub.publish({
-        type: 'TRANSCRIPT_CHUNK',
-        audience: { kind: 'screen' },
-        payload: { speaker: 'Ada (Chef)', text: 'Hello.', timestamp: new Date().toISOString() },
-      });
+      say('Hello.');
       await waitFor(() => (screen.messages.some(isRecord) ? true : undefined), 'first record');
       phone.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
       await waitFor(() => phone.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'phone refused');

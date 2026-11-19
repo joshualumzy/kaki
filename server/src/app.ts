@@ -62,6 +62,8 @@ interface RequestContext {
   meetingCode: { value: string; fixed: boolean };
   /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
   rejoin: RejoinGuard;
+  /** The one server-owned lifecycle flag: whether this meeting has started. */
+  meeting: { started: boolean; startedAt?: string };
   /** Seats handed out but not yet visible in LiveKit's roster. */
   reservations: SeatReservations;
   /** Runs admissions one at a time so a roster check and its reservation cannot interleave. */
@@ -264,16 +266,20 @@ async function handleRequest(
           // The first person into an empty room starts a new meeting with a new code; later people must know it.
           // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
           // a different person arriving in that empty room starts a fresh meeting instead.
-          const meetingWasRunning = context.rejoin.hasBegun();
-          const rejoin = present.length === 0 ? context.rejoin.admit(participantName) : undefined;
+          const meetingWasRunning = context.rejoin.hasBegun() || context.meeting.started;
+          const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
           if (rejoin?.reset === true) {
             if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
+            context.meeting.started = false;
+            context.meeting.startedAt = undefined;
+            context.tasks.reset();
+            context.hub.clearRetained('meeting:started');
+            context.hub.clearRetained('record');
+            context.hub.clearRetained('host:opening');
+            context.hub.clearRetained('fact:');
+            context.hub.clearRetained('nudge:');
+            context.hub.clearRetained('meeting:restored');
             if (npcNames.length > 0 && context.fullScenario.agenda.length > 1) {
-              context.tasks.reset();
-              context.hub.clearRetained('record');
-              context.hub.clearRetained('host:opening');
-              context.hub.clearRetained('fact:');
-              context.hub.clearRetained('nudge:');
               const maxAgendaItems = Number(process.env.KAKI_AGENDA_ITEMS) || 2;
               const reordered = context.pickedAgenda ?? shuffleAgendaForRole(
                 context.fullScenario,
@@ -282,8 +288,8 @@ async function handleRequest(
                 maxAgendaItems,
               );
               setMeetingAgenda(context.scenario, context.fullScenario, reordered);
-              context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
             }
+            context.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: {} });
           }
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
@@ -301,12 +307,14 @@ async function handleRequest(
             npcNames,
           );
           context.reservations.add({ participantName, seatId });
-          if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin);
+          if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin, seatId);
+          else context.rejoin.remember(participantName, seatId);
           context.watchRoom(roomName);
           void syncDemoVisitorProfile(participantName);
           const resumed = meetingWasRunning && rejoin?.reset !== true;
-          console.log(`[join] ${participantName} (${seatId}) room=${roomName} reset=${rejoin?.reset === true} resumed=${resumed}`);
-          sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed });
+          const started = context.meeting.started;
+          console.log(`[join] ${participantName} (${seatId}) room=${roomName} reset=${rejoin?.reset === true} resumed=${resumed} started=${started}`);
+          sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed, started });
         });
       } catch (error) {
         if (error instanceof JoinError) {
@@ -315,6 +323,28 @@ async function handleRequest(
         }
         throw error;
       }
+      return;
+    }
+
+    // One server-owned start for the whole meeting. A second Start is a no-op: it must never open the
+    // meeting twice or restart the agenda clock. Every client learns the change from MEETING_STARTED.
+    if (request.method === 'POST' && path === '/api/meeting/start') {
+      // The owner may start before anyone joins (for example from setup); the first arrival carries it on.
+      if (!context.rejoin.hasMeeting()) context.rejoin.startedBeforeAnyoneJoined();
+      if (context.meeting.started) {
+        sendJson(response, 200, { started: true, alreadyStarted: true });
+        return;
+      }
+      const startedAt = new Date().toISOString();
+      context.meeting.started = true;
+      context.meeting.startedAt = startedAt;
+      context.rejoin.began();
+      context.hub.publish(
+        { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt } },
+        { retainKey: 'meeting:started' },
+      );
+      console.log('[start] the meeting has started');
+      sendJson(response, 200, { started: true });
       return;
     }
 
@@ -583,6 +613,12 @@ export async function createApp({
     assertReadableSavedMeeting(savedMeeting, scenario);
     setMeetingAgenda(scenario, fullScenario, resolveSavedAgenda(savedMeeting, scenario));
   }
+  // A meeting saved while it was running is already started: the first person back joins it directly.
+  const restoredStarted = savedMeeting?.state.clock.started === true && savedMeeting.state.clock.ended !== true;
+  const meeting = {
+    started: restoredStarted,
+    startedAt: restoredStarted ? savedMeeting?.startedAt : undefined,
+  };
   const memory: MeetingMemoryEntry[] = [];
   const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
   const reservations = createSeatReservations(admissionReservationMs);
@@ -605,7 +641,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, reservations, admit, watchRoom, meetingElapsedSeconds });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, meeting, reservations, admit, watchRoom, meetingElapsedSeconds });
   });
   const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
   const tasks = createTaskStore({ hub, scenario });
@@ -613,6 +649,9 @@ export async function createApp({
   hub.subscribe((event) => {
     if (event.type !== 'MEETING_RESET') return;
     memory.splice(0);
+    meeting.started = false;
+    meeting.startedAt = undefined;
+    hub.clearRetained('meeting:started');
     // A restored meeting that is replaced before anyone reconnects is gone; the next arrival starts fresh.
     rejoin.forgetRestored();
   });
@@ -620,6 +659,7 @@ export async function createApp({
     hub.subscribe((event) => {
       if (
         event.type === 'TRANSCRIPT_CHUNK' ||
+        event.type === 'MEETING_STARTED' ||
         event.type === 'MEETING_RECORD_UPDATED' ||
         event.type === 'HOST_SPEECH_TRIGGERED' ||
         event.type === 'TASK_UPDATED'
@@ -702,6 +742,14 @@ export async function createApp({
 
   // The module has registered how to read its state; save once so an interrupted task already shows FAILED.
   persistence?.scheduleSave();
+
+  // A restored meeting is already started: keep the start event available to late clients and the NPC.
+  if (meeting.started && meeting.startedAt !== undefined) {
+    hub.publish(
+      { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt: meeting.startedAt } },
+      { retainKey: 'meeting:started' },
+    );
+  }
 
   let closed = false;
 

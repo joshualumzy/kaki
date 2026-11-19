@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRoomContext } from '@livekit/components-react';
-import { ConnectionState, RoomEvent } from 'livekit-client';
-import { aiCast, CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type NpcStateMessage, type Scenario, type ScenarioRole } from '@kaki/shared';
+import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import './demo.css';
 
@@ -187,12 +185,12 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
   );
 }
 
-const START_RETRY_MS = 750;
 const START_TIMEOUT_MS = 8000;
 
 /**
- * The start prompt wired to the LiveKit room it is in. Start is sent with a request id and the visitor's
- * session, retried until the NPC acknowledges that exact request, and reported as failed when it does not.
+ * The start prompt wired to the meeting server. Start is one server-owned operation: the browser posts
+ * it, the server marks the meeting started and tells every tab, and this button only waits for that
+ * answer. A second Start is safe because the server treats it as a no-op.
  */
 export function ConnectedStartPrompt({
   onStarted,
@@ -205,83 +203,20 @@ export function ConnectedStartPrompt({
   viewerName?: string;
   seatName?: string;
 }) {
-  const room = useRoomContext();
   const scenario = safeUseScenario();
   const [phase, setPhase] = useState<'idle' | 'waiting' | 'failed'>('idle');
   const [error, setError] = useState<string | undefined>(undefined);
-  const request = useRef<{ requestId: string; session: string } | undefined>(undefined);
-  const publishError = useRef<string | undefined>(undefined);
-  const retryTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const timeoutTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const started = useRef(false);
+  const request = useRef<AbortController | undefined>(undefined);
+  const mounted = useRef(true);
 
-  const stopTimers = useCallback(() => {
-    if (retryTimer.current !== undefined) clearInterval(retryTimer.current);
-    if (timeoutTimer.current !== undefined) clearTimeout(timeoutTimer.current);
-    retryTimer.current = undefined;
-    timeoutTimer.current = undefined;
-  }, []);
-
-  const publish = useCallback(() => {
-    const pending = request.current;
-    if (pending === undefined) return;
-    if ((room as { state?: ConnectionState }).state !== undefined && (room as { state?: ConnectionState }).state !== ConnectionState.Connected) {
-      return;
-    }
-    const session = room.localParticipant?.identity;
-    if (session === undefined || session.length === 0) return;
-    pending.session = session;
-    const message: ControlMessage = { kind: 'start', ...pending };
-    console.info(`[kaki:start] browser publishing Start request=${pending.requestId} session=${pending.session}`);
-    room.localParticipant
-      .publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: CONTROL_TOPIC })
-      .then(() => {
-        if (request.current === pending) publishError.current = undefined;
-      })
-      .catch((cause: unknown) => {
-        const reason = cause instanceof Error ? cause.message : String(cause);
-        console.warn(`[kaki:start] browser Start publish failed request=${pending.requestId}: ${reason}`);
-        if (request.current === pending) publishError.current = reason;
-      });
-  }, [room]);
-
-  useEffect(() => {
-    const handler = (payload: Uint8Array, participant?: { identity: string }, _kind?: unknown, topic?: string) => {
-      if (topic !== NPC_STATE_TOPIC || participant === undefined) return;
-      const pending = request.current;
-      if (pending === undefined) return;
-      // Only the character the runner keeps in the room as its permanent listener may acknowledge.
-      const npcs = scenario?.npcs ?? [];
-      const listener = scenario === undefined ? undefined : aiCast(scenario)[0] ?? npcs.find((npc) => npc.role === 'host') ?? npcs[0];
-      if (listener === undefined || participant.identity !== listener.attendee) return;
-      let ack: NpcStateMessage;
-      try {
-        ack = JSON.parse(new TextDecoder().decode(payload)) as NpcStateMessage;
-      } catch {
-        return;
-      }
-      // Only the exact request from this visitor may open the meeting.
-      if (ack.kind !== 'started' || ack.requestId !== pending.requestId || ack.session !== pending.session) return;
-      if (started.current) return;
-      console.info(`[kaki:start] browser received Start ack request=${ack.requestId} from=${participant.identity}`);
-      started.current = true;
-      stopTimers();
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      request.current?.abort();
       request.current = undefined;
-      setPhase('idle');
-      onStarted();
-    };
-    const onConnected = () => {
-      if (request.current !== undefined) publish();
-    };
-    room.on(RoomEvent.DataReceived, handler);
-    room.on(RoomEvent.Connected, onConnected);
-    return () => {
-      room.off(RoomEvent.DataReceived, handler);
-      room.off(RoomEvent.Connected, onConnected);
-    };
-  }, [room, scenario, onStarted, stopTimers, publish]);
-
-  useEffect(() => () => stopTimers(), [stopTimers]);
+    },
+    [],
+  );
 
   const start = useCallback(() => {
     if (request.current !== undefined) return;
@@ -291,53 +226,41 @@ export function ConnectedStartPrompt({
       setPhase('failed');
       return;
     }
-    const roomState = (room as { state?: ConnectionState }).state;
-    const session = room.localParticipant?.identity ?? '';
-    if (roomState === undefined && session.length === 0) {
-      console.warn('[kaki:start] Start rejected in browser: room is not connected yet');
-      setError('The meeting is not connected yet. Wait a moment and try again.');
-      setPhase('failed');
-      return;
-    }
-    started.current = false;
-    publishError.current = undefined;
-    request.current = {
-      requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
-      session,
-    };
-    console.info(`[kaki:start] browser Start clicked request=${request.current.requestId} state=${roomState ?? 'connected'} session=${session || '(connecting)'}`);
+    const controller = new AbortController();
+    request.current = controller;
     setError(undefined);
     setPhase('waiting');
-    publish();
-    retryTimer.current = setInterval(publish, START_RETRY_MS);
-    timeoutTimer.current = setTimeout(() => {
-      const expired = request.current;
-      stopTimers();
-      request.current = undefined;
-      const npcs = scenario?.npcs ?? [];
-      const listener = scenario === undefined ? undefined : aiCast(scenario)[0] ?? npcs.find((npc) => npc.role === 'host') ?? npcs[0];
-      const remoteParticipants = (room as { remoteParticipants?: Map<string, { identity: string }> }).remoteParticipants;
-      const listenerPresent =
-        listener === undefined ||
-        remoteParticipants === undefined ||
-        [...remoteParticipants.values()].some((p) => p.identity === listener.attendee);
-      const currentRoomState = (room as { state?: ConnectionState }).state;
-      const currentSession = room.localParticipant?.identity ?? '';
-      const notConnectedYet =
-        (currentRoomState !== undefined && currentRoomState !== ConnectionState.Connected) || currentSession.length === 0;
-      const message =
-        publishError.current !== undefined
-          ? `The room could not send Start (${publishError.current}). Check your connection, then try again.`
-          : notConnectedYet
-          ? 'The meeting is not connected yet. Wait a moment and try again.'
-          : listenerPresent
-          ? 'The room did not confirm the start. Check your connection, then try again.'
-          : 'Waiting for the AI attendees to join the room (run npm run npc or bash scripts/live-up.sh), then try again.';
-      console.warn(`[kaki:start] browser Start timed out request=${expired?.requestId ?? 'unknown'}: ${message}`);
-      setPhase('failed');
-      setError(message);
-    }, START_TIMEOUT_MS);
-  }, [room, publish, stopTimers, scenario]);
+    const timer = setTimeout(() => controller.abort(), START_TIMEOUT_MS);
+    console.info('[kaki:start] browser asking the server to start the meeting');
+    void fetch('/api/meeting/start', { method: 'POST', signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as { error?: unknown; started?: unknown };
+        if (!response.ok || body.started !== true) {
+          throw new Error(
+            typeof body.error === 'string' ? body.error : `Could not start the meeting (HTTP ${response.status}).`,
+          );
+        }
+        if (request.current !== controller) return;
+        request.current = undefined;
+        if (!mounted.current) return;
+        setPhase('idle');
+        onStarted();
+      })
+      .catch((cause: unknown) => {
+        if (request.current !== controller) return;
+        request.current = undefined;
+        if (!mounted.current) return;
+        const timedOut = cause instanceof DOMException && cause.name === 'AbortError';
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        const message = timedOut
+          ? 'The meeting server did not confirm the start. Check your connection, then try again.'
+          : `${reason} Check your connection, then try again.`;
+        console.warn(`[kaki:start] server Start failed: ${reason}`);
+        setPhase('failed');
+        setError(message);
+      })
+      .finally(() => clearTimeout(timer));
+  }, [scenario, onStarted]);
 
   return (
     <StartPrompt

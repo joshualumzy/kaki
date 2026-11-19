@@ -147,6 +147,11 @@ async function connectScreen(app: KakiApp): Promise<TestClient> {
 
 function say(app: KakiApp, speaker: string, text: string): void {
   app.hub.publish({
+    type: 'MEETING_STARTED',
+    audience: { kind: 'all' },
+    payload: { startedAt: new Date().toISOString() },
+  });
+  app.hub.publish({
     type: 'TRANSCRIPT_CHUNK',
     audience: { kind: 'screen' },
     payload: { speaker, text, timestamp: new Date().toISOString() },

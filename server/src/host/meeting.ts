@@ -29,8 +29,9 @@ export interface MeetingModuleOptions {
 
 /**
  * The meeting record: agenda clock, notetaker and (optionally) the replay feed.
- * The clock starts on the first transcript line, live or replayed. A replay moves the agenda on
- * its own markers and ends the meeting after its last line; live, only the screen command moves the agenda.
+ * Live, the clock starts on the server's one MEETING_STARTED event, not on the first speech; a
+ * replay starts it on its first line. A replay moves the agenda on its own markers and ends the
+ * meeting after its last line; live, only the screen command moves the agenda.
  */
 export function createMeetingModule({
   llm,
@@ -137,6 +138,23 @@ export function createMeetingModule({
         hub.publish(event, { retainKey: 'record' });
       }
 
+      /** Begin the one opening: the clock runs from the server's Start, never from the first speech. */
+      function beginMeeting(startedAt?: string): void {
+        const now = clock.snapshot();
+        if (now.started || now.ended) return;
+        clock.start();
+        meetingStartedAt ??= startedAt ?? new Date().toISOString();
+        // Retained so a screen that opens a moment after Start still shows the welcome.
+        hub.publish(
+          {
+            type: 'HOST_SPEECH_TRIGGERED',
+            audience: { kind: 'screen' },
+            payload: { kind: 'OPENING', text: openingLine(scenario) },
+          },
+          { retainKey: 'host:opening' },
+        );
+      }
+
       // A failure here must not take the meeting server down with it.
       function guarded(label: string, run: () => void): void {
         try {
@@ -205,6 +223,7 @@ export function createMeetingModule({
         clock.reset();
         notetaker.reset();
         tasks.reset();
+        hub.clearRetained('meeting:started');
         hub.clearRetained('record');
         hub.clearRetained('host:opening');
         hub.clearRetained('fact:');
@@ -246,6 +265,7 @@ export function createMeetingModule({
           clock.reset();
           notetaker.reset();
           tasks.reset();
+          hub.clearRetained('meeting:started');
           hub.clearRetained('record');
           hub.clearRetained('host:opening');
           hub.clearRetained('fact:');
@@ -260,26 +280,21 @@ export function createMeetingModule({
           }
           return;
         }
+        if (event.type === 'MEETING_STARTED') {
+          beginMeeting(event.payload.startedAt);
+          return;
+        }
         if (event.type !== 'TRANSCRIPT_CHUNK') return;
 
-        if (clock.snapshot().ended) resetMeeting();
+        const afterEnding = clock.snapshot().ended;
+        if (afterEnding) resetMeeting();
         if (!clock.snapshot().started) {
-          // Retained so a screen that opens a moment after the meeting starts still shows the welcome.
-          hub.publish(
-            {
-              type: 'HOST_SPEECH_TRIGGERED',
-              audience: { kind: 'screen' },
-              payload: {
-                kind: 'OPENING',
-                text: openingLine(scenario),
-              },
-            },
-            { retainKey: 'host:opening' },
-          );
+          // The scripted replay and the first line of a meeting that just ended have no browser
+          // pressing Start; any other live speech waits for the server's Start.
+          if (replay === undefined && !afterEnding) return;
+          beginMeeting();
         }
 
-        clock.start();
-        meetingStartedAt ??= new Date().toISOString();
         notetaker.addChunk(event.payload);
         if (replay === undefined && hasTaskAssignment(event.payload.text)) {
           setTimeout(() => void runNotetaker(), 250).unref();

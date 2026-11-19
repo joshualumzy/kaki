@@ -27,6 +27,8 @@ export function summarizeEvent(event: KakiEvent): string {
       return `Decision locked on “${event.payload.title}”`;
     case 'COLLEAGUE_REACTION':
       return `${event.payload.who} reacted ${event.payload.emoji}`;
+    case 'MEETING_STARTED':
+      return `Meeting started at ${new Date(event.payload.startedAt).toLocaleTimeString()}`;
     case 'MEETING_RESET':
       return 'A new meeting started';
     case 'MEETING_RESTORED':

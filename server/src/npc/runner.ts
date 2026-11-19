@@ -158,6 +158,8 @@ export interface NpcRunner {
       onDone?: (spoken: boolean) => void;
     },
   ): void;
+  /** The server's Start event: open the meeting once, whoever asked. A second call is a no-op. */
+  markStarted(): void;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -362,6 +364,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    */
   let started = false;
   let paused = false;
+  function markMeetingStarted(reason: string): void {
+    if (started || closing) return;
+    started = true;
+    log(reason);
+    syncCast();
+  }
   const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
   function syncCast(): void {
     castQueue = castQueue
@@ -623,11 +631,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           log(`ignored a Start for another session (${session})`);
           return;
         }
-        if (!started) {
-          started = true;
-          log(`${participant.identity} started the meeting`);
-          syncCast();
-        }
+        if (!started) markMeetingStarted(`${participant.identity} started the meeting`);
         if (message.requestId !== undefined) {
           log(`acknowledged Start requestId=${message.requestId} for ${session}`);
           publishState({ kind: 'started', requestId: message.requestId, session });
@@ -764,6 +768,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   return {
     announce,
+    markStarted() {
+      markMeetingStarted('the server started the meeting');
+    },
     resetMeeting() {
       conversation?.close();
       conversation = undefined;
