@@ -4,12 +4,16 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
 
-const mocks = vi.hoisted(() => ({ useScenario: vi.fn(), events: [] as unknown[] }));
+const mocks = vi.hoisted(() => ({
+  useScenario: vi.fn(),
+  events: [] as unknown[],
+  lifecycleStarted: undefined as boolean | undefined,
+}));
 
 vi.mock('../kaki', () => ({
   useScenario: mocks.useScenario,
   useRefreshScenario: () => async () => mocks.useScenario(),
-  useKaki: () => ({ events: mocks.events }),
+  useKaki: () => ({ events: mocks.events, started: mocks.lifecycleStarted }),
 }));
 
 vi.mock('@livekit/components-react', () => ({
@@ -64,6 +68,7 @@ function replyWith(meeting: { resumed?: boolean; started?: boolean }): void {
 beforeEach(async () => {
   vi.resetModules();
   mocks.events = [];
+  mocks.lifecycleStarted = undefined;
   Meeting = (await import('./Meeting')).default;
   mocks.useScenario.mockReturnValue(scenario);
 });
@@ -101,5 +106,18 @@ describe('Meeting join', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Join now' })).toBeNull());
     expect(screen.queryByRole('region', { name: 'Before the meeting starts' })).toBeNull();
     expect(document.querySelector('[data-needs-start="true"]')).toBeNull();
+  });
+
+  it('shows the Start prompt again when the server says the meeting was reset', async () => {
+    replyWith({ started: true });
+    const { rerender } = render(<Meeting />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
+    await waitFor(() => expect(document.querySelector('[data-needs-start="true"]')).toBeNull());
+
+    mocks.lifecycleStarted = false;
+    rerender(<Meeting />);
+
+    expect(await screen.findByRole('region', { name: 'Before the meeting starts' })).toBeTruthy();
+    expect(document.querySelector('[data-needs-start="true"]')).toBeTruthy();
   });
 });

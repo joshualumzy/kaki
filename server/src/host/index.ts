@@ -18,6 +18,8 @@ export interface HostModules {
   modules: KakiModule[];
   /** Seconds since the meeting started, or undefined before the first transcript line. */
   meetingElapsedSeconds: () => number | undefined;
+  /** The agenda item the meeting is on, or undefined before it starts. */
+  meetingAgendaIndex: () => number | undefined;
 }
 
 /** Build the modules the Host team plugs into the meeting server for one scenario. */
@@ -39,6 +41,10 @@ export function createHostModules(scenario: Scenario): HostModules {
     meetingElapsedSeconds: () => {
       const snapshot = clock.snapshot();
       return snapshot.started ? snapshot.meetingElapsedSeconds : undefined;
+    },
+    meetingAgendaIndex: () => {
+      const snapshot = clock.snapshot();
+      return snapshot.started ? snapshot.agendaIndex : undefined;
     },
   };
 }

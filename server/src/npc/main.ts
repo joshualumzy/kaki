@@ -298,23 +298,99 @@ const taskResponder = createTaskResponder({
 });
 
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
-// What the hub replays on connecting (the retained opening) is old news: only cues after the first second are spoken.
-// Needs auth to be off, or the screen to be signed in (the socket is the same as the shared screen's).
+// This is the runner's authenticated service channel: it can read those cues with auth on, and the server asks it to
+// open the meeting here. What the hub replays on connecting (the retained opening) is old news: only cues after the
+// first second are spoken.
 const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
+const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
 function followHostCues(): void {
-  const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=screen`;
-  const socket = new WebSocket(url);
+  const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service`;
+  const socket = new WebSocket(
+    url,
+    serviceToken === undefined || serviceToken === ''
+      ? undefined
+      : { headers: { authorization: `Bearer ${serviceToken}` } },
+  );
   const openedAt = { at: 0 };
   socket.on('open', () => {
     openedAt.at = Date.now();
+    log('the AI service channel is connected');
   });
+
+  const acknowledge = (requestId: string, opened: boolean, reason?: string): void => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      logError(`could not tell the server the meeting ${opened ? 'opened' : 'failed to open'}: the service channel is closed`);
+      return;
+    }
+    socket.send(
+      JSON.stringify(
+        opened
+          ? { kind: 'ready', requestId }
+          : { kind: 'failed', requestId, ...(reason === undefined ? {} : { reason }) },
+      ),
+    );
+  };
+
+  const openMeeting = (request: { requestId: string; agendaIndex?: number; resumed?: boolean }): void => {
+    void runner
+      .markStarted({ agendaIndex: request.agendaIndex, resumed: request.resumed === true })
+      .then(() => {
+        log(`opened the meeting for server Start request ${request.requestId}`);
+        acknowledge(request.requestId, true);
+      })
+      .catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        logError(`the meeting failed to open for server Start request ${request.requestId}: ${reason}`);
+        acknowledge(request.requestId, false, reason);
+      });
+  };
+
   socket.on('message', (data) => {
     try {
-      const event = JSON.parse(data.toString()) as { type?: string; payload?: { text?: unknown; speaker?: unknown } };
+      const event = JSON.parse(data.toString()) as {
+        kind?: string;
+        request?: { requestId?: unknown; agendaIndex?: unknown; resumed?: unknown };
+        type?: string;
+        payload?: { text?: unknown; speaker?: unknown; agendaIndex?: unknown; resumed?: unknown };
+      };
+      if (event.kind === 'start') {
+        const requestId = event.request?.requestId;
+        if (typeof requestId !== 'string' || requestId === '') {
+          logError('ignored a server Start request with no id');
+          return;
+        }
+        openMeeting({
+          requestId,
+          ...(typeof event.request?.agendaIndex === 'number' ? { agendaIndex: event.request.agendaIndex } : {}),
+          ...(typeof event.request?.resumed === 'boolean' ? { resumed: event.request.resumed } : {}),
+        });
+        return;
+      }
       if (event.type === 'MEETING_STARTED') {
-        runner.markStarted();
+        // A start event that reaches the runner before any Start request is a meeting that was
+        // already running (for example the NPC restarted alone): hydrate from the server's live
+        // state so the runner resumes the saved item instead of welcoming again at item zero.
+        const eventIndex =
+          typeof event.payload?.agendaIndex === 'number' ? event.payload.agendaIndex : undefined;
+        void fetch(`${kakiUrl}/api/meeting/state`)
+          .then(async (response) => {
+            const state = (await response.json().catch(() => ({}))) as { agendaIndex?: unknown };
+            return response.ok && typeof state.agendaIndex === 'number' ? state.agendaIndex : eventIndex;
+          })
+          .catch((error: unknown) => {
+            logError(`could not read the meeting state; using the start event instead: ${String(error)}`);
+            return eventIndex;
+          })
+          .then((agendaIndex) =>
+            runner
+              .markStarted({
+                ...(agendaIndex === undefined ? {} : { agendaIndex }),
+                resumed: true,
+              })
+              .catch((error: unknown) => logError(`the restored meeting failed to open: ${String(error)}`)),
+          );
         return;
       }
       if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
@@ -413,8 +489,15 @@ function followHostCues(): void {
       /* not an event we understand */
     }
   });
-  socket.on('error', () => undefined);
-  socket.on('close', () => setTimeout(followHostCues, 3000).unref());
+  socket.on('error', (error) => {
+    logError(`the AI service channel failed: ${error.message}`);
+  });
+  socket.on('close', (code, reason) => {
+    logError(
+      `the AI service channel closed (${code}${reason.length > 0 ? `: ${reason.toString()}` : ''}); reconnecting in 3 s`,
+    );
+    setTimeout(followHostCues, 3000).unref();
+  });
 }
 followHostCues();
 

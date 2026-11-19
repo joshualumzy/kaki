@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
@@ -48,7 +48,7 @@ function CleanDisconnectOnUnload() {
   return null;
 }
 
-/** Follow the server's one meeting lifecycle: every tab sees the same start, and a reset undoes it. */
+/** Follow the server's explicit lifecycle state: every tab sees the same start, and a reset undoes it. */
 function MeetingLifecycleWatcher({
   onStarted,
   onReset,
@@ -56,14 +56,11 @@ function MeetingLifecycleWatcher({
   onStarted(): void;
   onReset(): void;
 }) {
-  const { events } = useKaki('screen');
-  const lifecycle = [...events].reverse().find(
-    (event) => event.type === 'MEETING_STARTED' || event.type === 'MEETING_RESET',
-  );
+  const { started } = useKaki('lifecycle');
   useEffect(() => {
-    if (lifecycle?.type === 'MEETING_STARTED') onStarted();
-    else if (lifecycle?.type === 'MEETING_RESET') onReset();
-  }, [lifecycle, onStarted, onReset]);
+    if (started === true) onStarted();
+    else if (started === false) onReset();
+  }, [started, onStarted, onReset]);
   return null;
 }
 
@@ -99,6 +96,8 @@ export default function Meeting() {
     }
   }, [session, pane, started]);
   const linkCode = useMemo(() => new URLSearchParams(window.location.search).get('code') ?? '', []);
+  const markMeetingStarted = useCallback(() => setStarted(true), []);
+  const markMeetingReset = useCallback(() => setStarted(false), []);
 
   const hasAi = (scenario.npcs ?? []).length > 0;
 
@@ -185,7 +184,7 @@ export default function Meeting() {
           </ErrorBoundary>
           <LocalSpeechSTT />
           <CleanDisconnectOnUnload />
-          <MeetingLifecycleWatcher onStarted={() => setStarted(true)} onReset={() => setStarted(false)} />
+          <MeetingLifecycleWatcher onStarted={markMeetingStarted} onReset={markMeetingReset} />
           {needsStart && (
             <ConnectedStartPrompt
               role={seatRole}

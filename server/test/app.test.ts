@@ -8,7 +8,7 @@ import { createTestApp, connectClient, portOf, settle, waitFor, waitForEvent, ty
 import { testScenario } from './fixtures/scenario';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
-import { parseScenario } from '@kaki/shared';
+import { parseScenario, type Scenario } from '@kaki/shared';
 
 function closeInfoFor(url: string): Promise<{ code: number; reason: string }> {
   return new Promise((resolve, reject) => {
@@ -710,6 +710,7 @@ describe('one server-owned meeting start', () => {
       pollMs?: number;
       roster?: () => Roster;
       modules?: Parameters<typeof createApp>[0]['modules'];
+      startAckTimeoutMs?: number;
     } = {},
   ) {
     return createApp({
@@ -719,6 +720,7 @@ describe('one server-owned meeting start', () => {
       rejoinGraceMs: options.graceMs ?? 60_000,
       rejoinPollMs: options.pollMs ?? 60_000,
       admissionReservationMs: 20,
+      ...(options.startAckTimeoutMs === undefined ? {} : { startAckTimeoutMs: options.startAckTimeoutMs }),
     });
   }
 
@@ -733,6 +735,86 @@ describe('one server-owned meeting start', () => {
   function startMeeting(app: Awaited<ReturnType<typeof startApp>>) {
     return fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/start`, { method: 'POST' });
   }
+
+  function connectService(port: number): Promise<WebSocket> {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`);
+    return new Promise((resolve, reject) => {
+      socket.once('open', () => resolve(socket));
+      socket.once('error', reject);
+    });
+  }
+
+  it('fails visibly until the AI runner confirms it opened, then starts on retry', async () => {
+    const scenario: Scenario = {
+      ...testScenario,
+      npcs: [
+        { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' },
+      ],
+    };
+    const app = await createApp({
+      scenario,
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+      startAckTimeoutMs: 100,
+    });
+    const port = portOf(app);
+    const screen = await connectClient(port, 'screen');
+    let runner: WebSocket | undefined;
+    let mode: 'silent' | 'failed' | 'ready' = 'silent';
+    try {
+      const unavailable = await startMeeting(app);
+      expect(unavailable.status).toBe(503);
+      const unavailableBody = (await unavailable.json()) as { error?: string; retryable?: boolean };
+      expect(unavailableBody.error).toMatch(/AI attendees are not connected/i);
+      expect(unavailableBody.retryable).toBe(true);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
+
+      runner = await connectService(port);
+      runner.on('message', (data) => {
+        const message = JSON.parse(data.toString()) as { kind?: string; request?: { requestId?: string } };
+        const requestId = message.request?.requestId;
+        if (message.kind !== 'start' || requestId === undefined) return;
+        if (mode === 'ready') runner?.send(JSON.stringify({ kind: 'ready', requestId }));
+        else if (mode === 'failed') {
+          runner?.send(JSON.stringify({ kind: 'failed', requestId, reason: 'cast initialization failed' }));
+        }
+      });
+
+      const timedOut = await startMeeting(app);
+      expect(timedOut.status).toBe(503);
+      expect(((await timedOut.json()) as { error?: string }).error).toMatch(/did not open the meeting/i);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
+
+      mode = 'failed';
+      const failed = await startMeeting(app);
+      expect(failed.status).toBe(503);
+      expect(((await failed.json()) as { error?: string }).error).toMatch(/cast initialization failed/i);
+      expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
+
+      mode = 'ready';
+      const started = await startMeeting(app);
+      expect(started.status).toBe(200);
+      expect(await started.json()).toMatchObject({ started: true });
+      await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'the acknowledged start');
+    } finally {
+      runner?.terminate();
+      screen.close();
+      await app.close();
+    }
+  });
+
+  it('needs no runner acknowledgement when the meeting has no AI stand-ins', async () => {
+    const app = await startApp({ roster: () => [], startAckTimeoutMs: 100 });
+    try {
+      const started = await startMeeting(app);
+      expect(started.status).toBe(200);
+      expect(await started.json()).toMatchObject({ started: true });
+    } finally {
+      await app.close();
+    }
+  });
 
   it('starts once, lets B join a running meeting, and never opens a second time', async () => {
     let people: Roster = [];

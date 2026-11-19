@@ -17,20 +17,28 @@ export interface UseKakiResult {
   connected: boolean;
   /** When the server restored this meeting after a restart, its start time; otherwise undefined. */
   restoredAt: string | undefined;
+  /**
+   * The server's explicit lifecycle state: true after MEETING_STARTED, false after MEETING_RESET.
+   * Undefined until the server says either, so reconnecting never guesses from a cleared event list.
+   */
+  started: boolean | undefined;
   send(command: KakiCommand): void;
 }
 
 /** Subscribe to the server for one audience and keep the task list up to date. */
-export function useKaki(audience: 'screen' | Role): UseKakiResult {
+export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult {
   const scenario = useScenario();
   const [events, setEvents] = useState<KakiEvent[]>([]);
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
   const [connected, setConnected] = useState(false);
   const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
+  const [started, setStarted] = useState<boolean | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const reconnectTimer = useRef<number | undefined>(undefined);
   const attempts = useRef(0);
+  /** Bumped by every lifecycle event so a slow state fetch cannot overwrite newer news. */
+  const lifecycleRevision = useRef(0);
 
   useEffect(() => {
     setEvents([]);
@@ -58,6 +66,21 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
         setTasks(new Map());
         setRestoredAt(undefined);
         setConnected(true);
+        if (audience === 'lifecycle') {
+          // A reset may have happened while this tab was disconnected; ask instead of inferring.
+          const askedAtRevision = lifecycleRevision.current;
+          void fetch('/api/meeting/state')
+            .then(async (response) => {
+              const body = (await response.json().catch(() => ({}))) as { started?: unknown };
+              if (!response.ok || typeof body.started !== 'boolean') return;
+              // A start/reset event that arrived while this answer was in flight is newer.
+              if (closed || lifecycleRevision.current !== askedAtRevision) return;
+              setStarted(body.started);
+            })
+            .catch((error: unknown) => {
+              console.warn('kaki web: could not read the meeting lifecycle state', error);
+            });
+        }
       });
 
       current.addEventListener('message', (message) => {
@@ -84,7 +107,14 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
           return;
         }
 
+        if (parsed.type === 'MEETING_STARTED') {
+          lifecycleRevision.current += 1;
+          setStarted(true);
+        }
+
         if (parsed.type === 'MEETING_RESET') {
+          lifecycleRevision.current += 1;
+          setStarted(false);
           setEvents((previous) => {
             const last = previous.at(-1);
             // When a new meeting starts on its first transcript line, the hub sends that line just before
@@ -100,7 +130,9 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
         }
 
         if (parsed.type === 'MEETING_RESTORED') {
+          lifecycleRevision.current += 1;
           setRestoredAt(parsed.payload.startedAt);
+          setStarted(true);
           return;
         }
 
@@ -154,6 +186,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
     rejection: rejections[rejections.length - 1] ?? null,
     connected,
     restoredAt,
+    started,
     send,
   };
 }

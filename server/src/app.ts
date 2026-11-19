@@ -27,6 +27,8 @@ export interface CreateAppOptions {
   draftOnly?: boolean;
   /** Seconds since the meeting started, for stamping settled cards with their source time; omit when unknown. */
   meetingElapsedSeconds?: () => number | undefined;
+  /** The live agenda item, for a reconnecting runner; omit when unknown. */
+  meetingAgendaIndex?: () => number | undefined;
   /** Keeps the meeting, notetaker and tasks across a restart; absent means memory only. */
   persistence?: MeetingPersistence;
   /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
@@ -35,6 +37,16 @@ export interface CreateAppOptions {
   rejoinPollMs?: number;
   /** How long a seat stays reserved after a token is issued; defaults to 15 seconds. */
   admissionReservationMs?: number;
+  /** How long Start waits for the AI runner to open the meeting; defaults to 6 seconds. */
+  startAckTimeoutMs?: number;
+  /** Shared secret the AI runner uses for its service channel; defaults to KAKI_SERVICE_TOKEN. */
+  serviceToken?: string;
+}
+
+/** The result of one server-owned Start, ready to send as JSON. */
+interface StartOutcome {
+  status: number;
+  body: Record<string, unknown>;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -64,6 +76,8 @@ interface RequestContext {
   rejoin: RejoinGuard;
   /** The one server-owned lifecycle flag: whether this meeting has started. */
   meeting: { started: boolean; startedAt?: string };
+  /** Run the one Start: wait for the AI runner to open the meeting before declaring it started. */
+  startMeeting(): Promise<StartOutcome>;
   /** Seats handed out but not yet visible in LiveKit's roster. */
   reservations: SeatReservations;
   /** Runs admissions one at a time so a roster check and its reservation cannot interleave. */
@@ -72,6 +86,8 @@ interface RequestContext {
   watchRoom: (roomName: string) => void;
   /** Seconds since the meeting started, read when a settled card is created or revised. */
   meetingElapsedSeconds?: () => number | undefined;
+  /** The live agenda item, for a reconnecting runner. */
+  meetingAgendaIndex?: () => number | undefined;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -329,22 +345,19 @@ async function handleRequest(
     // One server-owned start for the whole meeting. A second Start is a no-op: it must never open the
     // meeting twice or restart the agenda clock. Every client learns the change from MEETING_STARTED.
     if (request.method === 'POST' && path === '/api/meeting/start') {
-      // The owner may start before anyone joins (for example from setup); the first arrival carries it on.
-      if (!context.rejoin.hasMeeting()) context.rejoin.startedBeforeAnyoneJoined();
-      if (context.meeting.started) {
-        sendJson(response, 200, { started: true, alreadyStarted: true });
-        return;
-      }
-      const startedAt = new Date().toISOString();
-      context.meeting.started = true;
-      context.meeting.startedAt = startedAt;
-      context.rejoin.began();
-      context.hub.publish(
-        { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt } },
-        { retainKey: 'meeting:started' },
-      );
-      console.log('[start] the meeting has started');
-      sendJson(response, 200, { started: true });
+      const outcome = await context.startMeeting();
+      sendJson(response, outcome.status, outcome.body);
+      return;
+    }
+
+    // The authoritative lifecycle state, for a browser that reconnects after a reset or a restart.
+    if (request.method === 'GET' && path === '/api/meeting/state') {
+      const agendaIndex = context.meetingAgendaIndex?.();
+      sendJson(response, 200, {
+        started: context.meeting.started,
+        ...(context.meeting.startedAt === undefined ? {} : { startedAt: context.meeting.startedAt }),
+        ...(agendaIndex === undefined ? {} : { agendaIndex }),
+      });
       return;
     }
 
@@ -596,10 +609,13 @@ export async function createApp({
   roomRoster = livekitRoster(),
   draftOnly = false,
   meetingElapsedSeconds,
+  meetingAgendaIndex,
   persistence,
   rejoinGraceMs,
   rejoinPollMs,
   admissionReservationMs = ADMISSION_RESERVATION_MS,
+  startAckTimeoutMs = 6_000,
+  serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
 }: CreateAppOptions): Promise<KakiApp> {
   const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
   const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
@@ -615,6 +631,7 @@ export async function createApp({
   }
   // A meeting saved while it was running is already started: the first person back joins it directly.
   const restoredStarted = savedMeeting?.state.clock.started === true && savedMeeting.state.clock.ended !== true;
+  const restoredAgendaIndex = restoredStarted ? (savedMeeting?.state.clock.agendaIndex ?? 0) : 0;
   const meeting = {
     started: restoredStarted,
     startedAt: restoredStarted ? savedMeeting?.startedAt : undefined,
@@ -641,11 +658,105 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, meeting, reservations, admit, watchRoom, meetingElapsedSeconds });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, meeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex });
   });
-  const hub = createHub(server, scenario, auth === undefined ? {} : { authorize: auth.authorize });
+  const hub = createHub(server, scenario, {
+    ...(auth === undefined ? {} : { authorize: auth.authorize }),
+    ...(serviceToken === undefined || serviceToken === '' ? {} : { serviceToken }),
+  });
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
+
+  // The AI runner must confirm it opened the meeting before Start succeeds. Without that
+  // acknowledgement a guest would sit on "Starting..." forever while nobody speaks.
+  const hasAi = (scenario.npcs?.length ?? 0) > 0;
+  const runnerWaiters = new Map<string, { resolve(): void; reject(error: Error): void }>();
+  hub.onServiceMessage?.((message) => {
+    const waiter = runnerWaiters.get(message.requestId);
+    if (waiter === undefined) {
+      console.warn(`kaki server: ignored a runner message for an unknown start request ${message.requestId}`);
+      return;
+    }
+    runnerWaiters.delete(message.requestId);
+    if (message.kind === 'ready') waiter.resolve();
+    else waiter.reject(new Error(message.reason ?? 'the AI attendees could not open the meeting'));
+  });
+
+  let starting: Promise<StartOutcome> | undefined;
+
+  function waitForRunner(requestId: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        runnerWaiters.delete(requestId);
+        reject(new Error('no acknowledgement from the AI attendees'));
+      }, Math.max(1, startAckTimeoutMs));
+      timer.unref?.();
+      runnerWaiters.set(requestId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  function startMeeting(): Promise<StartOutcome> {
+    if (meeting.started) {
+      return Promise.resolve({ status: 200, body: { started: true, alreadyStarted: true } });
+    }
+    if (starting !== undefined) return starting;
+    const attempt = (async (): Promise<StartOutcome> => {
+      const startedAt = new Date().toISOString();
+      if (hasAi) {
+        const requestId = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        if (hub.requestStart?.({ requestId, startedAt, agendaIndex: 0, resumed: false }) !== true) {
+          return {
+            status: 503,
+            body: {
+              error:
+                'The AI attendees are not connected, so the meeting cannot open yet. Start the runner with npm run npc, then try again.',
+              retryable: true,
+            },
+          };
+        }
+        try {
+          await waitForRunner(requestId);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(`[start] the AI attendees did not open the meeting: ${reason}`);
+          return {
+            status: 503,
+            body: {
+              error: `The AI attendees did not open the meeting (${reason}). Check that npm run npc is running, then try again.`,
+              retryable: true,
+            },
+          };
+        }
+      }
+      if (meeting.started) {
+        return { status: 200, body: { started: true, alreadyStarted: true } };
+      }
+      // The owner may start before anyone joins (for example from setup); the first arrival carries it on.
+      if (!rejoin.hasMeeting()) rejoin.startedBeforeAnyoneJoined();
+      meeting.started = true;
+      meeting.startedAt = startedAt;
+      rejoin.began();
+      hub.publish(
+        { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt, agendaIndex: 0, resumed: false } },
+        { retainKey: 'meeting:started' },
+      );
+      console.log('[start] the meeting has started');
+      return { status: 200, body: { started: true } };
+    })();
+    starting = attempt.finally(() => {
+      starting = undefined;
+    });
+    return starting;
+  }
   hub.subscribe((event) => {
     if (event.type !== 'MEETING_RESET') return;
     memory.splice(0);
@@ -743,10 +854,15 @@ export async function createApp({
   // The module has registered how to read its state; save once so an interrupted task already shows FAILED.
   persistence?.scheduleSave();
 
-  // A restored meeting is already started: keep the start event available to late clients and the NPC.
+  // A restored meeting is already started: keep the start event available to late clients and the NPC,
+  // carrying the saved agenda item so a fresh runner resumes it instead of reopening item zero.
   if (meeting.started && meeting.startedAt !== undefined) {
     hub.publish(
-      { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt: meeting.startedAt } },
+      {
+        type: 'MEETING_STARTED',
+        audience: { kind: 'all' },
+        payload: { startedAt: meeting.startedAt, agendaIndex: restoredAgendaIndex, resumed: true },
+      },
       { retainKey: 'meeting:started' },
     );
   }

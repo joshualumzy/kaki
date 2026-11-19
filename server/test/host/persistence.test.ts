@@ -330,6 +330,12 @@ describe('meeting persistence across a restart', () => {
     const screen = await connectClient(portOf(app), 'screen');
     clients.push(screen);
 
+    const start = await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'restored start');
+    expect(start.type === 'MEETING_STARTED' ? start.payload : {}).toMatchObject({
+      agendaIndex: 1,
+      resumed: true,
+    });
+
     const record = (await waitForEvent(screen, isRecord, 'restored record')) as Extract<
       KakiEvent,
       { type: 'MEETING_RECORD_UPDATED' }

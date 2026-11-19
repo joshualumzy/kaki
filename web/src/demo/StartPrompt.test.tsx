@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
 
@@ -177,5 +178,16 @@ describe('ConnectedStartPrompt', () => {
       await Promise.resolve();
     });
     expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it('shows a failed Start after StrictMode has run setup twice', async () => {
+    replyWith({ error: 'The AI attendees are not connected.' }, false, 503);
+    render(
+      <StrictMode>
+        <ConnectedStartPrompt onStarted={vi.fn()} />
+      </StrictMode>,
+    );
+    pressStart();
+    expect(await screen.findByText(/AI attendees are not connected/i)).toBeTruthy();
   });
 });

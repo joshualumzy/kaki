@@ -209,14 +209,16 @@ export function ConnectedStartPrompt({
   const request = useRef<AbortController | undefined>(undefined);
   const mounted = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // StrictMode runs setup, cleanup, then setup again; the second setup must restore this flag
+    // or a failed Start would return before showing its error and stay on "Starting..." forever.
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       request.current?.abort();
       request.current = undefined;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const start = useCallback(() => {
     if (request.current !== undefined) return;

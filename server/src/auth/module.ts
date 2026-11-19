@@ -345,6 +345,10 @@ export function createAuth({
       if (session === undefined) {
         return { ok: false, message: 'Sign in required' };
       }
+      // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
+      if (audience === 'lifecycle') {
+        return { ok: true };
+      }
       if (audience === 'screen') {
         return session.kind === 'host'
           ? { ok: true }
@@ -407,6 +411,12 @@ export async function createAuthFromEnv({
   if (connectionString === undefined || connectionString === '') {
     throw new Error(
       'kaki auth: KAKI_AUTH=1 needs POSTGRES_URL set to the Postgres connection string.',
+    );
+  }
+  const serviceToken = env.KAKI_SERVICE_TOKEN?.trim();
+  if (serviceToken === undefined || serviceToken === '') {
+    throw new Error(
+      'kaki auth: KAKI_AUTH=1 needs KAKI_SERVICE_TOKEN (the same value for the server and npm run npc), or the AI colleagues cannot open the meeting.',
     );
   }
 

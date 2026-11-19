@@ -1,6 +1,7 @@
 import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
+import { openingLine } from '../../src/host/opening';
 import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
 
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void }>);
@@ -417,6 +418,69 @@ describe('start receipt acknowledgement', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(1);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('startNpcRunner serialized start', () => {
+  it('opens the first topic even when the welcome cue wins the race with the cast queue', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const listener = rooms[0]!;
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      listener.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+
+      const opening = runner.markStarted();
+      // A coalesced host cue: the welcome is spoken before the queued syncCast has run.
+      runner.announce(openingLine(scenario));
+      await opening;
+
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('resumes a restored meeting at the saved item without a second welcome', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const restoredOrder = [scenario.agenda[1]!, scenario.agenda[0]!, ...scenario.agenda.slice(2)];
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      fetchScenario: async () => ({ ...scenario, agenda: restoredOrder }),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const listener = rooms[0]!;
+      await runner.markStarted({ agendaIndex: 1, resumed: true });
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      listener.emit('participantConnected', participant);
+
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(restoredOrder[1]!.title)).toBe(true));
+      expect(runner.onCurrentAgenda(restoredOrder[0]!.title)).toBe(false);
+      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
     } finally {
       await runner.stop();
     }

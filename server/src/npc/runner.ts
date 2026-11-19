@@ -108,6 +108,13 @@ export interface RunnerOptions {
   onReaction?(who: string, emoji: string): void;
 }
 
+/** Where a restored server says this meeting already is when the runner is asked to open it. */
+export interface RunnerStartState {
+  agendaIndex?: number;
+  /** True when the server restored a saved meeting: resume its item, never replay the welcome. */
+  resumed?: boolean;
+}
+
 export interface NpcRunner {
   /**
    * The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there).
@@ -158,8 +165,13 @@ export interface NpcRunner {
       onDone?: (spoken: boolean) => void;
     },
   ): void;
-  /** The server's Start event: open the meeting once, whoever asked. A second call is a no-op. */
-  markStarted(): void;
+  /**
+   * The server's Start: open the meeting once, whoever asked. A second call is a no-op.
+   * Resolves only after the cast and first topic are ready (or rejects if opening failed), so the
+   * server can confirm the AI attendees really opened the meeting before telling the guest so.
+   * `agendaIndex`/`resumed` let a restored runner pick up the saved item without a second welcome.
+   */
+  markStarted(state?: RunnerStartState): Promise<void>;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -364,20 +376,54 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    */
   let started = false;
   let paused = false;
-  function markMeetingStarted(reason: string): void {
-    if (started || closing) return;
-    started = true;
-    log(reason);
-    syncCast();
+  /** The server's authoritative place for this start: item 0 normally, the saved item after a restore. */
+  let startAgendaIndex = 0;
+  let startResumed = false;
+  /** The first topic is opened once per meeting, independently of whether the welcome was already spoken. */
+  let startInitialized = false;
+  let startWait: { promise: Promise<void>; resolve(): void; reject(error: unknown): void } | undefined;
+
+  function settleStart(error?: unknown): void {
+    const pending = startWait;
+    startWait = undefined;
+    if (pending === undefined) return;
+    if (error === undefined) pending.resolve();
+    else pending.reject(error);
+  }
+
+  function markMeetingStarted(reason: string, state?: RunnerStartState): Promise<void> {
+    if (closing) return Promise.resolve();
+    if (!started) {
+      started = true;
+      startAgendaIndex = Number.isInteger(state?.agendaIndex) ? Math.max(0, state?.agendaIndex ?? 0) : 0;
+      startResumed = state?.resumed === true;
+      log(reason);
+      let resolve!: () => void;
+      let reject!: (error: unknown) => void;
+      const promise = new Promise<void>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      startWait = { promise, resolve, reject };
+      syncCast();
+    }
+    return startWait?.promise ?? Promise.resolve();
   }
   const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
   function syncCast(): void {
     castQueue = castQueue
       .then(async () => {
-        if (closing) return;
+        if (closing) {
+          settleStart(new Error('the AI runner is stopping'));
+          return;
+        }
         // Nobody is in the room: keep the conversation paused in case someone returns. Only the server's
         // MEETING_RESET tears it down, so both processes agree on when a meeting really ends.
-        if (humans.size === 0) return;
+        if (humans.size === 0) {
+          // Nobody is waiting for a first line yet; the next arrival opens the topic for them.
+          settleStart();
+          return;
+        }
         const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
         const wanted = npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
         for (const npc of wanted) await joinCharacter(npc);
@@ -417,22 +463,45 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             transcriptName: role === undefined ? person.name : `${person.name} (${role.label})`,
           });
         }
-        // Sam welcomes the person once they press Start, before anyone else speaks (when a person hosts, the NPC co-host kicks off item 1's briefing).
-        if (started && !welcomed) {
-          if (!hostIsHuman()) {
-            conversation?.agendaMoved(scenario.agenda[0]?.title);
-            announce(openingLine(scenario));
+        // Open the first topic once per meeting, through this one serialized path. It must not depend
+        // on the welcome: a coalesced host cue may already have spoken the welcome and set `welcomed`
+        // before this queue runs, which used to leave the briefing, question and timer uninitialized.
+        if (started && !startInitialized) {
+          startInitialized = true;
+          const index = Math.max(0, Math.min(startAgendaIndex, Math.max(0, scenario.agenda.length - 1)));
+          const title = scenario.agenda[index]?.title;
+          if (startResumed) {
+            // A restored meeting was already welcomed; resume its saved item instead of opening item zero again.
+            welcomed = true;
+            conversation?.agendaMoved(title);
+          } else if (!hostIsHuman()) {
+            // Sam welcomes the person once they press Start, before anyone else speaks.
+            conversation?.agendaMoved(title);
+            if (!welcomed) announce(openingLine(scenario));
           } else {
             welcomed = true;
-            conversation?.agendaMoved(scenario.agenda[0]?.title);
+            conversation?.agendaMoved(title);
           }
         }
         if (rejoinPending) {
           rejoinPending = false;
           resumeFromEmptyRoom();
         }
+        settleStart();
       })
-      .catch((error: unknown) => log(`could not change who is in the meeting: ${String(error)}`));
+      .catch((error: unknown) => {
+        log(`could not change who is in the meeting: ${String(error)}`);
+        // A failed opening is not a started meeting: put the runner back so the server's retry
+        // can genuinely try again instead of resolving a no-op.
+        const failedOpening = startWait !== undefined;
+        if (failedOpening) {
+          started = false;
+          startInitialized = false;
+          startAgendaIndex = 0;
+          startResumed = false;
+        }
+        settleStart(error);
+      });
   }
 
   let lastHostHuman = false;
@@ -768,10 +837,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   return {
     announce,
-    markStarted() {
-      markMeetingStarted('the server started the meeting');
+    markStarted(state) {
+      return markMeetingStarted('the server started the meeting', state);
     },
     resetMeeting() {
+      settleStart(new Error('the meeting was reset before it opened'));
       conversation?.close();
       conversation = undefined;
       castNames = '';
@@ -779,6 +849,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       visitorTaskDispatches = 0;
       visitorDispatchTopic = undefined;
       started = false;
+      startInitialized = false;
+      startAgendaIndex = 0;
+      startResumed = false;
       paused = false;
       emptyPaused = false;
       rejoinPending = false;

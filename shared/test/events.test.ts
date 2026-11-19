@@ -111,6 +111,16 @@ describe('isKakiEvent', () => {
     ).toBe(true);
     expect(
       isKakiEvent(
+        {
+          type: 'MEETING_STARTED',
+          audience: { kind: 'all' },
+          payload: { startedAt: '2026-11-19T09:00:00.000Z', agendaIndex: 1, resumed: true },
+        },
+        testScenario,
+      ),
+    ).toBe(true);
+    expect(
+      isKakiEvent(
         { type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { startedAt: 'not a time' } },
         testScenario,
       ),

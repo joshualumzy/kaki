@@ -24,9 +24,12 @@ function cookieFrom(response: Response): string | undefined {
   return pair === undefined || pair === '' ? undefined : pair;
 }
 
-function connect(port: number, role: string, cookie?: string): Promise<ConnectResult> {
+function connect(port: number, role: string, cookie?: string, authorization?: string): Promise<ConnectResult> {
   const url = `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`;
-  const ws = new WebSocket(url, cookie === undefined ? undefined : { headers: { cookie } });
+  const headers: Record<string, string> = {};
+  if (cookie !== undefined) headers.cookie = cookie;
+  if (authorization !== undefined) headers.authorization = authorization;
+  const ws = new WebSocket(url, Object.keys(headers).length === 0 ? undefined : { headers });
 
   return new Promise((resolve) => {
     let settled = false;
@@ -62,7 +65,7 @@ describe('auth', () => {
     store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode: MEETING_CODE });
-    app = await createTestApp({ auth });
+    app = await createTestApp({ auth, serviceToken: 'runner-secret' });
     port = portOf(app);
     sockets = [];
   });
@@ -270,6 +273,34 @@ describe('auth', () => {
     const participantAsScreen = await connect(port, 'screen', chef);
     expect(participantAsScreen.ok).toBe(false);
     if (!participantAsScreen.ok) expect(participantAsScreen.status).toBe(401);
+  });
+
+  it('lets signed-in people read the lifecycle and the runner use its authenticated service channel', async () => {
+    const chef = await joinAs('chef');
+    const participantLifecycle = await connect(port, 'lifecycle', chef);
+    expect(participantLifecycle.ok).toBe(true);
+    if (participantLifecycle.ok) sockets.push({ ws: participantLifecycle.ws });
+
+    const host = await signInAsHost();
+    const hostLifecycle = await connect(port, 'lifecycle', host);
+    expect(hostLifecycle.ok).toBe(true);
+    if (hostLifecycle.ok) sockets.push({ ws: hostLifecycle.ws });
+
+    const anonymousLifecycle = await connect(port, 'lifecycle');
+    expect(anonymousLifecycle.ok).toBe(false);
+    if (!anonymousLifecycle.ok) expect(anonymousLifecycle.status).toBe(401);
+
+    const anonymousService = await connect(port, 'service');
+    expect(anonymousService.ok).toBe(false);
+    if (!anonymousService.ok) expect(anonymousService.status).toBe(401);
+
+    const wrongToken = await connect(port, 'service', undefined, 'Bearer not-the-secret');
+    expect(wrongToken.ok).toBe(false);
+    if (!wrongToken.ok) expect(wrongToken.status).toBe(401);
+
+    const runner = await connect(port, 'service', undefined, 'Bearer runner-secret');
+    expect(runner.ok).toBe(true);
+    if (runner.ok) sockets.push({ ws: runner.ws });
   });
 
   it('rejects an expired session cookie over HTTP and WebSocket', async () => {
