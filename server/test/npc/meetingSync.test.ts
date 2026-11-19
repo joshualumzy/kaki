@@ -100,4 +100,23 @@ describe('meeting sync', () => {
     expect(runner.reconcileMeeting).toHaveBeenCalledTimes(1);
     expect(runner.reconcileMeeting).toHaveBeenCalledWith({ meetingId: 'meeting-2', started: false });
   });
+
+  it('reports a meeting change learned on reconnect so the old meeting queue can be dropped', async () => {
+    const runner = fakeRunner('meeting-1');
+    runner.reconcileMeeting = vi.fn((state: RunnerMeetingState) => {
+      runner.meetingId = () => state.meetingId;
+    });
+    const changed: string[] = [];
+    const sync = createMeetingSync({
+      runner,
+      fetchState: async () => ({ meetingId: 'meeting-2', started: false }),
+      log: () => undefined,
+      onMeetingChanged: (meetingId) => changed.push(meetingId),
+    });
+
+    sync.connected();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(changed).toEqual(['meeting-2']);
+  });
 });

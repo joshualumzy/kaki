@@ -16,6 +16,8 @@ import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/au
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { createRunnerClient } from './runnerClient';
+import { createCommandSockets } from './commandSockets';
+import { createServiceChannel, createServiceDispatch } from './serviceChannel';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 import { faultFromEnv, faultyStream, faultySynthesize } from './fault';
 
@@ -140,6 +142,19 @@ const runnerClient = createRunnerClient({
   serviceToken,
   log: logError,
 });
+// The runner writes as the screen and as each AI role over command sockets, exactly as a phone would.
+// The runner is created below, so its meeting id is read through this holder until then.
+let runnerMeetingId: (() => string | undefined) | undefined;
+const commandSockets = createCommandSockets({
+  baseUrl: kakiUrl,
+  token: serviceToken,
+  log,
+  logError,
+  // Queued commands are fenced to the meeting they were sent in, so a reconnect cannot replay
+  // an old meeting's END_MEETING or pause into the next one.
+  currentMeetingId: () => runnerMeetingId?.(),
+});
+const sendAs = (role: Role | 'screen', command: KakiCommand): void => commandSockets.sendAs(role, command);
 let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
@@ -244,7 +259,7 @@ const runner = await startNpcRunner({
   onMemoryChange: (entries) => {
     memorySync = memorySync.catch(() => undefined).then(() =>
       runnerClient.postMeetingMemory(entries));
-    void memorySync.catch(() => undefined);
+    void memorySync.catch((error: unknown) => logError(`could not sync meeting memory: ${String(error)}`));
   },
   onReaction: (who, emoji) => {
     const reaction: KakiEvent = {
@@ -271,31 +286,8 @@ const runner = await startNpcRunner({
   },
   fetchScenario: () => runnerClient.fetchScenario(),
 });
+runnerMeetingId = () => runner.meetingId();
 
-// An AI attendee has no phone. When a task is dispatched to their role they answer aloud and this sends their
-// Accept or Decline (and approves the draft), over a socket opened as that role like a phone would.
-const roleSockets = new Map<Role | 'screen', { socket: WebSocket; queue: string[] }>();
-function sendAs(role: Role | 'screen', command: KakiCommand): void {
-  let entry = roleSockets.get(role);
-  if (entry === undefined || entry.socket.readyState > WebSocket.OPEN) {
-    const socket = new WebSocket(
-      `${kakiUrl.replace(/^http/, 'ws')}/ws?role=${encodeURIComponent(role)}`,
-      serviceToken === undefined || serviceToken === ''
-        ? undefined
-        : { headers: { authorization: `Bearer ${serviceToken}` } },
-    );
-    entry = { socket, queue: [] };
-    const current = entry;
-    socket.on('open', () => {
-      for (const message of current.queue.splice(0)) socket.send(message);
-    });
-    socket.on('error', (error) => log(`could not send as ${role}: ${error.message}`));
-    roleSockets.set(role, entry);
-  }
-  const message = JSON.stringify(command);
-  if (entry.socket.readyState === WebSocket.OPEN) entry.socket.send(message);
-  else entry.queue.push(message);
-}
 // Sam asks an AI colleague aloud, then the colleague answers: the answer waits for the question (see cueOrder.ts).
 const cueOrder = createCueOrder();
 const taskResponder = createTaskResponder({
@@ -326,23 +318,32 @@ const meetingSync = createMeetingSync({
   runner,
   fetchState: () => runnerClient.fetchMeetingState(),
   log,
+  // A service reconnect can reveal that the meeting changed while the command socket was down.
+  onMeetingChanged: () => commandSockets.dropStale(),
 });
 
-function followHostCues(): void {
-  const url = `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service`;
-  const socket = new WebSocket(
-    url,
-    serviceToken === undefined || serviceToken === ''
-      ? undefined
-      : { headers: { authorization: `Bearer ${serviceToken}` } },
-  );
-  const openedAt = { at: 0 };
-  socket.on('open', () => {
-    openedAt.at = Date.now();
-    log('the AI service channel is connected');
-    // A reset may have happened while this socket was down; never carry the old meeting into it.
-    meetingSync.connected();
-  });
+interface ServiceEvent {
+  kind?: string;
+  type?: string;
+  request?: {
+    requestId?: unknown;
+    attempt?: unknown;
+    meetingId?: unknown;
+    agendaIndex?: unknown;
+    resumed?: unknown;
+  };
+  payload?: {
+    text?: unknown;
+    speaker?: unknown;
+    meetingId?: unknown;
+    agendaIndex?: unknown;
+    resumed?: unknown;
+  };
+}
+
+// Every socket that opens gets its own message wiring; the channel above it handles reconnects and backoff.
+function wireServiceSocket(socket: WebSocket): void {
+  const openedAt = Date.now();
 
   const acknowledge = (
     requestId: string,
@@ -388,155 +389,170 @@ function followHostCues(): void {
       });
   };
 
-  socket.on('message', (data) => {
-    try {
-      const event = JSON.parse(data.toString()) as {
-        kind?: string;
-        request?: {
-          requestId?: unknown;
-          attempt?: unknown;
-          meetingId?: unknown;
-          agendaIndex?: unknown;
-          resumed?: unknown;
-        };
-        type?: string;
-        payload?: {
-          text?: unknown;
-          speaker?: unknown;
-          meetingId?: unknown;
-          agendaIndex?: unknown;
-          resumed?: unknown;
-        };
-      };
-      if (event.kind === 'prepare') {
-        const request = parsePrepareRequest(event.request);
-        if (request === undefined) {
-          logError('ignored a server prepare request without its meeting id and attempt');
-          return;
-        }
-        prepareMeeting(request);
-        return;
-      }
-      if (event.type === 'MEETING_STARTED') {
-        const started = parseStartedEvent(event.payload);
-        if (started === undefined) {
-          logError('ignored MEETING_STARTED without a meeting id');
-          return;
-        }
-        meetingSync.started(started);
-        return;
-      }
-      if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt.at < 1000) return;
-      if (event.type === 'MEETING_RESET') {
-        const meetingId = event.payload?.meetingId;
-        if (typeof meetingId !== 'string' || meetingId === '') {
-          logError('MEETING_RESET carried no meeting id; clearing the local meeting anyway');
-        }
-        meetingSync.reset(typeof meetingId === 'string' && meetingId !== '' ? meetingId : undefined);
-        taskStatusByTitle.clear();
-        syncedTaskIds.clear();
-        declinedTaskIds.clear();
-        return;
-      }
-      if (event.type === 'TASK_UPDATED') {
-        const task = (event.payload as { task?: {
-          id?: string; title?: string; status?: string; assignee?: string; suggestedAssignee?: string;
-          declinedBy?: string[]; agendaItemTitle?: string;
-        } } | undefined)?.task;
-        if (task?.id === undefined || task.status === undefined) return;
-        if (task.title !== undefined) {
-          taskStatusByTitle.set(task.title.trim().toLowerCase(), { status: task.status, topic: task.agendaItemTitle });
-        }
-        taskResponder.handle(event as KakiEvent);
-        const role = task.assignee ?? task.suggestedAssignee;
-        const isVisitorTask = role !== undefined && role === runner.visitorRole();
-        const declined = task.declinedBy?.includes(role ?? '') === true;
-        runner.taskStatus(task.id, task.agendaItemTitle, task.status, isVisitorTask, declined);
-        if (isVisitorTask && runner.onCurrentAgenda(task.agendaItemTitle)) {
-          if (declined && !declinedTaskIds.has(task.id)) {
-            declinedTaskIds.add(task.id);
-            runner.cancelPendingDispatch(task.agendaItemTitle);
-            runner.announce(`No worries ${runner.visitorName() ?? 'there'}, we'll cover that follow-up after the call.`);
-          } else if (task.status === 'SYNCED' && !syncedTaskIds.has(task.id)) {
-            syncedTaskIds.add(task.id);
-            runner.announce(`Thanks ${runner.visitorName() ?? 'there'}, that's live now. You can click Open live on your card before we move on.`);
-          }
-        }
-      }
-      if (event.type === 'HOST_SPEECH_TRIGGERED' && typeof event.payload?.text === 'string') {
-        if (event.payload.text.startsWith('Next up:')) {
-          runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
-        }
-        // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
-        if (!runner.hostIsHuman()) {
-          const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string; topic?: string };
-          if (payload.kind === 'CLOSING') {
-            runner.announceClosing(payload.text);
-            return;
-          }
-          // A colleague played by an AI is asked in Sam's own words, through the model; the visitor gets the
-          // card pointer in Sam's own words too. Neither ever reads the Note Taker's task title aloud.
-          const colleague =
-            payload.kind === 'DISPATCH' &&
-            payload.assignee !== undefined &&
-            payload.title !== undefined &&
-            runner.plays(payload.assignee);
-          const stillDispatched = (titleKey: string) => (): boolean => {
-            const current = taskStatusByTitle.get(titleKey);
-            return current === undefined || current.status === 'DISPATCHED';
-          };
-          if (colleague) {
-            const name = payload.assignee!;
-            const title = payload.title!;
-            const cue = colleagueCue(hostName ?? 'Sam', name, title, {
-              volunteered: runner.volunteeredOnTopic(name),
-              assignedByGuest: runner.askedByGuestOnTopic(name),
-            });
-            if (cue.quietBecause !== undefined) {
-              log(`[dispatch] Sam stays quiet: ${name} already ${cue.quietBecause}`);
-            } else {
-              const titleKey = title.trim().toLowerCase();
-              const shouldStillAsk = () => {
-                const current = taskStatusByTitle.get(titleKey);
-                return shouldStillAskColleague(
-                  current?.status,
-                  payload.topic ?? current?.topic,
-                  (topic) => runner.onCurrentAgenda(topic),
-                );
-              };
-              cueOrder.cue((done) => runner.askColleague(name, cue.note!, {
-                forbiddenText: title,
-                shouldStillSpeak: shouldStillAsk,
-                onDone: done,
-              }));
-            }
-          } else if (payload.kind === 'DISPATCH') {
-            const titleKey = (payload.title ?? '').trim().toLowerCase();
-            const guest = runner.visitorName() ?? payload.assignee ?? 'there';
-            runner.pointAtCard(guestCardNote(hostName ?? 'Sam', guest), {
-              forbiddenText: payload.title,
-              shouldStillSpeak: stillDispatched(titleKey),
-            });
-          } else {
-            runner.announce(payload.text);
-          }
-        }
-      }
-    } catch {
-      /* not an event we understand */
+  const onPrepare = (event: ServiceEvent): void => {
+    const request = parsePrepareRequest(event.request);
+    if (request === undefined) {
+      logError('ignored a server prepare request without its meeting id and attempt');
+      return;
     }
+    prepareMeeting(request);
+  };
+
+  const onStarted = (event: ServiceEvent): void => {
+    const started = parseStartedEvent(event.payload);
+    if (started === undefined) {
+      logError('ignored MEETING_STARTED without a meeting id');
+      return;
+    }
+    meetingSync.started(started);
+  };
+
+  const onReset = (event: ServiceEvent): void => {
+    const meetingId = event.payload?.meetingId;
+    if (typeof meetingId !== 'string' || meetingId === '') {
+      logError('MEETING_RESET carried no meeting id; clearing the local meeting anyway');
+    }
+    meetingSync.reset(typeof meetingId === 'string' && meetingId !== '' ? meetingId : undefined);
+    // A command queued for the old meeting (e.g. NEXT_AGENDA_ITEM) must not land in the new one.
+    commandSockets.dropQueued();
+    taskStatusByTitle.clear();
+    syncedTaskIds.clear();
+    declinedTaskIds.clear();
+  };
+
+  const onTaskUpdated = (event: ServiceEvent): void => {
+    const task = (event.payload as { task?: {
+      id?: string; title?: string; status?: string; assignee?: string; suggestedAssignee?: string;
+      declinedBy?: string[]; agendaItemTitle?: string;
+    } } | undefined)?.task;
+    if (task?.id === undefined || task.status === undefined) return;
+    if (task.title !== undefined) {
+      taskStatusByTitle.set(task.title.trim().toLowerCase(), { status: task.status, topic: task.agendaItemTitle });
+    }
+    taskResponder.handle(event as unknown as KakiEvent);
+    const role = task.assignee ?? task.suggestedAssignee;
+    const isVisitorTask = role !== undefined && role === runner.visitorRole();
+    const declined = task.declinedBy?.includes(role ?? '') === true;
+    runner.taskStatus(task.id, task.agendaItemTitle, task.status, isVisitorTask, declined);
+    if (isVisitorTask && runner.onCurrentAgenda(task.agendaItemTitle)) {
+      if (declined && !declinedTaskIds.has(task.id)) {
+        declinedTaskIds.add(task.id);
+        runner.cancelPendingDispatch(task.agendaItemTitle);
+        runner.announce(`No worries ${runner.visitorName() ?? 'there'}, we'll cover that follow-up after the call.`);
+      } else if (task.status === 'SYNCED' && !syncedTaskIds.has(task.id)) {
+        syncedTaskIds.add(task.id);
+        runner.announce(`Thanks ${runner.visitorName() ?? 'there'}, that's live now. You can click Open live on your card before we move on.`);
+      }
+    }
+  };
+
+  const onHostCue = (event: ServiceEvent): void => {
+    if (typeof event.payload?.text !== 'string') return;
+    if (event.payload.text.startsWith('Next up:')) {
+      runner.agendaMoved(event.payload.text.replace(/^Next up:\s*/, '').replace(/\.$/, ''));
+    }
+    // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
+    if (!runner.hostIsHuman()) {
+      const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string; topic?: string };
+      if (payload.kind === 'CLOSING') {
+        runner.announceClosing(payload.text);
+        return;
+      }
+      // A colleague played by an AI is asked in Sam's own words, through the model; the visitor gets the
+      // card pointer in Sam's own words too. Neither ever reads the Note Taker's task title aloud.
+      const colleague =
+        payload.kind === 'DISPATCH' &&
+        payload.assignee !== undefined &&
+        payload.title !== undefined &&
+        runner.plays(payload.assignee);
+      const stillDispatched = (titleKey: string) => (): boolean => {
+        const current = taskStatusByTitle.get(titleKey);
+        return current === undefined || current.status === 'DISPATCHED';
+      };
+      if (colleague) {
+        const name = payload.assignee!;
+        const title = payload.title!;
+        const cue = colleagueCue(hostName ?? 'Sam', name, title, {
+          volunteered: runner.volunteeredOnTopic(name),
+          assignedByGuest: runner.askedByGuestOnTopic(name),
+        });
+        if (cue.quietBecause !== undefined) {
+          log(`[dispatch] Sam stays quiet: ${name} already ${cue.quietBecause}`);
+        } else {
+          const titleKey = title.trim().toLowerCase();
+          const shouldStillAsk = () => {
+            const current = taskStatusByTitle.get(titleKey);
+            return shouldStillAskColleague(
+              current?.status,
+              payload.topic ?? current?.topic,
+              (topic) => runner.onCurrentAgenda(topic),
+            );
+          };
+          cueOrder.cue((done) => runner.askColleague(name, cue.note!, {
+            forbiddenText: title,
+            shouldStillSpeak: shouldStillAsk,
+            onDone: done,
+          }));
+        }
+      } else if (payload.kind === 'DISPATCH') {
+        const titleKey = (payload.title ?? '').trim().toLowerCase();
+        const guest = runner.visitorName() ?? payload.assignee ?? 'there';
+        runner.pointAtCard(guestCardNote(hostName ?? 'Sam', guest), {
+          forbiddenText: payload.title,
+          shouldStillSpeak: stillDispatched(titleKey),
+        });
+      } else {
+        runner.announce(payload.text);
+      }
+    }
+  };
+
+  const dispatchEvent = (event: ServiceEvent): void => {
+    if (event.kind === 'prepare') {
+      onPrepare(event);
+      return;
+    }
+    if (event.type === 'MEETING_STARTED') {
+      onStarted(event);
+      return;
+    }
+    if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt < 1000) return;
+    if (event.type === 'MEETING_RESET') {
+      onReset(event);
+      return;
+    }
+    if (event.type === 'TASK_UPDATED') {
+      onTaskUpdated(event);
+      return;
+    }
+    if (event.type === 'HOST_SPEECH_TRIGGERED') onHostCue(event);
+  };
+
+  const handle = createServiceDispatch({
+    dispatch: (event) => dispatchEvent(event as ServiceEvent),
+    logError,
   });
-  socket.on('error', (error) => {
-    logError(`the AI service channel failed: ${error.message}`);
-  });
-  socket.on('close', (code, reason) => {
-    logError(
-      `the AI service channel closed (${code}${reason.length > 0 ? `: ${reason.toString()}` : ''}); reconnecting in 3 s`,
-    );
-    setTimeout(followHostCues, 3000).unref();
-  });
+  socket.on('message', (data) => handle(data.toString()));
 }
-followHostCues();
+
+const serviceChannel = createServiceChannel({
+  token: serviceToken,
+  createSocket: () =>
+    new WebSocket(
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service`,
+      serviceToken === undefined || serviceToken === ''
+        ? undefined
+        : { headers: { authorization: `Bearer ${serviceToken}` } },
+    ),
+  log,
+  logError,
+  onOpen: (socket) => {
+    // A reset may have happened while this socket was down; never carry the old meeting into it.
+    meetingSync.connected();
+    wireServiceSocket(socket);
+  },
+});
+serviceChannel.start();
 
 log(`speech recognition: ${sttMode === 'azure' ? `Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})` : "the browser's"}`);
 const fixedNames = aiCast(scenario).map((npc) => npc.attendee);
@@ -546,5 +562,9 @@ log(
 );
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => void runner.stop().then(() => process.exit(0)));
+  process.on(signal, () => {
+    serviceChannel.stop();
+    commandSockets.close();
+    void runner.stop().then(() => process.exit(0));
+  });
 }
