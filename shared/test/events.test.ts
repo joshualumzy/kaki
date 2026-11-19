@@ -36,7 +36,7 @@ const recordUpdate = {
   audience: { kind: 'all' },
   payload: {
     agendaIndex: 0,
-    openQuestions: [{ id: 'q-oven', text: 'When was the oven last serviced?', forRole: 'chef' }],
+    openQuestions: [{ id: 'q-oven', text: 'When was the oven last serviced?', forRole: 'chef', agendaIndex: 0 }],
     elapsedSeconds: 125,
     speakerTalkSeconds: { chef: 90, cashier: 35 },
   },
@@ -126,6 +126,20 @@ describe('isKakiEvent', () => {
     ).toBe(false);
   });
 
+  it('requires a whole, non-negative agenda index on every open question', () => {
+    const question = { id: 'q', text: 'Question', forRole: 'chef' };
+    const withQuestion = (value: unknown) => ({
+      ...recordUpdate,
+      payload: { ...recordUpdate.payload, openQuestions: [value] },
+    });
+
+    expect(isKakiEvent(withQuestion({ ...question, agendaIndex: 1 }), testScenario)).toBe(true);
+    expect(isKakiEvent(withQuestion(question), testScenario)).toBe(false);
+    expect(isKakiEvent(withQuestion({ ...question, agendaIndex: -1 }), testScenario)).toBe(false);
+    expect(isKakiEvent(withQuestion({ ...question, agendaIndex: 1.5 }), testScenario)).toBe(false);
+    expect(isKakiEvent(withQuestion({ ...question, agendaIndex: '0' }), testScenario)).toBe(false);
+  });
+
   it('rejects unknown roles in every place', () => {
     expect(isKakiEvent({ ...nudge, audience: { kind: 'role', role: 'waiter' } }, testScenario)).toBe(false);
     expect(
@@ -140,7 +154,7 @@ describe('isKakiEvent', () => {
           ...recordUpdate,
           payload: {
             ...recordUpdate.payload,
-            openQuestions: [{ id: 'q', text: 'Question', forRole: 'waiter' }],
+            openQuestions: [{ id: 'q', text: 'Question', forRole: 'waiter', agendaIndex: 0 }],
           },
         },
         testScenario,

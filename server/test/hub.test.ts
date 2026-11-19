@@ -27,7 +27,7 @@ const recordUpdate: KakiEvent = {
   audience: { kind: 'all' },
   payload: {
     agendaIndex: 0,
-    openQuestions: [{ id: 'q-oven', text: 'When was the oven last serviced?', forRole: 'chef' }],
+    openQuestions: [{ id: 'q-oven', text: 'When was the oven last serviced?', forRole: 'chef', agendaIndex: 0 }],
     elapsedSeconds: 125,
     speakerTalkSeconds: { chef: 90, cashier: 35 },
   },

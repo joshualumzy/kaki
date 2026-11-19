@@ -1042,6 +1042,18 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
     }
     openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
+    // If a participant reverses their decision on the same agenda item in the current batch ("Actually wait no, I changed my mind — scrap that..."),
+    // dismiss any earlier SUGGESTED tasks before processing the new batch so only the revised decision's tasks remain active.
+    // The same boundary drops the earlier decision context, so a corrected decision cannot be mixed with the one it replaced.
+    const supersedeAt = batch.findIndex((line) => SUPERSEDES.test(line.text));
+    const supersedes = supersedeAt >= 0;
+    const movedTo =
+      reply.agendaIndex !== undefined && reply.agendaIndex > agendaIndex()
+        ? reply.agendaIndex
+        : undefined;
+    // A batch that moves the meeting on raises its questions after the hand-over, so they belong to the new item.
+    const questionAgendaIndex = movedTo ?? agendaIndex();
+
     for (const question of reply.newQuestions) {
       // Something that is not phrased as a question (a note or a fragment) is not worth keeping open.
       if (!question.text.includes('?')) {
@@ -1056,18 +1068,9 @@ export function createNotetaker({ scenario, tasks, llm, agendaIndex, onAgendaInd
         continue;
       }
       questionCount += 1;
-      openQuestions.push({ id: `q-${questionCount}`, ...question });
+      openQuestions.push({ id: `q-${questionCount}`, agendaIndex: questionAgendaIndex, ...question });
     }
 
-    // If a participant reverses their decision on the same agenda item in the current batch ("Actually wait no, I changed my mind — scrap that..."),
-    // dismiss any earlier SUGGESTED tasks before processing the new batch so only the revised decision's tasks remain active.
-    // The same boundary drops the earlier decision context, so a corrected decision cannot be mixed with the one it replaced.
-    const supersedeAt = batch.findIndex((line) => SUPERSEDES.test(line.text));
-    const supersedes = supersedeAt >= 0;
-    const movedTo =
-      reply.agendaIndex !== undefined && reply.agendaIndex > agendaIndex()
-        ? reply.agendaIndex
-        : undefined;
     // A model-selected decision quote may only resolve against the accepted lines of the current agenda item: a
     // correction restarts the item at the correction line, and an agenda move leaves the previous item's context behind.
     const decisionPool = supersedes

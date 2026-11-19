@@ -1,4 +1,4 @@
-import type { KakiEvent, SearchCompanyData } from '@kaki/shared';
+import { humanRoles, type KakiEvent, type SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
@@ -8,27 +8,89 @@ export interface KnowledgeModuleOptions {
   /** A prepared search, used by tests and the check script. */
   search?: SearchCompanyData;
   env?: NodeJS.ProcessEnv;
+  /** Clock used to space a question's retries; tests fix it. */
+  now?: () => number;
 }
 
 function missingSearchEnv(env: NodeJS.ProcessEnv): string[] {
   return [...missingGatewayEnv(env), ...(env.POSTGRES_URL ? [] : ['POSTGRES_URL'])];
 }
 
-/** How many times a question is searched before Kaki gives up; a failed search retries on the next record. */
+/** How many times a question is searched before Kaki gives up; a failed search retries on a later record. */
 const MAX_SEARCH_ATTEMPTS = 3;
+/** A question is not searched again until this long after its previous attempt. */
+const RETRY_INTERVAL_MS = 15_000;
 
 interface QuestionLog {
   /** Questions already answered, skipped, or out of attempts. */
   settled: Set<string>;
   running: Set<string>;
   attempts: Map<string, number>;
+  lastAttemptAt: Map<string, number>;
+  /** The agenda item whose company records were last searched for every Wingman role. */
+  lastAgendaIndex?: number;
   stopped?: boolean;
+}
+
+/** The agenda item's title and decision text, which stand in for its description in the scenario. */
+function agendaQuery(item: KakiContext['scenario']['agenda'][number]): string {
+  return [item.title, item.decision]
+    .filter((part): part is string => part !== undefined && part.trim() !== '')
+    .map((part) => part.trim())
+    .join('. ');
+}
+
+/** Give every role with a Wingman the company fact for a newly reached agenda item, once per item. */
+function searchAgendaTopic(
+  ctx: KakiContext,
+  search: SearchCompanyData,
+  log: QuestionLog,
+  agendaIndex: number,
+): void {
+  if (log.lastAgendaIndex === agendaIndex) return;
+  log.lastAgendaIndex = agendaIndex;
+
+  const item = ctx.scenario.agenda[agendaIndex];
+  if (item === undefined) {
+    console.error(`kaki wingman: no agenda item ${agendaIndex} to search company records for`);
+    return;
+  }
+  const query = agendaQuery(item);
+  for (const role of humanRoles(ctx.scenario)) {
+    void (async () => {
+      try {
+        const facts = await search(query, role.id);
+        if (log.stopped) return;
+        if (facts.length === 0) {
+          console.error(
+            `kaki wingman: no company facts found for agenda item ${agendaIndex} "${item.title}" (${role.id})`,
+          );
+          return;
+        }
+        ctx.hub.publish(
+          {
+            type: 'FACT_FOUND',
+            audience: { kind: 'role', role: role.id },
+            payload: { questionId: `agenda-${agendaIndex}`, question: query, facts, agendaIndex },
+          },
+          { retainKey: `fact:agenda:${agendaIndex}:${role.id}` },
+        );
+      } catch (error) {
+        if (log.stopped) return;
+        console.error(
+          `kaki wingman: company search failed for agenda item ${agendaIndex} "${item.title}" (${role.id}):`,
+          error,
+        );
+      }
+    })();
+  }
 }
 
 function handleEvent(
   ctx: KakiContext,
   search: SearchCompanyData,
   log: QuestionLog,
+  now: () => number,
   event: KakiEvent,
 ): void {
   if (log.stopped) return;
@@ -36,13 +98,27 @@ function handleEvent(
     log.settled.clear();
     log.running.clear();
     log.attempts.clear();
+    log.lastAttemptAt.clear();
+    log.lastAgendaIndex = undefined;
     return;
   }
   if (event.type !== 'MEETING_RECORD_UPDATED') return;
 
   const { agendaIndex } = event.payload;
+  searchAgendaTopic(ctx, search, log, agendaIndex);
+
   for (const question of event.payload.openQuestions) {
     if (log.settled.has(question.id) || log.running.has(question.id)) continue;
+    // Only the current item's questions are searched. An earlier item's question stays in the shared record but no
+    // longer matters here, so settle it; a later item's question waits until the meeting reaches that item.
+    if (question.agendaIndex < agendaIndex) {
+      log.settled.add(question.id);
+      console.warn(
+        `kaki wingman: settling question ${question.id}; it was raised on agenda item ${question.agendaIndex}, the meeting is on ${agendaIndex}`,
+      );
+      continue;
+    }
+    if (question.agendaIndex > agendaIndex) continue;
     if (question.forRole === undefined) {
       log.settled.add(question.id);
       console.warn(`kaki wingman: open question ${question.id} has no role, skipping company search`);
@@ -50,8 +126,15 @@ function handleEvent(
     }
 
     const role = question.forRole;
-    const attempt = (log.attempts.get(question.id) ?? 0) + 1;
+    const previousAttempts = log.attempts.get(question.id) ?? 0;
+    if (previousAttempts > 0) {
+      const lastAttemptAt = log.lastAttemptAt.get(question.id) ?? 0;
+      if (now() - lastAttemptAt < RETRY_INTERVAL_MS) continue;
+    }
+
+    const attempt = previousAttempts + 1;
     log.attempts.set(question.id, attempt);
+    log.lastAttemptAt.set(question.id, now());
     if (attempt >= MAX_SEARCH_ATTEMPTS) log.settled.add(question.id);
     log.running.add(question.id);
 
@@ -110,8 +193,14 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
         search = createCompanySearchFromEnv(env, pool);
       }
 
-      const log: QuestionLog = { settled: new Set(), running: new Set(), attempts: new Map() };
-      const unsubscribe = ctx.hub.subscribe((event) => handleEvent(ctx, search, log, event));
+      const now = options.now ?? Date.now;
+      const log: QuestionLog = {
+        settled: new Set(),
+        running: new Set(),
+        attempts: new Map(),
+        lastAttemptAt: new Map(),
+      };
+      const unsubscribe = ctx.hub.subscribe((event) => handleEvent(ctx, search, log, now, event));
       return () => {
         log.stopped = true;
         unsubscribe();

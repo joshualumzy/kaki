@@ -11,6 +11,8 @@ export interface Question {
   id: string;
   text: string;
   forRole?: Role;
+  /** The agenda item the question was raised on; consumers act only on the current item's questions. */
+  agendaIndex: number;
 }
 
 /**
@@ -139,6 +141,7 @@ function isQuestion(value: unknown, scenario: Scenario): value is Question {
     isObject(value) &&
     isString(value.id) &&
     isString(value.text) &&
+    isAgendaIndex(value.agendaIndex) &&
     (value.forRole === undefined || isRoleIn(scenario, value.forRole))
   );
 }

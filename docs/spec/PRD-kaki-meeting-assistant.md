@@ -93,7 +93,7 @@ The source of truth is the code in `shared/src` (`events.ts`, `commands.ts`, `ta
 
 Server → client events:
 - `TRANSCRIPT_CHUNK`: `{ speaker, text, timestamp }`
-- `MEETING_RECORD_UPDATED`: `{ agendaIndex, elapsedSeconds, speakerTalkSeconds, openQuestions: { id, text, forRole? }[] }`
+- `MEETING_RECORD_UPDATED`: `{ agendaIndex, elapsedSeconds, speakerTalkSeconds, openQuestions: { id, text, forRole?, agendaIndex }[] }`
 - `HOST_SPEECH_TRIGGERED`: `{ kind: 'OPENING'|'TIMEOUT'|'CLOSING', text }`
 - `NUDGE`: `{ text }` (private, to one role)
 - `FACT_FOUND`: `{ questionId, question, facts: { text, source, date }[] }` (private, to one role)

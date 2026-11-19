@@ -53,7 +53,7 @@ function starterChipsFromAgendaItem(
   }
   const fallback = [
     "Sam, could you summarize the two main options we're choosing between right now?",
-    "That plan sounds solid to me — let's lock in both parts for tomorrow morning.",
+    "Sam, what's still open on this one?",
   ];
   for (const fb of fallback) {
     if (!chips.includes(fb)) chips.push(fb);
@@ -382,9 +382,11 @@ export function MeetingGrid({
   const starterChips = useMemo(() => {
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
     const latestRecord = [...screenEvents].reverse().find((e) => e.type === 'MEETING_RECORD_UPDATED');
-    const openQs = latestRecord?.type === 'MEETING_RECORD_UPDATED' ? latestRecord.payload.openQuestions : [];
+    const openQs = latestRecord?.type === 'MEETING_RECORD_UPDATED'
+      ? latestRecord.payload.openQuestions.filter((question) => question.agendaIndex === activeAgendaIndex)
+      : [];
     return starterChipsFromAgendaItem(activeItem, viewerSeatName, openQs);
-  }, [activeItem, role, scenario.attendees, screenEvents]);
+  }, [activeItem, role, scenario.attendees, screenEvents, activeAgendaIndex]);
 
   const sendQuickLine = useCallback(
     (text: string) => {

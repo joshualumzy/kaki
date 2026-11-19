@@ -16,7 +16,30 @@ const scenario: Scenario = {
     { id: 'producer', label: 'Producer' },
   ],
   attendees: [],
-  agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', decision: 'Do we prep early?' }],
+  agenda: [
+    { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', decision: 'Do we prep early?' },
+    { title: 'Stock', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier', decision: 'How much stock?' },
+  ],
+};
+
+const wingmanScenario: Scenario = {
+  id: 'test-wingman',
+  organisation: 'Test Kitchen',
+  meetingTitle: 'Lunch service',
+  roles: [
+    { id: 'chef', label: 'Chef' },
+    { id: 'cashier', label: 'Cashier' },
+    { id: 'host', label: 'Host', facilitator: true },
+  ],
+  attendees: [
+    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada' },
+    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao' },
+    { name: 'Sam', role: 'host', zoomDisplayName: 'Sam' },
+  ],
+  agenda: [
+    { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', decision: 'Do we prep early?' },
+    { title: 'Stock', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier', decision: 'How much stock?' },
+  ],
 };
 
 const fact: Fact = { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' };
@@ -63,25 +86,33 @@ function recordUpdate(
   questionId = 'q-quit',
   forRole: 'game_designer' | 'producer' | null = 'game_designer',
   agendaIndex = 0,
+  questionAgendaIndex = agendaIndex,
 ): KakiEvent {
   return {
     type: 'MEETING_RECORD_UPDATED',
     audience: { kind: 'all' },
     payload: {
       agendaIndex,
-      openQuestions: [{ id: questionId, text: 'Where do players quit?', ...(forRole === null ? {} : { forRole }) }],
+      openQuestions: [
+        {
+          id: questionId,
+          text: 'Where do players quit?',
+          agendaIndex: questionAgendaIndex,
+          ...(forRole === null ? {} : { forRole }),
+        },
+      ],
       elapsedSeconds: 1,
       speakerTalkSeconds: {},
     },
   };
 }
 
-function recordUpdateWithNoQuestions(): KakiEvent {
+function recordUpdateWithNoQuestions(agendaIndex = 0): KakiEvent {
   return {
     type: 'MEETING_RECORD_UPDATED',
     audience: { kind: 'all' },
     payload: {
-      agendaIndex: 0,
+      agendaIndex,
       openQuestions: [],
       elapsedSeconds: 1,
       speakerTalkSeconds: {},
@@ -89,9 +120,14 @@ function recordUpdateWithNoQuestions(): KakiEvent {
   };
 }
 
-function start(search: SearchCompanyData, hub: Hub): () => void {
-  const module = createKnowledgeModule({ search, env: {} });
-  const stop = module.start({ hub, tasks: {} as TaskStore, scenario });
+function start(
+  search: SearchCompanyData,
+  hub: Hub,
+  activeScenario: Scenario = scenario,
+  now?: () => number,
+): () => void {
+  const module = createKnowledgeModule({ search, env: {}, ...(now === undefined ? {} : { now }) });
+  const stop = module.start({ hub, tasks: {} as TaskStore, scenario: activeScenario });
   if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
   return stop;
 }
@@ -182,21 +218,44 @@ describe('knowledge module', () => {
     }
   });
 
-  it('retries a failed search on the next record, then gives up after three tries', async () => {
+  it('waits at least fifteen seconds between retries, then gives up after three tries', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let nowMs = 0;
     let calls = 0;
     const search: SearchCompanyData = async () => {
       calls += 1;
       throw new Error('gateway down');
     };
     const fake = fakeHub();
-    const stop = start(search, fake.hub);
+    const stop = start(search, fake.hub, scenario, () => nowMs);
 
     try {
-      for (let i = 0; i < 5; i += 1) {
-        fake.emit(recordUpdate());
-        await settle();
-      }
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(1);
+
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(1);
+
+      nowMs += 14_999;
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(1);
+
+      nowMs += 1;
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(2);
+
+      nowMs += 15_000;
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(3);
+
+      nowMs += 15_000;
+      fake.emit(recordUpdate());
+      await settle();
       expect(calls).toBe(3);
       expect(fake.published).toEqual([]);
     } finally {
@@ -205,8 +264,9 @@ describe('knowledge module', () => {
     }
   });
 
-  it('sends the card once when a retry succeeds', async () => {
+  it('sends the card once when a retry succeeds after the wait', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let nowMs = 0;
     let calls = 0;
     const search: SearchCompanyData = async () => {
       calls += 1;
@@ -214,15 +274,17 @@ describe('knowledge module', () => {
       return [fact];
     };
     const fake = fakeHub();
-    const stop = start(search, fake.hub);
+    const stop = start(search, fake.hub, scenario, () => nowMs);
 
     try {
-      for (let i = 0; i < 3; i += 1) {
-        fake.emit(recordUpdate());
-        await settle();
-      }
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(1);
+
+      nowMs += 15_000;
+      fake.emit(recordUpdate());
+      await waitFor(() => fake.published.length === 1, 'the retried fact card');
       expect(calls).toBe(2);
-      expect(fake.published).toHaveLength(1);
     } finally {
       stop();
       error.mockRestore();
@@ -261,21 +323,86 @@ describe('knowledge module', () => {
     }
   });
 
-  it('does not search company records proactively when an agenda item has no open question', async () => {
-    const search = vi.fn<SearchCompanyData>(async () => [fact]);
+  it('searches the agenda topic for every Wingman role once, even with no open questions', async () => {
+    const calls: string[] = [];
+    const search: SearchCompanyData = async (question, role) => {
+      calls.push(`${question}:${role}`);
+      return [fact];
+    };
     const fake = fakeHub();
-    const stop = start(search, fake.hub);
+    const stop = start(search, fake.hub, wingmanScenario);
 
     try {
       fake.emit(recordUpdateWithNoQuestions());
-      await settle();
+      await waitFor(() => fake.published.length === 2, 'the agenda fact cards');
       fake.emit(recordUpdateWithNoQuestions());
       await settle();
 
-      expect(search).not.toHaveBeenCalled();
-      expect(fake.published).toEqual([]);
+      expect(calls).toEqual(['Prep. Do we prep early?:chef', 'Prep. Do we prep early?:cashier']);
+      expect(fake.published).toEqual([
+        {
+          type: 'FACT_FOUND',
+          audience: { kind: 'role', role: 'chef' },
+          payload: { questionId: 'agenda-0', question: 'Prep. Do we prep early?', facts: [fact], agendaIndex: 0 },
+        },
+        {
+          type: 'FACT_FOUND',
+          audience: { kind: 'role', role: 'cashier' },
+          payload: { questionId: 'agenda-0', question: 'Prep. Do we prep early?', facts: [fact], agendaIndex: 0 },
+        },
+      ]);
+      expect(fake.retainKeys).toEqual(['fact:agenda:0:chef', 'fact:agenda:0:cashier']);
     } finally {
       stop();
+    }
+  });
+
+  it('searches the new topic when the meeting moves to the next agenda item', async () => {
+    const calls: string[] = [];
+    const search: SearchCompanyData = async (question, role) => {
+      calls.push(`${question}:${role}`);
+      return [fact];
+    };
+    const fake = fakeHub();
+    const stop = start(search, fake.hub, wingmanScenario);
+
+    try {
+      fake.emit(recordUpdateWithNoQuestions(0));
+      await waitFor(() => fake.published.length === 2, 'the first topic fact cards');
+      fake.emit(recordUpdateWithNoQuestions(1));
+      await waitFor(() => fake.published.length === 4, 'the second topic fact cards');
+
+      expect(calls.slice(2)).toEqual(['Stock. How much stock?:chef', 'Stock. How much stock?:cashier']);
+      expect(fake.published.slice(2)).toEqual([
+        {
+          type: 'FACT_FOUND',
+          audience: { kind: 'role', role: 'chef' },
+          payload: { questionId: 'agenda-1', question: 'Stock. How much stock?', facts: [fact], agendaIndex: 1 },
+        },
+        {
+          type: 'FACT_FOUND',
+          audience: { kind: 'role', role: 'cashier' },
+          payload: { questionId: 'agenda-1', question: 'Stock. How much stock?', facts: [fact], agendaIndex: 1 },
+        },
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('logs loudly when the agenda search finds no facts', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fake = fakeHub();
+    const stop = start(async () => [], fake.hub, wingmanScenario);
+
+    try {
+      fake.emit(recordUpdateWithNoQuestions());
+      await waitFor(() => error.mock.calls.length === 2, 'the agenda empty-result errors');
+      expect(fake.published).toEqual([]);
+      expect(error.mock.calls[0]?.[0]).toContain('agenda item 0');
+    } finally {
+      stop();
+      error.mockRestore();
     }
   });
 
@@ -299,6 +426,25 @@ describe('knowledge module', () => {
       });
     } finally {
       stop();
+    }
+  });
+
+  it('settles an earlier item\'s open question without searching it again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const search = vi.fn<SearchCompanyData>(async () => [fact]);
+    const fake = fakeHub();
+    const stop = start(search, fake.hub);
+
+    try {
+      fake.emit(recordUpdate('q-early', 'game_designer', 1, 0));
+      await settle();
+
+      expect(search).not.toHaveBeenCalled();
+      expect(fake.published).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('raised on agenda item 0'));
+    } finally {
+      stop();
+      warn.mockRestore();
     }
   });
 

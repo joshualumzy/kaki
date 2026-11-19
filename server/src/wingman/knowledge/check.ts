@@ -131,31 +131,25 @@ async function checkAudience(): Promise<void> {
       payload: {
         agendaIndex: 1,
         openQuestions: [
-          { id: 'q-quit', text: 'Where do players quit?', forRole: 'game_designer' },
+          { id: 'q-quit', text: 'Where do players quit?', forRole: 'game_designer', agendaIndex: 1 },
         ],
         elapsedSeconds: 10,
         speakerTalkSeconds: {},
       },
     });
-    await waitFor(
-      () => fake.received('game_designer').some((event) => event.type === 'FACT_FOUND'),
-      'the game designer card',
-    );
-    assert(
-      fake.received('producer').every((event) => event.type !== 'FACT_FOUND'),
-      'the producer received a FACT_FOUND card',
-    );
-    assert(
-      fake.received('lead_programmer').every((event) => event.type !== 'FACT_FOUND'),
-      'the lead programmer received a FACT_FOUND card',
-    );
-    assert(
-      fake.received('marketing_lead').every((event) => event.type !== 'FACT_FOUND'),
-      'the marketing lead received a FACT_FOUND card',
-    );
-    const card = fake.received('game_designer').find((event) => event.type === 'FACT_FOUND');
-    assert(card?.audience.kind === 'role' && card.audience.role === 'game_designer', 'the card audience is wrong');
-    console.log('PASS hub check: FACT_FOUND went only to game_designer');
+    const questionCards = (audience: ClientAudience): KakiEvent[] =>
+      fake.received(audience).filter(
+        (event): event is Extract<KakiEvent, { type: 'FACT_FOUND' }> =>
+          event.type === 'FACT_FOUND' && event.payload.questionId === 'q-quit',
+      );
+    await waitFor(() => questionCards('game_designer').length > 0, 'the game designer card');
+    assert(questionCards('producer').length === 0, 'the producer received the question card');
+    assert(questionCards('lead_programmer').length === 0, 'the lead programmer received the question card');
+    assert(questionCards('marketing_lead').length === 0, 'the marketing lead received the question card');
+    const card = questionCards('game_designer')[0];
+    assert(card !== undefined, 'the game designer did not receive the question card');
+    assert(card.audience.kind === 'role' && card.audience.role === 'game_designer', 'the card audience is wrong');
+    console.log('PASS hub check: the question FACT_FOUND went only to game_designer');
   } finally {
     if (typeof stop === 'function') stop();
   }

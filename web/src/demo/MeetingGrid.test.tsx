@@ -33,12 +33,17 @@ vi.mock('../kaki', () => ({
 vi.mock('./TypeBar', () => ({ ConnectedTypeBar: () => null }));
 vi.mock('./Orb', () => ({ Orb: () => null, orbPalette: () => ['--c'] }));
 
-function record(agendaIndex: number): KakiEvent {
+type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
+
+function record(
+  agendaIndex: number,
+  openQuestions: RecordEvent['payload']['openQuestions'] = [],
+): KakiEvent {
   return {
     type: 'MEETING_RECORD_UPDATED',
     audience: { kind: 'screen' },
     payload: {
-      agendaIndex, openQuestions: [], elapsedSeconds: 0, speakerTalkSeconds: {},
+      agendaIndex, openQuestions, elapsedSeconds: 0, speakerTalkSeconds: {},
       notetakerStatus: 'ok', quietRoles: [],
     },
   };
@@ -82,6 +87,8 @@ describe('MeetingGrid starter ideas', () => {
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
     expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /10 AM/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /what's still open on this one\?/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /lock in both parts/i })).toBeNull();
   });
 
   it('shows the turn region when a colleague has briefed on a later topic and the AI is idle', () => {
@@ -104,6 +111,22 @@ describe('MeetingGrid starter ideas', () => {
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
     expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
+  });
+
+  it('offers only the current agenda item\'s open questions as quick replies', () => {
+    mocks.screenEvents.splice(0, mocks.screenEvents.length,
+      record(1, [
+        { id: 'q-old', text: 'What happened to the old regulars?', forRole: 'chef', agendaIndex: 0 },
+        { id: 'q-now', text: 'How much stock do we need for the rush?', forRole: 'chef', agendaIndex: 1 },
+      ]),
+      line('Sam', 'What do you think about stock?'),
+      line('Chef', 'We should order more.'),
+    );
+    render(<MeetingGrid role="chef" />);
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+
+    expect(screen.getByRole('button', { name: /How much stock do we need for the rush\?/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /What happened to the old regulars\?/ })).toBeNull();
   });
 
   it('shows only the fact for the active agenda item, not an older topic fact', () => {

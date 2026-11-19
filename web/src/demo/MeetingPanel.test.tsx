@@ -59,7 +59,7 @@ const events: KakiEvent[] = [
     audience: { kind: 'all' },
     payload: {
       agendaIndex: 0,
-      openQuestions: [{ id: 'q-cash', text: 'How do we take cash?', forRole: 'producer' }],
+      openQuestions: [{ id: 'q-cash', text: 'How do we take cash?', forRole: 'producer', agendaIndex: 0 }],
       elapsedSeconds: 5,
       speakerTalkSeconds: {},
     },

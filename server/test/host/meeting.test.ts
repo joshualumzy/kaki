@@ -96,7 +96,7 @@ describe('host meeting module', () => {
       audience: { kind: 'screen' },
       payload: {
         agendaIndex: 0,
-        openQuestions: [{ id: 'q-1', text: 'Who services the oven?', forRole: 'chef' }],
+        openQuestions: [{ id: 'q-1', text: 'Who services the oven?', forRole: 'chef', agendaIndex: 0 }],
         speakerTalkSeconds: { chef: 2, cashier: 5 },
       },
     });
