@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isKakiEvent, type KakiCommand, type KakiEvent, type Role, type Task } from '@kaki/shared';
+import { fetchMe } from '../auth/api';
 import { useScenario } from './ScenarioContext';
+
+/** What the server says when a phone's meeting code has been replaced. */
+const MEETING_ENDED_MESSAGE = 'This meeting has ended; scan the new code.';
 
 /** A command the server refused, with the reason to show the user. */
 export interface KakiRejection {
@@ -58,9 +62,13 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
     setEnded(undefined);
     attempts.current = 0;
     let closed = false;
+    let endedForGood = false;
+    let opened = false;
     let socket: WebSocket | undefined;
 
     function connect(): void {
+      if (closed || endedForGood) return;
+      opened = false;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = `${protocol}//${window.location.host}/ws?role=${encodeURIComponent(audience)}`;
       const current = new WebSocket(url);
@@ -69,6 +77,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
 
       current.addEventListener('open', () => {
         if (closed) return;
+        opened = true;
         attempts.current = 0;
         // The server is the source of truth: drop local state and rebuild from its catch-up,
         // so a restarted server never leaves stale task cards on screen.
@@ -172,13 +181,39 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
       });
 
       current.addEventListener('close', (event) => {
-        if (closed) return;
+        if (closed || endedForGood) return;
         setConnected(false);
         const closeEvent = event as CloseEvent | undefined;
         if (closeEvent?.code === 4001) {
-          setEnded(closeEvent.reason === '' ? 'This meeting has ended; scan the new code.' : closeEvent.reason);
+          endedForGood = true;
+          if (reconnectTimer.current !== undefined) {
+            window.clearTimeout(reconnectTimer.current);
+            reconnectTimer.current = undefined;
+          }
+          setEnded(closeEvent.reason === '' ? MEETING_ENDED_MESSAGE : closeEvent.reason);
           return;
         }
+        if (!opened) {
+          // A reconnect was refused before it opened. Ask whether this phone's meeting is gone;
+          // otherwise the backoff below keeps retrying at a bounded pace.
+          void fetchMe()
+            .then((me) => {
+              if (closed || endedForGood) return;
+              if (me.authEnabled && me.kind === null && me.reason === MEETING_ENDED_MESSAGE) {
+                endedForGood = true;
+                if (reconnectTimer.current !== undefined) {
+                  window.clearTimeout(reconnectTimer.current);
+                  reconnectTimer.current = undefined;
+                }
+                socket?.close();
+                setEnded(MEETING_ENDED_MESSAGE);
+              }
+            })
+            .catch((error: unknown) => {
+              console.warn('kaki web: could not re-check the session after a failed reconnect', error);
+            });
+        }
+        if (endedForGood) return;
         const delay = Math.min(5000, 500 * 2 ** attempts.current);
         attempts.current += 1;
         reconnectTimer.current = window.setTimeout(connect, delay);

@@ -1,7 +1,28 @@
-import { newMeetingCode, normalizeMeetingCode } from '@kaki/shared';
+import { randomBytes } from 'node:crypto';
+import { normalizeMeetingCode } from '@kaki/shared';
 
 /** What a phone shows when its meeting's code has been replaced. */
 export const MEETING_ENDED_MESSAGE = 'This meeting has ended; scan the new code.';
+
+/** What a caller sees after too many wrong codes from one address. */
+export const MEETING_CODE_RATE_LIMIT_MESSAGE =
+  'Too many meeting-code attempts. Wait a minute and try again.';
+
+/** Wrong codes allowed per address in one window. */
+export const MEETING_CODE_FAILURE_LIMIT = 5;
+export const MEETING_CODE_WINDOW_MS = 60_000;
+
+/** Uppercase letters and digits without look-alikes such as I/O/0/1. */
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const MEETING_CODE_LENGTH = 6;
+
+/** Generate one short meeting code that is easy to read out or type. */
+function generateMeetingCode(): string {
+  const bytes = randomBytes(MEETING_CODE_LENGTH);
+  let code = '';
+  for (const byte of bytes) code += CODE_ALPHABET[byte % CODE_ALPHABET.length];
+  return code;
+}
 
 /**
  * The one meeting code shared by LiveKit admission and phone sign-in. It rotates when the meeting
@@ -22,14 +43,14 @@ export function createMeetingCodeSource(
 ): MeetingCodeSource {
   const fixedValue = normalizeMeetingCode(fixedCode);
   const fixed = fixedValue !== '';
-  let value = fixed ? fixedValue : newMeetingCode();
+  let value = fixed ? fixedValue : generateMeetingCode();
   return {
     get value() {
       return value;
     },
     fixed,
     rotate() {
-      if (!fixed) value = newMeetingCode();
+      if (!fixed) value = generateMeetingCode();
     },
   };
 }

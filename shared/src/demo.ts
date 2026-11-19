@@ -165,15 +165,6 @@ export function seatProblem(
   return undefined;
 }
 
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-
-/** A short meeting code that is easy to read out: four characters, none that look alike (no 0/O, 1/I/L). */
-export function newMeetingCode(random: () => number = Math.random): string {
-  let code = '';
-  for (let index = 0; index < 4; index += 1) code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)];
-  return code;
-}
-
 /** Case, spaces and dashes do not matter when a code is typed. */
 export function normalizeMeetingCode(code: string | undefined): string {
   return (code ?? '').toUpperCase().replace(/[\s-]/g, '');

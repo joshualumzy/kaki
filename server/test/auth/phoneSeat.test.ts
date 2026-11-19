@@ -4,6 +4,7 @@ import { humanSeatRoles, type KakiEvent, type Scenario } from '@kaki/shared';
 import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
+import { hashPassword } from '../../src/auth/password';
 import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meetingCode';
 import { testScenario } from '../fixtures/scenario';
 import { createTestApp, portOf, settle, waitFor } from '../helpers';
@@ -18,10 +19,18 @@ function cookieFrom(response: Response): string {
   return pair;
 }
 
-function connect(port: number, role: string, cookie?: string): Promise<{ ok: true; ws: WebSocket } | { ok: false; status: number }> {
+function connect(
+  port: number,
+  role: string,
+  cookie?: string,
+  authorization?: string,
+): Promise<{ ok: true; ws: WebSocket } | { ok: false; status: number }> {
+  const headers: Record<string, string> = {};
+  if (cookie !== undefined) headers.cookie = cookie;
+  if (authorization !== undefined) headers.authorization = authorization;
   const ws = new WebSocket(
     `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
-    cookie === undefined ? undefined : { headers: { cookie } },
+    Object.keys(headers).length === 0 ? undefined : { headers },
   );
   return new Promise((resolve) => {
     let settled = false;
@@ -79,10 +88,12 @@ describe('phone and screen seat authority', () => {
     scenario = testScenario,
     meetingCode,
     roomRoster = async () => [],
+    serviceToken,
   }: {
     scenario?: Scenario;
     meetingCode: MeetingCodeSource;
     roomRoster?: () => Promise<Array<{ name: string; role?: string }> | undefined>;
+    serviceToken?: string;
   } = { meetingCode: createMeetingCodeSource(FIXED_CODE) }): Promise<void> {
     const auth = createAuth({
       store,
@@ -95,6 +106,7 @@ describe('phone and screen seat authority', () => {
       roomRoster,
       rejoinGraceMs: 0,
       admissionReservationMs: 0,
+      ...(serviceToken === undefined ? {} : { serviceToken }),
     });
     port = portOf(app);
   }
@@ -217,4 +229,154 @@ describe('phone and screen seat authority', () => {
     expect(wrongSeat.ok).toBe(false);
     if (!wrongSeat.ok) expect(wrongSeat.status).toBe(401);
   });
+
+  it('refuses an opening socket whose authorization predates a code rotation', async () => {
+    const meetingCode = createMeetingCodeSource('');
+    const roles = humanSeatRoles(testScenario).map((role) => role.id);
+    const baseAuth = createAuth({ store, roles, meetingCode });
+    let authorized: (() => void) | undefined;
+    const didAuthorize = new Promise<void>((resolve) => {
+      authorized = resolve;
+    });
+    let release: (() => void) | undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const auth = {
+      ...baseAuth,
+      authorize: async (
+        request: Parameters<typeof baseAuth.authorize>[0],
+        audience: Parameters<typeof baseAuth.authorize>[1],
+      ) => {
+        const decision = await baseAuth.authorize(request, audience);
+        authorized?.();
+        await released;
+        return decision;
+      },
+    };
+    app = await createTestApp({
+      auth,
+      meetingCode,
+      roomRoster: async () => [],
+      rejoinGraceMs: 0,
+      admissionReservationMs: 0,
+    });
+    port = portOf(app);
+
+    const first = await joinRoom('Ada', 'chef');
+    const oldCookie = await joinAs(first.meetingCode, 'cashier');
+
+    const pending = connect(port, 'cashier', oldCookie);
+    await didAuthorize;
+    const second = await joinRoom('Ada', 'chef');
+    expect(second.meetingCode).not.toBe(first.meetingCode);
+    release?.();
+
+    const opened = await pending;
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    sockets.push(opened.ws);
+    const closedWith = await Promise.race([
+      new Promise<number>((resolve) => opened.ws.once('close', (code) => resolve(code))),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 500)),
+    ]);
+    expect(closedWith).toBe(4001);
+  });
+
+  it('closes participant lifecycle feeds on rotation but keeps host and runner sockets', async () => {
+    await store.createUser({
+      email: 'host@example.com',
+      passwordHash: await hashPassword('host-password'),
+    });
+    const meetingCode = createMeetingCodeSource('');
+    await makeApp({ meetingCode, serviceToken: 'runner-secret' });
+
+    const first = await joinRoom('Ada', 'chef');
+    const participantCookie = await joinAs(first.meetingCode, 'cashier');
+    const login = await post('/api/auth/login', {
+      email: 'host@example.com',
+      password: 'host-password',
+    });
+    expect(login.status).toBe(200);
+    const hostCookie = cookieFrom(login);
+
+    const participantLifecycle = await connect(port, 'lifecycle', participantCookie);
+    const hostLifecycle = await connect(port, 'lifecycle', hostCookie);
+    const hostScreen = await connect(port, 'screen', hostCookie);
+    const runnerRole = await connect(port, 'chef', undefined, 'Bearer runner-secret');
+    expect(participantLifecycle.ok && hostLifecycle.ok && hostScreen.ok && runnerRole.ok).toBe(true);
+    if (!participantLifecycle.ok || !hostLifecycle.ok || !hostScreen.ok || !runnerRole.ok) return;
+    sockets.push(participantLifecycle.ws, hostLifecycle.ws, hostScreen.ws, runnerRole.ws);
+
+    let participantClosed: number | undefined;
+    let hostLifecycleClosed = false;
+    let hostScreenClosed = false;
+    let runnerClosed = false;
+    participantLifecycle.ws.on('close', (code) => {
+      participantClosed = code;
+    });
+    hostLifecycle.ws.on('close', () => {
+      hostLifecycleClosed = true;
+    });
+    hostScreen.ws.on('close', () => {
+      hostScreenClosed = true;
+    });
+    runnerRole.ws.on('close', () => {
+      runnerClosed = true;
+    });
+
+    const second = await joinRoom('Ada', 'chef');
+    expect(second.meetingCode).not.toBe(first.meetingCode);
+    await waitFor(() => participantClosed, 'the participant lifecycle feed to close');
+    expect(participantClosed).toBe(4001);
+    await settle();
+    expect(hostLifecycleClosed).toBe(false);
+    expect(hostScreenClosed).toBe(false);
+    expect(runnerClosed).toBe(false);
+  });
+
+  it('rate-limits wrong meeting codes on both join and token routes, separately from host sign-in', async () => {
+    await store.createUser({
+      email: 'host@example.com',
+      passwordHash: await hashPassword('host-password'),
+    });
+    await makeApp({
+      meetingCode: createMeetingCodeSource(FIXED_CODE),
+      roomRoster: async () => [{ name: 'Ada', role: 'chef' }],
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await post('/api/livekit/token', {
+        roomName: 'room',
+        participantName: `Mallory ${attempt}`,
+        participantRole: 'cashier',
+        meetingCode: 'WRONG1',
+      });
+      expect(response.status).toBe(403);
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await post('/api/join', { code: 'WRONG1', role: 'chef' });
+      expect(response.status).toBe(403);
+    }
+
+    const limitedJoin = await post('/api/join', { code: FIXED_CODE, role: 'chef' });
+    expect(limitedJoin.status).toBe(429);
+    expect(await limitedJoin.json()).toEqual({
+      error: 'Too many meeting-code attempts. Wait a minute and try again.',
+    });
+    const limitedToken = await post('/api/livekit/token', {
+      roomName: 'room',
+      participantName: 'Mallory later',
+      participantRole: 'cashier',
+      meetingCode: FIXED_CODE,
+    });
+    expect(limitedToken.status).toBe(429);
+
+    const hostLogin = await post('/api/auth/login', {
+      email: 'host@example.com',
+      password: 'host-password',
+    });
+    expect(hostLogin.status).toBe(200);
+  });
+
 });

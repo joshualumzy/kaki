@@ -155,4 +155,32 @@ describe('useKaki lifecycle state', () => {
     // The closed socket's old answer must not reopen Start after the reset.
     expect(result.current.started).toBe(false);
   });
+
+  it('stops reconnecting and reports the ended meeting after a failed reconnect', async () => {
+    const ended = 'This meeting has ended; scan the new code.';
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: ended, authEnabled: true }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('chef'));
+    const first = sockets[0]!;
+
+    act(() => first.emit('open'));
+    act(() => first.emit('close', { code: 1006 }));
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const failed = sockets[1]!;
+
+    // The reconnect was refused before it opened: the phone must ask whether its meeting is gone.
+    act(() => failed.emit('close', { code: 1006 }));
+    await waitFor(() => expect(result.current.ended).toBe(ended));
+
+    const count = sockets.length;
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(sockets.length).toBe(count);
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/me', undefined);
+  });
+
 });

@@ -43,7 +43,7 @@ export class CommandError extends Error {}
 export type CommandHandler = (command: KakiCommand, sender: ClientAudience) => void | Promise<void>;
 
 /** The result of checking whether a socket may connect. */
-export type UpgradeDecision = { ok: true } | { ok: false; message: string };
+export type UpgradeDecision = { ok: true; participant?: boolean } | { ok: false; message: string };
 
 /** Options for the hub; auth plugs into the WebSocket upgrade through `authorize`. */
 export interface HubOptions {
@@ -71,7 +71,7 @@ export interface Hub {
   onServiceMessage?(handler: (message: ServiceMessage) => void): void;
   /** Forget retained events whose key starts with `prefix`, so clients that connect later do not get them. */
   clearRetained(prefix: string): void;
-  /** Close the phone feeds of a meeting that is gone, with a reason their page can show. */
+  /** Revoke a gone meeting's phone sessions: bump the authorization generation and close their feeds. */
   endRoleSessions?(reason: string): void;
   /** Close the WebSocket server and drop every client. */
   close(): void;
@@ -182,6 +182,13 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const isRunnerRequest = (request: IncomingMessage): boolean =>
     serviceTokenConfigured && tokenMatches(presentedServiceToken(request), serviceToken ?? '');
   const verified = authorize === undefined && !serviceTokenConfigured;
+  /** Bumped whenever a meeting's code rotates, so upgrades authorized under the old code cannot register. */
+  let revocationGeneration = 0;
+  /** How each pending upgrade was authorized, kept until its socket registers. */
+  const pendingAuthorizations = new WeakMap<
+    IncomingMessage,
+    { generation: number; participant: boolean }
+  >();
   const wss = new WebSocketServer(
     verified
       ? { server: httpServer, path: '/ws' }
@@ -219,9 +226,14 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
               done(true);
               return;
             }
+            const generation = revocationGeneration;
             void authorize(info.req, audience)
               .then((decision) => {
                 if (decision.ok) {
+                  pendingAuthorizations.set(info.req, {
+                    generation,
+                    participant: decision.participant === true,
+                  });
                   done(true);
                 } else {
                   done(false, 401, decision.message);
@@ -245,6 +257,8 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const serviceSockets = new Set<WebSocket>();
   /** Command sockets opened with the AI runner's token instead of a person's session. */
   const runnerSockets = new Set<WebSocket>();
+  /** Sockets behind a participant's phone session, whatever audience they follow. */
+  const participantSockets = new Set<WebSocket>();
 
   function sendTo(socket: WebSocket, audience: ClientAudience, message: string): void {
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -353,20 +367,33 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       return;
     }
 
+    const authorization = pendingAuthorizations.get(request);
+    if (
+      authorization?.participant === true &&
+      authorization.generation !== revocationGeneration
+    ) {
+      // Authorized for the previous meeting's code: the phone belongs to a meeting that is gone.
+      socket.close(4001);
+      return;
+    }
+
     clients.set(socket, audience);
     if (audience === 'service') serviceSockets.add(socket);
     else if (isRunnerRequest(request)) runnerSockets.add(socket);
+    else if (authorization?.participant === true) participantSockets.add(socket);
     sendRetained(socket, audience);
     socket.on('close', () => {
       clients.delete(socket);
       serviceSockets.delete(socket);
       runnerSockets.delete(socket);
+      participantSockets.delete(socket);
     });
     socket.on('error', (error) => {
       console.error(`kaki hub: socket error for ${audience}`, error);
       clients.delete(socket);
       serviceSockets.delete(socket);
       runnerSockets.delete(socket);
+      participantSockets.delete(socket);
     });
     socket.on('message', (data) => {
       void handleClientMessage(socket, audience, data);
@@ -424,9 +451,12 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       for (const key of [...retained.keys()]) if (key.startsWith(prefix)) retained.delete(key);
     },
     endRoleSessions(reason) {
+      revocationGeneration += 1;
       for (const [socket, audience] of clients) {
-        if (audience === 'screen' || audience === 'service' || audience === 'lifecycle') continue;
+        if (audience === 'screen' || audience === 'service') continue;
         if (runnerSockets.has(socket)) continue;
+        // A host's read-only lifecycle feed survives; a participant's must not follow the new meeting.
+        if (audience === 'lifecycle' && !participantSockets.has(socket)) continue;
         socket.close(4001, reason);
       }
     },
@@ -435,6 +465,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       clients.clear();
       serviceSockets.clear();
       runnerSockets.clear();
+      participantSockets.clear();
       serviceHandlers.clear();
       retained.clear();
       subscribers.clear();

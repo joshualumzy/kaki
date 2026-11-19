@@ -135,7 +135,7 @@ describe('POST /api/livekit/token', () => {
     });
     const first = await post({ roomName: 'room', participantName: 'One', participantRole: chef!.label });
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    expect(code).toMatch(/^[A-Z2-9]{4}$/);
+    expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
 
     present = [{ name: 'One', role: chef!.id }];
     const missing = await post({ roomName: 'room', participantName: 'Two', participantRole: cashier!.label });

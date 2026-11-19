@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, newMeetingCode, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -129,9 +129,6 @@ describe('demo meeting helpers', () => {
 });
 
 describe('meeting code', () => {
-  it('makes four easy-to-read characters', () => {
-    for (let n = 0; n < 50; n += 1) expect(newMeetingCode()).toMatch(/^[A-HJKMNP-Z2-9]{4}$/);
-  });
   it('lets the first person in without a code, and checks everyone after', () => {
     expect(codeProblem(0, 'K7QX', undefined)).toBeUndefined();
     expect(codeProblem(1, 'K7QX', undefined)).toMatch(/needs its code/);

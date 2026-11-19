@@ -2,7 +2,14 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
 import type { ClientAudience } from '../hub';
-import { MEETING_ENDED_MESSAGE, type MeetingCodeSource } from '../meetingCode';
+import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
+import {
+  MEETING_CODE_FAILURE_LIMIT,
+  MEETING_CODE_RATE_LIMIT_MESSAGE,
+  MEETING_CODE_WINDOW_MS,
+  MEETING_ENDED_MESSAGE,
+  type MeetingCodeSource,
+} from '../meetingCode';
 import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } from './cookie';
 import { hashPassword, hashToken, verifyPassword } from './password';
 import { createPostgresAuthStore } from './postgres';
@@ -10,7 +17,7 @@ import { ensureAuthSchema } from './schema';
 import type { AuthStore, SessionKind, SessionRecord } from './store';
 
 /** The result of checking a WebSocket upgrade against the session cookie. */
-export type AuthDecision = { ok: true } | { ok: false; message: string };
+export type AuthDecision = { ok: true; participant?: boolean } | { ok: false; message: string };
 
 /** The auth feature the HTTP server and WebSocket hub call into. */
 export interface Auth {
@@ -18,6 +25,8 @@ export interface Auth {
   handleHttp(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   /** Allow or reject a `/ws?role=` upgrade for the requested audience. */
   authorize(request: IncomingMessage, audience: ClientAudience): Promise<AuthDecision>;
+  /** The code-attempt limiter shared with the LiveKit token route, per client address. */
+  readonly meetingCodeLimiter: AttemptLimiter;
   close(): Promise<void>;
 }
 
@@ -39,11 +48,6 @@ const MAX_EMAIL_LENGTH = 254;
 const MAX_PASSWORD_LENGTH = 1024;
 
 const WRONG_CREDENTIALS = 'Email or password is incorrect.';
-
-interface FailureWindow {
-  count: number;
-  resetAt: number;
-}
 
 type JsonObject = Record<string, unknown>;
 
@@ -122,33 +126,16 @@ export function createAuth({
   now = Date.now,
   log = () => undefined,
 }: AuthOptions): Auth {
-  const failures = new Map<string, FailureWindow>();
-
-  function pruneFailures(at: number): void {
-    if (failures.size < 5_000) return;
-    for (const [key, window] of failures) {
-      if (window.resetAt <= at) failures.delete(key);
-    }
-  }
-
-  function isRateLimited(key: string, at: number): boolean {
-    const window = failures.get(key);
-    if (window === undefined) return false;
-    if (window.resetAt <= at) {
-      failures.delete(key);
-      return false;
-    }
-    return window.count >= LOGIN_FAILURE_LIMIT;
-  }
-
-  function recordFailure(key: string, at: number): void {
-    const window = failures.get(key);
-    if (window === undefined || window.resetAt <= at) {
-      failures.set(key, { count: 1, resetAt: at + LOGIN_WINDOW_MS });
-      return;
-    }
-    window.count += 1;
-  }
+  const loginAttempts = createAttemptLimiter({
+    limit: LOGIN_FAILURE_LIMIT,
+    windowMs: LOGIN_WINDOW_MS,
+    now,
+  });
+  const meetingCodeAttempts = createAttemptLimiter({
+    limit: MEETING_CODE_FAILURE_LIMIT,
+    windowMs: MEETING_CODE_WINDOW_MS,
+    now,
+  });
 
   async function currentSession(request: IncomingMessage): Promise<SessionRecord | undefined> {
     const token = readSessionCookie(request);
@@ -212,10 +199,8 @@ export function createAuth({
       return;
     }
 
-    const at = now();
-    pruneFailures(at);
     const key = `${clientIp(request)}|${email}`;
-    if (isRateLimited(key, at)) {
+    if (loginAttempts.isLimited(key)) {
       sendJson(response, 429, {
         error: 'Too many sign-in attempts. Wait a minute and try again.',
       });
@@ -226,12 +211,12 @@ export function createAuth({
     const passwordMatches = user === undefined ? false : await verifyPassword(password, user.passwordHash);
 
     if (!passwordMatches) {
-      recordFailure(key, at);
+      loginAttempts.recordFailure(key);
       sendJson(response, 401, { error: WRONG_CREDENTIALS });
       return;
     }
 
-    failures.delete(key);
+    loginAttempts.clear(key);
     await startSession(response, 'host', null, null);
     sendJson(response, 200, { kind: 'host' });
   }
@@ -278,15 +263,22 @@ export function createAuth({
 
     const rawCode = stringField(parsed.value, 'code');
     const role = stringField(parsed.value, 'role');
+    const ip = clientIp(request);
 
+    if (meetingCodeAttempts.isLimited(ip)) {
+      sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
+      return;
+    }
     if (rawCode === undefined || rawCode.trim() === '') {
       sendJson(response, 400, { error: 'Enter the meeting code.' });
       return;
     }
     if (rawCode.trim().toUpperCase() !== meetingCode.value) {
+      meetingCodeAttempts.recordFailure(ip);
       sendJson(response, 403, { error: 'That meeting code is not valid.' });
       return;
     }
+    meetingCodeAttempts.clear(ip);
     if (role === undefined || role.trim() === '') {
       sendJson(response, 400, { error: 'Choose your role.' });
       return;
@@ -319,6 +311,8 @@ export function createAuth({
   log(`kaki auth: enabled with meeting code ${meetingCode.value}`);
 
   return {
+    meetingCodeLimiter: meetingCodeAttempts,
+
     async handleHttp(request, response) {
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
 
@@ -356,7 +350,7 @@ export function createAuth({
       }
       // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
       if (audience === 'lifecycle') {
-        return { ok: true };
+        return { ok: true, participant: session.kind === 'participant' };
       }
       if (audience === 'screen') {
         return session.kind === 'host'
@@ -366,11 +360,12 @@ export function createAuth({
       if (session.kind !== 'participant' || session.role !== audience || !roles.includes(audience)) {
         return { ok: false, message: 'Join this meeting with that role first' };
       }
-      return { ok: true };
+      return { ok: true, participant: session.kind === 'participant' };
     },
 
     async close() {
-      failures.clear();
+      loginAttempts.clearAll();
+      meetingCodeAttempts.clearAll();
       await store.close();
     },
   };

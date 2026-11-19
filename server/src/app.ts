@@ -4,11 +4,19 @@ import { codeProblem, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries,
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
+import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
 import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import type { MeetingPersistence } from './persist/persistence';
-import { createMeetingCodeSource, MEETING_ENDED_MESSAGE, type MeetingCodeSource } from './meetingCode';
+import {
+  createMeetingCodeSource,
+  MEETING_CODE_FAILURE_LIMIT,
+  MEETING_CODE_RATE_LIMIT_MESSAGE,
+  MEETING_CODE_WINDOW_MS,
+  MEETING_ENDED_MESSAGE,
+  type MeetingCodeSource,
+} from './meetingCode';
 import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type RejoinGuard } from './rejoin';
 import { createTaskStore, type TaskStore } from './tasks';
 import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster, type SeatReservations } from './livekit';
@@ -76,6 +84,8 @@ interface RequestContext {
   roomRoster: RoomRoster;
   /** The one code the second person and phone sign-in need; renewed with the meeting (or fixed by KAKI_MEETING_CODE). */
   meetingCode: MeetingCodeSource;
+  /** Wrong-code attempts per client address, shared with phone sign-in and independent of host login. */
+  meetingCodeAttempts: AttemptLimiter;
   /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
   rejoin: RejoinGuard;
   /** The one server-owned lifecycle state: the meeting's identity and whether it has started. */
@@ -223,6 +233,11 @@ async function handleRequest(
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
 
     if (request.method === 'POST' && path === '/api/livekit/token') {
+      const codeIp = request.socket.remoteAddress ?? 'unknown';
+      if (context.meetingCodeAttempts.isLimited(codeIp)) {
+        sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
+        return;
+      }
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -315,9 +330,11 @@ async function handleRequest(
           }
           const codeError = codeProblem(present.length, context.meetingCode.value, typeof join.meetingCode === 'string' ? join.meetingCode : undefined);
           if (codeError !== undefined) {
+            context.meetingCodeAttempts.recordFailure(codeIp);
             sendJson(response, 403, { error: codeError, needsCode: true });
             return;
           }
+          context.meetingCodeAttempts.clear(codeIp);
           if (present.some((person) => person.name.toLowerCase() === joiningName)) {
             sendJson(response, 409, {
               error: `"${participantName}" is already in the meeting. Pick another name.`,
@@ -626,6 +643,12 @@ export async function createApp({
   meetingCode: meetingCodeOption,
 }: CreateAppOptions): Promise<KakiApp> {
   const meetingCode = meetingCodeOption ?? createMeetingCodeSource();
+  const meetingCodeAttempts =
+    auth?.meetingCodeLimiter ??
+    createAttemptLimiter({
+      limit: MEETING_CODE_FAILURE_LIMIT,
+      windowMs: MEETING_CODE_WINDOW_MS,
+    });
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
@@ -668,7 +691,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
