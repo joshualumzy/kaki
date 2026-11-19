@@ -3114,6 +3114,123 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
+  it('still nudges and commits the read-back when the guest stays silent after the reply chain', async () => {
+    const factScenario = {
+      ...scenario,
+      agenda: [
+        {
+          title: 'Prep',
+          minutes: 5,
+          canWait: false,
+          deadline: 'before service',
+          ownerRole: 'chef',
+          decision: 'how do we cover prep?',
+          briefing: [
+            { text: 'The till needs a new login before opening.', knownBy: [{ attendee: 'Bao', why: 'you run the tills' }] },
+          ],
+        },
+      ],
+    };
+    const readyQuestion = {
+      kind: 'question' as const,
+      answersOpenQuestion: false,
+      relevantFactIds: ['0:0'],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'We use the kiosk for orders' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const h = harness(factScenario, 0, undefined, 'one-speaker', () => readyQuestion,
+      { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockResolvedValue(undefined);
+    h.ports.settleTopic = settleTopic;
+
+    await h.say('Bao, can the till take a new login? We use the kiosk for orders.');
+    const answer = await waitForCall(h, 0);
+    expect(String(answer.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    await reply(h, 'Bao: The till needs a new login before opening.');
+    await finishPlaying(h);
+    expect(h.transcript.filter(([, text]) => text.includes("That's the call?"))).toHaveLength(1);
+
+    // Nobody answers the read-back: one fixed nudge.
+    for (let i = 0; i < 80 && !h.transcript.some(([, text]) => text === 'Still with me?'); i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    expect(h.transcript.filter(([, text]) => text === 'Still with me?')).toHaveLength(1);
+    expect(settleTopic).not.toHaveBeenCalled();
+
+    // Still nobody answers: the read-back call is committed and the topic moves on.
+    for (let i = 0; i < 80 && settleTopic.mock.calls.length === 0; i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    expect(settleTopic).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionSource: 'We use the kiosk for orders' }), false);
+    expect(h.transcript.filter(([, text]) => text.includes("That's the call?"))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('does not speak a stale read-back after the guest speaks during the gate write', async () => {
+    let releaseGate: (() => void) | undefined;
+    let gateCalls = 0;
+    const h = harness(scenario, 0, undefined, 'one-speaker', () => readyFor('Old price only on the small cup'), {
+      gateStream: (request) => (async function* () {
+        gateCalls += 1;
+        if (gateCalls === 1) await new Promise<void>((resolve) => { releaseGate = resolve; });
+        yield `${request.speaker}: So it's old price only on the small cup. That's the call?`;
+      })(),
+    });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('Old price only on the small cup.');
+    for (let i = 0; i < 40 && releaseGate === undefined; i += 1) await h.flush();
+    expect(releaseGate).toBeDefined();
+
+    // The guest corrects the call while the read-back is still being written.
+    h.conversation.humanTyped('No, signs only this morning.');
+    await h.flush();
+    releaseGate?.();
+    await h.flush();
+
+    expect(h.playing.some((entry) => entry.text === 'Josh, is that your call?')).toBe(false);
+    expect(h.transcript.some(([, text]) => text === 'Josh, is that your call?')).toBe(false);
+    expect(h.logs).not.toContainEqual('[confirm] read-back: Josh, is that your call?');
+    h.conversation.close();
+  });
+
+  it('keeps the open question when settling fails, so the room does not treat it as answered', async () => {
+    const readerInputs: GuestReaderInput[] = [];
+    const h = harness(scenario, 0, undefined, 'one-speaker', (input) => {
+      readerInputs.push(input);
+      return readyFor('Old price only on the small cup');
+    }, { silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    const settleTopic = vi.fn().mockRejectedValueOnce(new Error('task store down'));
+    h.ports.settleTopic = settleTopic;
+
+    h.conversation.announce('Bao', 'Josh, who covers the counter?');
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+
+    h.conversation.humanTyped('Old price only on the small cup.');
+    await h.flush();
+    h.conversation.lockDecision(undefined, { confirmed: true });
+    await h.flush();
+    expect(settleTopic).toHaveBeenCalledTimes(1);
+    expect(h.logs).toContainEqual(expect.stringContaining('could not create follow-up'));
+
+    h.conversation.humanTyped('Yes, old price still.');
+    await h.flush();
+    expect(readerInputs.at(-1)?.openQuestion?.text).toBe('Josh, who covers the counter?');
+    h.conversation.close();
+  });
+
   it('clears a stale open question on settle so the card nudge is not blocked', async () => {
     const h = harness(scenario, 0, undefined, 'one-speaker', () => readyFor('Old price only on the small cup'),
       { reviewNudgeMs: 1000, reviewWindowMs: 3000, silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
@@ -3158,6 +3275,37 @@ describe('one-speaker replies to the guest', () => {
     await h.flush();
     expect(h.logs).toContainEqual('[card] moving on without a pointer: no follow-up card arrived');
     expect(h.transcript.some(([, text]) => /card|screen/i.test(text))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('points at a card that arrives while the no-card wrap-up is still queued', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker', () => readyFor('Old price only on the small cup'),
+      { reviewNudgeMs: 1000, reviewWindowMs: 3000, silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+    const advanceAgenda = vi.fn();
+    h.ports.advanceAgenda = advanceAgenda;
+
+    h.conversation.humanTyped('Old price only on the small cup.');
+    await h.flush();
+    h.conversation.lockDecision(undefined, { confirmed: true });
+    await h.flush();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.logs).toContainEqual('[card] moving on without a pointer: no follow-up card arrived');
+
+    // The card lands while that wrap-up is still queued or playing.
+    h.conversation.taskStatus('task-1', scenario.agenda[0]!.title, 'DISPATCHED', true);
+    await h.flush();
+    await finishPlaying(h);
+    await vi.advanceTimersByTimeAsync(1000);
+    await finishPlaying(h);
+
+    expect(h.transcript.some(([, text]) => /the follow-up's on your screen/i.test(text))).toBe(true);
+    expect(advanceAgenda).not.toHaveBeenCalled();
     h.conversation.close();
   });
 

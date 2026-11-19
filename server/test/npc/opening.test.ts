@@ -1010,6 +1010,36 @@ describe('one-speaker topic opening', () => {
     expect(clarify).not.toContain('ask at most one short question to understand what they want');
   });
 
+  it('allows the assigned catch or answer fact as the one new item in a reply', () => {
+    const catchText = 'Calling Auntie Mary in means double pay.';
+    const catchMessages = replySpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Bao',
+      topicTitle: TOPICS[0]!,
+      purpose: 'catch',
+      transcript: [],
+      respondsTo: { speaker: 'Josh', text: 'Let us call Auntie Mary in.' },
+      catchText,
+    }).map((message) => message.content).join('\n');
+    expect(catchMessages).toContain('Use only facts and names already heard');
+    expect(catchMessages).toContain(catchText);
+    expect(catchMessages).toContain('That catch is the one new item you may add');
+
+    const fact = 'A new till login takes fifteen minutes.';
+    const answerMessages = replySpeakerMessages({
+      scenario: KOPITIAM,
+      speaker: 'Bao',
+      topicTitle: TOPICS[0]!,
+      purpose: 'answer',
+      transcript: [],
+      respondsTo: { speaker: 'Josh', text: 'How long does the till take?' },
+      facts: [fact],
+    }).map((message) => message.content).join('\n');
+    expect(answerMessages).toContain('Use only facts and names already heard');
+    expect(answerMessages).toContain(fact);
+    expect(answerMessages).toContain('That fact is the one new item you may add');
+  });
+
   it('accepts a plain read-back and rejects quotation marks or a menu', () => {
     const parse = (text: string) => parseGateReply(`Sam: ${text}`, { speaker: 'Sam', guestName: 'Josh' });
 

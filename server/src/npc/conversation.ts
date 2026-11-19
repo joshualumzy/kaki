@@ -2072,8 +2072,6 @@ export class NpcConversation<Clip> {
     this.budgetRecoveryPending = false;
     this.meetingState.setConfirmationAsked(false);
     this.meetingState.setOfferAsked(false);
-    // The topic is leaving: no question heard on it may stay open and block the card or the next item.
-    this.meetingState.clearOpenQuestion();
     this.confirmationNudged = false;
     this.clearPendingGate();
   }
@@ -2085,6 +2083,8 @@ export class NpcConversation<Clip> {
     if (item === undefined || host === undefined || this.advanced.has(item.title)) return;
     this.advanced.add(item.title);
     this.closeTopicTurn(`the topic "${item.title}" closed unresolved`);
+    // The topic is leaving: no question heard on it may stay open and block the card or the next item.
+    this.meetingState.clearOpenQuestion();
     const topicName = spokenAgendaName(this.options.scenario, item.title);
     this.ports.log?.(`[topic] "${item.title}" is unresolved: ${reason}`);
     this.humanSettledOnCurrentItem = false;
@@ -2166,6 +2166,8 @@ export class NpcConversation<Clip> {
     const succeeded = (): void => {
       if (generation !== this.memoryGeneration) return;
       if (this.closed || this.currentItem()?.title !== item.title) return;
+      // Only a successful settle closes the questions heard on the topic; a failed one keeps the room's open gate.
+      this.meetingState.clearOpenQuestion();
       if (reopening) {
         this.reopenedTitle = undefined;
         this.decisionLines = this.resumeAfterReopen?.lines ?? [];
@@ -2422,11 +2424,19 @@ export class NpcConversation<Clip> {
       this.reviewWarned = true;
       this.ports.log?.('[card] moving on without a pointer: no follow-up card arrived');
       this.announce(host, wrapUp, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-        if (spoken) this.checkTopicAdvance(true);
-        else {
+        if (!spoken) {
           this.reviewWarned = false;
           this.startReviewWindow();
+          return;
         }
+        if (this.hasVisitorCardOnTopic(title)) {
+          this.ports.log?.('[card] a card arrived during the wrap-up; pointing at it instead of moving on');
+          this.reviewWarned = false;
+          this.reviewNudged = false;
+          this.startReviewWindow();
+          return;
+        }
+        this.checkTopicAdvance(true);
       });
       return;
     }
@@ -2565,6 +2575,7 @@ export class NpcConversation<Clip> {
       }
       if (previousTitle !== undefined && previousTitle !== incomingTitle) {
         this.closeTopicTurn(`the agenda moved from "${previousTitle}" to "${incomingTitle}"`);
+        this.meetingState.clearOpenQuestion();
         this.interrupt('agenda moved');
         // A reply that was cut off belongs to the topic the room just left; it must not hold back the new announcement.
         this.unanswered = false;
@@ -3895,6 +3906,7 @@ export class NpcConversation<Clip> {
           this.parkedTopics.add(run.title);
           this.ports.log?.(`[topic] "${run.title}" deferred to its later slot`);
           this.closeTopicTurn(`the topic "${run.title}" was deferred`);
+          this.meetingState.clearOpenQuestion();
         }
         this.finishReplyRun(run);
         this.advanceOrEnd();
@@ -4049,6 +4061,10 @@ export class NpcConversation<Clip> {
     this.meetingState.setConfirmationAsked(false);
     this.ports.log?.(`[offer] asking ${guest} to choose${proposal === undefined ? '' : `: "${proposal}"`}`);
     const speak = (line: string): void => {
+      if (abort.signal.aborted || this.pendingGate?.abort !== abort) {
+        this.ports.log?.('[offer] dropped an offer whose gate was cancelled');
+        return;
+      }
       if (this.closed || this.paused || this.currentItem()?.title !== title) {
         this.clearPendingGate(abort);
         return;
@@ -4092,6 +4108,10 @@ export class NpcConversation<Clip> {
     const abort = new AbortController();
     this.pendingGate = { title, kind: 'confirmation', abort };
     const speak = (line: string): void => {
+      if (abort.signal.aborted || this.pendingGate?.abort !== abort) {
+        this.ports.log?.('[confirm] dropped a read-back whose gate was cancelled');
+        return;
+      }
       if (this.closed || this.paused || this.currentItem()?.title !== title) {
         this.clearPendingGate(abort);
         return;
@@ -4116,6 +4136,8 @@ export class NpcConversation<Clip> {
         this.meetingState.setOfferAsked(false);
         this.meetingState.setConfirmationAsked(true, evidence, line);
         this.confirmationNudged = false;
+        // The read-back now owns the room's next move: silence after it must be nudged and then committed.
+        this.scheduleSilencePrompt();
       });
     };
     if (evidence === undefined) {

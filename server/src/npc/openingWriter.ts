@@ -205,12 +205,13 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
   if (request.purpose === 'catch') {
     purpose = [
       `Raise this real catch in your own words, plainly: "${request.catchText ?? 'the cost their idea does not cover'}".`,
+      'That catch is the one new item you may add.',
       'Do not praise the idea first, do not solve the catch for them and do not list fixes; leave them something to answer.',
     ].join(' ');
   } else if (request.purpose === 'answer') {
     purpose = request.facts === undefined || request.facts.length === 0
       ? "Answer the point directly, in your own words, from what you know. If you do not know the answer, say plainly that you don't know; never invent figures or a new problem. Do not ask the guest a question back."
-      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}". If that does not answer what was asked, say plainly that you don't know rather than inventing. Do not ask the guest a question back.`;
+      : `Answer the point directly, in your own words. You may tell only this: "${request.facts.join(' ')}". ${request.facts.length === 1 ? 'That fact is the one new item you may add.' : 'Those facts are the one new item you may add.'} If that does not answer what was asked, say plainly that you don't know rather than inventing. Do not ask the guest a question back.`;
   } else if (request.purpose === 'defer') {
     purpose = [
       'The guest wants to leave this for later, and this topic can wait.',
