@@ -38,7 +38,7 @@ case "$cmd" in
   down|stop)
     echo "Deallocating Azure VM ($VM in $RG) so compute billing stops..."
     az vm deallocate --resource-group "$RG" --name "$VM"
-    echo "VM is now deallocated ($0/hr compute). Run 'npm run cloud:up' anytime to wake it back up."
+    echo "VM is now deallocated (\$0/hr compute). Run 'npm run cloud:up' anytime to wake it back up."
     ;;
   status)
     state=$(az vm get-instance-view --resource-group "$RG" --name "$VM" --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus | [0]" -o tsv 2>/dev/null || echo "unknown")
