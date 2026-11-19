@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
+import type { MeetingSetup } from '@kaki/shared';
 import { createMeetingPersistence } from '../../src/persist/persistence';
-import type { MeetingStateStore, SavedMeetingState, StoredMeeting } from '../../src/persist/state';
+import type { MeetingSnapshot, MeetingStateStore, SavedMeetingState, StoredMeeting } from '../../src/persist/state';
+
+const setup: MeetingSetup = {
+  title: 'Prep',
+  agenda: [{ id: 'agenda-1', title: 'Prep', minutes: 5, ownerRoleId: 'chef' }],
+  roles: [{ id: 'chef', label: 'Chef', facilitator: true }],
+  seats: [{ displayName: 'Ada', roleId: 'chef', kind: 'person' }],
+  pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+  source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
+};
+
+function snapshot(agendaIndex: number): MeetingSnapshot {
+  return {
+    startedAt: '2026-01-01T00:00:00.000Z',
+    state: stateWithAgenda(agendaIndex),
+    setup,
+    meetingCode: 'AB12CD',
+    seats: [],
+  };
+}
 
 function stateWithAgenda(agendaIndex: number): SavedMeetingState {
   return {
@@ -132,7 +152,7 @@ describe('meeting persistence saver', () => {
       store,
       log: () => undefined,
     });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(agendaIndex) }));
+    persistence.registerSource(() => snapshot(agendaIndex));
 
     persistence.scheduleSave();
     persistence.scheduleSave();
@@ -158,7 +178,7 @@ describe('meeting persistence saver', () => {
     const store = new OrderedStore();
     let agendaIndex = 0;
     const persistence = createMeetingPersistence({ store, log: () => undefined });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(agendaIndex) }));
+    persistence.registerSource(() => snapshot(agendaIndex));
 
     persistence.scheduleSave();
     await Promise.resolve();
@@ -184,7 +204,7 @@ describe('meeting persistence saver', () => {
     const logs: string[] = [];
     let agendaIndex = 0;
     const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(agendaIndex) }));
+    persistence.registerSource(() => snapshot(agendaIndex));
 
     persistence.scheduleSave();
     await persistence.flush();
@@ -211,7 +231,7 @@ describe('meeting persistence saver', () => {
       store,
       log: (message) => logs.push(message),
     });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(0) }));
+    persistence.registerSource(() => snapshot(0));
 
     persistence.scheduleSave();
     await expect(persistence.flush()).resolves.toBeUndefined();
@@ -239,7 +259,7 @@ describe('meeting persistence saver', () => {
   it('cancels a queued save and clears after a write already in flight', async () => {
     const store = new SlowStore();
     const persistence = createMeetingPersistence({ store, log: () => undefined });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(0) }));
+    persistence.registerSource(() => snapshot(0));
 
     persistence.scheduleSave();
     await Promise.resolve();
@@ -259,7 +279,7 @@ describe('meeting persistence saver', () => {
     store.releaseFirst();
     const logs: string[] = [];
     const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(0) }));
+    persistence.registerSource(() => snapshot(0));
 
     persistence.scheduleSave();
     await persistence.flush();
@@ -281,7 +301,7 @@ describe('meeting persistence saver', () => {
     store.releaseFirst();
     const logs: string[] = [];
     const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
-    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(0) }));
+    persistence.registerSource(() => snapshot(0));
 
     persistence.scheduleSave();
     await persistence.flush();

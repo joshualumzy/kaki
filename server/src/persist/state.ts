@@ -1,7 +1,11 @@
 import {
+  demoPackNpcProfileIds,
   isRoleIn,
   isTask,
+  normalizeMeetingCode,
   NOTETAKER_STATUSES,
+  parseMeetingSetup,
+  type MeetingSetup,
   type NotetakerStatus,
   type Question,
   type Role,
@@ -14,7 +18,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 3;
+export const MEETING_STATE_SCHEMA_VERSION = 4;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -68,11 +72,31 @@ export interface SavedMeetingState {
   tasks: Task[];
 }
 
+/** Which person name holds which human seat, so a restart recognises the same people. */
+export interface SavedSeatAssignment {
+  name: string;
+  seat: string;
+}
+
+/** The setup, code and seat holders that belong to the meeting but not to its running record. */
+export interface SavedMeetingDetails {
+  setup: MeetingSetup;
+  meetingCode: string;
+  seats: SavedSeatAssignment[];
+}
+
+/** Everything one save point writes: the running record plus the meeting's fixed details. */
+export interface MeetingSnapshot extends SavedMeetingDetails {
+  /** Absent while the meeting is still a pre-Start setup draft. */
+  startedAt?: string;
+  state: SavedMeetingState;
+}
+
 /** One saved meeting, as stored and loaded. */
-export interface StoredMeeting {
+export interface StoredMeeting extends SavedMeetingDetails {
   schemaVersion: number;
-  /** When the meeting started, shown on the host screen after a restore. */
-  startedAt: string;
+  /** Absent while the meeting is still a pre-Start setup draft. */
+  startedAt?: string;
   savedAt: string;
   state: SavedMeetingState;
 }
@@ -206,18 +230,52 @@ function agendaProblem(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Name the first field `parseMeetingSetup` rejects, so the owner knows what to fix or reset. */
+function setupProblem(value: unknown, scenario: Scenario): string | undefined {
+  const parsed = parseMeetingSetup(value, { npcProfileIds: demoPackNpcProfileIds(scenario) });
+  if (parsed.ok) return undefined;
+  const first = parsed.errors[0];
+  if (first === undefined) return 'its setup is invalid';
+  return `its setup is invalid at ${first.field}: ${first.message}`;
+}
+
+function meetingCodeProblem(value: unknown): string | undefined {
+  if (typeof value !== 'string' || normalizeMeetingCode(value) === '') return 'its meeting code is missing';
+  return undefined;
+}
+
+function seatsProblem(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return 'its seat holders are not a list';
+  const seats = new Set<string>();
+  for (const entry of value) {
+    if (!isObject(entry) || !isNonEmptyString(entry.name) || !isNonEmptyString(entry.seat)) {
+      return 'its seat holders are not a list of names and seats';
+    }
+    const seat = entry.seat.trim().toLowerCase();
+    if (seats.has(seat)) return 'its seat holders repeat a seat';
+    seats.add(seat);
+  }
+  return undefined;
+}
+
 /**
  * Describe what is wrong with a saved meeting, or undefined when the whole snapshot can be applied.
  * `scenario` is the scenario this server started with, so a task from another scenario is rejected.
  */
 export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): string | undefined {
   if (!isObject(saved)) return 'the saved row is not an object';
-  if (typeof saved.startedAt !== 'string' || Number.isNaN(Date.parse(saved.startedAt))) {
+  if (saved.startedAt !== undefined && (typeof saved.startedAt !== 'string' || Number.isNaN(Date.parse(saved.startedAt)))) {
     return 'its start time is not a date';
   }
   if (typeof saved.savedAt !== 'string' || Number.isNaN(Date.parse(saved.savedAt))) {
     return 'its save time is not a date';
   }
+  const setup = setupProblem((saved as { setup?: unknown }).setup, scenario);
+  if (setup !== undefined) return setup;
+  const meetingCode = meetingCodeProblem((saved as { meetingCode?: unknown }).meetingCode);
+  if (meetingCode !== undefined) return meetingCode;
+  const seats = seatsProblem((saved as { seats?: unknown }).seats);
+  if (seats !== undefined) return seats;
   const state = saved.state as unknown;
   if (!isObject(state)) return 'its meeting state is missing';
   if (!isNonEmptyString(state.meetingId)) return 'its meeting identity is missing';
@@ -225,6 +283,9 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (agenda !== undefined) return agenda;
   const clock = clockProblem(state.clock, (state.agenda as string[]).length);
   if (clock !== undefined) return clock;
+  if (isObject(state.clock) && state.clock.started === true && saved.startedAt === undefined) {
+    return 'its start time is missing';
+  }
   if (!Array.isArray(state.tasks)) return 'its task list is not a list';
   for (let index = 0; index < state.tasks.length; index += 1) {
     if (!isTask(state.tasks[index], scenario)) return `task ${index + 1} is not valid for this scenario`;

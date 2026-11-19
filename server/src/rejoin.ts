@@ -38,6 +38,10 @@ export interface RejoinGuard {
   began(): void;
   /** A meeting was restored from disk: the next person to arrive resumes it instead of starting fresh. */
   restored(): void;
+  /** Seed the saved seat holders without marking the meeting as started. */
+  restoreIdentities(entries: ReadonlyArray<{ name: string; seat: string }>): void;
+  /** Who holds which seat, so the same people are recognised after a restart. */
+  identities(): Array<{ name: string; seat: string }>;
   /** The server started the meeting before anyone arrived: the first arrival carries it on. */
   startedBeforeAnyoneJoined(): void;
   /** The restored meeting is gone (the host started a new one): the next arrival starts fresh. */
@@ -75,6 +79,8 @@ export function createRejoinGuard({
   let finished = false;
   let restoredMeeting = false;
   let startedWithoutPeople = false;
+  // Saved seat holders came back with the meeting, so a stranger may not take one of their seats.
+  let restoredSeats = false;
   const humans = new Set<string>();
   // Seat-to-person identity: the same person in the same seat is part of this meeting. A different
   // person taking that seat is a stranger and starts a new meeting, even inside the grace.
@@ -117,7 +123,26 @@ export function createRejoinGuard({
       started = true;
       begun = true;
       restoredMeeting = true;
+      // With saved seat holders the restart is an empty-room moment: the grace decides how long they
+      // have to come back, and a stranger still cannot take a saved seat.
+      if (restoredSeats) emptied();
       log('[rejoin] a saved meeting was restored; the next arrival resumes it');
+    },
+    restoreIdentities(entries) {
+      for (const entry of entries) {
+        const name = normalise(entry.name);
+        const seatKey = entry.seat.trim().toLowerCase();
+        if (name === '' || seatKey === '') continue;
+        humans.add(name);
+        seated.add(`${seatKey}\u0000${name}`);
+        restoredSeats = true;
+      }
+    },
+    identities() {
+      return [...seated].map((key) => {
+        const [seat, name] = key.split('\u0000');
+        return { name: name ?? '', seat: seat ?? '' };
+      });
     },
     startedBeforeAnyoneJoined() {
       if (started) return;
@@ -139,6 +164,7 @@ export function createRejoinGuard({
     ended() {
       if (!started || finished) return;
       restoredMeeting = false;
+      restoredSeats = false;
       startedWithoutPeople = false;
       finished = true;
       log('[rejoin] meeting ended, the next arrival starts a new one');
@@ -149,9 +175,11 @@ export function createRejoinGuard({
       if (!started) return { reset: true };
       // The meeting is over: a new guest must not land in a finished meeting where nobody speaks.
       if (finished) return { reset: true };
-      // A meeting that was started or restored before anyone arrived has no known guest yet;
-      // whoever comes first carries it on.
-      if (startedWithoutPeople || restoredMeeting) return { reset: false };
+      // A meeting that was started before anyone arrived has no known guest yet; whoever comes first
+      // carries it on. A restored meeting with saved seat holders keeps the same rules as a normal
+      // grace window: those people may return, a stranger starts fresh.
+      if (startedWithoutPeople) return { reset: false };
+      if (restoredMeeting && !restoredSeats) return { reset: false };
       // The grace is off: every arrival into an empty room starts a new meeting.
       if (graceMs <= 0) return { reset: true };
       // The last person may have left after the previous poll: treat this arrival as the moment the
@@ -175,6 +203,7 @@ export function createRejoinGuard({
       if (decision.reset) {
         begun = false;
         finished = false;
+        restoredSeats = false;
         humans.clear();
         seated.clear();
         emptySince = undefined;

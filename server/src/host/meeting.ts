@@ -43,7 +43,7 @@ export function createMeetingModule({
 }: MeetingModuleOptions = {}): KakiModule {
   return {
     name: 'host-meeting',
-    start({ hub, tasks, scenario, persistence, meetingId, resetMeetingIdentity }: KakiContext) {
+    start({ hub, tasks, scenario, persistence, meetingId, resetMeetingIdentity, meetingDetails }: KakiContext) {
       // The app server owns the identity; a module run on its own (tests) still gets a stable one.
       let localMeetingId = randomUUID();
       const currentMeetingId = (): string => meetingId?.() ?? localMeetingId;
@@ -63,24 +63,30 @@ export function createMeetingModule({
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
 
       // A compatible saved meeting was loaded before the modules started; take up where it stopped.
+      // A pre-Start setup draft restores the setup but leaves the clock and record untouched.
       const saved = persistence?.saved;
-      const restored = saved !== undefined;
-      let meetingStartedAt: string | undefined;
+      const restoredRunning = saved !== undefined && saved.state.clock.started;
+      let meetingStartedAt = restoredRunning ? saved.startedAt : undefined;
       // While the host's New meeting is waiting for the old one to be cleared, no pre-reset snapshot may be saved.
       let resetting = false;
       if (saved !== undefined) {
         clock.restore(saved.state.clock);
         notetaker.restore(saved.state.notetaker);
-        meetingStartedAt = saved.startedAt;
-        console.log(`kaki host: restored the meeting that started at ${saved.startedAt}`);
+        if (restoredRunning) {
+          console.log(`kaki host: restored the meeting that started at ${saved.startedAt}`);
+        } else {
+          console.log('kaki host: restored the saved meeting setup; the meeting has not started');
+        }
       }
 
       persistence?.registerSource(() => {
         if (resetting) return undefined;
+        const details = meetingDetails?.();
+        if (details === undefined) return undefined;
         const now = clock.snapshot();
-        if (!now.started || meetingStartedAt === undefined) return undefined;
         return {
-          startedAt: meetingStartedAt,
+          ...(meetingStartedAt === undefined ? {} : { startedAt: meetingStartedAt }),
+          ...details,
           state: {
             meetingId: currentMeetingId(),
             agenda: scenario.agenda.map((item) => item.title),
@@ -211,13 +217,13 @@ export function createMeetingModule({
       }
       startTicker();
 
-      if (restored) {
+      if (restoredRunning) {
         // Retained so a screen that opens after the restart still says where this meeting came from.
         hub.publish(
           {
             type: 'MEETING_RESTORED',
             audience: { kind: 'screen' },
-            payload: { startedAt: saved.startedAt },
+            payload: { startedAt: saved.startedAt ?? saved.savedAt },
           },
           { retainKey: 'meeting:restored' },
         );
@@ -400,10 +406,10 @@ export function createMeetingModule({
 
       let stopReplay: (() => void) | undefined;
       let stopped = false;
-      if (replay !== undefined && restored) {
+      if (replay !== undefined && restoredRunning) {
         console.log('kaki host: the saved meeting was restored; the scripted replay stays stopped');
       }
-      if (replay !== undefined && !restored) {
+      if (replay !== undefined && !restoredRunning) {
         const lines = typeof replay === 'string' ? loadReplay(scenario, replay) : Promise.resolve(replay);
         lines.then(
           (loaded) => {

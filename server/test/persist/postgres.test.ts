@@ -22,6 +22,28 @@ const meeting: StoredMeeting = {
   schemaVersion: MEETING_STATE_SCHEMA_VERSION,
   startedAt: '2026-02-03T04:05:06.000Z',
   savedAt: '2026-02-03T04:06:07.000Z',
+  setup: {
+    title: 'Lunch service readiness',
+    agenda: [{ id: 'agenda-1', title: 'Prep', minutes: 5, ownerRoleId: 'chef' }],
+    roles: [
+      { id: 'chef', label: 'Chef', facilitator: true },
+      { id: 'cashier', label: 'Cashier', facilitator: false },
+    ],
+    seats: [
+      { displayName: 'Ada', roleId: 'chef', kind: 'person' },
+      { displayName: 'Bao', roleId: 'cashier', kind: 'person' },
+    ],
+    pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+    source: {
+      title: 'demo pack',
+      agenda: 'demo pack',
+      roles: 'demo pack',
+      seats: 'demo pack',
+      pace: 'demo pack',
+    },
+  },
+  meetingCode: 'AB12CD',
+  seats: [{ name: 'ada', seat: 'chef' }],
   state: {
     meetingId: 'meeting-1',
     agenda: ['Prep', 'Service'],

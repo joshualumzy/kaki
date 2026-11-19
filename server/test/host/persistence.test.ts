@@ -1,9 +1,10 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { KakiEvent, Task } from '@kaki/shared';
-import { createApp } from '../../src/app';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { defaultMeetingSetup, type KakiEvent, type MeetingSetup, type Task } from '@kaki/shared';
+import { createApp, type CreateAppOptions } from '../../src/app';
 import { createMeetingModule } from '../../src/host/meeting';
 import { loadScenario } from '../../src/loadScenario';
 import { createFakeLlm } from '../../src/llm';
+import { createMeetingCodeSource } from '../../src/meetingCode';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import {
   assertCompatibleSavedMeeting,
@@ -85,6 +86,9 @@ function savedState({
     schemaVersion: MEETING_STATE_SCHEMA_VERSION,
     startedAt: '2026-01-01T00:00:00.000Z',
     savedAt: '2026-01-01T00:05:00.000Z',
+    setup: defaultMeetingSetup(testScenario),
+    meetingCode: 'AB12CD',
+    seats: [],
     state: {
       meetingId: 'meeting-1',
       agenda,
@@ -131,13 +135,66 @@ afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
 
-async function startApp(persistence: MeetingPersistence): Promise<KakiApp> {
+async function startApp(
+  persistence: MeetingPersistence,
+  options: Omit<CreateAppOptions, 'persistence' | 'scenario' | 'modules'> = {},
+): Promise<KakiApp> {
   const app = await createTestApp({
     modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
     persistence,
+    ...options,
   });
   apps.push(app);
   return app;
+}
+
+function baseUrl(app: KakiApp): string {
+  return `http://127.0.0.1:${portOf(app)}`;
+}
+
+async function readSetup(app: KakiApp): Promise<MeetingSetup> {
+  const response = await fetch(`${baseUrl(app)}/api/setup`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { setup: MeetingSetup }).setup;
+}
+
+async function putSetup(app: KakiApp, setup: MeetingSetup): Promise<Response> {
+  return fetch(`${baseUrl(app)}/api/setup`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(setup),
+  });
+}
+
+function editedSetup(setup: MeetingSetup): MeetingSetup {
+  return {
+    ...setup,
+    title: 'Friday lunch readiness',
+    agenda: setup.agenda.map((item) => ({ ...item, minutes: 17, ownerRoleId: 'cashier' })),
+    roles: setup.roles.map((role, index) => (index === 0 ? { ...role, label: 'Head Chef' } : role)),
+    pace: { ownerQuietBelow: 20, quietCheckAfter: 90, comingUpBefore: 45 },
+    source: {
+      title: 'typed',
+      agenda: 'typed',
+      roles: 'typed',
+      seats: 'typed',
+      pace: 'typed',
+    },
+  };
+}
+
+async function meetingState(app: KakiApp): Promise<{ meetingId: string; started: boolean; startedAt?: string }> {
+  const response = await fetch(`${baseUrl(app)}/api/meeting/state`);
+  expect(response.status).toBe(200);
+  return (await response.json()) as { meetingId: string; started: boolean; startedAt?: string };
+}
+
+function join(app: KakiApp, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${baseUrl(app)}/api/livekit/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roomName: 'test-room', ...body }),
+  });
 }
 
 async function connectScreen(app: KakiApp): Promise<TestClient> {
@@ -273,11 +330,14 @@ describe('meeting persistence across a restart', () => {
     expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
   });
 
-  it('refuses a saved meeting from another format with a clear message', () => {
+  it('refuses the previous v3 save with a clear message', () => {
     const saved: StoredMeeting = {
-      schemaVersion: MEETING_STATE_SCHEMA_VERSION - 1,
+      schemaVersion: 3,
       startedAt: '2026-01-01T00:00:00.000Z',
       savedAt: '2026-01-01T00:00:00.000Z',
+      setup: defaultMeetingSetup(testScenario),
+      meetingCode: 'AB12CD',
+      seats: [],
       state: {
         meetingId: 'meeting-1',
         agenda: ['Prep'],
@@ -488,6 +548,138 @@ describe('meeting persistence across a restart', () => {
       'The first line of the meeting.',
       'The last line before we close.',
     ]);
+  });
+
+  it('saves an edited pre-Start setup draft on PUT and restores it, with its code and identity', async () => {
+    const store = new MemoryStore();
+    const firstCode = createMeetingCodeSource('');
+    const first = createMeetingPersistence({ store, log: () => undefined });
+    const app1 = await startApp(first, { meetingCode: firstCode });
+
+    const edited = editedSetup(await readSetup(app1));
+    expect((await putSetup(app1, edited)).status).toBe(200);
+    await first.flush();
+
+    expect(store.saved?.startedAt).toBeUndefined();
+    expect(store.saved?.setup).toEqual(edited);
+    const firstMeeting = await meetingState(app1);
+    expect(firstMeeting.started).toBe(false);
+
+    await app1.close();
+    apps.splice(apps.indexOf(app1), 1);
+
+    const secondCode = createMeetingCodeSource('');
+    const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
+    const app2 = await startApp(second, { meetingCode: secondCode });
+
+    expect(await readSetup(app2)).toEqual(edited);
+    expect((await meetingState(app2)).meetingId).toBe(firstMeeting.meetingId);
+    expect(secondCode.value).toBe(firstCode.value);
+    expect(secondCode.value).toBe(store.saved?.meetingCode);
+  });
+
+  it('restores the edited setup, code and both person seats after a running-meeting restart', async () => {
+    const store = new MemoryStore();
+    const firstCode = createMeetingCodeSource('');
+    const first = createMeetingPersistence({ store, log: () => undefined });
+    const app1 = await startApp(first, {
+      meetingCode: firstCode,
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+
+    const edited = editedSetup(await readSetup(app1));
+    expect((await putSetup(app1, edited)).status).toBe(200);
+    expect((await fetch(`${baseUrl(app1)}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+
+    const ada = await join(app1, { participantName: 'Ada', participantRole: 'chef' });
+    expect(ada.status).toBe(200);
+    const bao = await join(app1, {
+      participantName: 'Bao',
+      participantRole: 'cashier',
+      meetingCode: firstCode.value,
+    });
+    expect(bao.status).toBe(200);
+
+    await first.flush();
+    const frozen = store.saved!;
+    const firstMeeting = await meetingState(app1);
+    expect(frozen.seats).toEqual([
+      { name: 'ada', seat: 'chef' },
+      { name: 'bao', seat: 'cashier' },
+    ]);
+    expect(frozen.setup).toEqual(edited);
+
+    await app1.close();
+    apps.splice(apps.indexOf(app1), 1);
+
+    const secondCode = createMeetingCodeSource('');
+    const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
+    const app2 = await startApp(second, {
+      meetingCode: secondCode,
+      roomRoster: async () => [],
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 60_000,
+    });
+
+    expect(await readSetup(app2)).toEqual(edited);
+    expect((await meetingState(app2)).meetingId).toBe(firstMeeting.meetingId);
+    expect(secondCode.value).toBe(firstCode.value);
+
+    const back = await join(app2, { participantName: 'Ada', participantRole: 'chef' });
+    expect(back.status).toBe(200);
+    const backBody = (await back.json()) as { meetingCode: string; resumed?: boolean };
+    expect(backBody.meetingCode).toBe(firstCode.value);
+    expect(backBody.resumed).toBe(true);
+
+    // The saved seat holders are known: a second known person joins the same meeting, not a new one.
+    const baoBack = await join(app2, {
+      participantName: 'Bao',
+      participantRole: 'cashier',
+      meetingCode: secondCode.value,
+    });
+    expect(baoBack.status).toBe(200);
+    expect((await meetingState(app2)).meetingId).toBe(firstMeeting.meetingId);
+  });
+
+  it('lets KAKI_MEETING_CODE win over the saved code and says so', async () => {
+    const store = new MemoryStore();
+    store.saved = savedState({ agenda: ['Prep'] });
+    const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
+    const pinned = createMeetingCodeSource('K7QX');
+    const logs: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+
+    try {
+      const app = await startApp(persistence, { meetingCode: pinned });
+      expect(pinned.value).toBe('K7QX');
+      expect(logs.some((line) => line.includes('KAKI_MEETING_CODE') && line.includes('saved meeting code'))).toBe(
+        true,
+      );
+      expect((await meetingState(app)).meetingId).toBe('meeting-1');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('refuses a saved meeting with a corrupt setup, naming the field', async () => {
+    const store = new MemoryStore();
+    const broken = savedState({ agenda: ['Prep'] });
+    broken.setup.agenda[0]!.minutes = 0;
+    store.saved = broken;
+    const persistence = createMeetingPersistence({ store, saved: broken, log: () => undefined });
+
+    await expect(
+      createApp({
+        scenario: testScenario,
+        modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+        persistence,
+      }),
+    ).rejects.toThrow(/its setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./);
+    await persistence.close();
   });
 
   it('rejects every New meeting while the clear keeps failing, then saves again once it clears', async () => {

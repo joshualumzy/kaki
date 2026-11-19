@@ -173,6 +173,47 @@ describe('rejoin guard', () => {
     expect(logs).toEqual([]);
     guard.close();
   });
+
+  it('restores seat holders without starting the meeting', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.restoreIdentities([
+      { name: 'Ada', seat: 'chef' },
+      { name: 'Bao', seat: 'cashier' },
+    ]);
+
+    expect(guard.hasMeeting()).toBe(false);
+    expect(guard.identities()).toEqual([
+      { name: 'ada', seat: 'chef' },
+      { name: 'bao', seat: 'cashier' },
+    ]);
+    guard.close();
+  });
+
+  it('lets the saved seat holders resume after a restart and refuses a stranger', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.restoreIdentities([
+      { name: 'Ada', seat: 'chef' },
+      { name: 'Bao', seat: 'cashier' },
+    ]);
+    guard.restored();
+
+    expect(guard.admit('Ada', 'chef')).toEqual({ reset: false });
+    expect(guard.admit('Priya', 'chef')).toEqual({ reset: true });
+    guard.close();
+  });
+
+  it('resets a restored meeting once the grace passes', () => {
+    const clock = { now: 1_000 };
+    const guard = guardWith(120_000, clock);
+    guard.restoreIdentities([{ name: 'Ada', seat: 'chef' }]);
+    guard.restored();
+    clock.now += 120_000;
+
+    expect(guard.admit('Ada', 'chef')).toEqual({ reset: true });
+    guard.close();
+  });
 });
 
 describe('room poll', () => {

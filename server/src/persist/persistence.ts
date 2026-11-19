@@ -3,13 +3,13 @@ import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from './pos
 import {
   assertCompatibleSavedMeeting,
   MEETING_STATE_SCHEMA_VERSION,
+  type MeetingSnapshot,
   type MeetingStateStore,
-  type SavedMeetingState,
   type StoredMeeting,
 } from './state';
 
-/** How the meeting module reads its own state when a save is due. */
-export type MeetingSnapshotSource = () => { startedAt: string; state: SavedMeetingState } | undefined;
+/** How the meeting module reads its current snapshot when a save is due. */
+export type MeetingSnapshotSource = () => MeetingSnapshot | undefined;
 
 /**
  * Saves the meeting across a restart. Writes and clears happen in call order, one at a time; only
@@ -101,8 +101,11 @@ export function createMeetingPersistence({
       await store.save({
         schemaVersion: MEETING_STATE_SCHEMA_VERSION,
         savedAt: now().toISOString(),
-        startedAt: snapshot.startedAt,
+        ...(snapshot.startedAt === undefined ? {} : { startedAt: snapshot.startedAt }),
         state: snapshot.state,
+        setup: snapshot.setup,
+        meetingCode: snapshot.meetingCode,
+        seats: snapshot.seats,
       });
     } catch (error) {
       // A database problem must not take the meeting down; it is logged every time it happens.
@@ -279,7 +282,11 @@ export async function createMeetingPersistenceFromEnv({
       await pool.end().catch(() => undefined);
       throw error;
     }
-    log(`kaki persist: restored the meeting that started at ${saved.startedAt}`);
+    log(
+      saved.startedAt === undefined
+        ? 'kaki persist: restored the saved meeting setup'
+        : `kaki persist: restored the meeting that started at ${saved.startedAt}`,
+    );
   }
 
   return createMeetingPersistence({

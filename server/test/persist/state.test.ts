@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { MeetingSetup } from '@kaki/shared';
 import {
+  assertCompatibleSavedMeeting,
   assertReadableSavedMeeting,
   MEETING_STATE_SCHEMA_VERSION,
   resolveSavedAgenda,
@@ -8,11 +10,37 @@ import {
 } from '../../src/persist/state';
 import { testScenario } from '../fixtures/scenario';
 
+function setup(): MeetingSetup {
+  return {
+    title: 'Lunch service readiness',
+    agenda: [{ id: 'agenda-1', title: 'Prep', minutes: 5, ownerRoleId: 'chef' }],
+    roles: [
+      { id: 'chef', label: 'Chef', facilitator: true },
+      { id: 'cashier', label: 'Cashier', facilitator: false },
+    ],
+    seats: [
+      { displayName: 'Ada', roleId: 'chef', kind: 'person' },
+      { displayName: 'Bao', roleId: 'cashier', kind: 'person' },
+    ],
+    pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+    source: {
+      title: 'demo pack',
+      agenda: 'demo pack',
+      roles: 'demo pack',
+      seats: 'demo pack',
+      pace: 'demo pack',
+    },
+  };
+}
+
 function saved(): StoredMeeting {
   return {
     schemaVersion: MEETING_STATE_SCHEMA_VERSION,
     startedAt: '2026-01-01T00:00:00.000Z',
     savedAt: '2026-01-01T00:01:00.000Z',
+    setup: setup(),
+    meetingCode: 'AB12CD',
+    seats: [{ name: 'ada', seat: 'chef' }],
     state: {
       meetingId: 'meeting-1',
       agenda: ['Prep'],
@@ -126,6 +154,44 @@ describe('saved meeting validation', () => {
     expect(() => resolveSavedAgenda(meeting, testScenario)).toThrow(
       "Saved meeting's agenda has topics this scenario no longer has (Retired topic). " +
         'Run `npm run meeting:reset` to discard it.',
+    );
+  });
+
+  it('refuses a corrupt saved setup, naming the field and the reset command', () => {
+    const meeting = saved();
+    meeting.setup.agenda[0]!.minutes = 0;
+
+    expect(() => assertReadableSavedMeeting(meeting, testScenario)).toThrow(
+      /its setup is invalid at agenda\[0\]\.minutes: .*Run `npm run meeting:reset` to discard it\./,
+    );
+  });
+
+  it('accepts a pre-Start draft with no start time', () => {
+    const meeting = saved();
+    delete meeting.startedAt;
+    meeting.state.clock.started = false;
+    meeting.state.clock.itemElapsedSeconds = 0;
+    meeting.state.clock.meetingElapsedSeconds = 0;
+
+    expect(savedMeetingProblem(meeting, testScenario)).toBeUndefined();
+  });
+
+  it('refuses a running saved meeting that lost its start time', () => {
+    const meeting = saved();
+    delete meeting.startedAt;
+
+    expect(() => assertReadableSavedMeeting(meeting, testScenario)).toThrow(
+      'Saved meeting is unreadable (its start time is missing). Run `npm run meeting:reset` to discard it.',
+    );
+  });
+
+  it('refuses the previous v3 save with the reset hint', () => {
+    const meeting = saved();
+    meeting.schemaVersion = 3;
+
+    expect(() => assertCompatibleSavedMeeting(meeting)).toThrow(
+      'Saved meeting is from an older format (v3, need v' +
+        `${MEETING_STATE_SCHEMA_VERSION}). Run \`npm run meeting:reset\` to discard it.`,
     );
   });
 });

@@ -1,6 +1,7 @@
 import type { MeetingMemoryEntry, Scenario } from '@kaki/shared';
 import type { Hub } from './hub';
 import type { MeetingPersistence } from './persist/persistence';
+import type { SavedMeetingDetails } from './persist/state';
 import type { TaskStore } from './tasks';
 
 /** Everything a plug-in module may use while the meeting runs. */
@@ -17,6 +18,8 @@ export interface KakiContext {
   meetingId?(): string;
   /** Start a new meeting identity; returns it for the MEETING_RESET payload. */
   resetMeetingIdentity?(): string;
+  /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
+  meetingDetails?(): SavedMeetingDetails;
 }
 
 /** A team-owned feature that plugs into the server without editing shared files. */

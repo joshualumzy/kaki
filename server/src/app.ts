@@ -104,8 +104,10 @@ interface RequestContext {
   meetingElapsedSeconds?: () => number | undefined;
   /** The live agenda item, for a reconnecting runner. */
   meetingAgendaIndex?: () => number | undefined;
-  /** The pre-Start setup draft; memory only until persistence arrives, and reset with the meeting. */
+  /** The pre-Start setup draft; saved with the meeting and reset with it. */
   setupDraft: { current: MeetingSetup };
+  /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
+  scheduleSave(): void;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -350,6 +352,8 @@ async function handleRequest(
           context.reservations.add({ participantName, seatId });
           if (rejoin !== undefined) context.rejoin.joined(participantName, rejoin, seatId);
           else context.rejoin.remember(participantName, seatId);
+          // Seat holders are part of the meeting: save them so a restart recognises the same people.
+          context.scheduleSave();
           context.watchRoom(roomName);
           void syncDemoVisitorProfile(participantName);
           const resumed = meetingWasRunning && rejoin?.reset !== true;
@@ -511,6 +515,7 @@ async function handleRequest(
         return;
       }
       context.setupDraft.current = parsed.value;
+      context.scheduleSave();
       sendJson(response, 200, { setup: parsed.value, started: false });
       return;
     }
@@ -692,14 +697,22 @@ export async function createApp({
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
   // The draft the setup screen starts from, rebuilt from the packaged scenario for every new meeting.
   const defaultSetup = defaultMeetingSetup(fullScenario);
-  const setupDraft = { current: defaultSetup };
   // Validate the whole saved meeting before any part of it is applied, then put its agenda back in
   // place so the restored agenda index still names the topic the room was discussing.
   const savedMeeting = persistence?.saved;
   if (savedMeeting !== undefined) {
     assertReadableSavedMeeting(savedMeeting, scenario);
     setMeetingAgenda(scenario, fullScenario, resolveSavedAgenda(savedMeeting, scenario));
+    if (meetingCode.fixed) {
+      if (savedMeeting.meetingCode !== meetingCode.value) {
+        console.log('kaki persist: KAKI_MEETING_CODE replaced the saved meeting code');
+      }
+    } else {
+      meetingCode.restore(savedMeeting.meetingCode);
+    }
   }
+  // A pre-Start setup draft comes back exactly as it was left; a new meeting starts from the pack.
+  const setupDraft = { current: savedMeeting?.setup ?? defaultSetup };
   // A meeting saved while it was running is already started: the first person back joins it directly.
   const restoredStarted = savedMeeting?.state.clock.started === true && savedMeeting.state.clock.ended !== true;
   const restoredAgendaIndex = restoredStarted ? (savedMeeting?.state.clock.agendaIndex ?? 0) : 0;
@@ -712,6 +725,8 @@ export async function createApp({
   let meetingGeneration = 0;
   const memory: MeetingMemoryEntry[] = [];
   const rejoin = createRejoinGuard({ graceMs: rejoinGraceMs ?? rejoinGraceMsFromEnv() });
+  // Saved seat holders are known before anyone reconnects, so a stranger cannot take their seat.
+  if (savedMeeting !== undefined) rejoin.restoreIdentities(savedMeeting.seats);
   const reservations = createSeatReservations(admissionReservationMs);
   const admit = createAdmissionQueue();
   const npcNames = (scenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
@@ -732,7 +747,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, scheduleSave: () => persistence?.scheduleSave() });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
@@ -1007,6 +1022,11 @@ export async function createApp({
         persistence,
         meetingId: () => meeting.id,
         resetMeetingIdentity: rotateMeeting,
+        meetingDetails: () => ({
+          setup: setupDraft.current,
+          meetingCode: meetingCode.value,
+          seats: rejoin.identities(),
+        }),
       });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {

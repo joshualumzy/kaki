@@ -35,6 +35,11 @@ export interface MeetingCodeSource {
   readonly fixed: boolean;
   /** Start a new meeting's code; a no-op when the code is fixed. */
   rotate(): void;
+  /**
+   * Adopt the code a saved meeting was using. A pinned code wins, so this is a no-op and returns
+   * false when `fixed`; otherwise it sets the value and returns true.
+   */
+  restore(code: string): boolean;
 }
 
 /** Create the code both the app and the auth module read. */
@@ -51,6 +56,13 @@ export function createMeetingCodeSource(
     fixed,
     rotate() {
       if (!fixed) value = generateMeetingCode();
+    },
+    restore(code) {
+      if (fixed) return false;
+      const restored = normalizeMeetingCode(code);
+      if (restored === '') throw new Error('A restored meeting code cannot be empty');
+      value = restored;
+      return true;
     },
   };
 }
