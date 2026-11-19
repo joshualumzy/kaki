@@ -78,9 +78,17 @@ export interface MailMessageSeed {
   text: string;
 }
 
+export interface ScenarioMeetingSeed {
+  title: string;
+  roles: Array<{ id: string; label: string }>;
+  attendees: Array<{ name: string; role: string }>;
+  agenda: Array<{ title: string; minutes: number; ownerRole: string }>;
+}
+
 export interface ScenarioSeed {
   name: string;
   organisation: string;
+  meeting: ScenarioMeetingSeed;
   pages: WikiPageSeed[];
   gitea: GiteaSeed;
   mattermost: MattermostSeed;
@@ -119,6 +127,13 @@ function optionalStringAt(value: unknown, file: string, where: string): string |
 
 function plainStringAt(value: unknown, file: string, where: string): string {
   if (typeof value !== 'string') fail(file, `${where} must be a string`);
+  return value;
+}
+
+function positiveIntegerAt(value: unknown, file: string, where: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    fail(file, `${where} must be a whole number of minutes greater than 0`);
+  }
   return value;
 }
 
@@ -317,6 +332,46 @@ function readText(file: string): string {
   }
 }
 
+export function parseMeetingSeed(scenario: JsonObject, file: string): ScenarioMeetingSeed {
+  const roles = arrayAt(scenario.roles, file, 'roles').map((entry, index) => {
+    const role = objectAt(entry, file, `roles[${index}]`);
+    return {
+      id: stringAt(role.id, file, `roles[${index}].id`),
+      label: stringAt(role.label, file, `roles[${index}].label`),
+    };
+  });
+  const roleIds = new Set(roles.map((role) => role.id));
+
+  const attendees = arrayAt(scenario.attendees, file, 'attendees').map((entry, index) => {
+    const attendee = objectAt(entry, file, `attendees[${index}]`);
+    const role = stringAt(attendee.role, file, `attendees[${index}].role`);
+    if (!roleIds.has(role)) fail(file, `attendees[${index}].role "${role}" is not defined in roles`);
+    return {
+      name: stringAt(attendee.name, file, `attendees[${index}].name`),
+      role,
+    };
+  });
+
+  const agenda = arrayAt(scenario.agenda, file, 'agenda').map((entry, index) => {
+    const item = objectAt(entry, file, `agenda[${index}]`);
+    const ownerRole = stringAt(item.ownerRole, file, `agenda[${index}].ownerRole`);
+    if (!roleIds.has(ownerRole)) fail(file, `agenda[${index}].ownerRole "${ownerRole}" is not defined in roles`);
+    return {
+      title: stringAt(item.title, file, `agenda[${index}].title`),
+      minutes: positiveIntegerAt(item.minutes, file, `agenda[${index}].minutes`),
+      ownerRole,
+    };
+  });
+  if (agenda.length === 0) fail(file, 'agenda must not be empty');
+
+  return {
+    title: stringAt(scenario.meetingTitle, file, 'meetingTitle'),
+    roles,
+    attendees,
+    agenda,
+  };
+}
+
 export function loadScenarioSeed(name = process.env.SCENARIO ?? 'kopitiam'): ScenarioSeed {
   if (!SCENARIO_PATTERN.test(name)) {
     throw new Error(`Invalid SCENARIO "${name}": expected a folder name such as "kopitiam"`);
@@ -335,6 +390,7 @@ export function loadScenarioSeed(name = process.env.SCENARIO ?? 'kopitiam'): Sce
   return {
     name,
     organisation,
+    meeting: parseMeetingSeed(scenario, scenarioFile),
     pages,
     gitea: parseGiteaSeed(readJson(path.join(seedDir, 'gitea', 'issues.json'))),
     mattermost: parseMattermostSeed(readJson(path.join(seedDir, 'mattermost', 'seed.json'))),

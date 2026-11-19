@@ -1,6 +1,7 @@
 export * from './roles';
 export * from './scenario';
 export * from './setup';
+export * from './setupInvite';
 export * from './task';
 export * from './events';
 export * from './meetingMemory';

@@ -5,7 +5,7 @@ import { ActionError, createActionModule, isObject, messageOf, plainReason } fro
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-const CONFIG_MESSAGE = 'The calendar is not configured: set CALDAV_URL';
+export const CALENDAR_CONFIG_MESSAGE = 'The calendar is not configured: set CALDAV_URL';
 
 /** The local mock CalDAV server (Radicale) and where people open an event; built from the environment. */
 export interface CalendarSettings {
@@ -38,6 +38,41 @@ const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function collectionUrl({ caldavUrl, user = 'user', calendar = 'calendar' }: CalendarSettings): string {
   return `${caldavUrl.replace(/\/+$/, '')}/${user}/${calendar}/`;
+}
+
+/** A calendar read failed in a way the setup import can report as 404 (missing) or 502 (unreachable). */
+export class CalendarFetchError extends Error {
+  constructor(
+    readonly status: 404 | 502,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CalendarFetchError';
+  }
+}
+
+/**
+ * Read the whole calendar so an invite can be found by UID. The timeout is bounded
+ * and the error says which side failed; it never carries calendar credentials.
+ */
+export async function fetchCalendarIcs(
+  settings: CalendarSettings,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetchImpl(collectionUrl(settings), { signal: AbortSignal.timeout(timeoutMs) });
+  } catch {
+    throw new CalendarFetchError(502, 'The calendar server is not answering. Check that it is running, then try again.');
+  }
+  if (response.status === 404) {
+    throw new CalendarFetchError(404, 'No calendar was found. Check CALDAV_URL, then try again.');
+  }
+  if (!response.ok) {
+    throw new CalendarFetchError(502, `The calendar server returned HTTP ${response.status}.`);
+  }
+  return response.text();
 }
 
 function pad(value: number): string {
@@ -343,9 +378,9 @@ export function createCalendarModule({
   return createActionModule({
     name: 'action-calendar',
     kind: 'calendar_event',
-    unconfiguredReason: calendar === undefined ? CONFIG_MESSAGE : undefined,
+    unconfiguredReason: calendar === undefined ? CALENDAR_CONFIG_MESSAGE : undefined,
     async draft(task, signal, _scenario, _visitorName, memory) {
-      if (calendar === undefined) throw new ActionError(CONFIG_MESSAGE);
+      if (calendar === undefined) throw new ActionError(CALENDAR_CONFIG_MESSAGE);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the event cannot be drafted');
 
       const date = today();
@@ -376,7 +411,7 @@ export function createCalendarModule({
       return { target: 'Team calendar', subject: draft.title, body: formatBody(draft.times, draft.notes) };
     },
     async run(task, signal) {
-      if (calendar === undefined) throw new ActionError(CONFIG_MESSAGE);
+      if (calendar === undefined) throw new ActionError(CALENDAR_CONFIG_MESSAGE);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to save');
 

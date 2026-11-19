@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, KOPITIAM_INVITE_UID, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
-import { viewEvent, type CalendarSettings } from './action/calendar';
+import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
 import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
 import { CommandError, createHub, type Hub } from './hub';
@@ -31,6 +31,8 @@ export interface CreateAppOptions {
   auth?: Auth;
   /** The mock calendar server; when set, `/api/calendar/:id` shows an event a person can read. */
   calendar?: CalendarSettings;
+  /** How the setup import reads the calendar; tests inject a fake, elsewhere global fetch is used. */
+  calendarFetch?: typeof fetch;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
@@ -81,6 +83,7 @@ interface RequestContext {
   devRoutes: boolean;
   auth?: Auth;
   calendar?: CalendarSettings;
+  calendarFetch?: typeof fetch;
   roomRoster: RoomRoster;
   /** The one code the second person and phone sign-in need; renewed with the meeting (or fixed by KAKI_MEETING_CODE). */
   meetingCode: MeetingCodeSource;
@@ -520,6 +523,125 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === 'POST' && path === '/api/setup/import-calendar') {
+      // Only the meeting owner edits setup; everyone else gets the read-only join view.
+      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
+        sendJson(response, 403, { error: 'Only the meeting owner can change the setup.' });
+        return;
+      }
+      if (context.meeting.started) {
+        sendJson(response, 409, { error: "The meeting has started; setup can't change now." });
+        return;
+      }
+      if (context.calendar === undefined) {
+        sendJson(response, 503, { error: CALENDAR_CONFIG_MESSAGE });
+        return;
+      }
+
+      let ics: string;
+      try {
+        ics = await fetchCalendarIcs(context.calendar, context.calendarFetch);
+      } catch (error) {
+        if (error instanceof CalendarFetchError) {
+          sendJson(response, error.status, { error: error.message });
+        } else {
+          console.error('kaki setup: calendar import failed', error);
+          sendJson(response, 502, { error: 'The calendar could not be read.' });
+        }
+        return;
+      }
+
+      const pack = defaultMeetingSetup(context.fullScenario);
+      const knownOwners = [
+        ...pack.roles.flatMap((role) => [role.id, role.label]),
+        ...pack.seats.map((seat) => seat.displayName),
+      ];
+      const parsedInvite = parseMeetingInvite(ics, { uid: KOPITIAM_INVITE_UID, knownOwners });
+      if (!parsedInvite.ok) {
+        const missing = parsedInvite.errors.some((problem) => problem.field === 'invite');
+        sendJson(
+          response,
+          missing ? 404 : 422,
+          missing
+            ? { error: parsedInvite.errors[0]?.message ?? 'The calendar invite was not found.' }
+            : { error: 'The calendar invite agenda could not be read.', errors: parsedInvite.errors },
+        );
+        return;
+      }
+
+      const invite = parsedInvite.value;
+      const problems: Array<{ field: string; message: string }> = [];
+      const roleForOwner = (owner: string): MeetingSetup['roles'][number] | undefined => {
+        const key = owner.trim().toLowerCase();
+        const role = pack.roles.find(
+          (candidate) => candidate.id.toLowerCase() === key || candidate.label.toLowerCase() === key,
+        );
+        if (role !== undefined) return role;
+        const seat = pack.seats.find((candidate) => candidate.displayName.trim().toLowerCase() === key);
+        return seat === undefined ? undefined : pack.roles.find((candidate) => candidate.id === seat.roleId);
+      };
+
+      const agenda: MeetingSetup['agenda'] = [];
+      invite.agenda.forEach((item, index) => {
+        const role = roleForOwner(item.owner);
+        if (role === undefined) {
+          problems.push({
+            field: `agenda[${index}].owner`,
+            message: `"${item.owner}" is not a seat or role in the demo pack.`,
+          });
+          return;
+        }
+        agenda.push({ id: `agenda-${index + 1}`, title: item.title, minutes: item.minutes, ownerRoleId: role.id });
+      });
+
+      // The invite's people are the meeting's people; the pack supplies each one's role and AI stand-in.
+      const packSeatByName = new Map(pack.seats.map((seat) => [seat.displayName.trim().toLowerCase(), seat]));
+      const seats: MeetingSetup['seats'] = [];
+      invite.people.forEach((displayName, index) => {
+        const seat = packSeatByName.get(displayName.trim().toLowerCase());
+        if (seat === undefined) {
+          problems.push({
+            field: `seats[${index}].displayName`,
+            message: `"${displayName}" is in the calendar invite but not in the demo pack.`,
+          });
+          return;
+        }
+        seats.push({ ...seat, displayName });
+      });
+
+      if (problems.length > 0) {
+        sendJson(response, 422, { error: 'The calendar invite does not match the demo pack.', errors: problems });
+        return;
+      }
+
+      const imported: MeetingSetup = {
+        title: invite.title,
+        agenda,
+        roles: pack.roles,
+        seats,
+        pace: pack.pace,
+        source: {
+          title: 'calendar invite',
+          agenda: 'calendar invite',
+          roles: 'demo pack',
+          seats: 'demo pack',
+          pace: 'demo pack',
+        },
+      };
+      const parsed = parseMeetingSetup(imported, {
+        npcProfileIds: demoPackNpcProfileIds(context.fullScenario),
+      });
+      if (!parsed.ok) {
+        sendJson(response, 422, { error: 'The imported setup is not valid.', errors: parsed.errors });
+        return;
+      }
+
+      context.setupDraft.current = parsed.value;
+      context.scheduleSave();
+      sendJson(response, 200, { setup: parsed.value, started: false });
+      return;
+    }
+
     if (request.method === 'GET' && path === '/api/join-info') {
       const join = resolveJoinBaseUrl();
       if (!join.ok) {
@@ -673,6 +795,7 @@ export async function createApp({
   devRoutes = false,
   auth,
   calendar,
+  calendarFetch,
   roomRoster = livekitRoster(),
   draftOnly = false,
   meetingElapsedSeconds,
@@ -747,7 +870,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, calendarFetch, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, scheduleSave: () => persistence?.scheduleSave() });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
