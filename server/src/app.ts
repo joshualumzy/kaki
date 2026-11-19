@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, KOPITIAM_INVITE_UID, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
+import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
 import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
 import { CommandError, createHub, type Hub } from './hub';
@@ -33,6 +34,7 @@ export interface CreateAppOptions {
   calendar?: CalendarSettings;
   /** How the setup import reads the calendar; tests inject a fake, elsewhere global fetch is used. */
   calendarFetch?: typeof fetch;
+  actionTools?: ActionToolOptions;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
@@ -84,6 +86,7 @@ interface RequestContext {
   auth?: Auth;
   calendar?: CalendarSettings;
   calendarFetch?: typeof fetch;
+  actionTools: ActionToolOptions;
   roomRoster: RoomRoster;
   /** The one code the second person and phone sign-in need; renewed with the meeting (or fixed by KAKI_MEETING_CODE). */
   meetingCode: MeetingCodeSource;
@@ -495,6 +498,31 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === 'GET' && path === '/api/setup/tools') {
+      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
+        sendJson(response, 403, { error: 'Only the meeting owner can check the tools.' });
+        return;
+      }
+      sendJson(response, 200, { tools: actionToolStatus(context.actionTools.env) });
+      return;
+    }
+
+    const toolTestMatch = /^\/api\/setup\/tools\/([^/]+)\/test$/.exec(path);
+    if (request.method === 'POST' && toolTestMatch !== null) {
+      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
+        sendJson(response, 403, { error: 'Only the meeting owner can test the tools.' });
+        return;
+      }
+      const kind = decodeURIComponent(toolTestMatch[1] ?? '');
+      if (!isActionToolKind(kind)) {
+        sendJson(response, 404, { error: 'Unknown tool kind.' });
+        return;
+      }
+      const result = await probeActionTool(kind, context.actionTools);
+      sendJson(response, 200, { kind, ...result });
+      return;
+    }
+
     if (request.method === 'PUT' && path === '/api/setup') {
       // Only the meeting owner edits setup; everyone else gets the read-only join view.
       if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
@@ -796,6 +824,7 @@ export async function createApp({
   auth,
   calendar,
   calendarFetch,
+  actionTools = {},
   roomRoster = livekitRoster(),
   draftOnly = false,
   meetingElapsedSeconds,
@@ -870,7 +899,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, calendarFetch, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, scheduleSave: () => persistence?.scheduleSave() });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),

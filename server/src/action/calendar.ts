@@ -1,6 +1,7 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
+import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -73,6 +74,21 @@ export async function fetchCalendarIcs(
     throw new CalendarFetchError(502, `The calendar server returned HTTP ${response.status}.`);
   }
   return response.text();
+}
+
+export async function probeCalendar(
+  settings: CalendarSettings,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+): Promise<ToolProbeResult> {
+  const outcome = await probeFetch(fetchImpl, collectionUrl(settings), { method: 'GET' }, 'The calendar', timeoutMs);
+  if (!outcome.ok) return outcome.result;
+  if (!outcome.response.ok) return responseProblem(outcome.response, 'The calendar');
+  const ics = await outcome.response.text().catch(() => undefined);
+  if (ics === undefined || (ics.trim() !== '' && !/BEGIN:VCALENDAR/i.test(ics))) {
+    return probeFailed('unexpected response', 'The calendar answered with something that is not a calendar.');
+  }
+  return probeOk('The calendar answered and can be read.');
 }
 
 function pad(value: number): string {

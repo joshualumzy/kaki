@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
+import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -29,6 +31,22 @@ export interface EmailMessage {
 
 /** Send one message; tests inject a fake so no socket is opened. */
 export type SendMail = (message: EmailMessage) => Promise<unknown>;
+
+/** The part of a mail transport the probe needs; tests inject a fake so no socket is opened. */
+export interface EmailTransport {
+  verify(): Promise<true>;
+  close?(): void;
+}
+
+/** Build a transport for the probe; tests inject a fake here. */
+export type EmailTransportFactory = (settings: EmailSettings, timeoutMs: number) => EmailTransport;
+
+/** Options for the read-only email probe; tests inject fakes here. */
+export interface EmailProbeOptions {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  createTransport?: EmailTransportFactory;
+}
 
 /** Options for the email action module; tests inject fakes here. */
 export interface EmailModuleOptions {
@@ -86,6 +104,116 @@ function baseUrl({ mailpitUrl }: EmailSettings): string {
   return mailpitUrl.replace(/\/+$/, '');
 }
 
+/** The SMTP options both the send path and the probe use, so a probe proves the real path works. */
+function smtpOptions(settings: EmailSettings, timeoutMs: number): SMTPTransport.Options {
+  return {
+    host: settings.smtpHost,
+    port: settings.smtpPort,
+    secure: false,
+    ignoreTLS: true,
+    connectionTimeout: timeoutMs,
+    greetingTimeout: timeoutMs,
+    socketTimeout: timeoutMs,
+  };
+}
+
+const SENDING_SIDE = "The mail server's sending side";
+
+const SMTP_AUTH_CODES = new Set([530, 534, 535]);
+
+function isSmtpAuthError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const { code, responseCode } = error as Error & { code?: unknown; responseCode?: unknown };
+  return code === 'EAUTH' || (typeof responseCode === 'number' && SMTP_AUTH_CODES.has(responseCode));
+}
+
+class ProbeTimeout extends Error {}
+
+async function probeMailbox(
+  settings: EmailSettings,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<ToolProbeResult> {
+  const outcome = await probeFetch(
+    fetchImpl,
+    `${baseUrl(settings)}/api/v1/messages?limit=1`,
+    { method: 'GET' },
+    'The mail server',
+    timeoutMs,
+  );
+  if (!outcome.ok) return outcome.result;
+  const response = outcome.response;
+  if (!response.ok) return responseProblem(response, 'The mail server');
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return probeFailed('unexpected response', 'The mail server answered with something that is not JSON.');
+  }
+  if (!isObject(body) || !Array.isArray(body.messages)) {
+    return probeFailed('unexpected response', 'The mail server answered without a message list.');
+  }
+  return probeOk('The mailbox can be read.');
+}
+
+async function probeSendingSide(
+  settings: EmailSettings,
+  timeoutMs: number,
+  makeTransport: EmailTransportFactory,
+): Promise<ToolProbeResult> {
+  const transport = makeTransport(settings, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      transport.verify(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new ProbeTimeout()), timeoutMs);
+      }),
+    ]);
+    return probeOk('Mail can be sent.');
+  } catch (error) {
+    if (error instanceof ProbeTimeout) {
+      return probeFailed(
+        'timeout',
+        `${SENDING_SIDE} did not answer within ${timeoutMs} ms. Check that it is running and try again.`,
+      );
+    }
+    if (isSmtpAuthError(error)) {
+      return probeFailed('auth failed', `${SENDING_SIDE} rejected the saved credentials.`);
+    }
+    return probeFailed(
+      'unreachable',
+      `${SENDING_SIDE} could not be reached. Check that its SMTP host and port are correct, then press Retry. (${messageOf(error)})`,
+    );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    try {
+      transport.close?.();
+    } catch {
+      // The check is already finished; a failed close must not change its result.
+    }
+  }
+}
+
+export async function probeEmail(
+  settings: EmailSettings,
+  {
+    fetchImpl = fetch,
+    timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+    createTransport: makeTransport = (target, timeout) =>
+      createTransport(smtpOptions(target, timeout)),
+  }: EmailProbeOptions = {},
+): Promise<ToolProbeResult> {
+  const mailbox = await probeMailbox(settings, fetchImpl, timeoutMs);
+  if (!mailbox.ok) return mailbox;
+
+  const sending = await probeSendingSide(settings, timeoutMs, makeTransport);
+  if (!sending.ok) return sending;
+
+  return probeOk('The mail server answered: the mailbox can be read and mail can be sent.');
+}
+
 /** Create the module that drafts emails and sends them once the assignee approves. */
 export function createEmailModule({
   llm,
@@ -102,15 +230,7 @@ export function createEmailModule({
   }
 
   function sendWithSmtp(settings: EmailSettings, message: EmailMessage): Promise<unknown> {
-    transport ??= createTransport({
-      host: settings.smtpHost,
-      port: settings.smtpPort,
-      secure: false,
-      ignoreTLS: true,
-      connectionTimeout: timeoutMs,
-      greetingTimeout: timeoutMs,
-      socketTimeout: timeoutMs,
-    });
+    transport ??= createTransport(smtpOptions(settings, timeoutMs));
     return transport.sendMail(message);
   }
 

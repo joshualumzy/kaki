@@ -2,6 +2,7 @@ import { roleLabel, type Question, type Scenario, type Task } from '@kaki/shared
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
+import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -117,6 +118,84 @@ export function pagePath(date: string, title: string): string {
 
 function wikiError(message: string): ActionError {
   return new ActionError(message);
+}
+
+const PROBE_LOGIN_QUERY = `mutation Login($username: String!, $password: String!, $strategy: String!) {
+  authentication { login(username: $username, password: $password, strategy: $strategy) {
+    jwt responseResult { succeeded message } } }
+}`;
+
+const PROBE_READ_QUERY = `query ProbeRead { pages { list { id } } }`;
+
+async function wikiGraphqlBody(
+  fetchImpl: typeof fetch,
+  settings: WikiSettings,
+  query: string,
+  variables: Record<string, unknown>,
+  timeoutMs: number,
+  jwt?: string,
+): Promise<{ body?: unknown; result?: ToolProbeResult }> {
+  const outcome = await probeFetch(
+    fetchImpl,
+    `${settings.url.replace(/\/+$/, '')}/graphql`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(jwt === undefined ? {} : { authorization: `Bearer ${jwt}` }),
+      },
+      body: JSON.stringify({ query, variables }),
+    },
+    'The wiki',
+    timeoutMs,
+  );
+  if (!outcome.ok) return { result: outcome.result };
+  if (!outcome.response.ok) return { result: responseProblem(outcome.response, 'The wiki') };
+  try {
+    return { body: (await outcome.response.json()) as unknown };
+  } catch {
+    return { result: probeFailed('unexpected response', 'The wiki answered with something that is not JSON.') };
+  }
+}
+
+export async function probeWiki(
+  settings: WikiSettings,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+): Promise<ToolProbeResult> {
+  const login = await wikiGraphqlBody(
+    fetchImpl,
+    settings,
+    PROBE_LOGIN_QUERY,
+    { username: settings.email, password: settings.password, strategy: 'local' },
+    timeoutMs,
+  );
+  if (login.result !== undefined) return login.result;
+  if (!isObject(login.body)) return probeFailed('unexpected response', 'The wiki answered with an unexpected login reply.');
+
+  const loginResult = isObject(login.body.data) && isObject(login.body.data.authentication) && isObject(login.body.data.authentication.login)
+    ? login.body.data.authentication.login
+    : undefined;
+  const responseResult = loginResult !== undefined && isObject(loginResult.responseResult) ? loginResult.responseResult : undefined;
+  const jwt = loginResult !== undefined && typeof loginResult.jwt === 'string' ? loginResult.jwt : '';
+  if (responseResult?.succeeded !== true || jwt === '') {
+    const detail = responseResult !== undefined && typeof responseResult.message === 'string' && responseResult.message.trim() !== ''
+      ? ` (${responseResult.message.trim()})`
+      : '';
+    return probeFailed('auth failed', `The wiki rejected the saved login${detail}.`);
+  }
+
+  const read = await wikiGraphqlBody(fetchImpl, settings, PROBE_READ_QUERY, {}, timeoutMs, jwt);
+  if (read.result !== undefined) return read.result;
+  if (!isObject(read.body)) return probeFailed('unexpected response', 'The wiki answered with an unexpected reply.');
+  if (Array.isArray(read.body.errors) && read.body.errors.length > 0) {
+    return probeFailed('unexpected response', 'The wiki could not list a page with the saved login.');
+  }
+  const pages = isObject(read.body.data) && isObject(read.body.data.pages) ? read.body.data.pages : undefined;
+  if (pages === undefined || !Array.isArray(pages.list)) {
+    return probeFailed('unexpected response', 'The wiki answered without a page list.');
+  }
+  return probeOk('The wiki accepted the login and can be read.');
 }
 
 /** Create the module that drafts a wiki page and publishes it once the assignee approves, plus auto-publishes end-of-meeting minutes. */

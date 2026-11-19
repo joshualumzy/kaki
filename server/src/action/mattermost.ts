@@ -1,6 +1,7 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
+import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -26,6 +27,34 @@ export interface MattermostModuleOptions {
 
 function baseUrl({ url }: MattermostSettings): string {
   return url.replace(/\/+$/, '');
+}
+
+export async function probeMattermost(
+  settings: MattermostSettings,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+): Promise<ToolProbeResult> {
+  const outcome = await probeFetch(
+    fetchImpl,
+    `${baseUrl(settings)}/api/v4/users/me`,
+    { method: 'GET', headers: { authorization: `Bearer ${settings.token}` } },
+    'Mattermost',
+    timeoutMs,
+  );
+  if (!outcome.ok) return outcome.result;
+  const response = outcome.response;
+  if (!response.ok) return responseProblem(response, 'Mattermost');
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return probeFailed('unexpected response', 'Mattermost answered with something that is not JSON.');
+  }
+  if (!isObject(body) || typeof body.username !== 'string' || body.username.trim() === '') {
+    return probeFailed('unexpected response', 'Mattermost answered without the signed-in user.');
+  }
+  return probeOk(`Mattermost accepted the token for ${body.username}.`);
 }
 
 // Strictly one JSON object with a non-empty message; anything else is unusable.

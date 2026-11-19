@@ -1,6 +1,7 @@
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
+import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -45,6 +46,34 @@ function parseDraft(reply: string): IssueDraft | undefined {
 
 function issueEndpoint({ url, owner, repo }: GiteaSettings): string {
   return `${url.replace(/\/+$/, '')}/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`;
+}
+
+export async function probeGitea(
+  settings: GiteaSettings,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+): Promise<ToolProbeResult> {
+  const outcome = await probeFetch(
+    fetchImpl,
+    `${settings.url.replace(/\/+$/, '')}/api/v1/user`,
+    { method: 'GET', headers: { authorization: `token ${settings.token}` } },
+    'Gitea',
+    timeoutMs,
+  );
+  if (!outcome.ok) return outcome.result;
+  const response = outcome.response;
+  if (!response.ok) return responseProblem(response, 'Gitea');
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return probeFailed('unexpected response', 'Gitea answered with something that is not JSON.');
+  }
+  if (!isObject(body) || typeof body.login !== 'string' || body.login.trim() === '') {
+    return probeFailed('unexpected response', 'Gitea answered without the signed-in user.');
+  }
+  return probeOk(`Gitea accepted the token for ${body.login}.`);
 }
 
 function giteaUsernameFor(
