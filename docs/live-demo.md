@@ -4,9 +4,12 @@ A video-call style meeting where one person talks to AI attendees. One LLM (the 
 scenario profiles and decides who speaks, one at a time. The person can talk over them and they stop. Every accepted line goes
 to Kaki as an ordinary transcript line, so the host, wingman and action agents work from the same conversation.
 
-Run it in one command: `SCENARIO=kopitiam npm run live:up`, then open http://localhost:5173/demo?mode=live in Chrome or Edge.
+Quick start: `cp .env.example .env` and fill the required keys, then `npm start`, then open http://localhost:5173/demo?mode=live in Chrome or Edge.
+`npm stop` stops the server, web app and AI attendees; `npm stop -- --stack` also stops Docker.
 (Or run `npm run stack:up`, `npm run dev`, and `npm run npc` separately.)
 Settings are in `.env.example`. Terms are in `CONTEXT.md`.
+
+The Azure VM runs Kaki as systemd services instead; `npm start` is the laptop path.
 
 Both the primary and the fallback LLM are OpenAI-compatible; the fallback takes over when the primary fails.
 `npm run llm:use -- school` (or `direct`) moves the school gateway and the direct DeepSeek API between the
@@ -74,7 +77,7 @@ To rehearse the whole meeting without touching Gitea, Mattermost, Mailpit, Wiki.
 `KAKI_DRAFT_ONLY=1` on **both** the API/dev server and the NPC process, with the same value. For example:
 
 ```
-KAKI_DRAFT_ONLY=1 SCENARIO=kopitiam npm run live:up
+KAKI_DRAFT_ONLY=1 SCENARIO=kopitiam npm start
 # or, when running the pieces separately:
 KAKI_DRAFT_ONLY=1 npm run dev
 KAKI_DRAFT_ONLY=1 npm run npc

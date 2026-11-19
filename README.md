@@ -45,35 +45,26 @@ Kaki splits meeting assistance across three specialized agents and an interactiv
 Requires **Node 22+** and **Docker Desktop**.
 
 ### Step 1: Configure `.env`
-Copy `.env.example` to `.env` and fill in your OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KAKI_LLM_API_KEY`, `KAKI_LLM_MODEL`) and Azure Speech keys (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`):
+Copy `.env.example` to `.env` and fill in the five required keys: your OpenAI-compatible LLM gateway (`KAKI_LLM_BASE_URL`, `KAKI_LLM_API_KEY`, `KAKI_LLM_MODEL`) and Azure Speech (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`):
 
 ```bash
 cp .env.example .env
-npm install
 ```
 
-### Step 2: First-Time Database & Integration Seeding
-Start the 7 Docker containers, seed the **Nanyang Kopi & Toast (`kopitiam`)** scenario into Postgres, Wiki.js, Gitea, Mattermost, Mailpit, and Radicale Calendar, and index the knowledge chunks into `pgvector`:
-
+### Step 2: One command
 ```bash
-npm run stack:up
-npm run seed
-npm run index:knowledge
-npm run seed:verify
+npm start
 ```
 
-> **Note:** `npm run seed` writes the generated `GITEA_TOKEN` and `MATTERMOST_TOKEN` into `docker/.env`. Copy those two tokens into your root `.env` so Kaki Action can file issues and post messages.
-
-### Step 3: Start the Live Demo Locally
-```bash
-# Start Docker stack + Kaki server (:3001) + Vite web (:5173) + AI attendees (NPC runner)
-npm run live:up
-
-# Stop background processes cleanly when done
-npm run live:down
-```
+This installs dependencies if `node_modules` is missing, starts the 7 Docker containers, seeds the **Nanyang Kopi & Toast (`kopitiam`)** scenario into Postgres, Wiki.js, Gitea, Mattermost, Mailpit, and Radicale Calendar, indexes the knowledge chunks into `pgvector`, starts the Kaki server (:3001), Vite web (:5173) and the AI attendees, then runs the preflight. It stops early with the exact fix if Docker is not running, `.env` is missing, or a required key is empty. The seed generates the Gitea and Mattermost tokens in `docker/.env`, and `npm start` passes them to Kaki for you.
 
 Once running, open **`http://localhost:5173`** (or `http://localhost:5173/demo`) in Chrome.
+
+### Step 3: Stop
+```bash
+npm stop              # stop the Kaki server, web app and AI attendees
+npm stop -- --stack   # also stop the Docker containers
+```
 
 ---
 
@@ -98,8 +89,10 @@ All backing services run via [`docker/docker-compose.yml`](docker/docker-compose
 ## 5. Useful Commands
 
 ```bash
-npm run live:up           # Start full local live demo in the background + run preflight checks
-npm run live:down         # Stop local server, web app, and AI attendees
+npm start                 # One-command local demo: checks, Docker, seed, index, server + web + AI, preflight
+npm stop                  # Stop local server, web app, and AI attendees (add -- --stack for Docker)
+npm run live:up           # Same as npm start (older name)
+npm run live:down         # Same as npm stop
 npm run cloud:up          # Start Azure VM (kaki-vm) and wait for https://kaki.southeastasia.cloudapp.azure.com
 npm run cloud:down        # Deallocate Azure VM ($0/hr compute billing)
 npm run cloud:status      # Check Azure VM state and live HTTPS health
@@ -109,7 +102,7 @@ npm run seed:verify       # Run 15 automated health & content checks against the
 npm run index:knowledge   # Embed and index seeded company records into pgvector
 npm run knowledge:check   # Verify live pgvector semantic search & role-filtered facts
 npm run typecheck         # Type-check all workspaces (@kaki/shared, @kaki/server, @kaki/web)
-npm test                  # Run the full 59-file (721-test) Vitest suite
+npm test                  # Run the full Vitest suite
 ```
 
 ---
@@ -131,6 +124,6 @@ npm test                  # Run the full 59-file (721-test) Vitest suite
 │   └── src/phone/        # Personal role companion (/phone)
 ├── scenarios/kopitiam/   # Nanyang Kopi & Toast scenario, seeds, and scripted replay fixtures
 ├── docker/               # Docker Compose stack & idempotent multi-service seed scripts
-├── scripts/              # Local & cloud launchers (live-up.sh, live-down.sh, cloud.sh, live-preflight.sh)
+├── scripts/              # Local & cloud launchers (live-up.sh, live-down.sh, live-checks.sh, live-preflight.sh, cloud.sh)
 └── docs/                 # PRD specification, live demo guide, and human playtest records
 ```

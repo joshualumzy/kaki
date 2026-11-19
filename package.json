@@ -9,6 +9,8 @@
     "web"
   ],
   "scripts": {
+    "start": "bash scripts/live-up.sh",
+    "stop": "bash scripts/live-down.sh",
     "live:up": "bash scripts/live-up.sh",
     "live:down": "bash scripts/live-down.sh",
     "cloud:up": "bash scripts/cloud.sh up",

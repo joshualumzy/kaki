@@ -2,14 +2,21 @@
 # Checks the machine is ready for the live run. Changes nothing, prints no secret values.
 #   bash scripts/live-preflight.sh          (add --full to also run typecheck and the test suite)
 cd "$(dirname "$0")/.." || exit 1
+# shellcheck source=scripts/live-checks.sh
+. scripts/live-checks.sh
 fail=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; fail=1; }
 
-# 1. Keys: only whether a name is set, never the value.
+# 1. Keys: only whether a name is set, never the value. A key set in the shell wins over .env; the
+#    Gitea and Mattermost tokens are also read from docker/.env, where `npm run seed` generates them.
 for key in KAKI_LLM_BASE_URL KAKI_LLM_API_KEY KAKI_LLM_MODEL AZURE_SPEECH_KEY AZURE_SPEECH_REGION \
            GITEA_TOKEN MATTERMOST_TOKEN; do
-  if [ -f .env ] && grep -Eq "^${key}=.+" .env; then ok "$key is set in .env"; else bad "$key is missing or empty in .env"; fi
+  case "$key" in
+    GITEA_TOKEN|MATTERMOST_TOKEN) files=".env docker/.env" ;;
+    *) files=".env" ;;
+  esac
+  if key_is_set "$key" $files; then ok "$key is set"; else bad "$key is missing or empty (set it in .env)"; fi
 done
 
 # 2. Services answer.
