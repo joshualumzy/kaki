@@ -1060,7 +1060,7 @@ describe('one-speaker topic opening', () => {
       guestLines: ['Signs only this morning, then.'],
       call: 'Signs only this morning',
     }).map((message) => message.content).join('\n');
-    expect(readback).toContain('Say that call back in your own plain words');
+    expect(readback).toContain('Say that whole call back in your own plain words');
     expect(readback).toContain('Do not quote them or use quotation marks');
     expect(readback).toContain('Add no new step, owner, person, open item, task, number or time');
 

@@ -287,6 +287,50 @@ describe('turn planner', () => {
     });
   });
 
+  it('reads back the whole call when the guest gives it across several lines', () => {
+    const state = make();
+    heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Open at 8, no Set A on the board. Call her before 8.' });
+    record(state, 'josh-1', reading({
+      kind: 'idea',
+      readiness: { action: { covered: true, evidence: 'Open at 8, no Set A on the board' }, catchAddressed: off, practical: off },
+    }));
+    heard(state, { id: 'josh-2', speaker: 'Josh', text: 'Arjun, pull it now.' }, 2);
+    record(state, 'josh-2', reading({
+      kind: 'idea',
+      readiness: { action: { covered: true, evidence: 'Arjun, pull it now.' }, catchAddressed: off, practical: off },
+    }));
+    heard(state, { id: 'josh-3', speaker: 'Josh', text: 'Yes, Arjun, pull it now.' }, 3);
+    record(state, 'josh-3', reading({
+      kind: 'idea',
+      readiness: { action: { covered: true, evidence: 'Arjun, pull it now' }, catchAddressed: off, practical: off },
+    }));
+
+    expect(mergedReadiness(state.view(3)).action).toEqual({
+      covered: true,
+      evidence: 'Open at 8, no Set A on the board. Arjun, pull it now.',
+    });
+  });
+
+  it('keeps only the changed call when the guest takes back an earlier one', () => {
+    const state = make();
+    heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Use the kiosk for orders.' });
+    record(state, 'josh-1', reading({
+      kind: 'idea',
+      readiness: { action: { covered: true, evidence: 'Use the kiosk for orders' }, catchAddressed: off, practical: off },
+    }));
+    heard(state, { id: 'josh-2', speaker: 'Josh', text: 'No, use the window bar instead.' }, 2);
+    record(state, 'josh-2', reading({
+      kind: 'idea',
+      readiness: {
+        action: { covered: true, evidence: 'use the window bar instead', revises: true },
+        catchAddressed: off,
+        practical: off,
+      },
+    }));
+
+    expect(mergedReadiness(state.view(2)).action).toEqual({ covered: true, evidence: 'use the window bar instead' });
+  });
+
   it('does not confirm while a question to the guest is still open', () => {
     const state = make();
     heard(state, {

@@ -262,8 +262,8 @@ export function gateSpeakerMessages(request: GateSpeakerRequest): Array<{ role: 
     ? [
       `The meeting is on "${request.topicTitle}".`,
       `What ${guest} said on this topic, in order:\n${transcript}`,
-      `The room's reading of their call: "${request.call}".`,
-      `Say that call back in your own plain words, in one short sentence of about 15 words or fewer. Then add a short check that asks ${guest} if that is their call.`,
+      `The room's reading of their call, from all their lines on this topic: "${request.call}".`,
+      `Say that whole call back in your own plain words: keep every part they decided, not just their latest line, and where a later line changes an earlier one, say the later one. Put the call in one plain sentence, joining its parts with commas or and. Then add a short check that asks ${guest} if that is their call.`,
       'Restate only what the guest said. Add no new step, owner, person, open item, task, number or time. Do not quote them or use quotation marks.',
       `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
     ].join('\n')

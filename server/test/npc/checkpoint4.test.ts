@@ -457,7 +457,7 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     await say(h, 'No, use the window bar instead.', reading({
       kind: 'idea',
       readiness: {
-        action: { covered: true, evidence: 'use the window bar instead' },
+        action: { covered: true, evidence: 'use the window bar instead', revises: true },
         catchAddressed: { covered: false },
         practical: { covered: false },
       },

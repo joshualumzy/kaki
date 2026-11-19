@@ -187,8 +187,11 @@ function previousReading(view: MeetingView, line: HeardLine): GuestReading | und
 }
 
 /**
- * Every slot covered by any reading on this topic; a slot once covered with valid evidence stays covered,
- * and the latest valid evidence for a slot is the one the host restates. Practical is kept for wording only.
+ * Every slot covered by any reading on this topic; a slot once covered with valid evidence stays covered.
+ * A call is often given across several lines, so the action evidence is every distinct action quote on this
+ * topic, oldest first, restarting at a line the reader marked as changing the call: the host reads back and
+ * commits the whole standing call, not just the latest line. The other
+ * slots keep their latest evidence. Practical is kept for wording only.
  */
 export function mergedReadiness(view: MeetingView): GuestReadiness {
   const merged: GuestReadiness = {
@@ -196,12 +199,37 @@ export function mergedReadiness(view: MeetingView): GuestReadiness {
     catchAddressed: { covered: false },
     practical: { covered: false },
   };
+  const actionParts: string[] = [];
   for (const { reading } of view.readings) {
-    for (const name of ['action', 'catchAddressed', 'practical'] as const) {
+    for (const name of ['catchAddressed', 'practical'] as const) {
       if (reading.readiness[name].covered) merged[name] = reading.readiness[name];
     }
+    const action = reading.readiness.action;
+    const evidence = action.covered ? action.evidence?.trim() : undefined;
+    if (evidence === undefined || evidence.length === 0) continue;
+    // A changed call replaces what came before; otherwise the line adds to the call.
+    if (action.revises === true) actionParts.length = 0;
+    addCallPart(actionParts, evidence);
   }
+  if (actionParts.length > 0) merged.action = { covered: true, evidence: joinCallParts(actionParts) };
   return merged;
+}
+
+function normalisedCallPart(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?…]+$/u, '').trim();
+}
+
+/** Add one action quote, skipping a repeat and letting a longer quote replace the shorter one it contains. */
+function addCallPart(parts: string[], evidence: string): void {
+  const next = normalisedCallPart(evidence);
+  if (parts.some((part) => normalisedCallPart(part).includes(next))) return;
+  const kept = parts.filter((part) => !next.includes(normalisedCallPart(part)));
+  parts.splice(0, parts.length, ...kept, evidence);
+}
+
+function joinCallParts(parts: readonly string[]): string {
+  if (parts.length === 1) return parts[0]!;
+  return parts.map((part) => (/[.!?…]["')\]]*$/u.test(part) ? part : `${part}.`)).join(' ');
 }
 
 /** The first decision slot the guest has not covered yet, in the order action, catch addressed, practical. */

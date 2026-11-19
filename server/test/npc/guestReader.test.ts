@@ -246,6 +246,22 @@ describe('guest line reader', () => {
     expect(result.readiness.action).toEqual({ covered: true, evidence: 'CALL   auntie mary IN' });
   });
 
+  it('keeps the reader\'s mark that a line changes the earlier call', async () => {
+    const p = ports({
+      stream: streamOf(reading({
+        readiness: {
+          action: { covered: true, evidence: 'call auntie mary in', revises: true },
+          catchAddressed: { covered: false, revises: true },
+          practical: { covered: false },
+        },
+      })),
+    });
+
+    const result = await readGuestLine(input, p);
+    expect(result.readiness.action).toEqual({ covered: true, evidence: 'call auntie mary in', revises: true });
+    expect(result.readiness.catchAddressed).toEqual({ covered: false });
+  });
+
   it('accepts evidence that differs only in punctuation and casing', async () => {
     const p = ports({
       stream: streamOf(reading({
