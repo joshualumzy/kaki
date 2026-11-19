@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createSearchCompanyData,
   parseFactsResponse,
+  reciprocalRankFusion,
   type RetrievedChunk,
   type SearchDeps,
 } from '../../src/wingman/knowledge/search';
@@ -50,7 +51,7 @@ describe('company search', () => {
           embedded = text;
           return [0.1, 0.2];
         },
-        retrieve: async (_embedding, limit) => {
+        retrieve: async (_embedding, _question, limit) => {
           retrievedLimit = limit;
           return chunks;
         },
@@ -117,5 +118,37 @@ describe('company search', () => {
     expect(
       parseFactsResponse(JSON.stringify({ facts: [1, 2, 3, 4].map((i) => ({ ...good, text: `f${i}` })) })),
     ).toHaveLength(3);
+  });
+});
+
+function chunk(ref: string): RetrievedChunk {
+  return { source: 'wiki', ref, text: ref, publishedAt: '2026-11-10' };
+}
+
+describe('reciprocal rank fusion', () => {
+  it('orders chunks by RRF score (k=60), best score first', () => {
+    const a = chunk('a');
+    const b = chunk('b');
+    const c = chunk('c');
+    expect(reciprocalRankFusion([[a, b], [b, c]], 3)).toEqual([b, a, c]);
+  });
+
+  it('keeps a chunk found only by its exact keywords in the top list', () => {
+    const semantic = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'].map(chunk);
+    const exactFigure = chunk('launch_budget/1');
+    const fused = reciprocalRankFusion([semantic, [exactFigure]], 8);
+    expect(fused.map((entry) => entry.ref)).toContain('launch_budget/1');
+    expect(fused).toHaveLength(8);
+  });
+
+  it('lists a chunk found by both queries once', () => {
+    const both = chunk('both');
+    const fused = reciprocalRankFusion([[both], [both]], 8);
+    expect(fused).toEqual([both]);
+  });
+
+  it('falls back to the vector list when the full-text query finds nothing', () => {
+    const vector = [chunk('a'), chunk('b')];
+    expect(reciprocalRankFusion([vector, []], 8)).toEqual(vector);
   });
 });

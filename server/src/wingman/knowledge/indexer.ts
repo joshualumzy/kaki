@@ -482,10 +482,23 @@ function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+/** Add the generated full-text column and its GIN index to an existing chunks table. */
+async function ensureHybridSearchSchema(client: Client): Promise<void> {
+  await client.query(
+    `ALTER TABLE knowledge_chunks
+       ADD COLUMN IF NOT EXISTS text_tsv tsvector
+       GENERATED ALWAYS AS (to_tsvector('english', text)) STORED`,
+  );
+  await client.query(
+    'CREATE INDEX IF NOT EXISTS knowledge_chunks_text_tsv_idx ON knowledge_chunks USING GIN (text_tsv)',
+  );
+}
+
 async function writeChunks(env: Env, chunks: KnowledgeChunk[], embeddings: number[][]): Promise<void> {
   const client = new Client({ connectionString: env.POSTGRES_URL, connectionTimeoutMillis: 5_000 });
   await client.connect();
   try {
+    await ensureHybridSearchSchema(client);
     await client.query('BEGIN');
     for (const [index, chunk] of chunks.entries()) {
       const embedding = embeddings[index];

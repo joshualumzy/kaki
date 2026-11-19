@@ -1,3 +1,5 @@
+// Must stay first: loads root .env before reading gateway credentials.
+import '../../env';
 import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import { loadEnv } from '../../../../docker/seed/env';
@@ -52,7 +54,7 @@ function tracedSearch(pool: Pool, gateway: NonNullable<ReturnType<typeof gateway
   const search = createSearchCompanyData({
     embed: (text) => embedText(gateway, text),
     chat: (prompt) => chatComplete(gateway, prompt),
-    retrieve: (embedding, limit) => retrieveFromPostgres(pool, embedding, limit),
+    retrieve: (embedding, question, limit) => retrieveFromPostgres(pool, embedding, question, limit),
     onRetrieved: (chunks) => {
       top = chunks.slice(0, 3);
     },

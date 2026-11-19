@@ -5,6 +5,8 @@ import { isoDay } from './dates';
 
 const RETRIEVAL_LIMIT = 8;
 const MAX_FACTS = 3;
+/** RRF dampening constant from the original paper; larger flattens the rank gaps. */
+const RRF_K = 60;
 
 /** A knowledge chunk returned by the vector search, with its source date. */
 export interface RetrievedChunk {
@@ -18,7 +20,7 @@ export interface RetrievedChunk {
 export interface SearchDeps {
   embed(text: string): Promise<number[]>;
   chat(prompt: string): Promise<string>;
-  retrieve(embedding: number[], limit: number): Promise<RetrievedChunk[]>;
+  retrieve(embedding: number[], question: string, limit: number): Promise<RetrievedChunk[]>;
   /** Called with the retrieved chunks, so a check script can inspect the ranking. */
   onRetrieved?(chunks: RetrievedChunk[]): void;
 }
@@ -79,7 +81,7 @@ ${records}`;
 export function createSearchCompanyData(deps: SearchDeps): SearchCompanyData {
   return async (question, role) => {
     const embedding = await deps.embed(question);
-    const chunks = await deps.retrieve(embedding, RETRIEVAL_LIMIT);
+    const chunks = await deps.retrieve(embedding, question, RETRIEVAL_LIMIT);
     deps.onRetrieved?.(chunks);
     if (chunks.length === 0) return [];
     const answer = await deps.chat(buildPrompt(question, role, chunks));
@@ -94,26 +96,81 @@ interface ChunkRow {
   published_at: Date | string;
 }
 
-/** Read the nearest chunks from Postgres using pgvector cosine distance. */
-export async function retrieveFromPostgres(
-  pool: Pool,
-  embedding: number[],
+/**
+ * Merge ranked lists with Reciprocal Rank Fusion, deduplicating by chunk.
+ * Ties keep the order a chunk first appeared in (vector list first).
+ */
+export function reciprocalRankFusion(
+  lists: RetrievedChunk[][],
   limit: number,
-): Promise<RetrievedChunk[]> {
-  const result = await pool.query<ChunkRow>(
-    `SELECT source, ref, text, published_at
-       FROM knowledge_chunks
-      WHERE embedding IS NOT NULL
-      ORDER BY embedding <=> $1::vector
-      LIMIT $2`,
-    [`[${embedding.join(',')}]`, limit],
-  );
-  return result.rows.map((row) => ({
+  k = RRF_K,
+): RetrievedChunk[] {
+  const merged = new Map<string, { chunk: RetrievedChunk; score: number; order: number }>();
+  let order = 0;
+  for (const list of lists) {
+    list.forEach((chunk, index) => {
+      const key = `${chunk.source}\u0000${chunk.ref}`;
+      const contribution = 1 / (k + index + 1);
+      const existing = merged.get(key);
+      if (existing) {
+        existing.score += contribution;
+      } else {
+        merged.set(key, { chunk, score: contribution, order: order++ });
+      }
+    });
+  }
+  return [...merged.values()]
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, limit)
+    .map((entry) => entry.chunk);
+}
+
+function toChunks(rows: ChunkRow[]): RetrievedChunk[] {
+  return rows.map((row) => ({
     source: row.source,
     ref: row.ref,
     text: row.text,
     publishedAt: isoDay(row.published_at),
   }));
+}
+
+/**
+ * Read the hybrid candidates from Postgres: nearest chunks by pgvector cosine distance
+ * plus full-text matches ranked by ts_rank_cd, merged with RRF.
+ * A question whose full-text query has no usable words simply contributes no keyword rows.
+ */
+export async function retrieveFromPostgres(
+  pool: Pool,
+  embedding: number[],
+  question: string,
+  limit: number,
+): Promise<RetrievedChunk[]> {
+  const [vector, keyword] = await Promise.all([
+    pool.query<ChunkRow>(
+      `SELECT source, ref, text, published_at
+         FROM knowledge_chunks
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> $1::vector
+        LIMIT $2`,
+      [`[${embedding.join(',')}]`, limit],
+    ),
+    // Questions are full sentences, so any of their words may match (OR), and chunks matching more of them
+    // rank higher. The lexemes come from the same 'english' parser as text_tsv, quoted so they cast to a
+    // tsquery exactly; a question with no usable words gives NULL and matches nothing.
+    pool.query<ChunkRow>(
+      `WITH q AS (
+         SELECT (SELECT string_agg(quote_literal(lexeme), ' | ')
+                   FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lexeme)::tsquery AS query
+       )
+       SELECT source, ref, text, published_at
+         FROM knowledge_chunks, q
+        WHERE text_tsv @@ q.query
+        ORDER BY ts_rank_cd(text_tsv, q.query) DESC
+        LIMIT $2`,
+      [question, limit],
+    ),
+  ]);
+  return reciprocalRankFusion([toChunks(vector.rows), toChunks(keyword.rows)], limit);
 }
 
 /** Build the search from env and a Postgres pool. */
@@ -125,6 +182,6 @@ export function createCompanySearchFromEnv(
   return createSearchCompanyData({
     embed: (text) => embedText(config, text),
     chat: (prompt) => chatComplete(config, prompt),
-    retrieve: (embedding, limit) => retrieveFromPostgres(pool, embedding, limit),
+    retrieve: (embedding, question, limit) => retrieveFromPostgres(pool, embedding, question, limit),
   });
 }
