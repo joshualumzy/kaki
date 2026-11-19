@@ -422,6 +422,16 @@ describe('meeting persistence across a restart', () => {
     const agenda = scenario.agenda.slice(0, 2).map((item) => item.title);
     const store = new MemoryStore();
     store.saved = savedState({ agenda, tasks: [task] });
+    // The saved meeting belongs to the loaded scenario: Wei Ling is the person's seat, the rest are AI.
+    const setup = defaultMeetingSetup(structuredClone(scenario));
+    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
+    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
+    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
+    weiLing.kind = 'person';
+    delete weiLing.npcProfileId;
+    arjun.kind = 'ai';
+    arjun.npcProfileId = 'Arjun';
+    store.saved.setup = setup;
     const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
     const app = await createApp({
       scenario,
@@ -591,7 +601,6 @@ describe('meeting persistence across a restart', () => {
 
     const edited = editedSetup(await readSetup(app1));
     expect((await putSetup(app1, edited)).status).toBe(200);
-    expect((await fetch(`${baseUrl(app1)}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
 
     const ada = await join(app1, { participantName: 'Ada', participantRole: 'chef' });
     expect(ada.status).toBe(200);
@@ -601,6 +610,7 @@ describe('meeting persistence across a restart', () => {
       meetingCode: firstCode.value,
     });
     expect(bao.status).toBe(200);
+    expect((await fetch(`${baseUrl(app1)}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
 
     await first.flush();
     const frozen = store.saved!;

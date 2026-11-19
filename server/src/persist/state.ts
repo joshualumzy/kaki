@@ -83,6 +83,11 @@ export interface SavedMeetingDetails {
   setup: MeetingSetup;
   /** True when the owner edited the draft after the last reset; untouched drafts follow the live meeting. */
   draftTouched?: boolean;
+  /**
+   * The agenda titles a pre-commit snapshot should save. The app supplies the order the room had
+   * before Start began, so a crash during preparation cannot save the sealed agenda early.
+   */
+  agendaTitles?: readonly string[];
   meetingCode: string;
   seats: SavedSeatAssignment[];
 }
@@ -311,11 +316,28 @@ export function assertCompatibleSavedMeeting(saved: StoredMeeting): void {
   );
 }
 
+function unreadableSavedMeeting(problem: string): Error {
+  return new Error(`Saved meeting is unreadable (${problem}). Run \`npm run meeting:reset\` to discard it.`);
+}
+
+/**
+ * Refuse a saved setup before its roles are derived and applied. A malformed setup must fail with the
+ * friendly saved-meeting message, not an exception from building roles out of broken data.
+ */
+export function assertReadableSavedSetup(saved: StoredMeeting, scenario: Scenario): void {
+  const problem =
+    setupProblem((saved as { setup?: unknown }).setup, scenario) ??
+    (saved.draftTouched !== undefined && typeof saved.draftTouched !== 'boolean'
+      ? 'its setup edit mark is not valid'
+      : undefined);
+  if (problem !== undefined) throw unreadableSavedMeeting(problem);
+}
+
 /** Refuse a saved meeting whose shape is broken before any of it is applied. */
 export function assertReadableSavedMeeting(saved: StoredMeeting, scenario: Scenario): void {
   const problem = savedMeetingProblem(saved, scenario);
   if (problem === undefined) return;
-  throw new Error(`Saved meeting is unreadable (${problem}). Run \`npm run meeting:reset\` to discard it.`);
+  throw unreadableSavedMeeting(problem);
 }
 
 /** Resolve the saved agenda titles against this build's scenario, refusing topics that no longer exist. */

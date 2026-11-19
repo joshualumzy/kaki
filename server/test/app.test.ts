@@ -764,6 +764,7 @@ describe('one server-owned meeting start', () => {
     let runner: WebSocket | undefined;
     let mode: 'silent' | 'failed' | 'ready' = 'silent';
     try {
+      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
       const unavailable = await startMeeting(app);
       expect(unavailable.status).toBe(503);
       const unavailableBody = (await unavailable.json()) as { error?: string; retryable?: boolean };
@@ -846,6 +847,7 @@ describe('one server-owned meeting start', () => {
         }
       });
 
+      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
       const firstStart = startMeeting(app);
       await waitFor(() => (prepares[0] === undefined ? undefined : prepares[0]), 'the first prepare');
       const oldPrepare = prepares[0]!;
@@ -920,6 +922,7 @@ describe('one server-owned meeting start', () => {
         prepares.push({ requestId, attempt, meetingId });
       });
 
+      expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
       const firstStart = startMeeting(app);
       await waitFor(() => (prepares[0] === undefined ? undefined : prepares[0]), 'the prepare');
       const oldPrepare = prepares[0]!;
@@ -958,6 +961,7 @@ describe('one server-owned meeting start', () => {
   it('needs no runner acknowledgement when the meeting has no AI stand-ins', async () => {
     const app = await startApp({ roster: () => [], startAckTimeoutMs: 100 });
     try {
+      expect((await join(app, { participantName: 'Ada', participantRole: 'chef' })).status).toBe(200);
       const started = await startMeeting(app);
       expect(started.status).toBe(200);
       expect(await started.json()).toMatchObject({ started: true });
@@ -1022,17 +1026,20 @@ describe('one server-owned meeting start', () => {
     }
   });
 
-  it('lets the owner start before anyone joins, and the first arrival carries it on', async () => {
+  it('refuses Start before anyone joins, then starts once a person is admitted', async () => {
     const app = await startApp({ roster: () => [] });
     try {
+      const refused = await startMeeting(app);
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual({ error: 'Join the meeting before pressing Start.' });
+
+      const joined = await join(app, { participantName: 'Ada', participantRole: 'chef' });
+      expect(joined.status).toBe(200);
+      expect(((await joined.json()) as { started?: boolean }).started).toBe(false);
+
       const started = await startMeeting(app);
       expect(started.status).toBe(200);
       expect(await started.json()).toMatchObject({ started: true });
-
-      const joined = await join(app, { participantName: 'Ada', participantRole: 'chef' });
-      const body = (await joined.json()) as { started?: boolean };
-      expect(joined.status).toBe(200);
-      expect(body.started).toBe(true);
     } finally {
       await app.close();
     }

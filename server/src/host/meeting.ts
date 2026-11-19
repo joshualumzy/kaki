@@ -89,7 +89,7 @@ export function createMeetingModule({
           ...details,
           state: {
             meetingId: currentMeetingId(),
-            agenda: scenario.agenda.map((item) => item.title),
+            agenda: [...(details.agendaTitles ?? scenario.agenda.map((item) => item.title))],
             clock: {
               started: now.started,
               ended: now.ended,

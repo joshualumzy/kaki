@@ -276,7 +276,8 @@ describe('server-owned start preparation', () => {
     rooms.length = 0;
     tokens.length = 0;
     const scenario = await loadScenario('kopitiam');
-    let latest: Scenario = { ...scenario, npcs: (scenario.npcs ?? []).filter((npc) => npc.role === 'host') };
+    const pack = structuredClone(scenario);
+    let latest: Scenario = { ...pack, npcs: (pack.npcs ?? []).filter((npc) => npc.role === 'host') };
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
@@ -293,11 +294,65 @@ describe('server-owned start preparation', () => {
       expect(tokens).not.toContain('Arjun');
 
       // The cast changes only now; preparation must fetch it before deciding who joins.
-      latest = { ...scenario, agenda: scenario.agenda.slice(0, 2) };
+      latest = { ...pack, agenda: pack.agenda.slice(0, 2) };
       await runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' });
       expect(tokens).toContain('Arjun');
       expect(tokens).toContain('Mei');
       expect(runner.plays('Arjun')).toBe(true);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('rejects preparation when the scenario cannot be fetched', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      fetchScenario: async () => {
+        throw new Error('offline');
+      },
+      responseDelayMs: 0,
+    });
+    try {
+      await expect(
+        runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' }),
+      ).rejects.toThrow(/scenario could not be fetched: offline/);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('never hands the opening to a character outside the active cast', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const pack = structuredClone(scenario);
+    const latest = { ...pack, npcs: (pack.npcs ?? []).filter((npc) => npc.attendee !== 'Mei') };
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      fetchScenario: async () => latest,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.includes('what happened'))).toBe(true));
+      const spoken = transcript.join(' ');
+      expect(spoken).not.toContain('Mei');
+      expect(spoken).toContain('Daniel, what happened?');
     } finally {
       await runner.stop();
     }

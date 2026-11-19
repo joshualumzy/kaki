@@ -152,7 +152,13 @@ describe('setup calendar import', () => {
   });
 
   it('refuses the import after Start', async () => {
-    await start({ calendar: settings, calendarFetch: calendarFetch() });
+    await start({ calendar: settings, calendarFetch: calendarFetch(), roomRoster: async () => [] });
+    const joined = await fetch(`${base}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef' }),
+    });
+    expect(joined.status).toBe(200);
     expect((await fetch(`${base}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
 
     expect((await postImport()).status).toBe(409);

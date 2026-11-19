@@ -279,7 +279,13 @@ describe('setup tool status and probes', () => {
 
   it('keeps working after Start because the probe only reads', async () => {
     const fetchImpl = healthyFetch();
-    await start({ actionTools: { env: CONFIGURED_ENV, fetchImpl } });
+    await start({ actionTools: { env: CONFIGURED_ENV, fetchImpl }, roomRoster: async () => [] });
+    const joined = await fetch(`${base}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef' }),
+    });
+    expect(joined.status).toBe(200);
     expect((await fetch(`${base}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
 
     const response = await postProbe('gitea_issue');

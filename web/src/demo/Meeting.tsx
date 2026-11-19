@@ -76,9 +76,20 @@ export default function Meeting() {
   const scenario = useScenario();
   const refreshScenario = useRefreshScenario();
   // Participants first; the host's seat last, when the scenario lets a person run the meeting.
+  // When the owner set the seats, only the setup's person seats are offered.
   const roles = useMemo(() => {
     const host = hostRole(scenario);
-    return host === undefined ? humanRoles(scenario) : [...humanRoles(scenario), host];
+    const seats = host === undefined ? humanRoles(scenario) : [...humanRoles(scenario), host];
+    if (scenario.joinSeats === undefined) return seats;
+    const allowed = new Set(scenario.joinSeats);
+    const offered = seats.filter((role) => allowed.has(role.id));
+    // humanRoles hides a facilitator's chair; the setup may still name it as a person seat.
+    for (const id of scenario.joinSeats) {
+      if (offered.some((role) => role.id === id)) continue;
+      const role = scenario.roles.find((candidate) => candidate.id === id);
+      if (role !== undefined) offered.push(role);
+    }
+    return offered;
   }, [scenario]);
   const [session, setSession] = useState<Session | undefined>(() => hotData?.session);
   const [busy, setBusy] = useState(false);

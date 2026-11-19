@@ -23,7 +23,7 @@ describe('setup API', () => {
   let base: string;
 
   beforeEach(async () => {
-    app = await createTestApp();
+    app = await createTestApp({ roomRoster: async () => [] });
     base = `http://127.0.0.1:${portOf(app)}`;
   });
 
@@ -87,6 +87,12 @@ describe('setup API', () => {
   });
 
   it('refuses changes after the meeting has started', async () => {
+    const joined = await fetch(`${base}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Cook', participantRole: 'chef' }),
+    });
+    expect(joined.status).toBe(200);
     const started = await fetch(`${base}/api/meeting/start`, { method: 'POST' });
     expect(started.status).toBe(200);
 
@@ -98,7 +104,7 @@ describe('setup API', () => {
     });
   });
 
-  it('restores the scenario default on a new meeting', async () => {
+  it('keeps an unconsumed edited draft across a new meeting', async () => {
     const { setup } = await getSetup();
     setup.title = 'Edited before reset';
     setup.source.title = 'typed';
@@ -110,7 +116,7 @@ describe('setup API', () => {
       payload: { meetingId: 'replacement' },
     });
 
-    expect((await getSetup()).setup.title).toBe('Lunch service readiness');
+    expect((await getSetup()).setup.title).toBe('Edited before reset');
   });
 });
 

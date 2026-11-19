@@ -213,6 +213,11 @@ export interface Scenario {
   glossary?: Record<string, string>;
   /** AI attendees for the live demo meeting; absent when the scenario has none. */
   npcs?: NpcProfile[];
+  /**
+   * Role ids a person may join as right now. The server adds this before Start when the owner set the
+   * seats; the join form lists only these roles. Absent means every human seat is open.
+   */
+  joinSeats?: string[];
   /** What a person hosting the meeting is told before they start; optional. */
   hostBrief?: HostBrief;
 }

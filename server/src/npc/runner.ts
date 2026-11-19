@@ -450,30 +450,35 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
 
   /**
-   * Take the server's authoritative scenario first: its agenda, roles and the cast the sealed setup
-   * says are AI. A rejected scenario is loud; the last good cast stays as a documented fallback.
+   * Take the server's authoritative scenario first: its title, agenda, roles and the cast the sealed
+   * setup says are AI. A rejected scenario is loud; the last good cast stays as a documented fallback
+   * after Start, while preparing a Start refuses to continue without it.
    */
-  async function refreshFromServer(): Promise<void> {
+  async function refreshFromServer(required = false): Promise<void> {
     if (options.fetchScenario === undefined) return;
     let failure: string | undefined;
     const latest = await options.fetchScenario().catch((error: unknown) => {
-      failure = String(error).slice(0, 300);
+      failure = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       return undefined;
     });
     if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
       activeNpcs = latest.npcs ?? [];
+      scenario.npcs = [...activeNpcs];
+      if (typeof latest.meetingTitle === 'string') scenario.meetingTitle = latest.meetingTitle;
       if (Array.isArray(latest.roles)) scenario.roles = latest.roles;
       setMeetingAgenda(scenario, latest, latest.agenda);
     } else {
-      log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);
+      const reason = failure ?? 'no usable scenario returned';
+      if (required) throw new Error(`the meeting scenario could not be fetched: ${reason}`);
+      log(`ERROR: scenario fetch or validation failed: ${reason}; keeping current agenda as last resort`);
     }
   }
 
   /** Make the room match the people in it and have a conversation ready, without opening the meeting. */
-  async function ensureCast(): Promise<void> {
+  async function ensureCast({ requiredScenario = false }: { requiredScenario?: boolean } = {}): Promise<void> {
     if (closing) throw new Error('the AI runner is stopping');
     // Fetch before choosing who to connect: a changed cast must join in this preparation, not the next one.
-    await refreshFromServer();
+    await refreshFromServer(requiredScenario);
     // A zero-AI meeting keeps only the silent room listener; every voiced character leaves.
     if (activeNpcs.length === 0) {
       for (const [name, character] of [...characters]) {
@@ -622,7 +627,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const work = castQueue.then(async () => {
       if (closing) throw new Error('the AI runner is stopping');
       if (generation !== runnerGeneration) throw new Error('the meeting changed before the cast was ready');
-      await ensureCast();
+      await ensureCast({ requiredScenario: true });
       if (generation !== runnerGeneration) throw new Error('the meeting changed before the cast was ready');
       prepared = { meetingId: request.meetingId, attempt: request.attempt };
     });

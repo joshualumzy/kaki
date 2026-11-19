@@ -62,7 +62,8 @@ function hostAttendeeName(scenario: Scenario): string | undefined {
 
 /**
  * The speaker for the first briefing fact that has one: not the guest's seat, not the host, and present in the
- * room. `presentNames` narrows it to the colleagues actually voiced in this session.
+ * room. `presentNames` narrows it to the colleagues actually voiced in this session; without it the scenario's
+ * active AI cast is the room, and a scenario with no AI attendees falls back to everyone.
  */
 export function topicSpeaker(
   scenario: Scenario,
@@ -72,9 +73,12 @@ export function topicSpeaker(
   const facts = findAgendaItem(scenario, title)?.briefing;
   if (facts === undefined) return undefined;
   const hostName = options.hostName ?? hostAttendeeName(scenario);
-  const present = options.presentNames === undefined
-    ? new Set(scenario.attendees.map((attendee) => attendee.name))
-    : new Set(options.presentNames);
+  const castNames = (scenario.npcs ?? []).map((npc) => npc.attendee);
+  const present = options.presentNames !== undefined
+    ? new Set(options.presentNames)
+    : castNames.length > 0
+      ? new Set(castNames)
+      : new Set(scenario.attendees.map((attendee) => attendee.name));
   for (const fact of facts) {
     const knower = fact.knownBy.find((candidate) =>
       candidate.attendee !== options.visitorSeat &&
