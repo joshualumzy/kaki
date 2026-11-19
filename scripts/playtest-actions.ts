@@ -40,15 +40,21 @@ export function nextRobotTaskAction(
 export type CardTaskSnapshot = { status: string; artifactUrl?: string; error?: string };
 export type CardVerdict = { ok: boolean; detail: string };
 
-/** Judge the "Card <title> reached COMPLETED" check from the latest task state after waiting. */
+/** A finished card may be COMPLETED, or already SYNCED back to the panel by the time the robot looks. */
+function cardFinished(status: string | undefined): status is 'COMPLETED' | 'SYNCED' {
+  return status === 'COMPLETED' || status === 'SYNCED';
+}
+
+/** Judge the "Card <title> completed" check from the latest task state after waiting. */
 export function judgeCardCompletion(task: CardTaskSnapshot | undefined, timedOut: boolean): CardVerdict {
   if (task?.status === 'FAILED') {
     return { ok: false, detail: `Task failed${task.error === undefined ? '' : `: ${task.error}`}` };
   }
-  if (task?.status === 'COMPLETED') {
-    return task.artifactUrl === undefined || task.artifactUrl.trim() === ''
-      ? { ok: false, detail: 'Reached COMPLETED without an artifactUrl' }
-      : { ok: true, detail: `COMPLETED with artifact ${task.artifactUrl}` };
+  const status = task?.status;
+  if (cardFinished(status)) {
+    return task?.artifactUrl === undefined || task.artifactUrl.trim() === ''
+      ? { ok: false, detail: `Reached ${status} without an artifactUrl` }
+      : { ok: true, detail: `${status} with artifact ${task.artifactUrl}` };
   }
   if (timedOut) {
     return {
@@ -58,7 +64,7 @@ export function judgeCardCompletion(task: CardTaskSnapshot | undefined, timedOut
         : `Still ${task.status} after 60 s${task.error === undefined ? '' : `: ${task.error}`}`,
     };
   }
-  return { ok: false, detail: `Task is ${task?.status ?? 'missing'}, not COMPLETED` };
+  return { ok: false, detail: `Task is ${task?.status ?? 'missing'}, not completed` };
 }
 
 /** The artifact URL must answer HTTP 2xx or 3xx. */

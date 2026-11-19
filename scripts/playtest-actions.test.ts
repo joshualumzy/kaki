@@ -52,10 +52,12 @@ describe('next robot task action', () => {
 });
 
 describe('card completion verdict', () => {
-  it('passes only a completed card with an artifact URL', () => {
+  it('passes a completed or synced card with an artifact URL', () => {
     expect(judgeCardCompletion({ status: 'COMPLETED', artifactUrl: 'http://localhost:3000/x' }, false).ok).toBe(true);
+    expect(judgeCardCompletion({ status: 'SYNCED', artifactUrl: 'http://localhost:3000/x' }, false).ok).toBe(true);
     expect(judgeCardCompletion({ status: 'COMPLETED', artifactUrl: '   ' }, false).ok).toBe(false);
-    expect(judgeCardCompletion({ status: 'COMPLETED' }, false).detail).toMatch(/without an artifactUrl/);
+    expect(judgeCardCompletion({ status: 'SYNCED', artifactUrl: '   ' }, false).ok).toBe(false);
+    expect(judgeCardCompletion({ status: 'SYNCED' }, false).detail).toMatch(/without an artifactUrl/);
   });
 
   it('fails a failed card with its reason, and a timeout with the last status', () => {

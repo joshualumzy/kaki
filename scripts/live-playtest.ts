@@ -520,13 +520,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     for (const [id, acted] of actedTitles) {
       const deadline = acted.approvedAt + 60_000;
       let task = tasks.get(id);
-      while (Date.now() < deadline && task?.status !== 'COMPLETED' && task?.status !== 'FAILED') {
+      const finished = (status: string | undefined): boolean => status === 'COMPLETED' || status === 'SYNCED';
+      while (Date.now() < deadline && !finished(task?.status) && task?.status !== 'FAILED') {
         await delay(350);
         task = tasks.get(id);
       }
-      const timedOut = task?.status !== 'COMPLETED' && task?.status !== 'FAILED';
+      const timedOut = !finished(task?.status) && task?.status !== 'FAILED';
       const verdict = judgeCardCompletion(task, timedOut);
-      await check(`Card ${acted.title} reached COMPLETED`, verdict.ok, verdict.detail);
+      await check(`Card ${acted.title} completed`, verdict.ok, verdict.detail);
       if (verdict.ok && task?.artifactUrl !== undefined) {
         let status: number | undefined;
         let error: string | undefined;
