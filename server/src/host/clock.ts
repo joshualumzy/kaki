@@ -1,4 +1,5 @@
 import type { AgendaItem } from '@kaki/shared';
+import type { SavedClockState } from '../persist/state';
 
 /** Where the meeting is on its agenda right now. */
 export interface ClockSnapshot {
@@ -23,6 +24,8 @@ export interface AgendaClock {
   resume(): void;
   /** Back to a meeting that has not started: item 0, no time spent, overruns armed again. */
   reset(): void;
+  /** Take up a saved meeting: time carries on from where it stopped, not from zero. */
+  restore(saved: SavedClockState): void;
   /** Stop the meeting: time freezes and no more overruns fire. */
   end(): void;
   snapshot(): ClockSnapshot;
@@ -96,6 +99,23 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
       agendaIndex = 0;
       itemStartSeconds = 0;
       overrunFired.clear();
+    },
+    restore(saved) {
+      const elapsed = Math.max(0, saved.meetingElapsedSeconds);
+      const itemElapsed = Math.max(0, Math.min(elapsed, saved.itemElapsedSeconds));
+      startedAt = saved.started
+        ? now() - (elapsed / speed) * 1000
+        : undefined;
+      pausedAt = saved.started && saved.paused && !saved.ended ? now() : undefined;
+      totalPausedMs = 0;
+      endedAtSeconds = saved.started && saved.ended ? elapsed : undefined;
+      agendaIndex = Number.isInteger(saved.agendaIndex) ? Math.max(0, saved.agendaIndex) : 0;
+      itemStartSeconds = elapsed - itemElapsed;
+      overrunFired.clear();
+      // Do not repeat an overrun announcement for items the restarted server already covered.
+      for (let index = 0; index < agendaIndex; index += 1) overrunFired.add(index);
+      const item = agenda[agendaIndex];
+      if (item !== undefined && itemElapsed >= item.minutes * 60) overrunFired.add(agendaIndex);
     },
     end() {
       if (startedAt !== undefined) endedAtSeconds ??= meetingSeconds();

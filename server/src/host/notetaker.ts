@@ -14,6 +14,7 @@ import {
   type Task,
 } from '@kaki/shared';
 import { LlmError, parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
+import type { SavedNotetakerState, SavedTranscriptLine } from '../persist/state';
 import type { TaskStore } from '../tasks';
 
 /** Rough speaking rate used to turn transcript words into talk time. */
@@ -51,15 +52,7 @@ const QUESTION_WORDS = new Set(
   ).split(' '),
 );
 
-interface TranscriptLine {
-  speaker: string;
-  role?: Role;
-  text: string;
-  /** The agenda item this line was heard on, stamped when it arrives so a queued line keeps its origin. */
-  agendaItemTitle?: string;
-  /** Seconds since the meeting started when the line was heard, stamped on arrival so a queued line keeps its moment. */
-  atSeconds?: number;
-}
+type TranscriptLine = SavedTranscriptLine;
 
 /** The notetaker's part of the Meeting Record. */
 export interface NotetakerState {
@@ -81,6 +74,10 @@ export interface Notetaker {
   state(): NotetakerState;
   /** Forget the meeting so far (transcript, questions, talk time); a pass still running is discarded. */
   reset(): void;
+  /** Everything needed to carry on after a restart. */
+  snapshot(): SavedNotetakerState;
+  /** Take up a saved notetaker; anything already heard is replaced. */
+  restore(saved: SavedNotetakerState): void;
 }
 
 /** What the notetaker needs; without `llm` it only keeps talk time. */
@@ -1311,6 +1308,43 @@ export function createNotetaker({
       talkByItem.clear();
       talkTotals.clear();
       talkTotal = 0;
+    },
+
+    snapshot() {
+      return {
+        pending: pending.map((line) => ({ ...line })),
+        recentGrounded: recentGrounded.map((line) => ({ ...line })),
+        contextAgendaIndex,
+        agendaContext: agendaContext.map((line) => ({ ...line })),
+        openQuestions: openQuestions.map((question) => ({ ...question })),
+        questionCount,
+        status,
+        ...(lastError === undefined ? {} : { lastError }),
+        talkByItem: [...talkByItem.entries()].map(
+          ([index, talk]): [number, Partial<Record<Role, number>>] => [index, { ...talk }],
+        ),
+        talkTotals: [...talkTotals.entries()],
+        talkTotal,
+      };
+    },
+
+    restore(saved) {
+      generation += 1;
+      pending = saved.pending.map((line) => ({ ...line }));
+      recentGrounded = saved.recentGrounded.map((line) => ({ ...line }));
+      contextAgendaIndex = saved.contextAgendaIndex;
+      agendaContext = saved.agendaContext.map((line) => ({ ...line }));
+      openQuestions = saved.openQuestions.map((question) => ({ ...question }));
+      questionCount = saved.questionCount;
+      status = llm === undefined ? 'off' : saved.status;
+      lastError = saved.lastError;
+      talkByItem.clear();
+      for (const [index, talk] of saved.talkByItem) talkByItem.set(index, { ...talk });
+      talkTotals.clear();
+      for (const [role, seconds] of saved.talkTotals) talkTotals.set(role, seconds);
+      talkTotal = saved.talkTotal;
+      droppedLines = 0;
+      running = false;
     },
 
     state() {

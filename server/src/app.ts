@@ -5,6 +5,7 @@ import type { Auth } from './auth/module';
 import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
+import type { MeetingPersistence } from './persist/persistence';
 import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type RejoinGuard } from './rejoin';
 import { createTaskStore, type TaskStore } from './tasks';
 import { createRoomToken, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster } from './livekit';
@@ -25,6 +26,8 @@ export interface CreateAppOptions {
   draftOnly?: boolean;
   /** Seconds since the meeting started, for stamping settled cards with their source time; omit when unknown. */
   meetingElapsedSeconds?: () => number | undefined;
+  /** Keeps the meeting, notetaker and tasks across a restart; absent means memory only. */
+  persistence?: MeetingPersistence;
   /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
   rejoinGraceMs?: number;
   /** How often the app server checks who is in the room; defaults to 5 seconds. */
@@ -526,6 +529,7 @@ export async function createApp({
   roomRoster = livekitRoster(),
   draftOnly = false,
   meetingElapsedSeconds,
+  persistence,
   rejoinGraceMs,
   rejoinPollMs,
 }: CreateAppOptions): Promise<KakiApp> {
@@ -560,6 +564,34 @@ export async function createApp({
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
   hub.subscribe((event) => { if (event.type === 'MEETING_RESET') memory.splice(0); });
+  if (persistence !== undefined) {
+    hub.subscribe((event) => {
+      // A new meeting must not leave the old one on disk to reappear after the next restart.
+      if (event.type === 'MEETING_RESET') {
+        void persistence.clearSaved();
+        return;
+      }
+      if (
+        event.type === 'TRANSCRIPT_CHUNK' ||
+        event.type === 'MEETING_RECORD_UPDATED' ||
+        event.type === 'HOST_SPEECH_TRIGGERED' ||
+        event.type === 'TASK_UPDATED'
+      ) {
+        persistence.scheduleSave();
+      }
+    });
+    if (persistence.saved !== undefined) {
+      try {
+        tasks.restore(persistence.saved.state.tasks);
+      } catch (error) {
+        closeRejoin();
+        hub.close();
+        await closeAuth();
+        await closePersistence();
+        throw error;
+      }
+    }
+  }
   hub.subscribe((event) => {
     // Only speech proves the meeting began; record heartbeats and task updates can fire without anyone talking.
     if (event.type === 'TRANSCRIPT_CHUNK' || event.type === 'HOST_SPEECH_TRIGGERED') rejoin.began();
@@ -573,6 +605,13 @@ export async function createApp({
     );
   }
 
+  async function closePersistence(): Promise<void> {
+    if (persistence === undefined) return;
+    await persistence.close().catch((error: unknown) =>
+      console.error('kaki server: the meeting persistence failed to stop', error),
+    );
+  }
+
   try {
     await listen(server, port);
   } catch (error) {
@@ -580,6 +619,7 @@ export async function createApp({
     hub.close();
     await closeServer(server).catch(() => undefined);
     await closeAuth();
+    await closePersistence();
     throw error;
   }
 
@@ -587,7 +627,7 @@ export async function createApp({
 
   for (const feature of modules) {
     try {
-      const stop = feature.start({ hub, tasks, scenario, memory, draftOnly });
+      const stop = feature.start({ hub, tasks, scenario, memory, draftOnly, persistence });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {
       for (const cleanup of cleanups.reverse()) {
@@ -601,6 +641,7 @@ export async function createApp({
       hub.close();
       await closeServer(server);
       await closeAuth();
+      await closePersistence();
       throw new Error(
         `kaki server: module "${feature.name}" failed to start: ${
           error instanceof Error ? error.message : String(error)
@@ -609,6 +650,9 @@ export async function createApp({
       );
     }
   }
+
+  // The module has registered how to read its state; save once so an interrupted task already shows FAILED.
+  persistence?.scheduleSave();
 
   let closed = false;
 
@@ -631,6 +675,7 @@ export async function createApp({
       hub.close();
       await closeServer(server);
       await closeAuth();
+      await closePersistence();
     },
   };
 }

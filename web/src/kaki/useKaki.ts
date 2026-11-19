@@ -15,6 +15,8 @@ export interface UseKakiResult {
   rejections: KakiRejection[];
   rejection: KakiRejection | null;
   connected: boolean;
+  /** When the server restored this meeting after a restart, its start time; otherwise undefined. */
+  restoredAt: string | undefined;
   send(command: KakiCommand): void;
 }
 
@@ -25,6 +27,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
   const [connected, setConnected] = useState(false);
+  const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const reconnectTimer = useRef<number | undefined>(undefined);
   const attempts = useRef(0);
@@ -34,6 +37,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
     setTasks(new Map());
     setRejections([]);
     setConnected(false);
+    setRestoredAt(undefined);
     attempts.current = 0;
     let closed = false;
     let socket: WebSocket | undefined;
@@ -52,6 +56,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
         // so a restarted server never leaves stale task cards on screen.
         setEvents([]);
         setTasks(new Map());
+        setRestoredAt(undefined);
         setConnected(true);
       });
 
@@ -90,6 +95,12 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
             return [];
           });
           setTasks(new Map());
+          setRestoredAt(undefined);
+          return;
+        }
+
+        if (parsed.type === 'MEETING_RESTORED') {
+          setRestoredAt(parsed.payload.startedAt);
           return;
         }
 
@@ -142,6 +153,7 @@ export function useKaki(audience: 'screen' | Role): UseKakiResult {
     rejections,
     rejection: rejections[rejections.length - 1] ?? null,
     connected,
+    restoredAt,
     send,
   };
 }

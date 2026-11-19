@@ -5,6 +5,7 @@ import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
 import { createHostModules } from './host';
 import { loadScenario } from './loadScenario';
+import { createMeetingPersistenceFromEnv } from './persist/persistence';
 import { wingmanModules } from './wingman';
 
 logMissingActionConfig();
@@ -16,6 +17,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const scenario = await loadScenario();
+const persistence = await createMeetingPersistenceFromEnv();
 const host = createHostModules(scenario);
 const authEnabled = process.env.KAKI_AUTH === '1';
 const auth = authEnabled
@@ -32,9 +34,11 @@ try {
     calendar: calendarFromEnv(),
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
     meetingElapsedSeconds: host.meetingElapsedSeconds,
+    persistence,
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);
+  await persistence?.close().catch(() => undefined);
   throw error;
 }
 

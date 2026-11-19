@@ -59,7 +59,8 @@ key_is_set() { # key file...
 WIRED_KEYS=()
 wire_generated_env() { # preferred-env generated-env
   local preferred="$1" generated="$2" key value
-  for key in GITEA_URL GITEA_TOKEN GITEA_ORG GITEA_REPO \
+  for key in POSTGRES_URL \
+             GITEA_URL GITEA_TOKEN GITEA_ORG GITEA_REPO \
              MATTERMOST_URL MATTERMOST_TOKEN MATTERMOST_TEAM MATTERMOST_CHANNEL \
              MAILPIT_URL MAILPIT_SMTP_HOST MAILPIT_SMTP_PORT \
              WIKI_URL WIKI_ADMIN_EMAIL WIKI_ADMIN_PASSWORD CALDAV_URL; do

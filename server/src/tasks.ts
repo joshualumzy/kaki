@@ -5,6 +5,7 @@ import {
   isAssignmentEvidence,
   isRoleIn,
   isSuggestInput,
+  isTask,
   type ActionDraft,
   type AssignmentEvidence,
   type KakiCommand,
@@ -18,6 +19,9 @@ import {
 import { CommandError, type ClientAudience, type Hub } from './hub';
 
 type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft' | 'artifactUrl' | 'error'>>;
+
+/** Shown on a task that was mid-action when the server stopped; its owner can Retry. */
+export const INTERRUPTED_TASK_ERROR = 'Kaki restarted while this was running — tap Retry.';
 
 /** The single owner of task state; every other module changes tasks through it. */
 export interface TaskStore {
@@ -36,6 +40,13 @@ export interface TaskStore {
   handleCommand(command: KakiCommand, sender: ClientAudience): void;
   /** Forget every task (a new meeting starts); pages are told by the MEETING_RESET event. */
   reset(): void;
+  /** Every task now, for saving across a restart. */
+  snapshot(): Task[];
+  /**
+   * Take up the tasks saved before a restart. A task that was RUNNING becomes FAILED with a message,
+   * because whatever was writing cannot have finished: its owner sees Retry and is never left waiting.
+   */
+  restore(tasks: readonly Task[]): void;
   /**
    * React to task changes here, never via hub TASK_UPDATED: each change goes out once
    * for the screen and again for the assignee. Called once per change, after the hub
@@ -261,6 +272,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
         return;
       }
       case 'END_MEETING':
+      case 'NEW_MEETING':
       case 'NEXT_AGENDA_ITEM':
       case 'SET_HOST_MODE':
         return; // the meeting module owns these
@@ -278,6 +290,33 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     reset() {
       tasks.clear();
       hub.clearRetained('task:');
+    },
+    snapshot() {
+      return [...tasks.values()].map((task) => ({
+        ...task,
+        ...(task.declinedBy === undefined ? {} : { declinedBy: [...task.declinedBy] }),
+        ...(task.draft === undefined ? {} : { draft: { ...task.draft } }),
+        ...(task.assignmentEvidence === undefined
+          ? {}
+          : { assignmentEvidence: copyAssignmentEvidence(task.assignmentEvidence) }),
+      }));
+    },
+    restore(saved) {
+      tasks.clear();
+      for (const task of saved) {
+        if (!isTask(task, scenario)) {
+          const id = String((task as unknown as { id?: unknown }).id);
+          throw new Error(
+            `Saved task "${id}" does not belong to this scenario. Run \`npm run meeting:reset\` to discard it.`,
+          );
+        }
+        const next: Task =
+          task.status === 'RUNNING'
+            ? { ...task, status: 'FAILED', error: INTERRUPTED_TASK_ERROR, updatedAt: new Date().toISOString() }
+            : { ...task };
+        tasks.set(next.id, next);
+        publishTask(next);
+      }
     },
     onChange: (handler) => {
       changeHandlers.add(handler);

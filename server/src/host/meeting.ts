@@ -41,7 +41,7 @@ export function createMeetingModule({
 }: MeetingModuleOptions = {}): KakiModule {
   return {
     name: 'host-meeting',
-    start({ hub, tasks, scenario }: KakiContext) {
+    start({ hub, tasks, scenario, persistence }: KakiContext) {
       const clock = sharedClock ?? createAgendaClock({ agenda: scenario.agenda, speed });
       const notetaker = createNotetaker({
         scenario,
@@ -51,6 +51,37 @@ export function createMeetingModule({
         meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
+
+      // A compatible saved meeting was loaded before the modules started; take up where it stopped.
+      const saved = persistence?.saved;
+      const restored = saved !== undefined;
+      let meetingStartedAt: string | undefined;
+      if (saved !== undefined) {
+        clock.restore(saved.state.clock);
+        notetaker.restore(saved.state.notetaker);
+        meetingStartedAt = saved.startedAt;
+        console.log(`kaki host: restored the meeting that started at ${saved.startedAt}`);
+      }
+
+      persistence?.registerSource(() => {
+        const now = clock.snapshot();
+        if (!now.started || meetingStartedAt === undefined) return undefined;
+        return {
+          startedAt: meetingStartedAt,
+          state: {
+            clock: {
+              started: now.started,
+              ended: now.ended,
+              paused: now.paused === true,
+              agendaIndex: now.agendaIndex,
+              itemElapsedSeconds: now.itemElapsedSeconds,
+              meetingElapsedSeconds: now.meetingElapsedSeconds,
+            },
+            notetaker: notetaker.snapshot(),
+            tasks: tasks.snapshot(),
+          },
+        };
+      });
       let humanHost = false;
       // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
       const stopAutoDispatch =
@@ -130,7 +161,8 @@ export function createMeetingModule({
         });
       });
 
-      let announcedAgendaIndex = -1;
+      // On a restore the room already knows the current item; do not announce it again.
+      let announcedAgendaIndex = saved?.state.clock.agendaIndex ?? -1;
 
       let ticker: ReturnType<typeof setInterval> | undefined;
       function startTicker(): void {
@@ -147,6 +179,20 @@ export function createMeetingModule({
       }
       startTicker();
 
+      if (restored) {
+        // Retained so a screen that opens after the restart still says where this meeting came from.
+        hub.publish(
+          {
+            type: 'MEETING_RESTORED',
+            audience: { kind: 'screen' },
+            payload: { startedAt: saved.startedAt },
+          },
+          { retainKey: 'meeting:restored' },
+        );
+        lastSignature = undefined;
+        publishRecord();
+      }
+
       // The next line said after the meeting ended belongs to a new meeting: nothing carries over.
       function resetMeeting(): void {
         clock.reset();
@@ -156,6 +202,8 @@ export function createMeetingModule({
         hub.clearRetained('host:opening');
         hub.clearRetained('fact:');
         hub.clearRetained('nudge:');
+        hub.clearRetained('meeting:restored');
+        meetingStartedAt = undefined;
         lastSignature = undefined;
         lastPublishedAt = 0;
         announcedAgendaIndex = -1;
@@ -190,6 +238,8 @@ export function createMeetingModule({
           hub.clearRetained('host:opening');
           hub.clearRetained('fact:');
           hub.clearRetained('nudge:');
+          hub.clearRetained('meeting:restored');
+          meetingStartedAt = undefined;
           lastSignature = undefined;
           lastPublishedAt = 0;
           announcedAgendaIndex = -1;
@@ -217,6 +267,7 @@ export function createMeetingModule({
         }
 
         clock.start();
+        meetingStartedAt ??= new Date().toISOString();
         notetaker.addChunk(event.payload);
         if (replay === undefined && hasTaskAssignment(event.payload.text)) {
           setTimeout(() => void runNotetaker(), 250).unref();
@@ -254,6 +305,7 @@ export function createMeetingModule({
       hub.onCommand((command, sender) => {
         if (
           command.type !== 'END_MEETING' &&
+          command.type !== 'NEW_MEETING' &&
           command.type !== 'NEXT_AGENDA_ITEM' &&
           command.type !== 'SET_HOST_MODE' &&
           command.type !== 'SET_PAUSED'
@@ -261,6 +313,10 @@ export function createMeetingModule({
           return;
         }
         if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
+        if (command.type === 'NEW_MEETING') {
+          resetMeeting();
+          return;
+        }
         if (command.type === 'SET_HOST_MODE') {
           humanHost = command.human;
           return;
@@ -286,7 +342,10 @@ export function createMeetingModule({
 
       let stopReplay: (() => void) | undefined;
       let stopped = false;
-      if (replay !== undefined) {
+      if (replay !== undefined && restored) {
+        console.log('kaki host: the saved meeting was restored; the scripted replay stays stopped');
+      }
+      if (replay !== undefined && !restored) {
         const lines = typeof replay === 'string' ? loadReplay(scenario, replay) : Promise.resolve(replay);
         lines.then(
           (loaded) => {

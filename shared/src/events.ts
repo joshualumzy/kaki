@@ -33,6 +33,7 @@ export type KakiEventType =
   | 'FACT_FOUND'
   | 'TASK_UPDATED'
   | 'MEETING_RESET'
+  | 'MEETING_RESTORED'
   | 'TOPIC_SETTLED'
   | 'COLLEAGUE_REACTION'
   | 'COMMAND_REJECTED';
@@ -84,6 +85,8 @@ export type KakiEvent =
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
   /** A new meeting is starting: pages drop the old record, feed and tasks. */
   | KakiEventOf<'MEETING_RESET', Record<string, never>>
+  /** The server kept this meeting across a restart; the screen says so and offers a fresh start. */
+  | KakiEventOf<'MEETING_RESTORED', { startedAt: string }>
   /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
   | KakiEventOf<'TOPIC_SETTLED', { title: string; taskId?: string }>
   | KakiEventOf<'COLLEAGUE_REACTION', { who: string; emoji: '👍' | '😬' | '🤔' | '😅' | '🙌' | '💸' | '🤨' | '⏰'; timestamp: string }>
@@ -97,6 +100,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'FACT_FOUND',
   'TASK_UPDATED',
   'MEETING_RESET',
+  'MEETING_RESTORED',
   'TOPIC_SETTLED',
   'COLLEAGUE_REACTION',
   'COMMAND_REJECTED',
@@ -190,6 +194,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isAgendaIndex(payload.agendaIndex),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_RESET: () => true,
+  MEETING_RESTORED: (payload) => isString(payload.startedAt) && Number.isFinite(Date.parse(payload.startedAt)),
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),
   COLLEAGUE_REACTION: (payload, scenario) =>
     isString(payload.who) && scenario.npcs?.some((npc) => npc.attendee === payload.who) === true &&

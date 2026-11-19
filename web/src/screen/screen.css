@@ -11,6 +11,8 @@
 .sc-live[data-on="true"] { color: var(--color-accent); }
 .sc-live[data-on="true"] i { background: var(--color-accent); animation: kd-ping 1.8s infinite; color: var(--color-accent); }
 .sc-join { animation: kd-rise 300ms ease both; }
+.sc-restored { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.sc-restored .btn { padding: 7px 13px; font-size: 0.84rem; }
 
 .sc-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .sc-panel { padding: 22px; border-radius: 22px; border: 1px solid var(--color-border); background: var(--panel); backdrop-filter: blur(20px) saturate(1.3); box-shadow: var(--shadow-card); }

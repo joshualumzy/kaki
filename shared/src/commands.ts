@@ -14,6 +14,8 @@ export type KakiCommand =
   | { type: 'SYNC_TASK'; taskId: string }
   /** Screen only. Ends the meeting; `silent` skips the spoken closing line (nobody is left to hear it). */
   | { type: 'END_MEETING'; silent?: boolean }
+  /** Screen only. Throws away the meeting, restored or not, and its saved copy, so the next line starts fresh. */
+  | { type: 'NEW_MEETING' }
   /** Screen only. The host moves the meeting on to the next agenda item. */
   | { type: 'NEXT_AGENDA_ITEM' }
   /** Screen only. Whether a person (not the AI) is in the host's seat: while one is, Sam does not dispatch tasks by himself. */
@@ -31,6 +33,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'MARK_DONE',
   'SYNC_TASK',
   'END_MEETING',
+  'NEW_MEETING',
   'NEXT_AGENDA_ITEM',
   'SET_HOST_MODE',
   'SET_PAUSED',
@@ -51,7 +54,7 @@ function isCommandType(value: unknown): value is KakiCommand['type'] {
 /** Validate unknown data (such as JSON from a socket) as a command for the scenario. */
 export function isKakiCommand(value: unknown, scenario: Scenario): value is KakiCommand {
   if (!isObject(value) || !isCommandType(value.type)) return false;
-  if (value.type === 'NEXT_AGENDA_ITEM') return true;
+  if (value.type === 'NEXT_AGENDA_ITEM' || value.type === 'NEW_MEETING') return true;
   if (value.type === 'SET_HOST_MODE') return typeof value.human === 'boolean';
   if (value.type === 'SET_PAUSED') return typeof value.paused === 'boolean';
   if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';

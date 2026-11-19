@@ -48,7 +48,7 @@ const COLUMNS: { id: string; title: string; hint: string; statuses: Task['status
 /** The meeting screen itself, only mounted once the host is allowed in. */
 function ScreenFeed() {
   const scenario = useScenario();
-  const { events, tasks, rejection, connected, send } = useKaki('screen');
+  const { events, tasks, rejection, connected, restoredAt, send } = useKaki('screen');
   const [showJoin, setShowJoin] = useState(false);
   const taskList = [...tasks.values()];
   const minutesTask = taskList.find(
@@ -90,6 +90,14 @@ function ScreenFeed() {
 
       {connected ? null : <ConnectionBanner />}
       {rejection === null ? null : <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />}
+      {restoredAt === undefined ? null : (
+        <div className="connection-banner sc-restored" role="status">
+          <span>Restored meeting from {new Date(restoredAt).toLocaleString()}.</span>
+          <Button variant="ghost" onClick={() => send({ type: 'NEW_MEETING' })}>
+            New meeting
+          </Button>
+        </div>
+      )}
       {record?.payload.notetakerStatus === 'stale' ? (
         <p className="connection-banner" role="status">
           Kaki's notes are paused — questions and tasks may be out of date. The agenda clock is still running.

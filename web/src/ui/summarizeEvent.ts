@@ -29,6 +29,8 @@ export function summarizeEvent(event: KakiEvent): string {
       return `${event.payload.who} reacted ${event.payload.emoji}`;
     case 'MEETING_RESET':
       return 'A new meeting started';
+    case 'MEETING_RESTORED':
+      return `Meeting restored from ${new Date(event.payload.startedAt).toLocaleString()}`;
     case 'COMMAND_REJECTED':
       return `Command ${event.payload.commandType} rejected: ${event.payload.reason}`;
   }
