@@ -236,7 +236,7 @@ describe('app', () => {
 
   it('settlement reuses a held follow-up card for the same role, kind and topic', async () => {
     const { installAutoDispatch } = await import('../src/host/autoDispatch');
-    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });
     try {
       const early = app.tasks.suggest({ title: 'Tell the team what we decided', context: 'Early note',
         suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
@@ -286,7 +286,7 @@ describe('app', () => {
 
   it('settles a held card whose decision is worded exactly like the settlement', async () => {
     const { installAutoDispatch } = await import('../src/host/autoDispatch');
-    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });
     try {
       const screen = await connect('screen');
       const early = app.tasks.suggest({ title: 'Post the prep plan', context: 'Early note',
@@ -310,7 +310,7 @@ describe('app', () => {
 
   it('returns the same follow-up when a settlement POST is retried', async () => {
     const { installAutoDispatch } = await import('../src/host/autoDispatch');
-    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });
     try {
       const body = { title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
         suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' };
@@ -491,8 +491,11 @@ describe('app', () => {
       expect(response.status).toBe(200);
       const parsed = parseScenario(await response.json());
       expect(parsed.agenda).toHaveLength(2);
+      // The active meeting is its own value now: the pack the server was given is never spliced.
       expect(full.agenda).toBe(agendaReference);
-      expect(parsed.agenda.map((item) => item.title)).toEqual(full.agenda.map((item) => item.title));
+      expect(full.agenda).toHaveLength(5);
+      const packTitles = new Set(full.agenda.map((item) => item.title));
+      expect(parsed.agenda.every((item) => packTitles.has(item.title))).toBe(true);
     } finally {
       await meeting.close();
     }

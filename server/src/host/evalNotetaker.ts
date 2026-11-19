@@ -59,7 +59,7 @@ const expected = JSON.parse(
 
 const tasks = createTaskStore({ hub: silentHub, scenario });
 let agendaIndex = 0;
-const notetaker = createNotetaker({ scenario, tasks, llm, agendaIndex: () => agendaIndex });
+const notetaker = createNotetaker({ scenario: () => scenario, tasks, llm, agendaIndex: () => agendaIndex });
 
 const started = Date.now();
 let passes = 0;

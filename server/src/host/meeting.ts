@@ -46,19 +46,21 @@ export function createMeetingModule({
     start({
       hub,
       tasks,
-      scenario,
+      activeScenario,
       persistence,
       meetingId,
       resetMeeting: resetMeetingSession,
       onReset,
       meetingDetails,
+      session,
     }: KakiContext) {
       // The app server owns the identity; a module run on its own (tests) still gets a stable one.
       const localMeetingId = randomUUID();
       const currentMeetingId = (): string => meetingId?.() ?? localMeetingId;
-      const clock = sharedClock ?? createAgendaClock({ agenda: scenario.agenda, speed });
+      const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
+      clock.setAgenda(activeScenario().agenda);
       const notetaker = createNotetaker({
-        scenario,
+        scenario: activeScenario,
         tasks,
         llm,
         agendaIndex: () => clock.snapshot().agendaIndex,
@@ -95,7 +97,7 @@ export function createMeetingModule({
           ...details,
           state: {
             meetingId: currentMeetingId(),
-            agenda: [...(details.agendaTitles ?? scenario.agenda.map((item) => item.title))],
+            agenda: [...(details.agendaTitles ?? activeScenario().agenda.map((item) => item.title))],
             clock: {
               started: now.started,
               ended: now.ended,
@@ -112,8 +114,8 @@ export function createMeetingModule({
       let humanHost = false;
       // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
       const stopAutoDispatch =
-        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario,
-          hostIsHuman: () => humanHost, holdUntilSettled: replay === undefined && (scenario.npcs?.length ?? 0) > 0 });
+        process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario: activeScenario,
+          hostIsHuman: () => humanHost, holdUntilSettled: replay === undefined && (activeScenario().npcs?.length ?? 0) > 0 });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;
@@ -171,7 +173,7 @@ export function createMeetingModule({
           {
             type: 'HOST_SPEECH_TRIGGERED',
             audience: { kind: 'screen' },
-            payload: { kind: 'OPENING', text: openingLine(scenario) },
+            payload: { kind: 'OPENING', text: openingLine(activeScenario()) },
           },
           { retainKey: 'host:opening' },
         );
@@ -200,7 +202,7 @@ export function createMeetingModule({
           audience: { kind: 'screen' },
           payload: {
             kind: 'TIMEOUT',
-            text: `Hey team, we're a bit past time on ${spokenAgendaName(scenario, item.title)} — let's wrap this one up so we can move on.`,
+            text: `Hey team, we're a bit past time on ${spokenAgendaName(activeScenario(), item.title)} — let's wrap this one up so we can move on.`,
           },
         });
       });
@@ -241,6 +243,7 @@ export function createMeetingModule({
       // retained keys, saved state and the one MEETING_RESET notification.
       const stopResetHook = onReset?.(() => {
         clock.reset();
+        clock.setAgenda(activeScenario().agenda);
         notetaker.reset();
         meetingStartedAt = undefined;
         lastSignature = undefined;
@@ -265,7 +268,7 @@ export function createMeetingModule({
         const currentAgendaIndex = clock.snapshot().agendaIndex;
         if (currentAgendaIndex > 0 && currentAgendaIndex !== announcedAgendaIndex) {
           announcedAgendaIndex = currentAgendaIndex;
-          const item = scenario.agenda[currentAgendaIndex];
+          const item = activeScenario().agenda[currentAgendaIndex];
           if (item) {
             hub.publish({
               type: 'HOST_SPEECH_TRIGGERED',
@@ -278,6 +281,7 @@ export function createMeetingModule({
 
       const unsubscribe = hub.subscribe((event) => {
         if (event.type === 'MEETING_STARTED') {
+          clock.setAgenda(activeScenario().agenda);
           beginMeeting(event.payload.startedAt);
           return;
         }
@@ -306,6 +310,8 @@ export function createMeetingModule({
         const now = clock.snapshot();
         if (!now.started || now.ended) return;
         clock.end();
+        // A replay can run a clock without a server Start; only a running session has a phase to end.
+        if (session !== undefined && session.phase() === 'running') session.end();
         stopTicker();
         console.log('kaki host: the meeting is over');
         if (silent) {
@@ -381,7 +387,7 @@ export function createMeetingModule({
         }
         const now = clock.snapshot();
         if (!now.started || now.ended) throw new CommandError('The meeting is not running');
-        if (now.agendaIndex + 1 >= scenario.agenda.length) throw new CommandError('That was the last agenda item');
+        if (now.agendaIndex + 1 >= activeScenario().agenda.length) throw new CommandError('That was the last agenda item');
         clock.advanceTo(now.agendaIndex + 1);
         publishRecord();
         announceAgendaItem();
@@ -393,7 +399,7 @@ export function createMeetingModule({
         console.log('kaki host: the saved meeting was restored; the scripted replay stays stopped');
       }
       if (replay !== undefined && !restoredRunning) {
-        const lines = typeof replay === 'string' ? loadReplay(scenario, replay) : Promise.resolve(replay);
+        const lines = typeof replay === 'string' ? loadReplay(activeScenario(), replay) : Promise.resolve(replay);
         lines.then(
           (loaded) => {
             if (stopped) return;

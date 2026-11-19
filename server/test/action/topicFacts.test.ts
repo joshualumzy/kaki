@@ -50,7 +50,7 @@ describe.each(cases)('%s draft', (_name, actionKind, makeModule) => {
   it('only receives seat facts from the task topic', async () => {
     const llm = createFakeLlm(() => '{}');
     const tasks = createTaskStore({ hub, scenario });
-    const stop = makeModule(llm).start({ hub, tasks, scenario, draftOnly: true });
+    const stop = makeModule(llm).start({ hub, tasks, activeScenario: () => scenario, draftOnly: true });
     if (stop !== undefined) stops.push(stop);
     const task = tasks.suggest({ title: 'Record the decision', context: 'A call has been made.',
       suggestedAssignee: 'chef', actionKind, agendaItemTitle: 'First' });

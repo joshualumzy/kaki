@@ -29,7 +29,7 @@ async function assigneeAfter(
 ): Promise<string | undefined> {
   const tasks = createTaskStore({ hub: quietHub, scenario });
   const notetaker = createNotetaker({
-    scenario,
+    scenario: () => scenario,
     tasks,
     llm: createFakeLlm(() =>
       JSON.stringify({

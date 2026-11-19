@@ -17,6 +17,18 @@ export const MEETING_RETAINED_KEYS = [
   'task:',
 ] as const;
 
+/** The one lifecycle state of the meeting. */
+export type MeetingPhase = 'lobby' | 'starting' | 'running' | 'ended';
+
+/**
+ * Derive the boot phase from a saved clock: the one place restore decides what a saved meeting was.
+ * A meeting saved after it ended is consumed, exactly as before: the next arrival starts from the pack.
+ */
+export function phaseFromSaved(clock: { started?: boolean; ended?: boolean } | undefined): MeetingPhase {
+  if (clock?.started !== true || clock.ended === true) return 'lobby';
+  return 'running';
+}
+
 export interface MeetingSessionResetOptions {
   /** Shape an untouched draft's agenda for this seat; omitted uses the last seat holder. */
   seat?: string;
@@ -40,22 +52,34 @@ export interface MeetingSessionDeps {
   sealedSetup: ResetRef<MeetingSetup | undefined>;
   draftTouched: ResetRef<boolean>;
   defaultSetup: MeetingSetup;
-  scenario: Scenario;
-  fullScenario: Scenario;
+  /** Build the scenario a reset installs from the pack, shaped for the seat when the draft is untouched. */
+  resetScenario(options: { seat?: string; draftTouched: boolean }): Scenario;
+  /** The scenario the server boots with: the restored meeting's, or the pack's. */
+  initialScenario: Scenario;
+  /** The phase the server boots in, derived once from the saved meeting. */
+  initialPhase: MeetingPhase;
   /** The current identity, used when a reset keeps it (the first arrival). */
   meetingId(): string;
   /** Move to a new identity: new id, code and role sessions, and cancel any Start in flight. */
   rotateIdentity(options: { rotateCode: boolean }): string;
-  /** Put the meeting's title, roles and cast back to the whole pack. */
-  restoreScenarioFields(): void;
-  /** Set the pack's full agenda, for an owner-touched draft. */
-  setPackAgenda(): void;
-  /** Shape an untouched draft's agenda for a seat, or the pack order when there is none. */
-  shapeUntouchedAgenda(seat: string | undefined): void;
   persistence?: Pick<MeetingPersistence, 'replaceSaved'>;
 }
 
 export interface MeetingSession {
+  /** The one lifecycle state: lobby, starting, running or ended. */
+  phase(): MeetingPhase;
+  /** The immutable scenario of the meeting now; read it through this getter every time. */
+  active(): Scenario;
+  /** The scenario Start sealed and is waiting to commit; only present while phase is starting. */
+  candidate(): Scenario | undefined;
+  /** Seal a scenario for a meeting about to start. Only a lobby meeting may begin a Start. */
+  beginStart(candidate: Scenario): void;
+  /** Swap the sealed candidate in as the active scenario. Only a starting meeting may commit. */
+  commitStart(): void;
+  /** Drop the candidate and go back to lobby, leaving the active scenario untouched. */
+  abortStart(reason: string): void;
+  /** The meeting is over. Only a running meeting may end. */
+  end(): void;
   /** The one way a meeting is reset. Returns the meeting id clients must adopt. */
   reset(options?: MeetingSessionResetOptions): string;
   /** Register per-module reset work; hooks run in registration order. */
@@ -66,7 +90,14 @@ export interface MeetingSession {
 
 export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let generation = 0;
+  let phase = deps.initialPhase;
+  let active = deps.initialScenario;
+  let pending: Scenario | undefined;
   const hooks: Array<() => void> = [];
+
+  function refuse(transition: string): never {
+    throw new Error(`kaki session: cannot ${transition} while the meeting is ${phase}`);
+  }
 
   function replaceSavedState(): void {
     deps.persistence?.replaceSaved();
@@ -81,6 +112,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       meetingId = deps.meetingId();
     }
 
+    phase = 'lobby';
+    pending = undefined;
     deps.memory.splice(0, deps.memory.length);
 
     const consumed = deps.sealedSetup.current !== undefined;
@@ -90,9 +123,10 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       deps.setupDraft.current = deps.defaultSetup;
     }
 
-    deps.restoreScenarioFields();
-    if (deps.draftTouched.current) deps.setPackAgenda();
-    else deps.shapeUntouchedAgenda(options.seat ?? deps.rejoin.identities().at(-1)?.seat);
+    active = deps.resetScenario({
+      seat: options.seat ?? deps.rejoin.identities().at(-1)?.seat,
+      draftTouched: deps.draftTouched.current,
+    });
 
     for (const hook of hooks) {
       try {
@@ -115,6 +149,32 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   }
 
   return {
+    phase: () => phase,
+    active: () => active,
+    candidate: () => pending,
+    beginStart(candidate) {
+      if (phase !== 'lobby') refuse('begin a Start');
+      pending = candidate;
+      phase = 'starting';
+    },
+    commitStart() {
+      if (phase !== 'starting' || pending === undefined) {
+        refuse('commit the Start');
+      }
+      active = pending;
+      pending = undefined;
+      phase = 'running';
+    },
+    abortStart(reason) {
+      if (phase !== 'starting') refuse('abort the Start');
+      pending = undefined;
+      phase = 'lobby';
+      if (reason !== '') console.warn(`kaki session: Start aborted: ${reason}`);
+    },
+    end() {
+      if (phase !== 'running') refuse('end the meeting');
+      phase = 'ended';
+    },
     reset,
     onReset(hook) {
       hooks.push(hook);

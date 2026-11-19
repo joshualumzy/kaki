@@ -82,7 +82,8 @@ export interface Notetaker {
 
 /** What the notetaker needs; without `llm` it only keeps talk time. */
 export interface NotetakerOptions {
-  scenario: Scenario;
+  /** The meeting's scenario, read through a getter because a Start commit or reset replaces it. */
+  scenario: () => Scenario;
   tasks: TaskStore;
   llm?: LlmClient;
   /** The agenda item the meeting is on now. */
@@ -996,16 +997,19 @@ export function createNotetaker({
   const talkByItem = new Map<number, Partial<Record<Role, number>>>();
   const talkTotals = new Map<Role, number>();
   let talkTotal = 0;
-  const attending = new Set(scenario.attendees.map((attendee) => attendee.role));
-  const facilitatorName =
-    (scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee ??
-    scenario.attendees.find((attendee) => scenario.roles.some((role) => role.id === attendee.role && role.facilitator === true))?.name;
-  const attendeeNamePattern = new RegExp(
-    `\\s*\\((?:${scenario.attendees
-      .map((attendee) => attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('|')})\\)`,
-    'g',
-  );
+  const attending = () => new Set(scenario().attendees.map((attendee) => attendee.role));
+  const facilitatorName = () =>
+    (scenario().npcs ?? []).find((npc) => npc.role === 'host')?.attendee ??
+    scenario().attendees.find((attendee) =>
+      scenario().roles.some((role) => role.id === attendee.role && role.facilitator === true),
+    )?.name;
+  const attendeeNamePattern = () =>
+    new RegExp(
+      `\\s*\\((?:${scenario()
+        .attendees.map((attendee) => attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('|')})\\)`,
+      'g',
+    );
 
   function addTalk(index: number, role: Role, seconds: number): void {
     const item = talkByItem.get(index) ?? {};
@@ -1017,10 +1021,10 @@ export function createNotetaker({
 
   function quietRoles(): Role[] {
     if (talkTotal < QUIET_MIN_TOTAL_SECONDS) return [];
-    return scenario.roles
-      .filter((role) => role.facilitator !== true)
+    return scenario()
+      .roles.filter((role) => role.facilitator !== true)
       .map((role) => role.id)
-      .filter((role) => attending.has(role) && (talkTotals.get(role) ?? 0) / talkTotal < QUIET_SHARE);
+      .filter((role) => attending().has(role) && (talkTotals.get(role) ?? 0) / talkTotal < QUIET_SHARE);
   }
 
   function keepPending(lines: TranscriptLine[]): void {
@@ -1156,12 +1160,13 @@ export function createNotetaker({
       // otherwise whoever says "I'll do it" owns it. With two or more people in the meeting an
       // unaddressed "can you..." cannot be pinned on one visitor, so the model's own owner stands.
       const owner =
-        addressedRole(source.text, scenario, groundingPool, source.role, {
+        addressedRole(source.text, scenario(), groundingPool, source.role, {
           visitorShortcut: visitorOwnerShortcut(),
         }) ?? volunteerRole(ownershipEvidence, source);
-      let cleanedTitle = task.title.replace(attendeeNamePattern, '');
-      let cleanedContext = task.context.replace(attendeeNamePattern, '');
-      for (const attendee of scenario.attendees) {
+      const namePattern = attendeeNamePattern();
+      let cleanedTitle = task.title.replace(namePattern, '');
+      let cleanedContext = task.context.replace(namePattern, '');
+      for (const attendee of scenario().attendees) {
         const visitorLine = groundingPool.find(
           (l) => l.role === attendee.role && l.speaker !== undefined && !l.speaker.startsWith(attendee.name),
         );
@@ -1209,7 +1214,7 @@ export function createNotetaker({
       try {
         tasks.suggest(
           withOrigin,
-          selfVolunteeredAssignment(source, withOrigin, scenario),
+          selfVolunteeredAssignment(source, withOrigin, scenario()),
           source.atSeconds,
         );
       } catch (error) {
@@ -1232,12 +1237,13 @@ export function createNotetaker({
 
   return {
     addChunk({ speaker, text }) {
-      const role = roleForZoomName(scenario, speaker);
+      const role = roleForZoomName(scenario(), speaker);
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
-      const isFacilitator = role !== undefined && scenario.roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
+      const isFacilitator = role !== undefined && scenario().roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
       const speakerName = speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
-      if (isFacilitator && facilitatorName !== undefined && speakerName === facilitatorName) {
+      const hostName = facilitatorName();
+      if (isFacilitator && hostName !== undefined && speakerName === hostName) {
         // When the AI facilitator explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
         // keep that line so the notetaker extracts the task even if the LLM put the task request on the facilitator's line.
         const isTaskRequestFromSam = new RegExp(
@@ -1246,7 +1252,7 @@ export function createNotetaker({
         ).test(text);
         if (!isTaskRequestFromSam) return;
       }
-      const agendaItemTitle = scenario.agenda[agendaIndex()]?.title;
+      const agendaItemTitle = scenario().agenda[agendaIndex()]?.title;
       const atSeconds = meetingElapsedSeconds?.();
       keepPending([
         ...pending,
@@ -1283,13 +1289,13 @@ export function createNotetaker({
       let succeeded = false;
       try {
         const messages: ChatMessage[] = [
-          { role: 'system', content: systemPrompt(scenario, [...recentGrounded, ...batch]) },
+          { role: 'system', content: systemPrompt(scenario(), [...recentGrounded, ...batch]) },
           {
             role: 'user',
-            content: userPrompt(scenario, currentAgendaIndex, openQuestions, tasks.list(), agendaContext, batch),
+            content: userPrompt(scenario(), currentAgendaIndex, openQuestions, tasks.list(), agendaContext, batch),
           },
         ];
-        const reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario);
+        const reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario());
         if (startedIn !== generation) return; // the meeting was reset while the model was thinking
         // The model is done; applying is synchronous, so the batch must not be saved as still in flight.
         inFlight = undefined;

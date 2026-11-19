@@ -16,7 +16,7 @@ describe('auto-dispatch', () => {
   it('dispatches a new task to the role named, and Sam says so', () => {
     const published: KakiEvent[] = [];
     app.hub.subscribe((event) => published.push(event));
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
 
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });
 
@@ -30,7 +30,7 @@ describe('auto-dispatch', () => {
   it('leaves the end-of-meeting minutes card waiting for its person, without a dispatch line', () => {
     const published: KakiEvent[] = [];
     app.hub.subscribe((event) => published.push(event));
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
 
     const task = app.tasks.suggest({
       title: 'Publish meeting minutes to the team wiki',
@@ -44,7 +44,7 @@ describe('auto-dispatch', () => {
   });
 
   it('leaves a declined task for a person; it is not sent out again', () => {
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });
     app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'chef');
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
@@ -52,7 +52,7 @@ describe('auto-dispatch', () => {
 
   it('leaves every task for the host while a person plays the host, and resumes when they leave', () => {
     let human = true;
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, hostIsHuman: () => human });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, hostIsHuman: () => human });
     const first = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
     expect(app.tasks.get(first.id)?.status).toBe('SUGGESTED');
     human = false;
@@ -61,7 +61,7 @@ describe('auto-dispatch', () => {
   });
 
   it('dispatches distinct deliverables of the same kind', () => {
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
     const first = app.tasks.suggest({ title: 'File crash ticket', context: 'x', suggestedAssignee: 'chef', actionKind: 'gitea_issue' });
     const second = app.tasks.suggest({ title: 'Fix order queue issue', context: 'x', suggestedAssignee: 'chef', actionKind: 'gitea_issue' });
     const differentKind = app.tasks.suggest({ title: 'Post update', context: 'x', suggestedAssignee: 'chef', actionKind: 'mattermost_post' });
@@ -71,7 +71,7 @@ describe('auto-dispatch', () => {
   });
 
   it('holds early live tasks until the topic locks, then releases distinct deliverables', () => {
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });
     const early = app.tasks.suggest({ title: 'Post decision', context: 'x', suggestedAssignee: 'chef',
       actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
     const distinct = app.tasks.suggest({ title: 'Email supplier', context: 'x', suggestedAssignee: 'chef',
@@ -88,7 +88,7 @@ describe('auto-dispatch', () => {
   it('dismisses a held task when its topic moves on without settling, so an unresolved topic never gets a card', async () => {
     const published: KakiEvent[] = [];
     app.hub.subscribe((event) => published.push(event));
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario, holdUntilSettled: true });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });
     const early = app.tasks.suggest({ title: 'Post decision', context: 'x', suggestedAssignee: 'chef',
       actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
     expect(app.tasks.get(early.id)?.status).toBe('SUGGESTED');
@@ -105,7 +105,7 @@ describe('auto-dispatch', () => {
       ...testScenario,
       roles: testScenario.roles.map((role) => (role.id === 'chef' ? { ...role, facilitator: true } : role)),
     };
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => scenario });
     const task = app.tasks.suggest({ title: 'Plan', context: 'x', suggestedAssignee: 'chef' });
     expect(task.status).toBe('SUGGESTED');
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
@@ -113,7 +113,7 @@ describe('auto-dispatch', () => {
 
   it('leaves the task for a person when nobody in the meeting plays the role', () => {
     const scenario = { ...testScenario, attendees: testScenario.attendees.filter((a) => a.role !== 'chef') };
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => scenario });
     const task = app.tasks.suggest({ title: 'Plan', context: 'x', suggestedAssignee: 'chef' });
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
   });
@@ -123,14 +123,14 @@ describe('auto-dispatch', () => {
     app.hub.subscribe((event) => published.push(event));
     const chef = testScenario.attendees.find((a) => a.role === 'chef')!;
     const asAi = { ...testScenario, npcs: [{ attendee: chef.name, voice: 'v', personality: 'p', agenda: 'a', concerns: [] }] };
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: asAi });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => asAi });
     app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
     const cue = published.find((event) => event.type === 'HOST_SPEECH_TRIGGERED') as { payload: { text: string } };
     expect(cue.payload.text).toBe(`${chef.name}, I've sent you a task: Fix the oven. Accept or decline it on your phone.`);
   });
 
   it('leaves a human recipient to accept it themselves', () => {
-    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
     expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
   });

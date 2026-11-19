@@ -33,6 +33,10 @@ export interface AgendaClock {
   advanceTo(index: number): void;
   /** Check for overrun now; call this on every tick. */
   tick(): void;
+  /** Replace the agenda the clock times; called when a Start commits or a meeting resets. */
+  setAgenda(agenda: readonly AgendaItem[]): void;
+  /** The agenda the clock is timing right now. */
+  agenda(): readonly AgendaItem[];
   onOverrun(handler: (agendaIndex: number, item: AgendaItem) => void): () => void;
 }
 
@@ -44,8 +48,9 @@ export interface AgendaClockOptions {
 }
 
 /** Create an agenda clock that has not started yet. */
-export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaClockOptions): AgendaClock {
+export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date.now }: AgendaClockOptions): AgendaClock {
   if (!(speed > 0)) throw new Error(`Clock speed must be positive, got ${speed}`);
+  let agenda = [...initialAgenda];
 
   let startedAt: number | undefined;
   let pausedAt: number | undefined;
@@ -129,6 +134,10 @@ export function createAgendaClock({ agenda, speed = 1, now = Date.now }: AgendaC
       agendaIndex = index;
       itemStartSeconds = meetingSeconds();
     },
+    setAgenda(next) {
+      agenda = [...next];
+    },
+    agenda: () => agenda,
     tick() {
       const current = snapshot();
       const item = agenda[current.agendaIndex];

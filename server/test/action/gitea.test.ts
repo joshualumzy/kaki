@@ -45,7 +45,7 @@ function quietHub(): Hub {
 function setup(options: GiteaModuleOptions): TaskStore {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createGiteaModule(options).start({ hub, tasks, scenario: testScenario });
+  const stop = createGiteaModule(options).start({ hub, tasks, activeScenario: () => testScenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }

@@ -33,7 +33,7 @@ function quietHub(): Hub {
 function setup(options: CalendarModuleOptions): TaskStore {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createCalendarModule(options).start({ hub, tasks, scenario: testScenario });
+  const stop = createCalendarModule(options).start({ hub, tasks, activeScenario: () => testScenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }

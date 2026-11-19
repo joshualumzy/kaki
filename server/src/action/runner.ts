@@ -12,8 +12,8 @@ export interface ActionModuleOptions {
   kind: ActionKind;
   /** Why this tool cannot run (with the missing env variable names), when its configuration is absent. */
   unconfiguredReason?: string;
-  draft(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string, memory?: readonly MeetingMemoryEntry[]): Promise<ActionDraft>;
-  run(task: Task, signal: AbortSignal, scenario: KakiContext['scenario'], visitorName?: string): Promise<string>;
+  draft(task: Task, signal: AbortSignal, scenario: Scenario, visitorName?: string, memory?: readonly MeetingMemoryEntry[]): Promise<ActionDraft>;
+  run(task: Task, signal: AbortSignal, scenario: Scenario, visitorName?: string): Promise<string>;
 }
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
@@ -58,7 +58,7 @@ export function factsForTask(
 export function createActionModule({ name, kind, unconfiguredReason, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
-    start({ hub, tasks, scenario, memory, draftOnly }: KakiContext) {
+    start({ hub, tasks, activeScenario, memory, draftOnly }: KakiContext) {
       const shutdown = new AbortController();
       let stopped = false;
       const visitorNameByRole = new Map<string, string>();
@@ -74,9 +74,9 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           if (match !== null) {
             const speakerName = match[1]!.trim();
             const roleLabelText = match[2]!.trim().toLowerCase();
-            const matchedRole = scenario.roles.find((r) => r.label.toLowerCase() === roleLabelText);
+            const matchedRole = activeScenario().roles.find((r) => r.label.toLowerCase() === roleLabelText);
             if (matchedRole !== undefined) {
-              const seatAttendee = scenario.attendees.find((a) => a.role === matchedRole.id);
+              const seatAttendee = activeScenario().attendees.find((a) => a.role === matchedRole.id);
               if (seatAttendee === undefined || seatAttendee.name.toLowerCase() !== speakerName.toLowerCase()) {
                 visitorNameByRole.set(matchedRole.id, speakerName);
               }
@@ -125,7 +125,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
         background('drafting the action', async () => {
           let result: ActionDraft;
           try {
-            result = await draft(task, shutdown.signal, scenario, visitorFor(task), memory);
+            result = await draft(task, shutdown.signal, activeScenario(), visitorFor(task), memory);
           } catch (error) {
             fail(task, messageOf(error));
             return;
@@ -154,9 +154,9 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           const runnable =
             draft === undefined
               ? task
-              : { ...task, draft: { ...draft, body: withActionFooter(draft.body, task, scenario.meetingTitle) } };
+              : { ...task, draft: { ...draft, body: withActionFooter(draft.body, task, activeScenario().meetingTitle) } };
           try {
-            artifactUrl = await run(runnable, shutdown.signal, scenario, visitorFor(task));
+            artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task));
           } catch (error) {
             fail(task, messageOf(error));
             return;

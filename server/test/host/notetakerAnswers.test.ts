@@ -36,7 +36,7 @@ async function openThenClose(evidence: string, secondPassLine: string, question 
 async function openThenReply(secondReply: string, secondPassLine: string, question = 'When is the delivery due?') {
   const replies = [reply({ newQuestions: [{ text: question }] }), secondReply];
   const notetaker = createNotetaker({
-    scenario,
+    scenario: () => scenario,
     tasks: createTaskStore({ hub: quietHub, scenario }),
     llm: createFakeLlm((_messages, call) => replies[call]!),
     agendaIndex: () => 0,
@@ -71,7 +71,7 @@ describe('closing a question needs the line that answers it', () => {
       reply({ newQuestions: [{ text: 'Does the twelve-button grid support a clearer drink label?' }] }),
       reply({ answeredQuestions: [{ id: 'q-1', evidence: 'Our twelve-gram butter slab did not shrink.' }] }),
     ];
-    const notetaker = createNotetaker({ scenario, tasks: createTaskStore({ hub: quietHub, scenario }),
+    const notetaker = createNotetaker({ scenario: () => scenario, tasks: createTaskStore({ hub: quietHub, scenario }),
       llm: createFakeLlm((_messages, call) => replies[call]!), agendaIndex: () => 0 });
     notetaker.addChunk({ speaker: 'Mei', text: 'Does the twelve-button grid support a clearer drink label?' });
     await notetaker.run();

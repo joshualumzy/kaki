@@ -59,7 +59,7 @@ function setup(respond: Parameters<typeof createFakeLlm>[0], startIndex = 0) {
   const onAgendaIndex = vi.fn((index: number) => {
     agendaIndex = index;
   });
-  const notetaker = createNotetaker({ scenario, tasks, llm, agendaIndex: () => agendaIndex, onAgendaIndex });
+  const notetaker = createNotetaker({ scenario: () => scenario, tasks, llm, agendaIndex: () => agendaIndex, onAgendaIndex });
   const feed = (lines: ReplayLine[]) => lines.forEach((line) => notetaker.addChunk(line));
   const setAgendaIndex = (index: number) => {
     agendaIndex = index;
@@ -313,7 +313,7 @@ describe('notetaker record keeping', () => {
 
   it('without an LLM only keeps talk time', async () => {
     const tasks = createTaskStore({ hub: quietHub(), scenario });
-    const notetaker = createNotetaker({ scenario, tasks, agendaIndex: () => 0 });
+    const notetaker = createNotetaker({ scenario: () => scenario, tasks, agendaIndex: () => 0 });
 
     notetaker.addChunk({ speaker: 'Arjun', text: 'one two three four five' });
     await notetaker.run();
@@ -657,7 +657,7 @@ describe('task precision', () => {
         ],
       }),
     );
-    const notetaker = createNotetaker({ scenario: kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
+    const notetaker = createNotetaker({ scenario: () => kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
     notetaker.addChunk({ speaker: 'Feifei Li', text: 'We should separate cash collection from food prep.' });
     notetaker.addChunk({ speaker: 'Arjun', text: 'Move the counter?' });
     notetaker.addChunk({ speaker: 'Feifei Li', text: 'Whatever that that that that box. Away from the food, right?' });
@@ -689,7 +689,7 @@ describe('task precision', () => {
         ],
       }),
     );
-    const notetaker = createNotetaker({ scenario: kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
+    const notetaker = createNotetaker({ scenario: () => kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
     notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us add the regulars price on the till.' });
     notetaker.addChunk({
       speaker: 'Mei',
@@ -1238,7 +1238,7 @@ describe('talk time', () => {
   it('counts talk time per role for each agenda item', async () => {
     const tasks = createTaskStore({ hub: quietHub(), scenario });
     let agendaIndex = 0;
-    const notetaker = createNotetaker({ scenario, tasks, agendaIndex: () => agendaIndex });
+    const notetaker = createNotetaker({ scenario: () => scenario, tasks, agendaIndex: () => agendaIndex });
 
     for (const line of replay) {
       agendaIndex = line.agendaIndex ?? agendaIndex;
@@ -1254,7 +1254,7 @@ describe('talk time', () => {
 
   it('spots a role that barely speaks', () => {
     const tasks = createTaskStore({ hub: quietHub(), scenario });
-    const notetaker = createNotetaker({ scenario, tasks, agendaIndex: () => 0 });
+    const notetaker = createNotetaker({ scenario: () => scenario, tasks, agendaIndex: () => 0 });
 
     for (let line = 0; line < 30; line += 1) {
       notetaker.addChunk({ speaker: 'Wei Ling', text: 'one two three four five six seven eight nine ten' });
@@ -1266,7 +1266,7 @@ describe('talk time', () => {
 
   it('calls nobody quiet before there is enough talk to judge', () => {
     const tasks = createTaskStore({ hub: quietHub(), scenario });
-    const notetaker = createNotetaker({ scenario, tasks, agendaIndex: () => 0 });
+    const notetaker = createNotetaker({ scenario: () => scenario, tasks, agendaIndex: () => 0 });
 
     notetaker.addChunk({ speaker: 'Arjun', text: 'Short update.' });
 
@@ -1475,7 +1475,7 @@ describe('task agenda origin', () => {
     const tasks = createTaskStore({ hub: quietHub(), scenario });
     let meetingSeconds = 930;
     const notetaker = createNotetaker({
-      scenario,
+      scenario: () => scenario,
       tasks,
       llm: createFakeLlm(() =>
         reply({
@@ -1675,7 +1675,7 @@ describe('grounded recovery from a verified assignment decision line', () => {
           release = resolve;
         }),
     };
-    const notetaker = createNotetaker({ scenario, tasks, llm: blocking, agendaIndex: () => 0 });
+    const notetaker = createNotetaker({ scenario: () => scenario, tasks, llm: blocking, agendaIndex: () => 0 });
     notetaker.addChunk({ speaker: 'Ada (Chef)', text: 'The oven tripped again this morning.' });
     notetaker.addChunk({ speaker: 'Bao (Cashier)', text: 'I will check the temperature log.' });
 
@@ -1693,7 +1693,7 @@ describe('grounded recovery from a verified assignment decision line', () => {
 
     const seen: string[] = [];
     const second = createNotetaker({
-      scenario,
+      scenario: () => scenario,
       tasks: createTaskStore({ hub: quietHub(), scenario }),
       llm: createFakeLlm((messages) => {
         seen.push(newLines(messages));

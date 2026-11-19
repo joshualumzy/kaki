@@ -41,7 +41,7 @@ function setup(draftOnly?: boolean, unconfiguredReason?: string) {
     draft: draftSpy,
     run: runSpy,
     ...(unconfiguredReason === undefined ? {} : { unconfiguredReason }),
-  }).start({ hub, tasks, scenario: testScenario, draftOnly });
+  }).start({ hub, tasks, activeScenario: () => testScenario, draftOnly });
   if (stop !== undefined) stops.push(stop);
   return { tasks, draftSpy, runSpy };
 }

@@ -383,16 +383,14 @@ describe('meeting persistence saver', () => {
       sealedSetup: { current: undefined },
       draftTouched: { current: false },
       defaultSetup: setup,
-      scenario: testScenario,
-      fullScenario: testScenario,
+      resetScenario: () => testScenario,
+      initialScenario: testScenario,
+      initialPhase: 'lobby',
       meetingId: () => current.state.meetingId,
       rotateIdentity() {
         current = snapshot(0, 'new-meeting');
         return current.state.meetingId;
       },
-      restoreScenarioFields() {},
-      setPackAgenda() {},
-      shapeUntouchedAgenda() {},
       persistence,
     });
 

@@ -548,7 +548,9 @@ describe('security round 2', () => {
 
     runner.ws.send(JSON.stringify({ type: 'DECLINE_TASK', taskId: 'first' }));
     await settle();
-    scenario.npcs = [];
+    // The active scenario is a value now: swap in one whose cast no longer voices the manager.
+    app.session.beginStart({ ...scenario, npcs: [] });
+    app.session.commitStart();
 
     runner.ws.send(JSON.stringify({ type: 'DECLINE_TASK', taskId: 'second' }));
     expect(await closed).toBe(4008);

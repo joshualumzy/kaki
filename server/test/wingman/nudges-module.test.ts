@@ -95,7 +95,7 @@ function start(
   const stop = module.start({
     hub,
     tasks: {} as TaskStore,
-    scenario,
+    activeScenario: () => scenario,
     ...(meetingDetails === undefined ? {} : { meetingDetails }),
     ...(packFree === undefined ? {} : { packFree }),
   });
@@ -260,7 +260,7 @@ describe('nudge module', () => {
         { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
       ],
     };
-    const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, scenario: sameOwner });
+    const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => sameOwner });
 
     try {
       if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
@@ -356,7 +356,7 @@ describe('nudge module', () => {
     const module = createNudgeModule({ env: {} });
 
     try {
-      const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, scenario });
+      const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
       expect(stop).toBeUndefined();
       expect(fake.subscribed()).toBe(0);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('nudges disabled'));

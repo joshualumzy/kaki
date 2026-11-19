@@ -131,7 +131,7 @@ function start(
   const stop = module.start({
     hub,
     tasks: {} as TaskStore,
-    scenario: activeScenario,
+    activeScenario: () => activeScenario,
     ...(packFree === undefined ? {} : { packFree }),
   });
   if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
@@ -361,7 +361,7 @@ describe('knowledge module', () => {
     const module = createKnowledgeModule({ env: {} });
 
     try {
-      const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, scenario });
+      const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
       expect(stop).toBeUndefined();
       expect(fake.subscribed()).toBe(0);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('company search disabled'));

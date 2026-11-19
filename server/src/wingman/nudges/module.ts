@@ -106,7 +106,7 @@ function handleEvent(
   if (event.type !== 'MEETING_RECORD_UPDATED') return;
 
   const { agendaIndex, elapsedSeconds, speakerTalkSeconds } = event.payload;
-  const agenda = ctx.scenario.agenda;
+  const agenda = ctx.activeScenario().agenda;
   const current = agenda[agendaIndex];
   if (current === undefined) return;
 

@@ -91,13 +91,14 @@ export function shouldStillAskColleague(
 export function installAutoDispatch({
   hub,
   tasks,
-  scenario,
+  scenario: activeScenario,
   hostIsHuman = () => false,
   holdUntilSettled = false,
 }: {
   hub: Hub;
   tasks: TaskStore;
-  scenario: Scenario;
+  /** The meeting's scenario, read through a getter because a Start commit or reset replaces it. */
+  scenario: () => Scenario;
   /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
   hostIsHuman?: () => boolean;
   holdUntilSettled?: boolean;
@@ -108,6 +109,7 @@ export function installAutoDispatch({
   const held = new Map<string, Task>();
   const dispatch = (task: Task): void => {
     if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return;
+    const scenario = activeScenario();
     // End-of-meeting minutes are drafted by the wiki module and already wait on a person; never offer them as a new task.
     if (/^Publish meeting minutes/i.test(task.title)) return;
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);

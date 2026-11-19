@@ -400,7 +400,7 @@ export function createWikiModule({
             if (stopped || snapshotLines.length === 0) return;
             const date = today();
             // The meeting that just closed, with its own seats and agenda, not the startup scenario.
-            const scenario = context.activeScenario?.() ?? context.scenario;
+            const scenario = context.activeScenario();
             const title = `${scenario.meetingTitle} — Meeting Minutes`;
             const content = buildMeetingMinutes(
               scenario,

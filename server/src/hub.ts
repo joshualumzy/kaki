@@ -182,12 +182,13 @@ function rejectionFor(audience: ClientAudience, commandType: string, reason: str
   };
 }
 
-/** Create the `/ws` hub attached to an existing HTTP server for one scenario. */
-export function createHub(httpServer: Server, scenario: Scenario, options: HubOptions = {}): MeetingHub {
+/** Create the `/ws` hub attached to an existing HTTP server; the scenario is read through a getter. */
+export function createHub(httpServer: Server, activeScenario: () => Scenario, options: HubOptions = {}): MeetingHub {
   const authorize = options.authorize;
   const isHumanSeat = options.isHumanSeat ?? (() => false);
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
   const aiVoiceRoles = (): Set<string> => {
+    const scenario = activeScenario();
     const profiles = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
     return new Set(
       scenario.attendees.filter((attendee) => profiles.has(attendee.name)).map((attendee) => attendee.role),
@@ -222,7 +223,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
           maxPayload: MAX_PAYLOAD_BYTES,
           verifyClient: (info, done) => {
             const url = new URL(info.req.url ?? '/ws', 'http://localhost');
-            const audience = audienceFor(scenario, url.searchParams.get('role'));
+            const audience = audienceFor(activeScenario(), url.searchParams.get('role'));
             if (audience === undefined) {
               if (options.closeUnknownRoleAfterUpgrade === true) { done(true); return; }
               done(false, 401, 'Unknown role');
@@ -365,7 +366,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       return;
     }
 
-    if (!isKakiCommand(parsed, scenario)) {
+    if (!isKakiCommand(parsed, activeScenario())) {
       const rawType =
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
@@ -414,7 +415,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   wss.on('connection', (socket, request) => {
     const url = new URL(request.url ?? '/ws', 'http://localhost');
     const rawRole = url.searchParams.get('role');
-    const audience = audienceFor(scenario, rawRole);
+    const audience = audienceFor(activeScenario(), rawRole);
 
     if (audience === undefined) {
       const reason = rawRole === null ? 'Missing role' : 'Unknown role';
@@ -485,7 +486,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
 
   return {
     publish(event, options = {}) {
-      if (!isKakiEvent(event, scenario)) {
+      if (!isKakiEvent(event, activeScenario())) {
         throw new Error(`kaki hub: refusing to publish an invalid event: ${JSON.stringify(event)}`);
       }
       if (event.type === 'MEETING_RESET') {
@@ -497,7 +498,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       deliver(event, options);
     },
     publishMeetingReset(event) {
-      if (!isKakiEvent(event, scenario) || event.type !== 'MEETING_RESET') {
+      if (!isKakiEvent(event, activeScenario()) || event.type !== 'MEETING_RESET') {
         throw new Error(
           `kaki hub: refusing to publish an invalid meeting reset: ${JSON.stringify(event)}`,
         );

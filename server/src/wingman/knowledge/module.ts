@@ -1,4 +1,4 @@
-import { humanRoles, type KakiEvent, type SearchCompanyData } from '@kaki/shared';
+import { humanRoles, type KakiEvent, type Scenario, type SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
@@ -35,7 +35,7 @@ interface QuestionLog {
 }
 
 /** The agenda item's title and decision text, which stand in for its description in the scenario. */
-function agendaQuery(item: KakiContext['scenario']['agenda'][number]): string {
+function agendaQuery(item: Scenario['agenda'][number]): string {
   return [item.title, item.decision]
     .filter((part): part is string => part !== undefined && part.trim() !== '')
     .map((part) => part.trim())
@@ -52,13 +52,13 @@ function searchAgendaTopic(
   if (log.lastAgendaIndex === agendaIndex) return;
   log.lastAgendaIndex = agendaIndex;
 
-  const item = ctx.scenario.agenda[agendaIndex];
+  const item = ctx.activeScenario().agenda[agendaIndex];
   if (item === undefined) {
     console.error(`kaki wingman: no agenda item ${agendaIndex} to search company records for`);
     return;
   }
   const query = agendaQuery(item);
-  for (const role of humanRoles(ctx.scenario)) {
+  for (const role of humanRoles(ctx.activeScenario())) {
     void (async () => {
       try {
         const facts = await search(query, role.id);

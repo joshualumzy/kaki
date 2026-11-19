@@ -48,9 +48,8 @@ function setup(
   const stop = createWikiModule(options).start({
     hub,
     tasks,
-    scenario,
+    activeScenario: () => context.activeScenario ?? scenario,
     draftOnly,
-    ...(context.activeScenario === undefined ? {} : { activeScenario: () => context.activeScenario! }),
     ...(context.seats === undefined
       ? {}
       : { meetingDetails: () => ({ seats: context.seats! }) as SavedMeetingDetails }),

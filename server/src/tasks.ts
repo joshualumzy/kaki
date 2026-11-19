@@ -97,8 +97,19 @@ function wasBeingWorkedOn(task: Task): boolean {
   return task.status === 'RUNNING' || (task.status === 'CLAIMED' && task.mode === 'ACTION_AGENT');
 }
 
-/** Create the task store that routes task changes through the hub. */
-export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenario }): TaskStore {
+/**
+ * Create the task store that routes task changes through the hub. The scenario is read through a
+ * getter when the meeting can replace it (a Start commit or a reset); a plain value is accepted for
+ * standalone uses such as the notetaker's evaluation harness.
+ */
+export function createTaskStore({
+  hub,
+  scenario,
+}: {
+  hub: Hub;
+  scenario: Scenario | (() => Scenario);
+}): TaskStore {
+  const active = typeof scenario === 'function' ? scenario : () => scenario;
   const tasks = new Map<string, Task>();
   const changeHandlers = new Set<(task: Task, previous: TaskStatus | undefined) => void>();
 
@@ -132,7 +143,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     if (!canTransition(current.status, to)) {
       throw new CommandError(`Cannot move a task from ${current.status} to ${to}`);
     }
-    assertPatch(patch, scenario);
+    assertPatch(patch, active());
 
     const { error, ...rest } = patch;
     const draft: ActionDraft | undefined = patch.draft === undefined ? current.draft : { ...patch.draft };
@@ -164,7 +175,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
   }
 
   function suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence, sourceSeconds?: number): Task {
-    if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
+    if (!isSuggestInput(input, active())) throw new CommandError('Invalid task suggestion');
     if (assignmentEvidence !== undefined && !isAssignmentEvidence(assignmentEvidence)) {
       throw new CommandError('Invalid assignment evidence');
     }
@@ -192,7 +203,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
   }
 
   function reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task {
-    if (!isSuggestInput(input, scenario)) throw new CommandError('Invalid task suggestion');
+    if (!isSuggestInput(input, active())) throw new CommandError('Invalid task suggestion');
     if (sourceSeconds !== undefined && !isSourceSeconds(sourceSeconds)) {
       throw new CommandError('Invalid source time');
     }
@@ -312,7 +323,7 @@ export function createTaskStore({ hub, scenario }: { hub: Hub; scenario: Scenari
     restore(saved) {
       tasks.clear();
       for (const task of saved) {
-        if (!isTask(task, scenario)) {
+        if (!isTask(task, active())) {
           const id = String((task as unknown as { id?: unknown }).id);
           throw new Error(
             `Saved task "${id}" does not belong to this scenario. Run \`npm run meeting:reset\` to discard it.`,
