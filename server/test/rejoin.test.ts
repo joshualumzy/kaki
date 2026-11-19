@@ -28,6 +28,8 @@ describe('admission decision', () => {
     ['someone joining a running room with people', { phase: 'running', present: [{ name: 'Ada' }] }, 'join'],
     ['a saved running meeting with no holders', { phase: 'running', holders: [] }, 'resume'],
     ['a running meeting after its holders were pruned', { phase: 'running', holders: [], graceActive: false }, 'reset'],
+    ['a holder returning to an abandoned meeting', { phase: 'running', abandoned: true }, 'reset'],
+    ['a stranger at an abandoned meeting with no holders', { phase: 'running', holders: [], abandoned: true }, 'reset'],
     ['anyone after the meeting ended', { phase: 'ended' }, 'reset'],
     ['someone joining people still in an ended meeting', { phase: 'ended', present: [{ name: 'Ada' }] }, 'join'],
     ['a holder while a Start is in flight', { phase: 'starting' }, 'resume'],

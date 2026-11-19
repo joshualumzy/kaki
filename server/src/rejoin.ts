@@ -21,6 +21,8 @@ export interface AdmissionInput {
   seat?: string;
   /** Whether the empty-room grace window is open right now. */
   graceActive: boolean;
+  /** The grace ended with nobody back: never resume this meeting, start a new one. */
+  abandoned?: boolean;
 }
 
 const normalise = (name: string): string => name.trim().toLowerCase();
@@ -42,12 +44,15 @@ function isHolder(holders: readonly SeatHolder[], name: string, seat?: string): 
 /**
  * The one admission rule. A running meeting (or a lobby meeting someone already joined) holds for
  * its seat holders while the room is empty and the grace is open; a stranger starts the next one.
- * A restored meeting with no holders is carried on by whoever arrives first inside the grace.
+ * A restored meeting with no holders is carried on by whoever arrives first inside the grace, but
+ * an abandoned meeting (the grace ended with nobody back) is never resumed.
  */
-export function admission({ phase, holders, present, name, seat, graceActive }: AdmissionInput): Admission {
+export function admission({ phase, holders, present, name, seat, graceActive, abandoned }: AdmissionInput): Admission {
   // People are still in the room: this is an ordinary join, never a reset under their feet
   // (an ended meeting may still have minutes waiting for their approval).
   if (present.length > 0) return 'join';
+  // The grace ended with nobody back: the meeting is over, never resume it.
+  if (abandoned === true) return 'reset';
   // The meeting is over and the room is empty: a new guest must never land in a finished meeting.
   if (phase === 'ended') return 'reset';
   // Inside the grace, whoever arrives first carries on a meeting that has no saved holders.

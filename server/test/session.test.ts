@@ -488,6 +488,40 @@ describe('meeting session snapshot and restore', () => {
     expect(restored.snapshot().sealed).toEqual(sealed);
   });
 
+  it('round-trips an abandoned meeting and clears the mark on reset', () => {
+    const h = harness({ phase: 'running', sealed: true });
+    h.session.abandon();
+    expect(h.session.phase()).toBe('running');
+    expect(h.session.abandoned()).toBe(true);
+    const snap = h.session.snapshot();
+    expect(snap.abandoned).toBe(true);
+
+    const restored = createMeetingSession({
+      ...basicDeps(h),
+      saved: { ...snap, schemaVersion: MEETING_STATE_SCHEMA_VERSION, savedAt: '2026-01-01T00:00:00.000Z', state: emptyState() },
+    });
+    expect(restored.abandoned()).toBe(true);
+
+    restored.reset();
+    expect(restored.abandoned()).toBe(false);
+  });
+
+  it('saves the active lobby agenda without marking the draft as owner-edited', () => {
+    const h = harness({ phase: 'lobby', draftTouched: false });
+    const snap = h.session.snapshot();
+
+    expect(snap.phase).toBe('lobby');
+    expect(snap.draftTouched).toBe(false);
+    expect(snap.lobbyAgenda).toEqual(h.session.active().agenda.map((item) => item.title));
+
+    const restored = createMeetingSession({
+      ...basicDeps(h),
+      saved: { ...snap, schemaVersion: MEETING_STATE_SCHEMA_VERSION, savedAt: '2026-01-01T00:00:00.000Z', state: emptyState() },
+    });
+    expect(restored.draftTouched()).toBe(false);
+    expect(restored.snapshot().lobbyAgenda).toEqual(snap.lobbyAgenda);
+  });
+
   it('consumes an ended meeting but keeps a draft edited after the seal', () => {
     const h = harness({ phase: 'running', sealed: true, draftTouched: true });
     const nextDraft: MeetingSetup = {

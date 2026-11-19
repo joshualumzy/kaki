@@ -82,6 +82,10 @@ export interface MeetingSession {
   addHolder(holder: SeatHolder): void;
   /** Forget every holder: the grace for the old meeting ended, or a new meeting starts. */
   pruneHolders(): void;
+  /** The grace ended with nobody back: the running meeting is over and never resumes. */
+  abandoned(): boolean;
+  /** Mark a running meeting abandoned; the next arrival starts a new one. */
+  abandon(): void;
   /** When the meeting started; absent until Start commits and after a reset. */
   startedAt(): string | undefined;
   setStartedAt(startedAt: string | undefined): void;
@@ -117,6 +121,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let editedSinceSeal = false;
   let holders: SeatHolder[] = [];
   let started: string | undefined;
+  // The grace ended with nobody back: the running meeting is over and must never resume.
+  let abandonedMeeting = false;
+  // The abandoned meeting came from the saved row, so replacing it is not wiping a live meeting.
   // A save that came back without a running meeting (a draft or a consumed ended meeting).
   let restoredNoMeeting = false;
   // An ended meeting keeps its seal in the saved shape until Start or reset moves on.
@@ -151,6 +158,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       draftWasTouched = saved.draftTouched;
       editedSinceSeal = saved.draftEditedSinceSeal ?? false;
       started = saved.startedAt;
+      abandonedMeeting = saved.abandoned === true;
       restoredNoMeeting = false;
       storedEnded = false;
       holders = copyHolders(saved.holders);
@@ -163,6 +171,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     phase = 'lobby';
     active = checked(deps.restoreActive(saved));
     started = undefined;
+    abandonedMeeting = false;
     // An ended meeting keeps its consumed seal so Start can reopen it and the next arrival can drop
     // a draft that was not edited after END. A draft edited after END is the next meeting's setup.
     sealedSetup = saved.phase === 'ended' ? saved.sealed : undefined;
@@ -194,6 +203,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     phase = 'lobby';
     pending = undefined;
     pendingSealed = undefined;
+    abandonedMeeting = false;
     restoredNoMeeting = false;
     storedEnded = false;
     deps.memory.splice(0, deps.memory.length);
@@ -264,6 +274,11 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     pruneHolders() {
       holders = [];
     },
+    abandoned: () => abandonedMeeting,
+    abandon() {
+      if (phase !== 'running') refuse('abandon the meeting');
+      abandonedMeeting = true;
+    },
     startedAt: () => started,
     setStartedAt(value) {
       started = value;
@@ -283,6 +298,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       pending = undefined;
       pendingSealed = undefined;
       editedSinceSeal = false;
+      abandonedMeeting = false;
       restoredNoMeeting = false;
       storedEnded = false;
       phase = 'running';
@@ -297,6 +313,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     },
     end() {
       if (phase !== 'running') refuse('end the meeting');
+      abandonedMeeting = false;
       phase = 'ended';
     },
     reset,
@@ -317,11 +334,15 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
         draft,
         draftTouched: draftWasTouched,
         ...(editedSinceSeal ? { draftEditedSinceSeal: true } : {}),
+        ...(storedPhase === 'lobby' && !draftWasTouched
+          ? { lobbyAgenda: active.agenda.map((item) => item.title) }
+          : {}),
         ...(storedPhase === 'running' || storedPhase === 'ended'
           ? sealedSetup === undefined
             ? {}
             : { sealed: sealedSetup }
           : {}),
+        ...(abandonedMeeting && storedPhase === 'running' ? { abandoned: true } : {}),
         holders: copyHolders(holders),
         meetingCode: deps.meetingCode(),
         ...(started === undefined ? {} : { startedAt: started }),

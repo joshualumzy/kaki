@@ -468,11 +468,18 @@ async function handleRequest(
           // even if the person's name was one of its holders.
           const decisionPhase = context.session.restoredWithoutMeeting() ? 'ended' : phase;
           const holders = context.session.holders();
+          const abandoned = context.session.abandoned();
           const wouldHold = context.rejoin.wouldHold();
           const returning =
             roomEmpty &&
-            admission({ phase: decisionPhase, holders, present, name: participantName, graceActive: wouldHold }) ===
-              'resume';
+            admission({
+              phase: decisionPhase,
+              holders,
+              present,
+              name: participantName,
+              graceActive: wouldHold,
+              abandoned,
+            }) === 'resume';
           const seating = context.seating(returning, roomEmpty);
           // An owner-edited draft admits only the person seats it names; an untouched draft stays open.
           const setupRole = seating.setup === undefined ? undefined : setupRoleFor(seating.setup, wantedRole);
@@ -504,6 +511,7 @@ async function handleRequest(
                 name: participantName,
                 seat: seatId,
                 graceActive: wouldHold,
+                abandoned,
               })
             : 'join';
           const requestedMax = Number(process.env.NPC_MAX_HUMANS);
@@ -539,6 +547,7 @@ async function handleRequest(
             ? false
             : holders.length > 0 || phase === 'running' || phase === 'ended';
           // A code holder may be first into a fresh meeting, but may never wipe one that already ran.
+          // That holds for an abandoned meeting too: it never resumes, and only the owner replaces it.
           const wouldReset = decision === 'reset';
           if (wouldReset && meetingExisted && authOn && !isHost) {
             sendJson(response, 409, {
@@ -1287,13 +1296,28 @@ export async function createApp({
   function resetScenario({ seat, draftTouched: touched }: { seat?: string; draftTouched: boolean }): Scenario {
     return meetingScenario({ agenda: touched ? fullScenario.agenda : shapedAgenda(seat) });
   }
+  // A lobby's untouched draft runs the shaped pick admission already chose; keep it across a restart.
+  const savedLobbyAgenda =
+    savedMeeting?.phase === 'lobby' && savedMeeting.lobbyAgenda !== undefined
+      ? savedMeeting.lobbyAgenda.map((title) => {
+          const item = fullScenario.agenda.find((candidate) => candidate.title === title);
+          if (item === undefined) {
+            throw new Error(
+              `kaki session: the saved lobby agenda names "${title}", which this scenario no longer has`,
+            );
+          }
+          return item;
+        })
+      : undefined;
   /** The scenario the server boots with: the restored meeting's sealed setup, else the pack's. */
   function bootScenario(): Scenario {
     const sealed =
       savedMeeting !== undefined && (savedMeeting.phase === 'running' || savedMeeting.phase === 'ended')
         ? savedMeeting.sealed
         : undefined;
-    if (sealed === undefined) return meetingScenario({ agenda: fullScenario.agenda });
+    if (sealed === undefined) {
+      return meetingScenario({ agenda: savedLobbyAgenda ?? fullScenario.agenda });
+    }
     // A started meeting keeps the sealed setup it ran with, in the order it was actually using.
     return meetingScenario({
       meetingTitle: sealed.title,
@@ -1314,7 +1338,8 @@ export async function createApp({
   const roomPoll = createRoomPoll({
     guard: rejoin,
     // Someone joined (even before Start), or the meeting is running: keep watching the room.
-    hasMeeting: () => session.holders().length > 0 || session.phase() === 'running',
+    hasMeeting: () =>
+      !session.abandoned() && (session.holders().length > 0 || session.phase() === 'running'),
     roster: roomRoster,
     roomName: () => watchedRoom,
     isHuman: (name) => !packNpcNames.includes(name.toLowerCase()),
@@ -1509,13 +1534,52 @@ export async function createApp({
   // The task store belongs to the meeting, so a reset forgets its cards too. The session clears
   // every retained key (including 'task:') after these hooks run.
   session.onReset(() => tasks.reset());
-  // A holder who did not come back inside the grace is pruned when it ends; a restored running
-  // meeting starts its grace now, so its saved holders have the same window to return.
-  rejoin.onGraceExpired(() => {
-    session.pruneHolders();
-    persistence?.scheduleSave();
-  });
-  if (savedMeeting?.phase === 'running') rejoin.beginGrace();
+  // The grace ending is not proof the room is empty: a still-connected holder must survive. Only a
+  // roster read that succeeds, shows no person and no live reservation may prune and abandon.
+  let rosterOutageLogged = false;
+  function checkRoomBeforePruning(): void {
+    const roomName = watchedRoom ?? demoRoomName(session.active());
+    void roomRoster(roomName)
+      .then((roster) => {
+        if (roster === undefined) {
+          if (!rosterOutageLogged) {
+            console.warn(
+              'kaki rejoin: could not check who is in the room; keeping the meeting and its holders',
+            );
+            rosterOutageLogged = true;
+          }
+          return;
+        }
+        rosterOutageLogged = false;
+        const humans = roster.filter((person) => !packNpcNames.includes(person.name.toLowerCase()));
+        if (humans.length > 0) {
+          // The poll lagged: someone is still there, so keep the meeting open.
+          rejoin.occupied();
+          return;
+        }
+        // A token was just issued but LiveKit has not shown the person yet: keep their seat.
+        if (reservations.active(roster.map((person) => person.name)).length > 0) return;
+        session.pruneHolders();
+        if (session.phase() === 'running') session.abandon();
+        persistence?.scheduleSave();
+      })
+      .catch((error: unknown) => {
+        if (rosterOutageLogged) return;
+        rosterOutageLogged = true;
+        console.warn(
+          'kaki rejoin: could not check who is in the room; keeping the meeting and its holders',
+          error,
+        );
+      });
+  }
+  rejoin.onGraceExpired(checkRoomBeforePruning);
+  // A restored running meeting starts its grace now and watches its own room immediately, so a
+  // connected holder is never pruned merely because no new token request arrived.
+  if (savedMeeting?.phase === 'running' && !session.abandoned()) {
+    watchedRoom = demoRoomName(session.active());
+    rejoin.beginGrace();
+    roomPoll.start();
+  }
 
   /** Setup writes are refused from the moment Start begins until it commits or fails. */
   function setupLocked(): 'starting' | 'started' | undefined {

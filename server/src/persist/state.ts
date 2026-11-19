@@ -96,6 +96,13 @@ export interface SavedMeetingDetails {
   meetingCode: string;
   /** Absent while the meeting is still a pre-Start setup draft. */
   startedAt?: string;
+  /**
+   * The agenda a lobby's untouched draft will actually run (the shaped pick), so a restart keeps it.
+   * Only present for a lobby whose draft still follows the demo pack, never an owner-edited one.
+   */
+  lobbyAgenda?: string[];
+  /** The grace ended with nobody back: the meeting is over and the next arrival starts a new one. */
+  abandoned?: boolean;
 }
 
 /** Everything one save point writes: the session's details plus the running record. */
@@ -293,6 +300,23 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (typeof saved.draftTouched !== 'boolean') return 'its setup edit mark is not valid';
   if (saved.draftEditedSinceSeal !== undefined && typeof saved.draftEditedSinceSeal !== 'boolean') {
     return 'its setup edit mark is not valid';
+  }
+  const lobbyAgenda = (saved as { lobbyAgenda?: unknown }).lobbyAgenda;
+  if (lobbyAgenda !== undefined) {
+    if (saved.phase !== 'lobby') return 'its lobby agenda is not valid for this phase';
+    if (!Array.isArray(lobbyAgenda) || lobbyAgenda.length === 0 || !lobbyAgenda.every(isNonEmptyString)) {
+      return 'its lobby agenda is not a list of topics';
+    }
+    const known = new Set(scenario.agenda.map((item) => item.title));
+    const missing = lobbyAgenda.filter((title) => !known.has(title));
+    if (missing.length > 0) {
+      return `its lobby agenda has topics this scenario no longer has (${missing.join(', ')})`;
+    }
+  }
+  const abandoned = (saved as { abandoned?: unknown }).abandoned;
+  if (abandoned !== undefined) {
+    if (typeof abandoned !== 'boolean') return 'its abandoned mark is not valid';
+    if (abandoned && saved.phase !== 'running') return 'its abandoned mark is not valid for this phase';
   }
   const sealedPhase = saved.phase === 'starting' || saved.phase === 'running' || saved.phase === 'ended';
   if (sealedPhase) {

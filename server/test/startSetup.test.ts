@@ -547,6 +547,89 @@ describe('Start applies the validated setup', () => {
     }
   });
 
+  it('keeps the visitor-shaped lobby agenda across a restart, so Start seals the same topics', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(scenario, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+    });
+    expect((await join(first, 'Booth Playtest', 'producer')).status).toBe(200);
+    const chosen = structuredClone(await getScenario(first));
+    expect(chosen.agenda).toHaveLength(2);
+    await firstPersistence.flush();
+    expect(store.saved?.lobbyAgenda).toEqual(chosen.agenda.map((item) => item.title));
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(await loadScenario('kopitiam'), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    });
+    const restoredView = await getScenario(restored);
+    expect(restoredView.agenda.map((item) => item.title)).toEqual(chosen.agenda.map((item) => item.title));
+    expect((await getSetup(restored)).title).toBe(defaultMeetingSetup(structuredClone(scenario)).title);
+
+    await connectService(portOf(restored));
+    expect((await startMeeting(restored)).status).toBe(200);
+    const running = await getScenario(restored);
+    expect(running.agenda.map((item) => item.title)).toEqual(chosen.agenda.map((item) => item.title));
+  });
+
+  it('saves a Start in flight as the shaped lobby, so a restart keeps the agenda it was sealing', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(scenario, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+    });
+    const service = await connectHeldService(portOf(first));
+    expect((await join(first, 'Booth Playtest', 'producer')).status).toBe(200);
+    const chosen = structuredClone(await getScenario(first));
+    expect(chosen.agenda).toHaveLength(2);
+
+    const starting = startMeeting(first);
+    await waitFor(() => (service.prepares.length === 1 ? true : undefined), 'the runner prepare');
+    // Any saved event while the Start is in flight must persist the lobby shape, never running.
+    first.hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'screen' },
+      payload: { speaker: 'Booth', text: 'A line while starting.', timestamp: new Date().toISOString() },
+    });
+    await settle(20);
+    await firstPersistence.flush();
+    const whileStarting = structuredClone(store.saved);
+    expect(whileStarting?.phase).toBe('lobby');
+    expect(whileStarting?.lobbyAgenda).toEqual(chosen.agenda.map((item) => item.title));
+
+    service.reply('failed', 'restart while starting');
+    expect((await starting).status).toBe(503);
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restoredStore = new MemoryStore();
+    const restored = await startApp(await loadScenario('kopitiam'), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({
+        store: restoredStore,
+        saved: whileStarting,
+        log: () => undefined,
+      }),
+    });
+    expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(
+      chosen.agenda.map((item) => item.title),
+    );
+
+    await connectService(portOf(restored));
+    expect((await startMeeting(restored)).status).toBe(200);
+    expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual(
+      chosen.agenda.map((item) => item.title),
+    );
+  });
+
   it('starts an owner-edited setup whose linked topics were narrowed', async () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
@@ -1089,7 +1172,8 @@ describe('Start applies the validated setup', () => {
 
   it('forgets a departed seat holder once the grace ends, so Start asks someone to join', async () => {
     const pack = await loadScenario('kopitiam');
-    const app = await startApp(pack, { rejoinGraceMs: 20, rejoinPollMs: 5 });
+    // Let the join's seat reservation expire first: a live reservation keeps the holder on purpose.
+    const app = await startApp(pack, { rejoinGraceMs: 20, rejoinPollMs: 5, admissionReservationMs: 20 });
     expect((await join(app, 'Departed', 'lead_programmer')).status).toBe(200);
     // The room poll sees the empty room and the short grace runs out; the holder is pruned.
     await new Promise((resolve) => setTimeout(resolve, 150));
