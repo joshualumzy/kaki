@@ -231,6 +231,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const npcs = scenario.npcs ?? [];
   if (npcs.length === 0) throw new Error(`Scenario "${scenario.id}" defines no npcs, so there is nobody to run`);
   const npcNames = new Set(npcs.map((npc) => npc.attendee));
+  // The active cast the server publishes with the sealed setup: only seats marked AI are voiced.
+  let activeNpcs = npcs;
   // Characters nobody can play stay in the room and listen; the rest join for the person who arrives,
   // as everyone except the seat that person took.
   // When every character is playable (the host's seat too), the host stays connected as a silent listener
@@ -452,7 +454,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (closing) throw new Error('the AI runner is stopping');
     if (humans.size === 0) return;
     const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
-    const wanted = npcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
+    const wanted = activeNpcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
     for (const npc of wanted) await joinCharacter(npc);
     for (const [name, character] of [...characters]) {
       if (name === listenerProfile.attendee || wanted.some((npc) => npc.attendee === name)) continue;
@@ -470,6 +472,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           return undefined;
         });
         if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
+          if (Array.isArray(latest.npcs)) activeNpcs = latest.npcs;
           setMeetingAgenda(scenario, latest, latest.agenda);
         } else {
           log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);

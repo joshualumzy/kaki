@@ -1,12 +1,8 @@
-import type { KakiEvent, Role, SearchCompanyData } from '@kaki/shared';
+import { DEFAULT_MEETING_PACE, type KakiEvent, type MeetingPace, type Role, type SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from '../knowledge/gateway';
 import { createCompanySearchFromEnv } from '../knowledge/search';
-
-const COMING_UP_WINDOW_SECONDS = 60;
-const QUIET_RUNNING_SECONDS = 120;
-const QUIET_TALK_SECONDS = 30;
 
 export interface NudgeModuleOptions {
   /** A prepared search, used by tests and the check script. */
@@ -90,6 +86,7 @@ function handleEvent(
   ctx: KakiContext,
   search: SearchCompanyData,
   fired: Set<string>,
+  pace: MeetingPace,
   event: KakiEvent,
 ): void {
   if (event.type === 'MEETING_RESET') {
@@ -107,9 +104,9 @@ function handleEvent(
   const secondsLeft = current.minutes * 60 - elapsedSeconds;
 
   const quietKey = `quiet_owner:${agendaIndex}`;
-  if (!fired.has(quietKey) && elapsedSeconds >= QUIET_RUNNING_SECONDS) {
+  if (!fired.has(quietKey) && elapsedSeconds >= pace.quietCheckAfter) {
     const talked = speakerTalkSeconds[current.ownerRole] ?? 0;
-    if (talked < QUIET_TALK_SECONDS) {
+    if (talked < pace.ownerQuietBelow) {
       fired.add(quietKey);
       sendNudge(ctx, search, {
         kind: 'quiet_owner',
@@ -126,7 +123,7 @@ function handleEvent(
   if (next === undefined || next.ownerRole === current.ownerRole) return;
 
   const comingUpKey = `coming_up:${nextIndex}`;
-  if (!fired.has(comingUpKey) && secondsLeft <= COMING_UP_WINDOW_SECONDS) {
+  if (!fired.has(comingUpKey) && secondsLeft <= pace.comingUpBefore) {
     fired.add(comingUpKey);
     sendNudge(ctx, search, {
       kind: 'coming_up',
@@ -163,9 +160,11 @@ export function createNudgeModule(options: NudgeModuleOptions = {}): KakiModule 
 
       const activeSearch = search;
       const fired = new Set<string>();
+      // The sealed setup carries the owner's three pace values; a module started without one keeps the defaults.
+      const pace = (): MeetingPace => ctx.meetingDetails?.().setup.pace ?? DEFAULT_MEETING_PACE;
       const unsubscribe = ctx.hub.subscribe((event) => {
         try {
-          handleEvent(ctx, activeSearch, fired, event);
+          handleEvent(ctx, activeSearch, fired, pace(), event);
         } catch (error) {
           console.error('kaki wingman: nudge subscriber failed', error);
         }

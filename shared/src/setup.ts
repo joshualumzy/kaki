@@ -1,4 +1,4 @@
-import type { Scenario } from './scenario';
+import type { AgendaItem, NpcProfile, Scenario } from './scenario';
 
 /** Where a group of setup fields came from, shown next to them on the setup screen. */
 export type SetupSource = 'calendar invite' | 'demo pack' | 'typed';
@@ -478,18 +478,18 @@ export function defaultMeetingSetup(scenario: Scenario): MeetingSetup {
   }));
 
   const npcByAttendee = new Map((scenario.npcs ?? []).map((npc) => [npc.attendee, npc]));
+  // A person without a pack profile is the meeting's human. When the pack covers everyone, the
+  // first playable character is the human and the rest are AI stand-ins, as before.
   const person =
+    scenario.attendees.find((attendee) => !npcByAttendee.has(attendee.name)) ??
     scenario.attendees.find((attendee) => npcByAttendee.get(attendee.name)?.playable === true) ??
     scenario.attendees[0];
-  const useAi =
-    scenario.attendees.length > 1 &&
-    scenario.attendees.every((attendee) => attendee === person || npcByAttendee.has(attendee.name));
 
   let seats: MeetingSetupSeat[];
   if (scenario.attendees.length > 0) {
     seats = scenario.attendees.map((attendee) => {
       const npc = npcByAttendee.get(attendee.name);
-      return useAi && attendee !== person && npc !== undefined
+      return attendee !== person && npc !== undefined
         ? {
             displayName: attendee.name,
             roleId: attendee.role,
@@ -520,4 +520,44 @@ export function defaultMeetingSetup(scenario: Scenario): MeetingSetup {
       pace: 'demo pack',
     },
   };
+}
+
+/**
+ * The agenda a sealed setup runs: setup order, minutes and owners, with each title matched to the
+ * pack's agenda item so its briefing, links and NPC knowledge stay attached. A title the pack does
+ * not have becomes a plain item (no briefing) with the required fields filled in.
+ *
+ * `titleOrder` lets a restore keep the order the running meeting was actually using; a title missing
+ * from the setup there falls back to the pack item, so an older save still loads.
+ */
+export function meetingAgendaFromSetup(
+  setup: MeetingSetup,
+  scenario: Scenario,
+  titleOrder: readonly string[] = setup.agenda.map((item) => item.title),
+): AgendaItem[] {
+  const sourceByTitle = new Map(scenario.agenda.map((item) => [item.title, item]));
+  const setupByTitle = new Map(setup.agenda.map((item) => [item.title, item]));
+  return titleOrder.map((title) => {
+    const source = sourceByTitle.get(title);
+    const item = setupByTitle.get(title);
+    if (item === undefined) {
+      if (source === undefined) throw new Error(`Unknown meeting agenda title: ${title}`);
+      return source;
+    }
+    if (source === undefined) {
+      return { title, minutes: item.minutes, canWait: true, deadline: 'today', ownerRole: item.ownerRoleId };
+    }
+    return { ...source, minutes: item.minutes, ownerRole: item.ownerRoleId };
+  });
+}
+
+/**
+ * The NPC profiles the runner may voice for a sealed setup: only the profiles of seats marked `ai`.
+ * A pack seat switched to a person, or a typed seat with no profile, is left out.
+ */
+export function setupAiCast(scenario: Scenario, setup: MeetingSetup): NpcProfile[] {
+  const profiles = new Set(
+    setup.seats.flatMap((seat) => (seat.kind === 'ai' && seat.npcProfileId !== undefined ? [seat.npcProfileId] : [])),
+  );
+  return (scenario.npcs ?? []).filter((npc) => profiles.has(npc.attendee));
 }

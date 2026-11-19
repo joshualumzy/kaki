@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/shared';
+import { defaultMeetingSetup, type Fact, type KakiEvent, type MeetingPace, type Role, type Scenario, type SearchCompanyData } from '@kaki/shared';
 import type { Hub } from '../../src/hub';
 import type { TaskStore } from '../../src/tasks';
 import { createNudgeModule } from '../../src/wingman/nudges/module';
@@ -81,9 +81,18 @@ function recordUpdate(
   };
 }
 
-function start(search: SearchCompanyData, hub: Hub): () => void {
+function start(search: SearchCompanyData, hub: Hub, pace?: MeetingPace): () => void {
   const module = createNudgeModule({ search, env: {} });
-  const stop = module.start({ hub, tasks: {} as TaskStore, scenario });
+  const meetingDetails =
+    pace === undefined
+      ? undefined
+      : () => ({ setup: { ...defaultMeetingSetup(scenario), pace }, meetingCode: 'AB12CD', seats: [] });
+  const stop = module.start({
+    hub,
+    tasks: {} as TaskStore,
+    scenario,
+    ...(meetingDetails === undefined ? {} : { meetingDetails }),
+  });
   if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
   return stop;
 }
@@ -254,6 +263,64 @@ describe('nudge module', () => {
       expect(nudges(fake.published)).toEqual([]);
     } finally {
       if (typeof stop === 'function') stop();
+    }
+  });
+
+  it('reads the quiet check time from the active setup', async () => {
+    const fake = fakeHub();
+    const stop = start(async () => [fact], fake.hub, { ownerQuietBelow: 5, quietCheckAfter: 60, comingUpBefore: 60 });
+
+    try {
+      fake.emit(recordUpdate(0, 59, { lead_programmer: 1 }));
+      await settle(20);
+      expect(nudges(fake.published)).toEqual([]);
+
+      fake.emit(recordUpdate(0, 60, { lead_programmer: 1 }));
+      await waitFor(() => nudges(fake.published).length > 0, 'the configured quiet check');
+      expect(nudges(fake.published)[0]).toMatchObject({ audience: { kind: 'role', role: 'lead_programmer' } });
+    } finally {
+      stop();
+    }
+  });
+
+  it('reads the quiet-owner threshold from the active setup', async () => {
+    const quiet = fakeHub();
+    const quietStop = start(async () => [fact], quiet.hub, { ownerQuietBelow: 50, quietCheckAfter: 60, comingUpBefore: 60 });
+    try {
+      quiet.emit(recordUpdate(0, 60, { lead_programmer: 49 }));
+      await waitFor(() => nudges(quiet.published).length > 0, 'the configured quiet-owner nudge');
+    } finally {
+      quietStop();
+    }
+
+    const talkative = fakeHub();
+    const talkativeStop = start(async () => [fact], talkative.hub, { ownerQuietBelow: 50, quietCheckAfter: 60, comingUpBefore: 60 });
+    try {
+      talkative.emit(recordUpdate(0, 60, { lead_programmer: 50 }));
+      await settle();
+      expect(nudges(talkative.published)).toEqual([]);
+    } finally {
+      talkativeStop();
+    }
+  });
+
+  it('reads the coming-up window from the active setup', async () => {
+    const fake = fakeHub();
+    const stop = start(async () => [fact], fake.hub, { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 30 });
+
+    try {
+      fake.emit(recordUpdate(0, 569, { lead_programmer: 300 }));
+      await settle(20);
+      expect(nudges(fake.published)).toEqual([]);
+
+      fake.emit(recordUpdate(0, 570, { lead_programmer: 300 }));
+      await waitFor(() => nudges(fake.published).length > 0, 'the configured coming-up nudge');
+      expect(nudges(fake.published)[0]).toMatchObject({
+        audience: { kind: 'role', role: 'game_designer' },
+        payload: { agendaIndex: 1 },
+      });
+    } finally {
+      stop();
     }
   });
 

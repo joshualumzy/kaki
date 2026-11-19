@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, KOPITIAM_INVITE_UID, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
@@ -852,9 +852,22 @@ export async function createApp({
   // Validate the whole saved meeting before any part of it is applied, then put its agenda back in
   // place so the restored agenda index still names the topic the room was discussing.
   const savedMeeting = persistence?.saved;
+  // A meeting saved while it was running is already started: the first person back joins it directly.
+  const restoredStarted = savedMeeting?.state.clock.started === true && savedMeeting.state.clock.ended !== true;
   if (savedMeeting !== undefined) {
     assertReadableSavedMeeting(savedMeeting, scenario);
-    setMeetingAgenda(scenario, fullScenario, resolveSavedAgenda(savedMeeting, scenario));
+    if (restoredStarted) {
+      // A running meeting keeps the sealed setup it started with, in the order it was actually using.
+      setMeetingAgenda(
+        scenario,
+        fullScenario,
+        meetingAgendaFromSetup(savedMeeting.setup, fullScenario, savedMeeting.state.agenda),
+        { allowPlain: true },
+      );
+      scenario.npcs = setupAiCast(fullScenario, savedMeeting.setup);
+    } else {
+      setMeetingAgenda(scenario, fullScenario, resolveSavedAgenda(savedMeeting, scenario));
+    }
     if (meetingCode.fixed) {
       if (savedMeeting.meetingCode !== meetingCode.value) {
         console.log('kaki persist: KAKI_MEETING_CODE replaced the saved meeting code');
@@ -865,8 +878,6 @@ export async function createApp({
   }
   // A pre-Start setup draft comes back exactly as it was left; a new meeting starts from the pack.
   const setupDraft = { current: savedMeeting?.setup ?? defaultSetup };
-  // A meeting saved while it was running is already started: the first person back joins it directly.
-  const restoredStarted = savedMeeting?.state.clock.started === true && savedMeeting.state.clock.ended !== true;
   const restoredAgendaIndex = restoredStarted ? (savedMeeting?.state.clock.agendaIndex ?? 0) : 0;
   const meeting = {
     id: savedMeeting?.state.meetingId ?? randomUUID(),
@@ -910,7 +921,6 @@ export async function createApp({
 
   // The AI runner must confirm it prepared the meeting before Start succeeds. Without that
   // acknowledgement a guest would sit on "Starting..." forever while nobody speaks.
-  const hasAi = (scenario.npcs?.length ?? 0) > 0;
   interface RunnerWaiter {
     meetingId: string;
     resolve(): void;
@@ -1006,12 +1016,36 @@ export async function createApp({
     }
     // A Start for the same meeting joins the attempt already in flight. A new meeting never inherits it.
     if (starting !== undefined && starting.meetingId === meeting.id) return starting.promise;
+    // Re-validate the whole draft before anything is applied or the runner is asked, so a bad edit
+    // made outside the setup screen fails Start loudly and leaves the meeting untouched.
+    const parsed = parseMeetingSetup(setupDraft.current, {
+      npcProfileIds: demoPackNpcProfileIds(fullScenario),
+    });
+    if (!parsed.ok) {
+      return Promise.resolve({
+        status: 422,
+        body: {
+          error: 'The meeting setup is not valid, so the meeting was not started. Fix the setup and try again.',
+          errors: parsed.errors,
+        },
+      });
+    }
+    // Seal the validated setup, then make it the active meeting before the runner prepares: the
+    // clock, /api/scenario and the runner's scenario re-read all see the same agenda and cast.
+    const sealedSetup = parsed.value;
+    const activeCast = setupAiCast(fullScenario, sealedSetup);
+    setMeetingAgenda(scenario, fullScenario, meetingAgendaFromSetup(sealedSetup, fullScenario), {
+      allowPlain: true,
+    });
+    scenario.npcs = activeCast;
+    setupDraft.current = sealedSetup;
+    const activeAi = activeCast.length > 0;
     const attempt = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const meetingId = meeting.id;
     const generation = meetingGeneration;
     const outcome = (async (): Promise<StartOutcome> => {
       const startedAt = new Date().toISOString();
-      if (hasAi) {
+      if (activeAi) {
         if (
           hub.requestStart?.({
             requestId: attempt,
@@ -1100,6 +1134,8 @@ export async function createApp({
     meeting.started = false;
     meeting.startedAt = undefined;
     setupDraft.current = defaultSetup;
+    // A new meeting starts from the whole pack; the sealed cast belonged to the old one.
+    scenario.npcs = fullScenario.npcs;
     hub.clearRetained('meeting:started');
     // A restored meeting that is replaced before anyone reconnects is gone; the next arrival starts fresh.
     rejoin.forgetRestored();
