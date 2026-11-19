@@ -225,8 +225,8 @@ export interface HostBrief {
   decision: string;
 }
 
-const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
-const RESERVED_ROLE_ID = 'screen';
+export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
+export const RESERVED_ROLE_ID = 'screen';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

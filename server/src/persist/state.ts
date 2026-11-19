@@ -18,7 +18,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 4;
+export const MEETING_STATE_SCHEMA_VERSION = 5;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -81,6 +81,8 @@ export interface SavedSeatAssignment {
 /** The setup, code and seat holders that belong to the meeting but not to its running record. */
 export interface SavedMeetingDetails {
   setup: MeetingSetup;
+  /** True when the owner edited the draft after the last reset; untouched drafts follow the live meeting. */
+  draftTouched?: boolean;
   meetingCode: string;
   seats: SavedSeatAssignment[];
 }
@@ -272,6 +274,9 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   }
   const setup = setupProblem((saved as { setup?: unknown }).setup, scenario);
   if (setup !== undefined) return setup;
+  if (saved.draftTouched !== undefined && typeof saved.draftTouched !== 'boolean') {
+    return 'its setup edit mark is not valid';
+  }
   const meetingCode = meetingCodeProblem((saved as { meetingCode?: unknown }).meetingCode);
   if (meetingCode !== undefined) return meetingCode;
   const seats = seatsProblem((saved as { seats?: unknown }).seats);

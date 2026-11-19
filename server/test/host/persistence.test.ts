@@ -330,9 +330,9 @@ describe('meeting persistence across a restart', () => {
     expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
   });
 
-  it('refuses the previous v3 save with a clear message', () => {
+  it('refuses the previous format save with a clear message', () => {
     const saved: StoredMeeting = {
-      schemaVersion: 3,
+      schemaVersion: MEETING_STATE_SCHEMA_VERSION - 1,
       startedAt: '2026-01-01T00:00:00.000Z',
       savedAt: '2026-01-01T00:00:00.000Z',
       setup: defaultMeetingSetup(testScenario),

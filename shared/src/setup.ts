@@ -1,4 +1,11 @@
-import type { AgendaItem, NpcProfile, Scenario } from './scenario';
+import {
+  RESERVED_ROLE_ID,
+  ROLE_ID_PATTERN,
+  type AgendaItem,
+  type NpcProfile,
+  type Scenario,
+  type ScenarioRole,
+} from './scenario';
 
 /** Where a group of setup fields came from, shown next to them on the setup screen. */
 export type SetupSource = 'calendar invite' | 'demo pack' | 'typed';
@@ -129,6 +136,14 @@ function readRoles(value: unknown, errors: SetupFieldError[]): RoleRead {
       error(errors, `roles[${index}].id`, 'Enter a role id.');
     } else if (ids.has(id)) {
       error(errors, `roles[${index}].id`, 'Role ids must be unique.');
+    } else if (id === RESERVED_ROLE_ID) {
+      error(errors, `roles[${index}].id`, `"${RESERVED_ROLE_ID}" is a reserved role id.`);
+    } else if (!ROLE_ID_PATTERN.test(id)) {
+      error(
+        errors,
+        `roles[${index}].id`,
+        'Role ids start with a letter and use only lowercase letters, numbers and underscores.',
+      );
     } else {
       ids.add(id);
     }
@@ -560,4 +575,22 @@ export function setupAiCast(scenario: Scenario, setup: MeetingSetup): NpcProfile
     setup.seats.flatMap((seat) => (seat.kind === 'ai' && seat.npcProfileId !== undefined ? [seat.npcProfileId] : [])),
   );
   return (scenario.npcs ?? []).filter((npc) => profiles.has(npc.attendee));
+}
+
+/**
+ * The scenario roles a sealed setup runs: its ids, labels and facilitator flag. A role the pack
+ * already has keeps its pack data (a phone card, for example); a new role is defined by the setup.
+ * A pack role the setup omits stays in the registry, so a seat or saved task naming it still parses.
+ */
+export function setupScenarioRoles(scenario: Scenario, setup: MeetingSetup): ScenarioRole[] {
+  const packRoles = new Map(scenario.roles.map((role) => [role.id, role]));
+  const applied = new Set<string>();
+  const roles = setup.roles.map((role) => {
+    applied.add(role.id);
+    const packRole = packRoles.get(role.id);
+    return packRole === undefined
+      ? { id: role.id, label: role.label, facilitator: role.facilitator }
+      : { ...packRole, label: role.label, facilitator: role.facilitator };
+  });
+  return [...roles, ...scenario.roles.filter((role) => !applied.has(role.id))];
 }

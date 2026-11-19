@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TOPIC, type Scenario } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -6,13 +6,20 @@ import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
 import { startNpcRunner, visitorDispatchLine, type RunnerMeetingState } from '../../src/npc/runner';
 
-const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void }>);
+const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void; connected?: boolean }>);
 const published = vi.hoisted(() => [] as Array<{ topic?: string; message: unknown }>);
+const tokens = vi.hoisted(() => [] as string[]);
 const startup = vi.hoisted(() => ({ hold: false, release: undefined as undefined | (() => void) }));
 
-vi.mock('../../src/livekit', () => ({ createRoomToken: async () => 'offline-token' }));
+vi.mock('../../src/livekit', () => ({
+  createRoomToken: async (options: { participantName: string }) => {
+    tokens.push(options.participantName);
+    return 'offline-token';
+  },
+}));
 vi.mock('@livekit/rtc-node', () => {
   class Room {
+    connected = false;
     handlers = new Map<string, Array<(...args: unknown[]) => void>>();
     remoteParticipants = new Map();
     localParticipant = {
@@ -33,8 +40,8 @@ vi.mock('@livekit/rtc-node', () => {
     emit(event: string, ...args: unknown[]) {
       for (const handler of this.handlers.get(event) ?? []) handler(...args);
     }
-    async connect() { return undefined; }
-    async disconnect() { return undefined; }
+    async connect() { this.connected = true; return undefined; }
+    async disconnect() { this.connected = false; return undefined; }
   }
   return {
     Room,
@@ -260,6 +267,75 @@ describe('server-owned start preparation', () => {
 
       await runner.markStarted({ meetingId: 'meeting-1' });
       await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('fetches the authoritative cast before computing who to connect during prepare', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    let latest: Scenario = { ...scenario, npcs: (scenario.npcs ?? []).filter((npc) => npc.role === 'host') };
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      fetchScenario: async () => latest,
+      responseDelayMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(tokens).toContain('Sam'));
+      expect(tokens).not.toContain('Arjun');
+
+      // The cast changes only now; preparation must fetch it before deciding who joins.
+      latest = { ...scenario, agenda: scenario.agenda.slice(0, 2) };
+      await runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' });
+      expect(tokens).toContain('Arjun');
+      expect(tokens).toContain('Mei');
+      expect(runner.plays('Arjun')).toBe(true);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('acks preparation with a zero-AI cast, disconnecting previous voices', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    let latest: Scenario = scenario;
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      fetchScenario: async () => latest,
+      responseDelayMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      const voices = rooms.slice(1);
+      expect(voices.length).toBeGreaterThan(0);
+      expect(voices.every((room) => room.connected === true)).toBe(true);
+
+      latest = { ...scenario, npcs: [] };
+      await expect(
+        runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' }),
+      ).resolves.toBeUndefined();
+      expect(runner.plays('Arjun')).toBe(false);
+      await vi.waitFor(() => expect(voices.every((room) => room.connected === false)).toBe(true));
+
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
     } finally {
       await runner.stop();
     }

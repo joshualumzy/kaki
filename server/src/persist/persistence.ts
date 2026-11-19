@@ -104,6 +104,7 @@ export function createMeetingPersistence({
         ...(snapshot.startedAt === undefined ? {} : { startedAt: snapshot.startedAt }),
         state: snapshot.state,
         setup: snapshot.setup,
+        ...(snapshot.draftTouched === undefined ? {} : { draftTouched: snapshot.draftTouched }),
         meetingCode: snapshot.meetingCode,
         seats: snapshot.seats,
       });

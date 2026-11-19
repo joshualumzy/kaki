@@ -449,9 +449,46 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
   const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
 
+  /**
+   * Take the server's authoritative scenario first: its agenda, roles and the cast the sealed setup
+   * says are AI. A rejected scenario is loud; the last good cast stays as a documented fallback.
+   */
+  async function refreshFromServer(): Promise<void> {
+    if (options.fetchScenario === undefined) return;
+    let failure: string | undefined;
+    const latest = await options.fetchScenario().catch((error: unknown) => {
+      failure = String(error).slice(0, 300);
+      return undefined;
+    });
+    if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
+      activeNpcs = latest.npcs ?? [];
+      if (Array.isArray(latest.roles)) scenario.roles = latest.roles;
+      setMeetingAgenda(scenario, latest, latest.agenda);
+    } else {
+      log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);
+    }
+  }
+
   /** Make the room match the people in it and have a conversation ready, without opening the meeting. */
   async function ensureCast(): Promise<void> {
     if (closing) throw new Error('the AI runner is stopping');
+    // Fetch before choosing who to connect: a changed cast must join in this preparation, not the next one.
+    await refreshFromServer();
+    // A zero-AI meeting keeps only the silent room listener; every voiced character leaves.
+    if (activeNpcs.length === 0) {
+      for (const [name, character] of [...characters]) {
+        if (name === listenerProfile.attendee) continue;
+        characters.delete(name);
+        await character.room.disconnect().catch(() => undefined);
+        log(`${name} left ${roomName}`);
+      }
+      if (conversation !== undefined) {
+        conversation.close();
+        conversation = undefined;
+        castNames = '';
+      }
+      return;
+    }
     if (humans.size === 0) return;
     const seats = new Set([...humans.values()].flatMap((person) => (person.seat === undefined ? [] : [person.seat])));
     const wanted = activeNpcs.filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
@@ -464,20 +501,16 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
 
     const names = wanted.map((npc) => npc.attendee).join(',');
-    if (conversation === undefined || names !== castNames || !started) {
-      if (options.fetchScenario !== undefined) {
-        let failure: string | undefined;
-        const latest = await options.fetchScenario().catch((error: unknown) => {
-          failure = String(error).slice(0, 300);
-          return undefined;
-        });
-        if (latest !== undefined && Array.isArray(latest.agenda) && latest.agenda.length > 0) {
-          if (Array.isArray(latest.npcs)) activeNpcs = latest.npcs;
-          setMeetingAgenda(scenario, latest, latest.agenda);
-        } else {
-          log(`ERROR: scenario fetch or validation failed: ${failure ?? 'no usable scenario returned'}; keeping current agenda as last resort`);
-        }
+    if (wanted.length === 0) {
+      // A sealed setup can take every seat as a person: nobody is voiced, and the old conversation is gone.
+      if (conversation !== undefined) {
+        conversation.close();
+        conversation = undefined;
+        castNames = '';
       }
+      return;
+    }
+    if (conversation === undefined || names !== castNames || !started) {
       if (conversation === undefined || names !== castNames) {
         conversation?.close();
         conversation = makeConversation(wanted);

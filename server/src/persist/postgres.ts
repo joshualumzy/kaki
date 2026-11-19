@@ -17,13 +17,15 @@ export async function ensureMeetingStateSchema(pool: Pool): Promise<void> {
       started_at timestamptz,
       state jsonb not null,
       setup jsonb,
+      draft_touched boolean,
       meeting_code text,
       seats jsonb
     )
   `);
-  // Older tables declared started_at not null and lacked the setup, code and seat columns.
+  // Older tables declared started_at not null and lacked the setup, edit mark, code and seat columns.
   await pool.query('alter table meeting_state alter column started_at drop not null');
   await pool.query('alter table meeting_state add column if not exists setup jsonb');
+  await pool.query('alter table meeting_state add column if not exists draft_touched boolean');
   await pool.query('alter table meeting_state add column if not exists meeting_code text');
   await pool.query('alter table meeting_state add column if not exists seats jsonb');
 }
@@ -34,6 +36,7 @@ interface MeetingStateRow {
   started_at: Date | string | null;
   state: SavedMeetingState;
   setup: StoredMeeting['setup'] | null;
+  draft_touched: boolean | null;
   meeting_code: string | null;
   seats: SavedSeatAssignment[] | null;
 }
@@ -43,7 +46,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
   return {
     async load() {
       const result = await pool.query<MeetingStateRow>(
-        'select schema_version, saved_at, started_at, state, setup, meeting_code, seats from meeting_state where id = $1',
+        'select schema_version, saved_at, started_at, state, setup, draft_touched, meeting_code, seats from meeting_state where id = $1',
         [MEETING_STATE_ID],
       );
       const row = result.rows[0];
@@ -55,6 +58,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
         state: row.state,
         // A row from before the schema bump has no setup; the version check refuses it before use.
         setup: (row.setup ?? ({} as StoredMeeting['setup'])),
+        ...(row.draft_touched === true ? { draftTouched: true } : {}),
         meetingCode: row.meeting_code ?? '',
         seats: row.seats ?? [],
       };
@@ -63,14 +67,15 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
 
     async save(meeting) {
       await pool.query(
-        `insert into meeting_state (id, schema_version, saved_at, started_at, state, setup, meeting_code, seats)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
+        `insert into meeting_state (id, schema_version, saved_at, started_at, state, setup, draft_touched, meeting_code, seats)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          on conflict (id) do update set
            schema_version = excluded.schema_version,
            saved_at = excluded.saved_at,
            started_at = excluded.started_at,
            state = excluded.state,
            setup = excluded.setup,
+           draft_touched = excluded.draft_touched,
            meeting_code = excluded.meeting_code,
            seats = excluded.seats`,
         [
@@ -80,6 +85,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
           meeting.startedAt ?? null,
           JSON.stringify(meeting.state),
           JSON.stringify(meeting.setup),
+          meeting.draftTouched === true,
           meeting.meetingCode,
           JSON.stringify(meeting.seats),
         ],
