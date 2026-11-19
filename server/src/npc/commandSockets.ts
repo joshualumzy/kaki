@@ -4,15 +4,27 @@ import { WebSocket } from 'ws';
 /** The screen and each AI role each get their own command socket, exactly as a phone would. */
 type CommandAudience = Role | 'screen';
 
+/** A command waiting for a reconnect, tagged with the meeting it was sent in. */
+interface QueuedCommand {
+  message: string;
+  meetingId: string | undefined;
+}
+
+/** The latest value of a stateful screen cue, tagged with the meeting that set it. */
+interface CachedState<T> {
+  value: T;
+  meetingId: string | undefined;
+}
+
 interface Entry {
   socket: WebSocket | undefined;
-  queue: string[];
+  queue: QueuedCommand[];
   attempts: number;
   timer: ReturnType<typeof setTimeout> | undefined;
   opened: boolean;
   closing: boolean;
-  lastHostMode: boolean | undefined;
-  lastPaused: boolean | undefined;
+  lastHostMode: CachedState<boolean> | undefined;
+  lastPaused: CachedState<boolean> | undefined;
 }
 
 export interface CommandSocketsOptions {
@@ -27,12 +39,16 @@ export interface CommandSocketsOptions {
   /** How many connection attempts a socket gets before the queued commands are given up on. */
   maxReconnectAttempts?: number;
   reconnectDelayMs?(attempt: number): number;
+  /** The meeting the runner is in now, used to fence queued commands from older meetings. */
+  currentMeetingId?(): string | undefined;
 }
 
 export interface CommandSockets {
   sendAs(role: CommandAudience, command: KakiCommand): void;
   /** Forget commands still waiting for a reconnect: they belong to a meeting that was reset. */
   dropQueued(): void;
+  /** Forget queued commands whose meeting is not the runner's current meeting. */
+  dropStale(): void;
   close(): void;
 }
 
@@ -61,6 +77,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   const maxQueue = options.maxQueue ?? 100;
   const maxAttempts = options.maxReconnectAttempts ?? 5;
   const reconnectDelay = options.reconnectDelayMs ?? defaultReconnectDelayMs;
+  const currentMeetingId = options.currentMeetingId ?? (() => undefined);
   const createSocket =
     options.createSocket ?? ((url, init) => new WebSocket(url, init));
   const socketOptions =
@@ -88,35 +105,62 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     return entry;
   }
 
-  function sendMessage(entry: Entry, role: CommandAudience, message: string): void {
+  function sendMessage(
+    entry: Entry,
+    role: CommandAudience,
+    message: string,
+    meetingId: string | undefined,
+  ): void {
     if (entry.socket === undefined || entry.socket.readyState !== WebSocket.OPEN) {
-      enqueue(entry, role, message);
+      enqueue(entry, role, message, meetingId);
       return;
     }
     try {
       entry.socket.send(message);
     } catch (error) {
       logError(`could not send as ${role}: ${String(error)}; queueing the command for the reconnect`);
-      enqueue(entry, role, message);
+      enqueue(entry, role, message, meetingId);
       down(entry, role);
     }
   }
 
-  function enqueue(entry: Entry, role: CommandAudience, message: string): void {
+  function enqueue(
+    entry: Entry,
+    role: CommandAudience,
+    message: string,
+    meetingId: string | undefined,
+  ): void {
     if (entry.queue.length >= maxQueue) {
       const dropped = entry.queue.shift();
       if (dropped !== undefined) {
-        logError(`the ${role} command queue is full (${maxQueue}); dropped the oldest command (${commandType(dropped)})`);
+        logError(
+          `the ${role} command queue is full (${maxQueue}); ` +
+            `dropped the oldest command (${commandType(dropped.message)})`,
+        );
       }
     }
-    entry.queue.push(message);
+    entry.queue.push({ message, meetingId });
+  }
+
+  /** Drop queued commands that belong to a meeting other than the runner's current one. */
+  function dropStaleFor(entry: Entry, role: CommandAudience): void {
+    const current = currentMeetingId();
+    const stale = entry.queue.filter((queued) => queued.meetingId !== current);
+    if (stale.length === 0) return;
+    entry.queue = entry.queue.filter((queued) => queued.meetingId === current);
+    const types = [...new Set(stale.map((queued) => commandType(queued.message)))];
+    logError(
+      `dropped ${stale.length} queued ${role} command${stale.length === 1 ? '' : 's'} ` +
+        `from another meeting (${types.join(', ')}); the runner is now in ${current ?? 'no meeting'}`,
+    );
   }
 
   function flush(entry: Entry, role: CommandAudience): void {
+    dropStaleFor(entry, role);
     while (entry.queue.length > 0) {
       const socket = entry.socket;
       if (socket === undefined || socket.readyState !== WebSocket.OPEN) return;
-      const message = entry.queue[0]!;
+      const message = entry.queue[0]!.message;
       try {
         socket.send(message);
       } catch (error) {
@@ -133,7 +177,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     if (entry.closing) return;
     if (entry.attempts >= maxAttempts) {
       const dropped = entry.queue.splice(0);
-      const types = [...new Set(dropped.map(commandType))];
+      const types = [...new Set(dropped.map((queued) => commandType(queued.message)))];
       logError(
         `could not reconnect the ${role} command socket after ${entry.attempts} attempts; ` +
           `dropped ${dropped.length} queued command${dropped.length === 1 ? '' : 's'}` +
@@ -164,11 +208,12 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
       entry.opened = true;
       flush(entry, role);
       if (role === 'screen' && reconnected) {
-        if (entry.lastHostMode !== undefined) {
-          sendMessage(entry, role, JSON.stringify({ type: 'SET_HOST_MODE', human: entry.lastHostMode }));
+        const current = currentMeetingId();
+        if (entry.lastHostMode !== undefined && entry.lastHostMode.meetingId === current) {
+          sendMessage(entry, role, JSON.stringify({ type: 'SET_HOST_MODE', human: entry.lastHostMode.value }), current);
         }
-        if (entry.lastPaused !== undefined) {
-          sendMessage(entry, role, JSON.stringify({ type: 'SET_PAUSED', paused: entry.lastPaused }));
+        if (entry.lastPaused !== undefined && entry.lastPaused.meetingId === current) {
+          sendMessage(entry, role, JSON.stringify({ type: 'SET_PAUSED', paused: entry.lastPaused.value }), current);
         }
       }
     });
@@ -186,9 +231,10 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   return {
     sendAs(role, command) {
       const entry = entryFor(role);
+      const meetingId = currentMeetingId();
       if (role === 'screen') {
-        if (command.type === 'SET_HOST_MODE') entry.lastHostMode = command.human;
-        if (command.type === 'SET_PAUSED') entry.lastPaused = command.paused;
+        if (command.type === 'SET_HOST_MODE') entry.lastHostMode = { value: command.human, meetingId };
+        if (command.type === 'SET_PAUSED') entry.lastPaused = { value: command.paused, meetingId };
       }
       const message = JSON.stringify(command);
       if (entry.closing) {
@@ -196,25 +242,30 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
         return;
       }
       if (entry.socket !== undefined && entry.socket.readyState === WebSocket.OPEN) {
-        sendMessage(entry, role, message);
+        sendMessage(entry, role, message, meetingId);
         return;
       }
-      enqueue(entry, role, message);
-      if (entry.socket === undefined) {
-        if (entry.timer !== undefined) {
-          clearTimeout(entry.timer);
-          entry.timer = undefined;
-        }
+      enqueue(entry, role, message, meetingId);
+      // While a reconnect is already scheduled, let its backoff run: a new command must not
+      // cut in line and force an immediate attempt. After the give-up bound there is no timer,
+      // so the next command may start a fresh attempt cycle.
+      if (entry.socket === undefined && entry.timer === undefined) {
         connect(entry, role);
       }
     },
     dropQueued() {
       for (const [role, entry] of entries) {
+        // A reset ends the meeting the cached screen state belonged to.
+        entry.lastHostMode = undefined;
+        entry.lastPaused = undefined;
         if (entry.queue.length === 0) continue;
-        const types = [...new Set(entry.queue.map(commandType))];
+        const types = [...new Set(entry.queue.map((queued) => commandType(queued.message)))];
         logError(`the meeting was reset: dropped ${entry.queue.length} unsent ${role} command(s) (${types.join(', ')})`);
         entry.queue.length = 0;
       }
+    },
+    dropStale() {
+      for (const [role, entry] of entries) dropStaleFor(entry, role);
     },
     close() {
       for (const entry of entries.values()) {

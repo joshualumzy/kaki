@@ -115,16 +115,19 @@ export function createServiceChannel(options: ServiceChannelOptions): ServiceCha
       log('the AI service channel is connected');
       onOpen(current);
     });
-    current.on('unexpected-response', (_request, response) => {
-      if (socket !== current || stopped) {
-        response.resume();
-        return;
-      }
-      response.resume();
+    current.on('unexpected-response', (request, response) => {
+      // ws only aborts the handshake itself when no listener handles this event, so a listener
+      // that just drains the body leaves the rejected connection open and outside stop()'s reach.
+      // Destroy the request/response and terminate the still-connecting socket here instead.
       const status = response.statusCode ?? 0;
+      const active = socket === current && !stopped;
+      if (active) socket = undefined;
+      request.destroy();
+      response.destroy();
+      current.terminate();
+      if (!active) return;
       if (status === 401 || status === 403) reportRejected(status);
       else logError(`the AI service channel was refused (HTTP ${status})`);
-      socket = undefined;
       schedule();
     });
     current.on('error', (error) => {

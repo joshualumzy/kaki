@@ -143,11 +143,16 @@ const runnerClient = createRunnerClient({
   log: logError,
 });
 // The runner writes as the screen and as each AI role over command sockets, exactly as a phone would.
+// The runner is created below, so its meeting id is read through this holder until then.
+let runnerMeetingId: (() => string | undefined) | undefined;
 const commandSockets = createCommandSockets({
   baseUrl: kakiUrl,
   token: serviceToken,
   log,
   logError,
+  // Queued commands are fenced to the meeting they were sent in, so a reconnect cannot replay
+  // an old meeting's END_MEETING or pause into the next one.
+  currentMeetingId: () => runnerMeetingId?.(),
 });
 const sendAs = (role: Role | 'screen', command: KakiCommand): void => commandSockets.sendAs(role, command);
 let memorySync: Promise<void> = Promise.resolve();
@@ -281,6 +286,7 @@ const runner = await startNpcRunner({
   },
   fetchScenario: () => runnerClient.fetchScenario(),
 });
+runnerMeetingId = () => runner.meetingId();
 
 // Sam asks an AI colleague aloud, then the colleague answers: the answer waits for the question (see cueOrder.ts).
 const cueOrder = createCueOrder();
@@ -312,6 +318,8 @@ const meetingSync = createMeetingSync({
   runner,
   fetchState: () => runnerClient.fetchMeetingState(),
   log,
+  // A service reconnect can reveal that the meeting changed while the command socket was down.
+  onMeetingChanged: () => commandSockets.dropStale(),
 });
 
 interface ServiceEvent {

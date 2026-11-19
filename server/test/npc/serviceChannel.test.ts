@@ -1,5 +1,7 @@
+import { Agent, createServer } from 'node:http';
+import type { AddressInfo, Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type WebSocket from 'ws';
+import { WebSocket } from 'ws';
 import {
   createServiceChannel,
   createServiceDispatch,
@@ -7,6 +9,14 @@ import {
 } from '../../src/npc/serviceChannel';
 
 type Listener = (...args: any[]) => void;
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the condition');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 class FakeServiceSocket {
   readyState = 0;
@@ -25,9 +35,17 @@ class FakeServiceSocket {
     this.emit('close', 1000, Buffer.from(''));
   }
 
+  terminate(): void {
+    this.close();
+  }
+
   reject(status: number): void {
     this.readyState = 3;
-    this.emit('unexpected-response', {}, { statusCode: status, resume: () => undefined });
+    this.emit(
+      'unexpected-response',
+      { destroy: () => undefined },
+      { statusCode: status, destroy: () => undefined },
+    );
   }
 
   private emit(event: string, ...args: unknown[]): void {
@@ -123,5 +141,56 @@ describe('the service channel reconnect', () => {
     expect(errors.filter((message) => message.includes('service token rejected'))).toHaveLength(1);
 
     channel.stop();
+  });
+
+  it('closes every rejected handshake instead of leaving connections open', async () => {
+    const connections = new Set<Socket>();
+    const server = createServer((_request, response) => {
+      response.writeHead(404).end();
+    });
+    server.on('connection', (socket) => {
+      connections.add(socket);
+      socket.on('error', () => undefined);
+      socket.on('close', () => connections.delete(socket));
+      // An upgraded socket is raw, so a client FIN only half-closes it; finish it so the test
+      // can see the connection actually go away.
+      socket.on('end', () => socket.destroy());
+    });
+    server.on('upgrade', (_request, socket) => {
+      // Answer with 401 but keep the connection open: a client that only drains the response
+      // and forgets the request leaves a connection here that stop() cannot reach.
+      socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+
+    let attempts = 0;
+    const channel = createServiceChannel({
+      token: 'bad-token',
+      createSocket: () => {
+        attempts += 1;
+        return new WebSocket(`ws://127.0.0.1:${port}/ws?role=service`, {
+          agent: new Agent({ keepAlive: true }),
+        });
+      },
+      onOpen: () => undefined,
+      log: () => undefined,
+      logError: () => undefined,
+      baseDelayMs: 5,
+      maxDelayMs: 5,
+    });
+
+    try {
+      channel.start();
+      await waitFor(() => attempts >= 3);
+      channel.stop();
+      await waitFor(() => connections.size === 0);
+      expect(connections.size).toBe(0);
+    } finally {
+      for (const socket of connections) socket.destroy();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
   });
 });

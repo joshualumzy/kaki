@@ -73,6 +73,8 @@ export interface MeetingSyncOptions {
   /** Read the server's authoritative state; injected so tests need no HTTP server. */
   fetchState(): Promise<RunnerMeetingState>;
   log(message: string): void;
+  /** The runner moved from one meeting to another: anything tagged for the old one is stale. */
+  onMeetingChanged?(meetingId: string): void;
 }
 
 export interface MeetingSync {
@@ -91,7 +93,7 @@ export interface MeetingSync {
  * Every asynchronous fetch is fenced by a generation, so a response asked for before a reset (or
  * before a socket was replaced) can never reopen a meeting the server has already cleared.
  */
-export function createMeetingSync({ runner, fetchState, log }: MeetingSyncOptions): MeetingSync {
+export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }: MeetingSyncOptions): MeetingSync {
   let generation = 0;
 
   function readState(accept: (state: RunnerMeetingState) => void): void {
@@ -113,7 +115,13 @@ export function createMeetingSync({ runner, fetchState, log }: MeetingSyncOption
   return {
     connected() {
       generation += 1;
-      readState((state) => runner.reconcileMeeting(state));
+      readState((state) => {
+        const previous = runner.meetingId();
+        runner.reconcileMeeting(state);
+        if (previous !== undefined && previous !== state.meetingId) {
+          onMeetingChanged?.(state.meetingId);
+        }
+      });
     },
     prepareStarted() {
       generation += 1;
@@ -142,7 +150,11 @@ export function createMeetingSync({ runner, fetchState, log }: MeetingSyncOption
           return;
         }
         // Hydration is always a resume: this runner never welcomed the meeting the server is running.
-        if (runner.meetingId() !== state.meetingId) runner.resetMeeting(state.meetingId);
+        const previous = runner.meetingId();
+        if (previous !== state.meetingId) runner.resetMeeting(state.meetingId);
+        if (previous !== undefined && previous !== state.meetingId) {
+          onMeetingChanged?.(state.meetingId);
+        }
         void runner
           .markStarted({
             meetingId: state.meetingId,

@@ -157,6 +157,96 @@ describe('the runner command sockets', () => {
     expect(errors.some((message) => message.includes('dropped 1 unsent screen command(s) (NEXT_AGENDA_ITEM)'))).toBe(true);
   });
 
+  it('drops a queued command from an earlier meeting instead of sending it into the current one', async () => {
+    let meetingId: string | undefined = 'meeting-a';
+    const { socketsApi, sockets, errors } = setup({ currentMeetingId: () => meetingId });
+
+    socketsApi.sendAs('screen', { type: 'END_MEETING' });
+    sockets[0]!.fail();
+    await tick();
+
+    meetingId = 'meeting-b';
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
+    expect(
+      errors.some(
+        (message) => message.includes('from another meeting') && message.includes('END_MEETING'),
+      ),
+    ).toBe(true);
+  });
+
+  it('drops only the old meeting queue when a service reconnect reveals the meeting changed', async () => {
+    let meetingId: string | undefined = 'meeting-a';
+    const { socketsApi, sockets } = setup({ currentMeetingId: () => meetingId });
+
+    socketsApi.sendAs('screen', { type: 'END_MEETING' });
+    sockets[0]!.fail();
+    await tick();
+
+    meetingId = 'meeting-b';
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: false });
+    socketsApi.dropStale();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([JSON.stringify({ type: 'SET_PAUSED', paused: false })]);
+  });
+
+  it('does not replay screen state cached in another meeting after a reset', async () => {
+    let meetingId: string | undefined = 'meeting-a';
+    const { socketsApi, sockets } = setup({ currentMeetingId: () => meetingId });
+
+    socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: false });
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    sockets[0]!.open();
+    expect(sockets[0]!.sent).toHaveLength(2);
+
+    socketsApi.dropQueued();
+    meetingId = 'meeting-b';
+    sockets[0]!.fail();
+    await tick();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
+  });
+
+  it('does not replay screen state set in another meeting even without a reset', async () => {
+    let meetingId: string | undefined = 'meeting-a';
+    const { socketsApi, sockets } = setup({ currentMeetingId: () => meetingId });
+
+    socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: true });
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    sockets[0]!.open();
+    expect(sockets[0]!.sent).toHaveLength(2);
+
+    meetingId = 'meeting-b';
+    sockets[0]!.fail();
+    await tick();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
+  });
+
+  it('waits for a pending reconnect instead of opening a socket for every new command', async () => {
+    const { socketsApi, sockets } = setup({ reconnectDelayMs: () => 20 });
+
+    socketsApi.sendAs('screen', { type: 'NEXT_AGENDA_ITEM' });
+    expect(sockets).toHaveLength(1);
+    sockets[0]!.fail();
+    expect(sockets).toHaveLength(1);
+
+    socketsApi.sendAs('screen', { type: 'END_MEETING' });
+    expect(sockets).toHaveLength(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    expect(sockets[1]!.sent).toEqual([
+      JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }),
+      JSON.stringify({ type: 'END_MEETING' }),
+    ]);
+  });
+
   it('closes its sockets on shutdown', () => {
     const { socketsApi, sockets } = setup();
     socketsApi.sendAs('cashier', { type: 'MARK_DONE', taskId: 't-1' });
