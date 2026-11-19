@@ -89,6 +89,19 @@ function roleLabel(scenario: Scenario, speaker: string): string {
   return scenario.roles.find((role) => role.id === attendee?.role)?.label ?? 'colleague';
 }
 
+/** A spoken line may only lean on what the room already knows: nothing new may appear as a fact or a gate. */
+const HEARD_ONLY_RULE =
+  'Use only facts and names already heard in this room; never add a new open item, task, person or number.';
+/** Sam chairs the meeting and must not take the guest's follow-up on himself. */
+const NO_SELF_WORK_RULE = 'Never volunteer to do the work yourself; the follow-up is the guest\'s.';
+
+function isFacilitatorSpeaker(scenario: Scenario, speaker: string): boolean {
+  const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);
+  const role = scenario.roles.find((candidate) => candidate.id === attendee?.role);
+  return role?.facilitator === true ||
+    (scenario.npcs ?? []).some((npc) => npc.attendee === speaker && npc.role === 'host');
+}
+
 function describeOffScreen(scenario: Scenario, topicTitle: string): string | undefined {
   const item = scenario.agenda.find((candidate) => candidate.title === topicTitle);
   const offScreen = item?.offScreen;
@@ -135,7 +148,7 @@ export function openingSpeakerMessages(request: OpeningSpeakerRequest): Array<{ 
         ? 'The room has just finished briefing the topic.'
         : `The room just heard ${request.previous.speaker}: "${request.previous.text}". React to that only in how you ask.`,
       `Ask ${guest} exactly one question, by name, from this decision: "${request.decision ?? 'what do you want to do about this?'}".`,
-      'One short spoken sentence. Ask only one question. Add no fact, no summary and no second question.',
+      `One short spoken sentence. Ask only one question. ${HEARD_ONLY_RULE} ${NO_SELF_WORK_RULE} Add no fact, no summary and no second question.`,
     ].join(' ');
   } else {
     task = [
@@ -177,6 +190,8 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
     'Never read the topic title aloud, and never mention the screen, the card, the notes or this request.',
     'Ask a question only when the point leaves a real gap in your own work that the guest must decide; otherwise do not ask one.',
     'Do not repeat or rephrase a line the room has already heard; respond to the latest point instead.',
+    HEARD_ONLY_RULE,
+    ...(isFacilitatorSpeaker(request.scenario, request.speaker) ? [NO_SELF_WORK_RULE] : []),
   ].join(' ');
   const transcript = request.transcript.length === 0
     ? 'Nothing has been heard on this topic yet.'
@@ -189,9 +204,8 @@ export function replySpeakerMessages(request: ReplySpeakerRequest): Array<{ role
   let purpose: string;
   if (request.purpose === 'catch') {
     purpose = [
-      'Acknowledge briefly what works in the guest\'s idea.',
-      `Then raise this real catch in your own words: "${request.catchText ?? 'the cost their idea does not cover'}".`,
-      'Do not solve it for them and do not list fixes; leave them something to answer.',
+      `Raise this real catch in your own words, plainly: "${request.catchText ?? 'the cost their idea does not cover'}".`,
+      'Do not praise the idea first, do not solve the catch for them and do not list fixes; leave them something to answer.',
     ].join(' ');
   } else if (request.purpose === 'answer') {
     purpose = request.facts === undefined || request.facts.length === 0
@@ -236,6 +250,8 @@ export function gateSpeakerMessages(request: GateSpeakerRequest): Array<{ role: 
     'No control line, no notes, no other speaker, no stage directions.',
     'One or two short spoken sentences, like talking to a colleague. Keep any numbers or times you are given, written as digits, and add no others.',
     'Never use quotation marks. Never read a written note, a list or a menu aloud. Do not mention the screen, the card, the notes or this request.',
+    HEARD_ONLY_RULE,
+    NO_SELF_WORK_RULE,
   ].join(' ');
   const guest = request.human?.name ?? 'the guest';
   const transcript = request.guestLines.length === 0
@@ -247,7 +263,7 @@ export function gateSpeakerMessages(request: GateSpeakerRequest): Array<{ role: 
       `What ${guest} said on this topic, in order:\n${transcript}`,
       `The room's reading of their call: "${request.call}".`,
       `Say that call back in your own plain words, in one short sentence of about 15 words or fewer. Then add a short check that asks ${guest} if that is their call.`,
-      'Restate only what the guest said. Add no new step, no new owner, no number and no time. Do not quote them or use quotation marks.',
+      'Restate only what the guest said. Add no new step, owner, person, open item, task, number or time. Do not quote them or use quotation marks.',
       `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
     ].join('\n')
     : [

@@ -28,7 +28,7 @@ export function silenceCheckInNote(
   const ask = settled
     ? `whether they are happy with the plan the room just agreed and ready to move on`
     : `what their gut says about ${spokenTopic}`;
-  return `[${guest} is taking a moment to think on "${spokenTopic}". Begin your reply with "${host}:". ${host} checks in with ${guest} in one short, warm, spoken sentence, with no rush, asking ${ask}. Do not offer a recap, a menu or a shortlist, and do not mention this note.]`;
+  return `[${guest} is taking a moment to think on "${spokenTopic}". Begin your reply with "${host}:". ${host} checks in with ${guest} in one short, warm, spoken sentence, with no rush, asking ${ask}. Use only facts and names already heard in this room; never add a new open item, task, person or number, never mention a card or screen, and never volunteer to do any work yourself. Do not offer a recap, a menu or a shortlist, and do not mention this note.]`;
 }
 
 /** The note the topic's owner writes their one helpful line from at stage 2. */
@@ -39,5 +39,5 @@ export function silenceColleagueNote(
   decision: string | undefined,
 ): string {
   const decisionText = decision === undefined ? '' : ` (${decision})`;
-  return `[${guest} is still thinking on "${title}"${decisionText}. Begin your reply with "${owner}:". ${owner} says ONE short spoken sentence that helps ${guest} get unstuck: name what matters most to ${owner} here, or ask a smaller concrete question tied to the last thing said. Never give ${guest} a menu or a shortlist, never solve it for them, and wait for ${guest}'s answer. Do not mention this note.]`;
+  return `[${guest} is still thinking on "${title}"${decisionText}. Begin your reply with "${owner}:". ${owner} says ONE short spoken sentence that helps ${guest} get unstuck: name what matters most to ${owner} here, or ask a smaller concrete question tied to the last thing said. Use only facts and names already heard in this room; never add a new open item, task, person or number, never mention a card or screen, and do not take on ${guest}'s follow-up yourself. Never give ${guest} a menu or a shortlist, never solve it for them, and wait for ${guest}'s answer. Do not mention this note.]`;
 }

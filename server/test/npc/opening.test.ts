@@ -1032,7 +1032,7 @@ describe('one-speaker topic opening', () => {
     }).map((message) => message.content).join('\n');
     expect(readback).toContain('Say that call back in your own plain words');
     expect(readback).toContain('Do not quote them or use quotation marks');
-    expect(readback).toContain('Add no new step, no new owner, no number and no time');
+    expect(readback).toContain('Add no new step, owner, person, open item, task, number or time');
 
     const offer = gateSpeakerMessages({
       scenario: KOPITIAM,

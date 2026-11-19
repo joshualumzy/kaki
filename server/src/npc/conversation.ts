@@ -1338,6 +1338,11 @@ export class NpcConversation<Clip> {
         options.onDone?.(false);
         return;
       }
+      if (!this.hasVisitorCardOnTopic(topic)) {
+        this.ports.log?.('[card] refused to point at the card before a TASK_UPDATED card exists');
+        options.onDone?.(false);
+        return;
+      }
     }
     const attempt = (): void => {
       if (this.closed || this.concluded || this.currentItem()?.title !== topic) return;
@@ -1835,6 +1840,10 @@ export class NpcConversation<Clip> {
         this.ports.log?.('[card] ignored a card pointer while a question to the guest is open');
         return;
       }
+      if (!this.hasVisitorCardOnTopic()) {
+        this.ports.log?.('[card] ignored a card pointer before a TASK_UPDATED card exists');
+        return;
+      }
     }
     this.cardPointer.claim(this.currentItem()?.title);
   }
@@ -2063,6 +2072,8 @@ export class NpcConversation<Clip> {
     this.budgetRecoveryPending = false;
     this.meetingState.setConfirmationAsked(false);
     this.meetingState.setOfferAsked(false);
+    // The topic is leaving: no question heard on it may stay open and block the card or the next item.
+    this.meetingState.clearOpenQuestion();
     this.confirmationNudged = false;
     this.clearPendingGate();
   }
@@ -2320,6 +2331,11 @@ export class NpcConversation<Clip> {
     return visitorCardPointerLine(visitor, this.reviewActionKind.get(title), this.topicIndex(title));
   }
 
+  /** True once a TASK_UPDATED for the visitor's card on this topic has reached the conversation. */
+  private hasVisitorCardOnTopic(title = this.currentItem()?.title): boolean {
+    return title !== undefined && (this.topicTasks.get(title)?.size ?? 0) > 0;
+  }
+
   private startReviewWindow(): void {
     const title = this.currentItem()?.title;
     if (title === undefined || !this.humanSettledOnCurrentItem || this.reviewTimer !== undefined) return;
@@ -2347,6 +2363,14 @@ export class NpcConversation<Clip> {
         this.ports.log?.('[card] skipped the review nudge while a question to the guest is open');
         this.startReviewWindow();
         return;
+      }
+      if (!this.hasVisitorCardOnTopic(title)) {
+        if (!this.reviewNudged) {
+          this.ports.log?.('[card] skipped the review nudge: no follow-up card exists yet');
+          this.reviewNudged = true;
+          this.startReviewWindow();
+          return;
+        }
       }
     }
     const total = this.options.reviewWindowMs ?? DEFAULT_REVIEW_WINDOW_MS;
@@ -2394,6 +2418,18 @@ export class NpcConversation<Clip> {
       return;
     }
     const wrapUp = liveWrapUpLine(this.options.scenario, title);
+    if (this.replyMode === 'one-speaker' && !this.hasVisitorCardOnTopic(title)) {
+      this.reviewWarned = true;
+      this.ports.log?.('[card] moving on without a pointer: no follow-up card arrived');
+      this.announce(host, wrapUp, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
+        if (spoken) this.checkTopicAdvance(true);
+        else {
+          this.reviewWarned = false;
+          this.startReviewWindow();
+        }
+      });
+      return;
+    }
     const warning = this.cardPointer.hasPointed(title)
       ? wrapUp
       : `${wrapUp} The follow-up's on your card whenever you're ready.`;
@@ -4102,6 +4138,22 @@ export class NpcConversation<Clip> {
     return true;
   }
 
+  /**
+   * The guest has already given a workable call and no gate is live: the next move is the read-back, never a
+   * free model check-in. Called whenever a reply or responder chain ends, so a line that arrived mid-reply still
+   * gets its confirmation once the room is quiet.
+   */
+  private askReadBackWhenReady(): boolean {
+    if (!this.readinessApplies() || this.humanSettledOnCurrentItem || this.decisionWrappedUpOnItem) return false;
+    const title = this.currentItem()?.title;
+    if (title === undefined || this.advanced.has(title)) return false;
+    const view = this.meetingState.view(Date.now());
+    if (view.confirmationAsked || view.offerAsked || !readinessMet(view)) return false;
+    if (this.pendingGate?.title === title) return false;
+    this.ports.log?.('[confirm] the reply chain has ended with readiness met; asking for the read-back');
+    return this.askConfirmation(view);
+  }
+
   /** No answer after the one nudge: the call Sam read back is the guest's own call, so commit it and move on. */
   private commitReadBackOnSilence(view: MeetingView): void {
     const call = view.confirmationCall ?? mergedReadiness(view).action.evidence;
@@ -4162,6 +4214,7 @@ export class NpcConversation<Clip> {
       this.offerBudgetLock();
       return;
     }
+    if (this.askReadBackWhenReady()) return;
     if (this.maybeBrief()) return;
     this.scheduleSilencePrompt();
   }
@@ -4263,6 +4316,8 @@ export class NpcConversation<Clip> {
     ) {
       return;
     }
+    // A workable call that has not been read back yet outranks any free model check-in.
+    if (this.askReadBackWhenReady()) return;
     this.clearSilenceTimer();
     const linesBefore = this.humanLines;
     const stageAtSchedule = this.silencePromptStage;
@@ -4343,7 +4398,7 @@ export class NpcConversation<Clip> {
         if (npcs.length > 1) {
           this.forcedSpeaker = { target: host, from: host };
           this.pending.push(
-            `[${this.human.name} just heard the team's answer on "${spokenTitle}", and the colleague finished on a statement without passing the floor. Begin your reply with "${host}:". ${host} steps in as the meeting chair in ONE short, natural spoken sentence connecting what was just said back to the decision and asking ${this.human.name} by name (ending with a question mark "?") how they want to play this or if they want to lock a direction in — never prescribe an answer or mention this note.]`,
+            `[${this.human.name} just heard the team's answer on "${spokenTitle}", and the colleague finished on a statement without passing the floor. Begin your reply with "${host}:". ${host} steps in as the meeting chair in ONE short, natural spoken sentence connecting what was just said back to the decision and asking ${this.human.name} by name (ending with a question mark "?") how they want to play this or if they want to lock a direction in — never prescribe an answer, use only facts and names already heard, add no new open item, task, person or number, never mention a card or screen, never volunteer to do the work yourself, and never mention this note.]`,
           );
           this.startTurn(false, false, undefined, undefined, undefined, undefined, true);
           return;

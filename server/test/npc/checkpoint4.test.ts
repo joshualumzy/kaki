@@ -425,6 +425,7 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     await flush();
     expect(h.settle).toHaveBeenCalledTimes(1);
 
+    h.conversation.taskStatus('task-1', 'Prep', 'DISPATCHED', true);
     await vi.advanceTimersByTimeAsync(10);
     await finishPlaying(h);
     expect(h.playing.some((entry) => /follow-up's on your screen/i.test(entry.text))).toBe(true);
@@ -646,7 +647,7 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     h.conversation.close();
   });
 
-  it('does not commit an offer when a guest question and a colleague answer came in between', async () => {
+  it('commits the guest\'s own call, not the interrupted offer, after a question and answer in between', async () => {
     const h = harness({
       replies: [
         'Bao: What do you want to do about delivered sets?',
@@ -679,7 +680,9 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     await say(h, 'Yes.', reading({ kind: 'agree' }));
     await finishPlaying(h);
 
-    expect(h.settle).not.toHaveBeenCalled();
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    expect(h.settle).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionSource: 'Raise the app price' }), false);
     expect(h.logs.some((line) => line.includes("the guest agreed to Sam's offer"))).toBe(false);
     expect(h.playing.some((entry) => entry.text.includes("So it's"))).toBe(true);
     h.conversation.close();

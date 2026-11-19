@@ -95,6 +95,31 @@ describe('meeting state', () => {
     expect(state.view(14).openQuestion).toBeUndefined();
   });
 
+  it('clears every question heard so far when a topic settles or closes, but a later question still opens', () => {
+    const state = make();
+    state.openTopic('Prep', 0);
+    state.heard({
+      id: 'sam-1',
+      speaker: 'Sam',
+      text: 'Josh, what is your call?',
+      at: 10,
+      question: { to: 'Josh', text: 'Josh, what is your call?' },
+    });
+    expect(state.view(10).openQuestion?.eventId).toBe('sam-1');
+
+    state.clearOpenQuestion();
+    expect(state.view(10).openQuestion).toBeUndefined();
+
+    state.heard({
+      id: 'sam-2',
+      speaker: 'Sam',
+      text: 'Josh, who tells the floor?',
+      at: 11,
+      question: { to: 'Josh', text: 'Josh, who tells the floor?' },
+    });
+    expect(state.view(11).openQuestion?.eventId).toBe('sam-2');
+  });
+
   it('answers a question put to a colleague only when that colleague speaks', () => {
     const state = make();
     state.openTopic('Prep', 0);

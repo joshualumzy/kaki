@@ -205,6 +205,8 @@ interface Ledger {
   openedAt: number;
   /** The reader's structured reading of each guest line, by event id. */
   readings: Map<string, GuestReading>;
+  /** Questions heard before a settle or close: they can never be the open gate again. */
+  clearedQuestions: Set<string>;
   confirmationAsked: boolean;
   confirmationCall: string | undefined;
   confirmationSpoken: string | undefined;
@@ -412,14 +414,23 @@ function derive(
     }
 
     if (line.question !== undefined) {
-      openQuestion = {
+      if (!ledger.clearedQuestions.has(line.eventId)) {
+        openQuestion = {
+          from: line.speaker,
+          to: line.question.to,
+          text: line.question.text,
+          askedAt: line.at,
+          eventId: line.eventId,
+        };
+      }
+      lastQuestion = {
         from: line.speaker,
         to: line.question.to,
         text: line.question.text,
         askedAt: line.at,
         eventId: line.eventId,
+        answered: false,
       };
-      lastQuestion = { ...openQuestion, answered: false };
       if (line.speaker === host && line.question.to === guest) guestInvited = true;
     }
 
@@ -561,7 +572,7 @@ export class MeetingState {
       const ledger = this.ledgers.get(title);
       if (ledger === undefined) {
         this.ledgers.set(title, {
-          events: [], openedAt: at, readings: new Map(),
+          events: [], openedAt: at, readings: new Map(), clearedQuestions: new Set(),
           confirmationAsked: false, confirmationCall: undefined, confirmationSpoken: undefined,
           offerAsked: false, offer: undefined, whichOneAsked: false,
           offers: 0, followUps: 0,
@@ -584,6 +595,17 @@ export class MeetingState {
     const title = this.lineTopics.get(eventId);
     if (title === undefined) return;
     this.ledgers.get(title)?.readings.set(eventId, reading);
+  }
+
+  /** Forget every question heard so far: settling or closing a topic means none of them is the live gate. */
+  clearOpenQuestion(): void {
+    const title = this.current;
+    if (title === undefined) return;
+    const ledger = this.ledgers.get(title);
+    if (ledger === undefined) return;
+    for (const event of ledger.events) {
+      if (event.kind === 'start' && event.question !== undefined) ledger.clearedQuestions.add(event.id);
+    }
   }
 
   /** Mark the host's confirmation question as asked with its exact call and spoken read-back, or clear it. */

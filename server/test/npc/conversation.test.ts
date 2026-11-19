@@ -2652,7 +2652,7 @@ describe('one-speaker replies to the guest', () => {
     const second = await waitForCall(h, 1);
     const secondRequest = String(second.messages.map((message) => message.content).join('\n'));
     expect(secondRequest).toContain('You are Bao');
-    expect(secondRequest).toContain('Acknowledge briefly what works');
+    expect(secondRequest).toContain('Raise this real catch');
     expect(secondRequest).toContain('Calling Auntie Mary in means double pay.');
     expect(h.logs).toContainEqual(expect.stringContaining('[reply] Bao (catch) asked; responding to "That could work.'));
     await reply(h, 'Bao: Calling her in means double pay for her rest day.');
@@ -2940,7 +2940,7 @@ describe('one-speaker replies to the guest', () => {
     const second = await waitForCall(h, 1);
     const request = String(second.messages.map((message) => message.content).join('\n'));
     expect(request).toContain('You are Bao');
-    expect(request).toContain('Acknowledge briefly what works');
+    expect(request).toContain('Raise this real catch');
     expect(request).toContain('Calling Auntie Mary in means double pay.');
     await reply(h, 'Bao: Calling her in means double pay for her rest day.');
 
@@ -3017,7 +3017,7 @@ describe('one-speaker replies to the guest', () => {
     const first = await waitForCall(h, 0);
     const request = String(first.messages.map((message) => message.content).join('\n'));
     expect(request).toContain('You are Bao');
-    expect(request).toContain('Acknowledge briefly what works');
+    expect(request).toContain('Raise this real catch');
     expect(request).toContain('Let us call Auntie Mary in.');
     expect(request).toContain('What will that cost us?');
     await reply(h, 'Bao: It means double pay for Auntie Mary.');
@@ -3068,6 +3068,96 @@ describe('one-speaker replies to the guest', () => {
       expect.objectContaining({ decisionSource: 'Old price only on the small cup' }), false);
     expect(h.logs).toContainEqual('[confirm] no answer after nudge; committing the read-back call');
     expect(h.transcript.filter(([, text]) => text === 'Still with me?')).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('asks the read-back when a reply chain ends with readiness met, instead of a free model check-in', async () => {
+    const factScenario = {
+      ...scenario,
+      agenda: [
+        {
+          title: 'Prep',
+          minutes: 5,
+          canWait: false,
+          deadline: 'before service',
+          ownerRole: 'chef',
+          decision: 'how do we cover prep?',
+          briefing: [
+            { text: 'The till needs a new login before opening.', knownBy: [{ attendee: 'Bao', why: 'you run the tills' }] },
+          ],
+        },
+      ],
+    };
+    const readyQuestion = {
+      kind: 'question' as const,
+      answersOpenQuestion: false,
+      relevantFactIds: ['0:0'],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'We use the kiosk for orders' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const h = harness(factScenario, 0, undefined, 'one-speaker', () => readyQuestion,
+      { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
+
+    await h.say('Bao, can the till take a new login? We use the kiosk for orders.');
+    const answer = await waitForCall(h, 0);
+    expect(String(answer.messages.map((message) => message.content).join('\n'))).toContain('You are Bao');
+    await reply(h, 'Bao: The till needs a new login before opening.');
+    await h.flush();
+
+    expect(h.logs).toContainEqual('[confirm] the reply chain has ended with readiness met; asking for the read-back');
+    expect(h.transcript.some(([, text]) => text.includes("That's the call?"))).toBe(true);
+    expect(h.calls).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('clears a stale open question on settle so the card nudge is not blocked', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker', () => readyFor('Old price only on the small cup'),
+      { reviewNudgeMs: 1000, reviewWindowMs: 3000, silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+
+    h.conversation.announce('Bao', 'Josh, who covers the counter?');
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+    expect(h.transcript).toContainEqual(['Bao', 'Josh, who covers the counter?']);
+
+    h.conversation.humanTyped('Old price only on the small cup.');
+    await h.flush();
+    h.conversation.lockDecision(undefined, { confirmed: true });
+    await h.flush();
+    h.conversation.taskStatus('task-1', scenario.agenda[0]!.title, 'DISPATCHED', true);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await h.flush();
+    expect(h.logs).not.toContainEqual(expect.stringContaining('skipped the review nudge while a question to the guest is open'));
+    expect(h.transcript.some(([, text]) => /the follow-up's on your screen/i.test(text))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('moves on without a pointer when no TASK_UPDATED card arrives', async () => {
+    const h = harness(scenario, 0, undefined, 'one-speaker', () => readyFor('Old price only on the small cup'),
+      { reviewNudgeMs: 1000, reviewWindowMs: 3000, silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
+
+    h.conversation.humanTyped('Old price only on the small cup.');
+    await h.flush();
+    h.conversation.lockDecision(undefined, { confirmed: true });
+    await h.flush();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await h.flush();
+    expect(h.logs).toContainEqual('[card] skipped the review nudge: no follow-up card exists yet');
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await h.flush();
+    expect(h.logs).toContainEqual('[card] moving on without a pointer: no follow-up card arrived');
+    expect(h.transcript.some(([, text]) => /card|screen/i.test(text))).toBe(false);
     h.conversation.close();
   });
 
