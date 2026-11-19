@@ -252,4 +252,48 @@ describe('meeting persistence saver', () => {
     expect(store.saves).toHaveLength(1);
     expect(store.saved).toBeUndefined();
   });
+
+  it('retries a failed clear once when flushing, so shutdown can still clear the saved meeting', async () => {
+    const store = new OrderedStore();
+    store.releaseFirst();
+    const logs: string[] = [];
+    const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
+    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(0) }));
+
+    persistence.scheduleSave();
+    await persistence.flush();
+    store.clearFailures = 1;
+    await expect(persistence.clearSaved()).rejects.toThrow('database is down');
+
+    // The retry at shutdown succeeds, so the discarded meeting does not come back.
+    await persistence.flush();
+
+    expect(store.events).toEqual(['save:0', 'clear:failed', 'clear']);
+    expect(store.saved).toBeUndefined();
+    expect(logs).not.toContain(
+      'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset to discard it.',
+    );
+  });
+
+  it('logs loudly when the clear still fails while closing', async () => {
+    const store = new OrderedStore();
+    store.releaseFirst();
+    const logs: string[] = [];
+    const persistence = createMeetingPersistence({ store, log: (message) => logs.push(message) });
+    persistence.registerSource(() => ({ startedAt: '2026-01-01T00:00:00.000Z', state: stateWithAgenda(0) }));
+
+    persistence.scheduleSave();
+    await persistence.flush();
+    store.clearFailures = 1;
+    await expect(persistence.clearSaved()).rejects.toThrow('database is down');
+    store.clearFailures = 1;
+
+    await persistence.close();
+
+    expect(store.events).toEqual(['save:0', 'clear:failed', 'clear:failed']);
+    expect(store.saved).toBeDefined();
+    expect(logs).toContain(
+      'kaki persist: could not clear the saved meeting; it will be restored on next start. Run npm run meeting:reset to discard it.',
+    );
+  });
 });

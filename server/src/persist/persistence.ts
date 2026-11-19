@@ -49,14 +49,27 @@ interface SaveEntry {
   kind: 'save';
 }
 
-interface ClearEntry {
-  kind: 'clear';
-  settled: boolean;
+interface ClearWaiter {
   resolve(): void;
   reject(error: unknown): void;
 }
 
+interface ClearEntry {
+  kind: 'clear';
+  waiters: ClearWaiter[];
+}
+
 type QueueEntry = SaveEntry | ClearEntry;
+
+/** Tell everyone waiting on this clear that the attempt succeeded. */
+function resolveClear(entry: ClearEntry): void {
+  for (const waiter of entry.waiters.splice(0)) waiter.resolve();
+}
+
+/** Tell everyone waiting on this clear that the attempt failed. */
+function rejectClear(entry: ClearEntry, error: unknown): void {
+  for (const waiter of entry.waiters.splice(0)) waiter.reject(error);
+}
 
 /** Create the ordered saver over a store; nothing is written until `scheduleSave` is called. */
 export function createMeetingPersistence({
@@ -72,6 +85,8 @@ export function createMeetingPersistence({
   // later saves until a retry succeeds.
   const queue: QueueEntry[] = [];
   let processing: Promise<void> | undefined;
+  // Work arrived while the queue was running: it must run again even if the loop stopped on a failed clear.
+  let rerun = false;
 
   async function runSave(): Promise<void> {
     let snapshot: ReturnType<MeetingSnapshotSource>;
@@ -105,31 +120,49 @@ export function createMeetingPersistence({
       }
       try {
         await store.clear();
-        queue.shift();
-        if (!head.settled) {
-          head.settled = true;
-          head.resolve();
-        }
       } catch (error) {
         log(`[persist] clear failed: ${errorMessage(error)}`);
-        if (!head.settled) {
-          head.settled = true;
-          head.reject(error);
-        }
+        rejectClear(head, error);
         // Leave the clear at the head: the next save retries it first rather than overwriting it.
         return;
       }
+      queue.shift();
+      resolveClear(head);
     }
   }
 
+  /** Retry a clear left at the head at shutdown; the caller decides what to do if it fails again. */
+  async function retryClearOnce(): Promise<void> {
+    const head = queue[0];
+    if (head?.kind !== 'clear') return;
+    try {
+      await store.clear();
+    } catch (error) {
+      log(
+        'kaki persist: could not clear the saved meeting; it will be restored on next start. ' +
+          'Run npm run meeting:reset to discard it.',
+      );
+      rejectClear(head, error);
+      return;
+    }
+    queue.shift();
+    resolveClear(head);
+  }
+
   function start(): void {
-    if (processing !== undefined) return;
-    processing = drain()
+    if (processing !== undefined) {
+      rerun = true;
+      return;
+    }
+    rerun = false;
+    // Start on the next tick: a save must read its snapshot after every subscriber has applied the
+    // event that asked for it, not halfway through the same publish.
+    processing = Promise.resolve()
+      .then(drain)
       .catch((error: unknown) => log(`[persist] the write queue failed: ${errorMessage(error)}`))
       .finally(() => {
         processing = undefined;
-        // Work queued just as the queue stopped still runs; a failed clear waits for new work instead.
-        if (queue[0]?.kind === 'save') start();
+        if (rerun && queue.length > 0) start();
       });
   }
 
@@ -144,21 +177,34 @@ export function createMeetingPersistence({
   function clearSaved(): Promise<void> {
     if (closed) return Promise.reject(new Error('the meeting store is closed'));
     return new Promise<void>((resolve, reject) => {
-      queue.push({ kind: 'clear', settled: false, resolve, reject });
+      // Only one clear is ever queued: a second request joins it, so one attempt settles every caller
+      // instead of leaving another promise waiting behind the same failed clear.
+      const existing = queue.find((entry): entry is ClearEntry => entry.kind === 'clear');
+      if (existing !== undefined) {
+        existing.waiters.push({ resolve, reject });
+      } else {
+        queue.push({ kind: 'clear', waiters: [{ resolve, reject }] });
+      }
       start();
     });
   }
 
   async function flush(): Promise<void> {
-    // A change can queue another write while this one is being waited on; wait for those too.
-    let seen: Promise<void> | undefined;
-    do {
-      seen = processing;
-      if (seen !== undefined) await seen.catch(() => undefined);
-    } while (seen !== processing);
-    if (processing === undefined && queue[0]?.kind === 'save') {
+    for (;;) {
+      const running = processing;
+      if (running !== undefined) {
+        await running.catch(() => undefined);
+        continue;
+      }
+      if (queue.length === 0) return;
+      if (queue[0]!.kind === 'clear') {
+        await retryClearOnce();
+        // Retry a failed clear only once at shutdown: a database that is still down must not spin,
+        // and later saves must not overwrite the meeting that clear is protecting.
+        if (queue[0]?.kind === 'clear') return;
+        continue;
+      }
       start();
-      await flush();
     }
   }
 

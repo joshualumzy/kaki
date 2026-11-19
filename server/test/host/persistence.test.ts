@@ -3,6 +3,7 @@ import type { KakiEvent, Task } from '@kaki/shared';
 import { createApp } from '../../src/app';
 import { createMeetingModule } from '../../src/host/meeting';
 import { loadScenario } from '../../src/loadScenario';
+import { createFakeLlm } from '../../src/llm';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import {
   assertCompatibleSavedMeeting,
@@ -32,12 +33,15 @@ class MemoryStore implements MeetingStateStore {
 
 class FailingClearStore extends MemoryStore {
   clearFailures = 0;
+  events: string[] = [];
 
   override async clear(): Promise<void> {
     if (this.clearFailures > 0) {
       this.clearFailures -= 1;
+      this.events.push('clear:failed');
       throw new Error('database is down');
     }
+    this.events.push('clear');
     await super.clear();
   }
 }
@@ -449,5 +453,61 @@ describe('meeting persistence across a restart', () => {
     say(app, 'Ada (Chef)', 'A fresh meeting starts here.');
     await waitFor(() => (store.saved !== undefined ? true : undefined), 'the new meeting to be saved');
     expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
+  });
+
+  it('saves the last transcript line before closing, not the state before it', async () => {
+    const store = new MemoryStore();
+    const persistence = createMeetingPersistence({ store, log: () => undefined });
+    const app = await createTestApp({
+      modules: [createMeetingModule({ llm: createFakeLlm(() => '{}'), notetakerIntervalMs: 60_000 })],
+      persistence,
+    });
+    apps.push(app);
+
+    say(app, 'Ada (Chef)', 'The first line of the meeting.');
+    await persistence.flush();
+    say(app, 'Bao (Cashier)', 'The last line before we close.');
+    await persistence.flush();
+    await app.close();
+
+    const saved = store.saved;
+    expect(saved?.state.notetaker.pending.map((line) => line.text)).toEqual([
+      'The first line of the meeting.',
+      'The last line before we close.',
+    ]);
+  });
+
+  it('rejects every New meeting while the clear keeps failing, then saves again once it clears', async () => {
+    const store = new FailingClearStore();
+    const persistence = createMeetingPersistence({ store, log: () => undefined });
+    const app = await startApp(persistence);
+    say(app, 'Ada (Chef)', 'The oven trips the fuse again.');
+    await persistence.flush();
+    const screen = await connectScreen(app);
+
+    store.clearFailures = 2;
+    for (const attempt of [1, 2]) {
+      const before = screen.messages.filter((event) => event.type === 'COMMAND_REJECTED').length;
+      screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+      await waitFor(
+        () => {
+          const rejections = screen.messages.filter((event) => event.type === 'COMMAND_REJECTED');
+          return rejections.length > before ? rejections[before] : undefined;
+        },
+        `the host to see rejection ${attempt}`,
+      );
+    }
+
+    // Neither New meeting reset the room, and the clear is still waiting to be retried.
+    expect(screen.messages.some((event) => event.type === 'MEETING_RESET')).toBe(false);
+    expect(store.events.filter((event) => event === 'clear')).toEqual([]);
+
+    // The next save retries the queued clear first, then saves; saves are not stuck behind it.
+    say(app, 'Ada (Chef)', 'A line after the failed resets.');
+    await waitFor(
+      () => (store.events.includes('clear') && store.saved !== undefined ? true : undefined),
+      'the clear to succeed and saving to resume',
+    );
+    expect(store.events.filter((event) => event === 'clear')).toHaveLength(1);
   });
 });

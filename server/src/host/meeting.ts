@@ -330,14 +330,19 @@ export function createMeetingModule({
           if (persistence !== undefined) {
             resetting = true;
             try {
-              await persistence.clearSaved();
-            } catch {
+              try {
+                await persistence.clearSaved();
+              } catch {
+                throw new CommandError("Couldn't clear the saved meeting — try again");
+              }
+              resetMeeting({ savedCleared: true });
+            } finally {
+              // Always let snapshots through again, whether the clear failed or the reset threw.
               resetting = false;
-              throw new CommandError("Couldn't clear the saved meeting — try again");
             }
+          } else {
+            resetMeeting({ savedCleared: true });
           }
-          resetMeeting({ savedCleared: true });
-          resetting = false;
           return;
         }
         if (command.type === 'SET_HOST_MODE') {
