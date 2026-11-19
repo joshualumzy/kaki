@@ -476,6 +476,13 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     }
   }
 
+  /** True once the end-of-meeting minutes card is waiting for a person to approve it. */
+  function minutesCardReady(): boolean {
+    return [...tasks.values()].some(
+      (task) => /^Publish meeting minutes/i.test(task.title) && task.status === 'DRAFT_READY',
+    );
+  }
+
   /** Click Approve & publish for a card whose draft is on screen, waiting for the draft to appear first. */
   async function approveRobotTask(task: { id: string; title: string }): Promise<void> {
     if (page === undefined) return;
@@ -986,6 +993,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     await checkPhoneLayout('at wrap-up');
     await keepShot('at wrap-up');
     if (parsed.act === true) {
+      // The minutes card is created a moment after the closing cue; approve it like any other guest card.
+      const minutesReady = await waitFor('Minutes card for approval', minutesCardReady, 30_000, false);
+      if (!minutesReady) notes.push(`${stamp()} Act: no end-of-meeting minutes card appeared for approval`);
       await actOnRobotTasks();
       await finishActedCards();
     }

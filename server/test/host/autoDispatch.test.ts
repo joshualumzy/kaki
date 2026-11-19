@@ -27,6 +27,22 @@ describe('auto-dispatch', () => {
     expect((cue as { payload: { assignee?: string; title?: string } }).payload).toMatchObject({ assignee: 'Ada', title: 'Fix the oven' });
   });
 
+  it('leaves the end-of-meeting minutes card waiting for its person, without a dispatch line', () => {
+    const published: KakiEvent[] = [];
+    app.hub.subscribe((event) => published.push(event));
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
+
+    const task = app.tasks.suggest({
+      title: 'Publish meeting minutes to the team wiki',
+      context: 'The minutes, already drafted.',
+      suggestedAssignee: 'chef',
+      actionKind: 'wiki_page',
+    });
+
+    expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
+    expect(published.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'DISPATCH')).toBe(false);
+  });
+
   it('leaves a declined task for a person; it is not sent out again', () => {
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: testScenario });
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });

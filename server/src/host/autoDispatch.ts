@@ -108,6 +108,8 @@ export function installAutoDispatch({
   const held = new Map<string, Task>();
   const dispatch = (task: Task): void => {
     if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return;
+    // End-of-meeting minutes are drafted by the wiki module and already wait on a person; never offer them as a new task.
+    if (/^Publish meeting minutes/i.test(task.title)) return;
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
     if (role === undefined || role.facilitator === true || !present) return;

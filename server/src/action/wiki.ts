@@ -1,4 +1,4 @@
-import { roleLabel, type Question, type Scenario, type Task } from '@kaki/shared';
+import { humanSeatRoles, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
@@ -83,6 +83,22 @@ export function buildMeetingMinutes(
   }
 
   return sections.join('\n');
+}
+
+/**
+ * Who reviews and approves the end-of-meeting minutes: a person in the room, never an AI seat.
+ * The owner's (facilitator's) chair wins when a person holds it, then any present human seat, then
+ * the first human seat in the scenario. `presentSeats` is the app's own seat-holder record.
+ */
+export function minutesAssignee(
+  scenario: Scenario,
+  presentSeats: ReadonlyArray<{ seat: string }>,
+): Role | undefined {
+  const humans = humanSeatRoles(scenario);
+  const present = new Set(presentSeats.map((entry) => entry.seat.trim().toLowerCase()));
+  const humanPresent = humans.filter((role) => present.has(role.id.toLowerCase()));
+  const ownerSeat = humanPresent.find((role) => role.facilitator === true);
+  return (ownerSeat ?? humanPresent[0] ?? humans[0])?.id;
 }
 
 interface PageDraft {
@@ -198,7 +214,7 @@ export async function probeWiki(
   return probeOk('The wiki accepted the login and can be read.');
 }
 
-/** Create the module that drafts a wiki page and publishes it once the assignee approves, plus auto-publishes end-of-meeting minutes. */
+/** Create the module that drafts a wiki page and publishes it once the assignee approves, including end-of-meeting minutes. */
 export function createWikiModule({
   llm,
   wiki,
@@ -350,7 +366,6 @@ export function createWikiModule({
       const stopBase = baseModule.start(context);
       if (wiki === undefined) return stopBase;
 
-      const shutdown = new AbortController();
       let stopped = false;
       let transcriptLines: Array<{ speaker: string; text: string }> = [];
       let openQuestions: Question[] = [];
@@ -377,62 +392,50 @@ export function createWikiModule({
           openQuestions = [...event.payload.openQuestions];
           return;
         }
-        if (
-          event.type === 'HOST_SPEECH_TRIGGERED' &&
-          event.payload.kind === 'CLOSING' &&
-          !minutesPublished &&
-          context.draftOnly !== true
-        ) {
+        if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING' && !minutesPublished) {
           minutesPublished = true;
           const snapshotLines = [...transcriptLines];
           minutesTimer = setTimeout(() => {
             minutesTimer = undefined;
             if (stopped || snapshotLines.length === 0) return;
             const date = today();
-            const title = `${context.scenario.meetingTitle} — Meeting Minutes`;
-            const suffix = Date.now().toString(36).slice(-4);
-            const path = pagePath(date, `${context.scenario.meetingTitle}-minutes-${suffix}`);
+            // The meeting that just closed, with its own seats and agenda, not the startup scenario.
+            const scenario = context.activeScenario?.() ?? context.scenario;
+            const title = `${scenario.meetingTitle} — Meeting Minutes`;
             const content = buildMeetingMinutes(
-              context.scenario,
+              scenario,
               date,
               snapshotLines,
               openQuestions,
               context.tasks.list(),
             );
-            void publishPage(
-              wiki,
-              path,
-              title,
-              content,
-              `End-of-meeting minutes for ${context.scenario.meetingTitle}`,
-              shutdown.signal,
-            )
-              .then((artifactUrl) => {
-                if (stopped) return;
-                const facilitator =
-                  context.scenario.roles.find((role) => role.facilitator === true)?.id ??
-                  context.scenario.roles[0]?.id;
-                if (facilitator === undefined) return;
-                const minutesTask = context.tasks.suggest({
-                  title: 'Publish meeting minutes to the team wiki',
-                  context: `Full summary of ${context.scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
-                  suggestedAssignee: facilitator,
-                  actionKind: 'wiki_page',
-                });
-                context.tasks.transition(minutesTask.id, 'DISPATCHED');
-                context.tasks.transition(minutesTask.id, 'CLAIMED', { mode: 'MANUAL' });
-                context.tasks.transition(minutesTask.id, 'COMPLETED', { artifactUrl });
-              })
-              .catch((error: unknown) => {
-                if (!stopped) console.warn(`kaki action-wiki: could not publish end-of-meeting minutes: ${messageOf(error)}`);
+            const assignee = minutesAssignee(scenario, context.meetingDetails?.().seats ?? []);
+            if (assignee === undefined) {
+              console.warn('kaki action-wiki: no human seat to review the end-of-meeting minutes; nothing was drafted');
+              return;
+            }
+            try {
+              const minutesTask = context.tasks.suggest({
+                title: 'Publish meeting minutes to the team wiki',
+                context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
+                suggestedAssignee: assignee,
+                actionKind: 'wiki_page',
               });
+              context.tasks.transition(minutesTask.id, 'DISPATCHED', { assignee });
+              context.tasks.transition(minutesTask.id, 'CLAIMED', {
+                mode: 'ACTION_AGENT',
+                draft: { target: 'Wiki: meeting notes', subject: title, body: content },
+              });
+              context.tasks.transition(minutesTask.id, 'DRAFT_READY');
+            } catch (error) {
+              console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${messageOf(error)}`);
+            }
           }, minutesDelayMs);
         }
       });
 
       return () => {
         stopped = true;
-        shutdown.abort();
         if (minutesTimer !== undefined) clearTimeout(minutesTimer);
         unsubscribe();
         stopBase?.();

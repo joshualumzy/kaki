@@ -169,6 +169,8 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
       const unsubscribe = tasks.onChange((task) => {
         if (task.actionKind !== kind || task.mode !== 'ACTION_AGENT') return;
         if (task.status === 'CLAIMED') {
+          // A task that already carries a draft (the end-of-meeting minutes) is never re-drafted by the LLM.
+          if (task.draft !== undefined) return;
           if (unconfiguredReason !== undefined) {
             fail(task, unconfiguredReason);
           } else {

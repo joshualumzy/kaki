@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
-import { createWikiModule, pagePath, type WikiModuleOptions, type WikiSettings } from '../../src/action/wiki';
+import type { ActionKind, KakiEvent, Scenario, Task } from '@kaki/shared';
+import { buildMeetingMinutes, createWikiModule, pagePath, type WikiModuleOptions, type WikiSettings } from '../../src/action/wiki';
 import type { Hub } from '../../src/hub';
+import type { SavedMeetingDetails } from '../../src/persist/state';
 import { createFakeLlm } from '../../src/llm';
 import { createTaskStore, type TaskStore } from '../../src/tasks';
 import { testScenario } from '../fixtures/scenario';
@@ -36,12 +37,43 @@ function quietHub(): Hub {
   };
 }
 
-function setup(options: WikiModuleOptions, draftOnly = false): TaskStore & { hub: Hub } {
+function setup(
+  options: WikiModuleOptions,
+  draftOnly = false,
+  context: { scenario?: Scenario; activeScenario?: Scenario; seats?: Array<{ name: string; seat: string }> } = {},
+): TaskStore & { hub: Hub } {
+  const scenario = context.scenario ?? testScenario;
   const hub = quietHub();
-  const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createWikiModule(options).start({ hub, tasks, scenario: testScenario, draftOnly });
+  const tasks = createTaskStore({ hub, scenario });
+  const stop = createWikiModule(options).start({
+    hub,
+    tasks,
+    scenario,
+    draftOnly,
+    ...(context.activeScenario === undefined ? {} : { activeScenario: () => context.activeScenario! }),
+    ...(context.seats === undefined
+      ? {}
+      : { meetingDetails: () => ({ seats: context.seats! }) as SavedMeetingDetails }),
+  });
   if (stop !== undefined) stops.push(stop);
   return Object.assign(tasks, { hub });
+}
+
+function publishClosing(hub: Hub): void {
+  hub.publish({
+    type: 'TRANSCRIPT_CHUNK',
+    audience: { kind: 'all' },
+    payload: { speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.', timestamp: '2026-11-03T10:00:00Z' },
+  });
+  hub.publish({
+    type: 'HOST_SPEECH_TRIGGERED',
+    audience: { kind: 'screen' },
+    payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+  });
+}
+
+function minutesTaskIn(tasks: TaskStore): Task | undefined {
+  return tasks.list().find((task) => /^Publish meeting minutes/i.test(task.title));
 }
 
 function startTask(tasks: TaskStore, actionKind: ActionKind = 'wiki_page', sourceSeconds?: number): Task {
@@ -153,32 +185,148 @@ describe('wiki action module', () => {
     expect(pagePath('2026-11-03', '???')).toBe('meetings/2026-11-03-notes');
   });
 
-  it('auto-publishes end-of-meeting minutes to the wiki when the meeting closes', async () => {
+  it('creates the minutes in the review state at closing, assigned to the present person, without calling the wiki', async () => {
     const fetchImpl = wikiFetch();
-    const tasks = setup({
-      llm: createFakeLlm(() => reply),
-      wiki: settings,
-      fetchImpl,
-      minutesDelayMs: 10,
-      today: () => '2026-11-03',
-    });
-    tasks.hub.publish({
-      type: 'TRANSCRIPT_CHUNK',
-      audience: { kind: 'all' },
-      payload: { speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.', timestamp: '2026-11-03T10:00:00Z' },
-    });
-    tasks.hub.publish({
-      type: 'HOST_SPEECH_TRIGGERED',
-      audience: { kind: 'screen' },
-      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
-    });
-
-    const minutesTask = await waitFor(
-      () => tasks.list().find((t) => /^Publish meeting minutes/i.test(t.title) && t.status === 'COMPLETED'),
-      'end-of-meeting minutes task to be COMPLETED',
+    const llm = createFakeLlm(() => reply);
+    const tasks = setup(
+      { llm, wiki: settings, fetchImpl, minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
     );
-    expect(minutesTask.artifactUrl).toMatch(/^http:\/\/wiki\.test\/en\/meetings\/2026-11-03-/);
-    expect(minutesTask.assignee).toBeUndefined();
+    publishClosing(tasks.hub);
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.status).toBe('DRAFT_READY');
+    expect(minutesTask.assignee).toBe('cashier');
+    expect(minutesTask.suggestedAssignee).toBe('cashier');
+    expect(minutesTask.actionKind).toBe('wiki_page');
+    expect(minutesTask.mode).toBe('ACTION_AGENT');
+    expect(minutesTask.draft).toEqual({
+      target: 'Wiki: meeting notes',
+      subject: 'Lunch service readiness — Meeting Minutes',
+      body: buildMeetingMinutes(
+        testScenario,
+        '2026-11-03',
+        [{ speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.' }],
+        [],
+        [],
+      ),
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(llm.calls).toHaveLength(0);
+  });
+
+  it('publishes the approved minutes once and completes the task with the URL', async () => {
+    const fetchImpl = wikiFetch();
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
+    );
+    publishClosing(tasks.hub);
+
+    const ready = await waitFor(
+      () => {
+        const task = minutesTaskIn(tasks);
+        return task?.status === 'DRAFT_READY' ? task : undefined;
+      },
+      'end-of-meeting minutes task to be DRAFT_READY',
+    );
+    tasks.handleCommand({ type: 'APPROVE_ACTION', taskId: ready.id, draft: ready.draft! }, 'cashier');
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    expect(done.artifactUrl).toMatch(/^http:\/\/wiki\.test\/en\/meetings\/2026-11-03-/);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const createCalls = fetchImpl.mock.calls.filter(([, init]) =>
+      JSON.parse(String(init?.body)).query.includes('Create'),
+    );
+    expect(createCalls).toHaveLength(1);
+    expect(JSON.parse(String(createCalls[0]![1]?.body)).variables.content).toContain(
+      'We decided to cap the oven at 200C.',
+    );
+  });
+
+  it('never assigns minutes to an AI seat and prefers the owner seat when a person holds it', async () => {
+    const scenario: Scenario = {
+      ...testScenario,
+      roles: [
+        { id: 'ai_bot', label: 'AI Bot' },
+        { id: 'owner', label: 'Owner', facilitator: true },
+        { id: 'guest', label: 'Guest' },
+      ],
+      attendees: [
+        { name: 'Bot', role: 'ai_bot', zoomDisplayName: 'Bot' },
+        { name: 'Ola', role: 'owner', zoomDisplayName: 'Ola (Owner)' },
+        { name: 'Gil', role: 'guest', zoomDisplayName: 'Gil (Guest)' },
+      ],
+      agenda: [{ ...testScenario.agenda[0]!, ownerRole: 'owner' }],
+      npcs: [
+        {
+          attendee: 'Bot',
+          voice: 'en-US-TestNeural',
+          personality: 'A stand-in played by the AI.',
+          agenda: 'Do as the team does.',
+          concerns: [],
+          playable: false,
+        },
+      ],
+    };
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10 },
+      false,
+      {
+        scenario,
+        seats: [
+          { name: 'Bot', seat: 'ai_bot' },
+          { name: 'Gil', seat: 'guest' },
+          { name: 'Ola', seat: 'owner' },
+        ],
+      },
+    );
+    publishClosing(tasks.hub);
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.assignee).toBe('owner');
+  });
+
+  it('titles the minutes from the running meeting, not the startup scenario', async () => {
+    const running: Scenario = {
+      ...testScenario,
+      meetingTitle: 'Owner sync',
+    };
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10 },
+      false,
+      { activeScenario: running, seats: [{ name: 'Bao', seat: 'cashier' }] },
+    );
+    publishClosing(tasks.hub);
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.assignee).toBe('cashier');
+    expect(minutesTask.draft?.subject).toBe('Owner sync — Meeting Minutes');
+  });
+
+  it('falls back to the first human seat when nobody is present', async () => {
+    const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10 });
+    publishClosing(tasks.hub);
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.assignee).toBe('chef');
+  });
+
+  it('creates nothing when the meeting resets before the delay', async () => {
+    const fetchImpl = wikiFetch();
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, minutesDelayMs: 40, today: () => '2026-11-03' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
+    );
+    publishClosing(tasks.hub);
+    tasks.hub.publish({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId: 'next-meeting' } });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(minutesTaskIn(tasks)).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('still drafts a wiki task in draftOnly mode without publishing', async () => {
@@ -194,25 +342,23 @@ describe('wiki action module', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('does not auto-publish end-of-meeting minutes in draftOnly mode', async () => {
+  it('drafts end-of-meeting minutes for review in draftOnly mode without publishing', async () => {
     const fetchImpl = wikiFetch();
     const tasks = setup(
       { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, minutesDelayMs: 10, today: () => '2026-11-03' },
       true,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
     );
-    tasks.hub.publish({
-      type: 'TRANSCRIPT_CHUNK',
-      audience: { kind: 'all' },
-      payload: { speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.', timestamp: '2026-11-03T10:00:00Z' },
-    });
-    tasks.hub.publish({
-      type: 'HOST_SPEECH_TRIGGERED',
-      audience: { kind: 'screen' },
-      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
-    });
+    publishClosing(tasks.hub);
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(tasks.list().some((task) => /^Publish meeting minutes/i.test(task.title))).toBe(false);
+    const minutesTask = await waitFor(
+      () => {
+        const task = minutesTaskIn(tasks);
+        return task?.status === 'DRAFT_READY' ? task : undefined;
+      },
+      'end-of-meeting minutes task to be DRAFT_READY',
+    );
+    expect(minutesTask.assignee).toBe('cashier');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

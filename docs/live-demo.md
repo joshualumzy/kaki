@@ -33,7 +33,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
    `shared/src/demo.ts`).
 5. **Tasks.** The notetaker spots action items; the host dispatches them, an AI colleague accepts or declines in their own words (or the visitor accepts/approves their own task in the Wingman dock),
    and accepted drafts are executed against Gitea, Mattermost, Mailpit, Wiki.js, or Radicale CalDAV (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`).
-6. **Automatic wrap-up & Wiki minutes.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` automatically publishes the full Markdown meeting minutes to Wiki.js, surfacing a direct **Open meeting minutes in Wiki ↗** link in the dock and on `/screen`.
+6. **Wrap-up & Wiki minutes for approval.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` creates a **Publish meeting minutes to the team wiki** card with the full Markdown minutes already drafted. It is assigned to a person in the meeting (the owner's seat when they hold it, otherwise the visitor), never an AI seat, so the draft waits for their approval. Nothing is written yet: the person reviews and can edit the draft, then taps **Approve & publish**. Only then does Wiki.js get the page, surfacing the **Open meeting minutes in Wiki ↗** link in the dock and on `/screen`.
 
 ## How it is built
 
@@ -83,9 +83,9 @@ KAKI_DRAFT_ONLY=1 npm run dev
 KAKI_DRAFT_ONLY=1 npm run npc
 ```
 
-Tasks are still drafted and can be reviewed. An action that reaches `RUNNING` (approved or retried) is refused before
-anything is sent and marked failed with a clear message, automatic end-of-meeting wiki minutes are skipped, and AI
-attendees stop auto-approving or retrying drafts. Unset it to run for real.
+Tasks are still drafted and can be reviewed, including the end-of-meeting minutes card. An action that reaches `RUNNING`
+(approved or retried) is refused before anything is sent and marked failed with a clear message, and AI attendees stop
+auto-approving or retrying drafts. Unset it to run for real.
 
 To rehearse with real writes to the local mock tools, run `npm run playtest:live -- --act` on a stack started **without** `KAKI_DRAFT_ONLY`; the robot then accepts and approves its own cards.
 

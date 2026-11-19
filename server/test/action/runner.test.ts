@@ -128,6 +128,33 @@ describe('action runner draft-only guard', () => {
   });
 });
 
+describe('action runner prefilled draft guard', () => {
+  it('never re-drafts a task that was claimed with a draft already filled in', async () => {
+    const { tasks, draftSpy, runSpy } = setup();
+    const task = tasks.suggest({
+      title: 'Publish meeting minutes to the team wiki',
+      context: 'The end-of-meeting minutes, already written.',
+      suggestedAssignee: 'chef',
+      actionKind: 'wiki_page',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    tasks.transition(task.id, 'CLAIMED', {
+      mode: 'ACTION_AGENT',
+      draft: { target: 'Team wiki', subject: 'Meeting minutes', body: '# Minutes' },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(draftSpy).not.toHaveBeenCalled();
+    expect(tasks.get(task.id)?.draft?.body).toBe('# Minutes');
+
+    const ready = tasks.transition(task.id, 'DRAFT_READY');
+    tasks.transition(ready.id, 'RUNNING');
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(done.artifactUrl).toBe('http://artifact.test/page');
+  });
+});
+
 describe('action runner unconfigured tool guard', () => {
   it('fails a claimed task before drafting when its tool is not configured', async () => {
     const reason = 'The wiki is not configured: set WIKI_URL, WIKI_ADMIN_EMAIL and WIKI_ADMIN_PASSWORD';

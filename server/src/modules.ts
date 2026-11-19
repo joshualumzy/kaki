@@ -9,6 +9,8 @@ export interface KakiContext {
   hub: Hub;
   tasks: TaskStore;
   scenario: Scenario;
+  /** The scenario of the meeting running now (sealed setup's seats and agenda); falls back to `scenario`. */
+  activeScenario?(): Scenario;
   memory?: readonly MeetingMemoryEntry[];
   /** When true, actions may be drafted and reviewed but never sent to external services. */
   draftOnly?: boolean;

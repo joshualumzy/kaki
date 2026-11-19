@@ -1797,6 +1797,7 @@ export async function createApp({
         hub,
         tasks,
         scenario,
+        activeScenario: () => seating().scenario,
         memory,
         draftOnly,
         persistence,

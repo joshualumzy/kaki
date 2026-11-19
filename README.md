@@ -35,7 +35,7 @@ Kaki splits meeting assistance across three specialized agents and an interactiv
 
 1. **Kaki Host (`server/src/host/`):** Tracks the agenda clock, detects open questions and action items via a grounded LLM Notetaker, auto-dispatches follow-ups to the right role, and triggers closing summaries.
 2. **Kaki Wingman (`server/src/wingman/`):** Delivers private, role-filtered nudges when a participant has unshared domain facts, and answers open questions automatically from company records using PostgreSQL + `pgvector` semantic RAG (`bge-m3`).
-3. **Kaki Action (`server/src/action/`):** Drafts concrete external artifacts for claimed tasks and executes them upon human approval across 5 live systems—plus automatically publishes full Markdown meeting minutes to the team wiki when a meeting concludes.
+3. **Kaki Action (`server/src/action/`):** Drafts concrete external artifacts for claimed tasks and executes them upon human approval across 5 live systems—plus drafts full Markdown meeting minutes when a meeting concludes, for a person in the room to approve before they go to the team wiki.
 4. **LiveKit NPC Director (`server/src/npc/`):** Powers the interactive voice booth where one or more humans (on laptop or phone) speak or type with AI colleagues over WebRTC (LiveKit + Azure Speech STT/TTS + voice-activity barge-in).
 
 ---
@@ -76,7 +76,7 @@ All backing services run via [`docker/docker-compose.yml`](docker/docker-compose
 | --- | --- | --- | --- | --- |
 | **Gitea** | Creates engineering / ops issues from approved drafts | `http://127.0.0.1:8082` | `demo` / `demo` *(or `wei-ling`, `arjun`, `mei`, `daniel` / `demo`)* | `server/src/action/gitea.ts` |
 | **Mattermost** | Posts announcements & updates to team channels | `http://127.0.0.1:8083` | `demo` / `demo` *(or `weiling`, `arjun`, `mei`, `daniel` / `demo`)* | `server/src/action/mattermost.ts` |
-| **Wiki.js** | Publishes team wiki pages + automatic end-of-meeting minutes | `http://127.0.0.1:8081` | `demo` / `demo` | `server/src/action/wiki.ts` |
+| **Wiki.js** | Publishes team wiki pages + approved end-of-meeting minutes | `http://127.0.0.1:8081` | `demo` / `demo` | `server/src/action/wiki.ts` |
 | **Mailpit** | Sends drafted emails via SMTP & serves web inbox viewer | `http://127.0.0.1:8084` | *No login required* | `server/src/action/email.ts` |
 | **Radicale (CalDAV)** | Books `.ics` calendar events & serves seeded Kopitiam calendar | `http://127.0.0.1:5232` | `demo` / `demo` | `server/src/action/calendar.ts` |
 | **PostgreSQL + `pgvector`** | Stores company records & 1024-dim `bge-m3` RAG embeddings | `127.0.0.1:5433` | `kaki` / `kaki_dev_password` | `server/src/wingman/knowledge/` |
