@@ -5,6 +5,7 @@ import type { KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken, verifyPassword } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
+import { createMeetingCodeSource } from '../../src/meetingCode';
 import { createTestApp, portOf, waitFor } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
@@ -64,8 +65,9 @@ describe('auth', () => {
   beforeEach(async () => {
     store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode: MEETING_CODE });
-    app = await createTestApp({ auth, serviceToken: 'runner-secret' });
+    const meetingCode = createMeetingCodeSource(MEETING_CODE);
+    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    app = await createTestApp({ auth, meetingCode, serviceToken: 'runner-secret' });
     port = portOf(app);
     sockets = [];
   });
@@ -218,9 +220,9 @@ describe('auth', () => {
     expect(await noRole.json()).toEqual({ error: 'Choose your role.' });
 
     const unknownRole = await post('/api/join', { code: MEETING_CODE, role: 'waiter' });
-    expect(unknownRole.status).toBe(400);
+    expect(unknownRole.status).toBe(403);
     expect(await unknownRole.json()).toEqual({
-      error: 'That role is not part of this meeting.',
+      error: 'That role is not a human seat in this meeting.',
     });
 
     const cookie = await joinAs('chef');

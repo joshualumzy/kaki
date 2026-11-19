@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toString as qrCodeSvg } from 'qrcode';
+import { humanSeatRoles } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import { Card } from '../ui';
 import './join-phones.css';
@@ -16,8 +17,8 @@ function phoneUrl(baseUrl: string, roleId: string, code?: string): string {
     : `${baseUrl}/phone?${query}&code=${encodeURIComponent(code)}`;
 }
 
-/** Shared-screen card with one QR code per scenario role so phones can join. */
-export function JoinPhones() {
+/** Shared-screen card with one QR code per human seat so phones can join. */
+export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
   const scenario = useScenario();
   const [state, setState] = useState<JoinState>({ kind: 'loading' });
 
@@ -74,7 +75,7 @@ export function JoinPhones() {
 
     void load();
     return () => controller.abort();
-  }, []);
+  }, [meetingId]);
 
   if (state.kind === 'error') {
     return (
@@ -101,7 +102,7 @@ export function JoinPhones() {
             </p>
           )}
           <ul className="join-phones">
-            {scenario.roles.map((role) => {
+            {humanSeatRoles(scenario).map((role) => {
               const url = phoneUrl(state.baseUrl, role.id, state.code);
               return (
                 <li className="join-phone" key={role.id}>

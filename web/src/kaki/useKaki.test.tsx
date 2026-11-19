@@ -88,9 +88,11 @@ describe('useKaki lifecycle state', () => {
     act(() => socket.emit('message', startEvent()));
     await waitFor(() => expect(result.current.started).toBe(true));
     expect(result.current.events.some((event) => event.type === 'MEETING_STARTED')).toBe(true);
+    expect(result.current.meetingId).toBe('meeting-a');
 
     act(() => socket.emit('message', resetEvent()));
     await waitFor(() => expect(result.current.started).toBe(false));
+    expect(result.current.meetingId).toBe('meeting-b');
     // The reset clears the event list; the lifecycle flag is the state the browser can still read.
     expect(result.current.events).toEqual([]);
   });

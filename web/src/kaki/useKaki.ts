@@ -22,6 +22,10 @@ export interface UseKakiResult {
    * Undefined until the server says either, so reconnecting never guesses from a cleared event list.
    */
   started: boolean | undefined;
+  /** The current meeting identity, so a join card can reload its code when a new meeting starts. */
+  meetingId: string | undefined;
+  /** A message from the server explaining why this feed was closed for good, if it was. */
+  ended: string | undefined;
   send(command: KakiCommand): void;
 }
 
@@ -34,6 +38,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const [connected, setConnected] = useState(false);
   const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
   const [started, setStarted] = useState<boolean | undefined>(undefined);
+  const [meetingIdentity, setMeetingIdentity] = useState<string | undefined>(undefined);
+  const [ended, setEnded] = useState<string | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const reconnectTimer = useRef<number | undefined>(undefined);
   const attempts = useRef(0);
@@ -48,6 +54,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
     setRejections([]);
     setConnected(false);
     setRestoredAt(undefined);
+    setMeetingIdentity(undefined);
+    setEnded(undefined);
     attempts.current = 0;
     let closed = false;
     let socket: WebSocket | undefined;
@@ -67,6 +75,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         setEvents([]);
         setTasks(new Map());
         setRestoredAt(undefined);
+        setMeetingIdentity(undefined);
+        setEnded(undefined);
         setConnected(true);
         if (audience === 'lifecycle') {
           // A reset may have happened while this tab was disconnected; ask instead of inferring.
@@ -123,12 +133,14 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         if (parsed.type === 'MEETING_STARTED') {
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
+          setMeetingIdentity(parsed.payload.meetingId);
           setStarted(true);
         }
 
         if (parsed.type === 'MEETING_RESET') {
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
+          setMeetingIdentity(parsed.payload.meetingId);
           setStarted(false);
           setEvents((previous) => {
             const last = previous.at(-1);
@@ -159,9 +171,14 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         setEvents((previous) => [...previous, Object.assign(parsed, { receivedAt: Date.now() })].slice(-50));
       });
 
-      current.addEventListener('close', () => {
+      current.addEventListener('close', (event) => {
         if (closed) return;
         setConnected(false);
+        const closeEvent = event as CloseEvent | undefined;
+        if (closeEvent?.code === 4001) {
+          setEnded(closeEvent.reason === '' ? 'This meeting has ended; scan the new code.' : closeEvent.reason);
+          return;
+        }
         const delay = Math.min(5000, 500 * 2 ** attempts.current);
         attempts.current += 1;
         reconnectTimer.current = window.setTimeout(connect, delay);
@@ -202,6 +219,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
     connected,
     restoredAt,
     started,
+    meetingId: meetingIdentity,
+    ended,
     send,
   };
 }

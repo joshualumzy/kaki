@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { assigneeLabel, roleLabel, type KakiCommand, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import { assigneeLabel, humanSeatRoles, roleLabel, type KakiCommand, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
 import { Navigate } from 'react-router-dom';
 import './screen.css';
 import { useMe } from '../auth/useMe';
@@ -48,7 +48,7 @@ const COLUMNS: { id: string; title: string; hint: string; statuses: Task['status
 /** The meeting screen itself, only mounted once the host is allowed in. */
 function ScreenFeed() {
   const scenario = useScenario();
-  const { events, tasks, rejection, connected, restoredAt, send } = useKaki('screen');
+  const { events, tasks, rejection, connected, restoredAt, meetingId, send } = useKaki('screen');
   const [showJoin, setShowJoin] = useState(false);
   const taskList = [...tasks.values()];
   const minutesTask = taskList.find(
@@ -118,7 +118,7 @@ function ScreenFeed() {
 
       {showJoin ? (
         <div className="sc-join">
-          <JoinPhones />
+          <JoinPhones meetingId={meetingId} />
         </div>
       ) : null}
 
@@ -282,8 +282,7 @@ function AgendaPanel({ record, scenario, ended = false }: { record: RecordEvent;
       <div className="sc-two">
         <div>
           <h3 className="sc-h">Talk time · this item</h3>
-          {scenario.roles
-            .filter((role) => role.facilitator !== true)
+          {humanSeatRoles(scenario)
             .map((role) => {
               const seconds = speakerTalkSeconds[role.id] ?? 0;
               return (

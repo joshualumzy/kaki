@@ -87,11 +87,16 @@ export function aiCast(scenario: Scenario, humanSeat?: string): NpcProfile[] {
   );
 }
 
-/** The roles a person can take in the demo meeting: those whose attendee is not played by an AI. */
-export function humanRoles(scenario: Scenario): ScenarioRole[] {
-  return scenario.roles.filter((role) => role.facilitator !== true &&
+/** Every seat a person can take, including a human host: a role whose attendee is not always an AI. */
+export function humanSeatRoles(scenario: Scenario): ScenarioRole[] {
+  return scenario.roles.filter((role) =>
     scenario.attendees.some((attendee) => attendee.role === role.id && !isPlayedByAi(scenario, attendee)),
   );
+}
+
+/** The non-host roles a person can take in the demo meeting: a phone seat, not the facilitator's chair. */
+export function humanRoles(scenario: Scenario): ScenarioRole[] {
+  return humanSeatRoles(scenario).filter((role) => role.facilitator !== true);
 }
 
 /** The attendee a person plays when they pick a role (by id or label): the first one no AI plays. */

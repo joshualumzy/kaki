@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
 import type { ClientAudience } from '../hub';
+import { MEETING_ENDED_MESSAGE, type MeetingCodeSource } from '../meetingCode';
 import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } from './cookie';
-import { generateMeetingCode } from './meetingCode';
 import { hashPassword, hashToken, verifyPassword } from './password';
 import { createPostgresAuthStore } from './postgres';
 import { ensureAuthSchema } from './schema';
@@ -25,7 +25,7 @@ export interface Auth {
 export interface AuthOptions {
   store: AuthStore;
   roles: readonly string[];
-  meetingCode?: string;
+  meetingCode: MeetingCodeSource;
   secureCookies?: boolean;
   now?: () => number;
   log?: (message: string) => void;
@@ -117,7 +117,7 @@ function clientIp(request: IncomingMessage): string {
 export function createAuth({
   store,
   roles,
-  meetingCode = generateMeetingCode(),
+  meetingCode,
   secureCookies = false,
   now = Date.now,
   log = () => undefined,
@@ -251,6 +251,11 @@ export function createAuth({
       sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
       return;
     }
+    if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) {
+      // The phone's meeting is gone: it must join again with the code on the screen.
+      sendJson(response, 403, { error: MEETING_ENDED_MESSAGE, authEnabled: true });
+      return;
+    }
     sendJson(
       response,
       200,
@@ -278,7 +283,7 @@ export function createAuth({
       sendJson(response, 400, { error: 'Enter the meeting code.' });
       return;
     }
-    if (rawCode.trim().toUpperCase() !== meetingCode) {
+    if (rawCode.trim().toUpperCase() !== meetingCode.value) {
       sendJson(response, 403, { error: 'That meeting code is not valid.' });
       return;
     }
@@ -287,11 +292,11 @@ export function createAuth({
       return;
     }
     if (!roles.includes(role)) {
-      sendJson(response, 400, { error: 'That role is not part of this meeting.' });
+      sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
       return;
     }
 
-    await startSession(response, 'participant', role, meetingCode);
+    await startSession(response, 'participant', role, meetingCode.value);
     sendJson(response, 200, { kind: 'participant', role });
   }
 
@@ -308,10 +313,10 @@ export function createAuth({
       sendJson(response, 403, { error: 'Only the host can see the meeting code.' });
       return;
     }
-    sendJson(response, 200, { code: meetingCode });
+    sendJson(response, 200, { code: meetingCode.value });
   }
 
-  log(`kaki auth: enabled with meeting code ${meetingCode}`);
+  log(`kaki auth: enabled with meeting code ${meetingCode.value}`);
 
   return {
     async handleHttp(request, response) {
@@ -345,6 +350,10 @@ export function createAuth({
       if (session === undefined) {
         return { ok: false, message: 'Sign in required' };
       }
+      // A phone signed into the previous meeting must not follow the new one, even read-only.
+      if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) {
+        return { ok: false, message: MEETING_ENDED_MESSAGE };
+      }
       // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
       if (audience === 'lifecycle') {
         return { ok: true };
@@ -354,7 +363,7 @@ export function createAuth({
           ? { ok: true }
           : { ok: false, message: 'Host sign-in required' };
       }
-      if (session.kind !== 'participant' || session.role !== audience) {
+      if (session.kind !== 'participant' || session.role !== audience || !roles.includes(audience)) {
         return { ok: false, message: 'Join this meeting with that role first' };
       }
       return { ok: true };
@@ -400,10 +409,12 @@ export async function bootstrapHostAccount(
 /** Build the Postgres-backed auth feature from environment variables. */
 export async function createAuthFromEnv({
   roles,
+  meetingCode,
   env = process.env,
   now = Date.now,
 }: {
   roles: readonly string[];
+  meetingCode: MeetingCodeSource;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
 }): Promise<Auth> {
@@ -430,6 +441,7 @@ export async function createAuthFromEnv({
     return createAuth({
       store,
       roles,
+      meetingCode,
       secureCookies: (env.KAKI_PUBLIC_URL ?? '').trim().startsWith('https'),
       now,
     });

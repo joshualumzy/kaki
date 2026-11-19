@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   assigneeLabel,
-  isRoleIn,
+  humanAttendeeForRole,
+  humanSeatRoles,
   roleLabel,
   type Fact,
   type KakiCommand,
@@ -171,22 +172,45 @@ export function PhonePage() {
   }
 
   if (!auth.me.authEnabled) {
-    const role = params.get('role');
-    if (!isRoleIn(scenario, role)) return <RolePicker />;
-    return <PhoneFeed role={role} />;
+    const requestedRole = params.get('role');
+    const role = humanSeatRole(scenario, requestedRole);
+    if (role !== undefined) return <PhoneFeed role={role} />;
+    return requestedRole === null ? <RolePicker /> : <RoleNotAvailable role={requestedRole} />;
   }
 
-  const sessionRole = auth.me.kind === 'participant' ? auth.me.role : undefined;
-  const role = joinedRole ?? (isRoleIn(scenario, sessionRole) ? sessionRole : undefined);
+  const sessionRole = auth.me.kind === 'participant' ? humanSeatRole(scenario, auth.me.role) : undefined;
+  const role = joinedRole ?? sessionRole;
   if (role !== undefined) return <PhoneFeed role={role} />;
 
-  const requestedRole = params.get('role');
+  const requestedRole = humanSeatRole(scenario, params.get('role')) ?? '';
   return (
     <JoinForm
       initialCode={params.get('code') ?? ''}
-      initialRole={isRoleIn(scenario, requestedRole) ? requestedRole : ''}
+      initialRole={requestedRole}
+      notice={auth.me.kind === null ? auth.me.reason : undefined}
       onJoined={setJoinedRole}
     />
+  );
+}
+
+/** The canonical role id a phone may open, or undefined when this is not a human seat. */
+function humanSeatRole(scenario: Scenario, role: string | null | undefined): string | undefined {
+  return role === null || role === undefined ? undefined : humanAttendeeForRole(scenario, role)?.role;
+}
+
+function RoleNotAvailable({ role }: { role: string }) {
+  return (
+    <main className="phone">
+      <header className="phone-header">
+        <p className="eyebrow">Kaki · Your phone</p>
+        <h1>Role not available</h1>
+      </header>
+      <Card title="This role has no phone">
+        <p className="task-error" role="alert">
+          &quot;{role}&quot; is not a human seat in this meeting. Scan the QR code on the shared screen for your role.
+        </p>
+      </Card>
+    </main>
   );
 }
 
@@ -203,7 +227,7 @@ function RolePicker() {
       <p className="phone-intro">Pick your meeting role to open your private panel.</p>
       <Card title="Roles">
         <div className="role-picker">
-          {scenario.roles.map((role) => (
+          {humanSeatRoles(scenario).map((role) => (
             <Button key={role.id} onClick={() => navigate(`/phone?role=${role.id}`)}>
               {role.label}
             </Button>
@@ -217,16 +241,18 @@ function RolePicker() {
 function JoinForm({
   initialCode,
   initialRole,
+  notice,
   onJoined,
 }: {
   initialCode: string;
   initialRole: string;
+  notice?: string;
   onJoined: (role: string) => void;
 }) {
   const scenario = useScenario();
   const [code, setCode] = useState(initialCode.toUpperCase());
   const [role, setRole] = useState(initialRole);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(notice ?? null);
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
 
@@ -289,7 +315,7 @@ function JoinForm({
               onChange={(event) => setRole(event.target.value)}
             >
               <option value="">Choose a role</option>
-              {scenario.roles.map((scenarioRole) => (
+              {humanSeatRoles(scenario).map((scenarioRole) => (
                 <option key={scenarioRole.id} value={scenarioRole.id}>
                   {scenarioRole.label}
                 </option>
@@ -322,8 +348,24 @@ const FACTS_SHOWN = 2;
 
 export function PhoneFeed({ role }: { role: string }) {
   const scenario = useScenario();
-  const { events, tasks, rejection, connected, send } = useKaki(role);
+  const { events, tasks, rejection, connected, ended, send } = useKaki(role);
   const stamped = useStampedEvents(events);
+
+  if (ended !== undefined) {
+    return (
+      <main className="phone">
+        <header className="phone-header">
+          <p className="eyebrow">Kaki · {roleLabel(scenario, role)}</p>
+          <h1>{scenario.meetingTitle}</h1>
+        </header>
+        <Card title="This meeting has ended">
+          <p className="task-error" role="alert">
+            {ended}
+          </p>
+        </Card>
+      </main>
+    );
+  }
 
   const allTasks = [...tasks.values()];
   const currentTask = allTasks

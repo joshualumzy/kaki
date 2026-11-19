@@ -1,10 +1,12 @@
 // Must stay the first import: later modules read process.env as they load.
 import './env';
+import { humanSeatRoles } from '@kaki/shared';
 import { actionModules, calendarFromEnv, logMissingActionConfig } from './action';
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
 import { createHostModules } from './host';
 import { loadScenario } from './loadScenario';
+import { createMeetingCodeSource } from './meetingCode';
 import { createMeetingPersistenceFromEnv } from './persist/persistence';
 import { wingmanModules } from './wingman';
 
@@ -19,9 +21,13 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 const scenario = await loadScenario();
 const persistence = await createMeetingPersistenceFromEnv();
 const host = createHostModules(scenario);
+const meetingCode = createMeetingCodeSource();
 const authEnabled = process.env.KAKI_AUTH === '1';
 const auth = authEnabled
-  ? await createAuthFromEnv({ roles: scenario.roles.map((role) => role.id) })
+  ? await createAuthFromEnv({
+      roles: humanSeatRoles(scenario).map((role) => role.id),
+      meetingCode,
+    })
   : undefined;
 
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -37,6 +43,7 @@ try {
     meetingElapsedSeconds: host.meetingElapsedSeconds,
     meetingAgendaIndex: host.meetingAgendaIndex,
     persistence,
+    meetingCode,
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);

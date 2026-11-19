@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, newMeetingCode, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isSuggestInput, resolveAgendaPick, seatProblem, setMeetingAgenda, shuffleAgendaForRole, type MeetingMemoryEntry, type Scenario, type Task } from '@kaki/shared';
 import { assertReadableSavedMeeting, resolveSavedAgenda } from './persist/state';
 import { viewEvent, type CalendarSettings } from './action/calendar';
 import type { Auth } from './auth/module';
@@ -8,6 +8,7 @@ import { CommandError, createHub, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import type { MeetingPersistence } from './persist/persistence';
+import { createMeetingCodeSource, MEETING_ENDED_MESSAGE, type MeetingCodeSource } from './meetingCode';
 import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type RejoinGuard } from './rejoin';
 import { createTaskStore, type TaskStore } from './tasks';
 import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster, type SeatReservations } from './livekit';
@@ -42,6 +43,8 @@ export interface CreateAppOptions {
   startAckTimeoutMs?: number;
   /** Shared secret the AI runner uses for its service channel; defaults to KAKI_SERVICE_TOKEN. */
   serviceToken?: string;
+  /** The one code shared with phone sign-in; omitted creates one that rotates with the meeting. */
+  meetingCode?: MeetingCodeSource;
 }
 
 /** The result of one server-owned Start, ready to send as JSON. */
@@ -71,14 +74,14 @@ interface RequestContext {
   auth?: Auth;
   calendar?: CalendarSettings;
   roomRoster: RoomRoster;
-  /** The code the second and later people need to join; renewed whenever the room is empty (or fixed by KAKI_MEETING_CODE). */
-  meetingCode: { value: string; fixed: boolean };
+  /** The one code the second person and phone sign-in need; renewed with the meeting (or fixed by KAKI_MEETING_CODE). */
+  meetingCode: MeetingCodeSource;
   /** Owns the empty-room grace window: whether an arriving person resumes the meeting or starts a new one. */
   rejoin: RejoinGuard;
   /** The one server-owned lifecycle state: the meeting's identity and whether it has started. */
   meeting: { id: string; started: boolean; startedAt?: string };
   /** Start a new meeting identity; returns it for the MEETING_RESET payload and cancels any Start in flight. */
-  rotateMeeting(): string;
+  rotateMeeting(options?: { rotateCode?: boolean }): string;
   /** Run the one Start: wait for the AI runner to open the meeting before declaring it started. */
   startMeeting(): Promise<StartOutcome>;
   /** Seats handed out but not yet visible in LiveKit's roster. */
@@ -286,10 +289,11 @@ async function handleRequest(
           // A person returning within the grace window keeps the meeting, its code, agenda, tasks and NPC conversation;
           // a different person arriving in that empty room starts a fresh meeting instead.
           const meetingWasRunning = context.rejoin.hasBegun() || context.meeting.started;
+          const meetingExisted = context.rejoin.hasMeeting() || context.meeting.started;
           const rejoin = present.length === 0 ? context.rejoin.admit(participantName, seatId) : undefined;
           if (rejoin?.reset === true) {
-            if (!context.meetingCode.fixed) context.meetingCode.value = newMeetingCode();
-            const meetingId = context.rotateMeeting();
+            // The first arrival starts this app's first meeting; the code it already shows stays valid.
+            const meetingId = context.rotateMeeting({ rotateCode: meetingExisted });
             context.tasks.reset();
             context.hub.clearRetained('meeting:started');
             context.hub.clearRetained('record');
@@ -619,9 +623,9 @@ export async function createApp({
   admissionReservationMs = ADMISSION_RESERVATION_MS,
   startAckTimeoutMs = 6_000,
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
+  meetingCode: meetingCodeOption,
 }: CreateAppOptions): Promise<KakiApp> {
-  const fixedCode = process.env.KAKI_MEETING_CODE?.trim();
-  const meetingCode = { value: fixedCode || newMeetingCode(), fixed: Boolean(fixedCode) };
+  const meetingCode = meetingCodeOption ?? createMeetingCodeSource();
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
   const pickedAgenda = agendaPick ? resolveAgendaPick(scenario, agendaPick) : undefined;
   const fullScenario = { ...scenario, agenda: [...scenario.agenda] };
@@ -751,8 +755,13 @@ export async function createApp({
   }
 
   /** Start a new meeting identity; the reset event carries the id every client and runner must adopt. */
-  function rotateMeeting(): string {
+  function rotateMeeting({ rotateCode = true }: { rotateCode?: boolean } = {}): string {
     meetingGeneration += 1;
+    if (rotateCode) {
+      meetingCode.rotate();
+      // The old code is gone, so its phone sessions cannot follow this meeting any more.
+      if (!meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
+    }
     cancelPendingStart('the meeting was reset while it was starting');
     meeting.id = randomUUID();
     meeting.started = false;
@@ -850,6 +859,11 @@ export async function createApp({
       meetingGeneration += 1;
       cancelPendingStart('the meeting was reset while it was starting');
       meeting.id = event.payload.meetingId;
+      // A publisher that is not the server's own reset still starts a new meeting: rotate its code too.
+      if (!meetingCode.fixed) {
+        meetingCode.rotate();
+        hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
+      }
     }
     memory.splice(0);
     meeting.started = false;

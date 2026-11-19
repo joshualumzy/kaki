@@ -71,6 +71,8 @@ export interface Hub {
   onServiceMessage?(handler: (message: ServiceMessage) => void): void;
   /** Forget retained events whose key starts with `prefix`, so clients that connect later do not get them. */
   clearRetained(prefix: string): void;
+  /** Close the phone feeds of a meeting that is gone, with a reason their page can show. */
+  endRoleSessions?(reason: string): void;
   /** Close the WebSocket server and drop every client. */
   close(): void;
 }
@@ -420,6 +422,13 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     },
     clearRetained(prefix) {
       for (const key of [...retained.keys()]) if (key.startsWith(prefix)) retained.delete(key);
+    },
+    endRoleSessions(reason) {
+      for (const [socket, audience] of clients) {
+        if (audience === 'screen' || audience === 'service' || audience === 'lifecycle') continue;
+        if (runnerSockets.has(socket)) continue;
+        socket.close(4001, reason);
+      }
     },
     close() {
       for (const socket of clients.keys()) socket.terminate();

@@ -2,7 +2,7 @@
 export type Me =
   | { authEnabled: false }
   | { authEnabled: true; kind: 'host' | 'participant'; role?: string }
-  | { authEnabled: true; kind: null };
+  | { authEnabled: true; kind: null; reason?: string };
 
 type Outcome = { ok: true } | { ok: false; message: string };
 type JoinOutcome = { ok: true; role: string } | { ok: false; message: string };
@@ -27,7 +27,11 @@ export async function fetchMe(signal?: AbortSignal): Promise<Me> {
           : { authEnabled: true, kind: 'participant' };
       }
     }
-    return { authEnabled: true, kind: null };
+    return {
+      authEnabled: true,
+      kind: null,
+      ...(typeof body.error === 'string' ? { reason: body.error } : {}),
+    };
   }
 
   throw new Error(`Could not read the sign-in state (${response.status}).`);
