@@ -18,6 +18,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error(`Invalid PORT: ${rawPort}`);
 }
 
+const bindHost = process.env.KAKI_BIND?.trim() || '0.0.0.0';
 const scenario = await loadScenario();
 const persistence = await createMeetingPersistenceFromEnv();
 const host = createHostModules(scenario);
@@ -34,9 +35,10 @@ let app: Awaited<ReturnType<typeof createApp>>;
 try {
   app = await createApp({
     port,
+    host: bindHost,
     scenario,
     modules: [...host.modules, ...wingmanModules, ...actionModules],
-    devRoutes: process.env.KAKI_DEV_ROUTES !== '0',
+    devRoutes: process.env.KAKI_DEV_ROUTES === '1',
     auth,
     calendar: calendarFromEnv(),
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',

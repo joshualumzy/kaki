@@ -27,6 +27,8 @@ export interface AuthStore {
   createSession(session: SessionRecord): Promise<void>;
   /** Return undefined for an unknown or expired session; expired rows are dropped. */
   findSession(tokenHash: string): Promise<SessionRecord | undefined>;
+  /** True when a live participant session already holds this role in this meeting. */
+  hasParticipant(meetingCode: string, role: string): Promise<boolean>;
   deleteSession(tokenHash: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -64,6 +66,15 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
         return undefined;
       }
       return session;
+    },
+    async hasParticipant(meetingCode, role) {
+      for (const session of sessions.values()) {
+        if (session.kind !== 'participant' || session.role !== role || session.meetingCode !== meetingCode) {
+          continue;
+        }
+        if (session.expiresAt.getTime() > now()) return true;
+      }
+      return false;
     },
     async deleteSession(tokenHash) {
       sessions.delete(tokenHash);

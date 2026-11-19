@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
@@ -10,6 +9,7 @@ import {
   type Role,
   type Scenario,
 } from '@kaki/shared';
+import { bearerToken, tokenMatches, type Principal } from './access';
 
 /**
  * Who a socket belongs to: the shared screen, one role's phone, the AI runner's authenticated service
@@ -42,14 +42,21 @@ export class CommandError extends Error {}
 /** A server-owned handler for commands sent by clients. */
 export type CommandHandler = (command: KakiCommand, sender: ClientAudience) => void | Promise<void>;
 
-/** The result of checking whether a socket may connect. */
-export type UpgradeDecision = { ok: true; participant?: boolean } | { ok: false; message: string };
+/** The result of checking whether a socket may connect; the principal is the same one HTTP uses. */
+export type UpgradeDecision =
+  | { ok: true; participant?: boolean; principal?: Principal }
+  | { ok: false; message: string };
+
+/** One socket message may not exceed this: the clients send small commands, not uploads. */
+const MAX_PAYLOAD_BYTES = 1_000_000;
 
 /** Options for the hub; auth plugs into the WebSocket upgrade through `authorize`. */
 export interface HubOptions {
   authorize?(request: IncomingMessage, audience: ClientAudience): Promise<UpgradeDecision>;
   /** Shared secret the AI runner presents on the service channel; required when auth is on. */
   serviceToken?: string;
+  /** True when a person currently holds this role, so the runner's token may not act as it. */
+  isHumanSeat?(role: string): boolean;
 }
 
 /** Options for publishing an event to the hub. */
@@ -100,25 +107,6 @@ function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
     (event.audience.kind === 'screen' && (audience === 'screen' || audience === 'service')) ||
     (event.audience.kind === 'role' && (audience === event.audience.role || (audience === 'screen' && event.type === 'FACT_FOUND')))
   );
-}
-
-/** The service token a runner presented, from its Authorization header or the socket URL. */
-function presentedServiceToken(request: IncomingMessage): string | undefined {
-  const header = request.headers.authorization;
-  if (typeof header === 'string' && header.startsWith('Bearer ')) {
-    const value = header.slice('Bearer '.length).trim();
-    return value === '' ? undefined : value;
-  }
-  const url = new URL(request.url ?? '/ws', 'http://localhost');
-  const value = url.searchParams.get('token')?.trim();
-  return value === undefined || value === '' ? undefined : value;
-}
-
-function tokenMatches(presented: string | undefined, expected: string): boolean {
-  if (presented === undefined) return false;
-  const given = Buffer.from(presented);
-  const wanted = Buffer.from(expected);
-  return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
 function nonEmptyString(value: unknown): value is string {
@@ -178,9 +166,27 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   const authorize = options.authorize;
   const serviceToken = options.serviceToken?.trim();
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
-  /** True when a socket presents the AI runner's own token, on any audience. */
+  const isHumanSeat = options.isHumanSeat ?? (() => false);
+  /** True when a socket presents the AI runner's own token in its Authorization header. */
   const isRunnerRequest = (request: IncomingMessage): boolean =>
-    serviceTokenConfigured && tokenMatches(presentedServiceToken(request), serviceToken ?? '');
+    serviceTokenConfigured && tokenMatches(bearerToken(request), serviceToken ?? '');
+  /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
+  const aiVoiceRoles = (): Set<string> => {
+    const profiles = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
+    return new Set(
+      scenario.attendees.filter((attendee) => profiles.has(attendee.name)).map((attendee) => attendee.role),
+    );
+  };
+  /**
+   * The runner may drive the screen command subset and the AI seats it voices, never a human
+   * seat. A person currently in the seat wins over the profile, so a leaked token cannot approve
+   * that person's outside actions.
+   */
+  const runnerMayUseAudience = (audience: ClientAudience): boolean => {
+    if (audience === 'screen' || audience === 'service') return true;
+    if (audience === 'lifecycle') return false;
+    return aiVoiceRoles().has(audience) && !isHumanSeat(audience);
+  };
   const verified = authorize === undefined && !serviceTokenConfigured;
   /** Bumped whenever a meeting's code rotates, so upgrades authorized under the old code cannot register. */
   let revocationGeneration = 0;
@@ -191,10 +197,11 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
   >();
   const wss = new WebSocketServer(
     verified
-      ? { server: httpServer, path: '/ws' }
+      ? { server: httpServer, path: '/ws', maxPayload: MAX_PAYLOAD_BYTES }
       : {
           server: httpServer,
           path: '/ws',
+          maxPayload: MAX_PAYLOAD_BYTES,
           verifyClient: (info, done) => {
             const url = new URL(info.req.url ?? '/ws', 'http://localhost');
             const audience = audienceFor(scenario, url.searchParams.get('role'));
@@ -208,7 +215,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
                 done(false, 401, 'Service token not configured');
                 return;
               }
-              if (!tokenMatches(presentedServiceToken(info.req), serviceToken ?? '')) {
+              if (!tokenMatches(bearerToken(info.req), serviceToken ?? '')) {
                 console.error('kaki hub: refused the AI runner service channel: wrong or missing service token');
                 done(false, 401, 'Service sign-in required');
                 return;
@@ -217,8 +224,13 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
               return;
             }
             // The runner also drives its own commands (agenda advance, end, pause, task answers)
-            // as the screen or its AI roles; its token stands in for a person's session there.
+            // as the screen or its AI roles; its token stands in for a person's session there only.
             if (isRunnerRequest(info.req)) {
+              if (!runnerMayUseAudience(audience)) {
+                console.error(`kaki hub: refused the AI runner on ${audience}: it may not act as a human seat`);
+                done(false, 401, 'The AI runner may not act as a human seat');
+                return;
+              }
               done(true);
               return;
             }
@@ -232,7 +244,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
                 if (decision.ok) {
                   pendingAuthorizations.set(info.req, {
                     generation,
-                    participant: decision.participant === true,
+                    participant: decision.participant === true || decision.principal?.kind === 'seat',
                   });
                   done(true);
                 } else {
@@ -325,13 +337,18 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
       return;
     }
 
-    if (runnerSockets.has(socket) && !runnerMaySend(audience, parsed.type)) {
-      console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audience}: not one of its commands`);
-      sendTo(
-        socket,
-        audience,
-        JSON.stringify(rejectionFor(audience, parsed.type, 'The AI runner may not send that command')),
-      );
+    const runnerOnHumanSeat =
+      runnerSockets.has(socket) &&
+      audience !== 'screen' &&
+      audience !== 'service' &&
+      audience !== 'lifecycle' &&
+      isHumanSeat(audience);
+    if (runnerSockets.has(socket) && (runnerOnHumanSeat || !runnerMaySend(audience, parsed.type))) {
+      const reason = runnerOnHumanSeat
+        ? 'The AI runner may not act as a human seat'
+        : 'The AI runner may not send that command';
+      console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audience}: ${reason}`);
+      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, reason)));
       return;
     }
 

@@ -1,10 +1,23 @@
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 
-/** `livekit-server --dev` accepts this key pair; set LIVEKIT_API_KEY / LIVEKIT_API_SECRET to override. */
+/**
+ * `livekit-server --dev` accepts this key pair; set LIVEKIT_API_KEY / LIVEKIT_API_SECRET to override.
+ * With sign-in on, a missed variable must stop the server rather than let anyone forge room tokens.
+ */
 function livekitCredentials(): { key: string; secret: string } {
+  const key = process.env.LIVEKIT_API_KEY?.trim();
+  const secret = process.env.LIVEKIT_API_SECRET?.trim();
+  if (process.env.KAKI_AUTH === '1') {
+    if (key === undefined || key === '' || secret === undefined || secret === '') {
+      throw new Error(
+        'kaki livekit: KAKI_AUTH=1 needs LIVEKIT_API_KEY and LIVEKIT_API_SECRET; refusing the devkey/secret fallback.',
+      );
+    }
+    return { key, secret };
+  }
   return {
-    key: process.env.LIVEKIT_API_KEY || 'devkey',
-    secret: process.env.LIVEKIT_API_SECRET || 'secret',
+    key: key === undefined || key === '' ? 'devkey' : key,
+    secret: secret === undefined || secret === '' ? 'secret' : secret,
   };
 }
 

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
 import type { ClientAudience } from '../hub';
+import { clientAddress, type Principal } from '../access';
 import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
 import {
   MEETING_CODE_FAILURE_LIMIT,
@@ -17,7 +18,9 @@ import { ensureAuthSchema } from './schema';
 import type { AuthStore, SessionKind, SessionRecord } from './store';
 
 /** The result of checking a WebSocket upgrade against the session cookie. */
-export type AuthDecision = { ok: true; participant?: boolean } | { ok: false; message: string };
+export type AuthDecision =
+  | { ok: true; participant?: boolean; principal?: Principal }
+  | { ok: false; message: string };
 
 /** The auth feature the HTTP server and WebSocket hub call into. */
 export interface Auth {
@@ -25,8 +28,8 @@ export interface Auth {
   handleHttp(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
   /** Allow or reject a `/ws?role=` upgrade for the requested audience. */
   authorize(request: IncomingMessage, audience: ClientAudience): Promise<AuthDecision>;
-  /** The live session kind behind a request; undefined when signed out or from an ended meeting. */
-  sessionKind(request: IncomingMessage): Promise<SessionKind | undefined>;
+  /** The resolved host or seat principal behind a request; undefined otherwise. */
+  resolvePrincipal(request: IncomingMessage): Promise<Principal | undefined>;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   close(): Promise<void>;
@@ -115,10 +118,6 @@ function stringField(body: JsonObject, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-function clientIp(request: IncomingMessage): string {
-  return request.socket.remoteAddress ?? 'unknown';
-}
-
 /** Create the auth feature: endpoints, session cookies and WebSocket gating. */
 export function createAuth({
   store,
@@ -201,7 +200,7 @@ export function createAuth({
       return;
     }
 
-    const key = `${clientIp(request)}|${email}`;
+    const key = `${clientAddress(request)}|${email}`;
     if (loginAttempts.isLimited(key)) {
       sendJson(response, 429, {
         error: 'Too many sign-in attempts. Wait a minute and try again.',
@@ -265,7 +264,7 @@ export function createAuth({
 
     const rawCode = stringField(parsed.value, 'code');
     const role = stringField(parsed.value, 'role');
-    const ip = clientIp(request);
+    const ip = clientAddress(request);
 
     if (meetingCodeAttempts.isLimited(ip)) {
       sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
@@ -289,38 +288,31 @@ export function createAuth({
       sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
       return;
     }
+    if (await store.hasParticipant(meetingCode.value, role)) {
+      sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
+      return;
+    }
 
     await startSession(response, 'participant', role, meetingCode.value);
     sendJson(response, 200, { kind: 'participant', role });
   }
 
-  async function handleMeetingCode(
-    request: IncomingMessage,
-    response: ServerResponse,
-  ): Promise<void> {
-    const session = await currentSession(request);
-    if (session === undefined) {
-      sendJson(response, 401, { error: 'Sign in as the host.' });
-      return;
-    }
-    if (session.kind !== 'host') {
-      sendJson(response, 403, { error: 'Only the host can see the meeting code.' });
-      return;
-    }
+  async function handleMeetingCode(response: ServerResponse): Promise<void> {
     sendJson(response, 200, { code: meetingCode.value });
   }
 
-  log(`kaki auth: enabled with meeting code ${meetingCode.value}`);
+  log('kaki auth: enabled');
 
   return {
     meetingCodeLimiter: meetingCodeAttempts,
 
-    async sessionKind(request) {
+    async resolvePrincipal(request) {
       const session = await currentSession(request);
       if (session === undefined) return undefined;
-      // A phone signed into the previous meeting must not read the new meeting's setup.
       if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) return undefined;
-      return session.kind;
+      return session.kind === 'host'
+        ? { kind: 'host' }
+        : { kind: 'seat', role: session.role ?? '' };
     },
 
     async handleHttp(request, response) {
@@ -343,7 +335,7 @@ export function createAuth({
         return true;
       }
       if (request.method === 'GET' && path === '/api/meeting-code') {
-        await handleMeetingCode(request, response);
+        await handleMeetingCode(response);
         return true;
       }
       return false;
@@ -358,19 +350,21 @@ export function createAuth({
       if (session.kind === 'participant' && session.meetingCode !== meetingCode.value) {
         return { ok: false, message: MEETING_ENDED_MESSAGE };
       }
+      const principal: Principal =
+        session.kind === 'host' ? { kind: 'host' } : { kind: 'seat', role: session.role ?? '' };
       // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
       if (audience === 'lifecycle') {
-        return { ok: true, participant: session.kind === 'participant' };
+        return { ok: true, participant: session.kind === 'participant', principal };
       }
       if (audience === 'screen') {
         return session.kind === 'host'
-          ? { ok: true }
+          ? { ok: true, principal }
           : { ok: false, message: 'Host sign-in required' };
       }
       if (session.kind !== 'participant' || session.role !== audience || !roles.includes(audience)) {
         return { ok: false, message: 'Join this meeting with that role first' };
       }
-      return { ok: true, participant: session.kind === 'participant' };
+      return { ok: true, participant: session.kind === 'participant', principal };
     },
 
     async close() {

@@ -206,7 +206,13 @@ export function createMattermostModule({
       let postToken: string | undefined;
       const roleId = task.assignee ?? task.suggestedAssignee;
       const attendee = roleId === undefined ? undefined : scenario.attendees.find((candidate) => candidate.role === roleId);
-      if (attendee !== undefined && scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) {
+      const mattermostPassword = process.env.MATTERMOST_PASSWORD;
+      if (
+        attendee !== undefined &&
+        scenario.roles.some((r) => r.id === roleId && r.card !== undefined) &&
+        mattermostPassword !== undefined &&
+        mattermostPassword !== ''
+      ) {
         const speakerRaw = visitorName ?? task.assignmentEvidence?.speaker;
         const cleanSpeaker = speakerRaw?.replace(/\s*\([^)]*\)\s*$/, '').trim();
         const isVisitor =
@@ -221,7 +227,7 @@ export function createMattermostModule({
               settings,
               '/api/v4/users/login',
               'POST',
-              JSON.stringify({ login_id: candidateLoginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+              JSON.stringify({ login_id: candidateLoginId, password: mattermostPassword }),
               signal,
             );
             if (resp.ok) {

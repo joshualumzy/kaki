@@ -93,6 +93,16 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return session;
     },
 
+    async hasParticipant(meetingCode, role) {
+      const result = await pool.query(
+        `select 1 from sessions
+          where kind = 'participant' and meeting_code = $1 and role = $2 and expires_at > now()
+          limit 1`,
+        [meetingCode, role],
+      );
+      return result.rowCount !== null && result.rowCount > 0;
+    },
+
     async deleteSession(tokenHash) {
       await pool.query('delete from sessions where token_hash = $1', [tokenHash]);
     },

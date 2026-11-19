@@ -303,10 +303,11 @@ describe('phone and screen seat authority', () => {
     const participantLifecycle = await connect(port, 'lifecycle', participantCookie);
     const hostLifecycle = await connect(port, 'lifecycle', hostCookie);
     const hostScreen = await connect(port, 'screen', hostCookie);
-    const runnerRole = await connect(port, 'chef', undefined, 'Bearer runner-secret');
-    expect(participantLifecycle.ok && hostLifecycle.ok && hostScreen.ok && runnerRole.ok).toBe(true);
-    if (!participantLifecycle.ok || !hostLifecycle.ok || !hostScreen.ok || !runnerRole.ok) return;
-    sockets.push(participantLifecycle.ws, hostLifecycle.ws, hostScreen.ws, runnerRole.ws);
+    // The runner drives the screen; the token may not open a human seat.
+    const runnerScreen = await connect(port, 'screen', undefined, 'Bearer runner-secret');
+    expect(participantLifecycle.ok && hostLifecycle.ok && hostScreen.ok && runnerScreen.ok).toBe(true);
+    if (!participantLifecycle.ok || !hostLifecycle.ok || !hostScreen.ok || !runnerScreen.ok) return;
+    sockets.push(participantLifecycle.ws, hostLifecycle.ws, hostScreen.ws, runnerScreen.ws);
 
     let participantClosed: number | undefined;
     let hostLifecycleClosed = false;
@@ -321,7 +322,7 @@ describe('phone and screen seat authority', () => {
     hostScreen.ws.on('close', () => {
       hostScreenClosed = true;
     });
-    runnerRole.ws.on('close', () => {
+    runnerScreen.ws.on('close', () => {
       runnerClosed = true;
     });
 

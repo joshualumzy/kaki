@@ -1,10 +1,18 @@
 import { spawn } from 'node:child_process';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const authOn = process.env.KAKI_AUTH === '1';
+// Dev routes are a local tool only; with sign-in on the server refuses to start with them enabled.
+// The local trusted demo binds every interface, which an open server may only do with this opt-in.
+const devEnv = {
+  ...process.env,
+  KAKI_DEV_ROUTES: process.env.KAKI_DEV_ROUTES ?? (authOn ? '0' : '1'),
+  ...(authOn ? {} : { KAKI_ALLOW_OPEN: process.env.KAKI_ALLOW_OPEN ?? '1' }),
+};
 const children = [
   spawn(npm, ['run', 'dev', '-w', '@kaki/server'], {
     stdio: 'inherit',
-    env: { ...process.env, KAKI_DEV_ROUTES: process.env.KAKI_DEV_ROUTES ?? '1' },
+    env: devEnv,
   }),
   spawn(npm, ['run', 'dev', '-w', '@kaki/web'], { stdio: 'inherit' }),
 ];

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { KakiApp } from '../../src/app';
+import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken, verifyPassword } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { createMeetingCodeSource } from '../../src/meetingCode';
+import { testScenario } from '../fixtures/scenario';
 import { createTestApp, portOf, waitFor } from '../helpers';
 
 const HOST_EMAIL = 'host@example.com';
@@ -305,14 +306,33 @@ describe('auth', () => {
     if (runner.ok) sockets.push({ ws: runner.ws });
   });
 
-  it('lets the AI runner command with its token, while a browser without it cannot', async () => {
-    const task = app.tasks.suggest({ title: 'Approve the order', context: 'Lunch prep', suggestedAssignee: 'chef' });
-    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+  it('lets the AI runner command only on the screen and its AI seats, never a human seat', async () => {
+    await app.close();
+    const scenario = {
+      ...testScenario,
+      roles: [...testScenario.roles, { id: 'manager', label: 'Manager' }],
+      attendees: [...testScenario.attendees, { name: 'Cy', role: 'manager', zoomDisplayName: 'Cy' }],
+      npcs: [
+        { attendee: 'Cy', voice: 'test-voice', personality: 'Quiet.', agenda: 'Keep the kitchen running.', concerns: [] },
+      ],
+    };
+    const meetingCode = createMeetingCodeSource(MEETING_CODE);
+    const aiAuth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    app = await createApp({ scenario, auth: aiAuth, meetingCode, serviceToken: 'runner-secret' });
+    port = portOf(app);
+
+    const task = app.tasks.suggest({ title: 'Approve the order', context: 'Lunch prep', suggestedAssignee: 'manager' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'manager' });
     app.tasks.transition(task.id, 'CLAIMED', { mode: 'MANUAL' });
     const draft = { target: 'orders@example.com', subject: 'Order', body: 'Please confirm.' };
     app.tasks.transition(task.id, 'DRAFT_READY', { draft });
 
-    const runnerRole = await connect(port, 'chef', undefined, 'Bearer runner-secret');
+    // The runner's token may not open a human seat, even though it may drive the screen.
+    const humanSeat = await connect(port, 'chef', undefined, 'Bearer runner-secret');
+    expect(humanSeat.ok).toBe(false);
+    if (!humanSeat.ok) expect(humanSeat.status).toBe(401);
+
+    const runnerRole = await connect(port, 'manager', undefined, 'Bearer runner-secret');
     expect(runnerRole.ok).toBe(true);
     if (!runnerRole.ok) return;
     sockets.push({ ws: runnerRole.ws });
@@ -324,7 +344,7 @@ describe('auth', () => {
     expect(roleEvents.some((event) => event.type === 'COMMAND_REJECTED')).toBe(false);
 
     // The runner may act only for its own roles: dispatching a task is not one of its commands.
-    runnerRole.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'chef' }));
+    runnerRole.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'manager' }));
     await waitFor(
       () => (roleEvents.some((event) => event.type === 'COMMAND_REJECTED') ? true : undefined),
       'the forbidden runner command to be refused',

@@ -134,6 +134,7 @@ const recognizer =
       });
 
 const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
+const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
 let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
@@ -261,7 +262,12 @@ const runner = await startNpcRunner({
     process.exit(1);
   },
   fetchScenario: async () => {
-    const response = await fetch(`${kakiUrl}/api/scenario`);
+    const response = await fetch(
+      `${kakiUrl}/api/scenario/full`,
+      serviceToken === undefined || serviceToken === ''
+        ? undefined
+        : { headers: { authorization: `Bearer ${serviceToken}` } },
+    );
     if (!response.ok) throw new Error(`Scenario fetch returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
     return parseScenario(await response.json());
   },
@@ -270,7 +276,6 @@ const runner = await startNpcRunner({
 // An AI attendee has no phone. When a task is dispatched to their role they answer aloud and this sends their
 // Accept or Decline (and approves the draft), over a socket opened as that role like a phone would.
 const roleSockets = new Map<Role | 'screen', { socket: WebSocket; queue: string[] }>();
-const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
 function sendAs(role: Role | 'screen', command: KakiCommand): void {
   let entry = roleSockets.get(role);
   if (entry === undefined || entry.socket.readyState > WebSocket.OPEN) {

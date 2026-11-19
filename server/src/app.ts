@@ -1,6 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import {
+  accessProblem,
+  assertSafeBind,
+  bearerToken,
+  clientAddress,
+  isLoopbackAddress,
+  matchRoute,
+  tokenMatches,
+  type Principal,
+  type Route,
+} from './access';
+import { projectScenario } from './scenarioProjection';
 import { assertReadableSavedMeeting, assertReadableSavedSetup, resolveSavedAgenda } from './persist/state';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
@@ -25,6 +37,8 @@ import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, create
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
   port?: number;
+  /** The bind address; when given, an open (sign-in off) non-loopback bind needs KAKI_ALLOW_OPEN=1. */
+  host?: string;
   scenario: Scenario;
   modules?: KakiModule[];
   devRoutes?: boolean;
@@ -71,6 +85,8 @@ export interface KakiApp {
   hub: Hub;
   tasks: TaskStore;
   memory: readonly MeetingMemoryEntry[];
+  /** Every HTTP route this server serves, each with its mandatory access level. */
+  routes: readonly Route[];
   close(): Promise<void>;
 }
 
@@ -84,6 +100,10 @@ interface RequestContext {
   pickedAgenda?: Scenario['agenda'];
   devRoutes: boolean;
   auth?: Auth;
+  /** The AI runner's shared secret, compared in the access layer; absent means no service channel. */
+  serviceToken?: string;
+  /** Every route the access layer knows; anything not listed here is a 404. */
+  routes: readonly Route[];
   calendar?: CalendarSettings;
   calendarFetch?: typeof fetch;
   actionTools: ActionToolOptions;
@@ -196,19 +216,63 @@ async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
   }
 }
 
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-
 /**
- * Dev routes are for this machine only: phones on the same Wi-Fi must not reach them. The Vite
- * proxy makes every request look local, so the raw URL must itself start with /dev/: a path like
- * /api/../dev/emit would otherwise be normalised into a dev route after it passed the /api proxy.
+ * The one route table. Every HTTP path this server answers is declared here with its mandatory
+ * access level; the access check runs once, before any handler, and an unlisted path is a 404.
  */
-function devRoutesOpen(request: IncomingMessage, context: { devRoutes: boolean }): boolean {
-  return (
-    context.devRoutes &&
-    LOOPBACK.has(request.socket.remoteAddress ?? '') &&
-    (request.url ?? '').startsWith('/dev/')
+function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
+  const routes: Route[] = [
+    { method: 'GET', path: '/health', access: 'public' },
+    { method: 'GET', path: '/api/meeting/state', access: 'public' },
+    { method: 'POST', path: '/api/livekit/token', access: 'public' },
+    { method: 'POST', path: '/api/meeting/start', access: 'host' },
+    { method: 'GET', path: '/api/mattermost/open', access: 'session' },
+    { method: 'GET', path: '/api/calendar/:id', access: 'public' },
+    { method: 'GET', path: '/api/scenario', access: 'public' },
+    { method: 'GET', path: '/api/scenario/full', access: 'service' },
+    { method: 'GET', path: '/api/setup', access: 'session' },
+    { method: 'GET', path: '/api/setup/tools', access: 'host' },
+    { method: 'POST', path: '/api/setup/tools/:kind/test', access: 'host' },
+    { method: 'PUT', path: '/api/setup', access: 'host' },
+    { method: 'POST', path: '/api/setup/import-calendar', access: 'host' },
+    { method: 'GET', path: '/api/join-info', access: 'public' },
+    { method: 'POST', path: '/dev/emit', access: 'dev' },
+    { method: 'POST', path: '/dev/suggest-task', access: 'dev' },
+    { method: 'POST', path: '/dev/meeting-memory', access: 'dev' },
+    { method: 'POST', path: '/dev/settle-topic', access: 'dev' },
+  ];
+
+  if (auth === undefined) {
+    routes.push({ method: 'GET', path: '/api/auth/me', access: 'public' });
+    return routes;
+  }
+
+  routes.push(
+    { method: 'POST', path: '/api/auth/login', access: 'public' },
+    { method: 'POST', path: '/api/auth/logout', access: 'public' },
+    { method: 'GET', path: '/api/auth/me', access: 'public' },
+    { method: 'POST', path: '/api/join', access: 'public' },
+    { method: 'GET', path: '/api/meeting-code', access: 'host' },
   );
+  return routes;
+}
+
+/** Resolve who a request belongs to: a service token first, then this meeting's session. */
+async function resolvePrincipal(
+  request: IncomingMessage,
+  context: { auth?: Auth; serviceToken?: string },
+): Promise<Principal> {
+  if (
+    context.serviceToken !== undefined &&
+    tokenMatches(bearerToken(request), context.serviceToken)
+  ) {
+    return { kind: 'service' };
+  }
+  if (context.auth !== undefined) {
+    const principal = await context.auth.resolvePrincipal(request);
+    if (principal !== undefined) return principal;
+  }
+  return { kind: 'anonymous' };
 }
 
 async function syncDemoVisitorProfile(participantName: string): Promise<void> {
@@ -226,7 +290,8 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
   }
 
   const mmUrl = process.env.MATTERMOST_URL?.trim();
-  if (mmUrl) {
+  const mmPassword = process.env.MATTERMOST_PASSWORD;
+  if (mmUrl && mmPassword) {
     try {
       const baseMmUrl = mmUrl.replace(/\/+$/, '');
       const mmAdminToken = process.env.MATTERMOST_TOKEN?.trim();
@@ -242,7 +307,7 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
         const resp = await fetch(`${baseMmUrl}/api/v4/users/login`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ login_id: loginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+          body: JSON.stringify({ login_id: loginId, password: mmPassword }),
         });
         if (resp.ok) {
           loginResp = resp;
@@ -272,10 +337,28 @@ async function handleRequest(
   context: RequestContext,
 ): Promise<void> {
   try {
-    const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const path = url.pathname;
+    const method = request.method ?? 'GET';
+    const match = matchRoute(context.routes, method, path);
+    if (match === undefined) {
+      sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const principal = await resolvePrincipal(request, context);
+    const denied = accessProblem(match.route, principal, {
+      authEnabled: context.auth !== undefined,
+      devRoutes: context.devRoutes,
+      loopback: isLoopbackAddress(request.socket.remoteAddress),
+      rawPath: request.url ?? '',
+    });
+    if (denied !== undefined) {
+      sendJson(response, denied.status, { error: denied.error });
+      return;
+    }
 
-    if (request.method === 'POST' && path === '/api/livekit/token') {
-      const codeIp = request.socket.remoteAddress ?? 'unknown';
+    if (method === 'POST' && path === '/api/livekit/token') {
+      const codeIp = clientAddress(request);
       if (context.meetingCodeAttempts.isLimited(codeIp)) {
         sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
         return;
@@ -289,14 +372,14 @@ async function handleRequest(
       if (
         typeof join !== 'object' ||
         join === null ||
-        typeof join.roomName !== 'string' ||
         typeof join.participantName !== 'string' ||
         (join.participantRole !== undefined && typeof join.participantRole !== 'string')
       ) {
-        sendJson(response, 400, { error: 'roomName and participantName are required' });
+        sendJson(response, 400, { error: 'participantName is required' });
         return;
       }
-      const roomName = join.roomName;
+      // The room is the server's, not the caller's: naming a fresh room must not skip admission.
+      const roomName = demoRoomName(context.scenario);
       const participantName = join.participantName.trim();
       const wantedRole = typeof join.participantRole === 'string' ? join.participantRole.trim() : '';
       if (wantedRole.length === 0) {
@@ -454,7 +537,7 @@ async function handleRequest(
     }
 
     if (request.method === 'GET' && path === '/api/mattermost/open') {
-      const query = new URL(request.url ?? '/', 'http://localhost').searchParams;
+      const query = url.searchParams;
       const rawTarget = query.get('url')?.trim() ?? '';
       let parsedTarget: URL;
       try {
@@ -463,27 +546,47 @@ async function handleRequest(
         sendJson(response, 400, { error: 'Valid target url is required' });
         return;
       }
-      if (
-        (parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') ||
-        (parsedTarget.port !== '8083' &&
-          !parsedTarget.pathname.includes('/nanyang-kopitiam/') &&
-          !parsedTarget.pathname.includes('/kopitiam/'))
-      ) {
-        sendJson(response, 400, { error: 'Target must be a Mattermost link' });
+      const mmUrl = process.env.MATTERMOST_URL?.trim();
+      if (mmUrl === undefined || mmUrl === '') {
+        sendJson(response, 503, { error: 'Mattermost is not configured: set MATTERMOST_URL.' });
         return;
       }
-      const mmUrl = (process.env.MATTERMOST_URL?.trim() || 'http://127.0.0.1:8083').replace(/\/+$/, '');
+      const mmPassword = process.env.MATTERMOST_PASSWORD;
+      if (mmPassword === undefined || mmPassword === '') {
+        sendJson(response, 503, { error: 'Mattermost is not configured: set MATTERMOST_PASSWORD.' });
+        return;
+      }
+      let mmBase: URL;
+      try {
+        mmBase = new URL(mmUrl);
+      } catch {
+        sendJson(response, 503, { error: 'Mattermost is not configured: MATTERMOST_URL is not a valid URL.' });
+        return;
+      }
+      // Redirect only within the configured Mattermost server, never to a look-alike host or path.
+      const basePath = mmBase.pathname.endsWith('/') ? mmBase.pathname : `${mmBase.pathname}/`;
+      const insideBase =
+        parsedTarget.pathname === mmBase.pathname || parsedTarget.pathname.startsWith(basePath);
+      if (
+        (parsedTarget.protocol !== 'http:' && parsedTarget.protocol !== 'https:') ||
+        parsedTarget.origin !== mmBase.origin ||
+        !insideBase
+      ) {
+        sendJson(response, 400, { error: 'Target must be a link on the Mattermost server.' });
+        return;
+      }
+      const baseMmUrl = `${mmBase.origin}${mmBase.pathname}`.replace(/\/+$/, '');
       const setCookies: string[] = [];
       try {
         let loginResp: Response | undefined;
         for (const loginId of ['demo@nanyangkopitiam.example', 'demo']) {
-          const resp = await fetch(`${mmUrl}/api/v4/users/login`, {
+          const resp = await fetch(`${baseMmUrl}/api/v4/users/login`, {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
               'x-requested-with': 'XMLHttpRequest',
             },
-            body: JSON.stringify({ login_id: loginId, password: process.env.MATTERMOST_PASSWORD || 'demo' }),
+            body: JSON.stringify({ login_id: loginId, password: mmPassword }),
           });
           if (resp.ok) {
             loginResp = resp;
@@ -535,16 +638,25 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'GET' && path === '/api/scenario') {
+    if (request.method === 'GET' && path === '/api/scenario/full') {
       sendJson(response, 200, context.seating().scenario);
       return;
     }
 
+    if (request.method === 'GET' && path === '/api/scenario') {
+      const active = context.seating().scenario;
+      // With sign-in off the trusted demo keeps the whole scenario, as it always did.
+      const visible =
+        context.auth === undefined || principal.kind === 'service'
+          ? active
+          : principal.kind === 'seat'
+            ? projectScenario(active, principal.role)
+            : projectScenario(active);
+      sendJson(response, 200, visible);
+      return;
+    }
+
     if (request.method === 'GET' && path === '/api/setup') {
-      if (context.auth !== undefined && (await context.auth.sessionKind(request)) === undefined) {
-        sendJson(response, 401, { error: 'Sign in to see the meeting setup.', authEnabled: true });
-        return;
-      }
       sendJson(response, 200, {
         setup: context.sealedSetup.current ?? context.setupDraft.current,
         started: context.meeting.started,
@@ -553,20 +665,12 @@ async function handleRequest(
     }
 
     if (request.method === 'GET' && path === '/api/setup/tools') {
-      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
-        sendJson(response, 403, { error: 'Only the meeting owner can check the tools.' });
-        return;
-      }
       sendJson(response, 200, { tools: actionToolStatus(context.actionTools.env) });
       return;
     }
 
     const toolTestMatch = /^\/api\/setup\/tools\/([^/]+)\/test$/.exec(path);
     if (request.method === 'POST' && toolTestMatch !== null) {
-      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
-        sendJson(response, 403, { error: 'Only the meeting owner can test the tools.' });
-        return;
-      }
       const kind = decodeURIComponent(toolTestMatch[1] ?? '');
       if (!isActionToolKind(kind)) {
         sendJson(response, 404, { error: 'Unknown tool kind.' });
@@ -579,10 +683,6 @@ async function handleRequest(
 
     if (request.method === 'PUT' && path === '/api/setup') {
       // Only the meeting owner edits setup; everyone else gets the read-only join view.
-      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
-        sendJson(response, 403, { error: 'Only the meeting owner can change the setup.' });
-        return;
-      }
       const lock = context.setupLocked();
       if (lock !== undefined) {
         sendSetupLocked(response, lock);
@@ -616,10 +716,6 @@ async function handleRequest(
 
     if (request.method === 'POST' && path === '/api/setup/import-calendar') {
       // Only the meeting owner edits setup; everyone else gets the read-only join view.
-      if (context.auth !== undefined && (await context.auth.sessionKind(request)) !== 'host') {
-        sendJson(response, 403, { error: 'Only the meeting owner can change the setup.' });
-        return;
-      }
       const lock = context.setupLocked();
       if (lock !== undefined) {
         sendSetupLocked(response, lock);
@@ -752,7 +848,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/emit' && devRoutesOpen(request, context)) {
+    if (request.method === 'POST' && path === '/dev/emit') {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -775,7 +871,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/suggest-task' && devRoutesOpen(request, context)) {
+    if (request.method === 'POST' && path === '/dev/suggest-task') {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -789,7 +885,7 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'POST' && path === '/dev/meeting-memory' && devRoutesOpen(request, context)) {
+    if (request.method === 'POST' && path === '/dev/meeting-memory') {
       const body = await readJsonBody(request);
       if (!body.ok) { sendJson(response, body.status, { error: body.error }); return; }
       if (!isMeetingMemoryEntries(body.value, context.scenario.agenda.map((item) => item.title))) {
@@ -802,7 +898,7 @@ async function handleRequest(
 
     // The live demo's engine locked the visitor's decision on an agenda item: create its follow-up and release
     // whatever was held for that item, in one request so the two can never disagree.
-    if (request.method === 'POST' && path === '/dev/settle-topic' && devRoutesOpen(request, context)) {
+    if (request.method === 'POST' && path === '/dev/settle-topic') {
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
@@ -870,14 +966,16 @@ async function handleRequest(
   }
 }
 
-function listen(server: Server, port: number): Promise<void> {
+function listen(server: Server, port: number, host?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);
     server.once('error', onError);
-    server.listen(port, () => {
+    const ready = () => {
       server.off('error', onError);
       resolve();
-    });
+    };
+    if (host === undefined) server.listen(port, ready);
+    else server.listen(port, host, ready);
   });
 }
 
@@ -890,6 +988,7 @@ function closeServer(server: Server): Promise<void> {
 /** Create the HTTP server, the `/ws` hub and the task store, then start every module. */
 export async function createApp({
   port = 0,
+  host,
   scenario,
   modules = [],
   devRoutes = false,
@@ -909,6 +1008,13 @@ export async function createApp({
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
   meetingCode: meetingCodeOption,
 }: CreateAppOptions): Promise<KakiApp> {
+  if (host !== undefined) assertSafeBind(host, auth !== undefined);
+  if (devRoutes && auth !== undefined) {
+    throw new Error(
+      'kaki server: KAKI_DEV_ROUTES=1 cannot be combined with KAKI_AUTH=1; the dev routes are a local-only tool. Unset one of them.',
+    );
+  }
+  const routes = buildRouteTable({ auth });
   const meetingCode = meetingCodeOption ?? createMeetingCodeSource();
   const meetingCodeAttempts =
     auth?.meetingCodeLimiter ??
@@ -1016,11 +1122,12 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, sealedSetup, draftTouched, seating, shapeUntouchedAgenda, admissionReset, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, scenario, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, rotateMeeting, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, setupDraft, sealedSetup, draftTouched, seating, shapeUntouchedAgenda, admissionReset, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
   });
   const hub = createHub(server, scenario, {
     ...(auth === undefined ? {} : { authorize: auth.authorize }),
     ...(serviceToken === undefined || serviceToken === '' ? {} : { serviceToken }),
+    isHumanSeat: (role) => rejoin.identities().some((identity) => identity.seat === role),
   });
   const tasks = createTaskStore({ hub, scenario });
   hub.onCommand(tasks.handleCommand);
@@ -1529,7 +1636,7 @@ export async function createApp({
   }
 
   try {
-    await listen(server, port);
+    await listen(server, port, host);
   } catch (error) {
     closeRejoin();
     hub.close();
@@ -1614,6 +1721,7 @@ export async function createApp({
     hub,
     tasks,
     memory,
+    routes,
     close: async () => {
       if (closed) return;
       closed = true;
