@@ -226,6 +226,7 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
   const routes: Route[] = [
     { method: 'GET', path: '/health', access: 'public' },
     { method: 'GET', path: '/api/meeting/state', access: 'public' },
+    { method: 'GET', path: '/api/runner/meeting-state', access: 'service' },
     { method: 'POST', path: '/api/livekit/token', access: 'public' },
     { method: 'POST', path: '/api/meeting/start', access: 'host' },
     { method: 'GET', path: '/api/mattermost/open', access: 'session' },
@@ -563,7 +564,7 @@ async function handleRequest(
           void syncDemoVisitorProfile(participantName);
           const resumed = meetingWasRunning && rejoin?.reset !== true;
           const started = context.meeting.started;
-          console.log(`[join] ${participantName} (${seatId}) room=${roomName} reset=${rejoin?.reset === true} resumed=${resumed} started=${started}`);
+          console.log(`[join] seat=${seatId} room=${roomName} reset=${rejoin?.reset === true} resumed=${resumed} started=${started}`);
           sendJson(response, 200, { token, url: livekitPublicUrl(), meetingCode: context.meetingCode.value, resumed, started });
         });
       } catch (error) {
@@ -584,14 +585,15 @@ async function handleRequest(
       return;
     }
 
-    // The authoritative lifecycle state, for a browser that reconnects after a reset or a restart.
-    if (request.method === 'GET' && path === '/api/meeting/state') {
+    // Browsers only need the lifecycle marker; the runner also needs timing and agenda detail.
+    if (request.method === 'GET' && (path === '/api/meeting/state' || path === '/api/runner/meeting-state')) {
+      const serviceView = path === '/api/runner/meeting-state';
       const agendaIndex = context.meetingAgendaIndex?.();
       sendJson(response, 200, {
         meetingId: context.meeting.id,
         started: context.meeting.started,
-        ...(context.meeting.startedAt === undefined ? {} : { startedAt: context.meeting.startedAt }),
-        ...(agendaIndex === undefined ? {} : { agendaIndex }),
+        ...(serviceView && context.meeting.startedAt !== undefined ? { startedAt: context.meeting.startedAt } : {}),
+        ...(serviceView && agendaIndex !== undefined ? { agendaIndex } : {}),
       });
       return;
     }
@@ -1241,8 +1243,10 @@ export async function createApp({
           ? { ok: true, runner: true, principal: { kind: 'service' } }
           : { ok: false, message: 'Service sign-in required' };
       }
-      // No credential configured: keep the trusted local demo's open service channel, as before this branch.
-      if (auth === undefined) return { ok: true, principal: { kind: 'service' } };
+      // No credential configured: only a direct local peer may use the service channel.
+      if (auth === undefined) return isLoopbackAddress(request.socket.remoteAddress)
+        ? { ok: true, principal: { kind: 'service' } }
+        : { ok: false, message: 'Service sign-in required' };
       return auth.authorize(request, audience);
     }
     if (runnerRequest) {
@@ -1261,7 +1265,8 @@ export async function createApp({
     return auth.authorize(request, audience);
   };
   const hub = createHub(server, scenario, {
-    ...(auth === undefined && !serviceTokenConfigured ? {} : { authorize: authorizeUpgrade }),
+    authorize: authorizeUpgrade,
+    closeUnknownRoleAfterUpgrade: auth === undefined && !serviceTokenConfigured,
     isHumanSeat,
   });
   auth?.bindMeetingIdentity(() => meeting.id);
@@ -1630,7 +1635,7 @@ export async function createApp({
             return failed({
               status: 503,
               body: {
-                error: `The AI attendees did not open the meeting (${reason}). Check that npm run npc is running, then try again.`,
+                error: 'The AI attendees did not open the meeting. Check that npm run npc is running, then try again.',
                 retryable: true,
               },
             });

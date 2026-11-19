@@ -56,7 +56,7 @@ export function createRunnerClient({
     postSettledTopic: (followUp, reopened = false) =>
       postSettledTopic(request, `${base}/api/runner/settle-topic`, followUp, log, reopened),
     async fetchMeetingState() {
-      const response = await request(`${base}/api/meeting/state`);
+      const response = await request(`${base}/api/runner/meeting-state`);
       const state = (await response.json().catch(() => ({}))) as {
         meetingId?: unknown;
         started?: unknown;

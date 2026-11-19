@@ -39,8 +39,15 @@ export type ServiceMessage =
 /** A command failure whose message is safe to show the sending client. */
 export class CommandError extends Error {}
 
+/** Mutation prepared by an asynchronous command handler, committed only while its caller is authorized. */
+export interface CommandEffect {
+  commit(): void;
+  cancel?(): void;
+}
+
 /** A server-owned handler for commands sent by clients. */
-export type CommandHandler = (command: KakiCommand, sender: ClientAudience) => void | Promise<void>;
+export type CommandHandler = (command: KakiCommand, sender: ClientAudience) =>
+  void | CommandEffect | Promise<void | CommandEffect>;
 
 /** The result of checking whether a socket may connect; the principal is the same one HTTP uses. */
 export type UpgradeDecision =
@@ -59,6 +66,8 @@ const MAX_PAYLOAD_BYTES = 1_000_000;
 /** Options for the hub; auth plugs into the WebSocket upgrade through `authorize`. */
 export interface HubOptions {
   authorize?(request: IncomingMessage, audience: ClientAudience): Promise<UpgradeDecision>;
+  /** Preserve the open demo's 1008 close frame for an invalid role. */
+  closeUnknownRoleAfterUpgrade?: boolean;
   /** True when a person currently holds this role, so the runner's token may not act as it. */
   isHumanSeat?(role: string): boolean;
 }
@@ -209,6 +218,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
             const url = new URL(info.req.url ?? '/ws', 'http://localhost');
             const audience = audienceFor(scenario, url.searchParams.get('role'));
             if (audience === undefined) {
+              if (options.closeUnknownRoleAfterUpgrade === true) { done(true); return; }
               done(false, 401, 'Unknown role');
               return;
             }
@@ -289,6 +299,24 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     }
   }
 
+  /** Check again after every await, before dispatch continues or a prepared mutation commits. */
+  function callerStillAuthorized(socket: WebSocket, audience: ClientAudience): boolean {
+    return clients.get(socket) === audience && socket.readyState === WebSocket.OPEN &&
+      (!runnerSockets.has(socket) || runnerMayUseAudience(audience));
+  }
+
+  async function dispatchCommand(socket: WebSocket, audience: ClientAudience, command: KakiCommand): Promise<void> {
+    for (const handler of commandHandlers) {
+      if (!callerStillAuthorized(socket, audience)) return;
+      const effect = await handler(command, audience);
+      if (!callerStillAuthorized(socket, audience)) {
+        effect?.cancel?.();
+        return;
+      }
+      effect?.commit();
+    }
+  }
+
   async function handleClientMessage(
     socket: WebSocket,
     audience: ClientAudience,
@@ -366,7 +394,7 @@ export function createHub(httpServer: Server, scenario: Scenario, options: HubOp
     }
 
     try {
-      for (const handler of commandHandlers) await handler(parsed, audience);
+      await dispatchCommand(socket, audience, parsed);
     } catch (error) {
       if (error instanceof CommandError) {
         sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, error.message)));

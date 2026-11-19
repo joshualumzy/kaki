@@ -763,6 +763,7 @@ describe('one server-owned meeting start', () => {
     const screen = await connectClient(port, 'screen');
     let runner: WebSocket | undefined;
     let mode: 'silent' | 'failed' | 'ready' = 'silent';
+    const warning = vi.spyOn(console, 'warn');
     try {
       expect((await join(app, { participantName: 'Bao', participantRole: 'cashier' })).status).toBe(200);
       const unavailable = await startMeeting(app);
@@ -796,7 +797,9 @@ describe('one server-owned meeting start', () => {
       mode = 'failed';
       const failed = await startMeeting(app);
       expect(failed.status).toBe(503);
-      expect(((await failed.json()) as { error?: string }).error).toMatch(/cast initialization failed/i);
+      const failedBody = (await failed.json()) as { error?: string };
+      expect(failedBody.error).toBe('The AI attendees did not open the meeting. Check that npm run npc is running, then try again.');
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining('cast initialization failed'));
       expect(screen.messages.filter((event) => event.type === 'MEETING_STARTED')).toHaveLength(0);
 
       mode = 'ready';
@@ -805,6 +808,7 @@ describe('one server-owned meeting start', () => {
       expect(await started.json()).toMatchObject({ started: true });
       await waitForEvent(screen, (event) => event.type === 'MEETING_STARTED', 'the acknowledged start');
     } finally {
+      warning.mockRestore();
       runner?.terminate();
       screen.close();
       await app.close();

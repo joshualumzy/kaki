@@ -368,16 +368,23 @@ export function createMeetingModule({
           if (persistence !== undefined) {
             resetting = true;
             try {
-              try {
-                await persistence.clearSaved();
-              } catch {
-                throw new CommandError("Couldn't clear the saved meeting — try again");
-              }
-              resetMeeting({ savedCleared: true });
-            } finally {
-              // Always let snapshots through again, whether the clear failed or the reset threw.
+              await persistence.clearSaved();
+            } catch {
               resetting = false;
+              throw new CommandError("Couldn't clear the saved meeting — try again");
             }
+            // The hub commits this only if the sending socket still holds authority after the await.
+            return {
+              commit() {
+                try { resetMeeting({ savedCleared: true }); }
+                finally { resetting = false; }
+              },
+              cancel() {
+                resetting = false;
+                // The clear already completed; restore this meeting's snapshot if the reset was revoked.
+                persistence.scheduleSave();
+              },
+            };
           } else {
             resetMeeting({ savedCleared: true });
           }

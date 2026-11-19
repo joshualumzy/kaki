@@ -111,11 +111,8 @@ export function accessProblem(
           ? undefined
           : { status: 401, error: 'Service sign-in required.' };
       }
-      // With no credentials configured, the trusted local demo keeps what the old /dev routes
-      // allowed. Nothing new is reachable anonymously when those routes are off.
-      return context.devRoutes && context.loopback
-        ? undefined
-        : { status: 404, error: 'Not found' };
+      // With no credentials configured, only the machine running Kaki may act as the runner.
+      return context.loopback ? undefined : { status: 401, error: 'Service sign-in required.' };
 
     case 'session':
       if (!context.authEnabled) return undefined;

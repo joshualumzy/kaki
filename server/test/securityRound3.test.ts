@@ -10,6 +10,9 @@ import { hashPassword, hashToken } from '../src/auth/password';
 import { ensureAuthSchema } from '../src/auth/schema';
 import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createMeetingCodeSource, type MeetingCodeSource } from '../src/meetingCode';
+import { createMeetingModule } from '../src/host/meeting';
+import type { KakiModule } from '../src/modules';
+import type { MeetingPersistence } from '../src/persist/persistence';
 import { testScenario } from './fixtures/scenario';
 import { portOf, settle, waitFor } from './helpers';
 
@@ -198,12 +201,16 @@ describe('security round 3', () => {
     roomRoster,
     code = MEETING_CODE,
     devRoutes = false,
+    modules,
+    persistence,
   }: {
     scenario?: Scenario;
     serviceToken?: string;
     roomRoster?: (roomName: string) => Promise<Array<{ name: string; role?: string }> | undefined>;
     code?: string;
     devRoutes?: boolean;
+    modules?: KakiModule[];
+    persistence?: MeetingPersistence;
   } = {}): Promise<{ app: KakiApp; store: AuthStore; meetingCode: MeetingCodeSource }> {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
@@ -216,6 +223,8 @@ describe('security round 3', () => {
         meetingCode,
         roomRoster: roomRoster ?? (async () => []),
         devRoutes,
+        modules,
+        persistence,
         ...(serviceToken === undefined ? {} : { serviceToken }),
       }),
     );
@@ -358,6 +367,60 @@ describe('security round 3', () => {
     }
   });
 
+  it('does not resume dispatch after the sending session is revoked mid-command', async () => {
+    const { app } = await authApp();
+    const host = await signInAsHost(app);
+    const screen = await connect(portOf(app), 'screen', { cookie: host });
+    expect(screen.ok).toBe(true);
+    if (!screen.ok) return;
+    let entered!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let mutated = false;
+    app.hub.onCommand(async (command) => {
+      if (command.type === 'SET_HOST_MODE') { entered(); await gate; }
+    });
+    app.hub.onCommand((command) => { if (command.type === 'SET_HOST_MODE') mutated = true; });
+    screen.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
+    await waiting;
+    await signInAsHost(app, host);
+    release();
+    await settle(20);
+    expect(mutated).toBe(false);
+    screen.ws.terminate();
+  });
+
+  it('does not reset the meeting when the screen is revoked during the saved-state clear', async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let saves = 0;
+    const persistence: MeetingPersistence = {
+      saved: undefined,
+      registerSource() {}, scheduleSave() { saves += 1; },
+      async clearSaved() { entered(); await gate; },
+      async flush() {}, async close() {},
+    };
+    const { app } = await authApp({ modules: [createMeetingModule()], persistence });
+    const host = await signInAsHost(app);
+    const screen = await connect(portOf(app), 'screen', { cookie: host });
+    expect(screen.ok).toBe(true);
+    if (!screen.ok) return;
+    const before = (await (await get(app, '/api/meeting/state')).json()) as { meetingId: string };
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await waiting;
+    const savesBeforeRevocation = saves;
+    await signInAsHost(app, host);
+    release();
+    await settle(20);
+    expect((await (await get(app, '/api/meeting/state')).json()) as { meetingId: string })
+      .toMatchObject({ meetingId: before.meetingId });
+    expect(saves).toBeGreaterThan(savesBeforeRevocation);
+    screen.ws.terminate();
+  });
+
   it('rejects an upgrade whose session was revoked while it was authorizing', async () => {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
@@ -479,12 +542,19 @@ describe('security round 3', () => {
     if (service.ok) service.ws.terminate();
   });
 
-  it('keeps runner routes unreachable anonymously with sign-in off and no token, except the local dev demo', async () => {
-    const closed = track(await createApp({ scenario: testScenario }));
-    expect((await post(closed, '/api/runner/emit', transcriptEvent)).status).toBe(404);
+  it('allows a tokenless runner only from the direct loopback peer', async () => {
+    const local = track(await createApp({ scenario: testScenario }));
+    expect((await post(local, '/api/runner/emit', transcriptEvent)).status).toBe(200);
+    const localSocket = await connect(portOf(local), 'service');
+    expect(localSocket.ok).toBe(true);
+    if (localSocket.ok) localSocket.ws.terminate();
 
-    const demo = track(await createApp({ scenario: testScenario, devRoutes: true }));
-    expect((await post(demo, '/api/runner/emit', transcriptEvent)).status).toBe(200);
+    const remote = track(await createApp({ scenario: testScenario, devRoutes: true }));
+    remote.server.prependListener('connection', (peer) => {
+      Object.defineProperty(peer, 'remoteAddress', { value: '203.0.113.9' });
+    });
+    expect((await post(remote, '/api/runner/emit', transcriptEvent)).status).not.toBe(200);
+    expect((await connect(portOf(remote), 'service')).ok).toBe(false);
   });
 
   it('refuses to start when https sign-in would downgrade Mattermost to http', async () => {

@@ -81,6 +81,7 @@ describe('the AI runner HTTP client', () => {
     const started = await authApp();
     const anonymous = createRunnerClient({ baseUrl: started.baseUrl });
     expect((await anonymous.emit(transcript)).status).toBe(401);
+    await expect(anonymous.fetchMeetingState()).rejects.toThrow(/HTTP 401/);
     await expect(anonymous.fetchScenario()).rejects.toThrow(/HTTP 401/);
   });
 });
