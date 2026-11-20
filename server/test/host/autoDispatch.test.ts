@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
-import { roleAudience } from '../../src/core/hub';
+import { roleAudience } from '../../src/core/audience';
 import { connectClient, createTestApp, portOf, settle } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 

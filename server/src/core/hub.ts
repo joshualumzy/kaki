@@ -3,64 +3,20 @@ import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   isKakiCommand,
   isKakiEvent,
-  isRoleIn,
   type KakiCommand,
   type KakiEvent,
-  type Role,
   type Scenario,
-  type Task,
 } from '@kaki/shared';
 import type { Principal } from '../http/access';
-
-/**
- * Who a socket belongs to: the shared screen (the owner's), one role's phone, the AI runner's
- * authenticated service channel, a read-only lifecycle feed any signed-in person may follow, or a
- * participant's projection bound to their own seat. A participant never reads the owner's screen:
- * the projection carries the shared meeting state and redacts other people's private work.
- *
- * The kind is a separate namespace from role ids: a setup may name any role, including one whose
- * id happens to read `participant`, and it is still a role.
- */
-export type ClientAudience =
-  | { kind: 'screen' }
-  | { kind: 'service' }
-  | { kind: 'lifecycle' }
-  | { kind: 'participant' }
-  | { kind: 'role'; role: Role };
-
-/** The audience of one role's phone or AI seat. */
-export function roleAudience(role: Role): ClientAudience {
-  return { kind: 'role', role };
-}
-
-/** The role behind an audience, or undefined for a screen, feed or projection. */
-export function audienceRole(audience: ClientAudience): Role | undefined {
-  return audience.kind === 'role' ? audience.role : undefined;
-}
-
-/** A stable name for logs; a role id can never collide with a special audience. */
-export function audienceLabel(audience: ClientAudience): string {
-  return audience.kind === 'role' ? audience.role : audience.kind;
-}
-
-/** A server-owned request asking the AI runner to prepare the meeting before Start commits. */
-interface RunnerStartRequest {
-  /** Unique for this Start attempt; the runner echoes it back with the meeting id. */
-  requestId: string;
-  /** The same id as `requestId`, carried under the name the Start protocol uses. */
-  attempt: string;
-  /** The meeting this attempt belongs to; an acknowledgement for any other meeting is ignored. */
-  meetingId: string;
-  startedAt: string;
-  agendaIndex: number;
-  /** True when this is a saved meeting being resumed after a restart, not a fresh opening. */
-  resumed: boolean;
-}
-
-/** A message the AI runner sends back over the service channel. */
-type ServiceMessage =
-  | { kind: 'ready'; requestId: string; attempt: string; meetingId: string }
-  | { kind: 'failed'; requestId: string; attempt: string; meetingId: string; reason?: string };
+import { audienceFor, audienceLabel, roleAudience, type ClientAudience } from './audience';
+import { PRACTICE_SCREEN_COMMANDS, rejectionFor, runnerMaySend } from './commandPermissions';
+import { projectedEvent, wantsEvent, wantsProjectedEvent } from './eventProjection';
+import {
+  parseServiceMessage,
+  rawDataToString,
+  type RunnerStartRequest,
+  type ServiceMessage,
+} from './serviceMessages';
 
 /** A command failure whose message is safe to show the sending client. */
 export class CommandError extends Error {}
@@ -147,198 +103,6 @@ export interface Hub {
 export interface MeetingHub extends Hub {
   /** The only way to publish a MEETING_RESET; `publish` refuses that event. */
   publishMeetingReset(event: KakiEvent): void;
-}
-
-function rawDataToString(data: RawData): string {
-  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
-  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8');
-  return data.toString('utf8');
-}
-
-function audienceFor(scenario: Scenario, url: URL): ClientAudience | undefined {
-  const rawAudience = url.searchParams.get('audience');
-  const rawRole = url.searchParams.get('role');
-  // The explicit audience channel is the only way to ask for a projection or a feed. A role id is
-  // never read from it, so every role id stays available to the phone and runner channels.
-  if (rawAudience !== null) {
-    if (rawRole !== null) return undefined;
-    if (rawAudience === 'screen') return { kind: 'screen' };
-    if (rawAudience === 'service') return { kind: 'service' };
-    if (rawAudience === 'lifecycle') return { kind: 'lifecycle' };
-    if (rawAudience === 'participant') return { kind: 'participant' };
-    return undefined;
-  }
-  if (rawRole === null) return undefined;
-  // A defined role always wins over a special name, so `participant`, `service` and `lifecycle`
-  // are ordinary role ids whenever the setup defines them. The fallback keeps older clients that
-  // still ask for a special audience through `role=` working when no such role exists.
-  if (isRoleIn(scenario, rawRole)) return roleAudience(rawRole);
-  if (rawRole === 'screen') return { kind: 'screen' };
-  if (rawRole === 'service') return { kind: 'service' };
-  if (rawRole === 'lifecycle') return { kind: 'lifecycle' };
-  if (rawRole === 'participant') return { kind: 'participant' };
-  return undefined;
-}
-
-function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
-  // A lifecycle feed is read-only and only carries the meeting's start/reset/restore state.
-  if (audience.kind === 'lifecycle') {
-    return event.type === 'MEETING_STARTED' || event.type === 'MEETING_RESET' || event.type === 'MEETING_RESTORED';
-  }
-  return (
-    event.audience.kind === 'all' ||
-    (event.audience.kind === 'service' && audience.kind === 'service') ||
-    (event.audience.kind === 'screen' && (audience.kind === 'screen' || audience.kind === 'service')) ||
-    (event.audience.kind === 'role' &&
-      (audienceRole(audience) === event.audience.role ||
-        (audience.kind === 'screen' && event.type === 'FACT_FOUND')))
-  );
-}
-
-/** A participant's view of an event that may carry another seat's private work. */
-function wantsProjectedEvent(event: KakiEvent, seat: string | undefined): boolean {
-  if (seat === undefined) {
-    // Sign-in off is the trusted demo: a participant projection behaves like the old shared screen.
-    if (event.audience.kind === 'role') return event.type === 'FACT_FOUND';
-    return wantsEvent(event, { kind: 'screen' });
-  }
-  // A participant may read the shared record, transcript and lifecycle, and only their own seat's
-  // facts, coaching and tasks. Another seat's private events never reach them.
-  if (event.audience.kind === 'role') return event.audience.role === seat;
-  return wantsEvent(event, { kind: 'screen' });
-}
-
-/** True when the minutes task is out of review: it may be shown to the whole room. */
-function minutesPublished(task: Task): boolean {
-  return task.status === 'COMPLETED' || task.status === 'SYNCED';
-}
-
-/**
- * The task record another seat may see: the shared board needs its title, who owns it and where it
- * is, never its context, draft, evidence or private links. A minutes card is hidden until it is
- * published, unless this seat is the one who must approve it.
- */
-function taskForSeat(task: Task, seat: string): Task | undefined {
-  const mine = task.assignee === seat || (task.assignee === undefined && task.suggestedAssignee === seat);
-  const minutes = task.purpose === 'meeting_minutes';
-  if (minutes && !minutesPublished(task) && !mine) return undefined;
-  if (mine) return task;
-  return {
-    id: task.id,
-    title: task.title,
-    context: '',
-    suggestedAssignee: task.suggestedAssignee,
-    ...(task.assignee === undefined ? {} : { assignee: task.assignee }),
-    ...(task.agendaItemTitle === undefined ? {} : { agendaItemTitle: task.agendaItemTitle }),
-    ...(minutes ? { purpose: 'meeting_minutes' as const } : {}),
-    ...(minutes && task.artifactUrl !== undefined ? { artifactUrl: task.artifactUrl } : {}),
-    status: task.status,
-    updatedAt: task.updatedAt,
-  };
-}
-
-/** The event a participant projection or practice screen may actually receive, if any. */
-function projectedEvent(
-  event: KakiEvent,
-  seat: string | undefined,
-  practiceScreen: boolean,
-): KakiEvent | undefined {
-  // A practice screen already filters facts; this also keeps other seats' task drafts out of it.
-  if (practiceScreen) {
-    // The practice visitor's screen may show its own seat's facts (the Kaki panel reads this feed),
-    // but no other seat's private work.
-    if (event.audience.kind === 'role') {
-      return event.type === 'FACT_FOUND' && seat !== undefined && event.audience.role === seat
-        ? event
-        : undefined;
-    }
-    if (event.type !== 'TASK_UPDATED' || seat === undefined) return event;
-    const task = taskForSeat(event.payload.task, seat);
-    return task === undefined ? undefined : { ...event, payload: { task } };
-  }
-  if (event.audience.kind === 'role') return event;
-  if (event.type !== 'TASK_UPDATED' || seat === undefined) return event;
-  const task = taskForSeat(event.payload.task, seat);
-  return task === undefined ? undefined : { ...event, payload: { task } };
-}
-
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '';
-}
-
-function parseServiceMessage(value: unknown): ServiceMessage | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const message = value as {
-    kind?: unknown;
-    requestId?: unknown;
-    attempt?: unknown;
-    meetingId?: unknown;
-    reason?: unknown;
-  };
-  if (!nonEmptyString(message.requestId) || !nonEmptyString(message.attempt) || !nonEmptyString(message.meetingId)) {
-    return undefined;
-  }
-  if (message.kind === 'ready') {
-    return { kind: 'ready', requestId: message.requestId, attempt: message.attempt, meetingId: message.meetingId };
-  }
-  if (message.kind === 'failed') {
-    return {
-      kind: 'failed',
-      requestId: message.requestId,
-      attempt: message.attempt,
-      meetingId: message.meetingId,
-      ...(typeof message.reason === 'string' ? { reason: message.reason } : {}),
-    };
-  }
-  return undefined;
-}
-
-/**
- * The commands the AI runner may send on its authenticated command sockets. It acts for the screen
- * to advance/end and for its own roles to accept or approve a task, and nothing else. Pause is not
- * here: a person's Stop/Resume goes straight from their browser to the server, never via the runner.
- */
-const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_HOST_MODE']);
-/**
- * The screen commands a practice visitor may send for their own practice meeting. The practice
- * credential is a lower-trust capability than the owner's screen, so it still cannot dispatch,
- * dismiss, reset or pause the room; it may only move its own agenda or end its own practice.
- */
-const PRACTICE_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING']);
-const RUNNER_ROLE_COMMANDS = new Set([
-  'CLAIM_TASK',
-  'DECLINE_TASK',
-  'RETURN_TASK_UNDECIDED',
-  'APPROVE_ACTION',
-  'RETRY_ACTION',
-]);
-
-function runnerMaySend(audience: ClientAudience, commandType: string): boolean {
-  if (audience.kind === 'screen') return RUNNER_SCREEN_COMMANDS.has(commandType);
-  if (audience.kind !== 'role') return false;
-  return RUNNER_ROLE_COMMANDS.has(commandType);
-}
-
-function rejectionFor(
-  audience: ClientAudience,
-  commandType: string,
-  reason: string,
-  seat?: string,
-): KakiEvent {
-  return {
-    type: 'COMMAND_REJECTED',
-    audience:
-      audience.kind === 'screen'
-        ? { kind: 'screen' }
-        : audience.kind === 'participant'
-          ? seat === undefined
-            ? { kind: 'screen' }
-            : { kind: 'role', role: seat }
-          : audience.kind === 'role'
-            ? audience
-            : { kind: 'screen' },
-    payload: { commandType, reason },
-  };
 }
 
 /** Create the `/ws` hub attached to an existing HTTP server; the scenario is read through a getter. */

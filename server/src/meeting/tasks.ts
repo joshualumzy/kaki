@@ -18,7 +18,8 @@ import {
   type TaskPurpose,
   type TaskStatus,
 } from '@kaki/shared';
-import { CommandError, type ClientAudience, type Hub } from '../core/hub';
+import type { ClientAudience } from '../core/audience';
+import { CommandError, type Hub } from '../core/hub';
 
 type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft' | 'artifactUrl' | 'error'>>;
 

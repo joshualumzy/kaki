@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Scenario, Task } from '@kaki/shared';
 import { buildMeetingMinutes, createWikiModule, pagePath, type WikiModuleOptions, type WikiSettings } from '../../src/action/wiki';
-import { roleAudience, type Hub } from '../../src/core/hub';
+import { roleAudience } from '../../src/core/audience';
+import type { Hub } from '../../src/core/hub';
 import type { SavedMeetingDetails } from '../../src/persist/state';
 import { createFakeLlm } from '../../src/services/llm';
 import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';

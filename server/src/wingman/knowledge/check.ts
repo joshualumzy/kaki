@@ -4,7 +4,8 @@ import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/s
 import { Pool } from 'pg';
 import { loadEnv } from '../../../../docker/seed/env';
 import type { TaskStore } from '../../meeting/tasks';
-import { audienceLabel, roleAudience, type ClientAudience, type Hub } from '../../core/hub';
+import { audienceLabel, roleAudience, type ClientAudience } from '../../core/audience';
+import type { Hub } from '../../core/hub';
 import { chatComplete, embedText, gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
 import { createKnowledgeModule } from './module';
 import {

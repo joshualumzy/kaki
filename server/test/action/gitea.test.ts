@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
 import { createGiteaModule, type GiteaModuleOptions, type GiteaSettings } from '../../src/action/gitea';
-import { roleAudience, type Hub } from '../../src/core/hub';
+import { roleAudience } from '../../src/core/audience';
+import type { Hub } from '../../src/core/hub';
 import { createFakeLlm, LlmError, type LlmClient } from '../../src/services/llm';
 import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';

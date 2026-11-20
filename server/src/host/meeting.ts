@@ -1,5 +1,6 @@
 import type { KakiEvent } from '@kaki/shared';
-import { CommandError, audienceRole } from '../core/hub';
+import { audienceRole } from '../core/audience';
+import { CommandError } from '../core/hub';
 import type { LlmClient } from '../services/llm';
 import type { KakiContext, KakiModule } from '../core/modules';
 import { createAgendaClock, type AgendaClock } from './clock';

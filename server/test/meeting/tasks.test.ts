@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, TaskStatus } from '@kaki/shared';
-import { CommandError, roleAudience } from '../../src/core/hub';
+import { roleAudience } from '../../src/core/audience';
+import { CommandError } from '../../src/core/hub';
 import { TASK_UNDECIDED_ERROR } from '../../src/meeting/tasks';
 import { createTestApp } from '../helpers';
 

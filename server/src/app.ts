@@ -21,7 +21,8 @@ import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEven
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
 import { createAttemptLimiter, type AttemptLimiter } from './http/attemptLimiter';
-import { CommandError, createHub, audienceRole, type ClientAudience, type Hub } from './core/hub';
+import { audienceRole, type ClientAudience } from './core/audience';
+import { CommandError, createHub, type Hub } from './core/hub';
 import type { KakiModule } from './core/modules';
 import type { MeetingPersistence } from './persist/persistence';
 import {

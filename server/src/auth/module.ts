@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
 import { isObject, MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
-import type { ClientAudience } from '../core/hub';
+import type { ClientAudience } from '../core/audience';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../http/access';
 import { readJsonBody, sendJson } from '../http/http';
 import { createAttemptLimiter, type AttemptLimiter } from '../http/attemptLimiter';

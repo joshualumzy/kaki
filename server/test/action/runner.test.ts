@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionDraft, KakiEvent, Task } from '@kaki/shared';
 import { createActionModule } from '../../src/action/runner';
-import { roleAudience, type Hub } from '../../src/core/hub';
+import { roleAudience } from '../../src/core/audience';
+import type { Hub } from '../../src/core/hub';
 import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { waitFor } from '../helpers';
