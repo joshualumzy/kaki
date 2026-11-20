@@ -263,7 +263,7 @@ function ringColour(over: boolean): string {
 
 /** The big agenda view: a clock ring, the four items as a timeline, open questions, talk time and who is quiet. */
 function AgendaPanel({ record, scenario, ended = false }: { record: RecordEvent; scenario: Scenario; ended?: boolean }) {
-  const { agendaIndex, openQuestions, quietRoles = [], speakerTalkSeconds, paused } = record.payload;
+  const { agendaIndex, openQuestions, quietRoles = [], speakerTalkSeconds, paused, reviewIssues = [] } = record.payload;
   const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
@@ -351,6 +351,16 @@ function AgendaPanel({ record, scenario, ended = false }: { record: RecordEvent;
           )}
         </div>
       </div>
+      {reviewIssues.length === 0 ? null : (
+        <div className="sc-panel" role="status" style={{ marginTop: 12 }}>
+          <h3 className="sc-h">Needs a person's eye · {reviewIssues.length}</h3>
+          <ul className="sc-questions">
+            {reviewIssues.map((issue) => (
+              <li key={issue.id}>{issue.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </>
   );
 }
@@ -367,7 +377,7 @@ export function MeetingRecordCard({
   ended?: boolean;
   showOpenQuestions?: boolean;
 }) {
-  const { agendaIndex, openQuestions, paused } = record.payload;
+  const { agendaIndex, openQuestions, paused, reviewIssues = [] } = record.payload;
   const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
@@ -414,6 +424,16 @@ export function MeetingRecordCard({
                 {question.text}
                 {question.forRole === undefined ? null : <em> · {roleLabel(scenario, question.forRole)}</em>}
               </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {reviewIssues.length > 0 && (
+        <div style={{ marginTop: 10 }} role="status">
+          <p className="eyebrow" style={{ marginBottom: 4 }}>Needs a person's eye · {reviewIssues.length}</p>
+          <ul className="sc-questions" style={{ margin: 0, paddingLeft: 18 }}>
+            {reviewIssues.map((issue) => (
+              <li key={issue.id}>{issue.text}</li>
             ))}
           </ul>
         </div>

@@ -7,8 +7,25 @@ import { createFakeLlm } from '../../src/llm';
 import { testScenario } from '../fixtures/scenario';
 import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
 
+// A test verifier: trust the extraction model's suggested owner for the cards it extracted.
+function verifierLlm() {
+  return createFakeLlm((messages) => {
+    const user = messages.find((message) => message.role === 'user')?.content ?? '';
+    const tasks = user
+      .split('\n- index ')
+      .slice(1)
+      .map((block) => {
+        const index = Number(/^(\d+):/.exec(block)?.[1]);
+        const role = /Suggested owner \(verify it\): ([\w-]+)/.exec(block)?.[1];
+        return { index, verdict: 'yes', assigneeRole: role ?? null };
+      });
+    return JSON.stringify({ answers: [], tasks });
+  });
+}
+
+
 const reply = (body: Record<string, unknown>) =>
-  JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [], ...body });
+  JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [], ...body });
 
 function isRecord(event: KakiEvent): event is Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }> {
   return event.type === 'MEETING_RECORD_UPDATED';
@@ -69,6 +86,7 @@ describe('host meeting module', () => {
       modules: [
         createMeetingModule({
           llm,
+          verifier: verifierLlm(),
           notetakerIntervalMs: 50,
           replay: [
             { at: 0, speaker: 'Ada (Chef)', text: 'The oven trips the fuse again.' },
@@ -162,7 +180,7 @@ describe('host meeting module', () => {
     const llm = createFakeLlm(() => {
       throw new Error('gateway unreachable');
     });
-    app = await createTestApp({ modules: [createMeetingModule({ llm, notetakerIntervalMs: 50 })] });
+    app = await createTestApp({ modules: [createMeetingModule({ llm, verifier: verifierLlm(), notetakerIntervalMs: 50 })] });
     const screen = await connect('screen');
 
     // Ada talks for over a minute; Bao says nothing.

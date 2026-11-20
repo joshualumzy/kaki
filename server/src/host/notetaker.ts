@@ -1,5 +1,6 @@
 import {
   ACTION_KINDS,
+  canTransition,
   isActionKind,
   isRoleIn,
   isSuggestInput,
@@ -8,6 +9,7 @@ import {
   type AssignmentEvidence,
   type NotetakerStatus,
   type Question,
+  type ReviewIssue,
   type Role,
   type Scenario,
   type SuggestInput,
@@ -57,6 +59,8 @@ type TranscriptLine = SavedTranscriptLine;
 /** The notetaker's part of the Meeting Record. */
 export interface NotetakerState {
   openQuestions: Question[];
+  /** Judgements the notetaker could not make; everyone can see these on the shared record. */
+  reviewIssues: ReviewIssue[];
   /** Talk time per role for one agenda item. */
   talkSecondsFor(agendaIndex: number): Partial<Record<Role, number>>;
   /** Attendee roles with little talk time across the meeting so far. */
@@ -86,6 +90,16 @@ export interface NotetakerOptions {
   scenario: () => Scenario;
   tasks: TaskStore;
   llm?: LlmClient;
+  /**
+   * The model that checks meaning for answered questions and assignments. Defaults to `llm`; tests inject a
+   * scripted one so their notetaker replies keep their own call sequence.
+   */
+  verifier?: LlmClient;
+  /**
+   * Test seam: judge the grounded candidates directly instead of asking the verifier model. Production leaves
+   * this unset and uses the batched semantic verifier above.
+   */
+  verify?: (answers: AnswerCandidate[], tasks: ResolvedTaskCandidate[]) => Promise<VerifierResult>;
   /** The agenda item the meeting is on now. */
   agendaIndex: () => number;
   /** Seconds since the meeting started; omit when there is no meeting clock. */
@@ -113,6 +127,13 @@ export interface TaskCandidate extends SuggestInput {
   duplicateOf?: string;
 }
 
+/** A withdrawal or replacement of an accepted decision the model reports, with the cards it says depend on it. */
+export interface RevisionRequest {
+  oldDecisionEvidence: string;
+  changeEvidence: string;
+  taskIds: string[];
+}
+
 interface NotetakerReply {
   agendaIndex?: number;
   newQuestions: Array<{ text: string; forRole?: Role }>;
@@ -120,6 +141,43 @@ interface NotetakerReply {
   /** Questions the new lines answer, each with the line that states the answer. */
   answeredQuestions?: Array<{ id: string; evidence: string }>;
   newTasks: TaskCandidate[];
+  /**
+   * Actual reversals only. A missing or malformed list is a failed judgement (`revisionsError`), never an empty
+   * success: otherwise a broken reply would silently keep a withdrawn decision and its cards.
+   */
+  revisions: RevisionRequest[];
+  revisionsError?: string;
+}
+
+type Verdict = 'yes' | 'no' | 'unclear';
+
+export interface AnswerCandidate {
+  id: string;
+  question: Question;
+  source: TranscriptLine;
+}
+
+export interface ResolvedTaskCandidate {
+  index: number;
+  task: Omit<TaskCandidate, 'evidence' | 'decisionEvidence' | 'duplicateOf'>;
+  source: TranscriptLine;
+  decisionLine: TranscriptLine | undefined;
+  ownershipEvidence: string;
+  /** The old lexical owner check, kept so the verifier's owner can be compared and tests can reuse it. */
+  lexicalOwner?: Role;
+  duplicateOf?: string;
+}
+
+export interface TaskVerdict {
+  verdict: Verdict;
+  assigneeRole: Role | null;
+}
+
+export interface VerifierResult {
+  answers: Map<string, Verdict>;
+  tasks: Map<number, TaskVerdict>;
+  /** Specific issues for candidates the verifier could not decide. */
+  issues: string[];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -378,11 +436,6 @@ function decisionSourceLineFrom(
   if (evidence === undefined) return undefined;
   return groundingLine(evidence, decisionPool);
 }
-
-// A later line that replaces or withdraws an earlier decision. The same marker both dismisses stale suggested
-// tasks and closes the superseded decision context, so old details cannot leak into a task from a later batch.
-const SUPERSEDES =
-  /\b(?:changed my mind|scrap that|scratch that|wait no|actually wait|instead of|forget that|on second thought)\b/i;
 
 // A speaker can identify themselves between "I" and the commitment ("I, Booth Playtest, will post..."). Keep the name
 // short and comma-delimited so ordinary prose cannot bridge the two halves into a false commitment.
@@ -765,24 +818,58 @@ export function parseNotetakerReply(text: string, scenario: Scenario): Notetaker
   }
   if (!isObject(json)) throw new LlmError('Notetaker reply must be a JSON object');
 
-  const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  // Every list the reply shape promises is required. A missing list is a failed pass, never an empty success:
+  // a silently empty newTasks would look like "nothing happened" when the model simply did not answer.
+  const list = (value: unknown, name: string): unknown[] => {
+    if (!Array.isArray(value)) throw new LlmError(`Notetaker reply is missing its ${name} list`);
+    return value;
+  };
 
-  const newQuestions = list(json.newQuestions).flatMap((question) => {
+  const newQuestions = list(json.newQuestions, 'newQuestions').flatMap((question) => {
     if (!isObject(question) || typeof question.text !== 'string' || question.text.trim() === '') return [];
     return [isRoleIn(scenario, question.forRole) ? { text: question.text, forRole: question.forRole } : { text: question.text }];
   });
 
-  const answeredQuestionIds = list(json.answeredQuestionIds).filter(
+  // Legacy replies named answered questions by id only; keep reading them, but they cannot close anything.
+  const answeredQuestionIds = (Array.isArray(json.answeredQuestionIds) ? json.answeredQuestionIds : []).filter(
     (id): id is string => typeof id === 'string',
   );
 
-  const answeredQuestions = list(json.answeredQuestions).flatMap((answer) =>
+  const answeredQuestions = list(json.answeredQuestions, 'answeredQuestions').flatMap((answer) =>
     isObject(answer) && typeof answer.id === 'string' && typeof answer.evidence === 'string'
       ? [{ id: answer.id, evidence: answer.evidence }]
       : [],
   );
 
-  const newTasks = list(json.newTasks).flatMap((task): TaskCandidate[] => {
+  // A reversal is only usable when every entry is complete. Missing or malformed is a failed judgement, which the
+  // caller retries once; it must never read as "no revisions".
+  let revisionsError: string | undefined;
+  const revisions: RevisionRequest[] = [];
+  if (!Array.isArray(json.revisions)) {
+    revisionsError = 'its revisions list is missing';
+  } else {
+    for (const entry of json.revisions) {
+      if (
+        !isObject(entry) ||
+        typeof entry.oldDecisionEvidence !== 'string' ||
+        entry.oldDecisionEvidence.trim() === '' ||
+        typeof entry.changeEvidence !== 'string' ||
+        entry.changeEvidence.trim() === '' ||
+        !Array.isArray(entry.taskIds) ||
+        !entry.taskIds.every((id) => typeof id === 'string' && id.trim() !== '')
+      ) {
+        revisionsError = 'its revisions list is malformed';
+        break;
+      }
+      revisions.push({
+        oldDecisionEvidence: entry.oldDecisionEvidence,
+        changeEvidence: entry.changeEvidence,
+        taskIds: [...entry.taskIds] as string[],
+      });
+    }
+  }
+
+  const newTasks = list(json.newTasks, 'newTasks').flatMap((task): TaskCandidate[] => {
     if (!isObject(task) || typeof task.evidence !== 'string' || task.evidence.trim() === '') return [];
     // An unknown action kind still leaves a task the assignee can do by hand.
     const candidate = { ...task, actionKind: isActionKind(task.actionKind) ? task.actionKind : undefined };
@@ -815,6 +902,8 @@ export function parseNotetakerReply(text: string, scenario: Scenario): Notetaker
     answeredQuestionIds,
     ...(answeredQuestions.length === 0 ? {} : { answeredQuestions }),
     newTasks,
+    revisions,
+    ...(revisionsError === undefined ? {} : { revisionsError }),
   };
 }
 
@@ -852,7 +941,8 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '{"agendaIndex": number, "newQuestions": [{"text": string, "forRole": role id}],',
     ' "answeredQuestions": [{"id": question id, "evidence": string}], "newTasks": [{"title": string, "context": string,',
     ` "suggestedAssignee": role id, "actionKind": ${ACTION_KINDS.map((kind) => `"${kind}"`).join(' | ')},`,
-    ' "evidence": string, "decisionEvidence": string, "duplicateOf": task id}]}',
+    ' "evidence": string, "decisionEvidence": string, "duplicateOf": task id}],',
+    ' "revisions": [{"oldDecisionEvidence": string, "changeEvidence": string, "taskIds": [task id]}]}',
     '',
     'Rules:',
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
@@ -925,6 +1015,9 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '  If the same accepted decision is already covered by a task above with the SAME actionKind, do not suggest a second announcement of that same actionKind even',
     '  when a different person is asked to do it: set duplicateOf to that task id. However, if a speaker asks the assignee for TWO distinct follow-up deliverables across DIFFERENT tools/actionKinds in the same turn (for example, an email AND a wiki_page, or a gitea_issue AND a mattermost_post, or a calendar_event), extract BOTH deliverables as separate entries in newTasks with their respective actionKinds (up to 2 tasks per turn). A different decision is a separate task.',
     '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id.',
+    '- revisions: report only an actual withdrawal or replacement of an accepted decision. Quote the earlier decision',
+    '  and the changing line verbatim. Name only existing suggested task IDs that depend on that decision. Ordinary',
+    '  "instead of" discussion is not a revision. Use [] when none.',
     '- Never repeat a question that is already open, even in different words. Keep newQuestions to at most two per pass.',
     '  Sharing topic words is not a repeat: keep distinct unknowns (who owns cash vs how the float is balanced at close)',
     '  as separate questions.',
@@ -980,17 +1073,156 @@ function transcriptLineText(line: TranscriptLine, scenario: Scenario): string {
   return `[${speakerLabel(line, scenario)}${overlap}] ${line.text}`;
 }
 
+/**
+ * Resolve a model quote to a line only when the words are exactly the line, not merely a fuzzy overlap. A reversal
+ * can move cards, so near-matches are not enough here.
+ */
+function exactTranscriptLine(evidence: string, lines: TranscriptLine[]): TranscriptLine | undefined {
+  const stripped = evidence
+    .replace(/^\s*\[[^\]]+\]\s*/, '')
+    .replace(/^\s*[A-Za-z][A-Za-z\s]{0,24}:\s*/, '');
+  const wanted = normalize(stripped.length > 0 ? stripped : evidence);
+  if (wanted === '') return undefined;
+  let match: TranscriptLine | undefined;
+  for (const line of lines) {
+    if (normalize(line.text) === wanted) match = line;
+  }
+  return match;
+}
+
+const VERIFIER_MARKER = '[KAKI_SEMANTIC_VERIFIER]';
+
+function isVerdict(value: unknown): value is Verdict {
+  return value === 'yes' || value === 'no' || value === 'unclear';
+}
+
+function verifierMessages(
+  scenario: Scenario,
+  answers: AnswerCandidate[],
+  tasks: ResolvedTaskCandidate[],
+): ChatMessage[] {
+  const roles = scenario.roles.map((role) => `- ${role.id}: ${role.label}`);
+  const system = [
+    VERIFIER_MARKER,
+    'You check meeting evidence by meaning, not word overlap.',
+    'For each exact question/quote pair, judge meaning rather than word overlap. Answer "yes" only when the line gives the requested fact without material uncertainty. Return "no" for unrelated, hypothetical, deferred, or different information; "unclear" when evidence is insufficient.',
+    'For each deliverable/quote pair, answer "yes" only when the line explicitly assigns or volunteers that same after-meeting deliverable to its owner. Return "no" for unrelated, hypothetical, deferred, or different work; "unclear" when evidence is insufficient.',
+    'Roles (use the id on the left):',
+    ...roles,
+    'Reply with one JSON object only.',
+    'Shape: {"answers":[{"id":"q-1","verdict":"yes|no|unclear"}],"tasks":[{"index":0,"verdict":"yes|no|unclear","assigneeRole":"role-id" or null}]}.',
+    'Include exactly one entry for every candidate under judgement. assigneeRole must name the role that owns a "yes" deliverable.',
+  ].join('\n');
+  const user = [
+    'Questions to judge:',
+    ...(answers.length === 0
+      ? ['(none)']
+      : answers.map((answer) => `- ${answer.id}: ${answer.question.text}\n  Quote: "${answer.source.text}"`)),
+    'Deliverables to judge:',
+    ...(tasks.length === 0
+      ? ['(none)']
+      : tasks.map((candidate) => {
+          const action = candidate.task.actionKind === undefined ? '' : ` (${candidate.task.actionKind})`;
+          return `- index ${candidate.index}: ${candidate.task.title} — ${candidate.task.context}${action}\n  Quote (${candidate.source.speaker ?? 'unknown'}): "${candidate.source.text}"\n  Suggested owner (verify it): ${candidate.task.suggestedAssignee}`;
+        })),
+  ].join('\n');
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+/** Parse the verifier's reply, requiring exactly one typed verdict for every candidate. */
+function parseVerifierReply(
+  text: string,
+  answers: AnswerCandidate[],
+  tasks: ResolvedTaskCandidate[],
+  scenario: Scenario,
+): { answers: Map<string, Verdict>; tasks: Map<number, TaskVerdict> } | undefined {
+  let json: unknown;
+  try {
+    json = parseJsonReply(text);
+  } catch {
+    return undefined;
+  }
+  if (!isObject(json) || !Array.isArray(json.answers) || !Array.isArray(json.tasks)) return undefined;
+
+  const answerVerdicts = new Map<string, Verdict>();
+  for (const entry of json.answers) {
+    if (!isObject(entry) || typeof entry.id !== 'string' || !isVerdict(entry.verdict)) return undefined;
+    if (!answers.some((candidate) => candidate.id === entry.id)) return undefined;
+    if (answerVerdicts.has(entry.id)) return undefined;
+    answerVerdicts.set(entry.id, entry.verdict);
+  }
+  if (answerVerdicts.size !== answers.length) return undefined;
+
+  const taskVerdicts = new Map<number, TaskVerdict>();
+  for (const entry of json.tasks) {
+    if (!isObject(entry) || !Number.isInteger(entry.index) || !isVerdict(entry.verdict)) return undefined;
+    const index = entry.index as number;
+    if (!tasks.some((candidate) => candidate.index === index)) return undefined;
+    if (taskVerdicts.has(index)) return undefined;
+    if (entry.verdict === 'yes' && !isRoleIn(scenario, entry.assigneeRole)) return undefined;
+    const assigneeRole = isRoleIn(scenario, entry.assigneeRole) ? entry.assigneeRole : null;
+    taskVerdicts.set(index, { verdict: entry.verdict, assigneeRole });
+  }
+  if (taskVerdicts.size !== tasks.length) return undefined;
+  return { answers: answerVerdicts, tasks: taskVerdicts };
+}
+
+/**
+ * One batched, meaning-based judgement for every grounded candidate in this pass. A failed read is retried once;
+ * after that every candidate is left undecided with a visible issue rather than guessed at.
+ */
+async function verifyCandidates(
+  verifier: LlmClient,
+  scenario: Scenario,
+  answers: AnswerCandidate[],
+  tasks: ResolvedTaskCandidate[],
+  log: (message: string) => void,
+): Promise<VerifierResult> {
+  if (answers.length === 0 && tasks.length === 0) {
+    return { answers: new Map(), tasks: new Map(), issues: [] };
+  }
+  const messages = verifierMessages(scenario, answers, tasks);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const reply = await verifier.complete(messages, { json: true, temperature: 0 });
+      const parsed = parseVerifierReply(reply, answers, tasks, scenario);
+      if (parsed !== undefined) return { ...parsed, issues: [] };
+      log(`could not read the semantic verifier reply (attempt ${attempt + 1})`);
+    } catch (error) {
+      log(
+        `the semantic verifier failed (attempt ${attempt + 1}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return {
+    answers: new Map<string, Verdict>(answers.map((answer) => [answer.id, 'unclear'])),
+    tasks: new Map<number, TaskVerdict>(
+      tasks.map((candidate) => [candidate.index, { verdict: 'unclear', assigneeRole: null }]),
+    ),
+    issues: [
+      ...answers.map((answer) => `Could not confirm whether the question "${answer.question.text}" was answered.`),
+      ...tasks.map((candidate) => `Could not confirm whether "${candidate.task.title}" was agreed or assigned.`),
+    ],
+  };
+}
+
 /** Create the notetaker; call `run` every 5–10 s while the meeting is on. */
 export function createNotetaker({
   scenario,
   tasks,
   llm,
+  verifier: verifierClient,
+  verify,
   agendaIndex,
   meetingElapsedSeconds,
   onAgendaIndex,
   visitorOwnerShortcut = () => true,
   attendingRoles,
 }: NotetakerOptions): Notetaker {
+  const verifier = verifierClient ?? llm;
   let pending: TranscriptLine[] = [];
   // The batch being analysed right now; saved with the notetaker so a restart does not lose it.
   let inFlight: TranscriptLine[] | undefined;
@@ -1004,6 +1236,8 @@ export function createNotetaker({
   let generation = 0;
   let openQuestions: Question[] = [];
   let questionCount = 0;
+  let reviewIssues: ReviewIssue[] = [];
+  let reviewIssueCount = 0;
   let status: NotetakerStatus = llm === undefined ? 'off' : 'waiting';
   let lastError: string | undefined;
   const talkByItem = new Map<number, Partial<Record<Role, number>>>();
@@ -1045,52 +1279,259 @@ export function createNotetaker({
     pending = lines.slice(-MAX_PENDING_LINES);
   }
 
-  function apply(reply: NotetakerReply, batch: TranscriptLine[]): void {
+  function raiseReviewIssue(text: string, agendaIndex: number): void {
+    reviewIssueCount += 1;
+    reviewIssues.push({ id: `review-${reviewIssueCount}`, text, agendaIndex });
+  }
+
+  /** Resolve a reported reversal to two exact lines that sit on the same agenda item. */
+  function resolveRevision(
+    revision: RevisionRequest,
+    pool: TranscriptLine[],
+    itemTitle: string | undefined,
+  ): { oldLine: TranscriptLine; changeLine: TranscriptLine } | string {
+    const oldLine = exactTranscriptLine(revision.oldDecisionEvidence, pool);
+    if (oldLine === undefined) return 'its earlier decision quote is not an exact transcript line';
+    const changeLine = exactTranscriptLine(revision.changeEvidence, pool);
+    if (changeLine === undefined) return 'its changing line is not an exact transcript line';
+    const oldTitle = oldLine.agendaItemTitle ?? itemTitle;
+    const changeTitle = changeLine.agendaItemTitle ?? itemTitle;
+    if (oldTitle === undefined || changeTitle === undefined || oldTitle !== changeTitle) {
+      return 'its quotes are not on the same agenda item';
+    }
+    return { oldLine, changeLine };
+  }
+
+  /**
+   * Retire only the cards the model names, and only when every one of them is still suggested and genuinely linked
+   * to the decision being withdrawn. Any doubt leaves every card alone and puts a specific issue on the record.
+   */
+  function applyRevisions(
+    revisions: RevisionRequest[],
+    pool: TranscriptLine[],
+    itemTitle: string | undefined,
+    atAgendaIndex: number,
+  ): Set<TranscriptLine> {
+    const removed = new Set<TranscriptLine>();
+    for (const revision of revisions) {
+      const resolved = resolveRevision(revision, pool, itemTitle);
+      if (typeof resolved === 'string') {
+        raiseReviewIssue(
+          `A decision reversal was not applied: ${resolved}. Every card was left as it was.`,
+          atAgendaIndex,
+        );
+        continue;
+      }
+      const oldDecision = normalize(resolved.oldLine.text);
+      const oldTitle = resolved.oldLine.agendaItemTitle ?? itemTitle;
+      const targets: Task[] = [];
+      let problem: string | undefined;
+      for (const id of revision.taskIds) {
+        const task = tasks.get(id);
+        if (task === undefined) {
+          problem = `task ${id} does not exist`;
+          break;
+        }
+        if (task.status !== 'SUGGESTED' || !canTransition(task.status, 'SUPERSEDED')) {
+          problem = `task ${id} is not a suggested card any more`;
+          break;
+        }
+        if (task.decisionSource !== undefined) {
+          if (normalize(task.decisionSource) !== oldDecision) {
+            problem = `task ${id} is linked to a different decision`;
+            break;
+          }
+        } else if (task.agendaItemTitle !== oldTitle) {
+          problem = `task ${id} is on a different agenda item`;
+          break;
+        }
+        targets.push(task);
+      }
+      if (problem !== undefined) {
+        raiseReviewIssue(
+          `A decision reversal was not applied: ${problem}. Every card was left as it was.`,
+          atAgendaIndex,
+        );
+        continue;
+      }
+      let failed = false;
+      for (const task of targets) {
+        try {
+          tasks.transition(task.id, 'SUPERSEDED');
+        } catch (error) {
+          failed = true;
+          raiseReviewIssue(
+            `Could not retire task "${task.title}" after a decision reversal: ${error instanceof Error ? error.message : String(error)}.`,
+            atAgendaIndex,
+          );
+        }
+      }
+      // The withdrawn decision leaves the context even when no card depended on it, unless a card could not be retired.
+      if (!failed) removed.add(resolved.oldLine);
+    }
+    return removed;
+  }
+
+  async function apply(
+    reply: NotetakerReply,
+    batch: TranscriptLine[],
+    startedIn: number,
+    failedJudgement?: string,
+  ): Promise<void> {
     const groundingPool = [...recentGrounded, ...batch];
     recentGrounded = groundingPool.slice(-MAX_PENDING_LINES);
-    // Every closure needs the line that states the answer. Bare answeredQuestionIds are kept for compatibility with
-    // older replies, but they cannot close anything on their own: an id without evidence is still an open question.
-    const closedWithEvidence = new Map<string, string>();
-    for (const { id, evidence } of reply.answeredQuestions ?? []) closedWithEvidence.set(id, evidence);
-    const answered = new Set<string>();
-    for (const id of reply.answeredQuestionIds) {
-      if (!closedWithEvidence.has(id)) {
-        console.warn(`kaki notetaker: kept question ${id} open; the reply gave no quoted answer`);
-      }
-    }
-    for (const [id, evidence] of closedWithEvidence) {
-      const source = groundingLine(evidence, groundingPool);
-      if (source === undefined) {
-        console.warn(`kaki notetaker: kept question ${id} open; its answer is not in the transcript`);
-        continue;
-      }
-      if (!isAffirmativeAnswer(source.text)) {
-        console.warn(`kaki notetaker: kept question ${id} open; the quoted line is not an answer yet`);
-        continue;
-      }
-      const question = openQuestions.find((item) => item.id === id);
-      if (question === undefined || !answerMatchesQuestion(question.text, source.text)) {
-        console.warn(`kaki notetaker: kept question ${id} open; the quoted line does not identify its topic`);
-        continue;
-      }
-      answered.add(id);
-    }
-    for (const question of openQuestions) {
-      if (answered.has(question.id)) console.warn(`kaki notetaker: closed question "${question.text}" as answered`);
-    }
-    openQuestions = openQuestions.filter((question) => !answered.has(question.id));
-
-    // If a participant reverses their decision on the same agenda item in the current batch ("Actually wait no, I changed my mind — scrap that..."),
-    // dismiss any earlier SUGGESTED tasks before processing the new batch so only the revised decision's tasks remain active.
-    // The same boundary drops the earlier decision context, so a corrected decision cannot be mixed with the one it replaced.
-    const supersedeAt = batch.findIndex((line) => SUPERSEDES.test(line.text));
-    const supersedes = supersedeAt >= 0;
     const movedTo =
       reply.agendaIndex !== undefined && reply.agendaIndex > agendaIndex()
         ? reply.agendaIndex
         : undefined;
     // A batch that moves the meeting on raises its questions after the hand-over, so they belong to the new item.
     const questionAgendaIndex = movedTo ?? agendaIndex();
+
+    // A reply whose reversal list could not be read is not applied at all: keep every card and decision, publish a
+    // specific issue, and still let the agenda move on.
+    if (failedJudgement !== undefined) {
+      raiseReviewIssue(failedJudgement, agendaIndex());
+      if (movedTo !== undefined) {
+        contextAgendaIndex = movedTo;
+        agendaContext = batch.slice(-MAX_AGENDA_CONTEXT_LINES);
+        onAgendaIndex?.(movedTo);
+      } else {
+        agendaContext = [...agendaContext, ...batch].slice(-MAX_AGENDA_CONTEXT_LINES);
+      }
+      return;
+    }
+
+    // Answers are grounded first; only grounded pairs go to the meaning-based verifier.
+    const answerCandidates: AnswerCandidate[] = [];
+    for (const { id, evidence } of reply.answeredQuestions ?? []) {
+      const question = openQuestions.find((item) => item.id === id);
+      if (question === undefined) continue;
+      const source = groundingLine(evidence, groundingPool);
+      if (source === undefined) {
+        console.warn(`kaki notetaker: kept question ${id} open; its answer is not in the transcript`);
+        continue;
+      }
+      answerCandidates.push({ id, question, source });
+    }
+    for (const id of reply.answeredQuestionIds) {
+      if (!(reply.answeredQuestions ?? []).some((answer) => answer.id === id)) {
+        console.warn(`kaki notetaker: kept question ${id} open; the reply gave no quoted answer`);
+      }
+    }
+
+    // A withdrawal only retires the cards the model names, and only after both quotes resolve exactly.
+    const revisionPool = [...agendaContext, ...batch];
+    const itemTitle = scenario().agenda[agendaIndex()]?.title;
+    const removed = applyRevisions(reply.revisions, revisionPool, itemTitle, agendaIndex());
+    const decisionPool =
+      movedTo !== undefined
+        ? batch.filter((line) => !removed.has(line))
+        : revisionPool.filter((line) => !removed.has(line));
+
+    // Ground each task's line first. The lexical checks below are now only logged backstops; meaning decides.
+    const taskCandidates: ResolvedTaskCandidate[] = [];
+    const batchHasActionableTask = reply.newTasks.some((candidate) => candidate.actionKind !== undefined);
+    for (const [index, candidate] of reply.newTasks.entries()) {
+      const { evidence, decisionEvidence, duplicateOf, ...task } = candidate;
+      if (batchHasActionableTask && task.actionKind === undefined) {
+        console.warn(`kaki notetaker: dropped manual product task "${task.title}" in favour of actionable deliverable`);
+        continue;
+      }
+      // A verified decision source pins the task to its agenda item, so a generic handover line repeated across items
+      // resolves to the copy on the decision's item. Queued lines keep their own stamped origin when this is absent.
+      const decisionLine = decisionSourceLineFrom(decisionEvidence, decisionPool);
+      let source = groundingLine(evidence, groundingPool, decisionLine?.agendaItemTitle);
+      // When the model quotes a line that is missing or makes no assignment (for example an NPC acknowledgement of a
+      // promise), fall back to the accepted decision line only on the narrow Mattermost-post path above.
+      let ownershipEvidence = evidence;
+      if (source === undefined || !hasTaskAssignment(source.text)) {
+        if (recoversMattermostDecision(task, decisionLine)) {
+          source = decisionLine;
+          ownershipEvidence = decisionLine.text;
+        }
+      }
+      if (source === undefined) {
+        console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence is not in the transcript`);
+        continue;
+      }
+      // These lexical verdicts no longer gate a card: they are kept only so a disagreement with the model is visible.
+      if (!hasTaskAssignment(source.text)) {
+        console.warn(
+          `kaki notetaker: the lexical check says the evidence line does not assign or volunteer for "${task.title}"; the verifier decides`,
+        );
+      }
+      if (isHypotheticalProposal(source.text)) {
+        console.warn(`kaki notetaker: the lexical check sees a hypothetical proposal for "${task.title}"; the verifier decides`);
+      }
+      if (!taskMatchesAssignment(task, source, groundingPool)) {
+        console.warn(
+          `kaki notetaker: the lexical check says "${task.title}" does not match the assignment in the transcript; the verifier decides`,
+        );
+      }
+      const lexicalOwner =
+        addressedRole(source.text, scenario(), groundingPool, source.role, {
+          visitorShortcut: visitorOwnerShortcut(),
+        }) ?? volunteerRole(ownershipEvidence, source);
+      taskCandidates.push({
+        index,
+        task,
+        source,
+        decisionLine,
+        ownershipEvidence,
+        ...(lexicalOwner === undefined ? {} : { lexicalOwner }),
+        ...(duplicateOf === undefined ? {} : { duplicateOf }),
+      });
+    }
+
+    const verdicts =
+      verify !== undefined
+        ? await verify(answerCandidates, taskCandidates)
+        : verifier === undefined
+        ? {
+            answers: new Map<string, Verdict>(answerCandidates.map((answer) => [answer.id, 'unclear'])),
+            tasks: new Map<number, TaskVerdict>(
+              taskCandidates.map((candidate) => [candidate.index, { verdict: 'unclear', assigneeRole: null }]),
+            ),
+            issues: [],
+          }
+        : await verifyCandidates(
+            verifier,
+            scenario(),
+            answerCandidates,
+            taskCandidates,
+            (message) => console.warn(`kaki notetaker: ${message}`),
+          );
+    if (startedIn !== generation) return; // the meeting was reset while the verifier was thinking
+
+    // Close a question only when the verifier says the line states the answer.
+    const answered = new Set<string>();
+    for (const candidate of answerCandidates) {
+      const verdict = verdicts.answers.get(candidate.id) ?? 'unclear';
+      const lexicalOk =
+        isAffirmativeAnswer(candidate.source.text) &&
+        answerMatchesQuestion(candidate.question.text, candidate.source.text);
+      if (verdict === 'yes' && !lexicalOk) {
+        console.warn(
+          `kaki notetaker: the verifier closed ${candidate.id} on a line the lexical backstop would not: "${candidate.source.text}"`,
+        );
+      } else if (verdict !== 'yes' && lexicalOk) {
+        console.warn(
+          `kaki notetaker: the verifier answered ${verdict} for ${candidate.id} where the lexical backstop would close it`,
+        );
+      }
+      if (verdict === 'yes') {
+        answered.add(candidate.id);
+      } else if (verdict === 'unclear') {
+        raiseReviewIssue(
+          `Could not confirm whether the question "${candidate.question.text}" was answered.`,
+          questionAgendaIndex,
+        );
+      }
+    }
+    for (const question of openQuestions) {
+      if (answered.has(question.id)) console.warn(`kaki notetaker: closed question "${question.text}" as answered`);
+    }
+    openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
     for (const question of reply.newQuestions) {
       // Something that is not phrased as a question (a note or a fragment) is not worth keeping open.
@@ -1109,79 +1550,36 @@ export function createNotetaker({
       openQuestions.push({ id: `q-${questionCount}`, agendaIndex: questionAgendaIndex, ...question });
     }
 
-    // A model-selected decision quote may only resolve against the accepted lines of the current agenda item: a
-    // correction restarts the item at the correction line, and an agenda move leaves the previous item's context behind.
-    const decisionPool = supersedes
-      ? batch.slice(supersedeAt)
-      : movedTo !== undefined
-        ? batch
-        : [...agendaContext, ...batch];
-    if (supersedes) {
-      for (const existing of tasks.list()) {
-        if (existing.status === 'SUGGESTED') {
-          try {
-            tasks.transition(existing.id, 'DISMISSED');
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    }
-
-    const batchHasActionableTask = reply.newTasks.some((t) => t.actionKind !== undefined);
-    for (const { evidence, decisionEvidence, duplicateOf, ...task } of reply.newTasks) {
-      if (batchHasActionableTask && task.actionKind === undefined) {
-        console.warn(`kaki notetaker: dropped manual product task "${task.title}" in favour of actionable deliverable`);
+    for (const candidate of taskCandidates) {
+      const { task, source, decisionLine } = candidate;
+      const verdict = verdicts.tasks.get(candidate.index) ?? { verdict: 'unclear' as const, assigneeRole: null };
+      if (verdict.verdict === 'no') {
+        console.warn(`kaki notetaker: dropped task "${task.title}"; the verifier says the line does not assign it`);
         continue;
       }
-      // A model-supplied id is only a hint: it can be invented or belong to another task, so it must name an
-      // existing, active task and that task is checked against the candidate before anything is dropped.
-      const duplicateTarget = duplicateOf === undefined ? undefined : tasks.get(duplicateOf);
+      if (verdict.verdict !== 'yes' || verdict.assigneeRole === null) {
+        raiseReviewIssue(
+          `Could not confirm whether "${task.title}" was agreed or assigned.`,
+          questionAgendaIndex,
+        );
+        continue;
+      }
+      // The verifier names the owner. The old lexical owner check is kept only so a disagreement is visible.
+      if (candidate.lexicalOwner !== verdict.assigneeRole) {
+        console.warn(
+          `kaki notetaker: the verifier gives "${task.title}" to ${verdict.assigneeRole}, the lexical backstop says ${candidate.lexicalOwner ?? 'no one'}`,
+        );
+      }
+      const owner = verdict.assigneeRole;
+      const duplicateTarget = candidate.duplicateOf === undefined ? undefined : tasks.get(candidate.duplicateOf);
       const activeDuplicateOf =
         duplicateTarget !== undefined && duplicateTarget.status !== 'DISMISSED' ? duplicateTarget : undefined;
-      // A verified decision source pins the task to its agenda item, so a generic handover line repeated across items
-      // resolves to the copy on the decision's item. Queued lines keep their own stamped origin when this is absent.
-      const decisionLine = decisionSourceLineFrom(decisionEvidence, decisionPool);
-      let source = groundingLine(evidence, groundingPool, decisionLine?.agendaItemTitle);
-      // When the model quotes a line that is missing or makes no assignment (for example an NPC acknowledgement of a
-      // promise), fall back to the accepted decision line only on the narrow Mattermost-post path above. Ownership then
-      // comes from that decision line, never from the rejected acknowledgement.
-      let ownershipEvidence = evidence;
-      if (source === undefined || !hasTaskAssignment(source.text)) {
-        if (recoversMattermostDecision(task, decisionLine)) {
-          source = decisionLine;
-          ownershipEvidence = decisionLine.text;
-        }
-      }
-      if (source === undefined) {
-        console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence is not in the transcript`);
-        continue;
-      }
-      if (!hasTaskAssignment(source.text)) {
-        console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence line does not assign or volunteer for it`);
-        continue;
-      }
-      if (isHypotheticalProposal(source.text)) {
-        console.warn(`kaki notetaker: dropped task "${task.title}"; its evidence line is a hypothetical proposal`);
-        continue;
-      }
-      if (!taskMatchesAssignment(task, source, groundingPool)) {
-        console.warn(`kaki notetaker: dropped task "${task.title}"; it does not match the assignment in the transcript`);
-        continue;
-      }
-      // Whoever is explicitly asked by role ("as Operations Director, can you...") or by name ("<colleague name>, can you...") owns it;
-      // otherwise whoever says "I'll do it" owns it. With two or more people in the meeting an
-      // unaddressed "can you..." cannot be pinned on one visitor, so the model's own owner stands.
-      const owner =
-        addressedRole(source.text, scenario(), groundingPool, source.role, {
-          visitorShortcut: visitorOwnerShortcut(),
-        }) ?? volunteerRole(ownershipEvidence, source);
       const namePattern = attendeeNamePattern();
       let cleanedTitle = task.title.replace(namePattern, '');
       let cleanedContext = task.context.replace(namePattern, '');
       for (const attendee of scenario().attendees) {
         const visitorLine = groundingPool.find(
-          (l) => l.role === attendee.role && l.speaker !== undefined && !l.speaker.startsWith(attendee.name),
+          (line) => line.role === attendee.role && line.speaker !== undefined && !line.speaker.startsWith(attendee.name),
         );
         if (visitorLine?.speaker !== undefined) {
           const visitorName = visitorLine.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
@@ -1195,7 +1593,7 @@ export function createNotetaker({
         cleanedTitle === task.title && cleanedContext === task.context
           ? task
           : { ...task, title: cleanedTitle, context: cleanedContext };
-      const owned = owner === undefined ? baseTask : { ...baseTask, suggestedAssignee: owner };
+      const owned = { ...baseTask, suggestedAssignee: owner };
       const decisionSource = decisionLine?.text;
       const withDecision = decisionSource === undefined ? owned : { ...owned, decisionSource };
       const withOrigin =
@@ -1235,15 +1633,12 @@ export function createNotetaker({
       }
     }
 
-    // Keep the current item's lines for the next pass. A superseded item starts again at the correction line, so the
-    // decision it replaced cannot be quoted into a later task.
+    // Keep the current item's lines for the next pass. A withdrawn decision's own line is dropped, and nothing else.
     if (movedTo !== undefined) {
       contextAgendaIndex = movedTo;
-      agendaContext = batch.slice(-MAX_AGENDA_CONTEXT_LINES);
-    } else if (supersedes) {
-      agendaContext = batch.slice(supersedeAt).slice(-MAX_AGENDA_CONTEXT_LINES);
+      agendaContext = batch.filter((line) => !removed.has(line)).slice(-MAX_AGENDA_CONTEXT_LINES);
     } else {
-      agendaContext = [...agendaContext, ...batch].slice(-MAX_AGENDA_CONTEXT_LINES);
+      agendaContext = revisionPool.filter((line) => !removed.has(line)).slice(-MAX_AGENDA_CONTEXT_LINES);
     }
     if (movedTo !== undefined) onAgendaIndex?.(movedTo);
   }
@@ -1314,13 +1709,31 @@ export function createNotetaker({
             content: userPrompt(scenario(), currentAgendaIndex, openQuestions, tasks.list(), agendaContext, batch),
           },
         ];
-        const reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario());
+        let reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario());
         if (startedIn !== generation) return; // the meeting was reset while the model was thinking
-        // The model is done; applying is synchronous, so the batch must not be saved as still in flight.
-        inFlight = undefined;
-        apply(reply, batch);
-        status = 'ok';
-        lastError = undefined;
+        if (reply.revisionsError !== undefined) {
+          // A broken reversal list is retried once. After that the pass is not trusted: no card or decision changes,
+          // a specific issue goes on the record, and the agenda is still allowed to move on.
+          console.warn(`kaki notetaker: ${reply.revisionsError}; asking once more`);
+          reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario());
+          if (startedIn !== generation) return;
+        }
+        if (reply.revisionsError !== undefined) {
+          await apply(
+            reply,
+            batch,
+            startedIn,
+            `The notetaker could not tell whether a decision was withdrawn or replaced (${reply.revisionsError}). Every card and decision was left as it was.`,
+          );
+          if (startedIn !== generation) return;
+          status = 'stale';
+          lastError = reply.revisionsError;
+        } else {
+          await apply(reply, batch, startedIn);
+          if (startedIn !== generation) return;
+          status = 'ok';
+          lastError = undefined;
+        }
         succeeded = true;
       } catch (error) {
         if (startedIn !== generation) return;
@@ -1348,6 +1761,8 @@ export function createNotetaker({
       droppedLines = 0;
       openQuestions = [];
       questionCount = 0;
+      reviewIssues = [];
+      reviewIssueCount = 0;
       status = llm === undefined ? 'off' : 'waiting';
       lastError = undefined;
       talkByItem.clear();
@@ -1364,6 +1779,8 @@ export function createNotetaker({
         agendaContext: agendaContext.map((line) => ({ ...line })),
         openQuestions: openQuestions.map((question) => ({ ...question })),
         questionCount,
+        reviewIssues: reviewIssues.map((issue) => ({ ...issue })),
+        reviewIssueCount,
         status,
         ...(lastError === undefined ? {} : { lastError }),
         talkByItem: [...talkByItem.entries()].map(
@@ -1384,6 +1801,8 @@ export function createNotetaker({
       agendaContext = saved.agendaContext.map((line) => ({ ...line }));
       openQuestions = saved.openQuestions.map((question) => ({ ...question }));
       questionCount = saved.questionCount;
+      reviewIssues = (saved.reviewIssues ?? []).map((issue) => ({ ...issue }));
+      reviewIssueCount = saved.reviewIssueCount ?? reviewIssues.length;
       status = llm === undefined ? 'off' : saved.status;
       lastError = saved.lastError;
       talkByItem.clear();
@@ -1398,6 +1817,7 @@ export function createNotetaker({
     state() {
       return {
         openQuestions: [...openQuestions],
+        reviewIssues: [...reviewIssues],
         talkSecondsFor: (index) => ({ ...(talkByItem.get(index) ?? {}) }),
         quietRoles: quietRoles(),
         status,

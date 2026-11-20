@@ -5,6 +5,23 @@ import { createMeetingModule } from '../../src/host/meeting';
 import { createFakeLlm } from '../../src/llm';
 import { connectClient, createTestApp, portOf, settle, waitForEvent, type TestClient } from '../helpers';
 
+// A test verifier: trust the extraction model's suggested owner for the cards it extracted.
+function verifierLlm() {
+  return createFakeLlm((messages) => {
+    const user = messages.find((message) => message.role === 'user')?.content ?? '';
+    const tasks = user
+      .split('\n- index ')
+      .slice(1)
+      .map((block) => {
+        const index = Number(/^(\d+):/.exec(block)?.[1]);
+        const role = /Suggested owner \(verify it\): ([\w-]+)/.exec(block)?.[1];
+        return { index, verdict: 'yes', assigneeRole: role ?? null };
+      });
+    return JSON.stringify({ answers: [], tasks });
+  });
+}
+
+
 const settings: MattermostSettings = {
   url: 'http://mattermost.test',
   token: 'secret-token',
@@ -21,7 +38,7 @@ const draftMessage =
   'We are moving the cash box away from the food prep area and counting the till float every night. Ada will announce it in the team channel.';
 
 const reply = (body: Record<string, unknown>) =>
-  JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [], ...body });
+  JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [], ...body });
 
 function send(client: TestClient, command: KakiCommand): void {
   client.ws.send(JSON.stringify(command));
@@ -79,6 +96,7 @@ describe('meeting to task to draft', () => {
       modules: [
         createMeetingModule({
           llm: notetakerLlm,
+          verifier: verifierLlm(),
           notetakerIntervalMs: 25,
           speed: 100,
           replay: [
@@ -179,6 +197,7 @@ describe('meeting to task to draft', () => {
       modules: [
         createMeetingModule({
           llm: notetakerLlm,
+          verifier: verifierLlm(),
           notetakerIntervalMs: 25,
           speed: 100,
           replay: [

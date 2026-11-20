@@ -484,6 +484,29 @@ describe('NpcConversation', () => {
     h.conversation.close();
   });
 
+  it('only treats completed lines the room heard as commitment evidence', async () => {
+    const h = harness();
+    await h.say('Can you handle this?');
+    h.calls.at(-1)?.push("Ada: I'll handle the supplier call.");
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.playing.at(-1)?.finish();
+    await h.flush();
+
+    await h.say('What about the till?');
+    h.calls.at(-1)?.push("Ada: I'll do the till login too.");
+    h.calls.at(-1)?.end();
+    await h.flush();
+    h.conversation.stop();
+    await h.flush();
+
+    const lines = h.conversation.completedLinesOnTopic();
+    expect(lines.map((line) => line.text)).toContain("I'll handle the supplier call.");
+    expect(lines.map((line) => line.text)).not.toContain("I'll do the till login too.");
+    expect(lines[0]?.agendaItemTitle).toBe(scenario.agenda[0]?.title);
+    h.conversation.close();
+  });
+
   it('remembers a colleague offer in everyday words for the rest of the topic', async () => {
     const h = harness();
     await h.say('Can someone get the cards printed?');

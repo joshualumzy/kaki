@@ -6,6 +6,10 @@ import {
   createNotetaker,
   isAffirmativeAnswer,
   parseNotetakerReply,
+  taskMatchesAssignment,
+  type AnswerCandidate,
+  type ResolvedTaskCandidate,
+  type VerifierResult,
 } from '../../src/host/notetaker';
 import { createFakeLlm } from '../../src/llm';
 import { loadScenario } from '../../src/loadScenario';
@@ -25,7 +29,40 @@ beforeAll(async () => {
 });
 
 function reply(body: Record<string, unknown>): string {
-  return JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [], ...body });
+  return JSON.stringify({
+    newQuestions: [],
+    answeredQuestionIds: [],
+    answeredQuestions: [],
+    newTasks: [],
+    revisions: [],
+    ...body,
+  });
+}
+
+/** The old lexical answer verdicts, for the tests that cover grounding rather than the verifier's meaning check. */
+async function lexicalVerify(answers: AnswerCandidate[], tasks: ResolvedTaskCandidate[]): Promise<VerifierResult> {
+  return {
+    answers: new Map(
+      answers.map((answer) => [
+        answer.id,
+        isAffirmativeAnswer(answer.source.text) && answerMatchesQuestion(answer.question.text, answer.source.text)
+          ? 'yes'
+          : 'no',
+      ]),
+    ),
+    tasks: new Map(
+      tasks.map((candidate) => [
+        candidate.index,
+        {
+          verdict: taskMatchesAssignment(candidate.task, candidate.source) ? 'yes' : 'no',
+          assigneeRole: taskMatchesAssignment(candidate.task, candidate.source)
+            ? (candidate.lexicalOwner ?? candidate.task.suggestedAssignee)
+            : null,
+        },
+      ]),
+    ),
+    issues: [],
+  };
 }
 
 // Pass 1 asks a question; pass 2 tries to close it with the given evidence.
@@ -39,6 +76,7 @@ async function openThenReply(secondReply: string, secondPassLine: string, questi
     scenario: () => scenario,
     tasks: createTaskStore({ hub: quietHub, scenario }),
     llm: createFakeLlm((_messages, call) => replies[call]!),
+    verify: lexicalVerify,
     agendaIndex: () => 0,
   });
   notetaker.addChunk({ speaker: 'Mei', text: question });
@@ -72,7 +110,7 @@ describe('closing a question needs the line that answers it', () => {
       reply({ answeredQuestions: [{ id: 'q-1', evidence: 'Our twelve-gram butter slab did not shrink.' }] }),
     ];
     const notetaker = createNotetaker({ scenario: () => scenario, tasks: createTaskStore({ hub: quietHub, scenario }),
-      llm: createFakeLlm((_messages, call) => replies[call]!), agendaIndex: () => 0 });
+      llm: createFakeLlm((_messages, call) => replies[call]!), verify: lexicalVerify, agendaIndex: () => 0 });
     notetaker.addChunk({ speaker: 'Mei', text: 'Does the twelve-button grid support a clearer drink label?' });
     await notetaker.run();
     notetaker.addChunk({ speaker: 'Mei', text: 'Our twelve-gram butter slab did not shrink.' });
@@ -127,6 +165,98 @@ describe('closing a question needs the line that answers it', () => {
     );
     expect(parsed.answeredQuestions).toEqual([{ id: 'q-1', evidence: 'x y z' }]);
     expect('answeredQuestions' in parseNotetakerReply(reply({}), scenario)).toBe(false);
+  });
+});
+
+describe('semantic verifier for answers', () => {
+  const verifierReply = (payload: { verdict: string; id?: string }) => ({
+    answers: [{ id: payload.id ?? 'q-1', verdict: payload.verdict }],
+    tasks: [],
+  });
+
+  async function closeWithVerdict(
+    evidence: string,
+    verdict: ReturnType<typeof verifierReply> | string,
+    question = 'When is the delivery due?',
+  ) {
+    const replies = [
+      reply({ newQuestions: [{ text: question }] }),
+      reply({ answeredQuestions: [{ id: 'q-1', evidence }] }),
+    ];
+    const verifier =
+      typeof verdict === 'string'
+        ? createFakeLlm(() => verdict)
+        : createFakeLlm(() => JSON.stringify(verdict));
+    const notetaker = createNotetaker({
+      scenario: () => scenario,
+      tasks: createTaskStore({ hub: quietHub, scenario }),
+      llm: createFakeLlm((_messages, call) => replies[call]!),
+      verifier,
+      agendaIndex: () => 0,
+    });
+    notetaker.addChunk({ speaker: 'Mei', text: question });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Arjun', text: evidence });
+    await notetaker.run();
+    return { state: notetaker.state(), verifier };
+  }
+
+  it('closes a question on a paraphrase the lexical check would not accept', async () => {
+    const { state } = await closeWithVerdict('It lands on Monday morning.', verifierReply({ verdict: 'yes' }));
+    expect(state.openQuestions).toEqual([]);
+    expect(state.reviewIssues).toEqual([]);
+  });
+
+  it('keeps a question open when the verifier says the shared words are misleading', async () => {
+    const question = 'How is change counted and balanced at close?';
+    const { state } = await closeWithVerdict(
+      'The change float is balanced every week by the floor manager.',
+      verifierReply({ verdict: 'no' }),
+      question,
+    );
+    expect(state.openQuestions.map((item) => item.text)).toEqual([question]);
+    expect(state.reviewIssues).toEqual([]);
+  });
+
+  it('leaves an uncertain answer open with a visible issue', async () => {
+    const { state } = await closeWithVerdict(
+      'It should land on Monday, maybe.',
+      verifierReply({ verdict: 'unclear' }),
+    );
+    expect(state.openQuestions.map((item) => item.text)).toEqual(['When is the delivery due?']);
+    expect(state.reviewIssues.some((issue) => issue.text.includes('Could not confirm whether the question'))).toBe(true);
+  });
+
+  it('retries once, then leaves the answer undecided when the verifier reply is unreadable', async () => {
+    const { state, verifier } = await closeWithVerdict('The delivery is due on Monday morning.', 'not json');
+    expect(verifier.calls).toHaveLength(2);
+    expect(state.openQuestions.map((item) => item.text)).toEqual(['When is the delivery due?']);
+    expect(state.reviewIssues.some((issue) => issue.text.includes('Could not confirm whether the question'))).toBe(true);
+  });
+
+  it('never invokes the verifier when the guest supplies no evidence', async () => {
+    const replies = [
+      reply({ newQuestions: [{ text: 'When is the delivery due?' }] }),
+      reply({}),
+    ];
+    const verifier = createFakeLlm(() => {
+      throw new Error('the verifier should not be called');
+    });
+    const notetaker = createNotetaker({
+      scenario: () => scenario,
+      tasks: createTaskStore({ hub: quietHub, scenario }),
+      llm: createFakeLlm((_messages, call) => replies[call]!),
+      verifier,
+      agendaIndex: () => 0,
+    });
+    notetaker.addChunk({ speaker: 'Mei', text: 'When is the delivery due?' });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Arjun', text: 'Let us move on to the budget.' });
+    await notetaker.run();
+
+    expect(verifier.calls).toHaveLength(0);
+    expect(notetaker.state().openQuestions.map((item) => item.text)).toEqual(['When is the delivery due?']);
+    expect(notetaker.state().reviewIssues).toEqual([]);
   });
 });
 

@@ -22,34 +22,49 @@ function task(overrides: Partial<Task>): Task {
 }
 const updated = (t: Task): KakiEvent => ({ type: 'TASK_UPDATED', payload: { task: t }, audience: { kind: 'screen' } });
 
-function setup(reply: string | Error, plays = true, draftOnly = false, volunteered = false) {
+type DecisionLine = { speaker: string; text: string; agendaItemTitle?: string };
+
+function setup(
+  reply: string | Error | Array<string | Error>,
+  plays = true,
+  draftOnly = false,
+  volunteered = false,
+  lines: DecisionLine[] = [],
+) {
   const said: string[] = [];
   const sent: Array<[string, KakiCommand]> = [];
-  let finish: (() => void) | undefined;
+  let finish: ((spoken: boolean) => void) | undefined;
   let calls = 0;
   const prompts: string[] = [];
   const responder = createTaskResponder({
     scenario,
     llm: { complete: async (messages) => {
+      const index = calls;
       calls += 1;
       prompts.push(messages.map((message) => message.content).join('\n'));
-      if (reply instanceof Error) throw reply;
-      return reply;
+      const answer = Array.isArray(reply) ? reply[index] : reply;
+      if (answer === undefined) throw new Error('unexpected extra model call');
+      if (answer instanceof Error) throw answer;
+      return answer;
     } },
     plays: () => plays,
     volunteeredOnTopic: () => volunteered,
+    completedLinesOnTopic: () => lines,
     say: (_who, text, onDone) => { said.push(text); finish = onDone; },
     send: (role, command) => sent.push([role, command]),
     approveDelayMs: 20,
     draftOnly,
   });
-  return { responder, said, sent, prompts, calls: () => calls, finish: () => finish?.() };
+  return { responder, said, sent, prompts, calls: () => calls, finish: (spoken = true) => finish?.(spoken) };
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('parseDecision', () => {
   it('needs a boolean and a spoken line', () => {
-    expect(parseDecision('{"accept": false, "line": " No, too busy. "}')).toEqual({ accept: false, line: 'No, too busy.' });
+    expect(parseDecision('{"accept": false, "line": " No, too busy. "}')).toMatchObject({
+      accept: false,
+      line: 'No, too busy.',
+    });
     expect(parseDecision('{"accept": "yes", "line": "ok"}')).toBeUndefined();
     expect(parseDecision('not json')).toBeUndefined();
   });
@@ -143,13 +158,19 @@ describe('task responder for an AI attendee', () => {
     expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
   });
 
-  it('claims silently when the colleague already offered aloud on this topic, without asking the model', async () => {
-    const { responder, said, sent, calls } = setup('{"accept": false, "line": "Not mine."}', true, false, true);
+  it('does not claim from the old topic-wide flag alone; the exact task still goes to the model', async () => {
+    const { responder, said, sent, calls, finish } = setup(
+      '{"accept": false, "line": "That is not mine."}',
+      true,
+      false,
+      true,
+    );
     responder.handle(updated(task({})));
     await tick();
-    expect(calls()).toBe(0);
-    expect(said).toEqual([]);
-    expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
+    expect(calls()).toBe(1);
+    expect(said).toEqual(['That is not mine.']);
+    finish();
+    expect(sent).toEqual([['chef', { type: 'DECLINE_TASK', taskId: 't-1' }]]);
   });
 
   const commitment = 'I will fix the oven this afternoon.';
@@ -183,12 +204,180 @@ describe('task responder for an AI attendee', () => {
     },
   );
 
-  it('accepts when the model fails, so the meeting is not left waiting', async () => {
-    const { responder, sent, finish } = setup(new Error('timeout'));
+  it('retries once, then returns the card unresolved instead of inventing an acceptance', async () => {
+    const { responder, sent, said, calls, finish } = setup(new Error('timeout'));
     responder.handle(updated(task({})));
     await tick();
+    expect(calls()).toBe(2);
+    expect(said).toEqual([]);
     finish();
-    expect(sent[0]![1]).toMatchObject({ type: 'CLAIM_TASK' });
+    expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+  });
+
+  it('bounds each attempt with its own deadline', async () => {
+    const sent: Array<[string, KakiCommand]> = [];
+    let calls = 0;
+    const responder = createTaskResponder({
+      scenario,
+      llm: {
+        complete: (_messages, options) =>
+          new Promise<string>((_resolve, reject) => {
+            calls += 1;
+            options?.signal?.addEventListener('abort', () => reject(new Error('deadline')));
+          }),
+      },
+      plays: () => true,
+      volunteeredOnTopic: () => false,
+      completedLinesOnTopic: () => [],
+      say: () => undefined,
+      send: (role, command) => sent.push([role, command]),
+      decisionDeadlineMs: 20,
+    });
+
+    responder.handle(updated(task({})));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(calls).toBe(2);
+    expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+  });
+
+  it('treats two invalid replies as an unreadable decision, never an acceptance', async () => {
+    const { responder, sent, said, calls } = setup(['not json', '{"accept": "yes", "line": "ok"}']);
+    responder.handle(updated(task({})));
+    await tick();
+    expect(calls()).toBe(2);
+    expect(said).toEqual([]);
+    expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+  });
+
+  it('uses a valid reply after one failed attempt', async () => {
+    const { responder, sent, said, calls, finish } = setup([
+      new Error('timeout'),
+      '{"accept": true, "line": "I will take it."}',
+    ]);
+    responder.handle(updated(task({})));
+    await tick();
+    expect(calls()).toBe(2);
+    expect(said).toEqual(['I will take it.']);
+    finish();
+    expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
+  });
+
+  it('does not record an accept or decline when the spoken line was dropped', async () => {
+    const { responder, sent, said, finish } = setup('{"accept": true, "line": "I will take it."}');
+    responder.handle(updated(task({})));
+    await tick();
+    expect(said).toEqual(['I will take it.']);
+    finish(false);
+    expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+  });
+
+  it('claims silently only when the model points at this attendee\'s own promise for this exact task', async () => {
+    const promise = "I'll fix the oven this afternoon.";
+    const { responder, sent, said, calls } = setup(
+      '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}',
+      true,
+      false,
+      false,
+      [{ speaker: 'Ada (Chef)', text: promise, agendaItemTitle: 'Prep' }],
+    );
+    responder.handle(updated(task({ agendaItemTitle: 'Prep' })));
+    await tick();
+    expect(calls()).toBe(1);
+    expect(said).toEqual([]);
+    expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
+  });
+
+  it('never lets one promise silently claim a different task for the same speaker', async () => {
+    const promise = "I'll fix the oven this afternoon.";
+    const { responder, sent, said, calls, finish } = setup(
+      [
+        '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}',
+        '{"priorCommitment": false, "evidenceIndex": null, "accept": true, "line": "I will replace it."}',
+      ],
+      true,
+      false,
+      false,
+      [
+        { speaker: 'Ada (Chef)', text: promise, agendaItemTitle: 'Prep' },
+        { speaker: 'Bao (Cashier)', text: 'The sign is loose.', agendaItemTitle: 'Prep' },
+      ],
+    );
+    responder.handle(updated(task({ id: 't-1', agendaItemTitle: 'Prep' })));
+    responder.handle(updated(task({ id: 't-2', title: 'Replace the oven', context: 'It is old.', agendaItemTitle: 'Prep' })));
+    await tick();
+    expect(calls()).toBe(2);
+    expect(said).toEqual(['I will replace it.']);
+    finish();
+    expect(sent).toEqual([
+      ['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }],
+      ['chef', { type: 'CLAIM_TASK', taskId: 't-2', mode: 'MANUAL' }],
+    ]);
+  });
+
+  it('rejects a promise on another agenda item or from another speaker, then leaves the card unresolved', async () => {
+    const reply = '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}';
+    for (const lines of [
+      [{ speaker: 'Ada (Chef)', text: "I'll fix the oven this afternoon.", agendaItemTitle: 'Other' }],
+      [{ speaker: 'Bao (Cashier)', text: "I'll fix the oven this afternoon.", agendaItemTitle: 'Prep' }],
+    ]) {
+      const { responder, sent, calls } = setup([reply, reply], true, false, false, lines);
+      responder.handle(updated(task({ agendaItemTitle: 'Prep' })));
+      await tick();
+      expect(calls()).toBe(2);
+      expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+    }
+  });
+
+  it('does not silently claim when the task changed after the promise', async () => {
+    const reply = '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}';
+    const promise = "I'll fix the oven this afternoon.";
+    const { responder, sent, said, calls } = setup([reply, reply], true, false, false, [
+      { speaker: 'Ada (Chef)', text: promise, agendaItemTitle: 'Prep' },
+    ]);
+    responder.handle(
+      updated(
+        task({
+          title: 'Replace the oven',
+          agendaItemTitle: 'Prep',
+          assignmentEvidence: {
+            speaker: 'Ada (Chef)',
+            quote: promise,
+            scope: { title: 'Fix the oven', context: 'Trips the fuse.' },
+          },
+        }),
+      ),
+    );
+    await tick();
+    expect(calls()).toBe(2);
+    expect(said).toEqual([]);
+    expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+  });
+
+  it('does not let a cut line the room never heard ground a silent claim', async () => {
+    const reply = '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}';
+    const { responder, sent, calls } = setup([reply, reply], true, false, false, [
+      { speaker: 'Ada (Chef)', text: 'The sign is loose.', agendaItemTitle: 'Prep' },
+    ]);
+    responder.handle(updated(task({ agendaItemTitle: 'Prep' })));
+    await tick();
+    expect(calls()).toBe(2);
+    expect(sent).toEqual([['chef', { type: 'RETURN_TASK_UNDECIDED', taskId: 't-1' }]]);
+  });
+
+  it('does not silently claim a conditional offer or a retraction the model rejects', async () => {
+    const { responder, sent, said, finish } = setup(
+      '{"priorCommitment": false, "evidenceIndex": null, "accept": true, "line": "I will take it."}',
+      true,
+      false,
+      false,
+      [{ speaker: 'Ada (Chef)', text: 'If approved I will fix the oven.', agendaItemTitle: 'Prep' }],
+    );
+    responder.handle(updated(task({ agendaItemTitle: 'Prep' })));
+    await tick();
+    expect(said).toEqual(['I will take it.']);
+    finish();
+    expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
   });
 
   it('answers a task once, but again if it is offered again after a decline', async () => {

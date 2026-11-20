@@ -1,7 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { Hub } from '../../src/hub';
-import { addressedRole, createNotetaker, volunteerRole } from '../../src/host/notetaker';
+import {
+  addressedRole,
+  createNotetaker,
+  type AnswerCandidate,
+  type ResolvedTaskCandidate,
+  type VerifierResult,
+  volunteerRole,
+} from '../../src/host/notetaker';
 import { createFakeLlm } from '../../src/llm';
 import { loadScenario } from '../../src/loadScenario';
 import { createTaskStore } from '../../src/tasks';
@@ -35,11 +42,21 @@ async function assigneeAfter(
       JSON.stringify({
         newQuestions: [],
         answeredQuestionIds: [],
+        answeredQuestions: [],
+        revisions: [],
         newTasks: [
           { title: 'Email the venue confirmation', context: 'c', suggestedAssignee: modelAssignee, actionKind: 'email', evidence: line },
         ],
       }),
     ),
+    verify: async (_answers: AnswerCandidate[], tasks: ResolvedTaskCandidate[]): Promise<VerifierResult> => ({
+      answers: new Map(),
+      tasks: new Map(tasks.map((candidate) => [candidate.index, {
+        verdict: 'yes',
+        assigneeRole: candidate.lexicalOwner ?? candidate.task.suggestedAssignee,
+      }])),
+      issues: [],
+    }),
     agendaIndex: () => 0,
     ...(visitorOwnerShortcut === undefined ? {} : { visitorOwnerShortcut }),
   });

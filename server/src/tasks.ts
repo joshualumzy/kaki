@@ -26,6 +26,9 @@ type TaskPatch = Partial<Pick<Task, 'assignee' | 'declinedBy' | 'mode' | 'draft'
 export const INTERRUPTED_TASK_ERROR =
   'Kaki restarted while this was running. It may already have gone through: check before tapping Retry.';
 
+/** Shown on a card whose assignee could not be reached or gave no readable answer. */
+export const TASK_UNDECIDED_ERROR = 'AI colleague could not decide';
+
 /** The single owner of task state; every other module changes tasks through it. */
 export interface TaskStore {
   /**
@@ -166,7 +169,8 @@ export function createTaskStore({
     };
     // A restart interruption lasts only until the task moves again (for example when its owner taps Retry).
     delete next.interrupted;
-    if (to === 'FAILED' && error !== undefined) {
+    // Any transition may carry its own visible reason (a failed action, or an undecided card); moving on clears it.
+    if (error !== undefined) {
       next.error = error;
     } else {
       delete next.error;
@@ -276,6 +280,16 @@ export function createTaskStore({
         transition(command.taskId, 'SUGGESTED', {
           assignee: undefined,
           declinedBy: [...new Set([...(task.declinedBy ?? []), task.assignee as Role])],
+        });
+        return;
+      }
+      case 'RETURN_TASK_UNDECIDED': {
+        const task = requireTask(command.taskId);
+        requireAssignee(task, sender);
+        // Back to the shared screen without counting as a decline, so a host can offer it again or dismiss it.
+        transition(command.taskId, 'SUGGESTED', {
+          assignee: undefined,
+          error: TASK_UNDECIDED_ERROR,
         });
         return;
       }

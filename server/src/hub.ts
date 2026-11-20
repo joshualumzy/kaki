@@ -299,7 +299,13 @@ function parseServiceMessage(value: unknown): ServiceMessage | undefined {
  * here: a person's Stop/Resume goes straight from their browser to the server, never via the runner.
  */
 const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_HOST_MODE']);
-const RUNNER_ROLE_COMMANDS = new Set(['CLAIM_TASK', 'DECLINE_TASK', 'APPROVE_ACTION', 'RETRY_ACTION']);
+const RUNNER_ROLE_COMMANDS = new Set([
+  'CLAIM_TASK',
+  'DECLINE_TASK',
+  'RETURN_TASK_UNDECIDED',
+  'APPROVE_ACTION',
+  'RETRY_ACTION',
+]);
 
 function runnerMaySend(audience: ClientAudience, commandType: string): boolean {
   if (audience.kind === 'screen') return RUNNER_SCREEN_COMMANDS.has(commandType);

@@ -1666,6 +1666,21 @@ export class NpcConversation<Clip> {
   }
 
   /**
+   * The completed lines the room actually heard on the current topic, oldest first, with the agenda item they
+   * were heard on. A line that was merely queued or was cut off is not a commitment. Capped so a long topic
+   * cannot keep growing the prompt.
+   */
+  completedLinesOnTopic(): Array<{ speaker: string; text: string; agendaItemTitle: string }> {
+    const view = this.meetingState.view(Date.now());
+    const title = this.currentItem()?.title ?? view.topic;
+    if (title === undefined) return [];
+    return view.lines
+      .filter((line) => line.complete)
+      .slice(-40)
+      .map((line) => ({ speaker: line.speaker, text: line.text, agendaItemTitle: title }));
+  }
+
+  /**
    * Any speaker must not restate a point that the room already heard on this topic in the last minute
    * or since this turn was requested (`sinceAt`).
    */
