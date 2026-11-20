@@ -12,9 +12,14 @@ export interface KakiRejection {
   reason: string;
 }
 
+/** The server's latest record for the meeting, including the agenda item it is on and its pause. */
+export type MeetingRecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
+
 /** The live meeting state one page needs: non-task events, tasks, rejections and a send function. */
 export interface UseKakiResult {
   events: KakiEvent[];
+  /** The newest MEETING_RECORD_UPDATED, kept outside the short event window so it is never lost. */
+  latestRecord: MeetingRecordEvent | undefined;
   tasks: Map<string, Task>;
   rejections: KakiRejection[];
   rejection: KakiRejection | null;
@@ -38,6 +43,7 @@ export interface UseKakiResult {
 export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult {
   const scenario = useScenario();
   const [events, setEvents] = useState<KakiEvent[]>([]);
+  const [latestRecord, setLatestRecord] = useState<MeetingRecordEvent | undefined>(undefined);
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
   const [connected, setConnected] = useState(false);
@@ -55,6 +61,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
 
   useEffect(() => {
     setEvents([]);
+    setLatestRecord(undefined);
     setTasks(new Map());
     setRejections([]);
     setConnected(false);
@@ -83,6 +90,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         // The server is the source of truth: drop local state and rebuild from its catch-up,
         // so a restarted server never leaves stale task cards on screen.
         setEvents([]);
+        setLatestRecord(undefined);
         setTasks(new Map());
         setRestoredAt(undefined);
         setMeetingIdentity(undefined);
@@ -152,6 +160,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           meetingId.current = parsed.payload.meetingId;
           setMeetingIdentity(parsed.payload.meetingId);
           setStarted(false);
+          setLatestRecord(undefined);
           setEvents((previous) => {
             const last = previous.at(-1);
             // When a new meeting starts on its first transcript line, the hub sends that line just before
@@ -177,6 +186,10 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           setRejections((previous) => [...previous, parsed.payload].slice(-5));
           return;
         }
+
+        // Keep the newest record in its own state: it is the source of the agenda and pause, and it
+        // must outlive the 50-event window that older transcript lines push it out of.
+        if (parsed.type === 'MEETING_RECORD_UPDATED') setLatestRecord(parsed);
 
         setEvents((previous) => [...previous, Object.assign(parsed, { receivedAt: Date.now() })].slice(-50));
       });
@@ -250,6 +263,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
 
   return {
     events,
+    latestRecord,
     tasks,
     rejections,
     rejection: rejections[rejections.length - 1] ?? null,

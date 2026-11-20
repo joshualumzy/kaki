@@ -1313,6 +1313,114 @@ describe('meeting sync with the real runner', () => {
     }
   });
 
+  it('re-reads the server state while a resume is expected, and says so loudly when it stays paused', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const errors: string[] = [];
+    const recheck = vi.fn();
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      logError: (line) => errors.push(line),
+      recheckMeetingState: recheck,
+      resumeBackstopIntervalMs: 20,
+      resumeBackstopWindowMs: 80,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+        }),
+      );
+
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'resume' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+
+      await vi.waitFor(() => expect(recheck.mock.calls.length).toBeGreaterThan(0));
+      await vi.waitFor(() =>
+        expect(errors.some((line) => line.includes('still paused'))).toBe(true),
+      );
+      const calls = recheck.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(recheck.mock.calls.length).toBe(calls);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('re-reads the server state while a typed line waits, and stops once the resume arrives', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const recheck = vi.fn();
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      recheckMeetingState: recheck,
+      resumeBackstopIntervalMs: 20,
+      resumeBackstopWindowMs: 500,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+        }),
+      );
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Carry on please' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
+      await vi.waitFor(() => expect(recheck.mock.calls.length).toBeGreaterThan(0));
+
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
+        }),
+      );
+      await vi.waitFor(() => expect(transcript.some((line) => line === 'Carry on please')).toBe(true));
+
+      const calls = recheck.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(recheck.mock.calls.length).toBe(calls);
+    } finally {
+      await runner.stop();
+    }
+  });
+
   it('gates at once on Stop without a timeout when the snapshot already says paused', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');

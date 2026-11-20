@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TypeBar } from './TypeBar';
 
@@ -111,17 +111,78 @@ describe('TypeBar', () => {
     expect(screen.getByText(/⏸ Pause/)).toBeTruthy();
   });
 
-  it('asks the server to resume before sending a typed line while the record says paused', () => {
+  it('asks the server to resume and sends the typed line only once the record confirms it', () => {
     const send = vi.fn();
     const onPauseChange = vi.fn(() => true);
-    render(<TypeBar send={send} paused onPauseChange={onPauseChange} />);
+    const view = render(<TypeBar send={send} paused onPauseChange={onPauseChange} />);
     const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'Carry on' } });
     fireEvent.submit(input.closest('form')!);
     expect(onPauseChange).toHaveBeenLastCalledWith(false);
-    expect(send).toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
+    // The line is not sent while the server still says paused, and it stays in the box.
+    expect(send).not.toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
+    expect(input.value).toBe('Carry on');
     expect(screen.getByText(/Resuming/)).toBeTruthy();
+
+    view.rerender(<TypeBar send={send} paused={false} onPauseChange={onPauseChange} />);
+    expect(send).toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
+    expect(input.value).toBe('');
+  });
+
+  it('keeps the typed line when the resume request never leaves the browser', () => {
+    const send = vi.fn();
+    const onPauseChange = vi.fn(() => false);
+    render(<TypeBar send={send} paused onPauseChange={onPauseChange} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Carry on' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(send).not.toHaveBeenCalled();
+    expect(input.value).toBe('Carry on');
+    expect(screen.getByRole('alert').textContent).toBe("Couldn't resume, your message wasn't sent");
+  });
+
+  it('keeps the typed line when the server refuses the resume', () => {
+    const send = vi.fn();
+    const onPauseChange = vi.fn(() => true);
+    const view = render(<TypeBar send={send} paused onPauseChange={onPauseChange} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Carry on' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(send).not.toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
+
+    view.rerender(
+      <TypeBar
+        send={send}
+        paused
+        onPauseChange={onPauseChange}
+        pauseRejection={{ commandType: 'SET_PAUSED', reason: 'Only a person seated in this meeting can resume it' }}
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toBe("Couldn't resume, your message wasn't sent");
+    expect(send).not.toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
+    expect(input.value).toBe('Carry on');
+  });
+
+  it('clears a false pause failure notice when a later record matches the request', () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const onPauseChange = vi.fn(() => true);
+      const view = render(<TypeBar send={send} paused={false} onPauseChange={onPauseChange} />);
+
+      fireEvent.click(screen.getByText(/⏸ Pause/));
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.getByRole('alert').textContent).toBe("Couldn't pause, try again");
+
+      // The record was only slow: it clears the false failure when it finally arrives.
+      view.rerender(<TypeBar send={send} paused onPauseChange={onPauseChange} />);
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('asks the server to resume when a starter line takes the person\'s turn', () => {

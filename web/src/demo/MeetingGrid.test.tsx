@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   screenEvents: [] as KakiEvent[],
   roleEvents: [] as KakiEvent[],
   screenTasks: new Map<string, Task>(),
+  latestRecord: null as KakiEvent | null,
   typeBarProps: [] as Array<{ paused?: boolean; pauseRejection?: unknown }>,
 }));
 
@@ -28,8 +29,13 @@ vi.mock('../kaki', () => ({
     npcs: [{ attendee: 'Sam', role: 'host' }],
   }),
   useKaki: (audience: string) => audience === 'screen'
-    ? { events: mocks.screenEvents, tasks: mocks.screenTasks }
-    : { tasks: [], events: mocks.roleEvents },
+    ? {
+        events: mocks.screenEvents,
+        tasks: mocks.screenTasks,
+        latestRecord: mocks.latestRecord
+          ?? [...mocks.screenEvents].reverse().find((event) => event.type === 'MEETING_RECORD_UPDATED'),
+      }
+    : { tasks: [], events: mocks.roleEvents, latestRecord: undefined },
 }));
 vi.mock('./TypeBar', () => ({
   ConnectedTypeBar: (props: { paused?: boolean; pauseRejection?: unknown }) => {
@@ -80,6 +86,7 @@ function fact(agendaIndex: number, text: string): KakiEvent {
 
 beforeEach(() => {
   mocks.screenTasks.clear();
+  mocks.latestRecord = null;
   mocks.typeBarProps.splice(0, mocks.typeBarProps.length);
   mocks.roleEvents.splice(0, mocks.roleEvents.length);
   mocks.screenEvents.splice(0, mocks.screenEvents.length,
@@ -275,5 +282,13 @@ describe('pause button state', () => {
     ];
     view.rerender(<MeetingGrid role="chef" />);
     expect(mocks.typeBarProps.at(-1)?.paused).toBe(false);
+  });
+
+  it('takes the pause from the hook\'s record even after it leaves the event window', () => {
+    // The hook owns the newest record; the 50-event window has already pushed it out.
+    mocks.screenEvents = [line('Sam', 'Carry on.')];
+    mocks.latestRecord = record(0, [], { paused: true, pauseKind: 'person' });
+    render(<MeetingGrid role="chef" />);
+    expect(mocks.typeBarProps.at(-1)?.paused).toBe(true);
   });
 });

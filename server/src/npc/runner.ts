@@ -63,6 +63,15 @@ const STOP_GATE_TIMEOUT_MS = 5_000;
  */
 const HELD_TYPED_LINE_TIMEOUT_MS = 10_000;
 
+/**
+ * While a local pause waits for a resume the person asked for, how often to re-read the server
+ * snapshot. The normal answer is an event or a record; this only covers one that was lost.
+ */
+const RESUME_BACKSTOP_INTERVAL_MS = 2_000;
+
+/** How long the resume backstop keeps re-reading before it gives up loudly. */
+const RESUME_BACKSTOP_WINDOW_MS = 10_000;
+
 /** True when two snapshots came from the same server incarnation at the same sequence. */
 function sameVersion(a: RunnerSnapshotVersion, b: RunnerSnapshotVersion): boolean {
   return sameRunnerEpoch(a.epoch, b.epoch) && a.seq === b.seq;
@@ -105,6 +114,17 @@ export interface RunnerOptions {
   stopGateTimeoutMs?: number;
   /** How long a typed line waits for the server to resume before it is dropped (default 10000 ms). */
   heldTypedLineTimeoutMs?: number;
+  /** How often the resume backstop re-reads the server state (default 2000 ms). */
+  resumeBackstopIntervalMs?: number;
+  /** How long the resume backstop keeps re-reading before it gives up loudly (default 10000 ms). */
+  resumeBackstopWindowMs?: number;
+  /**
+   * Ask the meeting sync to re-read the server snapshot through its fence. The runner calls this
+   * while a local pause is waiting for a resume, so a lost snapshot cannot silence the AI.
+   */
+  recheckMeetingState?(reason: string): void;
+  /** Log something that needs attention (the resume backstop gave up); defaults to `log`. */
+  logError?(message: string): void;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -249,6 +269,7 @@ interface Character {
 export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner> {
   const { scenario: bootScenario, livekitUrl } = options;
   const log = options.log ?? (() => undefined);
+  const logError = options.logError ?? log;
   // Everything that can change during the meeting is read from this one snapshot. The boot pack
   // only supplies what a snapshot does not carry (organisation, attendees, knowledge).
   const meeting = createRunnerMeeting(bootScenario, options.initialMeeting, log);
@@ -449,6 +470,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    * is running again, and dropped if that never comes or the meeting moves on first.
    */
   let heldTypedLine: { text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> } | undefined;
+  /** The timer that re-reads the server state while a local pause waits for a resume. */
+  let resumeBackstop: ReturnType<typeof setInterval> | undefined;
   /**
    * A server snapshot showed the empty-room pause ending after a person returned (or is about to
    * return); their one welcome-back line waits here until the cast and playback are ready for it.
@@ -625,6 +648,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     startResumed = false;
     pausedLocally = false;
     clearStopGate();
+    stopResumeBackstop();
     dropHeldTypedLine('dropped the typed line held for the old meeting');
     greetReturnPending = false;
     endedTerminal = false;
@@ -684,6 +708,47 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     greetReturnPending = true;
   }
 
+  /** Stop re-reading the server state: the local pause is no longer waiting for a resume. */
+  function stopResumeBackstop(): void {
+    if (resumeBackstop === undefined) return;
+    clearInterval(resumeBackstop);
+    resumeBackstop = undefined;
+  }
+
+  /**
+   * The runner is paused locally but has a reason to expect a resume (a LiveKit Resume, or a typed
+   * line waiting to be answered). The server's snapshot ends that pause; if the snapshot is lost,
+   * re-read it through the meeting sync's fenced read so the AI is not silent for the rest of the
+   * meeting. The re-reads are bounded, and give up loudly when the server still says paused.
+   */
+  function expectResume(reason: string): void {
+    if (!pausedLocally || resumeBackstop !== undefined) return;
+    const recheck = options.recheckMeetingState;
+    if (recheck === undefined) return;
+    const intervalMs = options.resumeBackstopIntervalMs ?? RESUME_BACKSTOP_INTERVAL_MS;
+    const windowMs = options.resumeBackstopWindowMs ?? RESUME_BACKSTOP_WINDOW_MS;
+    const startedAt = Date.now();
+    log(`waiting for a resume (${reason}); re-reading the server state every ${intervalMs} ms`);
+    const timer = setInterval(() => {
+      if (!pausedLocally || endedTerminal) {
+        stopResumeBackstop();
+        return;
+      }
+      const waited = Date.now() - startedAt;
+      if (waited >= windowMs) {
+        stopResumeBackstop();
+        logError(
+          `the meeting is still paused ${waited} ms after a resume was asked for (${reason}); ` +
+            'the server never confirmed the resume, so the AI stays silent until its next snapshot',
+        );
+        return;
+      }
+      recheck(`the runner is paused locally and waiting for a resume (${reason})`);
+    }, intervalMs);
+    timer.unref?.();
+    resumeBackstop = timer;
+  }
+
   /** Forget a held typed line, saying why when it was dropped rather than answered. */
   function dropHeldTypedLine(reason?: string): void {
     if (heldTypedLine === undefined) return;
@@ -704,6 +769,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     timer.unref?.();
     heldTypedLine = { text, meetingId: meeting.meetingId(), timer };
     log('holding a typed line until the server says the meeting is running again');
+    expectResume('a typed line is waiting for the meeting to resume');
   }
 
   /** Answer a held line once the meeting is open again, never before. */
@@ -723,6 +789,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   /** Apply a pause locally, without asking the server. */
   function applyLocalPause(next: boolean): void {
+    // The pause is ending (or already ended): nothing is waiting for a resume any more.
+    if (!next) stopResumeBackstop();
     if (pausedLocally === next) {
       if (!next) {
         greetReturn();
@@ -766,6 +834,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    * nothing newer to wait for, so no safety timeout is armed.
    */
   function holdLocalStop(): void {
+    // A fresh Stop supersedes any resume the runner was waiting for.
+    stopResumeBackstop();
     if (meeting.paused() === true) {
       clearStopGate();
       applyLocalPause(true);
@@ -782,6 +852,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    */
   function releaseLocalStop(): void {
     log('the LiveKit resume only asks; waiting for a server snapshot that says the meeting is running');
+    expectResume('a person pressed resume');
   }
 
   /** Remember where the runner was when a Stop arrived, and arm the safety release. */
@@ -926,6 +997,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       pausedLocally = true;
       endedTerminal = true;
       clearStopGate();
+      stopResumeBackstop();
       dropHeldTypedLine('dropped the typed line held before the meeting ended');
       greetReturnPending = false;
       prepared = undefined;
@@ -1338,6 +1410,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     async stop() {
       closing = true;
+      stopResumeBackstop();
       if (guardTimer !== undefined) clearTimeout(guardTimer);
       if (humanSpeakingTimer !== undefined) clearTimeout(humanSpeakingTimer);
       await castQueue;

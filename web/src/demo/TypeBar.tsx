@@ -43,65 +43,100 @@ export function TypeBar({
   const lastSignal = useRef(0);
   /** The rejection already showing when this request started must not be blamed on it. */
   const rejectionBeforeRequest = useRef<Pick<KakiRejection, 'commandType' | 'reason'> | null>(null);
+  /** The direction of the latest request, kept after a failure so a late record can clear a false notice. */
+  const requestedPause = useRef<boolean | undefined>(undefined);
+  /** A typed line held back until the record confirms the resume; it is never sent if the resume fails. */
+  const awaitingSendText = useRef<string | null>(null);
+  /** Whether a failed resume belongs to a typed line, so the notice can say the message was not sent. */
+  const resumeKeptMessage = useRef(false);
 
-  const failPause = useCallback(() => {
+  const failRequest = useCallback((direction: boolean) => {
     setPendingPaused(undefined);
-    setNotice("Couldn't pause, try again");
+    awaitingSendText.current = null;
+    setNotice(
+      direction
+        ? "Couldn't pause, try again"
+        : resumeKeptMessage.current
+          ? "Couldn't resume, your message wasn't sent"
+          : "Couldn't resume, try again",
+    );
   }, []);
 
   /** Ask the server and the runner for a pause; the server's record still owns the final state. */
   const requestPause = useCallback(
     (next: boolean): boolean => {
       rejectionBeforeRequest.current = pauseRejection;
+      resumeKeptMessage.current = false;
+      requestedPause.current = next;
       setNotice(undefined);
       setPendingPaused(next);
       // The runner stops speaking at once; the server owns the meeting's actual pause.
       send({ kind: next ? 'stop' : 'resume' });
       const sent = onPauseChange?.(next);
       if (sent === false) {
-        failPause();
+        failRequest(next);
         return false;
       }
       return true;
     },
-    [failPause, onPauseChange, pauseRejection, send],
+    [failRequest, onPauseChange, pauseRejection, send],
   );
 
   /** Typing resumes the meeting through the server, without pretending the runner may un-gate itself. */
-  const requestServerResume = useCallback((): boolean => {
-    rejectionBeforeRequest.current = pauseRejection;
-    setNotice(undefined);
-    setPendingPaused(false);
-    const sent = onPauseChange?.(false);
-    if (sent === false) {
-      failPause();
-      return false;
-    }
-    return true;
-  }, [failPause, onPauseChange, pauseRejection]);
+  const requestServerResume = useCallback(
+    (keptMessage: boolean): boolean => {
+      rejectionBeforeRequest.current = pauseRejection;
+      resumeKeptMessage.current = keptMessage;
+      requestedPause.current = false;
+      setNotice(undefined);
+      setPendingPaused(false);
+      const sent = onPauseChange?.(false);
+      if (sent === false) {
+        failRequest(false);
+        return false;
+      }
+      return true;
+    },
+    [failRequest, onPauseChange, pauseRejection],
+  );
 
   // The server record is the source of truth: a matching record ends the brief pending state.
   useEffect(() => {
-    if (pendingPaused !== undefined && paused === pendingPaused) {
-      setPendingPaused(undefined);
-      setNotice(undefined);
+    if (pendingPaused === undefined) {
+      // A record that arrives after a timeout or refusal proves the request did land after all.
+      if (requestedPause.current !== undefined && paused === requestedPause.current) {
+        requestedPause.current = undefined;
+        setNotice(undefined);
+      }
+      return;
     }
-  }, [paused, pendingPaused]);
+    if (paused !== pendingPaused) return;
+    setPendingPaused(undefined);
+    setNotice(undefined);
+    requestedPause.current = undefined;
+    // A resume the person asked for by typing only sends their line once the record confirms it.
+    if (pendingPaused === false && awaitingSendText.current !== null) {
+      const queued = awaitingSendText.current;
+      awaitingSendText.current = null;
+      send({ kind: 'text', text: queued });
+      setText((current) => (current.trim() === queued ? '' : current));
+    }
+  }, [paused, pendingPaused, send]);
 
   // A command the server refuses reverts to the current record and explains itself.
   useEffect(() => {
     if (pendingPaused === undefined || pauseRejection === null) return;
     if (pauseRejection === rejectionBeforeRequest.current) return;
     if (pauseRejection.commandType !== 'SET_PAUSED') return;
-    failPause();
-  }, [failPause, pauseRejection, pendingPaused]);
+    failRequest(pendingPaused);
+  }, [failRequest, pauseRejection, pendingPaused]);
 
   // A record that never arrives must not leave the button stuck in its pending state.
   useEffect(() => {
     if (pendingPaused === undefined) return;
-    const timer = setTimeout(failPause, PENDING_PAUSE_TIMEOUT_MS);
+    const timer = setTimeout(() => failRequest(pendingPaused), PENDING_PAUSE_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [failPause, pendingPaused]);
+  }, [failRequest, pendingPaused]);
 
   useEffect(() => {
     if (notice === undefined) return;
@@ -151,7 +186,7 @@ export function TypeBar({
     };
     const onQuickLine = (): void => {
       // A starter line is the person taking their turn: resume the meeting they had paused.
-      if (paused || pendingPaused === true) void requestServerResume();
+      if (paused || pendingPaused === true) void requestServerResume(false);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('kaki:quick-line', onQuickLine);
@@ -164,8 +199,15 @@ export function TypeBar({
   function submit(): void {
     const typed = text.trim();
     if (typed.length === 0) return;
-    // Typing is the person taking their turn: resume the meeting they had paused.
-    if (paused || pendingPaused === true) void requestServerResume();
+    // Typing is the person taking their turn: resume the meeting they had paused. The line stays in
+    // the box and is only sent once the server's record confirms the resume, so a failed or refused
+    // resume never sends it.
+    if (paused || pendingPaused !== undefined) {
+      if (pendingPaused !== false && !requestServerResume(true)) return;
+      resumeKeptMessage.current = true;
+      awaitingSendText.current = typed;
+      return;
+    }
     send({ kind: 'text', text: typed });
     setText('');
   }

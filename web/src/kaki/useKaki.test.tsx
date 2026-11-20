@@ -158,6 +158,46 @@ describe('useKaki lifecycle state', () => {
     expect(result.current.started).toBe(false);
   });
 
+  it('keeps the newest meeting record even after it leaves the event window', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('screen'));
+    const socket = sockets[0]!;
+
+    act(() => socket.emit('open'));
+    const record = {
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'screen' },
+      payload: {
+        agendaIndex: 2,
+        openQuestions: [],
+        elapsedSeconds: 0,
+        speakerTalkSeconds: {},
+        notetakerStatus: 'ok',
+        quietRoles: [],
+        paused: true,
+      },
+    };
+    act(() => socket.emit('message', { data: JSON.stringify(record) }));
+    await waitFor(() => expect(result.current.latestRecord?.payload.agendaIndex).toBe(2));
+
+    act(() => {
+      for (let index = 0; index < 60; index += 1) {
+        socket.emit('message', {
+          data: JSON.stringify({
+            type: 'TRANSCRIPT_CHUNK',
+            audience: { kind: 'screen' },
+            payload: { speaker: 'Ada', text: `line ${index}`, timestamp: new Date().toISOString() },
+          }),
+        });
+      }
+    });
+
+    expect(result.current.events).toHaveLength(50);
+    expect(result.current.events.some((event) => event.type === 'MEETING_RECORD_UPDATED')).toBe(false);
+    expect(result.current.latestRecord?.payload.agendaIndex).toBe(2);
+    expect(result.current.latestRecord?.payload.paused).toBe(true);
+  });
+
   it('does not replay a pause that could not be sent while the hub socket was down', async () => {
     const { useKaki } = await import('./useKaki');
     const { result } = renderHook(() => useKaki('chef'));

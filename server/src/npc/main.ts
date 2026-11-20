@@ -209,6 +209,8 @@ const vad: Partial<VadOptions> = {
   leakCap: numberEnv('NPC_VAD_LEAK_CAP', DEFAULT_VAD_OPTIONS.leakCap),
 };
 
+/** Set once the meeting sync exists (it needs the runner); the resume backstop only fires mid-meeting. */
+let recheckMeeting: ((reason: string) => void) | undefined;
 const runner = await startNpcRunner({
   scenario,
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
@@ -227,6 +229,8 @@ const runner = await startNpcRunner({
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
+  logError,
+  recheckMeetingState: (reason) => recheckMeeting?.(reason),
   // The app server watches the roster and pauses/resumes the meeting itself; the runner only notes
   // that the next person to arrive gets one welcome-back line.
   onRoomEmpty: () => {
@@ -332,6 +336,7 @@ const meetingSync = createMeetingSync({
     resetTaskMaps();
   },
 });
+recheckMeeting = (reason) => meetingSync.recheck(reason);
 
 interface ServiceEvent {
   kind?: string;

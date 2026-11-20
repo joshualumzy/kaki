@@ -228,7 +228,7 @@ export function MeetingGrid({
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
   const { events, send: sendToServer, rejection: commandRejection } = useKaki(role);
-  const { events: screenEvents, tasks: screenTasks } = useKaki('screen');
+  const { events: screenEvents, latestRecord, tasks: screenTasks } = useKaki('screen');
   const participants = useParticipants();
   const tracks = useTracks(
     [
@@ -275,14 +275,10 @@ export function MeetingGrid({
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
     return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
   }, [scenario]);
-  const latestRecord = useMemo(
-    () => [...screenEvents].reverse().find((e) => e.type === 'MEETING_RECORD_UPDATED'),
-    [screenEvents],
-  );
-  const activeAgendaIndex = latestRecord?.type === 'MEETING_RECORD_UPDATED' ? latestRecord.payload.agendaIndex : 0;
+  const activeAgendaIndex = latestRecord?.payload.agendaIndex ?? 0;
   // The pause button follows the server's latest record, so a reload, another seat's Stop or an
   // empty-room auto-pause all show the same truth the meeting clock has.
-  const serverPaused = latestRecord?.type === 'MEETING_RECORD_UPDATED' && latestRecord.payload.paused === true;
+  const serverPaused = latestRecord?.payload.paused === true;
 
   // The agenda record only goes to the screen audience, so these must read the screen feed: it carries both that
   // record and every transcript line, in order.
@@ -385,12 +381,11 @@ export function MeetingGrid({
 
   const starterChips = useMemo(() => {
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
-    const latestRecord = [...screenEvents].reverse().find((e) => e.type === 'MEETING_RECORD_UPDATED');
-    const openQs = latestRecord?.type === 'MEETING_RECORD_UPDATED'
-      ? latestRecord.payload.openQuestions.filter((question) => question.agendaIndex === activeAgendaIndex)
-      : [];
+    const openQs = latestRecord?.payload.openQuestions.filter(
+      (question) => question.agendaIndex === activeAgendaIndex,
+    ) ?? [];
     return starterChipsFromAgendaItem(activeItem, viewerSeatName, openQs);
-  }, [activeItem, role, scenario.attendees, screenEvents, activeAgendaIndex]);
+  }, [activeItem, role, scenario.attendees, latestRecord, activeAgendaIndex]);
 
   const sendQuickLine = useCallback(
     (text: string) => {
