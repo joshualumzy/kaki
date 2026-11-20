@@ -445,6 +445,16 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
   }
 
   async function fillBlankPlan(page: Page, title: string, topics: [string, string]): Promise<void> {
+    // One meeting at a time: a practice left open (e.g. by an earlier run) is ended the way an owner would end it.
+    const endPractice = page.getByRole('button', { name: 'End the practice meeting' });
+    if (await endPractice.isVisible().catch(() => false)) {
+      await endPractice.click({ timeout: 5_000 });
+      const cleared = await waitFor('Leftover practice ends', async () =>
+        !(await endPractice.isVisible().catch(() => false)), 15_000, page, false);
+      await check('Owner ends a leftover practice before planning', cleared,
+        cleared ? 'The practice meeting ended from setup' : 'The End the practice meeting button did not clear it', page);
+      if (!cleared) throw new Error('A leftover practice meeting could not be ended from setup');
+    }
     await page.getByRole('button', { name: 'Start a blank meeting' }).click({ timeout: 10_000 });
     const replace = page.getByRole('button', { name: 'Replace with a blank plan' });
     const needsReplace = await replace.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true).catch(() => false);
