@@ -13,25 +13,6 @@ export interface HumanInfo {
   role: string;
 }
 
-export type ReplyShape = 'solo' | 'reaction' | 'backing' | 'exchange';
-
-/** A fixed cycle gives the room short turns without relying on the model to invent variety. */
-export function replyShapeForTurn(index: number, firstIdea: boolean, recent: readonly ReplyShape[] = []): ReplyShape {
-  const proposed = firstIdea ? 'exchange' : (['solo', 'reaction', 'backing', 'solo', 'exchange'] as const)[Math.abs(Math.trunc(index)) % 5]!;
-  return recent.at(-1) === proposed && recent.at(-2) === proposed
-    ? proposed === 'solo' ? 'reaction' : 'solo'
-    : proposed;
-}
-
-export function replyShapeInstruction(shape: ReplyShape): string {
-  switch (shape) {
-    case 'solo': return 'ONE colleague answers in at most two short sentences. Everyone else stays quiet. Hand the floor back to the visitor.';
-    case 'reaction': return 'ONE colleague gives a single short sentence reacting to the visitor. Everyone else stays quiet. Hand the floor back.';
-    case 'backing': return 'One colleague answers in one short sentence; a second colleague only agrees or backs that point in one short sentence. No new fact from the second colleague. Then stop.';
-    case 'exchange': return 'One colleague answers in one short sentence; a second adds one short sentence only if their cost is still open. Then hand the floor back.';
-  }
-}
-
 /** What the person's role answers for (its role card's responsibility), if the role has a card. */
 export function responsibilityFor(scenario: Scenario, human: HumanInfo | undefined): string | undefined {
   const key = human?.role.trim().toLowerCase();
@@ -305,30 +286,6 @@ export function buildSystemPrompt(
       '- Vary how lines open. A stock phrase ("The catch is", "Fair, but", "Fine by me") is used at most once per meeting.',
     ].join('\n'),
   ].join('\n\n');
-}
-
-/**
- * The one character the person is speaking to, when they say so: a name at the start of what they
- * said ("Sam, I have a question", "Hey Sam"), or "I'm addressing this to Sam". Nothing when no
- * character, or more than one, is addressed that way: then the model decides who answers.
- */
-export function addressedCharacter(text: string, cast: readonly NpcProfile[]): string | undefined {
-  const found = new Set<string>();
-  // Several characters named at the start ("Sam and Arjun, ...") is a question to the room.
-  const opening = text.split(/\s+/).slice(0, 6).join(' ');
-  const namedOpening = cast.filter((npc) =>
-    new RegExp(`\\b(?:${[npc.attendee, ...(npc.soundsLike ?? [])].map(escapeRegExp).join('|')})\\b`, 'i').test(opening),
-  );
-  for (const npc of cast) {
-    const names = [npc.attendee, ...(npc.soundsLike ?? [])].map(escapeRegExp).join('|');
-    const lead = new RegExp(`^\\W*(?:(?:hey|hi|hello|okay|ok|so|um|uh|yo)\\W+)?(?:${names})\\b`, 'i');
-    const said = new RegExp(
-      `\\b(?:(?:addressing|talking|speaking|asking)(?:\\s+this)?(?:\\s+(?:to|for))?|question\\s+(?:for|to)|this\\s+is\\s+for)\\s+(?:${names})\\b`,
-      'i',
-    );
-    if ((lead.test(text) && namedOpening.length === 1) || said.test(text)) found.add(npc.attendee);
-  }
-  return found.size === 1 ? [...found][0] : undefined;
 }
 
 /** Strip anything that would be read out loud badly: markdown, emoji, stage directions, and spaced dashes that TTS rushes through. */

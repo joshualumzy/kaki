@@ -32,6 +32,7 @@ function harness(scenarioUsed: Scenario, role: string, options: {
   bargeInMs?: number;
   silencePromptMs?: number;
   silenceNudgeLeadMs?: number;
+  observeDelayMs?: number;
   failPlaybackFor?: string;
 } = {}) {
   const calls: LlmCall[] = [];
@@ -100,7 +101,7 @@ function harness(scenarioUsed: Scenario, role: string, options: {
     responseDelayMs: options.responseDelayMs ?? 0,
     speakerGapMs: 0,
     sentenceGapMs: 0,
-    observeDelayMs: 0,
+    observeDelayMs: options.observeDelayMs ?? 0,
     bargeInMs: options.bargeInMs ?? 0,
     resumeMs: 0,
     briefFirstChunkMs: 5_000,
@@ -289,6 +290,46 @@ describe('one-speaker topic opening', () => {
     h.conversation.close();
   });
 
+  it('briefs the room after the observe delay when nothing interrupts it', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const h = harness(scenario, roleId, { observeDelayMs: 100 });
+
+    h.conversation.agendaMoved(title);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[opening] starting'));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+    const first = await waitCall(h.calls, 0);
+    expect(requestText(first)).toContain('Tell only this');
+    h.conversation.close();
+  });
+
+  it('briefs once the room frees after being busy past the old retry window', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const h = harness(scenario, roleId, { observeDelayMs: 100 });
+
+    h.conversation.humanSpeech(true);
+    h.conversation.agendaMoved(title);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[opening] starting'));
+    expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
+
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+    const first = await waitCall(h.calls, 0);
+    expect(requestText(first)).toContain('Tell only this');
+    expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
+    h.conversation.close();
+  });
+
   it('drops a stale next-topic announcement after the topic has already opened', async () => {
     const roleId = 'producer';
     const seat = 'Wei Ling';
@@ -416,25 +457,6 @@ describe('one-speaker topic opening', () => {
     expect(h.transcript).toContainEqual([steps[0]!.speaker, steps[0]!.facts[0]!]);
     expect(h.transcript.at(-1)?.[0]).toBe('Sam');
     h.conversation.close();
-  });
-
-  it('keeps the old multi-speaker opening selectable with KAKI_OPENING=legacy', async () => {
-    vi.stubEnv('KAKI_OPENING', 'legacy');
-    try {
-      const seat = 'Wei Ling';
-      const title = TOPICS[0]!;
-      const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
-      const h = harness(scenario, 'producer');
-      h.conversation.agendaMoved(title);
-      h.conversation.announce('Sam', handoverLine(scenario, title, seat));
-      await flush();
-      await playOut(h.playing);
-      const first = await waitCall(h.calls, 0);
-      expect(requestText(first)).toContain(`[We just started "${title}"`);
-      h.conversation.close();
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 
   it('fetches only the next topic\'s first one-speaker call while the host winds down', async () => {
