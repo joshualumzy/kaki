@@ -24,7 +24,7 @@ export interface KakiRejection {
 }
 
 /** The server's latest record for the meeting, including the agenda item it is on and its pause. */
-export type MeetingRecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
+type MeetingRecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
 
 /** The live meeting state one page needs: non-task events, tasks, rejections and a send function. */
 export interface UseKakiResult {

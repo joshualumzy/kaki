@@ -41,7 +41,7 @@ export function isVisitorAddress(text: string, visitorName: string): boolean {
     .some((token) => new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text));
 }
 
-export type SilencePrompt = { prompted: boolean; waitedMs: number; text?: string };
+type SilencePrompt = { prompted: boolean; waitedMs: number; text?: string };
 
 /**
  * Find the first host line after `fromIndex` that addresses the visitor by name within `windowMs`
@@ -84,8 +84,8 @@ export function duplicatedAiLines(lines: readonly TranscriptLine[], fromIndex = 
   return [...duplicates];
 }
 
-export type CardFollowVerdict = { follows: boolean; reason: string };
-export type CardFollowModel = Pick<LlmClient, 'complete'>;
+type CardFollowVerdict = { follows: boolean; reason: string };
+type CardFollowModel = Pick<LlmClient, 'complete'>;
 
 /** The messages for judging whether a follow-up card carries the final call and not the replaced one. */
 export function cardFollowPrompt(
@@ -183,7 +183,7 @@ export function rejoinWelcome(
   });
 }
 
-export type RejoinSnapshot = {
+type RejoinSnapshot = {
   agendaBefore: number;
   agendaAfter: number;
   closingAfter: boolean;
@@ -195,7 +195,7 @@ export type RejoinSnapshot = {
   maxSeconds?: number;
 };
 
-export type RejoinVerdict = { ok: boolean; reasons: string[] };
+type RejoinVerdict = { ok: boolean; reasons: string[] };
 
 /** The rejoin resumed the meeting rather than restarting it, with its cards intact. */
 export function rejoinResumes(snapshot: RejoinSnapshot): RejoinVerdict {

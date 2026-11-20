@@ -43,7 +43,7 @@ const VOICE_CLIP_PATH = '/__kaki-voice-clip/';
 const TOPICS: [string, string] = ['Supplier tray sizes', 'Friday delivery plan'];
 type Check = PlaytestCheck;
 
-export type TeamPlaytestOptions = { headless: boolean; maxMinutes: number; voice: boolean };
+type TeamPlaytestOptions = { headless: boolean; maxMinutes: number; voice: boolean };
 
 type Actor = { name: string; context: BrowserContext; page: Page };
 
@@ -215,7 +215,7 @@ function options(): TeamPlaytestOptions {
 function stamp(): string { return new Date().toISOString(); }
 function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }
 
-export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
+async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
   const voice = parsed.voice;
   const stem = `${voice ? 'team-playtest-voice' : 'team-playtest'}-${startedAt.toISOString().replace(/[:.]/g, '-')}`;

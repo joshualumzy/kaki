@@ -121,9 +121,11 @@ npm test                  # Run the full Vitest suite
 │   ├── src/wingman/      # Kaki Wingman (pgvector RAG company search & private role nudges)
 │   └── test/             # Unit & integration test suite mirroring src/
 ├── web/                  # React + Vite frontend
-│   ├── src/demo/         # Interactive meeting stage + unified Kaki Wingman dock (/ and /demo)
-│   ├── src/screen/       # Shared meeting-room board (/screen)
-│   └── src/phone/        # Personal role companion (/phone)
+│   ├── src/demo/         # Interactive meeting stage + unified Kaki Wingman dock (/demo, /practice)
+│   ├── src/meeting/      # Owner and participant meeting routes, join lobby and overlays
+│   ├── src/setup/        # Pre-meeting setup editor
+│   ├── src/auth/         # Host sign-in page and session API
+│   └── src/landing/      # Public landing page
 ├── scenarios/kopitiam/   # Nanyang Kopi & Toast scenario, seeds, and scripted replay fixtures
 ├── docker/               # Docker Compose stack & idempotent multi-service seed scripts
 ├── scripts/              # Local & cloud launchers (live-up.sh, live-down.sh, live-checks.sh, live-preflight.sh, cloud.sh)

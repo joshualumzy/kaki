@@ -46,7 +46,7 @@ export function guestCardNote(host: string, guest: string): string {
 }
 
 /** What Sam should say when a task goes to a colleague in the room; no note means the colleague speaks for themselves. */
-export interface ColleagueCue {
+interface ColleagueCue {
   note?: string;
   /** Set when Sam stays quiet because the colleague already has it. */
   quietBecause?: 'volunteered' | 'was asked';

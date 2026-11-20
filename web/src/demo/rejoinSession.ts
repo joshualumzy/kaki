@@ -101,7 +101,7 @@ export function formatGraceRemaining(remainingMs: number): string {
  * caused (the meeting closed or replaced, or the seat opened in another window) must not be fought with a rejoin,
  * which would take the seat back or start a fresh meeting, so it ends with a plain explanation instead.
  */
-export type DisconnectOutcome = { kind: 'rejoin' } | { kind: 'none' } | { kind: 'ended'; message: string };
+type DisconnectOutcome = { kind: 'rejoin' } | { kind: 'none' } | { kind: 'ended'; message: string };
 
 export function disconnectOutcome(reason: DisconnectReason | undefined): DisconnectOutcome {
   switch (reason) {

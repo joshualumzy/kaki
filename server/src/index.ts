@@ -42,7 +42,6 @@ try {
     meetingPause: host.meetingPause,
     persistence,
     meetingCode,
-    speechRecognition: process.env.NPC_STT === 'browser' ? 'browser' : 'server',
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);

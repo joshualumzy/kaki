@@ -4,7 +4,7 @@ import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from '../knowledge/gateway';
 import { createCompanySearchFromEnv } from '../knowledge/search';
 
-export interface NudgeModuleOptions {
+interface NudgeModuleOptions {
   /** A prepared search, used by tests and the check script. */
   search?: SearchCompanyData;
   env?: NodeJS.ProcessEnv;

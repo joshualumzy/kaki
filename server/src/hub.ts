@@ -44,7 +44,7 @@ export function audienceLabel(audience: ClientAudience): string {
 }
 
 /** A server-owned request asking the AI runner to prepare the meeting before Start commits. */
-export interface RunnerStartRequest {
+interface RunnerStartRequest {
   /** Unique for this Start attempt; the runner echoes it back with the meeting id. */
   requestId: string;
   /** The same id as `requestId`, carried under the name the Start protocol uses. */
@@ -58,7 +58,7 @@ export interface RunnerStartRequest {
 }
 
 /** A message the AI runner sends back over the service channel. */
-export type ServiceMessage =
+type ServiceMessage =
   | { kind: 'ready'; requestId: string; attempt: string; meetingId: string }
   | { kind: 'failed'; requestId: string; attempt: string; meetingId: string; reason?: string };
 
@@ -66,18 +66,18 @@ export type ServiceMessage =
 export class CommandError extends Error {}
 
 /** Mutation prepared by an asynchronous command handler, committed only while its caller is authorized. */
-export interface CommandEffect {
+interface CommandEffect {
   /** The mutation itself; awaited so a queued lifecycle change finishes before the next command. */
   commit(): void | Promise<void>;
   cancel?(): void;
 }
 
 /** A server-owned handler for commands sent by clients. */
-export type CommandHandler = (command: KakiCommand, sender: ClientAudience) =>
+type CommandHandler = (command: KakiCommand, sender: ClientAudience) =>
   void | CommandEffect | Promise<void | CommandEffect>;
 
 /** The result of checking whether a socket may connect; the principal is the same one HTTP uses. */
-export type UpgradeDecision =
+type UpgradeDecision =
   | {
       ok: true;
       participant?: boolean;
@@ -93,7 +93,7 @@ export type UpgradeDecision =
 const MAX_PAYLOAD_BYTES = 1_000_000;
 
 /** Options for the hub; auth plugs into the WebSocket upgrade through `authorize`. */
-export interface HubOptions {
+interface HubOptions {
   authorize?(request: IncomingMessage, audience: ClientAudience): Promise<UpgradeDecision>;
   /** Preserve the open demo's 1008 close frame for an invalid role. */
   closeUnknownRoleAfterUpgrade?: boolean;
@@ -102,12 +102,12 @@ export interface HubOptions {
 }
 
 /** Options for publishing an event to the hub. */
-export interface PublishOptions {
+interface PublishOptions {
   retainKey?: string;
 }
 
-/** Which AI runner service channels are connected, and whether one hears speech server-side. */
-export interface ServicePresence {
+/** Which AI runner service channels are connected; the runner always hears speech server-side. */
+interface ServicePresence {
   connected: boolean;
   serverSpeech: boolean;
 }
@@ -442,8 +442,6 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   const commandHandlers: CommandHandler[] = [];
   const serviceHandlers = new Set<(message: ServiceMessage) => void>();
   const serviceSockets = new Set<WebSocket>();
-  /** The speech side each service channel announced; only the runner knows, so it names it on connect. */
-  const serviceSpeechSides = new Map<WebSocket, 'server' | 'browser'>();
   const servicePresenceHandlers = new Set<(presence: ServicePresence) => void>();
   /** Command sockets opened with the AI runner's token instead of a person's session. */
   const runnerSockets = new Set<WebSocket>();
@@ -462,7 +460,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     for (const socket of serviceSockets) {
       if (socket.readyState !== WebSocket.OPEN) continue;
       connected = true;
-      if (serviceSpeechSides.get(socket) !== 'browser') serverSpeech = true;
+      serverSpeech = true;
     }
     return { connected, serverSpeech };
   }
@@ -481,7 +479,6 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   function forgetSocket(socket: WebSocket): void {
     const wasService = serviceSockets.delete(socket);
     clients.delete(socket);
-    serviceSpeechSides.delete(socket);
     runnerSockets.delete(socket);
     participantSockets.delete(socket);
     practiceSockets.delete(socket);
@@ -709,7 +706,6 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     if (authorization?.seat !== undefined) socketSeats.set(socket, authorization.seat);
     if (audience.kind === 'service') {
       serviceSockets.add(socket);
-      serviceSpeechSides.set(socket, url.searchParams.get('stt') === 'browser' ? 'browser' : 'server');
     } else if (authorization?.runner === true) runnerSockets.add(socket);
     else if (authorization?.practice === true) practiceSockets.add(socket);
     else if (authorization?.participant === true || audience.kind === 'participant') participantSockets.add(socket);
@@ -856,7 +852,6 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       for (const socket of clients.keys()) socket.terminate();
       clients.clear();
       serviceSockets.clear();
-      serviceSpeechSides.clear();
       runnerSockets.clear();
       participantSockets.clear();
       practiceSockets.clear();

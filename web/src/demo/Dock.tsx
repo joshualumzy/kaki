@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
-import { ActiveRoleCards } from '../phone/PhonePage';
+import { ActiveRoleCards } from './ActiveRoleCards';
 import type { TranscriptViewer } from './captions';
 import { MeetingPanel } from './MeetingPanel';
 import { ErrorBoundary } from './ErrorBoundary';

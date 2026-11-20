@@ -4,7 +4,7 @@ import type { ScenarioSeed } from './scenario';
 const DEFAULT_CALENDAR_URL = 'http://127.0.0.1:5232/user/calendar/';
 const REQUEST_TIMEOUT_MS = 20_000;
 
-export interface SeedCalendarOptions {
+interface SeedCalendarOptions {
   fetchImpl?: typeof fetch;
   calendarUrl?: string;
 }

@@ -22,7 +22,7 @@ function livekitCredentials(): { key: string; secret: string } {
 }
 
 /** A person joining the room: the name everyone sees, and the role they play in the meeting. */
-export interface RoomJoin {
+interface RoomJoin {
   roomName: string;
   participantName: string;
   participantRole?: string;
@@ -109,7 +109,7 @@ export async function removeRoomHumans(roomName: string, keepNames: readonly str
 export const ADMISSION_RESERVATION_MS = 15_000;
 
 /** A seat handed out but not yet visible in LiveKit's roster. */
-export interface AdmissionReservation {
+interface AdmissionReservation {
   participantName: string;
   /** The canonical role id of the seat. */
   seatId: string;

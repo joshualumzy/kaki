@@ -18,7 +18,7 @@ import { ensureAuthSchema } from './schema';
 import type { AuthStore, SessionKind, SessionRecord } from './store';
 
 /** The result of checking a WebSocket upgrade against the session cookie. */
-export type AuthDecision =
+type AuthDecision =
   | {
       ok: true;
       participant?: boolean;
@@ -68,7 +68,7 @@ export interface Auth {
 }
 
 /** The meeting facts `/api/join` needs so it cannot escalate a practice visitor into another seat. */
-export interface JoinGuard {
+interface JoinGuard {
   meetingKind(): 'real' | 'practice' | undefined;
   practiceSeat(): string | undefined;
   hasPracticeCapability(request: IncomingMessage): boolean;
@@ -645,7 +645,7 @@ export function createAuth({
 }
 
 /** Create the host account from env if it does not exist; never overwrite one. */
-export async function bootstrapHostAccount(
+async function bootstrapHostAccount(
   store: AuthStore,
   env: NodeJS.ProcessEnv,
   log: (message: string) => void = (message) => console.log(message),

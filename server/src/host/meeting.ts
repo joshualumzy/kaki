@@ -17,7 +17,7 @@ const HEARTBEAT_MEETING_SECONDS = 30;
 const TALK_STEP_SECONDS = 10;
 
 /** How the meeting module runs; `hostModules` builds this from the environment. */
-export interface MeetingModuleOptions {
+interface MeetingModuleOptions {
   llm?: LlmClient;
   /** The model that judges meaning for answers and assignments; defaults to `llm`. */
   verifier?: LlmClient;
@@ -138,7 +138,7 @@ export function createMeetingModule({
       // cast now, not the pack captured at boot: Start can replace it with an all-person meeting.
       const holdSuggestionsUntilSettled = (): boolean =>
         replay === undefined && (activeScenario().npcs?.length ?? 0) > 0;
-      // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
+      // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person in the Kaki dock.
       const stopAutoDispatch =
         process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario: activeScenario,
           hostIsHuman: session === undefined

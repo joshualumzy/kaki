@@ -11,7 +11,7 @@ const PENDING_PAUSE_TIMEOUT_MS = 5_000;
 /** How long a failed pause notice stays visible. */
 const PAUSE_NOTICE_MS = 5_000;
 
-export interface TypeBarProps {
+interface TypeBarProps {
   /** Deliver a command. Return false, or a promise resolving false, when it could not be sent. */
   send(message: ControlMessage): boolean | void | Promise<boolean | void>;
   /** Called once a typed line actually leaves the browser, so the server can record it too. */

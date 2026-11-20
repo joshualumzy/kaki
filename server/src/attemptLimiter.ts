@@ -10,7 +10,7 @@ export interface AttemptLimiter {
   clearAll(): void;
 }
 
-export interface AttemptLimiterOptions {
+interface AttemptLimiterOptions {
   /** Wrong attempts allowed in one window. */
   limit: number;
   windowMs: number;

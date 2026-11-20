@@ -96,7 +96,7 @@ export function topicSpeaker(
  * When no speaker can be found it falls back to the old announcement and says so in the log, never leaving
  * the room without a way in.
  */
-export function topicHandover(
+function topicHandover(
   scenario: Scenario,
   title: string,
   lead: string,

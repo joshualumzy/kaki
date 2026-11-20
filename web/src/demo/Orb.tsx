@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-export type OrbState = 'idle' | 'thinking' | 'speaking';
+type OrbState = 'idle' | 'thinking' | 'speaking';
 
 /** The four orb colour pairs, as CSS variables from ui/tokens.css. */
 const PALETTE: readonly (readonly [string, string])[] = [
@@ -16,7 +16,7 @@ export function orbPalette(index: number): readonly [string, string] {
   return PALETTE[((index % PALETTE.length) + PALETTE.length) % PALETTE.length] ?? PALETTE[0]!;
 }
 
-export interface OrbProps {
+interface OrbProps {
   state: OrbState;
   /** 0 to 1: how loud the person is right now. Overrides the default pulse while speaking. */
   level?: number;

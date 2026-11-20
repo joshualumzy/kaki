@@ -15,7 +15,7 @@ interface Entry<T> {
   settled: boolean;
 }
 
-export interface SpeechLineOrderOptions {
+interface SpeechLineOrderOptions {
   /**
    * A stretch still unsettled after this long is dropped, so a lost recognition result cannot hold every later
    * speaker forever. The recogniser's own stretches are far shorter than this.

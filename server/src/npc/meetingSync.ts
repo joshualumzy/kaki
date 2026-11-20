@@ -1,7 +1,7 @@
 import type { RunnerMeetingSnapshot } from '@kaki/shared';
 
 /** What one MEETING_STARTED event tells the runner about the meeting the server opened. */
-export interface StartedEvent {
+interface StartedEvent {
   meetingId: string;
   agendaIndex?: number;
   resumed?: boolean;
@@ -60,7 +60,7 @@ export function parseStartedEvent(value: unknown): StartedEvent | undefined {
 }
 
 /** How one server prepare attempt ended. */
-export type PrepareOutcome =
+type PrepareOutcome =
   | { kind: 'prepared' }
   | { kind: 'failed'; reason: string }
   | { kind: 'superseded'; reason: string };
@@ -82,7 +82,7 @@ export interface MeetingSyncRunner {
   resetMeeting(meetingId?: string): void;
 }
 
-export interface MeetingSyncOptions {
+interface MeetingSyncOptions {
   runner: MeetingSyncRunner;
   /** Read the server's authoritative snapshot; injected so tests need no HTTP server. */
   fetchState(): Promise<RunnerMeetingSnapshot>;
@@ -91,7 +91,7 @@ export interface MeetingSyncOptions {
   onMeetingChanged?(meetingId: string): void;
 }
 
-export interface MeetingSync {
+interface MeetingSync {
   /** A service socket (re)connected: discard anything older, then adopt the server's snapshot. */
   connected(): void;
   /**

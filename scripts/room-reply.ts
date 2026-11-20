@@ -8,10 +8,10 @@ import type { Scenario } from '@kaki/shared';
 import type { Line } from './live-playtest';
 import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 
-export type RoomReplyKind = 'confirm' | 'answer' | 'accept-offer' | 'decline-offer' | 'draft-yes' | 'none';
+type RoomReplyKind = 'confirm' | 'answer' | 'accept-offer' | 'decline-offer' | 'draft-yes' | 'none';
 
 /** The model's decision for one batch of fresh room lines. A null reply means the guest stays quiet. */
-export interface RoomReply {
+interface RoomReply {
   reply: string | null;
   kind: RoomReplyKind;
 }

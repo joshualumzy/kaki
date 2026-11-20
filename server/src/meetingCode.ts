@@ -11,7 +11,7 @@ export const MEETING_CODE_WINDOW_MS = 60_000;
 
 /** Uppercase letters and digits without look-alikes such as I/O/0/1. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-export const MEETING_CODE_LENGTH = 6;
+const MEETING_CODE_LENGTH = 6;
 
 /** Generate one short meeting code that is easy to read out or type. */
 function generateMeetingCode(): string {

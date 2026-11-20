@@ -15,7 +15,7 @@ export function statusFor(ok: boolean, severity: 'fail' | 'warn' = 'fail'): Chec
   return ok ? 'PASS' : severity === 'warn' ? 'WARN' : 'FAIL';
 }
 
-export interface CheckSummary {
+interface CheckSummary {
   result: 'PASS' | 'FAIL';
   warnings: number;
   notExercised: number;

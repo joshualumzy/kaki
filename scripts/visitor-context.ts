@@ -11,7 +11,7 @@ export function guestIdentity(scenario: Scenario, role: string): string {
     .trim();
 }
 
-export interface TopicContext {
+interface TopicContext {
   briefing: string;
   decision: string;
   seatFact: string;

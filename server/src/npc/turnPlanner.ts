@@ -5,9 +5,9 @@
  */
 
 import { carriesCatchText, type HeardLine, type MeetingCatchView, type MeetingFactView, type MeetingView } from './meetingState';
-import type { DecisionSlotName, GuestReadiness, GuestReading } from './guestReader';
+import type { GuestReadiness, GuestReading } from './guestReader';
 
-export type SpeakPurpose = 'handover' | 'brief' | 'answer' | 'catch' | 'invite' | 'confirm' | 'clarify' | 'defer';
+type SpeakPurpose = 'handover' | 'brief' | 'answer' | 'catch' | 'invite' | 'confirm' | 'clarify' | 'defer';
 
 export interface SpeakDecision {
   kind: 'Speak';
@@ -28,7 +28,7 @@ export interface SpeakDecision {
   reason: string;
 }
 
-export interface WaitDecision {
+interface WaitDecision {
   kind: 'Wait';
   reason: string;
   /** A silence the owner rule allows: a second noise in a row needs no reply. */
@@ -41,7 +41,7 @@ export interface ConfirmDecision {
   respondsTo?: string;
 }
 
-export interface PointCardDecision {
+interface PointCardDecision {
   kind: 'PointCard';
   reason: string;
   respondsTo?: string;
@@ -70,13 +70,13 @@ export interface OfferDecision {
 }
 
 /** The topic closes honestly with no call made: no task, no decision, and the meeting moves on. */
-export interface UnresolvedDecision {
+interface UnresolvedDecision {
   kind: 'Unresolved';
   reason: string;
   respondsTo?: string;
 }
 
-export interface AdvanceDecision {
+interface AdvanceDecision {
   kind: 'Advance';
   reason: string;
 }
@@ -250,12 +250,6 @@ function joinCallParts(parts: readonly string[]): string {
   return parts.map((part) => (/[.!?…]["')\]]*$/u.test(part) ? part : `${part}.`)).join(' ');
 }
 
-/** The first decision slot the guest has not covered yet, in the order action, catch addressed, practical. */
-export function firstUncoveredSlot(view: MeetingView): DecisionSlotName | undefined {
-  const readiness = mergedReadiness(view);
-  return (['action', 'catchAddressed', 'practical'] as const).find((slot) => !readiness[slot].covered);
-}
-
 /** A catch can be raised only by a colleague who is actually in the room. */
 function canBeRaised(view: MeetingView, entry: MeetingCatchView, exclude?: string): boolean {
   return entry.attendee !== view.guest && entry.attendee !== view.host &&
@@ -325,7 +319,7 @@ export function plainDirection(text: string): string {
  * The first offer turns the guest's own latest idea, or two realistic directions, into one concrete call.
  * The second offer puts the two directions (or, if they were already offered, one open "what would you rather do?").
  */
-export function offerDecision(view: MeetingView, line: HeardLine, reason: string): OfferDecision {
+function offerDecision(view: MeetingView, line: HeardLine, reason: string): OfferDecision {
   const withIdea = [...view.readings].reverse()
     .find(({ reading }) => reading.kind === 'idea' && reading.readiness.action.covered);
   const choices = view.directions.slice(0, 2).map(plainDirection).filter((choice) => choice.length > 0);

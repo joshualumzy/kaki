@@ -67,7 +67,6 @@ vi.mock('../meeting/TeamJoinForm', () => ({
 
 vi.mock('./MeetingGrid', () => ({ MeetingGrid: () => null }));
 vi.mock('./Dock', () => ({ Dock: () => null }));
-vi.mock('./LocalSpeechSTT', () => ({ LocalSpeechSTT: () => null }));
 
 let Meeting: typeof import('./Meeting').default;
 

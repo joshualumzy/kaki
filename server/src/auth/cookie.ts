@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 
 /** The cookie that carries the opaque session token. */
-export const SESSION_COOKIE = 'kaki_session';
+const SESSION_COOKIE = 'kaki_session';
 
 /** Sessions and their cookies live for 12 hours. */
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;

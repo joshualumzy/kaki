@@ -3,7 +3,7 @@ import type { ScenarioRole } from '@kaki/shared';
 import { MediaPreview, type MediaChoice } from '../demo/MediaPreview';
 import '../demo/demo.css';
 
-export interface TeamJoinFormProps {
+interface TeamJoinFormProps {
   meetingTitle: string;
   /** The meeting's person seats only. */
   roles: readonly ScenarioRole[];

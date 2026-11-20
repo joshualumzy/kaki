@@ -13,7 +13,7 @@ import { postMeetingMemory, postSettledTopic } from './settlement';
  * The AI runner's one HTTP client. Every read and write goes through it, so the service token is
  * attached in exactly one place and a route that needs it cannot be called without it.
  */
-export interface RunnerClient {
+interface RunnerClient {
   emit(event: KakiEvent): Promise<Response>;
   postHumanLine(line: {
     meetingId: string;
@@ -33,7 +33,7 @@ export interface RunnerClient {
   fetchScenario(): Promise<Scenario>;
 }
 
-export interface RunnerClientOptions {
+interface RunnerClientOptions {
   baseUrl: string;
   serviceToken?: string | undefined;
   fetch?: typeof fetch;

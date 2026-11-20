@@ -55,11 +55,6 @@ export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   return undefined;
 }
 
-/** What the browser sends on {@link STT_TOPIC}: one finished piece of recognised speech. */
-export interface SttMessage {
-  text: string;
-}
-
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
   /** `yourTurn`: the last thing the room said was a question for the person; it is the question. `wingmanHint`: true when the semantic layer detects the visitor is unsure or asking for figures that Kaki Wingman has. */
@@ -209,9 +204,6 @@ export function joinSeatRoles(scenario: Scenario): ScenarioRole[] {
   return roles;
 }
 
-/** The one-person booth cap, for callers that deliberately want a single guest. */
-export const DEFAULT_MAX_HUMANS = 1;
-
 /** How many seats a person can take in this scenario: every attendee no AI always plays. */
 export function humanSeatCount(scenario: Scenario): number {
   return scenario.attendees.filter((attendee) => !isPlayedByAi(scenario, attendee)).length;
@@ -300,7 +292,7 @@ export function codeProblem(peoplePresent: number, expected: string, given: stri
 }
 
 /** How the person takes part in an agenda item: they watch, it is theirs, or they are asked to settle a disagreement. */
-export type ItemMode = 'observe' | 'involve' | 'decide';
+type ItemMode = 'observe' | 'involve' | 'decide';
 
 /**
  * Worked out from who the person is, not fixed in the scenario: a contested item is `decide`, an item owned by the
@@ -473,29 +465,6 @@ export function setMeetingAgenda(
   target.agenda.splice(0, target.agenda.length, ...meetingItems);
   if (pairs?.length) target.excludedPairs = pairs;
   else delete target.excludedPairs;
-}
-
-/**
- * Drop references to agenda titles a scenario no longer has: an item's links to a removed topic
- * and an excluded pair naming one. Replacing a scenario's agenda (for example with the owner's
- * draft) must not leave either behind, or the scenario is invalid and every reader refuses it.
- */
-export function pruneAgendaReferences(scenario: Scenario): Scenario {
-  const titles = new Set(scenario.agenda.map((item) => item.title));
-  const agenda = scenario.agenda.map((item) => {
-    if (item.links === undefined) return item;
-    const links = item.links.filter((link) => titles.has(link.with));
-    if (links.length === item.links.length) return item;
-    const { links: _links, ...rest } = item;
-    return links.length > 0 ? { ...rest, links } : rest;
-  });
-  const pairs = scenario.excludedPairs?.filter(([left, right]) => titles.has(left) && titles.has(right));
-  const { excludedPairs: _excludedPairs, ...rest } = scenario;
-  return {
-    ...rest,
-    agenda,
-    ...(pairs !== undefined && pairs.length > 0 ? { excludedPairs: pairs } : {}),
-  };
 }
 
 /**

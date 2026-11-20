@@ -4,7 +4,7 @@ import type { MeetingPauseKind, SavedClockState } from '../persist/state';
 export type { MeetingPauseKind } from '../persist/state';
 
 /** Where the meeting is on its agenda right now. */
-export interface ClockSnapshot {
+interface ClockSnapshot {
   started: boolean;
   /** True once the meeting is over; time stands still from then on. */
   ended: boolean;
@@ -48,7 +48,7 @@ export interface AgendaClock {
 }
 
 /** Options for the agenda clock; `speed` runs meeting time faster than real time for replays. */
-export interface AgendaClockOptions {
+interface AgendaClockOptions {
   agenda: AgendaItem[];
   speed?: number;
   now?: () => number;

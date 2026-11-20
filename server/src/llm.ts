@@ -25,7 +25,7 @@ export interface CompletionUsage {
   totalTokens: number;
 }
 
-export interface OpenAiLlm extends LlmClient {
+interface OpenAiLlm extends LlmClient {
   completeWithUsage(messages: ChatMessage[], options?: CompleteOptions): Promise<{ content: string; usage?: CompletionUsage }>;
 }
 
@@ -42,7 +42,7 @@ export interface LlmClient {
 export class LlmError extends Error {}
 
 /** Settings for an OpenAI-compatible chat completions endpoint (such as the school gateway). */
-export interface OpenAiLlmOptions {
+interface OpenAiLlmOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -385,7 +385,7 @@ export function createOpenAiLlm({
 }
 
 /** A scripted LLM for tests: records every call and answers with `respond`. */
-export interface FakeLlm extends LlmClient {
+interface FakeLlm extends LlmClient {
   calls: ChatMessage[][];
   /** The options each call carried, so tests can check things like the requested schema. */
   callOptions: Array<CompleteOptions | undefined>;

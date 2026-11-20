@@ -4,7 +4,7 @@ import { MAX_AGENDA_MINUTES, type SetupFieldError } from './setup';
 export const KOPITIAM_INVITE_UID = 'kopitiam-opening-meeting@kaki.local';
 
 /** One agenda item read from or written into a meeting invite. */
-export interface MeetingInviteAgendaItem {
+interface MeetingInviteAgendaItem {
   title: string;
   minutes: number;
   /** An attendee display name or a demo-pack role label. */
@@ -19,18 +19,18 @@ export interface MeetingInvite {
   people: string[];
 }
 
-export interface ParseMeetingInviteOptions {
+interface ParseMeetingInviteOptions {
   /** Select this event when the text is a whole calendar rather than one event. */
   uid?: string;
   /** Role ids and labels from the demo pack, so an owner can be a role as well as an attendee. */
   knownOwners?: readonly string[];
 }
 
-export type MeetingInviteParseResult =
+type MeetingInviteParseResult =
   | { ok: true; value: MeetingInvite }
   | { ok: false; errors: SetupFieldError[] };
 
-export interface MeetingInviteTimes {
+interface MeetingInviteTimes {
   /** Local floating time, "YYYY-MM-DD HH:MM". */
   start: string;
   /** Local floating time; defaults to 30 minutes after the start. */
@@ -205,12 +205,12 @@ function oneLine(text: string): string {
 }
 
 /** The human-readable agenda written into a seeded invite's DESCRIPTION. */
-export function formatInviteAgenda(items: readonly MeetingInviteAgendaItem[]): string {
+function formatInviteAgenda(items: readonly MeetingInviteAgendaItem[]): string {
   return ['Agenda', ...items.map((item) => `- ${oneLine(item.title)} | ${item.minutes} min | ${oneLine(item.owner)}`)].join('\n');
 }
 
 /** Escape a text property value for iCalendar. */
-export function escapeIcalText(text: string): string {
+function escapeIcalText(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
@@ -231,7 +231,7 @@ function utf8Length(char: string): number {
 }
 
 /** Fold one iCalendar line at 75 UTF-8 octets, as RFC 5545 asks. */
-export function foldIcalLine(line: string): string {
+function foldIcalLine(line: string): string {
   const chunks: string[] = [];
   let current = '';
   let octets = 0;

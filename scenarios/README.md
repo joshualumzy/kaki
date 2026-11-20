@@ -14,5 +14,4 @@ The shipped scenario is `SCENARIO=kopitiam` (`scenarios/kopitiam/`): **Nanyang K
   - `seed/mail/emails.json` — Inbox messages in Mailpit
   - `seed/postgres/schema.sql` & `data.sql` — Structured SQL metrics
   - `seed/wiki/pages.json` & `*.md` — Team wiki pages
-- `demo-events.json` — Sample events and tasks for `npm run emit-demo`.
 - `replay/` — Scripted transcript (`transcript.json`) and expected extraction benchmark (`expected.json`).

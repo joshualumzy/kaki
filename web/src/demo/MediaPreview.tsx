@@ -6,7 +6,7 @@ export interface MediaChoice {
   camera: boolean;
 }
 
-export interface MediaPreviewProps {
+interface MediaPreviewProps {
   value: MediaChoice;
   onChange(next: MediaChoice): void;
   /** Called when the browser refuses a device, so the toggle can fall back to off and say why. */

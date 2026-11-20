@@ -37,12 +37,12 @@ export interface MmPost {
   props?: Record<string, string>;
 }
 
-export interface PostPlanEntry {
+interface PostPlanEntry {
   post: MattermostPostSeed;
   existing?: MmPost;
 }
 
-export interface PostPlan {
+interface PostPlan {
   entries: PostPlanEntry[];
   deleteIds: string[];
 }

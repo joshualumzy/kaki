@@ -8,7 +8,7 @@ export type PcmSink = Pick<AudioSource, 'captureFrame' | 'waitForPlayout' | 'cle
   Partial<Pick<AudioSource, 'queuedDuration'>>;
 
 /** Told how loud each frame of AI audio is, and when it will be audible. */
-export interface PlaybackRecorder {
+interface PlaybackRecorder {
   record(level: number, playoutInMs: number): void;
 }
 

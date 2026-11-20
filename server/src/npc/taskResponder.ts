@@ -11,7 +11,7 @@ export interface DecisionLine {
 }
 
 /** What the responder needs from the rest of the NPC process; each is replaced in tests. */
-export interface TaskResponderPorts {
+interface TaskResponderPorts {
   scenario: Scenario;
   llm: Pick<LlmClient, 'complete'>;
   /** True when this attendee is voiced by the AI right now (a person may have taken the seat). */
@@ -39,7 +39,7 @@ export interface TaskResponderPorts {
 /** Default pause before an AI attendee approves a draft. */
 export const DEFAULT_APPROVE_DELAY_MS = 6000;
 /** Default deadline for one decision call, so two failed attempts cannot leave the card waiting forever. */
-export const DEFAULT_DECISION_DEADLINE_MS = 12_000;
+const DEFAULT_DECISION_DEADLINE_MS = 12_000;
 /** How many times the decision is asked for: once, then one retry. */
 const DECISION_ATTEMPTS = 2;
 /** The most transcript lines put in front of the decision, so a long topic cannot grow the prompt without bound. */

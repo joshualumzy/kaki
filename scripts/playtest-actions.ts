@@ -8,7 +8,7 @@ export type ActableTask = {
   assignee?: string;
 };
 
-export type RobotTaskAction = { task: ActableTask; step: 'claim' | 'approve' };
+type RobotTaskAction = { task: ActableTask; step: 'claim' | 'approve' };
 
 /** True when a transcript speaker is exactly the robot's seat name, ignoring case and surrounding space. */
 export function isRobotSpeakerName(speaker: string, robotSpeaker: string): boolean {
@@ -43,8 +43,8 @@ export function nextRobotTaskAction(
   return undefined;
 }
 
-export type CardTaskSnapshot = { status: string; artifactUrl?: string; error?: string };
-export type CardVerdict = { ok: boolean; detail: string };
+type CardTaskSnapshot = { status: string; artifactUrl?: string; error?: string };
+type CardVerdict = { ok: boolean; detail: string };
 
 /** A finished card may be COMPLETED, or already SYNCED back to the panel by the time the robot looks. */
 function cardFinished(status: string | undefined): status is 'COMPLETED' | 'SYNCED' {
@@ -81,7 +81,7 @@ export function judgeArtifactReachability(url: string, status: number | undefine
   return { ok: false, detail: `Request for ${url} failed${error === undefined ? '' : `: ${error}`}` };
 }
 
-export type WingmanFactVerdict = { topic: number; ok: boolean };
+type WingmanFactVerdict = { topic: number; ok: boolean };
 
 /** Every topic the robot played, in order, with whether its role received a FACT_FOUND. */
 export function wingmanFactVerdicts(

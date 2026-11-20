@@ -7,7 +7,7 @@ import type { Scenario } from '@kaki/shared';
 import { cleanSpoken, type HumanInfo } from './director';
 import { contentWords } from './meetingState';
 
-export interface OpeningSpeakerRequest {
+interface OpeningSpeakerRequest {
   scenario: Scenario;
   speaker: string;
   human?: HumanInfo;
@@ -20,7 +20,7 @@ export interface OpeningSpeakerRequest {
   previous?: { speaker: string; text: string };
 }
 
-export interface OpeningReplyOptions {
+interface OpeningReplyOptions {
   expectedSpeaker: string;
   names: readonly string[];
   guestName?: string;
@@ -28,8 +28,8 @@ export interface OpeningReplyOptions {
   topicTitle?: string;
 }
 
-export type PlannedPurpose = 'brief' | 'invite' | 'answer' | 'catch' | 'clarify' | 'defer';
-export type GatePurpose = 'readback' | 'offer';
+type PlannedPurpose = 'brief' | 'invite' | 'answer' | 'catch' | 'clarify' | 'defer';
+type GatePurpose = 'readback' | 'offer';
 
 /** One short host line for a decision gate: either the guest's call read back, or one concrete offer. */
 export interface GateSpeakerRequest {
@@ -46,12 +46,12 @@ export interface GateSpeakerRequest {
   previous?: { speaker: string; text: string };
 }
 
-export type OpeningReply =
+type OpeningReply =
   | { ok: true; text: string; sentences: string[] }
   | { ok: false; reason: string };
 
 /** One reply speaker's request: their own persona, the point to answer and the one thing they may add. */
-export interface ReplySpeakerRequest {
+interface ReplySpeakerRequest {
   scenario: Scenario;
   speaker: string;
   human?: HumanInfo;

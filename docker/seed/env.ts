@@ -3,9 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
-export const DOCKER_DIR = path.join(REPO_ROOT, 'docker');
+const DOCKER_DIR = path.join(REPO_ROOT, 'docker');
 export const COMPOSE_FILE = path.join(DOCKER_DIR, 'docker-compose.yml');
-export const ENV_FILE = path.join(DOCKER_DIR, '.env');
+const ENV_FILE = path.join(DOCKER_DIR, '.env');
 
 const RAW_DEFAULTS = {
   SCENARIO: 'kopitiam',
@@ -36,7 +36,7 @@ const RAW_DEFAULTS = {
   MAILPIT_SMTP_PORT: '1025',
 } as const;
 
-export type EnvKey = keyof typeof RAW_DEFAULTS;
+type EnvKey = keyof typeof RAW_DEFAULTS;
 export type Env = Record<EnvKey, string>;
 
 const ENV_KEYS = Object.keys(RAW_DEFAULTS) as EnvKey[];

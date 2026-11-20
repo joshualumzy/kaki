@@ -12,7 +12,7 @@ export interface WikiPageSeed {
   content: string;
 }
 
-export interface GiteaLabelSeed {
+interface GiteaLabelSeed {
   name: string;
   color: string;
   description?: string;
@@ -42,7 +42,7 @@ export interface MattermostUserSeed {
   admin?: boolean;
 }
 
-export interface MattermostChannelSeed {
+interface MattermostChannelSeed {
   name: string;
   display_name: string;
   purpose: string;
@@ -64,7 +64,7 @@ export interface MattermostSeed {
   posts: MattermostPostSeed[];
 }
 
-export interface MailAddressSeed {
+interface MailAddressSeed {
   name: string;
   address: string;
 }
@@ -78,7 +78,7 @@ export interface MailMessageSeed {
   text: string;
 }
 
-export interface ScenarioMeetingSeed {
+interface ScenarioMeetingSeed {
   title: string;
   roles: Array<{ id: string; label: string }>;
   attendees: Array<{ name: string; role: string }>;
@@ -332,7 +332,7 @@ function readText(file: string): string {
   }
 }
 
-export function parseMeetingSeed(scenario: JsonObject, file: string): ScenarioMeetingSeed {
+function parseMeetingSeed(scenario: JsonObject, file: string): ScenarioMeetingSeed {
   const roles = arrayAt(scenario.roles, file, 'roles').map((entry, index) => {
     const role = objectAt(entry, file, `roles[${index}]`);
     return {

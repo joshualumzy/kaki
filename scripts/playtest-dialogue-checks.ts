@@ -9,7 +9,7 @@ export interface UtteranceRecord {
   catchId?: string;
 }
 
-export interface VisitorSeat {
+interface VisitorSeat {
   name: string;
   role: string;
   /** The scenario seat the visitor took, when it differs from the name typed at join. */

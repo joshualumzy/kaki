@@ -1,7 +1,7 @@
 /** Results this short are the ones Azure invents from room noise ("You know.", "Dislocation."). */
-export const SHORT_RESULT_WORDS = 4;
+const SHORT_RESULT_WORDS = 4;
 export const DEFAULT_MIN_CONFIDENCE = 0.6;
-export const MULTI_WORD_MIN_CONFIDENCE = 0.34;
+const MULTI_WORD_MIN_CONFIDENCE = 0.34;
 
 const CONFIRMATION_PHRASE_RE =
   /\b(?:ok|okay|sure|yes|yeah|yep|no|nope|wait|hold on|stop|hello|hey|confirm|confirmed|agree|agreed|problem solved|sounds good|go ahead|let's do|let's go|approve|approved|thank you|thanks|good idea|makes sense|do both|works for me)\b/i;

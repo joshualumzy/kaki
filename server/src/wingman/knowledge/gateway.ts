@@ -12,8 +12,8 @@ export interface GatewayConfig {
   embedModel: string;
 }
 
-export const DEFAULT_CHAT_MODEL = 'x-test-2';
-export const DEFAULT_EMBED_MODEL = 'bge-m3';
+const DEFAULT_CHAT_MODEL = 'x-test-2';
+const DEFAULT_EMBED_MODEL = 'bge-m3';
 
 /** The missing env variable names, in the order they are reported. */
 export function missingGatewayEnv(env: NodeJS.ProcessEnv = process.env): string[] {

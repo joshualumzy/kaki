@@ -12,7 +12,7 @@ type ProbeState =
   | { status: 'running' }
   | { status: 'result'; result: ToolProbeResult };
 
-export interface ToolsSectionProps {
+interface ToolsSectionProps {
   /** The meeting owner sees the test buttons; everyone else gets no actions. */
   canEdit: boolean;
   /** Setup is locked after Start, so testing a connection is no longer an action. */

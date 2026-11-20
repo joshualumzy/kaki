@@ -32,7 +32,7 @@ const ROOM_OPTIONS: RoomOptions = {
 };
 
 /** Which journey this page is: the practice demo, a team participant, or the meeting owner. */
-export type MeetingVariant = 'practice' | 'participant' | 'owner';
+type MeetingVariant = 'practice' | 'participant' | 'owner';
 
 interface Session {
   token: string;

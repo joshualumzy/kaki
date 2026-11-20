@@ -30,12 +30,11 @@ import {
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
-import { LocalSpeechSTT } from './LocalSpeechSTT';
 import { Orb, orbPalette } from './Orb';
 import { captionFor, textOnlyNote, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
 
 /** A retry of the same browser line carries the same id, so the server writes it once. */
-export function newClientLineId(): string {
+function newClientLineId(): string {
   const cryptoApi = globalThis.crypto;
   if (cryptoApi !== undefined && typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
   return `line-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -294,7 +293,6 @@ export function MeetingGrid({
     [sendToServer],
   );
   const sendTypedLine = useCallback((text: string) => sendHumanLine(text, 'typed'), [sendHumanLine]);
-  const sendSpeechLine = useCallback((text: string) => sendHumanLine(text, 'speech'), [sendHumanLine]);
   const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
   const tracks = visibleStageTracks(
     useTracks(
@@ -819,7 +817,6 @@ export function MeetingGrid({
             )}
           </div>
         )}
-        <LocalSpeechSTT onSpeechLine={sendSpeechLine} />
         <ConnectedTypeBar
           micOnline={isMicrophoneEnabled}
           paused={serverPaused}

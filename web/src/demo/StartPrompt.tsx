@@ -3,7 +3,7 @@ import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import './demo.css';
 
-export interface StartPromptProps {
+interface StartPromptProps {
   /** The person pressed the button: the meeting should begin. */
   onStart(): void;
   /** The visitor's chosen role in the scenario, when known. */

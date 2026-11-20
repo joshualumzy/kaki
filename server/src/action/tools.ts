@@ -6,7 +6,7 @@ import { probeMattermost, type MattermostSettings } from './mattermost';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, type ToolProbeResult } from './probe';
 import { probeWiki, type WikiSettings } from './wiki';
 
-export const ACTION_TOOL_KINDS = [
+const ACTION_TOOL_KINDS = [
   'calendar_event',
   'email',
   'gitea_issue',
@@ -30,7 +30,7 @@ const ACTION_TOOL_LABELS = {
   wiki_page: 'Team wiki',
 } as const satisfies Record<ActionKind, string>;
 
-export interface ActionToolStatus {
+interface ActionToolStatus {
   kind: ActionKind;
   label: string;
   configured: boolean;

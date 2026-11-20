@@ -27,10 +27,10 @@ export type MeetingPhase = 'lobby' | 'starting' | 'running' | 'ended';
  * Which journey opened the current meeting. A real meeting is the owner's; a practice meeting is
  * one anonymous visitor with the demo colleagues, and never uses the owner's draft.
  */
-export type MeetingKind = 'real' | 'practice';
+type MeetingKind = 'real' | 'practice';
 
 /** The Start capability a practice join grants its one visitor, for that meeting only. */
-export interface PracticeGrant {
+interface PracticeGrant {
   /** The unguessable value carried by the visitor's cookie; absent when sign-in is off. */
   token?: string;
   /** The seat the practice visitor took. */
@@ -50,7 +50,7 @@ export interface MeetingSessionResetOptions {
   savedAlreadyCleared?: boolean;
 }
 
-export interface MeetingSessionDeps {
+interface MeetingSessionDeps {
   hub: Pick<MeetingHub, 'publishMeetingReset' | 'clearRetained'>;
   memory: MeetingMemoryEntry[];
   defaultSetup: MeetingSetup;

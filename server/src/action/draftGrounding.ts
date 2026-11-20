@@ -1,7 +1,7 @@
 import type { MeetingMemoryEntry } from '@kaki/shared';
 
 /** A clock time that carries an explicit AM/PM in the text. */
-export interface ClockTime {
+interface ClockTime {
   hour: number;
   minute: number;
   meridiem: 'am' | 'pm';

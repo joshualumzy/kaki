@@ -77,7 +77,7 @@ export async function loadReplay(scenario: Scenario, folder: string): Promise<Re
 }
 
 /** Options for playing a replay into the hub. */
-export interface ReplayOptions {
+interface ReplayOptions {
   lines: ReplayLine[];
   hub: Hub;
   /** 2 plays twice as fast as the script's timings. */

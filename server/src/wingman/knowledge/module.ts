@@ -11,7 +11,7 @@ import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
 import { createCompanySearchFromEnv } from './search';
 
-export interface KnowledgeModuleOptions {
+interface KnowledgeModuleOptions {
   /** A prepared search, used by tests and the check script. */
   search?: SearchCompanyData;
   env?: NodeJS.ProcessEnv;

@@ -7,7 +7,7 @@ import {
 } from '@kaki/shared';
 import type { MeetingSession } from './session';
 
-export interface RunnerStateInput {
+interface RunnerStateInput {
   meetingId: string;
   session: MeetingSession;
   fullScenario: Scenario;

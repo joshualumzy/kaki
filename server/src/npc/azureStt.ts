@@ -3,7 +3,7 @@ import { confidenceFrom, DEFAULT_MIN_CONFIDENCE, keepRecognised } from './sttFil
 import { MAX_STT_PHRASES, tidySttPhrases } from './sttPhrases';
 import type { Recognizer, SttSession } from './utterance';
 
-export interface AzureSttOptions {
+interface AzureSttOptions {
   /** Recognition language, for example "en-SG". */
   locale: string;
   /** Names and words likely to come up; Azure leans towards them when it is unsure. Read on every start. */

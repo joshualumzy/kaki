@@ -33,7 +33,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
    `shared/src/demo.ts`).
 5. **Tasks.** The notetaker spots action items; the host dispatches them, an AI colleague accepts or declines in their own words (or the visitor accepts/approves their own task in the Wingman dock),
    and accepted drafts are executed against Gitea, Mattermost, Mailpit, Wiki.js, or Radicale CalDAV (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`).
-6. **Wrap-up & Wiki minutes for approval.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` creates a **Publish meeting minutes to the team wiki** card with the full Markdown minutes already drafted. It is assigned to a person in the meeting (the owner's seat when they hold it, otherwise the visitor), never an AI seat, so the draft waits for their approval. Nothing is written yet: the person reviews and can edit the draft, then taps **Approve & publish**. Only then does Wiki.js get the page, surfacing the **Open meeting minutes in Wiki ↗** link in the dock and on `/screen`.
+6. **Wrap-up & Wiki minutes for approval.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` creates a **Publish meeting minutes to the team wiki** card with the full Markdown minutes already drafted. It is assigned to a person in the meeting (the owner's seat when they hold it, otherwise the visitor), never an AI seat, so the draft waits for their approval. Nothing is written yet: the person reviews and can edit the draft, then taps **Approve & publish**. Only then does Wiki.js get the page, surfacing the **Open meeting minutes in Wiki ↗** link in the dock.
 
 ## How it is built
 
@@ -48,8 +48,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
 | Join form, start prompt, stage, captions, type bar | `web/src/demo/` |
 
-Data topics (`shared/src/demo.ts`): `kaki.stt` (browser-recognised text, only with `NPC_STT=browser`), `kaki.npc-state` (what the AI attendees
-are doing), `kaki.control` (typed text, "typing", Stop, Start).
+Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (typed text, "typing", Stop, Start).
 
 ## How interruption works
 

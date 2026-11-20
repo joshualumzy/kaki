@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive', 'delegator', 'silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
 export type Persona = typeof PERSONAS[number];
 type Score = { score: number; reason: string };
-export type Judgement = {
+type Judgement = {
   natural: Score;
   dynamic: Score;
   fun: Score;

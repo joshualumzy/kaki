@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export type LlmMode = 'school' | 'direct';
+type LlmMode = 'school' | 'direct';
 
-export interface LlmUseResult {
+interface LlmUseResult {
   mode: LlmMode;
   changed: boolean;
   mainModel: string;

@@ -8,7 +8,7 @@ export interface TopicSpeech {
   names: ReadonlySet<string>;
 }
 
-export type TranscriptChunkEvent = Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }>;
+type TranscriptChunkEvent = Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }>;
 
 /**
  * File one transcript line under the agenda item that was current when it arrived. Seats are exact;

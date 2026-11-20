@@ -7,9 +7,9 @@ import './demo.css';
 const HERO_ART = '/scenario/kopitiam-hero.svg';
 
 /** What the name box starts with: empty so the visitor enters their own name. */
-export const DEFAULT_NAME = '';
+const DEFAULT_NAME = '';
 
-export interface JoinFormProps {
+interface JoinFormProps {
   meetingTitle: string;
   /** The roles a person can take: those no AI attendee plays. */
   roles: readonly ScenarioRole[];

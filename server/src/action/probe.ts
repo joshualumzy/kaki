@@ -1,13 +1,13 @@
 import { plainReason } from './runner';
 
-export type ToolProblem = 'not configured' | 'auth failed' | 'unreachable' | 'timeout' | 'unexpected response';
+type ToolProblem = 'not configured' | 'auth failed' | 'unreachable' | 'timeout' | 'unexpected response';
 
-export interface ToolProbeSuccess {
+interface ToolProbeSuccess {
   ok: true;
   detail: string;
 }
 
-export interface ToolProbeFailure {
+interface ToolProbeFailure {
   ok: false;
   problem: ToolProblem;
   message: string;
@@ -25,7 +25,7 @@ export function probeFailed(problem: ToolProblem, message: string): ToolProbeFai
   return { ok: false, problem, message };
 }
 
-export function isAuthFailure(status: number): boolean {
+function isAuthFailure(status: number): boolean {
   return status === 401 || status === 403;
 }
 

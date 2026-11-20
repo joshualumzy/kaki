@@ -5,7 +5,7 @@ import type { IncomingMessage } from 'node:http';
  * The one access vocabulary shared by HTTP routes and WebSocket audiences. Every route names one
  * of these before any handler runs; nothing else may decide who a request is.
  */
-export type Access = 'public' | 'session' | 'host' | 'host-or-practice' | 'seat' | 'service' | 'dev';
+type Access = 'public' | 'session' | 'host' | 'host-or-practice' | 'seat' | 'service' | 'dev';
 
 export const ACCESS_LEVELS: readonly Access[] = [
   'public',
@@ -38,12 +38,12 @@ export interface Route {
   access: Access;
 }
 
-export interface RouteMatch {
+interface RouteMatch {
   route: Route;
   params: Record<string, string>;
 }
 
-export interface AccessContext {
+interface AccessContext {
   authEnabled: boolean;
   devRoutes: boolean;
   /** True when a service token is configured, so service routes must present it in every mode. */
@@ -54,7 +54,7 @@ export interface AccessContext {
   rawPath: string;
 }
 
-export interface AccessProblem {
+interface AccessProblem {
   status: number;
   error: string;
 }
@@ -207,7 +207,7 @@ export function clientAddress(
 const LOOPBACK_HOSTS = new Set(['localhost', '::1', '[::1]', '::ffff:127.0.0.1']);
 
 /** Whether a bind address is this machine only. */
-export function isLoopbackHost(host: string): boolean {
+function isLoopbackHost(host: string): boolean {
   const value = host.trim().toLowerCase();
   return LOOPBACK_HOSTS.has(value) || value.startsWith('127.') || value.startsWith('::ffff:127.');
 }

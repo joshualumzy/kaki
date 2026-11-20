@@ -11,7 +11,7 @@ export const TOPIC_RECENT_LINES = 12;
 export const TOPIC_EARLIER_LINES = 10;
 const EARLIER_WORDS = 10;
 
-export interface TopicLine {
+interface TopicLine {
   speaker: string;
   text: string;
 }

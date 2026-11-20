@@ -1,6 +1,6 @@
 const REQUEST_TIMEOUT_MS = 20_000;
 
-export class HttpError extends Error {
+class HttpError extends Error {
   constructor(
     message: string,
     readonly status: number,

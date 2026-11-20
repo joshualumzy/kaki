@@ -21,7 +21,6 @@ import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOpt
 import type { Auth } from './auth/module';
 import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
 import { CommandError, createHub, audienceRole, type ClientAudience, type Hub } from './hub';
-import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import type { MeetingPersistence } from './persist/persistence';
 import {
@@ -319,7 +318,6 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'PUT', path: '/api/setup', access: 'host' },
     { method: 'POST', path: '/api/setup/blank', access: 'host' },
     { method: 'POST', path: '/api/setup/import-calendar', access: 'host' },
-    { method: 'GET', path: '/api/join-info', access: 'public' },
     { method: 'POST', path: '/api/runner/emit', access: 'service' },
     { method: 'POST', path: '/api/runner/human-line', access: 'service' },
     { method: 'POST', path: '/api/runner/suggest-task', access: 'service' },
@@ -1472,16 +1470,6 @@ async function handleRequest(
       return;
     }
 
-    if (request.method === 'GET' && path === '/api/join-info') {
-      const join = resolveJoinBaseUrl();
-      if (!join.ok) {
-        sendJson(response, 503, { error: join.error });
-        return;
-      }
-      sendJson(response, 200, { baseUrl: join.baseUrl });
-      return;
-    }
-
     if (request.method === 'POST' && (path === '/dev/emit' || path === '/api/runner/emit')) {
       const body = await readJsonBody(request);
       if (!body.ok) {
@@ -2190,7 +2178,7 @@ export async function createApp({
     const previousMeetingId = meeting.id;
     if (rotateCode) meetingCode.rotate();
     // A phone session belongs to one meeting generation: close its sockets and free its seats.
-    // Host screen/lifecycle feeds stay; the runner's own sockets stay.
+    // Host screen and lifecycle feeds stay; the runner's own sockets stay.
     if (auth !== undefined || !meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
     void auth?.releaseMeeting(previousMeetingId);
     cancelPendingStart('the meeting was reset while it was starting');

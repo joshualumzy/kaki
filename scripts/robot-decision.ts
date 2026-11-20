@@ -8,7 +8,7 @@ import type { Scenario } from '@kaki/shared';
 import type { Line } from './live-playtest';
 import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 
-export type RobotDecisionModel = Pick<LlmClient, 'complete'>;
+type RobotDecisionModel = Pick<LlmClient, 'complete'>;
 
 export interface RobotDecisionRequest {
   scenario: Scenario;
@@ -18,7 +18,7 @@ export interface RobotDecisionRequest {
   transcript: readonly Line[];
 }
 
-export interface RobotDecisionOutcome {
+interface RobotDecisionOutcome {
   call: string;
   /** Set when the model failed and the logged canned call stood in. */
   warning?: string;

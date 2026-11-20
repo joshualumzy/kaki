@@ -6,23 +6,23 @@ import { useMe } from './useMe';
 import './auth.css';
 
 /** Every route this app serves; a return path must name one of them. */
-const APP_ROUTES = new Set(['/', '/practice', '/demo', '/join', '/meeting', '/login', '/setup', '/screen', '/phone']);
+const APP_ROUTES = new Set(['/', '/practice', '/demo', '/join', '/meeting', '/login', '/setup']);
 
 /**
  * Only a parsed same-origin path that names a real page is a safe place to return to after
  * sign-in. Anything else (an external URL, a slash-backslash trick, a control character) falls
- * back to the shared screen instead of handing the router an unparseable target.
+ * back to the owner's meeting room instead of handing the router an unparseable target.
  */
 function returnPath(value: string | null | undefined): string {
-  if (value === null || value === undefined) return '/screen';
+  if (value === null || value === undefined) return '/meeting';
   let parsed: URL;
   try {
     parsed = new URL(value, window.location.origin);
   } catch {
-    return '/screen';
+    return '/meeting';
   }
   if (parsed.origin !== window.location.origin || !APP_ROUTES.has(parsed.pathname)) {
-    return '/screen';
+    return '/meeting';
   }
   return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
@@ -99,7 +99,7 @@ export function LoginPage() {
       <header className="page-header">
         <p className="eyebrow">Kaki · Host</p>
         <h1>Sign in to start the meeting</h1>
-        <p className="page-subtitle">The shared screen is only visible to the host.</p>
+        <p className="page-subtitle">The meeting room is only visible to the host.</p>
       </header>
 
       <Card title="Host sign-in">

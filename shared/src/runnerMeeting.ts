@@ -163,7 +163,7 @@ export function facilitatorRole(roles: readonly ScenarioRole[]): Role | undefine
 }
 
 /** The seat and attendee that chair a meeting, read from the same effective scenario everywhere. */
-export interface MeetingHostIdentity {
+interface MeetingHostIdentity {
   /** The role id of the facilitator, or of the NPC marked as host when no role is the facilitator. */
   seat?: string;
   /** The attendee who holds that seat. */

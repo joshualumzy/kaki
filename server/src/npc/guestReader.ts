@@ -23,7 +23,7 @@ export type GuestLineKind =
 export type DecisionSlotName = 'action' | 'catchAddressed' | 'practical';
 
 /** One decision slot the guest may have covered, with the guest's own words as evidence. */
-export interface DecisionSlot {
+interface DecisionSlot {
   covered: boolean;
   evidence?: string;
   /** Action only: this line changes or withdraws the call the guest gave earlier on this topic. */
@@ -49,19 +49,19 @@ export interface GuestReading {
 }
 
 /** The exact call or choice Sam put to the guest in an open offer. */
-export interface GuestReaderOffer {
+interface GuestReaderOffer {
   proposal?: string;
   choices?: readonly string[];
 }
 
-export interface GuestReaderTopic {
+interface GuestReaderTopic {
   title: string;
   decision?: string;
   canWait: boolean;
   deadline: string;
 }
 
-export interface GuestReaderColleague {
+interface GuestReaderColleague {
   name: string;
   facts: readonly { id: string; text: string }[];
   catches: readonly { id: string; idea: string; text: string }[];
@@ -121,7 +121,7 @@ function normalise(text: string): string {
 }
 
 /** True when `quote` really appears in the guest's heard words; the check we control, not a guess. */
-export function evidenceIsSupported(quote: string, guestLines: readonly string[]): boolean {
+function evidenceIsSupported(quote: string, guestLines: readonly string[]): boolean {
   const wanted = normalise(quote);
   if (wanted.length === 0) return false;
   return normalise(guestLines.join(' ')).includes(wanted);

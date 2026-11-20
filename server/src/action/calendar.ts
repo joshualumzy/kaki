@@ -29,7 +29,7 @@ export interface CalendarModuleOptions {
 }
 
 /** An event as the draft carries it: floating local time, no time zone. */
-export interface EventTimes {
+interface EventTimes {
   start: string; // YYYY-MM-DD HH:MM
   durationMinutes: number;
 }
@@ -163,7 +163,7 @@ function unescapeText(text: string): string {
 }
 
 /** One event as the calendar page shows it. */
-export interface CalendarEvent {
+interface CalendarEvent {
   uid: string;
   title: string;
   date: string; // YYYY-MM-DD
@@ -232,7 +232,7 @@ function shiftMonth(month: string, by: number): string {
  * The team calendar as a month grid with the linked event highlighted and described below it.
  * Server-rendered and read-only: it is the mock calendar people look at, not a file to download.
  */
-export function renderCalendarPage(events: CalendarEvent[], focus: CalendarEvent, month: string, baseHref: string): string {
+function renderCalendarPage(events: CalendarEvent[], focus: CalendarEvent, month: string, baseHref: string): string {
   const [year, mon] = month.split('-').map(Number) as [number, number];
   const first = new Date(Date.UTC(year, mon - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
@@ -288,7 +288,7 @@ if(e.people.length)add('p','With: '+e.people.join(', '));if(e.description)add('p
 }
 
 /** What the viewer route needs back: a status, a content type and a body. */
-export interface EventView {
+interface EventView {
   status: number;
   contentType: string;
   body: string;

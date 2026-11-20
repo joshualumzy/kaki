@@ -2,14 +2,12 @@
  * @vitest-environment jsdom
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 
 const mocks = vi.hoisted(() => ({
   useKaki: vi.fn(),
   useScenario: vi.fn(),
-  useMe: vi.fn(),
 }));
 
 vi.mock('../kaki', () => ({
@@ -17,11 +15,7 @@ vi.mock('../kaki', () => ({
   useScenario: mocks.useScenario,
 }));
 
-vi.mock('../auth/useMe', () => ({
-  useMe: mocks.useMe,
-}));
-
-import { ActiveRoleCards, PhonePage } from './PhonePage';
+import { ActiveRoleCards } from './ActiveRoleCards';
 
 const scenario: Scenario = {
   id: 'test-cafe',
@@ -165,54 +159,5 @@ describe('earlier topic cards', () => {
 
     expect(screen.getByText(task.draft!.body)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Review/ })).toBeNull();
-  });
-});
-
-const phoneScenario: Scenario = {
-  ...scenario,
-  roles: [...scenario.roles, { id: 'manager', label: 'Manager' }],
-  attendees: [...scenario.attendees, { name: 'Cy', role: 'manager', zoomDisplayName: 'Cy' }],
-  npcs: [
-    {
-      attendee: 'Cy',
-      voice: 'test-voice',
-      personality: 'Quiet until asked.',
-      agenda: 'Keep the cafe running.',
-      concerns: [],
-    },
-  ],
-};
-
-function renderPhone(role: string) {
-  mocks.useScenario.mockReturnValue(phoneScenario);
-  mocks.useMe.mockReturnValue({ status: 'ready', me: { authEnabled: false } });
-  mocks.useKaki.mockReturnValue({
-    events: [],
-    tasks: new Map(),
-    connected: true,
-    rejections: [],
-    rejection: null,
-    send: vi.fn(),
-  });
-  render(
-    <MemoryRouter initialEntries={[`/phone?role=${role}`]}>
-      <PhonePage />
-    </MemoryRouter>,
-  );
-}
-
-describe('phone seat access without auth', () => {
-  it('opens the Kopitiam human seat feed exactly as before', () => {
-    renderPhone('producer');
-
-    expect(mocks.useKaki).toHaveBeenCalledWith({ kind: 'role', role: 'producer' });
-    expect(screen.getByText('Kaki · Operations Director')).toBeTruthy();
-  });
-
-  it('refuses a URL role that only an AI stand-in plays', () => {
-    renderPhone('manager');
-
-    expect(mocks.useKaki).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert').textContent).toMatch(/not a human seat/);
   });
 });

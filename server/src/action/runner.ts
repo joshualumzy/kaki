@@ -7,7 +7,7 @@ import { withActionFooter } from './footer';
 export class ActionError extends Error {}
 
 /** What one action module supplies: how to draft it and how to run the approved draft. */
-export interface ActionModuleOptions {
+interface ActionModuleOptions {
   name: string;
   kind: ActionKind;
   /** Why this tool cannot run (with the missing env variable names), when its configuration is absent. */

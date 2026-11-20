@@ -124,7 +124,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-dock-sub b { color: var(--t); background: var(--t-soft); font-family: var(--font-mono); font-weight: 500; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
 .kd-dock-body { flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
 .kd-dock .phone { min-height: 0; max-width: none; padding: 6px 14px 4px; }
-.kd-dock .phone-header { display: none; }
 .kd-dock .page { padding: 6px 14px 16px; max-width: none; }
 .kd-meeting-panel > .kd-topic-card { margin: 10px 0 6px; }
 
@@ -555,3 +554,31 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
     max-width: 6rem;
   }
 }
+
+/* The lobby's join QR, and the agenda steps and open questions in the Host record card. */
+.join-qr {
+  width: 100%;
+  max-width: 11rem;
+  aspect-ratio: 1;
+  padding: var(--space-2);
+  background: #ffffff; /* QR codes need a light quiet zone */
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.join-qr-pending {
+  background: var(--color-bg);
+}
+
+.sc-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.sc-steps li { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 12px; font-size: 0.88rem; color: var(--color-muted); }
+.sc-steps i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--color-faint); }
+.sc-steps em { font-style: normal; font-family: var(--font-mono); font-size: 0.72rem; }
+.sc-steps li[data-state="done"] i { background: var(--color-accent); border-color: var(--color-accent); }
+.sc-steps li[data-state="done"] span { text-decoration: line-through; opacity: 0.6; }
+.sc-steps li[data-state="now"] { color: var(--color-text); font-weight: 600; }
+.sc-steps li[data-state="now"] i { background: var(--color-host); border-color: var(--color-host); box-shadow: 0 0 8px var(--color-host); }
+
+.sc-questions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sc-questions li { padding: 9px 12px; border-radius: 12px; font-size: 0.88rem; background: var(--color-host-soft); }
+.sc-questions em { color: var(--color-muted); font-style: normal; }

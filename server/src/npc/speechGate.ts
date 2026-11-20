@@ -1,13 +1,13 @@
 /** Why a piece of recognised speech was refused. */
-export type GateRejection = 'echo' | 'no-voice';
+type GateRejection = 'echo' | 'no-voice';
 
 /**
  * `text` is present when the recognised words mixed the AI's voice with the person's: it is only
  * the person's part, and `removed` is the echo that was cut out.
  */
-export type GateDecision = { ok: true; text?: string; removed?: string } | { ok: false; reason: GateRejection };
+type GateDecision = { ok: true; text?: string; removed?: string } | { ok: false; reason: GateRejection };
 
-export interface SpeechGateOptions {
+interface SpeechGateOptions {
   now?: () => number;
   /** After the AI stops, text still needs a live voice behind it for this long (recognition lags). */
   aiTailMs?: number;

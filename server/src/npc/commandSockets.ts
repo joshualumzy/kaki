@@ -34,7 +34,7 @@ export interface CommandSocketsOptions {
   currentMeetingId?(): string | undefined;
 }
 
-export interface CommandSockets {
+interface CommandSockets {
   sendAs(role: CommandAudience, command: KakiCommand): void;
   /** Forget commands still waiting for a reconnect: they belong to a meeting that was reset. */
   dropQueued(): void;

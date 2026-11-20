@@ -62,7 +62,7 @@ export interface NpcPorts<Clip> {
 }
 
 /** Quiet needed after the person stops talking before the AI answers; on top of the voice detector's own hangover. */
-export const DEFAULT_RESPONSE_DELAY_MS = 300;
+const DEFAULT_RESPONSE_DELAY_MS = 300;
 
 /** Pause when one character finishes and a different one starts, so it sounds like people taking turns. */
 export const DEFAULT_SPEAKER_GAP_MS = 900;
@@ -70,49 +70,49 @@ export const DEFAULT_SPEAKER_GAP_MS = 900;
 export const DEFAULT_SENTENCE_GAP_MS = 400;
 
 /** The person cut an AI attendee off but said nothing recognisable; they carry on after this long. */
-export const DEFAULT_RESUME_MS = 1800;
+const DEFAULT_RESUME_MS = 1800;
 
 /** When speech recognition reports that a cut-in held no words, the AI carries on after this long. */
-export const DEFAULT_NOTHING_MS = 400;
+const DEFAULT_NOTHING_MS = 400;
 
 /** An answer cancelled before anything was said, with nothing new from the person, is retried after this long. */
-export const DEFAULT_RETRY_MS = 1500;
+const DEFAULT_RETRY_MS = 1500;
 
 /** How many times in a row the AI may pass the turn to another character without the person saying anything. */
 export const MAX_FOLLOW_UPS = 2;
 
 /** How long a Host cue waits for a quiet moment before it is dropped as out of date. */
-export const DEFAULT_ANNOUNCE_GIVE_UP_MS = 40_000;
+const DEFAULT_ANNOUNCE_GIVE_UP_MS = 40_000;
 
 
 /** The host asks when the agenda moves on; if that never happens, after this many lines from the person. */
-export const ASK_BACKSTOP_LINES = 8;
+const ASK_BACKSTOP_LINES = 8;
 /** How long after the host announces the next item before the question (the announcement is spoken first). */
-export const DEFAULT_ASK_DELAY_MS = 3000;
+const DEFAULT_ASK_DELAY_MS = 3000;
 /** How long after an item opens, with the person silent, before the characters start talking it through. */
-export const DEFAULT_OBSERVE_DELAY_MS = 1500;
+const DEFAULT_OBSERVE_DELAY_MS = 1500;
 /** How long the room waits in silence on the person's item before the host gently checks in by name. */
-export const DEFAULT_SILENCE_PROMPT_MS = 22_000;
+const DEFAULT_SILENCE_PROMPT_MS = 22_000;
 /** Start writing the first silence nudge this long before it should be heard, so model time does not delay it. */
-export const DEFAULT_SILENCE_NUDGE_LEAD_MS = 15_000;
+const DEFAULT_SILENCE_NUDGE_LEAD_MS = 15_000;
 /** The question waits for a quiet moment; it is dropped if the room stays busy this long. */
 const ASK_GIVE_UP_MS = 45_000;
 
 /** A topic still open after this many lines from the visitor, or this long, gets one offer from the host to lock in what they said. */
-export const DEFAULT_TOPIC_TURN_BUDGET = 12;
+const DEFAULT_TOPIC_TURN_BUDGET = 12;
 export const DEFAULT_TOPIC_TIME_BUDGET_MS = 180_000;
 /** How long the host waits for an answer to that offer before asking once more, and then before locking it in. */
-export const DEFAULT_BUDGET_SILENCE_MS = 20_000;
+const DEFAULT_BUDGET_SILENCE_MS = 20_000;
 /** After a settled topic waits this long with nothing happening on the card, the host nudges the visitor towards it. */
-export const DEFAULT_REVIEW_NUDGE_MS = 5_000;
+const DEFAULT_REVIEW_NUDGE_MS = 5_000;
 /**
  * How long a settled topic waits for the visitor's follow-up card with nothing happening on it before the host moves on.
  * Short on purpose: a long wait was 30-50 s of silence for a first-timer, and the card stays sendable after the room moves on.
  * Any progress on the card restarts the wait, so a visitor working on it is never cut off.
  */
-export const DEFAULT_REVIEW_WINDOW_MS = 10_000;
+const DEFAULT_REVIEW_WINDOW_MS = 10_000;
 /** After the follow-up is sent or declined, how long the topic stays so the visitor can open the result. */
-export const DEFAULT_OPEN_LIVE_GRACE_MS = 9_000;
+const DEFAULT_OPEN_LIVE_GRACE_MS = 9_000;
 
 /** How long the person must keep talking over the room before it stops; a shorter burst is probably noise or an echo. */
 export const DEFAULT_BARGE_IN_MS = 1400;
@@ -141,13 +141,13 @@ function readsTaskTitle(text: string, title: string | undefined): boolean {
 }
 
 /** How long a speaker must not restate a point they already made aloud. */
-export const DEFAULT_REPEAT_WINDOW_MS = 60_000;
+const DEFAULT_REPEAT_WINDOW_MS = 60_000;
 /** How often a card pointer or move-on rechecks whether the topic's open question has been answered. */
 const CARD_WAIT_POLL_MS = 500;
 /** How long an early colleague brief may wait for its first spoken sentence before it is aborted and retried. */
-export const DEFAULT_BRIEF_FIRST_CHUNK_MS = 12_000;
+const DEFAULT_BRIEF_FIRST_CHUNK_MS = 12_000;
 /** How long one opening speaker's whole line may take before it is abandoned and retried, even after its first sentence. */
-export const DEFAULT_OPENING_COMPLETION_MS = 20_000;
+const DEFAULT_OPENING_COMPLETION_MS = 20_000;
 const LOCK_ASK_RE = /\b(?:shall we lock in|shall i lock in|lock a direction in|make a decision and keep moving)\b/i;
 
 const STOP_WORDS = new Set([

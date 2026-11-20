@@ -9,7 +9,7 @@ import {
 } from './state';
 
 /** How the meeting module reads its current snapshot when a save is due. */
-export type MeetingSnapshotSource = () => MeetingSnapshot | undefined;
+type MeetingSnapshotSource = () => MeetingSnapshot | undefined;
 
 /**
  * Saves the meeting across a restart. Writes and clears happen in call order, one at a time; only
@@ -39,7 +39,7 @@ export interface MeetingPersistence {
   close(): Promise<void>;
 }
 
-export interface MeetingPersistenceOptions {
+interface MeetingPersistenceOptions {
   store: MeetingStateStore;
   saved?: StoredMeeting;
   now?: () => Date;

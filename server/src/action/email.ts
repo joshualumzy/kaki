@@ -42,7 +42,7 @@ export interface EmailTransport {
 export type EmailTransportFactory = (settings: EmailSettings, timeoutMs: number) => EmailTransport;
 
 /** Options for the read-only email probe; tests inject fakes here. */
-export interface EmailProbeOptions {
+interface EmailProbeOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   createTransport?: EmailTransportFactory;

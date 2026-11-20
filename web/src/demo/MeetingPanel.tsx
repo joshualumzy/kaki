@@ -12,7 +12,7 @@ import {
 import { useKaki, useScenario } from '../kaki';
 import { clearAllStoredJoins } from './rejoinSession';
 import { resolveArtifactUrl } from '../ui';
-import { MeetingRecordCard, isRecord, type RecordEvent } from '../screen/ScreenPage';
+import { MeetingRecordCard, isRecord, type RecordEvent } from './MeetingRecordCard';
 import type { TranscriptViewer } from './captions';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 

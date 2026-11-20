@@ -31,7 +31,7 @@ export type TaskStatus =
  * The exact task the speaker committed to, captured when the commitment was recorded. Any later change to the work
  * (title, context or action) is a different task, so the old commitment cannot authorise it.
  */
-export interface AssignmentScope {
+interface AssignmentScope {
   title: string;
   context: string;
   actionKind?: ActionKind;
@@ -161,7 +161,7 @@ export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
 }
 
 /** True when a value is a known task status. */
-export function isTaskStatus(value: unknown): value is TaskStatus {
+function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value);
 }
 
@@ -183,7 +183,7 @@ export function isActionDraft(value: unknown): value is ActionDraft {
 }
 
 /** True when a value is a complete snapshot of the task a speaker volunteered for. */
-export function isAssignmentScope(value: unknown): value is AssignmentScope {
+function isAssignmentScope(value: unknown): value is AssignmentScope {
   return (
     isObject(value) &&
     isNonEmptyString(value.title) &&

@@ -2,7 +2,7 @@ import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import type { Utterance } from './director';
 
 /** A voice spec is a voice name with optional `?pitch=..&rate=..&lang=..`; `lang` is the language the text is in. */
-export interface VoiceSpec { voice: string; pitch?: string; rate?: string; lang?: string }
+interface VoiceSpec { voice: string; pitch?: string; rate?: string; lang?: string }
 
 const VOICE_SPEC_PARAMS = new Set(['pitch', 'rate', 'lang']);
 

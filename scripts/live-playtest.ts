@@ -35,7 +35,7 @@ export type Line = {
 };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
-export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean; act?: boolean };
+type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean; act?: boolean };
 export type AnswerContext = { scenario: Scenario; role: string; topicTitle: string; transcript: Line[]; intent: string };
 export type FinishContext = { scenario?: Scenario; transcript: Line[]; playedTopics: number[] };
 export type PlaytestHooks = {

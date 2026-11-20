@@ -326,7 +326,7 @@ function phaseProblem(value: unknown): string | undefined {
 }
 
 /** The agenda titles the saved meeting ran or was set up with: the seal first, then the draft. */
-export function savedAgendaTitles(saved: Pick<StoredMeeting, 'sealed' | 'draft'>): string[] {
+function savedAgendaTitles(saved: Pick<StoredMeeting, 'sealed' | 'draft'>): string[] {
   const setup = saved.sealed ?? saved.draft;
   return setup.agenda.map((item) => item.title);
 }

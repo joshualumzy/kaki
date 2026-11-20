@@ -25,7 +25,7 @@ function personName(displayName: string): string {
   return displayName.replace(ROLE_SUFFIX, '').trim();
 }
 
-export interface SttPhraseInput {
+interface SttPhraseInput {
   /** The process's boot pack, used only while the runner has not heard an active meeting. */
   startupPack: Scenario;
   /** The server's snapshot of the meeting the runner follows now. */

@@ -1,5 +1,5 @@
 /** How long an empty live-demo meeting is kept for the same person to return. */
-export const DEFAULT_REJOIN_GRACE_MS = 120_000;
+const DEFAULT_REJOIN_GRACE_MS = 120_000;
 
 /** What an arriving person gets: carry on the meeting, start the next one, or join the occupied room. */
 export type Admission = 'resume' | 'reset' | 'join';
@@ -64,7 +64,7 @@ export function admission({ phase, holders, present, name, seat, graceActive, ab
   return isHolder(holders, name, seat) ? 'resume' : 'reset';
 }
 
-export interface RejoinGuardOptions {
+interface RejoinGuardOptions {
   /** How long the meeting survives an empty room; 0 resets as soon as someone joins an empty room. */
   graceMs: number;
   now?: () => number;
@@ -205,7 +205,7 @@ export function createRejoinGuard({
   };
 }
 
-export interface RoomPollOptions {
+interface RoomPollOptions {
   guard: Pick<RejoinGuard, 'emptied' | 'occupied'>;
   /** Whether a meeting is worth watching: someone joined, or it is running. */
   hasMeeting: () => boolean;
@@ -228,7 +228,7 @@ export interface RoomPollOptions {
   onOccupied?(): void;
 }
 
-export interface RoomPoll {
+interface RoomPoll {
   /** Start watching after the first join; repeated calls are ignored. */
   start(): void;
   /** Forget a pending empty spell (a meeting reset or end must not leak it into the next one). */

@@ -25,7 +25,7 @@ export interface SpeechTiming extends SpeechStart {
   endedAt: number;
 }
 
-export interface UtteranceRecorderOptions {
+interface UtteranceRecorderOptions {
   sampleRate: number;
   /** Audio kept from just before the voice detector fired, so the first syllable is not lost. */
   prerollMs?: number;

@@ -23,7 +23,7 @@ export interface SessionRecord {
 }
 
 /** One role's seat holder in one meeting generation, whoever they are. */
-export interface SeatClaim {
+interface SeatClaim {
   meetingId: string;
   role: string;
   /** The session token hash that holds the seat. */

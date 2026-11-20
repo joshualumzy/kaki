@@ -91,7 +91,7 @@ export function buildMeetingMinutes(
  * holder is actually in. `presentSeats` is the app's own seat-holder record, so a seat nobody
  * holds is never assigned: its assignee could not approve the card.
  */
-export function minutesAssignee(
+function minutesAssignee(
   scenario: Scenario,
   presentSeats: ReadonlyArray<{ seat: string }>,
 ): Role | undefined {

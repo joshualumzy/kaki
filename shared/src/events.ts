@@ -5,7 +5,7 @@ import type { Fact } from './services';
 import { isTask, type Task } from './task';
 
 /** Who should receive an event: the shared screen, one role's phone, everyone, or the AI runner only. */
-export type Audience =
+type Audience =
   | { kind: 'screen' }
   | { kind: 'role'; role: Role }
   | { kind: 'all' }
@@ -41,7 +41,7 @@ export interface ReviewIssue {
 }
 
 /** The event types the meeting protocol knows about. */
-export type KakiEventType =
+type KakiEventType =
   | 'TRANSCRIPT_CHUNK'
   | 'TRANSCRIPT_LINE_UPDATED'
   | 'MEETING_RECORD_UPDATED'

@@ -58,7 +58,7 @@ const QUESTION_WORDS = new Set(
 type TranscriptLine = SavedTranscriptLine;
 
 /** The notetaker's part of the Meeting Record. */
-export interface NotetakerState {
+interface NotetakerState {
   openQuestions: Question[];
   /** Judgements the notetaker could not make; everyone can see these on the shared record. */
   reviewIssues: ReviewIssue[];
@@ -72,7 +72,7 @@ export interface NotetakerState {
 }
 
 /** Turns new transcript into the Meeting Record and suggests tasks through the task store. */
-export interface Notetaker {
+interface Notetaker {
   addChunk(chunk: { speaker: string; text: string; speakerRole?: Role; overlap?: boolean }): void;
   /** Send transcript added since the last pass to the LLM; does nothing if a pass is running. */
   run(): Promise<void>;
@@ -86,7 +86,7 @@ export interface Notetaker {
 }
 
 /** What the notetaker needs; without `llm` it only keeps talk time. */
-export interface NotetakerOptions {
+interface NotetakerOptions {
   /** The meeting's scenario, read through a getter because a Start commit or reset replaces it. */
   scenario: () => Scenario;
   tasks: TaskStore;
@@ -121,7 +121,7 @@ export interface NotetakerOptions {
 }
 
 /** A task the LLM proposes, with the words it heard it in. */
-export interface TaskCandidate extends SuggestInput {
+interface TaskCandidate extends SuggestInput {
   evidence: string;
   /** The accepted decision line the LLM says this task announces, if any; it is checked against the transcript. */
   decisionEvidence?: string;
@@ -129,7 +129,7 @@ export interface TaskCandidate extends SuggestInput {
 }
 
 /** A withdrawal or replacement of an accepted decision the model reports, with the cards it says depend on it. */
-export interface RevisionRequest {
+interface RevisionRequest {
   oldDecisionEvidence: string;
   changeEvidence: string;
   taskIds: string[];
@@ -320,7 +320,7 @@ export function answerMatchesQuestion(question: string, answer: string): boolean
 }
 
 /** True when a question is just the host opening a topic ("What's happening there?") or a colleague handing the decision to the room ("How do we help tourists...?"). */
-export function isRhetoricalTopicHandoff(text: string): boolean {
+function isRhetoricalTopicHandoff(text: string): boolean {
   const trimmed = text.trim();
   if (
     /^\W*(?:[a-z][a-z\s]{0,20},\s*)?(?:what(?:'s| is) happening(?: there| with [a-z\s]+)?|what(?:'s| is) going on(?: there| with [a-z\s]+)?|can you walk us through|what do you think|what(?:'s| is) your call|what should we do)\s*\?*$/i.test(
@@ -359,7 +359,7 @@ function speakerLabel(line: TranscriptLine, scenario: Scenario): string {
 }
 
 /** The transcript line the evidence is (nearly) word for word, if there is one. */
-export function groundingLine<T extends { text: string; speaker?: string; role?: Role; agendaItemTitle?: string }>(
+function groundingLine<T extends { text: string; speaker?: string; role?: Role; agendaItemTitle?: string }>(
   evidence: string,
   lines: T[],
   preferredAgendaItemTitle?: string,
@@ -635,7 +635,7 @@ function baseSpeakerName(speaker: string): string {
  * a question or a hypothetical is never evidence. The caller passes the final, cleaned task so the snapshot matches
  * the work that was actually suggested, and any later change to that work falls outside this evidence.
  */
-export function selfVolunteeredAssignment(
+function selfVolunteeredAssignment(
   source: TranscriptLine,
   task: Pick<Task, 'title' | 'context' | 'actionKind' | 'suggestedAssignee'>,
   scenario: Scenario,
@@ -756,7 +756,7 @@ export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): bo
  * share a source, so they are never merged, and a post and an email are different deliverables. This is conservative
  * by design: a candidate with no established source falls back to the per-owner duplicate check instead.
  */
-export function isDuplicateAnnouncement(
+function isDuplicateAnnouncement(
   candidate: Pick<Task, 'decisionSource' | 'actionKind' | 'agendaItemTitle'>,
   existing: Task[],
 ): boolean {
@@ -779,7 +779,7 @@ export function isDuplicateAnnouncement(
  * that state different decisions. Wording is not compared, because the model may recognise a paraphrase the
  * keyword check cannot.
  */
-export function isDuplicateTarget(
+function isDuplicateTarget(
   candidate: Pick<Task, 'title' | 'suggestedAssignee' | 'decisionSource' | 'actionKind' | 'agendaItemTitle'>,
   target: Task,
 ): boolean {

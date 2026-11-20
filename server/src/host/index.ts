@@ -24,7 +24,7 @@ export interface MeetingPauseControl {
 }
 
 /** The Host team's modules, and the meeting clock they run on so other server code can read meeting time. */
-export interface HostModules {
+interface HostModules {
   modules: KakiModule[];
   /** Seconds since the meeting started, or undefined before the first transcript line. */
   meetingElapsedSeconds: () => number | undefined;

@@ -2,8 +2,8 @@ import type { ChatMessage } from '../llm';
 import type { Utterance } from './director';
 
 /** A fault the live demo can be told to show on purpose; see KAKI_FAULT. */
-export const FAULTS = ['control-garbled', 'slow-first', 'stall-mid', 'tts-fail'] as const;
-export type Fault = (typeof FAULTS)[number];
+const FAULTS = ['control-garbled', 'slow-first', 'stall-mid', 'tts-fail'] as const;
+type Fault = (typeof FAULTS)[number];
 
 /** Read KAKI_FAULT: unset (or empty) is off, a known value is on, anything else is a startup error. */
 export function faultFromEnv(raw: string | undefined): Fault | undefined {
@@ -15,8 +15,8 @@ export function faultFromEnv(raw: string | undefined): Fault | undefined {
   return value as Fault;
 }
 
-export type StreamFn = (messages: ChatMessage[], signal: AbortSignal) => AsyncIterable<string>;
-export type SynthesizeFn<Clip> = (utterance: Utterance, signal: AbortSignal) => Promise<Clip>;
+type StreamFn = (messages: ChatMessage[], signal: AbortSignal) => AsyncIterable<string>;
+type SynthesizeFn<Clip> = (utterance: Utterance, signal: AbortSignal) => Promise<Clip>;
 
 const SLOW_FIRST_MS = 15_000;
 const DEFAULT_IDLE_MS = 10_000;

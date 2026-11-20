@@ -24,7 +24,7 @@ function renderPage(entry: string): void {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<LocationProbe />} />
-        <Route path="/screen" element={<LocationProbe />} />
+        <Route path="/meeting" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -47,19 +47,19 @@ describe('LoginPage', () => {
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/setup'));
   });
 
-  it('keeps the shared screen as the default destination', () => {
+  it('keeps the owner meeting room as the default destination', () => {
     mocks.state = { status: 'ready', me: { authEnabled: true, kind: 'host' } };
     renderPage('/login');
-    expect(screen.getByTestId('location').textContent).toBe('/screen');
+    expect(screen.getByTestId('location').textContent).toBe('/meeting');
   });
 
-  it('falls back to the shared screen for a malformed return path', async () => {
+  it('falls back to the owner meeting room for a malformed return path', async () => {
     renderPage('/login?return=%2F%5Cevil.com');
 
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'demo@kaki.demo' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'demo' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/screen'));
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/meeting'));
   });
 });

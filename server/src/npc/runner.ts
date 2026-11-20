@@ -92,7 +92,7 @@ function sameVersion(a: RunnerSnapshotVersion, b: RunnerSnapshotVersion): boolea
   return sameRunnerEpoch(a.epoch, b.epoch) && a.seq === b.seq;
 }
 
-export interface RunnerOptions {
+interface RunnerOptions {
   scenario: Scenario;
   livekitUrl: string;
   /** Defaults to the scenario's demo room. */
@@ -190,7 +190,7 @@ export interface RunnerStartState {
 }
 
 /** The server's request to initialize the cast for one Start attempt, before the meeting opens. */
-export interface RunnerPrepareRequest extends RunnerStartState {
+interface RunnerPrepareRequest extends RunnerStartState {
   /** The meeting this attempt belongs to; a different id means the old meeting is gone. */
   meetingId: string;
   /** Unique per attempt, echoed in the ready acknowledgement. */

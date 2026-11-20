@@ -20,14 +20,14 @@ export type MeetingPhase =
   | 'card';
 
 /** A briefing fact the room can hear, with its stable id and the people who know it. */
-export interface MeetingFactInfo {
+interface MeetingFactInfo {
   id: string;
   text: string;
   knownBy: readonly string[];
 }
 
 /** A real trade-off one colleague can raise as a catch, from the scenario's discussion. */
-export interface MeetingCatchInfo {
+interface MeetingCatchInfo {
   id: string;
   attendee: string;
   /** The guest idea this catch reacts to, in the scenario's own plain words. */
@@ -52,7 +52,7 @@ export interface MeetingTopicInfo {
 }
 
 /** The open question a heard line put to one addressee. */
-export interface OpenQuestionView {
+interface OpenQuestionView {
   from: string;
   to: string;
   text: string;
@@ -110,7 +110,7 @@ export interface MeetingCatchView {
 }
 
 /** The exact call or choices Sam put to the guest, kept so a later yes can only commit what was offered. */
-export interface MeetingOffer {
+interface MeetingOffer {
   proposal?: string;
   choices?: readonly string[];
   openAsk?: boolean;
@@ -171,7 +171,7 @@ export interface MeetingView {
   colleagues: readonly { name: string; text: string }[];
 }
 
-export interface MeetingStateOptions {
+interface MeetingStateOptions {
   topics: readonly MeetingTopicInfo[];
   present: readonly string[];
   host?: string;
@@ -180,7 +180,7 @@ export interface MeetingStateOptions {
 }
 
 /** The event shape recorded when a line starts; its id makes the end event match it. */
-export interface HeardLineStart {
+interface HeardLineStart {
   id: string;
   speaker: string;
   text: string;

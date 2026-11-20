@@ -2,10 +2,10 @@
 
 import type { CheckStatus } from './playtest-report';
 
-export const OWNER_EMAIL_ENV = 'KAKI_PLAYTEST_OWNER_EMAIL';
-export const OWNER_PASSWORD_ENV = 'KAKI_PLAYTEST_OWNER_PASSWORD';
+const OWNER_EMAIL_ENV = 'KAKI_PLAYTEST_OWNER_EMAIL';
+const OWNER_PASSWORD_ENV = 'KAKI_PLAYTEST_OWNER_PASSWORD';
 
-export type OwnerCredentials =
+type OwnerCredentials =
   | { ok: true; email?: string; password?: string }
   | { ok: false; missing: string[]; message: string };
 
@@ -43,7 +43,7 @@ export function inviteCodeFromLink(href: string): string | undefined {
   return code === '' ? undefined : code;
 }
 
-export type TranscriptVerdict = { ok: boolean; detail: string; problems: string[] };
+type TranscriptVerdict = { ok: boolean; detail: string; problems: string[] };
 
 /**
  * Every expected line must appear exactly once in each window's transcript. Exact matches only, so
@@ -91,7 +91,7 @@ export function practiceBusyIsPlain(text: string): boolean {
     && !/\b(?:HTTP|status|409|conflict)\b/i.test(normal);
 }
 
-export type SeatOptionsVerdict = { ok: boolean; detail: string };
+type SeatOptionsVerdict = { ok: boolean; detail: string };
 
 /** The join form must offer exactly the meeting's person seats, in any order. */
 export function judgeSeatOptions(actual: readonly string[], expected: readonly string[]): SeatOptionsVerdict {
@@ -109,7 +109,7 @@ export function judgeSeatOptions(actual: readonly string[], expected: readonly s
   };
 }
 
-export type MinutesVerdict = { ok: boolean; detail: string };
+type MinutesVerdict = { ok: boolean; detail: string };
 
 /** The minutes card must be assigned to the owner's seat, never to a participant's. */
 export function judgeMinutesRecipient(
@@ -203,7 +203,7 @@ export function sentenceMatches(expected: string, actual: string, threshold = SE
   return sentenceWordRecall(expected, actual) >= threshold;
 }
 
-export type OverlapOrderVerdict = { ok: boolean; detail: string };
+type OverlapOrderVerdict = { ok: boolean; detail: string };
 
 /**
  * The two overlapping lines must be recorded in the order they started. `appearedOrder` is the
@@ -253,7 +253,7 @@ export function speechFailureNotice(texts: readonly string[]): string | undefine
   return undefined;
 }
 
-export type MinutesSpeakersVerdict = { ok: boolean; detail: string };
+type MinutesSpeakersVerdict = { ok: boolean; detail: string };
 
 /**
  * The end-of-meeting minutes quote at least one spoken line from every speaker. The minutes list

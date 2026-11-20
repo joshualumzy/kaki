@@ -118,26 +118,23 @@ const synthesize = faultySynthesize(
   fault,
 );
 
-// Server-side recognition by default: it hears the echo-cancelled microphone track, so it does not pick up the
-// AI's own voice, and it can lean towards the names and words of this meeting. NPC_STT=browser uses Chrome's.
+// Server-side recognition: it hears the echo-cancelled microphone track, so it does not pick up the
+// AI's own voice, and it can lean towards the names and words of this meeting.
 const sttMode = process.env.NPC_STT || 'azure';
-if (sttMode !== 'azure' && sttMode !== 'browser') throw new Error(`NPC_STT must be "azure" or "browser", got "${sttMode}"`);
-const recognizer =
-  sttMode === 'browser'
-    ? undefined
-    : createAzureStt(requireEnv('AZURE_SPEECH_KEY', azureHint), requireEnv('AZURE_SPEECH_REGION', azureHint), {
-        locale: process.env.NPC_STT_LOCALE || 'en-SG',
-        minConfidence: numberEnv('NPC_STT_MIN_CONFIDENCE', 0.6),
-        log,
-        phrases: () => {
-          const meeting = runnerForStt?.meetingSnapshot();
-          return buildSttPhrases({
-            startupPack: scenario,
-            ...(meeting === undefined ? {} : { meeting }),
-            joinedNames: runnerForStt?.presentNames() ?? [],
-          });
-        },
-      });
+if (sttMode !== 'azure') throw new Error(`NPC_STT must be "azure"; browser speech recognition was removed, got "${sttMode}"`);
+const recognizer = createAzureStt(requireEnv('AZURE_SPEECH_KEY', azureHint), requireEnv('AZURE_SPEECH_REGION', azureHint), {
+  locale: process.env.NPC_STT_LOCALE || 'en-SG',
+  minConfidence: numberEnv('NPC_STT_MIN_CONFIDENCE', 0.6),
+  log,
+  phrases: () => {
+    const meeting = runnerForStt?.meetingSnapshot();
+    return buildSttPhrases({
+      startupPack: scenario,
+      ...(meeting === undefined ? {} : { meeting }),
+      joinedNames: runnerForStt?.presentNames() ?? [],
+    });
+  },
+});
 
 // The runner writes as the screen and as each AI role over command sockets, exactly as a phone would.
 // The runner is created below, so its meeting id is read through a holder until then.
@@ -627,7 +624,7 @@ const serviceChannel = createServiceChannel({
   token: serviceToken,
   createSocket: () =>
     new WebSocket(
-      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service&stt=${sttMode === 'browser' ? 'browser' : 'server'}`,
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service`,
       serviceToken === undefined || serviceToken === ''
         ? undefined
         : { headers: { authorization: `Bearer ${serviceToken}` } },
@@ -642,7 +639,7 @@ const serviceChannel = createServiceChannel({
 });
 serviceChannel.start();
 
-log(`speech recognition: ${sttMode === 'azure' ? `Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})` : "the browser's"}`);
+log(`speech recognition: Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})`);
 log('ready: the listener is in the room; AI characters follow the meeting cast. Open /demo and talk.');
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

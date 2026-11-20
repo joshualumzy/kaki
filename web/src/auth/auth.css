@@ -2,8 +2,7 @@
   max-width: 28rem;
 }
 
-.auth-form,
-.join-form {
+.auth-form {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -31,11 +30,6 @@
   outline-offset: 1px;
 }
 
-.auth-form .btn,
-.join-form .btn {
+.auth-form .btn {
   margin-top: var(--space-1);
-}
-
-.phone .join-form .btn {
-  width: 100%;
 }

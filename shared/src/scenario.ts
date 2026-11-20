@@ -78,7 +78,7 @@ export interface AgendaItem {
 }
 
 /** Someone outside the meeting who answers at most once in their topic. */
-export interface AgendaOffScreen {
+interface AgendaOffScreen {
   name: string;
   role: string;
   /** How they answer, and the one condition that shapes it. */
@@ -86,7 +86,7 @@ export interface AgendaOffScreen {
 }
 
 /** A link from this agenda item to another one. */
-export interface AgendaLink {
+interface AgendaLink {
   /** The title of the other agenda item. */
   with: string;
   /** What carries from one topic to the other. */
@@ -98,7 +98,7 @@ export interface AgendaLink {
  * trade-offs that keep the decision open. It is data, not a script: it names what is at stake and
  * the question still to answer, never the solution or a required number of turns.
  */
-export interface AgendaDiscussion {
+interface AgendaDiscussion {
   /** What each colleague cares about at the start of the item, as an angle, never a line to read aloud. */
   openingViews: AgendaOpeningView[];
   /** The distinct tensions the person deciding must weigh. */
@@ -106,7 +106,7 @@ export interface AgendaDiscussion {
 }
 
 /** One colleague's opening angle on an agenda item. */
-export interface AgendaOpeningView {
+interface AgendaOpeningView {
   /** The `name` of the attendee whose angle this is. */
   attendee: string;
   /** What that person cares about on this item, as a short phrase, never a line to read aloud. */
@@ -114,7 +114,7 @@ export interface AgendaOpeningView {
 }
 
 /** One thing the room is told at the start of a topic, and the colleagues who would actually know it. */
-export interface BriefingFact {
+interface BriefingFact {
   /** What happened, as one short spoken fact. */
   text: string;
   /**
@@ -125,7 +125,7 @@ export interface BriefingFact {
 }
 
 /** A colleague who knows a briefing fact, and why it is theirs to tell. */
-export interface BriefingFactKnower {
+interface BriefingFactKnower {
   /** The `name` of the attendee who knows it. */
   attendee: string;
   /** Why this person knows, said after their name, for example "you went through the fridge log". */
@@ -133,7 +133,7 @@ export interface BriefingFactKnower {
 }
 
 /** One distinct trade-off the room wants the person deciding to weigh. */
-export interface AgendaTradeOff {
+interface AgendaTradeOff {
   /** The `name` of the attendee who raises this trade-off. */
   attendee: string;
   /** The role whose work or obligation makes this trade-off matter. */
@@ -186,12 +186,12 @@ export interface NpcProfile {
   tensions?: NpcTension[];
 }
 
-export type NpcRole = 'host' | 'participant' | 'observer';
+type NpcRole = 'host' | 'participant' | 'observer';
 
-export const NPC_ROLES: readonly NpcRole[] = ['host', 'participant', 'observer'];
+const NPC_ROLES: readonly NpcRole[] = ['host', 'participant', 'observer'];
 
 /** A standing disagreement between this character and another attendee. */
-export interface NpcTension {
+interface NpcTension {
   /** The `name` of the other attendee. */
   with: string;
   /** What they disagree about, from this character's point of view. */
@@ -242,7 +242,7 @@ export interface Scenario {
 }
 
 /** The story shown on the start prompt before a practice meeting: artwork, badge and intro line. */
-export interface PracticeBriefing {
+interface PracticeBriefing {
   /** Artwork for the briefing hero, if the scenario provides it, for example "/scenario/kopitiam-hero.svg". */
   heroArt?: string;
   /** The pill over the hero, for example "Nanyang Kopi & Toast · Opening day". */
@@ -640,7 +640,7 @@ function readAgendaDiscussion(
   }
 }
 
-export interface ParseScenarioOptions {
+interface ParseScenarioOptions {
   /**
    * Require the organisation, as a demo pack file must have. Runtime scenarios may leave it out:
    * an owner-written meeting with a blank organisation field has none.

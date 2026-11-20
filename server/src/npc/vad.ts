@@ -35,7 +35,7 @@ export const DEFAULT_VAD_OPTIONS: VadOptions = {
 };
 
 /** What the detector needs to know about the AI's own sound. */
-export interface LeakReference {
+interface LeakReference {
   /** How loud the AI was a little while ago, which is what could be leaking into the microphone now. */
   levelAt(nowMs: number): number;
   /**
@@ -47,7 +47,7 @@ export interface LeakReference {
   settledLevelAt?(nowMs: number): number;
 }
 
-export interface VadDeps {
+interface VadDeps {
   /** With it, the bar while the AI talks follows how much of the AI the microphone really hears. */
   reference?: LeakReference;
   now?: () => number;

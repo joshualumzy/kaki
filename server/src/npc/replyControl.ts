@@ -11,8 +11,8 @@ export interface ReplyControl {
   reopen?: string;
 }
 
-export const REACTION_EMOJIS = ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'] as const;
-export type ReactionEmoji = typeof REACTION_EMOJIS[number];
+const REACTION_EMOJIS = ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'] as const;
+type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
 export const OPEN_REPLY_CONTROL: ReplyControl = { state: 'open', wingmanNeeded: false };
 const CONTROL_HEADER = /^KAKI_CONTROL(?:\s+|$)/u;

@@ -6,25 +6,25 @@ import { isoDay, parseLongDay, shortDay } from './dates';
 import { embedTexts, gatewayConfigFromEnv, missingGatewayEnv, type GatewayConfig } from './gateway';
 
 /** One row of the searchable company knowledge. */
-export interface KnowledgeChunk {
+interface KnowledgeChunk {
   source: 'wiki' | 'gitea' | 'mattermost' | 'mail' | 'postgres';
   ref: string;
   text: string;
   publishedAt: string;
 }
 
-export interface IndexSummary {
+interface IndexSummary {
   chunks: number;
   sources: Record<string, number>;
 }
 
-export interface WikiPageInput {
+interface WikiPageInput {
   path: string;
   title: string;
   content: string;
 }
 
-export interface GiteaIssueInput {
+interface GiteaIssueInput {
   number: number;
   title: string;
   state: string;
@@ -32,7 +32,7 @@ export interface GiteaIssueInput {
   body: string;
 }
 
-export interface MattermostPostInput {
+interface MattermostPostInput {
   id: string;
   root_id?: string;
   user_id: string;
@@ -42,7 +42,7 @@ export interface MattermostPostInput {
   type?: string;
 }
 
-export interface MailMessageInput {
+interface MailMessageInput {
   messageId: string;
   subject: string;
   from: string;
@@ -52,7 +52,7 @@ export interface MailMessageInput {
 }
 
 /** One row from any seeded Postgres company table. */
-export interface PostgresRow {
+interface PostgresRow {
   [column: string]: unknown;
 }
 

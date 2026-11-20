@@ -13,7 +13,7 @@ import {
 /** Where a group of setup fields came from, shown next to them on the setup screen. */
 export type SetupSource = 'calendar invite' | 'demo pack' | 'typed';
 
-export const SETUP_SOURCES: readonly SetupSource[] = ['calendar invite', 'demo pack', 'typed'];
+const SETUP_SOURCES: readonly SetupSource[] = ['calendar invite', 'demo pack', 'typed'];
 
 /** One agenda item in the pre-Start setup. */
 export interface MeetingSetupAgendaItem {
@@ -25,14 +25,14 @@ export interface MeetingSetupAgendaItem {
 }
 
 /** One role in the pre-Start setup. */
-export interface MeetingSetupRole {
+interface MeetingSetupRole {
   id: string;
   label: string;
   /** Whether this role runs the meeting. */
   facilitator: boolean;
 }
 
-export type MeetingSetupSeatKind = 'person' | 'ai';
+type MeetingSetupSeatKind = 'person' | 'ai';
 
 /** One seat at the meeting, either a real person or an AI stand-in from the demo pack. */
 export interface MeetingSetupSeat {
@@ -55,7 +55,7 @@ export interface MeetingPace {
   comingUpBefore: number;
 }
 
-export interface MeetingSetupSources {
+interface MeetingSetupSources {
   title: SetupSource;
   agenda: SetupSource;
   roles: SetupSource;
@@ -81,18 +81,18 @@ export interface SetupFieldError {
   message: string;
 }
 
-export type SetupParseResult =
+type SetupParseResult =
   | { ok: true; value: MeetingSetup }
   | { ok: false; errors: SetupFieldError[] };
 
-export interface ParseMeetingSetupOptions {
+interface ParseMeetingSetupOptions {
   /** The NPC profiles in the loaded demo pack; absent or empty means AI seats are not allowed. */
   npcProfileIds?: readonly string[];
 }
 
 export const MAX_AGENDA_MINUTES = 240;
-export const MIN_PACE_SECONDS = 10;
-export const MAX_PACE_SECONDS = 600;
+const MIN_PACE_SECONDS = 10;
+const MAX_PACE_SECONDS = 600;
 /** A team or organisation name is kept short enough to say and show beside the title. */
 export const MAX_ORGANISATION_LENGTH = 120;
 
@@ -608,7 +608,7 @@ export function defaultMeetingSetup(scenario: Scenario): MeetingSetup {
  * `titleOrder` lets a restore keep the order the running meeting was actually using; a title missing
  * from the setup there falls back to the pack item, so an older save still loads.
  */
-export function meetingAgendaFromSetup(
+function meetingAgendaFromSetup(
   setup: MeetingSetup,
   scenario: Scenario,
   titleOrder: readonly string[] = setup.agenda.map((item) => item.title),
@@ -644,7 +644,7 @@ export function isPackFreeMeeting(setup: MeetingSetup, pack: Scenario): boolean 
  * The NPC profiles the runner may voice for a sealed setup: only the profiles of seats marked `ai`.
  * A pack seat switched to a person, or a typed seat with no profile, is left out.
  */
-export function setupAiCast(scenario: Scenario, setup: MeetingSetup): NpcProfile[] {
+function setupAiCast(scenario: Scenario, setup: MeetingSetup): NpcProfile[] {
   const profiles = new Set(
     setup.seats.flatMap((seat) => (seat.kind === 'ai' && seat.npcProfileId !== undefined ? [seat.npcProfileId] : [])),
   );
@@ -697,7 +697,7 @@ export function setupPersonSeatRoles(setup: MeetingSetup): string[] {
  * owner typed; an AI seat is the demo-pack profile it plays. Pack attendees the setup does not seat
  * are never carried over, so an absent character can never be offered work or counted as quiet.
  */
-export function setupAttendees(scenario: Scenario, setup: MeetingSetup): Attendee[] {
+function setupAttendees(scenario: Scenario, setup: MeetingSetup): Attendee[] {
   const packByName = new Map(
     scenario.attendees.map((attendee) => [attendee.name.trim().toLowerCase(), attendee]),
   );
@@ -760,7 +760,7 @@ function fitPackContentToAttendees(meeting: Scenario): void {
   }
 }
 
-export interface MeetingScenarioFromSetupOptions {
+interface MeetingScenarioFromSetupOptions {
   /** The agenda order to run; defaults to the setup's own order. */
   agendaOrder?: readonly string[];
 }
@@ -805,7 +805,7 @@ export function meetingScenarioFromSetup(
   return meeting;
 }
 
-export type MeetingScenarioResult =
+type MeetingScenarioResult =
   | { ok: true; scenario: Scenario }
   | { ok: false; errors: SetupFieldError[] };
 

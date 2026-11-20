@@ -25,7 +25,7 @@ export function isReplayedCue(event: unknown): boolean {
   return candidate.replayed === true && candidate.type === 'HOST_SPEECH_TRIGGERED';
 }
 
-export interface ServiceDispatchOptions {
+interface ServiceDispatchOptions {
   dispatch(event: unknown): void;
   logError(message: string): void;
   describe?(event: unknown): string;
@@ -63,7 +63,7 @@ export function createServiceDispatch({
   };
 }
 
-export interface ServiceChannelOptions {
+interface ServiceChannelOptions {
   token?: string | undefined;
   /** Injected by tests; production opens a real WebSocket. */
   createSocket(): WebSocket;
@@ -75,7 +75,7 @@ export interface ServiceChannelOptions {
   maxDelayMs?: number;
 }
 
-export interface ServiceChannel {
+interface ServiceChannel {
   start(): void;
   stop(): void;
 }
