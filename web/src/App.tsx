@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { LoginPage } from './auth/LoginPage';
-import { ScenarioProvider } from './kaki';
+import { ScenarioProvider, viewForPath } from './kaki';
 import { PhonePage } from './phone/PhonePage';
 import { ScreenPage } from './screen/ScreenPage';
 import { SetupPage } from './setup/SetupPage';
@@ -9,11 +10,17 @@ import { OwnerMeetingPage } from './meeting/OwnerMeetingPage';
 import { ParticipantJoinPage } from './meeting/ParticipantJoinPage';
 import Meeting from './demo/Meeting';
 
+/** Load the scenario the current page needs: the practice pack on practice routes. */
+function ScenarioShell({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  return <ScenarioProvider view={viewForPath(location.pathname)}>{children}</ScenarioProvider>;
+}
+
 /** Route shell for the single Kaki web app: shared screen, phone, and a redirect home. */
 export function App() {
   return (
     <div className="app-shell">
-      <ScenarioProvider>
+      <ScenarioShell>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/practice" element={<Meeting variant="practice" />} />
@@ -26,7 +33,7 @@ export function App() {
           <Route path="/phone" element={<PhonePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </ScenarioProvider>
+      </ScenarioShell>
     </div>
   );
 }

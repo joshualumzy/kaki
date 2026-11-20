@@ -52,4 +52,14 @@ describe('LoginPage', () => {
     renderPage('/login');
     expect(screen.getByTestId('location').textContent).toBe('/screen');
   });
+
+  it('falls back to the shared screen for a malformed return path', async () => {
+    renderPage('/login?return=%2F%5Cevil.com');
+
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'demo@kaki.demo' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'demo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/screen'));
+  });
 });

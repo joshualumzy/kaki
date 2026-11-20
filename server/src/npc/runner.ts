@@ -38,6 +38,7 @@ import { createRunnerMeeting } from './runnerMeeting';
 import type { Utterance } from './director';
 import { playPcm } from './playback';
 import { PlaybackReference } from './reference';
+import { reconnectDelayMs } from './serviceChannel';
 import { UtteranceRecorder, type Recognizer } from './utterance';
 import { EnergyVad, type VadOptions } from './vad';
 
@@ -698,7 +699,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function adoptSnapshot(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
     const heldEpoch = meeting.version()?.epoch;
-    const changed = held !== undefined && held !== state.meetingId;
+    // No held identity is a move too: a boot-room runner must follow its first accepted snapshot.
+    const changed = held !== state.meetingId;
     const previous = meeting.current();
     const identical =
       previous !== undefined && previous.meetingId === state.meetingId && sameVersion(previous.version, state.version);
@@ -1003,7 +1005,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   ): boolean {
     const held = meeting.meetingId();
     const heldEpoch = meeting.version()?.epoch;
-    const changed = held !== undefined && held !== state.meetingId;
+    // No held identity is a move too: a boot-room runner must follow its first accepted snapshot.
+    const changed = held !== state.meetingId;
     const previous = meeting.current();
     // The same snapshot arriving again (for example on reconnect) is still reconciled locally: a
     // process that booted from it has not yet opened the meeting or caught up its topic.
@@ -1285,16 +1288,47 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
   attachRoom(listenerCharacter()!.room);
 
-  /**
-   * A new meeting identity means a new room. Leave the old one, clear everything that belonged to
-   * it, and rejoin the fixed characters so the browser finds them in the room it was given.
-   */
+  /** The fixed room for a meeting identity; a test may pin one room for every meeting. */
   function roomForMeeting(meetingId: string): string {
     return options.roomName ?? demoRoomName(bootScenario, meetingId);
   }
 
-  function moveToRoom(next: string): void {
-    if (next === roomName) return;
+  /** Join the permanent characters into `next`, retrying with backoff until it succeeds or the room moves on. */
+  async function syncRoom(next: string): Promise<void> {
+    for (let attempt = 1; ; attempt += 1) {
+      if (closing) throw new Error('the AI runner is stopping');
+      // A newer move owns the room now: this attempt must never join the old one.
+      if (roomName !== next) return;
+      movingRoom = true;
+      try {
+        await leaveAll();
+        characters.clear();
+        for (const npc of permanent) await joinCharacter(npc);
+        const nextListener = listenerCharacter();
+        if (nextListener !== undefined) attachRoom(nextListener.room);
+        return;
+      } catch (error) {
+        const delay = reconnectDelayMs(attempt);
+        logError(
+          `could not move the AI attendees to ${next} (attempt ${attempt}): ${String(error)}; retrying in ${delay} ms`,
+        );
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delay);
+          timer.unref?.();
+        });
+      } finally {
+        movingRoom = false;
+      }
+    }
+  }
+
+  /**
+   * A new meeting identity means a new room. The returned promise resolves once every permanent
+   * character is in the new room, so a Start that is waiting for the cast is not reported ready
+   * while the AI is still in the old (or boot) room.
+   */
+  function moveToRoom(next: string): Promise<void> {
+    if (next === roomName) return Promise.resolve();
     const previous = roomName;
     roomName = next;
     log(`the meeting moved to a new room; leaving ${previous} for ${next}`);
@@ -1302,20 +1336,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     talking.clear();
     for (const vad of vads.values()) vad.close();
     vads.clear();
-    castQueue = castQueue
-      .then(async () => {
-        movingRoom = true;
-        try {
-          await leaveAll();
-          characters.clear();
-          for (const npc of permanent) await joinCharacter(npc);
-          const nextListener = listenerCharacter();
-          if (nextListener !== undefined) attachRoom(nextListener.room);
-        } finally {
-          movingRoom = false;
-        }
-      })
-      .catch((error: unknown) => log(`could not move to the meeting's room: ${String(error)}`));
+    const result = castQueue.then(
+      () => syncRoom(next),
+      () => syncRoom(next),
+    );
+    castQueue = result.catch(() => undefined);
+    return result;
   }
 
   function announce(text: string, onDone?: (spoken: boolean) => void, shouldStillSpeak?: () => boolean): void {

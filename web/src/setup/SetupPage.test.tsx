@@ -625,6 +625,43 @@ describe('SetupPage', () => {
     expect((screen.getByLabelText('Agenda item 1 owner') as HTMLSelectElement).value).toBe('role_1');
   });
 
+  it('shows End practice whenever the owner sees a practice meeting, running or not', async () => {
+    installFetch(
+      baseRoutes({
+        'GET /api/setup': () => reply({ setup: draft, started: true, kind: 'practice' }),
+        'GET /api/setup/tools': () => reply({ tools: [] }),
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'End the practice meeting' })).toBeTruthy();
+  });
+
+  it('keeps the meeting kind after saving and after importing', async () => {
+    const savedDraft: MeetingSetup = { ...draft, title: 'Saved morning huddle' };
+    installFetch(
+      baseRoutes({
+        'GET /api/setup': () => reply({ setup: draft, started: false, kind: 'real' }),
+        'PUT /api/setup': () => reply({ setup: savedDraft, started: false, kind: 'real' }),
+        'POST /api/setup/import-calendar': () =>
+          reply({ setup: importedDraft, started: false, kind: 'real' }),
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'Close the meeting room' })).toBeTruthy();
+    const title = (await screen.findByLabelText('Meeting title field')) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: 'Draft title' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(await screen.findByDisplayValue('Saved morning huddle')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Close the meeting room' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use the Kopitiam template' }));
+    expect(await screen.findByDisplayValue('Kopitiam launch')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Close the meeting room' })).toBeTruthy();
+  });
+
   it('handles a practice meeting in progress when opening the room', async () => {
     let opens = 0;
     installFetch(

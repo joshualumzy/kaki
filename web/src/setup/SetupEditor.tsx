@@ -12,7 +12,7 @@ import {
   type SetupSource,
 } from '@kaki/shared';
 import { Button } from '../ui';
-import { SetupApiError, saveSetup } from './api';
+import { SetupApiError, saveSetup, type SetupResponse } from './api';
 import { SourceLabel, formatSeconds } from './SetupDraft';
 
 function nextId(base: string, taken: Set<string>): string {
@@ -74,7 +74,7 @@ export function SetupEditor({
 }: {
   setup: MeetingSetup;
   scenario: Scenario;
-  onSaved: (setup: MeetingSetup) => void;
+  onSaved: (result: SetupResponse) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<MeetingSetup>(setup);
@@ -299,7 +299,7 @@ export function SetupEditor({
     try {
       const result = await saveSetup(parsed.value);
       setDraft(result.setup);
-      onSaved(result.setup);
+      onSaved(result);
     } catch (error) {
       if (error instanceof SetupApiError) {
         setErrors(error.fieldErrors);

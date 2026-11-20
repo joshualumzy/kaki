@@ -347,6 +347,68 @@ describe('security round 3', () => {
     if (socket.ok) socket.ws.terminate();
   });
 
+  it('runs /api/join inside the admission queue, so a lifecycle change cannot land mid-claim', async () => {
+    const baseStore = createMemoryAuthStore();
+    await baseStore.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
+    let stalledHash: string | undefined;
+    let stalledLookups = 0;
+    let entered!: () => void;
+    let release!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => { entered = resolve; });
+    const lookupGate = new Promise<void>((resolve) => { release = resolve; });
+    const store = {
+      ...baseStore,
+      async findSession(tokenHash: string) {
+        if (tokenHash === stalledHash) {
+          stalledLookups += 1;
+          // The first lookup resolves the request's principal; the second is the claim itself,
+          // which is where a lifecycle change could previously slip in.
+          if (stalledLookups === 2) {
+            stalledHash = undefined;
+            entered();
+            await lookupGate;
+          }
+        }
+        return baseStore.findSession(tokenHash);
+      },
+    } as AuthStore;
+    const meetingCode = createMeetingCodeSource(MEETING_CODE);
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    const app = track(
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
+    );
+
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    const first = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
+    expect(first.status).toBe(200);
+    const cookie = cookieFrom(first);
+    stalledHash = hashToken(tokenFrom(cookie));
+
+    // This join has passed its kind/code/role checks and is awaiting the session lookup.
+    const stalled = post(app, '/api/join', { code: MEETING_CODE, role: 'cashier' }, cookie);
+    await lookupStarted;
+
+    // A close queued now must wait behind the join: the meeting it validated against cannot change.
+    const closed = post(app, '/api/meeting/close', {}, host);
+    try {
+      await settle(40);
+      expect(app.session.kind()).toBe('real');
+      expect(app.session.phase()).toBe('lobby');
+    } finally {
+      release();
+    }
+
+    const joined = await stalled;
+    expect(joined.status).toBe(200);
+    const joinedCookie = cookieFrom(joined);
+    expect((await closed).status).toBe(200);
+
+    // The close then rotates the meeting: the join entered the real meeting, and its session died with it.
+    expect(app.session.kind()).toBeUndefined();
+    expect((await get(app, '/api/auth/me', joinedCookie)).status).toBe(403);
+  });
+
   it('stops a revoked socket sending commands before its close handshake finishes', async () => {
     const { app } = await authApp();
     const host = await signInAsHost(app);

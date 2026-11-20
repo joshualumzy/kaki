@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { joinSeatRoles, type Scenario } from '@kaki/shared';
+import { defaultMeetingSetup, joinSeatRoles, type Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
@@ -122,6 +122,7 @@ function connectService(port: number, authorization?: string): Promise<void> {
 async function openModeApp(options: {
   roomRoster?: () => Promise<Array<{ name: string }>>;
   rejoinGraceMs?: number;
+  rejoinPollMs?: number;
   admissionReservationMs?: number;
 } = {}): Promise<{ app: KakiApp; port: number }> {
   const app = await createApp({
@@ -130,7 +131,7 @@ async function openModeApp(options: {
     roomRoster: options.roomRoster ?? (async () => []),
     meetingCode: createMeetingCodeSource(CODE),
     rejoinGraceMs: options.rejoinGraceMs ?? 60_000,
-    rejoinPollMs: 20,
+    rejoinPollMs: options.rejoinPollMs ?? 20,
     ...(options.admissionReservationMs === undefined
       ? {}
       : { admissionReservationMs: options.admissionReservationMs }),
@@ -254,6 +255,25 @@ describe('meeting kind in auth mode', () => {
   });
 });
 
+describe('practice scenario projection', () => {
+  it('offers the pack seats even when the owner draft names only custom roles', async () => {
+    const { app, port } = await authModeApp();
+    const base = defaultMeetingSetup(pack);
+    app.session.setDraft({
+      ...base,
+      roles: [{ id: 'owner_only', label: 'Owner only', facilitator: false }],
+      seats: [{ displayName: 'Only', roleId: 'owner_only', kind: 'person' }],
+      agenda: [{ id: 'agenda-1', title: 'Only item', minutes: 5, ownerRoleId: 'owner_only' }],
+    });
+
+    const response = await request(port, '/api/scenario?kind=practice');
+    expect(response.status).toBe(200);
+    const offered = joinSeatRoles((await response.json()) as Scenario).map((role) => role.id);
+    expect(offered).toEqual(joinSeatRoles(pack).map((role) => role.id));
+    expect(offered).not.toContain('owner_only');
+  });
+});
+
 describe('meeting kind in open mode', () => {
   it('refuses practice while a real meeting is open and leaves the real path unchanged', async () => {
     const { app, port } = await openModeApp();
@@ -328,6 +348,36 @@ describe('meeting kind in open mode', () => {
     expect(app.session.holders()).toHaveLength(1);
     expect(app.session.holders()[0]?.name).toBe('ben');
     expect(app.session.phase()).toBe('lobby');
+  });
+
+  it('mints a replacement practice token for the room identity it actually enters', async () => {
+    let people: Array<{ name: string }> = [];
+    const { app, port } = await openModeApp({
+      roomRoster: async () => people,
+      rejoinGraceMs: 40,
+      rejoinPollMs: 20,
+      admissionReservationMs: 0,
+    });
+    await connectService(port);
+
+    const first = await practiceJoin(port, 'Alice');
+    expect(first.status).toBe(200);
+    const firstRoom = tokenRoom(((await first.json()) as { token: string }).token);
+    const oldMeetingId = app.session.snapshot().meetingId;
+    people = [{ name: 'Alice' }];
+    expect((await request(port, '/api/meeting/start', 'POST')).status).toBe(200);
+
+    // Alice leaves; the grace ends with nobody back, so the next visitor starts a new meeting.
+    people = [];
+    await waitFor(() => (app.session.abandoned() ? true : undefined), 'the empty-room grace to end');
+
+    const second = await practiceJoin(port, 'Ben');
+    expect(second.status).toBe(200);
+    const secondRoom = tokenRoom(((await second.json()) as { token: string }).token);
+    const newMeetingId = app.session.snapshot().meetingId;
+    expect(newMeetingId).not.toBe(oldMeetingId);
+    expect(secondRoom).not.toBe(firstRoom);
+    expect(secondRoom).toContain(newMeetingId);
   });
 
   it('clears the kind when a practice meeting is ended', async () => {
@@ -421,6 +471,39 @@ describe('meeting kind security regressions', () => {
     expect(ownSeat.status).toBe(200);
     expect(ownSeat.headers.get('set-cookie')).toBeNull();
     expect(await ownSeat.json()).toEqual({ kind: 'practice', role: 'producer' });
+  });
+
+  it('never lets a name alone resume or replace a practice seat', async () => {
+    const { app, port } = await authModeApp({ rejoinGraceMs: 60_000, admissionReservationMs: 0 });
+    const first = await practiceJoin(port, 'Alice', 'producer');
+    expect(first.status).toBe(200);
+    const capability = cookieFrom(first);
+    const meetingId = app.session.snapshot().meetingId;
+    const generation = app.session.generation();
+
+    // The capability opens exactly the seat it was granted for, never another role's media seat.
+    const wrongSeat = await request(
+      port,
+      '/api/livekit/token',
+      'POST',
+      { participantName: 'Alice', participantRole: 'game_designer', kind: 'practice' },
+      capability,
+    );
+    expect(wrongSeat.status).toBe(403);
+
+    // The same name without the capability is a different person: it starts a new practice
+    // meeting, rotating the identity and generation and revoking the old visitor's authority.
+    const takeover = await request(port, '/api/livekit/token', 'POST', {
+      participantName: 'Alice',
+      participantRole: 'game_designer',
+      kind: 'practice',
+    });
+    expect(takeover.status).toBe(200);
+    expect(app.session.snapshot().meetingId).not.toBe(meetingId);
+    expect(app.session.generation()).toBeGreaterThan(generation);
+    expect(app.session.practiceSeat()).toBe('game_designer');
+    const stale = await request(port, '/api/meeting/start', 'POST', undefined, capability);
+    expect([401, 403]).toContain(stale.status);
   });
 
   it('refuses a queued practice Start once the owner has opened a real meeting', async () => {

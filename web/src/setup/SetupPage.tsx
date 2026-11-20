@@ -19,6 +19,7 @@ import {
   loadSetup,
   openMeeting,
   startBlankSetup,
+  type SetupResponse,
 } from './api';
 import { SetupDraft } from './SetupDraft';
 import { SetupEditor } from './SetupEditor';
@@ -33,6 +34,16 @@ type SetupState =
 interface ImportProblem {
   message: string;
   fieldErrors: SetupFieldError[];
+}
+
+/** Every setup write returns the whole lifecycle, so the page never drops the meeting kind. */
+function readyState(result: SetupResponse): SetupState {
+  return {
+    status: 'ready',
+    setup: result.setup,
+    started: result.started,
+    ...(result.kind === undefined ? {} : { kind: result.kind }),
+  };
 }
 
 function PageHeader() {
@@ -81,14 +92,7 @@ export function SetupPage() {
     setState({ status: 'loading' });
     loadSetup()
       .then((result) => {
-        if (!cancelled) {
-          setState({
-            status: 'ready',
-            setup: result.setup,
-            started: result.started,
-            ...(result.kind === undefined ? {} : { kind: result.kind }),
-          });
-        }
+        if (!cancelled) setState(readyState(result));
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -176,7 +180,7 @@ export function SetupPage() {
     setBlankProblem(null);
     try {
       const result = await startBlankSetup();
-      setState({ status: 'ready', setup: result.setup, started: result.started });
+      setState(readyState(result));
       setConfirmBlank(false);
       setDraftDirty(false);
     } catch (error) {
@@ -206,7 +210,7 @@ export function SetupPage() {
     setImportProblem(null);
     try {
       const result = await importKopitiamDemo();
-      setState({ status: 'ready', setup: result.setup, started: result.started });
+      setState(readyState(result));
     } catch (error) {
       setImportProblem({
         message: error instanceof Error ? error.message : 'Could not load the Kopitiam demo.',
@@ -225,6 +229,25 @@ export function SetupPage() {
         <p className="connection-banner setup-locked" role="status">
           The meeting has started; setup is locked. <Link to="/meeting">Go to the meeting</Link>
         </p>
+      ) : null}
+
+      {canEdit && state.status === 'ready' && state.kind === 'practice' ? (
+        <section className="card setup-open" aria-label="Practice meeting">
+          <div className="setup-import-row">
+            <div>
+              <h2 className="card-title">
+                Practice meeting {state.started ? 'running' : 'open'}
+              </h2>
+              <p className="setup-note">
+                End it before you open the team meeting room. Its room and its visitor's access end
+                with it.
+              </p>
+            </div>
+            <Button variant="ghost" onClick={() => void endPractice()} disabled={actionBusy}>
+              {actionBusy ? 'Ending…' : 'End the practice meeting'}
+            </Button>
+          </div>
+        </section>
       ) : null}
 
       {signedOut ? (
@@ -383,7 +406,7 @@ export function SetupPage() {
             <SetupEditor
               setup={state.setup}
               scenario={scenario}
-              onSaved={(setup) => setState({ status: 'ready', setup, started: false })}
+              onSaved={(result) => setState(readyState(result))}
               onDirtyChange={notifyDirty}
             />
           ) : (

@@ -44,7 +44,12 @@ export interface Auth {
    * keeps the host and replaces their session with one that also carries the seat's meeting.
    * Returns false when another live holder already owns the seat.
    */
-  enterSeat(request: IncomingMessage, response: ServerResponse, role: string): Promise<boolean>;
+  enterSeat(
+    request: IncomingMessage,
+    response: ServerResponse,
+    role: string,
+    expectedMeetingId?: string,
+  ): Promise<boolean>;
   /** Bind seat grants to the server's current meeting generation. */
   bindMeetingIdentity(meetingId: () => string | undefined): void;
   /** Point phone joins and seat sockets at the live setup's offered seats. */
@@ -65,6 +70,11 @@ export interface JoinGuard {
   meetingKind(): 'real' | 'practice' | undefined;
   practiceSeat(): string | undefined;
   hasPracticeCapability(request: IncomingMessage): boolean;
+  /**
+   * Run the whole join inside the one admission queue that serializes every meeting change. A
+   * lifecycle change can then never land between this request's checks and its seat claim.
+   */
+  admit<T>(task: () => Promise<T>): Promise<T>;
 }
 
 /** Everything the auth module needs, injected so tests can use an in-memory store. */
@@ -261,10 +271,14 @@ export function createAuth({
     request: IncomingMessage,
     response: ServerResponse,
     role: string,
+    expectedMeetingId: string = currentMeetingId(),
   ): Promise<boolean> {
     const existing = await currentSession(request);
+    // The meeting this claim was validated against must still be the one it enters. A lifecycle
+    // change during the session lookup (a close, a reset, a practice handoff) refuses the claim.
+    if (currentMeetingId() !== expectedMeetingId) return false;
     const token = randomBytes(32).toString('base64url');
-    const meetingId = currentMeetingId();
+    const meetingId = expectedMeetingId;
     // A host taking a seat is still the host; the new session also carries the seat's meeting.
     const kind: SessionKind = existing?.kind === 'host' ? 'host' : 'participant';
     // The claim transfer, the new session and the old session's retirement are one store step:
@@ -414,60 +428,85 @@ export function createAuth({
     const role = stringField(parsed.value, 'role');
     const ip = clientAddress(request);
 
-    // A practice meeting has one visitor and one seat. `/api/join` may admit that exact seat only
-    // when the request carries the meeting's capability; it never creates a sign-in session, so
-    // the practice principal can never reach setup or another role's authority.
-    const kind = joinGuard?.meetingKind();
-    if (kind === 'practice') {
-      if (joinGuard?.hasPracticeCapability(request) !== true) {
-        sendJson(response, 403, { error: 'Practice access belongs to its practice meeting only.' });
+    // The checks and the seat claim are one admission step: a close, reset or practice handoff that
+    // arrives while this join waits must be seen as a changed meeting, never entered silently.
+    const run = async (): Promise<void> => {
+      // The identity this join was validated against. The claim must enter exactly this meeting.
+      const meetingIdAtStart = currentMeetingId();
+      const meetingChanged = (): boolean => currentMeetingId() !== meetingIdAtStart;
+
+      // A practice meeting has one visitor and one seat. `/api/join` may admit that exact seat only
+      // when the request carries the meeting's capability; it never creates a sign-in session, so
+      // the practice principal can never reach setup or another role's authority.
+      const kind = joinGuard?.meetingKind();
+      if (kind === 'practice') {
+        if (joinGuard?.hasPracticeCapability(request) !== true) {
+          sendJson(response, 403, { error: 'Practice access belongs to its practice meeting only.' });
+          return;
+        }
+        if (role === undefined || role.trim() === '') {
+          sendJson(response, 400, { error: 'Choose your role.' });
+          return;
+        }
+        const seat = joinGuard.practiceSeat();
+        if (seat === undefined || role.trim().toLowerCase() !== seat.trim().toLowerCase()) {
+          sendJson(response, 403, { error: 'A practice meeting only opens the seat its visitor took.' });
+          return;
+        }
+        if (meetingChanged()) {
+          sendJson(response, 409, {
+            error: 'The meeting changed while you were joining; try again in a moment.',
+            retryable: true,
+          });
+          return;
+        }
+        sendJson(response, 200, { kind: 'practice', role: seat });
         return;
       }
+      // No legacy join: a team-meeting sign-in exists only after the owner opened a real meeting.
+      if (kind !== 'real') {
+        sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
+        return;
+      }
+
+      if (meetingCodeAttempts.isLimited(ip)) {
+        sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
+        return;
+      }
+      if (rawCode === undefined || rawCode.trim() === '') {
+        sendJson(response, 400, { error: 'Enter the meeting code.' });
+        return;
+      }
+      if (rawCode.trim().toUpperCase() !== meetingCode.value) {
+        meetingCodeAttempts.recordFailure(ip);
+        sendJson(response, 403, { error: 'That meeting code is not valid.' });
+        return;
+      }
+      meetingCodeAttempts.clear(ip);
       if (role === undefined || role.trim() === '') {
         sendJson(response, 400, { error: 'Choose your role.' });
         return;
       }
-      const seat = joinGuard.practiceSeat();
-      if (seat === undefined || role.trim().toLowerCase() !== seat.trim().toLowerCase()) {
-        sendJson(response, 403, { error: 'A practice meeting only opens the seat its visitor took.' });
+      if (!seatIsOffered(role)) {
+        sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
         return;
       }
-      sendJson(response, 200, { kind: 'practice', role: seat });
-      return;
-    }
-    // No legacy join: a team-meeting sign-in exists only after the owner opened a real meeting.
-    if (kind !== 'real') {
-      sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
-      return;
-    }
+      if (!(await enterSeat(request, response, role, meetingIdAtStart))) {
+        if (meetingChanged()) {
+          sendJson(response, 409, {
+            error: 'The meeting changed while you were joining; try again in a moment.',
+            retryable: true,
+          });
+          return;
+        }
+        sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
+        return;
+      }
+      sendJson(response, 200, { kind: 'participant', role });
+    };
 
-    if (meetingCodeAttempts.isLimited(ip)) {
-      sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
-      return;
-    }
-    if (rawCode === undefined || rawCode.trim() === '') {
-      sendJson(response, 400, { error: 'Enter the meeting code.' });
-      return;
-    }
-    if (rawCode.trim().toUpperCase() !== meetingCode.value) {
-      meetingCodeAttempts.recordFailure(ip);
-      sendJson(response, 403, { error: 'That meeting code is not valid.' });
-      return;
-    }
-    meetingCodeAttempts.clear(ip);
-    if (role === undefined || role.trim() === '') {
-      sendJson(response, 400, { error: 'Choose your role.' });
-      return;
-    }
-    if (!seatIsOffered(role)) {
-      sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
-      return;
-    }
-    if (!(await enterSeat(request, response, role))) {
-      sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
-      return;
-    }
-    sendJson(response, 200, { kind: 'participant', role });
+    if (joinGuard === undefined) await run();
+    else await joinGuard.admit(run);
   }
 
   async function handleMeetingCode(response: ServerResponse): Promise<void> {

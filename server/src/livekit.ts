@@ -32,17 +32,28 @@ export interface RoomJoin {
 export class JoinError extends Error {}
 
 /**
+ * Why this display name cannot become a room identity, or undefined when it can. Kept separate
+ * from signing so a caller can refuse a bad name before it commits a meeting reset.
+ */
+export function joinNameProblem(participantName: string, reservedNames: readonly string[] = []): string | undefined {
+  const name = participantName.trim();
+  if (name.length === 0) return 'participantName is required';
+  if (name.length > 60) return 'participantName is too long';
+  if (reservedNames.some((reserved) => reserved.toLowerCase() === name.toLowerCase())) {
+    return `"${name}" is an AI attendee; pick another name`;
+  }
+  return undefined;
+}
+
+/**
  * Sign a room token for one person. A token's identity is the display name, so an empty name,
  * or a name an AI attendee already uses, is refused: two participants with one identity would
  * kick each other out of the room.
  */
 export async function createRoomToken(join: RoomJoin, reservedNames: readonly string[] = []): Promise<string> {
   const name = join.participantName.trim();
-  if (name.length === 0) throw new JoinError('participantName is required');
-  if (name.length > 60) throw new JoinError('participantName is too long');
-  if (reservedNames.some((reserved) => reserved.toLowerCase() === name.toLowerCase())) {
-    throw new JoinError(`"${name}" is an AI attendee; pick another name`);
-  }
+  const problem = joinNameProblem(name, reservedNames);
+  if (problem !== undefined) throw new JoinError(problem);
 
   const { key, secret } = livekitCredentials();
   const token = new AccessToken(key, secret, {

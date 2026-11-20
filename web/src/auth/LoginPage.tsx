@@ -5,11 +5,26 @@ import { signIn } from './api';
 import { useMe } from './useMe';
 import './auth.css';
 
-/** Only a path on this site is a safe place to return to after sign-in. */
+/** Every route this app serves; a return path must name one of them. */
+const APP_ROUTES = new Set(['/', '/practice', '/demo', '/join', '/meeting', '/login', '/setup', '/screen', '/phone']);
+
+/**
+ * Only a parsed same-origin path that names a real page is a safe place to return to after
+ * sign-in. Anything else (an external URL, a slash-backslash trick, a control character) falls
+ * back to the shared screen instead of handing the router an unparseable target.
+ */
 function returnPath(value: string | null | undefined): string {
-  return value !== null && value !== undefined && value.startsWith('/') && !value.startsWith('//')
-    ? value
-    : '/screen';
+  if (value === null || value === undefined) return '/screen';
+  let parsed: URL;
+  try {
+    parsed = new URL(value, window.location.origin);
+  } catch {
+    return '/screen';
+  }
+  if (parsed.origin !== window.location.origin || !APP_ROUTES.has(parsed.pathname)) {
+    return '/screen';
+  }
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
 /** Host sign-in page; a signed-in host goes straight to the page that asked for sign-in. */

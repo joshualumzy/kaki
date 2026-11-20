@@ -78,6 +78,21 @@ describe('ScenarioProvider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it('loads the practice pack projection on a practice page', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ScenarioProvider view="practice">
+        <p>Meeting ready</p>
+      </ScenarioProvider>,
+    );
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/scenario?kind=practice');
+    expect(screen.getByText('Meeting ready')).toBeTruthy();
+  });
+
   it('fails at once on a status that is not the server starting', async () => {
     const fetchMock = vi.fn().mockResolvedValue(statusResponse(404));
     vi.stubGlobal('fetch', fetchMock);

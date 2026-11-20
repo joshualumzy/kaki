@@ -15,10 +15,25 @@ type ScenarioState =
   | { status: 'ready'; scenario: Scenario }
   | { status: 'error'; message: string };
 
+/**
+ * Which scenario a page needs: the practice page follows the pack, independent of the owner's
+ * real-meeting draft; every other page follows the meeting in progress.
+ */
+export type ScenarioView = 'practice' | 'meeting';
+
 const ScenarioContext = createContext<Scenario | null>(null);
 const RefreshScenarioContext = createContext<(() => Promise<Scenario>) | null>(null);
 
-let scenarioPromise: Promise<Scenario> | undefined;
+const scenarioPromises: Partial<Record<ScenarioView, Promise<Scenario>>> = {};
+
+/** Practice pages follow the pack; every other page follows the meeting in progress. */
+export function viewForPath(pathname: string): ScenarioView {
+  return pathname === '/practice' || pathname === '/demo' ? 'practice' : 'meeting';
+}
+
+function scenarioUrl(view: ScenarioView): string {
+  return view === 'practice' ? '/api/scenario?kind=practice' : '/api/scenario';
+}
 
 /** How long to keep retrying while the API server is starting behind the reverse proxy. */
 const SERVER_START_TIMEOUT_MS = 90_000;
@@ -35,25 +50,28 @@ type Attempt =
   | { status: 'ready'; scenario: Scenario }
   | { status: 'starting'; error: unknown };
 
-async function attemptScenario(): Promise<Attempt> {
+async function attemptScenario(view: ScenarioView): Promise<Attempt> {
   let response: Response;
   try {
-    response = await fetch('/api/scenario');
+    response = await fetch(scenarioUrl(view));
   } catch (error) {
     return { status: 'starting', error };
   }
   if (!response.ok) {
-    const error = new Error(`GET /api/scenario failed (${response.status})`);
+    const error = new Error(`GET ${scenarioUrl(view)} failed (${response.status})`);
     if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
     throw error;
   }
   return { status: 'ready', scenario: parseScenario(await response.json()) };
 }
 
-async function fetchScenario({ onRetry }: { onRetry?: () => void } = {}): Promise<Scenario> {
+async function fetchScenario(
+  view: ScenarioView,
+  { onRetry }: { onRetry?: () => void } = {},
+): Promise<Scenario> {
   const startedAt = Date.now();
   for (;;) {
-    const attempt = await attemptScenario();
+    const attempt = await attemptScenario(view);
     if (attempt.status === 'ready') return attempt.scenario;
     if (Date.now() - startedAt >= SERVER_START_TIMEOUT_MS) throw attempt.error;
     onRetry?.();
@@ -61,16 +79,22 @@ async function fetchScenario({ onRetry }: { onRetry?: () => void } = {}): Promis
   }
 }
 
-function loadScenario(onRetry?: () => void): Promise<Scenario> {
-  scenarioPromise ??= fetchScenario({ onRetry }).catch((error: unknown) => {
-    scenarioPromise = undefined;
+function loadScenario(view: ScenarioView, onRetry?: () => void): Promise<Scenario> {
+  scenarioPromises[view] ??= fetchScenario(view, { onRetry }).catch((error: unknown) => {
+    scenarioPromises[view] = undefined;
     throw error;
   });
-  return scenarioPromise;
+  return scenarioPromises[view];
 }
 
-/** Fetch the active scenario once and make it available to every page. */
-export function ScenarioProvider({ children }: { children: ReactNode }) {
+/** Fetch the active scenario once per view and make it available to every page. */
+export function ScenarioProvider({
+  children,
+  view = 'meeting',
+}: {
+  children: ReactNode;
+  view?: ScenarioView;
+}) {
   const [state, setState] = useState<ScenarioState>({ status: 'loading' });
   const [starting, setStarting] = useState(false);
   const loadId = useRef(0);
@@ -80,7 +104,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setStarting(false);
     setState({ status: 'loading' });
     // Not id-guarded: a remount (StrictMode) reuses the cached load, whose callback is the first mount's.
-    loadScenario(() => setStarting(true))
+    loadScenario(view, () => setStarting(true))
       .then((scenario) => {
         if (loadId.current === id) setState({ status: 'ready', scenario });
       })
@@ -91,7 +115,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
           message: error instanceof Error ? error.message : 'Could not load the scenario',
         });
       });
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     start();
@@ -124,8 +148,8 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   }
 
   async function refresh(): Promise<Scenario> {
-    const fresh = await fetchScenario();
-    scenarioPromise = Promise.resolve(fresh);
+    const fresh = await fetchScenario(view);
+    scenarioPromises[view] = Promise.resolve(fresh);
     setState({ status: 'ready', scenario: fresh });
     return fresh;
   }
@@ -144,8 +168,8 @@ export function useScenario(): Scenario {
   return scenario;
 }
 
-/** Re-fetch `/api/scenario` when a new meeting starts so the browser gets the shuffled agenda order. */
+/** Re-fetch the page's scenario when a new meeting starts so the browser gets the shuffled agenda order. */
 export function useRefreshScenario(): () => Promise<Scenario> {
   const refresh = useContext(RefreshScenarioContext);
-  return refresh ?? fetchScenario;
+  return refresh ?? (() => fetchScenario('meeting'));
 }

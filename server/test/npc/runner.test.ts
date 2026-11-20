@@ -190,7 +190,6 @@ describe('server-owned start preparation', () => {
     rooms.length = 0;
     published.length = 0;
     startup.hold = false;
-    startup.release = undefined;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
     const runner = await startNpcRunner({
@@ -235,6 +234,7 @@ describe('server-owned start preparation', () => {
     const hostOnly = (scenario.npcs ?? []).filter((npc) => npc.role === 'host');
     const runner = await startNpcRunner({
       scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
@@ -270,6 +270,51 @@ describe('server-owned start preparation', () => {
       expect(tokens).toContain('Mei');
       expect(runner.plays('Arjun')).toBe(true);
     } finally {
+      await runner.stop();
+    }
+  });
+
+  it('moves out of the boot room on the first identity, and reports ready only after the move', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    startup.hold = false;
+    const staleRelease = startup.release;
+    const scenario = await loadScenario('kopitiam');
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      responseDelayMs: 0,
+    });
+    try {
+      const roomsBeforeMove = rooms.length;
+      // Hold the new room's first character publish so the move cannot finish yet.
+      startup.hold = true;
+      let ready = false;
+      const prepared = runner
+        .prepareMeeting({
+          meetingId: 'meeting-1',
+          attempt: 'attempt-1',
+          snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1' }),
+        })
+        .then(() => {
+          ready = true;
+        });
+      // Before the fix the runner never moves out of the boot room, so no new publish is ever held.
+      await vi.waitFor(() => expect(startup.release !== undefined && startup.release !== staleRelease).toBe(true));
+      expect(ready).toBe(false);
+      expect(rooms.length).toBeGreaterThan(roomsBeforeMove);
+
+      startup.release?.();
+      await prepared;
+      expect(ready).toBe(true);
+      expect(runner.meetingId()).toBe('meeting-1');
+    } finally {
+      startup.hold = false;
+      startup.release?.();
       await runner.stop();
     }
   });
@@ -756,6 +801,7 @@ describe('setup edits before Start', () => {
     const bootPack = { ...pack, agenda: pack.agenda.slice(0, 2) };
     const runner = await startNpcRunner({
       scenario: bootPack,
+      initialMeeting: runnerSnapshot(bootPack, { meetingId: 'meeting-1' }),
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
@@ -1145,6 +1191,7 @@ describe('meeting sync with the real runner', () => {
     const log: string[] = [];
     const runner = await startNpcRunner({
       scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
