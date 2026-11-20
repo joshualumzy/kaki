@@ -1117,7 +1117,7 @@ function verifierMessages(
     ...roles,
     'Reply with one JSON object only.',
     'Shape: {"answers":[{"id":"q-1","verdict":"yes|no|unclear"}],"tasks":[{"index":0,"verdict":"yes|no|unclear","assigneeRole":"role-id" or null}]}.',
-    'Include exactly one entry for every candidate under judgement. assigneeRole must name the role that owns a "yes" deliverable.',
+    'Include exactly one entry for every candidate under judgement. assigneeRole must name the role of the person who will do the work: for a request, the person who was asked (by name or role), never the speaker who asked. Check the suggested owner against the quote and correct it when the quote names someone else.',
   ].join('\n');
   const user = [
     'Questions to judge:',
