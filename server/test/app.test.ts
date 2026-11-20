@@ -133,6 +133,14 @@ describe('app', () => {
     expect(screen.messages).toEqual([]);
   });
 
+  it('serves the meeting code with sign-in off, so the owner lobby can show it', async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/meeting-code`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { code: unknown };
+    expect(typeof body.code).toBe('string');
+    expect((body.code as string).length).toBeGreaterThan(0);
+  });
+
   it('serves the health check and the active scenario', async () => {
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     expect(health.status).toBe(200);

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, parseScenario, pruneAgendaReferences, resolveAgendaPick, seatProblem, setMeetingAgenda, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, parseScenario, resolveAgendaPick, seatProblem, setMeetingAgenda, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -302,6 +302,7 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'GET', path: '/health', access: 'public' },
     { method: 'GET', path: '/api/meeting/state', access: 'public' },
     { method: 'GET', path: '/api/meeting/participants', access: 'host' },
+    { method: 'GET', path: '/api/meeting-code', access: 'host' },
     { method: 'GET', path: '/api/runner/meeting-state', access: 'service' },
     { method: 'POST', path: '/api/livekit/token', access: 'public' },
     { method: 'POST', path: '/api/meeting/start', access: 'host-or-practice' },
@@ -340,7 +341,6 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'POST', path: '/api/auth/logout', access: 'public' },
     { method: 'GET', path: '/api/auth/me', access: 'public' },
     { method: 'POST', path: '/api/join', access: 'public' },
-    { method: 'GET', path: '/api/meeting-code', access: 'host' },
   );
   return routes;
 }
@@ -1012,6 +1012,13 @@ async function handleRequest(
         return { status: 200, body: { ok: true, phase: context.session.phase() } };
       });
       sendJson(response, outcome.status, outcome.body);
+      return;
+    }
+
+    // The meeting code is owner-only, whether or not sign-in is configured: the owner's lobby and
+    // the shared screen need it in both modes, and the access check above already enforced it.
+    if (request.method === 'GET' && path === '/api/meeting-code') {
+      sendJson(response, 200, { code: context.meetingCode.value });
       return;
     }
 
@@ -2577,25 +2584,30 @@ export async function createApp({
     }
     const setup = session.draft();
     const joinSeats = personSeatRoles(setup);
-    // A blank draft has no agenda yet: keep the live one rather than publish an empty scenario.
-    const useDraftAgenda = sealed === undefined && setup.agenda.length > 0;
-    // The live view keeps its cast; its title, roles and offered seats follow the owner's setup,
-    // so a renamed meeting or role is shown (and admitted) by the plan people will actually join.
-    const scenario: Scenario = {
-      ...active,
-      meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
-      roles: setupScenarioRoles(fullScenario, setup),
-      // A kept seal (an ended meeting) still owns the view; only the next meeting's draft
-      // replaces the agenda once that meeting is really gone.
-      agenda: useDraftAgenda
-        ? meetingAgendaFromSetup(setup, active, setup.agenda.map((item) => item.title))
-        : active.agenda,
-      joinSeats,
-    };
+    // The lobby must show exactly the meeting Start will seal, so build it with the same builder
+    // admission uses. This keeps a pack-free draft's own organisation, people and story instead
+    // of the demo pack's.
+    const derived = scenarioFromSetup(setup);
+    // A kept seal (an ended meeting) and a draft with no agenda yet still own the live view: its
+    // cast, story and agenda stay while the next draft supplies the title, roles and seats
+    // admission will use. Without an agenda the draft cannot stand alone.
+    const scenario: Scenario =
+      sealed !== undefined || setup.agenda.length === 0
+        ? {
+            ...active,
+            meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
+            roles: derived.roles,
+            agenda: active.agenda,
+            joinSeats,
+          }
+        : {
+            ...derived,
+            // A blank draft has not named the meeting yet: keep the live title.
+            ...(setup.title.trim() === '' ? { meetingTitle: active.meetingTitle } : {}),
+          };
     return {
-      // A replaced agenda must not keep links or excluded pairs that name a topic it dropped.
-      scenario: useDraftAgenda ? pruneAgendaReferences(scenario) : scenario,
-      admissionScenario: scenarioFromSetup(setup),
+      scenario,
+      admissionScenario: derived,
       setup,
       admissionCap: personSeatCapacity(setup),
     };

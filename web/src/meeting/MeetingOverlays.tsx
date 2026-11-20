@@ -29,6 +29,10 @@ async function errorOf(response: Response, fallback: string): Promise<string> {
   return typeof body?.error === 'string' ? body.error : `${fallback} (HTTP ${response.status})`;
 }
 
+function messageOf(reason: unknown, fallback: string): string {
+  return reason instanceof Error ? reason.message : fallback;
+}
+
 function seatLabel(scenario: Scenario, seat: string): string {
   return scenario.roles.find((role) => role.id === seat)?.label ?? seat;
 }
@@ -71,39 +75,57 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
 
     async function load(): Promise<void> {
       try {
-        const [codeResponse, stateResponse, peopleResponse] = await Promise.all([
+        // Each read stands on its own: one failed code fetch must not hide who has joined.
+        const [codeResult, stateResult, peopleResult] = await Promise.allSettled([
           fetchWithTimeout('/api/meeting-code', { signal: controller.signal }),
           fetchWithTimeout('/api/meeting/state', { signal: controller.signal }),
           fetchWithTimeout('/api/meeting/participants', { signal: controller.signal }),
         ]);
         if (cancelled) return;
-        if (!codeResponse.ok) {
-          setProblem(await errorOf(codeResponse, 'Could not read the meeting code'));
-          return;
+        const problems: string[] = [];
+        let nextCode: string | undefined;
+        let started = false;
+        let nextParticipants: LobbyParticipant[] | undefined;
+
+        if (codeResult.status === 'fulfilled' && codeResult.value.ok) {
+          const codeBody = (await codeResult.value.json().catch(() => null)) as { code?: unknown } | null;
+          if (typeof codeBody?.code === 'string' && codeBody.code.trim() !== '') {
+            nextCode = codeBody.code.trim();
+          }
+        } else if (codeResult.status === 'fulfilled') {
+          problems.push(await errorOf(codeResult.value, 'Could not read the meeting code'));
+        } else {
+          problems.push(messageOf(codeResult.reason, 'Could not read the meeting code'));
         }
-        if (!stateResponse.ok) {
-          setProblem(await errorOf(stateResponse, 'Could not read the meeting state'));
-          return;
+
+        if (stateResult.status === 'fulfilled' && stateResult.value.ok) {
+          const stateBody = (await stateResult.value.json().catch(() => null)) as
+            | { started?: unknown }
+            | null;
+          started = stateBody?.started === true;
+        } else if (stateResult.status === 'fulfilled') {
+          problems.push(await errorOf(stateResult.value, 'Could not read the meeting state'));
+        } else {
+          problems.push(messageOf(stateResult.reason, 'Could not read the meeting state'));
         }
-        if (!peopleResponse.ok) {
-          setProblem(await errorOf(peopleResponse, 'Could not read who has joined'));
-          return;
+
+        if (peopleResult.status === 'fulfilled' && peopleResult.value.ok) {
+          const peopleBody = (await peopleResult.value.json().catch(() => null)) as
+            | { participants?: unknown }
+            | null;
+          nextParticipants = participantsOf(peopleBody?.participants);
+        } else if (peopleResult.status === 'fulfilled') {
+          problems.push(await errorOf(peopleResult.value, 'Could not read who has joined'));
+        } else {
+          problems.push(messageOf(peopleResult.reason, 'Could not read who has joined'));
         }
-        const codeBody = (await codeResponse.json().catch(() => null)) as { code?: unknown } | null;
-        const stateBody = (await stateResponse.json().catch(() => null)) as
-          | { started?: unknown }
-          | null;
-        const peopleBody = (await peopleResponse.json().catch(() => null)) as
-          | { participants?: unknown }
-          | null;
+
         if (cancelled) return;
-        if (typeof codeBody?.code === 'string' && codeBody.code.trim() !== '') {
-          setCode(codeBody.code.trim());
-        }
-        setParticipants(participantsOf(peopleBody?.participants));
+        if (nextCode !== undefined) setCode(nextCode);
+        if (nextParticipants !== undefined) setParticipants(nextParticipants);
         setLoaded(true);
-        setProblem(undefined);
-        if (stateBody?.started === true) onStarted();
+        setProblem(problems.length === 0 ? undefined : problems.join(' '));
+        if (started) onStarted();
       } catch (error) {
         if (cancelled) return;
         setProblem(error instanceof Error ? error.message : 'Could not read the meeting room.');

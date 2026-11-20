@@ -92,6 +92,19 @@ describe('OwnerLobby', () => {
     await waitFor(() => expect(onStarted).toHaveBeenCalled());
   });
 
+  it('still shows who joined when the meeting-code read fails', async () => {
+    installFetch({
+      '/api/meeting-code': () => reply({ error: 'Not found' }, 404),
+      '/api/meeting/state': () => reply({ started: false }),
+      '/api/meeting/participants': () => reply({ participants: [{ name: 'Ada', seat: 'producer' }] }),
+    });
+    render(<OwnerLobby initialCode="K7QX" onStarted={vi.fn()} />);
+
+    expect(await screen.findByText('Ada')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /\/join\?code=K7QX/ })).toBeTruthy();
+    expect(await screen.findByRole('alert')).toBeTruthy();
+  });
+
   it('shows a plain error and retries the lobby read', async () => {
     let attempts = 0;
     installFetch({

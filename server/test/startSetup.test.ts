@@ -16,7 +16,11 @@ import {
 import type { CalendarSettings } from '../src/action/calendar';
 import { createWikiModule } from '../src/action/wiki';
 import { createApp, type CreateAppOptions, type KakiApp } from '../src/app';
+import { createAuth } from '../src/auth/module';
+import { hashPassword } from '../src/auth/password';
+import { createMemoryAuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
+import { createMeetingCodeSource } from '../src/meetingCode';
 import { createMeetingModule } from '../src/host/meeting';
 import { loadScenario } from '../src/loadScenario';
 import type { KakiModule } from '../src/modules';
@@ -720,7 +724,6 @@ describe('Start applies the validated setup', () => {
     const scenario = structuredClone(packScenario);
     scenario.npcs![0]!.playable = true;
     const app = await startApp(scenario);
-    const before = structuredClone(await getScenario(app));
 
     const draft = await getSetup(app);
     draft.title = 'A different meeting';
@@ -731,15 +734,16 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
-    // The lobby shows the saved draft: its own agenda, renamed roles and seats. The failed Start
-    // applied nothing to the running meeting, so the cast is still the pack's.
+    // The lobby shows the saved draft: its own agenda, renamed roles and seats. Its cast is the
+    // one Start would run, so the person seat is not voiced as an AI attendee.
     expect(agendaShape(after)).toEqual(
       draft.agenda.map(({ title, minutes, ownerRoleId }) => ({ title, minutes, ownerRole: ownerRoleId })),
     );
     expect(after.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator: facilitator === true }))).toEqual(
       draft.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator })),
     );
-    expect(after.npcs).toEqual(before.npcs);
+    expect(after.npcs?.map((npc) => npc.attendee)).toEqual(['Bao', 'Cy']);
+    expect(after.npcs?.every((npc) => npc.playable !== true)).toBe(true);
     expect((await getSetup(app)).title).toBe('A different meeting');
   });
 
@@ -1013,8 +1017,12 @@ describe('Start applies the validated setup', () => {
     expect(after.roles.map(({ id, label }) => ({ id, label }))).toEqual(
       before.roles.map(({ id, label }) => ({ id, label })),
     );
-    expect(after.npcs).toEqual(before.npcs);
-    expect(after.excludedPairs).toEqual(before.excludedPairs);
+    // The lobby cast follows the draft's seats: its person seat is not voiced as an AI attendee.
+    expect(after.npcs?.map((npc) => npc.attendee)).toEqual(
+      before.npcs?.map((npc) => npc.attendee).filter((name) => name !== 'Wei Ling'),
+    );
+    expect(after.npcs?.every((npc) => npc.playable !== true)).toBe(true);
+    expect(after.excludedPairs).toEqual([pair]);
   });
 
   it('seats exactly the setup person seats: two people join, a third is refused', async () => {
@@ -1201,6 +1209,79 @@ describe('Start applies the validated setup', () => {
     const active = await getScenario(app);
     expect(active.npcs ?? []).toEqual([]);
     expect(active.roles.map((role) => role.id)).toContain('chair');
+  });
+
+  it('serves an opened pack-free draft lobby to the owner and the public without the demo story', async () => {
+    const pack = await loadScenario('kopitiam');
+    const store = createMemoryAuthStore();
+    await store.createUser({ email: 'owner@example.com', passwordHash: await hashPassword('owner-pass') });
+    const meetingCode = createMeetingCodeSource('K7M2Q9');
+    const auth = createAuth({ store, meetingCode });
+    const app = await startApp(pack, { auth, meetingCode });
+    const base = `http://127.0.0.1:${portOf(app)}`;
+
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'owner@example.com', password: 'owner-pass' }),
+    });
+    expect(login.status).toBe(200);
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    expect(cookie).not.toBe('');
+
+    const getScenarioAs = async (as: 'owner' | 'public'): Promise<Scenario> => {
+      const response = await fetch(`${base}/api/scenario`, as === 'owner' ? { headers: { cookie } } : undefined);
+      expect(response.status).toBe(200);
+      return (await response.json()) as Scenario;
+    };
+
+    // The untouched pack lobby still shows the demo story.
+    const demo = await getScenarioAs('owner');
+    expect(demo.situation).toBe(pack.situation);
+    expect(demo.attendees.map((attendee) => attendee.name)).toEqual(
+      pack.attendees.map((attendee) => attendee.name),
+    );
+
+    const setup: MeetingSetup = {
+      title: 'Floor huddle',
+      organisation: 'Harbour Bakery',
+      agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'chair' }],
+      roles: [
+        { id: 'chair', label: 'Chair', facilitator: true },
+        { id: 'scribe', label: 'Scribe', facilitator: false },
+      ],
+      seats: [
+        { displayName: 'Alice', roleId: 'chair', kind: 'person' },
+        { displayName: 'Ben', roleId: 'scribe', kind: 'person' },
+      ],
+      pace: DEFAULT_MEETING_PACE,
+      source: { title: 'typed', agenda: 'typed', roles: 'typed', seats: 'typed', pace: 'typed' },
+    };
+    expect(isPackFreeMeeting(setup, pack)).toBe(true);
+    const saved = await fetch(`${base}/api/setup`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify(setup),
+    });
+    expect(saved.status).toBe(200);
+
+    const checkDraftView = (view: Scenario): void => {
+      expect(view.meetingTitle).toBe('Floor huddle');
+      expect(view.organisation).toBe('Harbour Bakery');
+      expect(view.situation).toBeUndefined();
+      expect(view.background).toBeUndefined();
+      expect(view.npcs ?? []).toEqual([]);
+      expect(view.attendees.map((attendee) => attendee.name)).toEqual(['Alice', 'Ben']);
+    };
+
+    // Before Start the owner sees the meeting Start will seal, not the pack it came from.
+    checkDraftView(await getScenarioAs('owner'));
+
+    // The plan the owner opens is frozen for the public, and it is the same pack-free meeting.
+    const opened = await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie } });
+    expect(opened.status).toBe(200);
+    checkDraftView(await getScenarioAs('owner'));
+    checkDraftView(await getScenarioAs('public'));
   });
 
   it('ends a blank-plan meeting with minutes for the chair and only present people quiet', async () => {

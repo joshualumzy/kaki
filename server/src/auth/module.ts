@@ -511,10 +511,6 @@ export function createAuth({
     else await joinGuard.admit(run);
   }
 
-  async function handleMeetingCode(response: ServerResponse): Promise<void> {
-    sendJson(response, 200, { code: meetingCode.value });
-  }
-
   /**
    * The one principal resolution shared by HTTP and WebSocket upgrades. A phone belongs to one
    * meeting, not merely to a code, so a fixed code cannot carry it into the next meeting.
@@ -591,10 +587,6 @@ export function createAuth({
       }
       if (request.method === 'POST' && path === '/api/join') {
         await handleJoin(request, response);
-        return true;
-      }
-      if (request.method === 'GET' && path === '/api/meeting-code') {
-        await handleMeetingCode(response);
         return true;
       }
       return false;
