@@ -7,6 +7,7 @@ import { Button, Card } from '../ui';
 import {
   OpenMeetingError,
   SetupApiError,
+  closeMeetingRoom,
   endPracticeMeeting,
   importKopitiamDemo,
   loadSetup,
@@ -19,7 +20,7 @@ import './setup.css';
 
 type SetupState =
   | { status: 'loading' }
-  | { status: 'ready'; setup: MeetingSetup; started: boolean }
+  | { status: 'ready'; setup: MeetingSetup; started: boolean; kind?: 'real' | 'practice' }
   | { status: 'error'; message: string; signIn: boolean };
 
 interface ImportProblem {
@@ -69,7 +70,14 @@ export function SetupPage() {
     setState({ status: 'loading' });
     loadSetup()
       .then((result) => {
-        if (!cancelled) setState({ status: 'ready', setup: result.setup, started: result.started });
+        if (!cancelled) {
+          setState({
+            status: 'ready',
+            setup: result.setup,
+            started: result.started,
+            ...(result.kind === undefined ? {} : { kind: result.kind }),
+          });
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -109,6 +117,20 @@ export function SetupPage() {
         error instanceof Error ? error.message : 'Could not open the meeting room.',
       );
       setPracticeInProgress(error instanceof OpenMeetingError && error.practiceInProgress);
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function closeRoom(): Promise<void> {
+    if (actionBusy) return;
+    setActionBusy(true);
+    setOpenProblem(null);
+    try {
+      await closeMeetingRoom();
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      setOpenProblem(error instanceof Error ? error.message : 'Could not close the meeting room.');
     } finally {
       setActionBusy(false);
     }
@@ -179,6 +201,14 @@ export function SetupPage() {
               {actionBusy ? 'Opening…' : 'Open the meeting room'}
             </Button>
           </div>
+          {state.kind === 'real' ? (
+            <p className="setup-note">
+              The team meeting room is open. If nobody has started it, you can release it for practice.{' '}
+              <Button variant="ghost" onClick={() => void closeRoom()} disabled={actionBusy}>
+                {actionBusy ? 'Closing…' : 'Close the meeting room'}
+              </Button>
+            </p>
+          ) : null}
           {!setupValid ? (
             <p className="setup-note" role="status">
               Fix the setup errors before opening the room.

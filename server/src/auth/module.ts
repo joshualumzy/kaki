@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
-import { MEETING_ENDED_MESSAGE } from '@kaki/shared';
+import { MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
 import type { ClientAudience } from '../hub';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../access';
 import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
@@ -49,6 +49,8 @@ export interface Auth {
   bindMeetingIdentity(meetingId: () => string | undefined): void;
   /** Point phone joins and seat sockets at the live setup's offered seats. */
   bindOfferedSeats(offered: () => readonly string[]): void;
+  /** Enforce the meeting kind and the practice visitor's exact seat at `/api/join`. */
+  bindJoinGuard(guard: JoinGuard): void;
   /** Release every seat grant belonging to a meeting that has rotated away. */
   releaseMeeting(meetingId: string): Promise<void>;
   /** Be told when a session is replaced, so its already-open sockets can be closed. */
@@ -56,6 +58,13 @@ export interface Auth {
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
   close(): Promise<void>;
+}
+
+/** The meeting facts `/api/join` needs so it cannot escalate a practice visitor into another seat. */
+export interface JoinGuard {
+  meetingKind(): 'real' | 'practice' | undefined;
+  practiceSeat(): string | undefined;
+  hasPracticeCapability(request: IncomingMessage): boolean;
 }
 
 /** Everything the auth module needs, injected so tests can use an in-memory store. */
@@ -169,6 +178,7 @@ export function createAuth({
   const sessionEndedHandlers = new Set<(sessionTokenHash: string) => void>();
   let meetingIdentity: (() => string | undefined) | undefined;
   let offeredRoles: () => readonly string[] = readOfferedRoles ?? (() => []);
+  let joinGuard: JoinGuard | undefined;
   const currentMeetingId = (): string => meetingIdentity?.() ?? meetingCode.value;
   /** A real hash to check against when the email is unknown, so both paths cost the same. */
   let dummyHash: Promise<string> | undefined;
@@ -404,6 +414,33 @@ export function createAuth({
     const role = stringField(parsed.value, 'role');
     const ip = clientAddress(request);
 
+    // A practice meeting has one visitor and one seat. `/api/join` may admit that exact seat only
+    // when the request carries the meeting's capability; it never creates a sign-in session, so
+    // the practice principal can never reach setup or another role's authority.
+    const kind = joinGuard?.meetingKind();
+    if (kind === 'practice') {
+      if (joinGuard?.hasPracticeCapability(request) !== true) {
+        sendJson(response, 403, { error: 'Practice access belongs to its practice meeting only.' });
+        return;
+      }
+      if (role === undefined || role.trim() === '') {
+        sendJson(response, 400, { error: 'Choose your role.' });
+        return;
+      }
+      const seat = joinGuard.practiceSeat();
+      if (seat === undefined || role.trim().toLowerCase() !== seat.trim().toLowerCase()) {
+        sendJson(response, 403, { error: 'A practice meeting only opens the seat its visitor took.' });
+        return;
+      }
+      sendJson(response, 200, { kind: 'practice', role: seat });
+      return;
+    }
+    // No legacy join: a team-meeting sign-in exists only after the owner opened a real meeting.
+    if (kind !== 'real') {
+      sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
+      return;
+    }
+
     if (meetingCodeAttempts.isLimited(ip)) {
       sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
       return;
@@ -477,6 +514,10 @@ export function createAuth({
 
     bindOfferedSeats(offered) {
       offeredRoles = offered;
+    },
+
+    bindJoinGuard(guard) {
+      joinGuard = guard;
     },
 
     async releaseMeeting(meetingId) {

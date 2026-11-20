@@ -218,19 +218,19 @@ describe('saved meeting validation', () => {
     );
   });
 
-  it('accepts the v6 save written before the persisted runner revision', () => {
+  it("accepts a save written in this build's format", () => {
     const meeting = saved();
-    meeting.schemaVersion = 6;
+    meeting.schemaVersion = MEETING_STATE_SCHEMA_VERSION;
 
     expect(() => assertCompatibleSavedMeeting(meeting)).not.toThrow();
   });
 
-  it('refuses the abandoned v7 revision save as newer than this build', () => {
+  it('refuses a save from a newer revision than this build', () => {
     const meeting = saved();
-    meeting.schemaVersion = 7;
+    meeting.schemaVersion = MEETING_STATE_SCHEMA_VERSION + 1;
 
     expect(() => assertCompatibleSavedMeeting(meeting)).toThrow(
-      'Saved meeting is from a newer format (v7, need v6). Run `npm run meeting:reset` to discard it.',
+      `Saved meeting is from a newer format (v${MEETING_STATE_SCHEMA_VERSION + 1}, need v${MEETING_STATE_SCHEMA_VERSION}). Run \`npm run meeting:reset\` to discard it.`,
     );
   });
 });

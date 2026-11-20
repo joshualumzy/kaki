@@ -67,9 +67,12 @@ export type NpcStateMessage =
   /** The NPC accepted a Start request: the browser can stop retrying and let the meeting open. */
   | { kind: 'started'; requestId: string; session: string };
 
-/** The LiveKit room the live demo meeting of a scenario happens in. */
-export function demoRoomName(scenario: Scenario): string {
-  return `kaki-demo-${scenario.id}`;
+/**
+ * The LiveKit room one meeting of a scenario happens in. The meeting identity is part of the room
+ * name, so a token minted for an old meeting can never join the room of the meeting that replaces it.
+ */
+export function demoRoomName(scenario: Scenario, meetingId: string): string {
+  return `kaki-demo-${scenario.id}-${meetingId}`;
 }
 
 /** True when an AI always plays this attendee: it has a profile and a person cannot take its seat. */

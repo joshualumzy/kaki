@@ -279,7 +279,8 @@ async function connectHeldService(port: number): Promise<{
   };
 }
 
-function join(app: KakiApp, participantName: string, participantRole: string): Promise<Response> {
+async function join(app: KakiApp, participantName: string, participantRole: string): Promise<Response> {
+  await fetch(`http://localhost:${portOf(app)}/api/meeting/open`, { method: 'POST' });
   return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -287,12 +288,13 @@ function join(app: KakiApp, participantName: string, participantRole: string): P
   });
 }
 
-function joinWithCode(
+async function joinWithCode(
   app: KakiApp,
   participantName: string,
   participantRole: string,
   meetingCode: string,
 ): Promise<Response> {
+  await fetch(`http://localhost:${portOf(app)}/api/meeting/open`, { method: 'POST' });
   return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

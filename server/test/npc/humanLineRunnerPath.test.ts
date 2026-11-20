@@ -126,6 +126,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
       body: JSON.stringify(twoPersonSetup(pack)),
     });
     expect(put.status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

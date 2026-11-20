@@ -4,6 +4,7 @@ import { fetchWithTimeout } from '../net/withTimeout';
 export interface SetupResponse {
   setup: MeetingSetup;
   started: boolean;
+  kind?: 'real' | 'practice';
 }
 
 export interface ToolStatus {
@@ -68,7 +69,11 @@ function parseSetupResponse(body: Record<string, unknown> | null, fallback: stri
   if (typeof body?.setup !== 'object' || body.setup === null) {
     throw new SetupApiError(`${fallback} The server sent no setup.`, 502);
   }
-  return { setup: body.setup as MeetingSetup, started: body.started === true };
+  return {
+    setup: body.setup as MeetingSetup,
+    started: body.started === true,
+    ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
+  };
 }
 
 export async function loadSetup(): Promise<SetupResponse> {
@@ -172,6 +177,20 @@ export async function openMeeting(): Promise<void> {
     response.status,
     body?.practiceInProgress === true,
   );
+}
+
+/** Close a team-meeting room that never started, releasing the server for practice. */
+export async function closeMeetingRoom(): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetchWithTimeout('/api/meeting/close', { method: 'POST' }, 12_000);
+  } catch (error) {
+    throw new SetupApiError(
+      error instanceof Error ? error.message : 'Could not reach the server to close the meeting room.',
+      0,
+    );
+  }
+  if (!response.ok) throw await failure(response, 'Could not close the meeting room');
 }
 
 /** End a practice meeting so the team meeting can be opened. */

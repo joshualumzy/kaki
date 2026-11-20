@@ -64,8 +64,8 @@ describe('OwnerLobby', () => {
     const onStarted = vi.fn();
     installFetch({
       '/api/meeting-code': () => reply({ code: 'K7QX' }),
-      '/api/meeting/state': () =>
-        reply({ started: false, participants: [{ name: 'Ada', seat: 'producer' }] }),
+      '/api/meeting/state': () => reply({ started: false }),
+      '/api/meeting/participants': () => reply({ participants: [{ name: 'Ada', seat: 'producer' }] }),
       '/api/meeting/start': () => reply({ started: true }),
     });
     render(<OwnerLobby initialCode="K7QX" onStarted={onStarted} />);
@@ -91,7 +91,8 @@ describe('OwnerLobby', () => {
         if (attempts === 1) throw new Error('Could not reach the server.');
         return reply({ code: 'K7QX' });
       },
-      '/api/meeting/state': () => reply({ started: false, participants: [] }),
+      '/api/meeting/state': () => reply({ started: false }),
+      '/api/meeting/participants': () => reply({ participants: [] }),
     });
     render(<OwnerLobby initialCode="K7QX" onStarted={vi.fn()} />);
 

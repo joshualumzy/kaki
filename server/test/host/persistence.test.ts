@@ -199,7 +199,8 @@ async function meetingState(app: KakiApp): Promise<{ meetingId: string; started:
   return (await response.json()) as { meetingId: string; started: boolean; startedAt?: string };
 }
 
-function join(app: KakiApp, body: Record<string, unknown>): Promise<Response> {
+async function join(app: KakiApp, body: Record<string, unknown>): Promise<Response> {
+  await fetch(`${baseUrl(app)}/api/meeting/open`, { method: 'POST' });
   return fetch(`${baseUrl(app)}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

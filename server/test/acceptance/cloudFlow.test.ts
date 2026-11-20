@@ -133,7 +133,11 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect(publicScenario.agenda[0]?.directions).toBeUndefined();
       expect(publicScenario.agenda[0]?.seatFacts).toBeUndefined();
 
-      // 2. The code holder reaches RTC admission before the host exists.
+      // 2. The owner opens the real meeting, then the code holder reaches RTC admission.
+      const opener = await request('/api/auth/login', 'POST', { email: 'demo', password });
+      expect(opener.status).toBe(200);
+      const openerCookie = remember(cookie(opener));
+      expect((await request('/api/meeting/open', 'POST', undefined, { cookie: openerCookie })).status).toBe(200);
       const guestResponse = await request('/api/livekit/token', 'POST',
         { participantName: 'Ada', participantRole: 'chef', meetingCode: code });
       const joinLines = joinLog.mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith('[join]'));
@@ -256,10 +260,14 @@ for (const kind of ['memory', 'postgres'] as const) {
         { participantName: 'Ada', participantRole: 'chef', meetingCode: code }, { cookie: guest });
       expect(blocked.status).toBe(409);
       expect(await state()).toEqual(beforeRestart);
+      // The expired real meeting was released; the owner opens the next one before joining.
+      expect((await request('/api/meeting/open', 'POST', undefined, { cookie: host })).status).toBe(200);
       const restart = await request('/api/livekit/token', 'POST',
         { participantName: 'Mia', participantRole: 'manager' }, { cookie: host });
       expect(restart.status).toBe(200);
       host = remember(cookie(restart));
+      // The new room has its person; an empty roster would release the never-started lobby.
+      roster = [{ name: 'Mia', role: 'manager' }];
       const nextMeeting = await state();
       expect(nextMeeting.meetingId).not.toBe(beforeRestart.meetingId);
       expect((await request('/api/auth/me', 'GET', undefined, { cookie: guest })).status).not.toBe(200);
@@ -286,7 +294,6 @@ for (const kind of ['memory', 'postgres'] as const) {
         expect(Object.keys((await publicState.json()) as Record<string, unknown>).sort()).toEqual([
           'kind',
           'meetingId',
-          'participants',
           'started',
         ]);
         expect((await request('/api/runner/meeting-state', 'GET', undefined, credentials)).status).toBe(401);
@@ -314,6 +321,7 @@ describe('auth-off local demo compatibility', () => {
       roomRoster: async () => [] });
     const port = portOf(app);
     const base = `http://127.0.0.1:${port}`;
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const first = await fetch(`${base}/api/livekit/token`, { method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ participantName: 'Ada', participantRole: 'chef' }) });

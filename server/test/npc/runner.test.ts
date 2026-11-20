@@ -410,8 +410,12 @@ describe('server-owned start preparation', () => {
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
 
       // The service socket was down for the reset; its reconnect fetch shows a different meeting.
+      const roomsBeforeMove = rooms.length;
       runner.reconcileMeeting(runnerSnapshot(scenario, { meetingId: 'meeting-2' }));
       expect(runner.meetingId()).toBe('meeting-2');
+      // The runner moved to the new meeting's room; the browser follows it there.
+      await vi.waitFor(() => expect(rooms.length).toBeGreaterThan(roomsBeforeMove));
+      for (const room of rooms.slice(roomsBeforeMove)) room.emit('participantConnected', participant);
       await expect(runner.markStarted({ meetingId: 'meeting-1' })).rejects.toThrow(/this runner is on meeting-2/);
 
       await runner.prepareMeeting({ meetingId: 'meeting-2', attempt: 'attempt-2' });

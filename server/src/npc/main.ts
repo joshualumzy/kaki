@@ -269,6 +269,14 @@ const vad: Partial<VadOptions> = {
 
 /** Set once the meeting sync exists (it needs the runner); the resume backstop only fires mid-meeting. */
 let recheckMeeting: ((reason: string) => void) | undefined;
+// The room is the meeting's, so learn its identity before joining. A server that is not up yet is
+// fine: the service channel moves the runner to the right room once it can read the snapshot.
+const initialMeeting =
+  boot.snapshot ??
+  (await runnerClient.fetchMeetingState().catch((error: unknown) => {
+    log(`could not read the meeting identity yet; the service channel will move the runner: ${String(error)}`);
+    return undefined;
+  }));
 const runner = await startNpcRunner({
   scenario,
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
@@ -350,7 +358,7 @@ const runner = await startNpcRunner({
     log('exiting so it can be restarted');
     process.exit(1);
   },
-  ...(boot.snapshot === undefined ? {} : { initialMeeting: boot.snapshot }),
+  ...(initialMeeting === undefined ? {} : { initialMeeting }),
 });
 runnerForVoice = runner;
 runnerMeetingId = () => runner.meetingId();

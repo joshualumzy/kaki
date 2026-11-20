@@ -46,6 +46,47 @@ async function request(
   });
 }
 
+interface SocketResult {
+  ok: boolean;
+  ws: WebSocket;
+  messages: Array<{ type: string; payload: { reason?: string } }>;
+}
+
+function connect(port: number, role: string, cookie?: string): Promise<SocketResult> {
+  const headers: Record<string, string> = {};
+  if (cookie !== undefined) headers.cookie = cookie;
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`, { headers });
+  const messages: SocketResult['messages'] = [];
+  ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as SocketResult['messages'][number]));
+  sockets.push(ws);
+  return new Promise((resolve) => {
+    ws.once('open', () => resolve({ ok: true, ws, messages }));
+    ws.once('unexpected-response', (_request, response) => {
+      response.resume();
+      resolve({ ok: false, ws, messages });
+    });
+    ws.once('error', () => resolve({ ok: false, ws, messages }));
+  });
+}
+
+function waitForClose(ws: WebSocket): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    if (ws.readyState === WebSocket.CLOSED) {
+      resolve(1005);
+      return;
+    }
+    ws.once('close', (code) => resolve(code));
+  });
+}
+
+function tokenRoom(token: string): string {
+  const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString()) as {
+    video?: { room?: unknown };
+  };
+  if (typeof payload.video?.room !== 'string') throw new Error('The token names no room');
+  return payload.video.room;
+}
+
 function practiceJoin(port: number, name: string, role = 'producer'): Promise<Response> {
   return request(port, '/api/livekit/token', 'POST', {
     participantName: name,
@@ -98,7 +139,12 @@ async function openModeApp(options: {
   return { app, port: portOf(app) };
 }
 
-async function authModeApp(): Promise<{ app: KakiApp; port: number }> {
+async function authModeApp(options: {
+  roomRoster?: () => Promise<Array<{ name: string }>>;
+  rejoinGraceMs?: number;
+  rejoinPollMs?: number;
+  admissionReservationMs?: number;
+} = {}): Promise<{ app: KakiApp; port: number }> {
   const store = createMemoryAuthStore();
   await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
   const meetingCode = createMeetingCodeSource(CODE);
@@ -113,9 +159,12 @@ async function authModeApp(): Promise<{ app: KakiApp; port: number }> {
     auth,
     meetingCode,
     serviceToken: TOKEN,
-    roomRoster: async () => [],
-    rejoinGraceMs: 60_000,
-    rejoinPollMs: 60_000,
+    roomRoster: options.roomRoster ?? (async () => []),
+    rejoinGraceMs: options.rejoinGraceMs ?? 60_000,
+    rejoinPollMs: options.rejoinPollMs ?? 60_000,
+    ...(options.admissionReservationMs === undefined
+      ? {}
+      : { admissionReservationMs: options.admissionReservationMs }),
     startAckTimeoutMs: 2_000,
   });
   apps.push(app);
@@ -230,9 +279,19 @@ describe('meeting kind in open mode', () => {
     expect(app.session.kind()).toBe('real');
   });
 
-  it('keeps the legacy plain join working and records it as a real meeting', async () => {
+  it('refuses a legacy plain join until the owner opens, then records the meeting as real', async () => {
     const { app, port } = await openModeApp();
 
+    const refused = await request(port, '/api/livekit/token', 'POST', {
+      participantName: 'Alice',
+      participantRole: 'producer',
+    });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe(
+      'No team meeting is open right now. Ask the meeting owner for the invite link.',
+    );
+
+    expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
     const legacy = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Alice',
       participantRole: 'producer',
@@ -285,5 +344,193 @@ describe('meeting kind in open mode', () => {
 
     // With no practice meeting left, there is nothing to end.
     expect((await request(port, '/api/meeting/end-practice', 'POST')).status).toBe(409);
+  });
+});
+
+describe('meeting kind security regressions', () => {
+  it('revokes practice screen, lifecycle and seat sockets when practice ends and a real meeting opens', async () => {
+    const { app, port } = await authModeApp();
+    const joined = await practiceJoin(port, 'Alice');
+    expect(joined.status).toBe(200);
+    const practiceCookie = cookieFrom(joined);
+
+    const screen = await connect(port, 'screen', practiceCookie);
+    const lifecycle = await connect(port, 'lifecycle', practiceCookie);
+    const seat = await connect(port, 'producer', practiceCookie);
+    expect(screen.ok && lifecycle.ok && seat.ok).toBe(true);
+    const screenClosed = waitForClose(screen.ws);
+    const lifecycleClosed = waitForClose(lifecycle.ws);
+    const seatClosed = waitForClose(seat.ws);
+
+    // The practice page may read the screen, but it never holds the screen's command authority.
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    const rejection = await waitFor(
+      () => screen.messages.find((message) => message.type === 'COMMAND_REJECTED'),
+      'the practice screen command to be refused',
+    );
+    expect(rejection.payload.reason).toMatch(/read the screen but not control it/);
+    expect(app.session.kind()).toBe('practice');
+
+    const host = await loginHost(port);
+    expect((await request(port, '/api/meeting/end-practice', 'POST', undefined, host)).status).toBe(200);
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+
+    expect(await Promise.all([screenClosed, lifecycleClosed, seatClosed])).toEqual([4001, 4001, 4001]);
+    const stale = await connect(port, 'screen', practiceCookie);
+    expect(stale.ok).toBe(false);
+  });
+
+  it('never lets an old practice LiveKit token name the room of the real meeting that replaces it', async () => {
+    const { app, port } = await authModeApp();
+    const practice = await practiceJoin(port, 'Alice');
+    expect(practice.status).toBe(200);
+    const practiceBody = (await practice.json()) as { token: string };
+    const practiceMeetingId = app.session.snapshot().meetingId;
+    const oldRoom = tokenRoom(practiceBody.token);
+    expect(oldRoom).toContain(practiceMeetingId);
+
+    const host = await loginHost(port);
+    expect((await request(port, '/api/meeting/end-practice', 'POST', undefined, host)).status).toBe(200);
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    const real = await request(port, '/api/livekit/token', 'POST', {
+      participantName: 'Cara',
+      participantRole: 'producer',
+      meetingCode: CODE,
+    });
+    expect(real.status).toBe(200);
+    const realRoom = tokenRoom(((await real.json()) as { token: string }).token);
+    expect(realRoom).not.toBe(oldRoom);
+    expect(realRoom).toContain(app.session.snapshot().meetingId);
+  });
+
+  it('refuses /api/join escalation from practice, and hands out no code or session for another seat', async () => {
+    const { port } = await authModeApp();
+    const practice = await practiceJoin(port, 'Alice');
+    expect(practice.status).toBe(200);
+    const practiceCookie = cookieFrom(practice);
+    expect(((await practice.json()) as { meetingCode?: unknown }).meetingCode).toBeUndefined();
+
+    const otherSeat = await request(port, '/api/join', 'POST', { code: CODE, role: 'game_designer' }, practiceCookie);
+    expect(otherSeat.status).toBe(403);
+    expect(((await otherSeat.json()) as { error: string }).error).toMatch(/only opens the seat its visitor took/);
+
+    const noCapability = await request(port, '/api/join', 'POST', { code: CODE, role: 'producer' });
+    expect(noCapability.status).toBe(403);
+
+    const ownSeat = await request(port, '/api/join', 'POST', { code: CODE, role: 'producer' }, practiceCookie);
+    expect(ownSeat.status).toBe(200);
+    expect(ownSeat.headers.get('set-cookie')).toBeNull();
+    expect(await ownSeat.json()).toEqual({ kind: 'practice', role: 'producer' });
+  });
+
+  it('refuses a queued practice Start once the owner has opened a real meeting', async () => {
+    let stall = false;
+    let release: ((people: Array<{ name: string }>) => void) | undefined;
+    const { app, port } = await authModeApp({
+      roomRoster: async () => {
+        if (stall) {
+          stall = false;
+          return new Promise<Array<{ name: string }>>((resolve) => {
+            release = resolve;
+          });
+        }
+        return [];
+      },
+      rejoinGraceMs: 30,
+      rejoinPollMs: 10,
+      admissionReservationMs: 0,
+    });
+
+    const joined = await practiceJoin(port, 'Alice');
+    expect(joined.status).toBe(200);
+    const practiceCookie = cookieFrom(joined);
+    await waitFor(
+      () =>
+        app.session.kind() === 'practice' &&
+        app.session.phase() === 'lobby' &&
+        app.session.holders().length === 0
+          ? true
+          : undefined,
+      'the abandoned practice lobby to expire',
+    );
+
+    // Stall one admission, then queue the owner's open and the practice Start behind it.
+    stall = true;
+    const stalled = practiceJoin(port, 'Ben', 'cosmonaut');
+    await waitFor(() => (release === undefined ? undefined : true), 'the stalled roster read');
+    const host = await loginHost(port);
+    const opened = request(port, '/api/meeting/open', 'POST', undefined, host);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const started = request(port, '/api/meeting/start', 'POST', undefined, practiceCookie);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    release?.([]);
+
+    expect((await stalled).status).toBe(400);
+    expect((await opened).status).toBe(200);
+    const startResponse = await started;
+    // Whichever side of the queue the start lands on, it may never open the real meeting: the
+    // access layer refuses a stale practice principal, and the queued path re-checks the kind.
+    expect([401, 403]).toContain(startResponse.status);
+    expect(((await startResponse.json()) as { error: string }).error).toMatch(
+      /Practice access has ended|Only the meeting owner/,
+    );
+    expect(app.session.kind()).toBe('real');
+    expect(app.session.phase()).toBe('lobby');
+  });
+
+  it('keeps who has joined off the public state and on the owner-only route', async () => {
+    const { app, port } = await authModeApp();
+    expect((await practiceJoin(port, 'Alice')).status).toBe(200);
+
+    const publicState = (await (await request(port, '/api/meeting/state')).json()) as Record<string, unknown>;
+    expect(publicState).not.toHaveProperty('participants');
+
+    expect((await request(port, '/api/meeting/participants')).status).toBe(401);
+    const host = await loginHost(port);
+    const owner = await request(port, '/api/meeting/participants', 'GET', undefined, host);
+    expect(owner.status).toBe(200);
+    expect(await owner.json()).toEqual({ participants: [{ name: 'alice', seat: 'producer' }] });
+    expect(app.session.holders()).toHaveLength(1);
+  });
+
+  it('releases practice when the owner closes a never-started room', async () => {
+    const { app, port } = await openModeApp();
+    expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
+    expect(app.session.kind()).toBe('real');
+    expect((await request(port, '/api/meeting/close', 'POST')).status).toBe(200);
+    expect(app.session.kind()).toBeUndefined();
+    expect(app.session.phase()).toBe('lobby');
+    expect((await practiceJoin(port, 'Ben')).status).toBe(200);
+  });
+
+  it('releases practice when a verified empty real lobby expires', async () => {
+    let people: Array<{ name: string }> = [];
+    const { app, port } = await openModeApp({
+      roomRoster: async () => people,
+      rejoinGraceMs: 40,
+      admissionReservationMs: 0,
+    });
+    expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
+    const joined = await request(port, '/api/livekit/token', 'POST', {
+      participantName: 'Alice',
+      participantRole: 'producer',
+    });
+    expect(joined.status).toBe(200);
+    people = [];
+    await waitFor(
+      () => (app.session.kind() === undefined && app.session.holders().length === 0 ? true : undefined),
+      'the empty real lobby to be released',
+    );
+    expect((await practiceJoin(port, 'Ben')).status).toBe(200);
+  });
+
+  it('admits only one of two same-name practice joins without the capability', async () => {
+    const { app, port } = await authModeApp();
+    const [first, second] = await Promise.all([
+      practiceJoin(port, 'Alice'),
+      practiceJoin(port, 'Alice'),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+    expect(app.session.holders()).toHaveLength(1);
   });
 });

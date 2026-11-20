@@ -35,6 +35,8 @@ export interface PracticeGrant {
   token?: string;
   /** The seat the practice visitor took. */
   seat: string;
+  /** The meeting generation that granted it; every handoff makes it stale. */
+  generation?: number;
 }
 
 export interface MeetingSessionResetOptions {
@@ -70,6 +72,11 @@ export interface MeetingSessionDeps {
   defaultSeat?(): string | undefined;
   /** Stop the empty-room grace: the meeting it belonged to is gone. */
   clearGrace(): void;
+  /**
+   * A meeting handoff invalidated every credential tied to the previous generation. The app uses
+   * this to close practice sockets and remove people from the room they can no longer belong to.
+   */
+  onCredentialChange?(): void;
   persistence?: Pick<MeetingPersistence, 'replaceSaved'>;
 }
 
@@ -84,6 +91,8 @@ export interface MeetingSession {
   beginPractice(grant: PracticeGrant): void;
   /** The practice visitor's Start token; undefined outside an auth-mode practice meeting. */
   practiceStartToken(): string | undefined;
+  /** The generation the practice capability was granted in; a handoff makes it stale. */
+  practiceGeneration(): number | undefined;
   /** The seat the practice visitor took, so their view is projected to it. */
   practiceSeat(): string | undefined;
   /** The immutable scenario of the meeting now; read it through this getter every time. */
@@ -112,6 +121,11 @@ export interface MeetingSession {
   abandoned(): boolean;
   /** Mark a running meeting abandoned; the next arrival starts a new one. */
   abandon(): void;
+  /**
+   * Release a real meeting that has been verified empty, clearing its kind so practice is never
+   * blocked forever. Its phase and abandonment mark stay for the restart path.
+   */
+  releaseRealMeeting(): void;
   /** When the meeting started; absent until Start commits and after a reset. */
   startedAt(): string | undefined;
   setStartedAt(startedAt: string | undefined): void;
@@ -142,7 +156,11 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let pending: Scenario | undefined;
   let pendingSealed: MeetingSetup | undefined;
   let draft = deps.defaultSetup;
+  // The owner's real seal and the practice meeting's own seal are separate: practice must never
+  // consume the owner's draft, nor clear the mark that says it was edited after the real seal.
   let sealedSetup: MeetingSetup | undefined;
+  let practiceSeal: MeetingSetup | undefined;
+  let activeSealKind: MeetingKind | undefined;
   let draftWasTouched = false;
   let editedSinceSeal = false;
   let holders: SeatHolder[] = [];
@@ -176,20 +194,47 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     return saved.map((holder) => ({ name: holder.name, seat: holder.seat }));
   }
 
+  /** A handoff: every credential granted in the old generation must stop working. */
+  function bumpGeneration(): void {
+    generation += 1;
+    deps.onCredentialChange?.();
+  }
+
   function restore(saved: StoredMeeting): void {
     // Older saved meetings predate kinds: a running meeting or a lobby people joined is a real
-    // meeting. An ended one is over, so it does not keep the server "real" and block practice.
-    meetingKind =
-      saved.kind ??
-      (saved.phase === 'running' || saved.phase === 'starting' || saved.holders.length > 0
-        ? 'real'
-        : undefined);
+    // meeting. An ended one is over, so it never infers 'real' from its retained holders and
+    // cannot block practice after a restart.
+    const ended = saved.phase === 'ended';
+    meetingKind = ended
+      ? saved.kind === 'practice'
+        ? 'practice'
+        : undefined
+      : saved.kind ??
+        (saved.abandoned !== true &&
+        (saved.phase === 'running' || saved.phase === 'starting' ||
+          (saved.phase === 'lobby' && saved.holders.length > 0))
+          ? 'real'
+          : undefined);
+    const restoredSealKind: MeetingKind | undefined =
+      saved.sealedKind ??
+      (saved.sealed === undefined
+        ? undefined
+        : saved.phase === 'running'
+          ? saved.kind === 'practice'
+            ? 'practice'
+            : 'real'
+          : 'real');
     practiceGrant = undefined;
+    sealedSetup = undefined;
+    practiceSeal = undefined;
+    activeSealKind = restoredSealKind;
+    if (restoredSealKind === 'practice' && saved.sealed !== undefined) practiceSeal = saved.sealed;
+    else if (saved.sealed !== undefined) sealedSetup = saved.sealed;
+
     if (saved.phase === 'running') {
       if (saved.sealed === undefined) throw new Error('kaki session: a running meeting has no sealed setup');
       phase = 'running';
       active = checked(deps.restoreActive(saved));
-      sealedSetup = saved.sealed;
       draft = saved.draft;
       draftWasTouched = saved.draftTouched;
       editedSinceSeal = saved.draftEditedSinceSeal ?? false;
@@ -208,10 +253,10 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     active = checked(deps.restoreActive(saved));
     started = undefined;
     abandonedMeeting = false;
-    // An ended meeting keeps its consumed seal so Start can reopen it and the next arrival can drop
-    // a draft that was not edited after END. A draft edited after END is the next meeting's setup.
-    sealedSetup = saved.phase === 'ended' ? saved.sealed : undefined;
-    if (saved.phase === 'ended' && saved.draftEditedSinceSeal !== true) {
+    // An ended real meeting keeps its consumed seal so Start can reopen it and the next arrival can
+    // drop a draft that was not edited after END. A draft edited after END is the next meeting's
+    // setup. An ended practice meeting never owns the owner's draft, so it leaves it exactly as saved.
+    if (ended && restoredSealKind !== 'practice' && saved.draftEditedSinceSeal !== true) {
       draft = deps.defaultSetup;
       draftWasTouched = false;
       editedSinceSeal = false;
@@ -221,7 +266,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       editedSinceSeal = saved.draftEditedSinceSeal ?? false;
     }
     restoredNoMeeting = true;
-    storedEnded = saved.phase === 'ended';
+    storedEnded = ended;
     holders = copyHolders(saved.holders);
   }
 
@@ -230,7 +275,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     const seat = options.seat ?? deps.defaultSeat?.();
     let meetingId: string;
     if (options.rotateIdentity ?? true) {
-      generation += 1;
+      bumpGeneration();
       meetingId = deps.rotateIdentity({ rotateCode: options.rotateCode ?? true });
     } else {
       meetingId = deps.meetingId();
@@ -246,16 +291,24 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     practiceGrant = undefined;
     deps.memory.splice(0, deps.memory.length);
 
-    const consumed = sealedSetup !== undefined;
+    // Resetting a practice meeting touches only its own seal: the owner's draft, seal and edit mark
+    // are exactly what they were before practice started.
+    const practiceReset = activeSealKind === 'practice';
+    const consumed = !practiceReset && sealedSetup !== undefined;
     // An ended meeting keeps its seal for saving, but a draft the owner edited after END is the next
     // meeting's setup and must survive the reset; an untouched consumed draft falls back to the pack.
     const keepDraft = consumed && editedSinceSeal;
-    sealedSetup = undefined;
-    editedSinceSeal = false;
-    if (consumed && !keepDraft) {
-      draftWasTouched = false;
-      draft = deps.defaultSetup;
+    if (practiceReset) {
+      practiceSeal = undefined;
+    } else {
+      sealedSetup = undefined;
+      editedSinceSeal = false;
+      if (consumed && !keepDraft) {
+        draftWasTouched = false;
+        draft = deps.defaultSetup;
+      }
     }
+    activeSealKind = undefined;
     holders = [];
     started = undefined;
 
@@ -288,15 +341,23 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     phase: () => phase,
     kind: () => meetingKind,
     setKind(kind) {
+      const changed = meetingKind !== kind;
       meetingKind = kind;
       // The practice capability belongs to a practice meeting and nowhere else.
       if (kind !== 'practice') practiceGrant = undefined;
+      if (changed) bumpGeneration();
     },
     beginPractice(grant) {
+      if (meetingKind !== 'practice') bumpGeneration();
       meetingKind = 'practice';
-      practiceGrant = { seat: grant.seat, ...(grant.token === undefined ? {} : { token: grant.token }) };
+      practiceGrant = {
+        seat: grant.seat,
+        generation,
+        ...(grant.token === undefined ? {} : { token: grant.token }),
+      };
     },
     practiceStartToken: () => practiceGrant?.token,
+    practiceGeneration: () => practiceGrant?.generation,
     practiceSeat: () => practiceGrant?.seat,
     active: () => active,
     candidate: () => pending,
@@ -307,7 +368,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       if (sealedSetup !== undefined) editedSinceSeal = true;
     },
     draftTouched: () => draftWasTouched,
-    sealed: () => sealedSetup,
+    sealed: () => (activeSealKind === 'practice' ? practiceSeal : sealedSetup),
     draftEditedSinceSeal: () => editedSinceSeal,
     restoredWithoutMeeting: () => restoredNoMeeting,
     holders: () => copyHolders(holders),
@@ -329,6 +390,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       if (phase !== 'running') refuse('abandon the meeting');
       abandonedMeeting = true;
     },
+    releaseRealMeeting() {
+      if (meetingKind !== 'real') return;
+      meetingKind = undefined;
+      practiceGrant = undefined;
+      bumpGeneration();
+    },
     startedAt: () => started,
     setStartedAt(value) {
       started = value;
@@ -344,10 +411,16 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
         refuse('commit the Start');
       }
       active = pending;
-      sealedSetup = pendingSealed;
+      if (meetingKind === 'practice') {
+        // Practice keeps its own seal and leaves the owner's real seal and edit mark untouched.
+        practiceSeal = pendingSealed;
+      } else {
+        sealedSetup = pendingSealed;
+        editedSinceSeal = false;
+      }
+      activeSealKind = meetingKind === 'practice' ? 'practice' : 'real';
       pending = undefined;
       pendingSealed = undefined;
-      editedSinceSeal = false;
       abandonedMeeting = false;
       restoredNoMeeting = false;
       storedEnded = false;
@@ -364,10 +437,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     end() {
       if (phase !== 'running') refuse('end the meeting');
       abandonedMeeting = false;
-      // A finished meeting is neither real nor practice until the next one is opened.
+      // A finished meeting is neither real nor practice until the next one is opened. Ending is a
+      // handoff: every credential granted for it stops working now.
       meetingKind = undefined;
       practiceGrant = undefined;
       phase = 'ended';
+      bumpGeneration();
     },
     reset,
     onReset(hook) {
@@ -392,9 +467,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
           ? { lobbyAgenda: active.agenda.map((item) => item.title) }
           : {}),
         ...(storedPhase === 'running' || storedPhase === 'ended'
-          ? sealedSetup === undefined
+          ? activeSealKind === undefined
             ? {}
-            : { sealed: sealedSetup }
+            : {
+                sealed: activeSealKind === 'practice' ? practiceSeal : sealedSetup,
+                sealedKind: activeSealKind,
+              }
           : {}),
         ...(abandonedMeeting && storedPhase === 'running' ? { abandoned: true } : {}),
         holders: copyHolders(holders),

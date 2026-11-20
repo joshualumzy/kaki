@@ -280,6 +280,7 @@ describe('setup tool status and probes', () => {
   it('keeps working after Start because the probe only reads', async () => {
     const fetchImpl = healthyFetch();
     await start({ actionTools: { env: CONFIGURED_ENV, fetchImpl }, roomRoster: async () => [] });
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const joined = await fetch(`${base}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -309,6 +310,15 @@ describe('setup tool status and probes', () => {
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     await start({ auth, meetingCode, actionTools: { env: CONFIGURED_ENV, fetchImpl: healthyFetch() } });
 
+    const openLogin = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
+    });
+    expect(openLogin.status).toBe(200);
+    const hostCookie = openLogin.headers.get('set-cookie')?.split(';')[0];
+    if (hostCookie === undefined || hostCookie === '') throw new Error('Login did not set a cookie');
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie: hostCookie } })).status).toBe(200);
     const joined = await fetch(`${base}/api/join`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

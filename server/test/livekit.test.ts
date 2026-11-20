@@ -63,6 +63,7 @@ describe('POST /api/livekit/token', () => {
   });
 
   async function post(body: unknown): Promise<Response> {
+    await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/open`, { method: 'POST' });
     return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

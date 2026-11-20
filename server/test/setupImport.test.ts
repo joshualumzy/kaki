@@ -138,6 +138,15 @@ describe('setup calendar import', () => {
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     await start({ auth, meetingCode, calendar: settings, calendarFetch: calendarFetch() });
 
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'host@example.com', password: 'correct-horse-battery' }),
+    });
+    expect(login.status).toBe(200);
+    const hostCookie = login.headers.get('set-cookie')?.split(';')[0];
+    if (hostCookie === undefined || hostCookie === '') throw new Error('Login did not set a cookie');
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie: hostCookie } })).status).toBe(200);
     const joined = await fetch(`${base}/api/join`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -153,6 +162,7 @@ describe('setup calendar import', () => {
 
   it('refuses the import after Start', async () => {
     await start({ calendar: settings, calendarFetch: calendarFetch(), roomRoster: async () => [] });
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const joined = await fetch(`${base}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

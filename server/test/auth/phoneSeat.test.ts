@@ -139,12 +139,16 @@ describe('phone and screen seat authority', () => {
   }
 
   async function joinAs(code: string, role: string): Promise<string> {
+    const host = await loginHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
     const response = await post('/api/join', { code, role });
     expect(response.status).toBe(200);
     return cookieFrom(response);
   }
 
   async function joinRoom(name: string, role: string, cookie?: string): Promise<{ meetingCode: string }> {
+    // The owner opens the real meeting; a later arrival into a running one ignores the 409 here.
+    await post('/api/meeting/open', {}, cookie);
     const response = await post(
       '/api/livekit/token',
       {
@@ -247,6 +251,8 @@ describe('phone and screen seat authority', () => {
 
   it('refuses a role an AI stand-in plays', async () => {
     await makeApp({ scenario: aiScenario, meetingCode: createMeetingCodeSource(FIXED_CODE) });
+    const host = await loginHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
 
     const aiRole = await post('/api/join', { code: FIXED_CODE, role: 'manager' });
     expect(aiRole.status).toBe(403);
@@ -269,6 +275,7 @@ describe('phone and screen seat authority', () => {
       { displayName: 'Runner One', roleId: 'runner', kind: 'person' },
     ];
     expect((await put('/api/setup', setup, host)).status).toBe(200);
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
 
     const joined = await post('/api/join', { code: FIXED_CODE, role: 'runner' });
     expect(joined.status).toBe(200);
@@ -288,6 +295,7 @@ describe('phone and screen seat authority', () => {
     arjun.kind = 'person';
     delete arjun.npcProfileId;
     expect((await put('/api/setup', setup, host)).status).toBe(200);
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
 
     const refused = await post('/api/join', { code: FIXED_CODE, role: 'producer' });
     expect([403, 409]).toContain(refused.status);
@@ -408,6 +416,8 @@ describe('phone and screen seat authority', () => {
       meetingCode: createMeetingCodeSource(FIXED_CODE),
       roomRoster: async () => [{ name: 'Ada', role: 'chef' }],
     });
+    const host = await loginHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const response = await post('/api/livekit/token', {

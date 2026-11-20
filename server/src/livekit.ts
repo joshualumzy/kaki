@@ -76,6 +76,24 @@ export function livekitRoster(): RoomRoster {
   };
 }
 
+/**
+ * Remove the people from a meeting room that has been replaced or ended. The AI attendees are
+ * left in place: the runner owns them and they carry no browser credential. A LiveKit outage is
+ * logged once by the caller and never blocks the handoff, which is already safe by room identity.
+ */
+export async function removeRoomHumans(roomName: string, keepNames: readonly string[]): Promise<void> {
+  const { key, secret } = livekitCredentials();
+  const url = (process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880').replace(/^ws/, 'http');
+  const client = new RoomServiceClient(url, key, secret);
+  const keep = new Set(keepNames.map((name) => name.trim().toLowerCase()));
+  const participants = await client.listParticipants(roomName);
+  await Promise.all(
+    participants
+      .filter((participant) => !keep.has(participant.identity.trim().toLowerCase()))
+      .map((participant) => client.removeParticipant(roomName, participant.identity)),
+  );
+}
+
 /** How long a seat stays reserved after a token is issued, before LiveKit is expected to show the person. */
 export const ADMISSION_RESERVATION_MS = 15_000;
 

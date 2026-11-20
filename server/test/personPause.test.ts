@@ -107,6 +107,8 @@ async function loginHost(port: number): Promise<string> {
 }
 
 async function joinByCode(port: number, role: string): Promise<string> {
+  const host = await loginHost(port);
+  expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
   const response = await request(port, '/api/livekit/token', 'POST', {
     roomName: 'room',
     participantName: 'Ada',
@@ -273,6 +275,7 @@ describe('a person pauses the meeting over their own hub socket', () => {
     });
     apps.push(app);
     const port = portOf(app);
+    expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
     expect((await request(port, '/api/livekit/token', 'POST', {
       roomName: 'room',
       participantName: 'Ada',

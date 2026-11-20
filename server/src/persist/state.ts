@@ -19,7 +19,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 6;
+export const MEETING_STATE_SCHEMA_VERSION = 7;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -99,6 +99,11 @@ export interface SavedMeetingDetails {
   draftEditedSinceSeal?: boolean;
   /** Present iff `phase` is `starting`, `running` or `ended`. */
   sealed?: MeetingSetup;
+  /**
+   * Which journey sealed it. A practice seal never consumes the owner's draft; absent on older
+   * saves, where an ended seal is treated as the owner's.
+   */
+  sealedKind?: 'real' | 'practice';
   holders: SavedSeatAssignment[];
   meetingCode: string;
   /** Absent while the meeting is still a pre-Start setup draft. */
@@ -334,6 +339,10 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
     if (typeof abandoned !== 'boolean') return 'its abandoned mark is not valid';
     if (abandoned && saved.phase !== 'running') return 'its abandoned mark is not valid for this phase';
   }
+  const sealedKind = (saved as { sealedKind?: unknown }).sealedKind;
+  if (sealedKind !== undefined && sealedKind !== 'real' && sealedKind !== 'practice') {
+    return 'its sealed meeting kind is not valid';
+  }
   const sealedPhase = saved.phase === 'starting' || saved.phase === 'running' || saved.phase === 'ended';
   if (sealedPhase) {
     if (saved.sealed === undefined) return 'its sealed setup is missing';
@@ -342,6 +351,7 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   } else if (saved.sealed !== undefined) {
     return 'its sealed setup is not valid for this phase';
   }
+  if (sealedKind !== undefined && !sealedPhase) return 'its sealed meeting kind is not valid for this phase';
   const meetingCode = meetingCodeProblem((saved as { meetingCode?: unknown }).meetingCode);
   if (meetingCode !== undefined) return meetingCode;
   const holders = holdersProblem((saved as { holders?: unknown }).holders);
@@ -405,6 +415,10 @@ export function assertReadableSavedSetup(saved: StoredMeeting, scenario: Scenari
   if (saved.sealed !== undefined) {
     const sealed = setupProblem((saved as { sealed?: unknown }).sealed, scenario);
     if (sealed !== undefined) throw unreadableSavedMeeting(`its sealed ${sealed}`);
+  }
+  const sealedKind = (saved as { sealedKind?: unknown }).sealedKind;
+  if (sealedKind !== undefined && sealedKind !== 'real' && sealedKind !== 'practice') {
+    throw unreadableSavedMeeting('its sealed meeting kind is not valid');
   }
 }
 

@@ -29,7 +29,8 @@ async function runnerState(): Promise<RunnerMeetingSnapshot> {
   return (await response.json()) as RunnerMeetingSnapshot;
 }
 
-function join(participantName: string, participantRole: string): Promise<Response> {
+async function join(participantName: string, participantRole: string): Promise<Response> {
+  await fetch(`${baseUrl()}/api/meeting/open`, { method: 'POST' });
   return fetch(`${baseUrl()}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -86,11 +87,10 @@ describe('the service-only runner meeting endpoint', () => {
     expect(state.phase).toBe('lobby');
     expect(state.cast.length).toBeGreaterThan(0);
 
-    // The browser-facing state keeps its small shape, plus the lobby's list of who joined.
+    // The browser-facing state keeps its small public shape; who joined is owner-only.
     const publicState = await fetch(`${baseUrl()}/api/meeting/state`);
     expect(Object.keys((await publicState.json()) as Record<string, unknown>).sort()).toEqual([
       'meetingId',
-      'participants',
       'started',
     ]);
   });

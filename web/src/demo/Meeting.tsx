@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
-import { demoRoomName, joinSeatRoles } from '@kaki/shared';
+import { joinSeatRoles } from '@kaki/shared';
 import { useKaki, useRefreshScenario, useScenario } from '../kaki';
 import { fetchWithTimeout } from '../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -135,7 +135,6 @@ export default function Meeting({
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            roomName: demoRoomName(scenario),
             participantName: name,
             participantRole: roleId,
             ...(practice ? { kind: 'practice' } : {}),

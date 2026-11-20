@@ -235,12 +235,15 @@ describe('one access layer', () => {
   });
 
   it('pins the LiveKit room so a fresh client room cannot reset a running meeting or learn its code', async () => {
-    const pinned = demoRoomName(testScenario);
+    let pinned = '';
     const roster = vi.fn(async (roomName: string) =>
       roomName === pinned ? [{ name: 'Ada', role: 'chef' }] : [],
     );
     const app = await authApp({ roomRoster: roster });
     const before = (await (await get(app, '/api/meeting/state')).json()) as { meetingId: string };
+    pinned = demoRoomName(testScenario, before.meetingId);
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
 
     const response = await post(app, '/api/livekit/token', {
       roomName: 'fresh-room',
@@ -264,6 +267,7 @@ describe('one access layer', () => {
 
     // The owner opens the empty room and takes a seat; the old host token is replaced by the seat session.
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const seated = await post(
       app,
       '/api/livekit/token',
@@ -286,6 +290,8 @@ describe('one access layer', () => {
 
     expect((await get(app, `/api/mattermost/open?url=${target}`)).status).toBe(401);
 
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const participant = await join(app, 'chef');
     const offSite = encodeURIComponent('ftp://evil.example/kopitiam/channels/town-square');
     const denied = await get(app, `/api/mattermost/open?url=${offSite}`, participant);
@@ -311,6 +317,8 @@ describe('one access layer', () => {
       roomRoster: async () => [{ name: 'Ghost', role: 'manager' }],
     });
 
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const response = await post(app, '/api/livekit/token', {
       participantName: 'Ada',
       participantRole: 'chef',
@@ -350,6 +358,7 @@ describe('one access layer', () => {
   it('keeps a signed-in host who takes a seat as host with that seat’s card and powers', async () => {
     const app = await authApp({ scenario: hostSeatScenario() });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
 
     const joined = await post(
       app,
@@ -389,6 +398,7 @@ describe('one access layer', () => {
   it('gives the host a plain session again when they sign in later', async () => {
     const app = await authApp({ scenario: hostSeatScenario() });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const joined = await post(
       app,
       '/api/livekit/token',
@@ -412,6 +422,8 @@ describe('one access layer', () => {
     expect(publicBody.roles.find((role) => role.id === 'manager')?.card).toBeUndefined();
     expect(publicBody.npcs?.[0]?.hiddenGoal).toBeUndefined();
 
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const chef = await join(app, 'chef');
     const seatBody = (await (await get(app, '/api/scenario', chef)).json()) as Scenario;
     expect(seatBody.agenda[0]?.seatFacts).toEqual({ chef: 'chef seat secret' });
@@ -438,6 +450,8 @@ describe('one access layer', () => {
 
   it('refuses a seat another live participant session already holds', async () => {
     const app = await authApp();
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const chef = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
     expect(chef.status).toBe(200);
     const twice = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });

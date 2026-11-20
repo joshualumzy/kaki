@@ -103,6 +103,11 @@ export interface Hub {
   clearRetained(prefix: string): void;
   /** Revoke a gone meeting's phone sessions: bump the authorization generation and close their feeds. */
   endRoleSessions?(reason: string): void;
+  /**
+   * Revoke every practice socket and pending practice upgrade, whatever audience it follows. A
+   * meeting handoff means the practice capability no longer belongs to the meeting now on the server.
+   */
+  endPracticeSessions?(reason: string): void;
   /** Close every socket authorized by one session that has been replaced or signed out. */
   endSession?(sessionTokenHash: string): void;
   /** Close the WebSocket server and drop every client. */
@@ -224,7 +229,13 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   /** How each pending upgrade was authorized, kept until its socket registers. */
   const pendingAuthorizations = new WeakMap<
     IncomingMessage,
-    { generation: number; participant: boolean; sessionTokenHash?: string; runner: boolean }
+    {
+      generation: number;
+      participant: boolean;
+      sessionTokenHash?: string;
+      runner: boolean;
+      practice: boolean;
+    }
   >();
   const wss = new WebSocketServer(
     verified
@@ -253,6 +264,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
                     generation,
                     participant: decision.participant === true || decision.principal?.kind === 'seat',
                     runner: decision.runner === true,
+                    practice: decision.principal?.kind === 'practice',
                     ...(decision.sessionTokenHash === undefined
                       ? {}
                       : { sessionTokenHash: decision.sessionTokenHash }),
@@ -285,6 +297,8 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   const runnerSockets = new Set<WebSocket>();
   /** Sockets behind a participant's phone session, whatever audience they follow. */
   const participantSockets = new Set<WebSocket>();
+  /** Sockets authorized by a practice meeting's one capability. They die with that meeting. */
+  const practiceSockets = new Set<WebSocket>();
   /** The session each person's socket was authorized by, so replacing it can close the socket. */
   const socketSessions = new Map<WebSocket, string>();
 
@@ -316,6 +330,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     serviceSpeechSides.delete(socket);
     runnerSockets.delete(socket);
     participantSockets.delete(socket);
+    practiceSockets.delete(socket);
     socketSessions.delete(socket);
     if (wasService) notifyServicePresence();
   }
@@ -341,6 +356,15 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
 
   function sendRetained(socket: WebSocket, audience: ClientAudience): void {
     for (const event of retained.values()) {
+      // A practice screen sees its meeting, never another seat's private facts.
+      if (
+        practiceSockets.has(socket) &&
+        audience === 'screen' &&
+        event.audience.kind === 'role' &&
+        event.type === 'FACT_FOUND'
+      ) {
+        continue;
+      }
       // Retained events are history: mark them so a runner can tell an old cue from a live one.
       if (wantsEvent(event, audience)) sendTo(socket, audience, JSON.stringify({ ...event, replayed: true }));
     }
@@ -403,6 +427,23 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     // A lifecycle feed is read-only: it follows start/reset state and may never drive the meeting.
     if (audience === 'lifecycle') {
       console.warn('kaki hub: ignored a command from the read-only lifecycle feed');
+      return;
+    }
+
+    // A practice visitor may read the shared screen to render their practice meeting, but the
+    // screen's command authority (dispatch, dismiss, end, reset) belongs to the owner.
+    if (practiceSockets.has(socket) && audience === 'screen') {
+      const rawType =
+        typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
+          ? parsed.type
+          : 'unknown';
+      sendTo(
+        socket,
+        audience,
+        JSON.stringify(
+          rejectionFor(audience, rawType, 'Practice access may read the screen but not control it'),
+        ),
+      );
       return;
     }
 
@@ -469,9 +510,11 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     if (
       authorization !== undefined &&
       authorization.generation !== revocationGeneration &&
-      (authorization.participant === true || (seatAudience && authorization.runner !== true))
+      (authorization.practice === true ||
+        authorization.participant === true ||
+        (seatAudience && authorization.runner !== true))
     ) {
-      // Authorized for the previous meeting's generation: the phone or seat grant is gone.
+      // Authorized for the previous meeting's generation: the practice, phone or seat grant is gone.
       socket.close(4001);
       return;
     }
@@ -489,6 +532,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       serviceSockets.add(socket);
       serviceSpeechSides.set(socket, url.searchParams.get('stt') === 'browser' ? 'browser' : 'server');
     } else if (authorization?.runner === true) runnerSockets.add(socket);
+    else if (authorization?.practice === true) practiceSockets.add(socket);
     else if (authorization?.participant === true) participantSockets.add(socket);
     if (authorization?.sessionTokenHash !== undefined) {
       socketSessions.set(socket, authorization.sessionTokenHash);
@@ -515,6 +559,15 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
 
     const message = JSON.stringify(event);
     for (const [socket, audience] of clients) {
+      // A practice screen is a read-only projection: a role's private event is for that seat.
+      if (
+        practiceSockets.has(socket) &&
+        audience === 'screen' &&
+        event.audience.kind === 'role' &&
+        event.type === 'FACT_FOUND'
+      ) {
+        continue;
+      }
       if (wantsEvent(event, audience)) sendTo(socket, audience, message);
     }
 
@@ -583,6 +636,11 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     endRoleSessions(reason) {
       revocationGeneration += 1;
       for (const [socket, audience] of [...clients]) {
+        // A practice socket belongs to the meeting that granted it, whatever audience it reads.
+        if (practiceSockets.has(socket)) {
+          revokeSocket(socket, 4001, reason);
+          continue;
+        }
         if (audience === 'screen' || audience === 'service') continue;
         if (runnerSockets.has(socket)) continue;
         // A host's read-only lifecycle feed survives; a participant's must not follow the new meeting.
@@ -591,6 +649,12 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
         if (session !== undefined) revokedSessions.add(session);
         revokeSocket(socket, 4001, reason);
       }
+    },
+    endPracticeSessions(reason) {
+      // The bump also refuses a practice upgrade that authorized before this handoff but registers
+      // its socket afterwards.
+      revocationGeneration += 1;
+      for (const socket of [...practiceSockets]) revokeSocket(socket, 4001, reason);
     },
     endSession(sessionTokenHash) {
       // Retired before the sockets close: a pending upgrade authorized by this session is refused.
@@ -606,6 +670,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       serviceSpeechSides.clear();
       runnerSockets.clear();
       participantSockets.clear();
+      practiceSockets.clear();
       socketSessions.clear();
       revokedSessions.clear();
       serviceHandlers.clear();

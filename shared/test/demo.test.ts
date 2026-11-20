@@ -12,8 +12,8 @@ describe('demo meeting helpers', () => {
   it('accepts the explicit decision lock control', () => {
     expect(parseControlMessage({ kind: 'lock' })).toEqual({ kind: 'lock' });
   });
-  it('names the room after the scenario', () => {
-    expect(demoRoomName(testScenario)).toBe('kaki-demo-test-kitchen');
+  it('names the room after the scenario and the meeting identity', () => {
+    expect(demoRoomName(testScenario, 'meeting-1')).toBe('kaki-demo-test-kitchen-meeting-1');
   });
 
   it('offers a person only the roles no AI attendee plays', () => {

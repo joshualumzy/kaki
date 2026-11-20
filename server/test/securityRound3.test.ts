@@ -299,6 +299,8 @@ describe('security round 3', () => {
 
   it('checks that the seat claim still belongs to the session, not just its role', async () => {
     const { app, store } = await authApp();
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const cookie = await join(app, 'chef');
     const tokenHash = hashToken(tokenFrom(cookie));
 
@@ -328,6 +330,8 @@ describe('security round 3', () => {
       await createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
     );
 
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const first = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
     expect(first.status).toBe(200);
     const cookie = cookieFrom(first);
@@ -345,6 +349,8 @@ describe('security round 3', () => {
 
   it('stops a revoked socket sending commands before its close handshake finishes', async () => {
     const { app } = await authApp();
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const cookie = await join(app, 'chef');
     const tokenHash = hashToken(tokenFrom(cookie));
     const port = portOf(app);
@@ -451,6 +457,8 @@ describe('security round 3', () => {
     const app = track(
       await createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
     );
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const cookie = await join(app, 'chef');
     const tokenHash = hashToken(tokenFrom(cookie));
 
@@ -475,6 +483,7 @@ describe('security round 3', () => {
       roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
     });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const seated = await post(
       app,
       '/api/livekit/token',
@@ -504,6 +513,8 @@ describe('security round 3', () => {
   it('keeps the first meeting generation when phones joined before the first LiveKit admission', async () => {
     const { app } = await authApp();
     const port = portOf(app);
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const phone = await join(app, 'chef');
     const phoneSocket = await connect(port, 'chef', { cookie: phone });
     expect(phoneSocket.ok).toBe(true);

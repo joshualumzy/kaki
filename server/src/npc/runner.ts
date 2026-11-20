@@ -304,7 +304,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const hostProfile = meeting.scenario().npcs?.find((npc) => npc.role === 'host');
   const listenerProfile = alwaysAi[0] ?? hostProfile ?? bootCast[0]!;
   const permanent = alwaysAi.length > 0 ? alwaysAi : [listenerProfile];
-  const roomName = options.roomName ?? demoRoomName(bootScenario);
+  // The room follows the server's meeting identity. Until the runner has heard an identity, it
+  // waits in a boot room; the first snapshot moves it to the real one.
+  let roomName =
+    options.roomName ??
+    demoRoomName(bootScenario, options.initialMeeting?.meetingId ?? meeting.meetingId() ?? 'boot');
 
   // --- Characters join the room one by one, each publishing its own microphone track. ---
   const characters = new Map<string, Character>();
@@ -337,7 +341,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     await leaveAll();
     throw error;
   }
-  const listener = characters.get(listenerProfile.attendee) as Character;
+  const listenerCharacter = (): Character | undefined => characters.get(listenerProfile.attendee);
 
   // --- What the AI attendees send out: state to the browser, transcript lines to Kaki. ---
   let lastConversationState: NpcStateMessage = { kind: 'idle' };
@@ -356,7 +360,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           }
         : state;
     const data = new TextEncoder().encode(JSON.stringify(decorated));
-    listener.room.localParticipant?.publishData(data, { reliable: true, topic: NPC_STATE_TOPIC }).catch(() => undefined);
+    listenerCharacter()?.room.localParticipant?.publishData(data, { reliable: true, topic: NPC_STATE_TOPIC }).catch(() => undefined);
   }
 
   function syncHumanMicState(anyTalking: boolean): void {
@@ -455,6 +459,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
   const humans = new Map<string, Person>();
   let closing = false;
+  /** True while the runner deliberately leaves an old room for a meeting's new one. */
+  let movingRoom = false;
   /** While keys are being pressed, a short sound in the microphone is more likely the keyboard than speech. */
   const TYPING_QUIET_MS = 500;
   let typingUntil = 0;
@@ -684,6 +690,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function clearMeeting(nextMeetingId?: string): void {
     meeting.clear(nextMeetingId);
     clearLocalMeeting();
+    if (nextMeetingId !== undefined) moveToRoom(roomForMeeting(nextMeetingId));
     if (humans.size > 0) syncCast();
   }
 
@@ -702,6 +709,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
+      moveToRoom(roomForMeeting(state.meetingId));
     } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
       clearStopGate();
     }
@@ -970,6 +978,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       clearMeeting(request.meetingId);
     } else if (held === undefined) {
       // No snapshot yet: remember the id so a Start for another meeting can still be refused.
+      // The room follows the snapshot (a prepare carries one from the server), so this placeholder
+      // id alone does not move the runner.
       meeting.clear(request.meetingId);
     }
     prepared = undefined;
@@ -1005,6 +1015,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
+      moveToRoom(roomForMeeting(state.meetingId));
     } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
       // A new server incarnation owns the state now: a local hold from the old one cannot apply to it.
       clearStopGate();
@@ -1181,7 +1192,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
   }
 
-  const room = listener.room;
+  let attachedRoom: Room | undefined;
+  function attachRoom(room: Room): void {
+    if (attachedRoom === room) return;
+    attachedRoom = room;
   room.on(RoomEvent.ParticipantConnected, registerHuman);
   room.on(RoomEvent.ParticipantDisconnected, (participant) => {
     if (!humans.delete(participant.identity)) return;
@@ -1263,11 +1277,46 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
   });
   room.on(RoomEvent.Disconnected, () => {
-    if (closing) return;
+    if (closing || movingRoom) return;
     log('lost the connection to LiveKit');
     options.onDisconnected?.();
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
+  }
+  attachRoom(listenerCharacter()!.room);
+
+  /**
+   * A new meeting identity means a new room. Leave the old one, clear everything that belonged to
+   * it, and rejoin the fixed characters so the browser finds them in the room it was given.
+   */
+  function roomForMeeting(meetingId: string): string {
+    return options.roomName ?? demoRoomName(bootScenario, meetingId);
+  }
+
+  function moveToRoom(next: string): void {
+    if (next === roomName) return;
+    const previous = roomName;
+    roomName = next;
+    log(`the meeting moved to a new room; leaving ${previous} for ${next}`);
+    humans.clear();
+    talking.clear();
+    for (const vad of vads.values()) vad.close();
+    vads.clear();
+    castQueue = castQueue
+      .then(async () => {
+        movingRoom = true;
+        try {
+          await leaveAll();
+          characters.clear();
+          for (const npc of permanent) await joinCharacter(npc);
+          const nextListener = listenerCharacter();
+          if (nextListener !== undefined) attachRoom(nextListener.room);
+        } finally {
+          movingRoom = false;
+        }
+      })
+      .catch((error: unknown) => log(`could not move to the meeting's room: ${String(error)}`));
+  }
 
   function announce(text: string, onDone?: (spoken: boolean) => void, shouldStillSpeak?: () => boolean): void {
     if (endedTerminal) return;

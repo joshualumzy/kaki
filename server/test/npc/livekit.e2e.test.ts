@@ -136,7 +136,7 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     });
 
     const token = await createRoomToken({
-      roomName: demoRoomName(scenario),
+      roomName: demoRoomName(scenario, 'e2e-meeting'),
       participantName: 'Josh',
       participantRole: 'producer',
     });

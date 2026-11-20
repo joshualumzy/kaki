@@ -92,6 +92,8 @@ async function seatTwoPeople(app: KakiApp, port: number, setup?: MeetingSetup): 
     body: JSON.stringify(chosen),
   });
   expect(put.status).toBe(200);
+  const opened = await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' });
+  expect(opened.status).toBe(200);
   const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -209,6 +211,7 @@ describe('human-only meetings record people\'s lines', () => {
       body: JSON.stringify(twoPersonSetup(pack)),
     });
     expect(put.status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -433,6 +436,7 @@ describe('human lines are not held for a human-only meeting but are held with an
       if (message.kind !== 'prepare' || requestId === undefined || attempt === undefined || meetingId === undefined) return;
       service.ws.send(JSON.stringify({ kind: 'ready', requestId, attempt, meetingId }));
     });
+    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const joined = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -505,6 +509,7 @@ describe('human-line security with sign-in on', () => {
   it('refuses anonymous sockets, another seat, another meeting, and lines outside a running meeting', async () => {
     const { app, port, setPeople } = await authOnApp();
     const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
     const chef = cookieFrom(await request(port, '/api/livekit/token', 'POST', {
       roomName: 'room', participantName: 'Ada', participantRole: 'chef', meetingCode: CODE,
     }));
@@ -552,6 +557,7 @@ describe('human-line security with sign-in on', () => {
   it('accepts a recognised line through the service route and refuses a guest session', async () => {
     const { app, port, setPeople } = await authOnApp();
     const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
     const chef = cookieFrom(await request(port, '/api/livekit/token', 'POST', {
       roomName: 'room', participantName: 'Ada', participantRole: 'chef', meetingCode: CODE,
     }));

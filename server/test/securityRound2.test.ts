@@ -260,6 +260,7 @@ describe('security round 2', () => {
   it('lets only the runner token reach the runner routes with auth on', async () => {
     const { app } = await authApp({ serviceToken: 'runner-secret' });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const seat = await join(app, 'chef');
     const bodies: Array<[string, unknown]> = [
       [
@@ -301,9 +302,9 @@ describe('security round 2', () => {
         participantRole: 'chef',
         ...(meetingCode === undefined ? {} : { meetingCode }),
       });
-      expect(response.status).toBe(403);
-      const body = (await response.json()) as { needsCode?: boolean; meetingCode?: unknown; token?: unknown };
-      expect(body.needsCode).toBe(true);
+      expect(response.status).toBe(409);
+      const body = (await response.json()) as { error?: string; meetingCode?: unknown; token?: unknown };
+      expect(body.error).toMatch(/No team meeting is open right now/);
       expect(body.meetingCode).toBeUndefined();
       expect(body.token).toBeUndefined();
       expect(await meetingState(app)).toEqual(before);
@@ -312,6 +313,8 @@ describe('security round 2', () => {
 
   it('admits a code holder as the first person into a fresh meeting with auth on', async () => {
     const { app, meetingCode } = await authApp({ roomRoster: async () => [] });
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const before = await meetingState(app);
     const codeBefore = meetingCode.value;
 
@@ -336,6 +339,7 @@ describe('security round 2', () => {
       admissionReservationMs: 20,
     });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const seated = await post(
       app,
       '/api/livekit/token',
@@ -357,12 +361,12 @@ describe('security round 2', () => {
       meetingCode: MEETING_CODE,
     });
     expect(guest.status).toBe(409);
-    expect(((await guest.json()) as { error: string }).error).toMatch(
-      /meeting owner must start the next/i,
-    );
+    expect(((await guest.json()) as { error: string }).error).toMatch(/No team meeting is open right now/);
     expect(await meetingState(app)).toEqual(before);
     expect(meetingCode.value).toBe(codeBefore);
 
+    // The expired real meeting was released; the owner must open the next one before joining.
+    expect((await post(app, '/api/meeting/open', {}, seatHost)).status).toBe(200);
     const hosted = await post(
       app,
       '/api/livekit/token',
@@ -382,6 +386,7 @@ describe('security round 2', () => {
       admissionReservationMs: 20,
     });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const hosted = await post(
       app,
       '/api/livekit/token',
@@ -438,6 +443,7 @@ describe('security round 2', () => {
       roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
     });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const hostSeated = await post(
       app,
       '/api/livekit/token',
@@ -467,6 +473,8 @@ describe('security round 2', () => {
 
   it('lets only one of two simultaneous joins take the same seat', async () => {
     const { app } = await authApp();
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const [first, second] = await Promise.all([
       post(app, '/api/join', { code: MEETING_CODE, role: 'chef' }),
       post(app, '/api/join', { code: MEETING_CODE, role: 'chef' }),
@@ -480,6 +488,7 @@ describe('security round 2', () => {
       roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
     });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const seated = await post(
       app,
       '/api/livekit/token',
@@ -515,6 +524,7 @@ describe('security round 2', () => {
       roomRoster: async () => [{ name: 'Hosty', role: 'cashier' }],
     });
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
     const port = portOf(app);
     const screen = await connect(port, 'screen', { cookie: host });
     const lifecycle = await connect(port, 'lifecycle', { cookie: host });
@@ -625,6 +635,7 @@ describe('security round 2', () => {
     vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example');
     const { app } = await authApp();
     const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
 
     const realFetch = globalThis.fetch;
     vi.stubGlobal(

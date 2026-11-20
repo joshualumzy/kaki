@@ -131,6 +131,8 @@ describe.skipIf(connectionString === undefined)('postgres meeting persistence th
           ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
         });
 
+      // A team meeting is joinable only once the owner has opened it.
+      expect((await request('/api/meeting/open', 'POST')).status).toBe(200);
       const joined = await request('/api/livekit/token', 'POST', {
         participantName: 'Ada',
         participantRole: 'chef',

@@ -87,6 +87,7 @@ describe('setup API', () => {
   });
 
   it('refuses changes after the meeting has started', async () => {
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST' })).status).toBe(200);
     const joined = await fetch(`${base}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -167,6 +168,8 @@ describe('setup authorization', () => {
   }
 
   async function joinAs(role: string): Promise<string> {
+    const host = await signInAsHost();
+    expect((await fetch(`${base}/api/meeting/open`, { method: 'POST', headers: { cookie: host } })).status).toBe(200);
     const response = await fetch(`${base}/api/join`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

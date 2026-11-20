@@ -57,6 +57,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
   const [copied, setCopied] = useState(false);
   const [copyProblem, setCopyProblem] = useState<string | undefined>();
   const [starting, setStarting] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [startError, setStartError] = useState<string | undefined>();
 
   useEffect(() => {
@@ -65,9 +66,10 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
 
     async function load(): Promise<void> {
       try {
-        const [codeResponse, stateResponse] = await Promise.all([
+        const [codeResponse, stateResponse, peopleResponse] = await Promise.all([
           fetchWithTimeout('/api/meeting-code', { signal: controller.signal }),
           fetchWithTimeout('/api/meeting/state', { signal: controller.signal }),
+          fetchWithTimeout('/api/meeting/participants', { signal: controller.signal }),
         ]);
         if (cancelled) return;
         if (!codeResponse.ok) {
@@ -75,18 +77,25 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
           return;
         }
         if (!stateResponse.ok) {
-          setProblem(await errorOf(stateResponse, 'Could not read who has joined'));
+          setProblem(await errorOf(stateResponse, 'Could not read the meeting state'));
+          return;
+        }
+        if (!peopleResponse.ok) {
+          setProblem(await errorOf(peopleResponse, 'Could not read who has joined'));
           return;
         }
         const codeBody = (await codeResponse.json().catch(() => null)) as { code?: unknown } | null;
         const stateBody = (await stateResponse.json().catch(() => null)) as
-          | { started?: unknown; participants?: unknown }
+          | { started?: unknown }
+          | null;
+        const peopleBody = (await peopleResponse.json().catch(() => null)) as
+          | { participants?: unknown }
           | null;
         if (cancelled) return;
         if (typeof codeBody?.code === 'string' && codeBody.code.trim() !== '') {
           setCode(codeBody.code.trim());
         }
-        setParticipants(participantsOf(stateBody?.participants));
+        setParticipants(participantsOf(peopleBody?.participants));
         setLoaded(true);
         setProblem(undefined);
         if (stateBody?.started === true) onStarted();
@@ -141,6 +150,25 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
       setStartError(error instanceof Error ? error.message : 'Could not start the meeting.');
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function closeRoom(): Promise<void> {
+    if (closing || starting) return;
+    setClosing(true);
+    setStartError(undefined);
+    try {
+      const response = await fetchWithTimeout('/api/meeting/close', { method: 'POST' }, 12_000);
+      const body = (await response.json().catch(() => ({}))) as { error?: unknown };
+      if (!response.ok) {
+        throw new Error(
+          typeof body.error === 'string' ? body.error : `Could not close the room (HTTP ${response.status}).`,
+        );
+      }
+      window.location.assign('/setup');
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : 'Could not close the room.');
+      setClosing(false);
     }
   }
 
@@ -200,8 +228,16 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
           </p>
         )}
         <div className="kd-start-actions">
-          <button type="button" className="kd-go" onClick={() => void start()} disabled={starting}>
+          <button type="button" className="kd-go" onClick={() => void start()} disabled={starting || closing}>
             {starting ? 'Starting…' : 'Start the meeting'}
+          </button>
+          <button
+            type="button"
+            className="kd-chip"
+            onClick={() => void closeRoom()}
+            disabled={starting || closing}
+          >
+            {closing ? 'Closing…' : 'Close the meeting room'}
           </button>
         </div>
       </div>

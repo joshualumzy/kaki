@@ -33,10 +33,11 @@ function baseUrl(app: KakiApp): string {
   return `http://127.0.0.1:${portOf(app)}`;
 }
 
-function join(
+async function join(
   app: KakiApp,
   body: { participantName: string; participantRole: string; meetingCode?: string },
 ): Promise<Response> {
+  await fetch(`${baseUrl(app)}/api/meeting/open`, { method: 'POST' });
   return fetch(`${baseUrl(app)}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

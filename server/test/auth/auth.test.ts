@@ -208,6 +208,8 @@ describe('auth', () => {
   });
 
   it('validates the meeting code and role before joining', async () => {
+    const host = await signInAsHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
     const noCode = await post('/api/join', { role: 'chef' });
     expect(noCode.status).toBe(400);
     expect(await noCode.json()).toEqual({ error: 'Enter the meeting code.' });
@@ -236,11 +238,12 @@ describe('auth', () => {
     const anonymous = await get('/api/meeting-code');
     expect(anonymous.status).toBe(401);
 
+    const host = await signInAsHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
     const participant = await joinAs('chef');
     const forbidden = await get('/api/meeting-code', participant);
     expect(forbidden.status).toBe(403);
 
-    const host = await signInAsHost();
     const allowed = await get('/api/meeting-code', host);
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toEqual({ code: MEETING_CODE });
@@ -256,6 +259,7 @@ describe('auth', () => {
     if (!anonymousChef.ok) expect(anonymousChef.status).toBe(401);
 
     const host = await signInAsHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
     const hostScreen = await connect(port, 'screen', host);
     expect(hostScreen.ok).toBe(true);
     if (hostScreen.ok) sockets.push({ ws: hostScreen.ws });
@@ -279,12 +283,13 @@ describe('auth', () => {
   });
 
   it('lets signed-in people read the lifecycle and the runner use its authenticated service channel', async () => {
+    const host = await signInAsHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
     const chef = await joinAs('chef');
     const participantLifecycle = await connect(port, 'lifecycle', chef);
     expect(participantLifecycle.ok).toBe(true);
     if (participantLifecycle.ok) sockets.push({ ws: participantLifecycle.ws });
 
-    const host = await signInAsHost();
     const hostLifecycle = await connect(port, 'lifecycle', host);
     expect(hostLifecycle.ok).toBe(true);
     if (hostLifecycle.ok) sockets.push({ ws: hostLifecycle.ws });

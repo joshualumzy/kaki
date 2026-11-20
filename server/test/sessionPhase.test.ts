@@ -76,7 +76,8 @@ function startMeeting(app: KakiApp): Promise<Response> {
   return fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/start`, { method: 'POST' });
 }
 
-function join(app: KakiApp, participantName: string, participantRole: string): Promise<Response> {
+async function join(app: KakiApp, participantName: string, participantRole: string): Promise<Response> {
+  await fetch(`http://localhost:${portOf(app)}/api/meeting/open`, { method: 'POST' });
   return fetch(`http://localhost:${portOf(app)}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

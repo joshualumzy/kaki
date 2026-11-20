@@ -231,6 +231,36 @@ describe('meeting session phase transitions', () => {
     expect(h.session.practiceStartToken()).toBeUndefined();
   });
 
+  it('restores an ended meeting without inferring real, so the next practice can start', () => {
+    const h = harness({ phase: 'ended', sealed: true });
+
+    expect(h.session.kind()).toBeUndefined();
+    expect(h.session.holders().length).toBeGreaterThan(0);
+
+    h.session.beginPractice({ seat: 'chef', token: 'grant-after-ended' });
+    expect(h.session.kind()).toBe('practice');
+    expect(h.session.practiceStartToken()).toBe('grant-after-ended');
+  });
+
+  it('leaves the owner draft exactly as it was when practice ends and resets', () => {
+    const h = harness({ phase: 'lobby', draftTouched: true });
+    const ownerDraft: MeetingSetup = { ...h.setup, title: 'Owner plan for the next meeting' };
+    h.session.setDraft(ownerDraft);
+
+    h.session.beginPractice({ seat: 'chef', token: 'practice-grant' });
+    const practiceSeal: MeetingSetup = { ...h.setup, title: 'Practice runs the pack' };
+    h.session.beginStart(h.candidate, practiceSeal);
+    h.session.commitStart();
+    expect(h.session.sealed()).toBe(practiceSeal);
+
+    h.session.end();
+    h.session.reset();
+
+    expect(h.session.draft()).toBe(ownerDraft);
+    expect(h.session.draftTouched()).toBe(true);
+    expect(h.session.sealed()).toBeUndefined();
+  });
+
   it('moves a running meeting to ended and keeps its seal and active scenario', () => {
     const h = harness({ phase: 'lobby' });
     h.session.beginStart(h.candidate, h.setup);

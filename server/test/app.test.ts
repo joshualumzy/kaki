@@ -502,6 +502,7 @@ describe('app', () => {
     const meeting = await createApp({ speechRecognition: 'browser', scenario: full, roomRoster: async () => [] });
     try {
       const base = `http://127.0.0.1:${portOf(meeting)}`;
+      await fetch(`${base}/api/meeting/open`, { method: 'POST' });
       const joined = await fetch(`${base}/api/livekit/token`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -555,7 +556,9 @@ describe('rejoining an empty meeting', () => {
     });
   }
 
-  function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
+  async function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
+    // A team-meeting join exists only after the owner has opened the real meeting.
+    await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/open`, { method: 'POST' });
     return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -780,7 +783,9 @@ describe('one server-owned meeting start', () => {
     });
   }
 
-  function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
+  async function join(app: Awaited<ReturnType<typeof startApp>>, body: Record<string, unknown>) {
+    // A team-meeting join exists only after the owner has opened the real meeting.
+    await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/open`, { method: 'POST' });
     return fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
