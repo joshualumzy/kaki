@@ -73,6 +73,7 @@ async function authOnApp(
   const clock = createAgendaClock({ agenda: testScenario.agenda });
   let people: Array<{ name: string }> = [];
   const app = await createApp({
+    speechRecognition: 'browser',
     scenario: testScenario,
     auth,
     meetingCode,
@@ -261,6 +262,7 @@ describe('a person pauses the meeting over their own hub socket', () => {
     const clock = createAgendaClock({ agenda: testScenario.agenda });
     let people: Array<{ name: string }> = [];
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       roomRoster: async () => people,

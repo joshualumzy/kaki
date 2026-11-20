@@ -193,6 +193,8 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
  * from the seat and writes the one transcript line, so a retry with the same id cannot duplicate it.
  */
 function postHumanLine(line: {
+  meetingId: string;
+  participantIdentity: string;
   seat: string;
   text: string;
   source: 'speech' | 'typed';
@@ -582,7 +584,7 @@ const serviceChannel = createServiceChannel({
   token: serviceToken,
   createSocket: () =>
     new WebSocket(
-      `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service`,
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service&stt=${sttMode === 'browser' ? 'browser' : 'server'}`,
       serviceToken === undefined || serviceToken === ''
         ? undefined
         : { headers: { authorization: `Bearer ${serviceToken}` } },

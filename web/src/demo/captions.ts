@@ -97,6 +97,7 @@ export function captionFor(
   windowMs = 8000,
   stillSpeaking = false,
   aliases: readonly string[] = [],
+  role?: string,
 ): string | null {
   const candidates = new Set(
     [speaker, ...aliases]
@@ -109,7 +110,14 @@ export function captionFor(
     const base = lower.replace(/\s*\([^)]*\)\s*$/, '').trim();
     return base.length > 0 && candidates.has(base);
   };
-  const mine = chunks.filter((chunk) => matchesSpeaker(chunk.payload.speaker));
+  // A server-written human line knows its seat, so a renamed display name still matches its tile.
+  // Lines without a role (AI speech and old events) keep the name match.
+  const wantedRole = role?.trim().toLowerCase();
+  const mine = chunks.filter((chunk) =>
+    chunk.payload.speakerRole !== undefined
+      ? wantedRole !== undefined && chunk.payload.speakerRole.trim().toLowerCase() === wantedRole
+      : matchesSpeaker(chunk.payload.speaker),
+  );
   const latest = mine.at(-1);
   if (latest === undefined) return null;
 

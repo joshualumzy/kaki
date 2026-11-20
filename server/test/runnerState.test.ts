@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 async function appFor(scenario: Awaited<ReturnType<typeof loadScenario>>): Promise<KakiApp> {
-  app = await createApp({ scenario, roomRoster: async () => [] });
+  app = await createApp({ speechRecognition: 'browser', scenario, roomRoster: async () => [] });
   return app;
 }
 

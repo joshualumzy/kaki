@@ -218,6 +218,7 @@ describe('security round 3', () => {
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     const app = track(
       await createApp({
+        speechRecognition: 'browser',
         scenario,
         auth,
         meetingCode,
@@ -324,7 +325,7 @@ describe('security round 3', () => {
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     const app = track(
-      await createApp({ scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
     );
 
     const first = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
@@ -448,7 +449,7 @@ describe('security round 3', () => {
       },
     };
     const app = track(
-      await createApp({ scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
     );
     const cookie = await join(app, 'chef');
     const tokenHash = hashToken(tokenFrom(cookie));
@@ -526,7 +527,7 @@ describe('security round 3', () => {
 
   it('requires the service token on runner routes and sockets even with sign-in off', async () => {
     const app = track(
-      await createApp({ scenario: testScenario, serviceToken: 'runner-secret', roomRoster: async () => [] }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, serviceToken: 'runner-secret', roomRoster: async () => [] }),
     );
     expect((await post(app, '/api/runner/emit', transcriptEvent)).status).toBe(401);
     const runner = await fetch(`${base(app)}/api/runner/emit`, {
@@ -544,13 +545,13 @@ describe('security round 3', () => {
   });
 
   it('allows a tokenless runner only from the direct loopback peer', async () => {
-    const local = track(await createApp({ scenario: testScenario }));
+    const local = track(await createApp({ speechRecognition: 'browser', scenario: testScenario }));
     expect((await post(local, '/api/runner/emit', transcriptEvent)).status).toBe(200);
     const localSocket = await connect(portOf(local), 'service');
     expect(localSocket.ok).toBe(true);
     if (localSocket.ok) localSocket.ws.terminate();
 
-    const remote = track(await createApp({ scenario: testScenario, devRoutes: true }));
+    const remote = track(await createApp({ speechRecognition: 'browser', scenario: testScenario, devRoutes: true }));
     remote.server.prependListener('connection', (peer) => {
       Object.defineProperty(peer, 'remoteAddress', { value: '203.0.113.9' });
     });
@@ -566,7 +567,7 @@ describe('security round 3', () => {
 
     const code = createMeetingCodeSource(MEETING_CODE);
     const auth = makeAuth(code);
-    await expect(createApp({ scenario: testScenario, auth, meetingCode: code })).rejects.toThrow(
+    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode: code })).rejects.toThrow(
       /MATTERMOST_PUBLIC_URL/,
     );
     await auth.close();
@@ -575,7 +576,7 @@ describe('security round 3', () => {
     const httpCode = createMeetingCodeSource(MEETING_CODE);
     const httpAuth = makeAuth(httpCode);
     await expect(
-      createApp({ scenario: testScenario, auth: httpAuth, meetingCode: httpCode }),
+      createApp({ speechRecognition: 'browser', scenario: testScenario, auth: httpAuth, meetingCode: httpCode }),
     ).rejects.toThrow(/MATTERMOST_PUBLIC_URL/);
     await httpAuth.close();
 
@@ -583,7 +584,7 @@ describe('security round 3', () => {
     const httpsCode = createMeetingCodeSource(MEETING_CODE);
     const httpsAuth = makeAuth(httpsCode);
     const https = track(
-      await createApp({ scenario: testScenario, auth: httpsAuth, meetingCode: httpsCode }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth: httpsAuth, meetingCode: httpsCode }),
     );
     expect(https.server.address()).not.toBeNull();
 
@@ -592,7 +593,7 @@ describe('security round 3', () => {
     const allowedCode = createMeetingCodeSource(MEETING_CODE);
     const allowedAuth = makeAuth(allowedCode);
     const allowed = track(
-      await createApp({ scenario: testScenario, auth: allowedAuth, meetingCode: allowedCode }),
+      await createApp({ speechRecognition: 'browser', scenario: testScenario, auth: allowedAuth, meetingCode: allowedCode }),
     );
     expect(allowed.server.address()).not.toBeNull();
   });

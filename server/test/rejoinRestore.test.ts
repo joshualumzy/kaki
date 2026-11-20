@@ -106,6 +106,7 @@ async function startApp({
   const saver =
     persistence ?? createMeetingPersistence({ store, saved: saved ?? store.saved, log: () => undefined });
   const app = await createApp({
+    speechRecognition: 'browser',
     scenario,
     modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
     persistence: saver,
@@ -288,6 +289,7 @@ describe('an abandoned meeting never resumes after a restart', () => {
       log: () => undefined,
     });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       auth,
       meetingCode,

@@ -87,6 +87,7 @@ describe('the server owns the empty-room pause', () => {
     const clock = createAgendaClock({ agenda: pack.agenda });
     const persistence = createMeetingPersistence({ store, log: () => undefined });
     const first = await createApp({
+      speechRecognition: 'browser',
       scenario: pack,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       persistence,
@@ -119,6 +120,7 @@ describe('the server owns the empty-room pause', () => {
     // The runner (and the server) restarted; the guest is back in the room when the new process polls.
     const restoredClock = createAgendaClock({ agenda: pack.agenda });
     const restored = await createApp({
+      speechRecognition: 'browser',
       scenario: pack,
       modules: [createMeetingModule({ clock: restoredClock, notetakerIntervalMs: 60_000 })],
       persistence: createMeetingPersistence({ store, saved: store.saved, log: () => undefined }),
@@ -143,6 +145,7 @@ describe('the server owns the empty-room pause', () => {
     let people: Array<{ name: string }> = [];
     const clock = createAgendaClock({ agenda: pack.agenda });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: pack,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       roomRoster: async () => people,
@@ -189,6 +192,7 @@ describe('the server owns the empty-room pause', () => {
     const clock = createAgendaClock({ agenda: pack.agenda });
     const persistence = createMeetingPersistence({ store, log: () => undefined });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: pack,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       persistence,
@@ -233,6 +237,7 @@ describe('the server owns the empty-room pause', () => {
     let people: Array<{ name: string }> = [];
     const clock = createAgendaClock({ agenda: pack.agenda });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: pack,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       roomRoster: async () => people,
@@ -270,6 +275,7 @@ describe('the server owns the empty-room pause', () => {
     let people: Array<{ name: string }> = [];
     const clock = createAgendaClock({ agenda: pack.agenda });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: pack,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       roomRoster: async () => people,

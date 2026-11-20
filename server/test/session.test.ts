@@ -306,6 +306,7 @@ describe('meeting session reset', () => {
       'nudge:',
       'meeting:restored',
       'runner:state',
+      'speech:recording',
       'task:',
     ]);
   });

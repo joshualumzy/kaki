@@ -109,6 +109,8 @@ export interface RunnerOptions {
    * The app server resolves the speaker from the seat, so no client-chosen name is trusted.
    */
   postHumanLine?(line: {
+    meetingId: string;
+    participantIdentity: string;
     seat: string;
     text: string;
     source: 'speech' | 'typed';
@@ -1092,8 +1094,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
               const accepted = conversation === undefined ? text : conversation.humanText(text);
               if (accepted === undefined) return;
               const seat = humans.get(identity)?.role;
-              if (seat === undefined) return;
+              const meetingId = meeting.meetingId();
+              if (seat === undefined || meetingId === undefined) return;
               options.postHumanLine?.({
+                meetingId,
+                participantIdentity: identity,
                 seat,
                 text: accepted,
                 source: 'speech',

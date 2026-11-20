@@ -41,6 +41,7 @@ export type KakiEventType =
   | 'MEETING_RESET'
   | 'MEETING_RESTORED'
   | 'RUNNER_STATE'
+  | 'SPEECH_RECORDING'
   | 'TOPIC_SETTLED'
   | 'COLLEAGUE_REACTION'
   | 'COMMAND_REJECTED';
@@ -58,6 +59,8 @@ export type KakiEvent =
         textOnly?: boolean;
         /** The real catch this line raises, from the scenario's discussion (`<topicIndex>:catch:<i>`). */
         catchId?: string;
+        /** The seat that spoke, so a renamed display name still counts as that role. */
+        speakerRole?: Role;
       }
     >
   | KakiEventOf<
@@ -104,6 +107,8 @@ export type KakiEvent =
   | KakiEventOf<'MEETING_RESTORED', { startedAt: string }>
   /** The one meeting snapshot the AI runner reads; service-only and retained for reconnects. */
   | KakiEventOf<'RUNNER_STATE', RunnerMeetingSnapshot>
+  /** Whether the default server-side recogniser is running, so people know their speech is not being recorded. */
+  | KakiEventOf<'SPEECH_RECORDING', { recording: boolean }>
   /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
   | KakiEventOf<'TOPIC_SETTLED', { title: string; taskId?: string }>
   | KakiEventOf<'COLLEAGUE_REACTION', { who: string; emoji: '👍' | '😬' | '🤔' | '😅' | '🙌' | '💸' | '🤨' | '⏰'; timestamp: string }>
@@ -120,6 +125,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'MEETING_RESET',
   'MEETING_RESTORED',
   'RUNNER_STATE',
+  'SPEECH_RECORDING',
   'TOPIC_SETTLED',
   'COLLEAGUE_REACTION',
   'COMMAND_REJECTED',
@@ -186,12 +192,13 @@ function isKnownEventType(value: unknown): value is KakiEventType {
 type PayloadCheck = (payload: Record<string, unknown>, scenario: Scenario) => boolean;
 
 const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
-  TRANSCRIPT_CHUNK: (payload) =>
+  TRANSCRIPT_CHUNK: (payload, scenario) =>
     isString(payload.speaker) &&
     isString(payload.text) &&
     isString(payload.timestamp) &&
     (payload.textOnly === undefined || typeof payload.textOnly === 'boolean') &&
-    (payload.catchId === undefined || isString(payload.catchId)),
+    (payload.catchId === undefined || isString(payload.catchId)) &&
+    (payload.speakerRole === undefined || isRoleIn(scenario, payload.speakerRole)),
   MEETING_RECORD_UPDATED: (payload, scenario) =>
     Number.isInteger(payload.agendaIndex) &&
     Array.isArray(payload.openQuestions) &&
@@ -226,6 +233,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
   MEETING_RESET: (payload) => isNonEmptyString(payload.meetingId),
   MEETING_RESTORED: (payload) => isString(payload.startedAt) && Number.isFinite(Date.parse(payload.startedAt)),
   RUNNER_STATE: (payload) => isRunnerMeetingSnapshot(payload),
+  SPEECH_RECORDING: (payload) => typeof payload.recording === 'boolean',
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),
   COLLEAGUE_REACTION: (payload, scenario) =>
     isString(payload.who) && scenario.npcs?.some((npc) => npc.attendee === payload.who) === true &&

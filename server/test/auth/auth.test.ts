@@ -318,7 +318,7 @@ describe('auth', () => {
     };
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
     const aiAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
-    app = await createApp({ scenario, auth: aiAuth, meetingCode, serviceToken: 'runner-secret' });
+    app = await createApp({ speechRecognition: 'browser', scenario, auth: aiAuth, meetingCode, serviceToken: 'runner-secret' });
     port = portOf(app);
 
     const task = app.tasks.suggest({ title: 'Approve the order', context: 'Lunch prep', suggestedAssignee: 'manager' });

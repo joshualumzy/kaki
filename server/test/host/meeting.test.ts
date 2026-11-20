@@ -196,6 +196,7 @@ describe('host meeting module', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
     app = await createApp({
+      speechRecognition: 'browser',
       scenario: { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] },
       modules: [
         createMeetingModule({
@@ -227,6 +228,7 @@ describe('host meeting module', () => {
     // The LLM keeps saying item 0; a replay goes by its own markers instead.
     const llm = createFakeLlm(() => reply({ agendaIndex: 0 }));
     app = await createApp({
+      speechRecognition: 'browser',
       scenario: { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] },
       modules: [
         createMeetingModule({
@@ -316,7 +318,7 @@ describe('host meeting module', () => {
           { name: 'Mia', role: 'host', zoomDisplayName: 'Mia (Host)' },
         ],
       };
-      app = await createApp({ scenario: hosted, modules: [createMeetingModule()] });
+      app = await createApp({ speechRecognition: 'browser', scenario: hosted, modules: [createMeetingModule()] });
       const screen = await connect('screen');
       const phone = await connect(testScenario.roles[0]!.id);
 
@@ -357,7 +359,7 @@ describe('host meeting module', () => {
 
     it('moves to the next agenda item when the screen asks, and refuses a phone or a meeting that has not started', async () => {
       const scenario = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
-      app = await createApp({ scenario, modules: [createMeetingModule()] });
+      app = await createApp({ speechRecognition: 'browser', scenario, modules: [createMeetingModule()] });
       const screen = await connect('screen');
       const phone = await connect(testScenario.roles[0]!.id);
 

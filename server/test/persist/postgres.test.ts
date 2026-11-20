@@ -145,6 +145,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting persistence th
       const store = createPostgresMeetingStateStore(pool);
       const persistence = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
       app = await createApp({
+        speechRecognition: 'browser',
         scenario: testScenario,
         modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
         persistence,
@@ -186,6 +187,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting persistence th
 
       const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
       app = await createApp({
+        speechRecognition: 'browser',
         scenario: testScenario,
         modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
         persistence: second,

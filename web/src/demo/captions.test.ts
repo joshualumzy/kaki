@@ -19,7 +19,13 @@ const scenario: Scenario = {
 };
 
 const NOW = Date.parse('2026-01-01T10:00:30Z');
-const chunk = (speaker: string, text: string, secondsAgo: number, textOnly = false): KakiEvent => ({
+const chunk = (
+  speaker: string,
+  text: string,
+  secondsAgo: number,
+  textOnly = false,
+  speakerRole?: 'producer' | 'lead',
+): KakiEvent => ({
   type: 'TRANSCRIPT_CHUNK',
   audience: { kind: 'all' },
   payload: {
@@ -27,6 +33,7 @@ const chunk = (speaker: string, text: string, secondsAgo: number, textOnly = fal
     text,
     timestamp: new Date(NOW - secondsAgo * 1000).toISOString(),
     ...(textOnly ? { textOnly: true } : {}),
+    ...(speakerRole === undefined ? {} : { speakerRole }),
   },
 });
 
@@ -48,6 +55,16 @@ describe('captionFor', () => {
     expect(captionFor(events, 'Arjun (Lead)', NOW)).toBe('First.');
     expect(captionFor(events, 'wei ling (producer)', NOW)).toBe('Hi.');
     expect(captionFor(events, 'Mei', NOW)).toBeNull();
+  });
+
+  it('matches a renamed seat by role, and still falls back to the name for lines without a role', () => {
+    const events = transcriptChunks([
+      chunk('Alice Tan', 'Renamed line.', 2, false, 'producer'),
+      chunk('Arjun (Lead)', 'AI line.', 1),
+    ]);
+    expect(captionFor(events, 'Wei Ling (Producer)', NOW, 8_000, false, [], 'producer')).toBe('Renamed line.');
+    expect(captionFor(events, 'Wei Ling (Producer)', NOW, 8_000, false, [], 'lead')).toBeNull();
+    expect(captionFor(events, 'Arjun (Lead)', NOW, 8_000, false, [], 'lead')).toBe('AI line.');
   });
 
   it('shows only the latest sentence one at a time, replacing earlier sentences', () => {

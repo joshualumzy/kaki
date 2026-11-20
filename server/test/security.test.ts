@@ -155,6 +155,7 @@ describe('one access layer', () => {
     meetingCode = createMeetingCodeSource(code);
     auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       auth,
       meetingCode,
@@ -204,16 +205,16 @@ describe('one access layer', () => {
   });
 
   it('refuses an open server on a non-loopback bind without KAKI_ALLOW_OPEN', async () => {
-    await expect(createApp({ scenario: testScenario, host: '0.0.0.0' })).rejects.toThrow(/KAKI_ALLOW_OPEN/);
+    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0' })).rejects.toThrow(/KAKI_ALLOW_OPEN/);
 
     vi.stubEnv('KAKI_ALLOW_OPEN', '1');
-    const allowed = await createApp({ scenario: testScenario, host: '0.0.0.0' });
+    const allowed = await createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0' });
     expect(allowed.server.address()).not.toBeNull();
     await allowed.close();
   });
 
   it('keeps dev routes off by default and refuses to enable them with sign-in on', async () => {
-    const plain = await createApp({ scenario: testScenario });
+    const plain = await createApp({ speechRecognition: 'browser', scenario: testScenario });
     try {
       const response = await fetch(`${base(plain)}/dev/emit`, {
         method: 'POST',
@@ -229,7 +230,7 @@ describe('one access layer', () => {
     meetingCode = createMeetingCodeSource(MEETING_CODE);
     auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     await expect(
-      createApp({ scenario: testScenario, auth, meetingCode, devRoutes: true }),
+      createApp({ speechRecognition: 'browser', scenario: testScenario, auth, meetingCode, devRoutes: true }),
     ).rejects.toThrow(/KAKI_DEV_ROUTES/);
   });
 
@@ -291,7 +292,7 @@ describe('one access layer', () => {
     expect(denied.status).toBe(400);
 
     vi.stubEnv('MATTERMOST_PASSWORD', '');
-    const open = await createApp({ scenario: testScenario });
+    const open = await createApp({ speechRecognition: 'browser', scenario: testScenario });
     try {
       const missing = await get(open, `/api/mattermost/open?url=${target}`);
       expect(missing.status).toBe(503);

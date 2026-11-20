@@ -102,6 +102,7 @@ describe('phone and screen seat authority', () => {
       meetingCode,
     });
     app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       auth,
       meetingCode,

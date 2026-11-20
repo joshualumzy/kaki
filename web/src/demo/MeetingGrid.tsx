@@ -131,6 +131,8 @@ function CaptionedTile() {
   const speakerAliases = isAi
     ? []
     : [participant.name ?? '', participant.identity, 'Guest'].filter((s) => s.trim().length > 0);
+  const attendee = isAi ? scenario.attendees.find((candidate) => candidate.name === participant.identity) : undefined;
+  const participantRole = isAi ? attendee?.role : participant.metadata?.trim() || undefined;
   const recognizedCaption = captionFor(
     chunks,
     transcriptNameFor(scenario, participant),
@@ -138,6 +140,7 @@ function CaptionedTile() {
     isAi ? 8000 : 10000,
     speaking,
     speakerAliases,
+    participantRole,
   );
   const caption =
     !isAi && (humanSpeaking || serverHumanSpeaking)
@@ -147,7 +150,6 @@ function CaptionedTile() {
         : recognizedCaption;
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
-  const attendee = isAi ? scenario.attendees.find((candidate) => candidate.name === participant.identity) : undefined;
   const roleTitle = isAi
     ? scenario.roles.find((role) => role.id === attendee?.role)?.label
     : participant.metadata?.trim() || undefined;
@@ -286,6 +288,13 @@ export function MeetingGrid({
 
   const aiNames = useMemo(() => new Set((scenario.npcs ?? []).map((npc) => npc.attendee)), [scenario]);
   const aiPresent = participants.some((participant) => aiNames.has(participant.identity));
+  const speechRecording = useMemo(() => {
+    for (let index = screenEvents.length - 1; index >= 0; index -= 1) {
+      const event = screenEvents[index]!;
+      if (event.type === 'SPEECH_RECORDING') return event.payload.recording;
+    }
+    return undefined;
+  }, [screenEvents]);
   const chunks = useMemo(() => transcriptChunks(events), [events]);
   const voiceNote = textOnlyNote(chunks, now);
   const facilitatorName = useMemo(() => {
@@ -556,7 +565,13 @@ export function MeetingGrid({
             The AI attendees hit a problem: {npcState.message}
           </div>
         )}
-        {!aiPresent && (
+        {speechRecording === false && (
+          <div role="alert" className="kd-banner" data-tone="error">
+            Speech is not being recorded: the AI service is not connected. Start it with{' '}
+            <code>npm run npc</code>.
+          </div>
+        )}
+        {(scenario.npcs ?? []).length > 0 && !aiPresent && (
           <div className="kd-banner">
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.
           </div>

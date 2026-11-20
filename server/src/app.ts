@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -93,6 +93,11 @@ export interface CreateAppOptions {
   serviceToken?: string;
   /** The one code shared with phone sign-in; omitted creates one that rotates with the meeting. */
   meetingCode?: MeetingCodeSource;
+  /**
+   * Who hears a person's speech: the runner's server-side recogniser (the default) or the browser's.
+   * A server-side meeting needs a connected runner even when every seat is a person.
+   */
+  speechRecognition?: 'server' | 'browser';
 }
 
 /** The result of one server-owned Start, ready to send as JSON. */
@@ -169,7 +174,14 @@ interface RequestContext {
   /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
   scheduleSave(): void;
   /** The one writer for a person's finalized line; speaker and seat are checked server-side. */
-  writeHumanLine(input: { seat: string; text: string; clientLineId: string }): void;
+  writeHumanLine(input: {
+    seat: string;
+    text: string;
+    source: 'speech' | 'typed';
+    clientLineId: string;
+    meetingId?: string;
+    participantIdentity?: string;
+  }): void;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -1094,6 +1106,8 @@ async function handleRequest(
         text?: unknown;
         source?: unknown;
         clientLineId?: unknown;
+        meetingId?: unknown;
+        participantIdentity?: unknown;
       };
       if (
         typeof value !== 'object' ||
@@ -1105,15 +1119,27 @@ async function handleRequest(
         value.text.trim() === '' ||
         (value.source !== 'speech' && value.source !== 'typed') ||
         typeof value.clientLineId !== 'string' ||
-        value.clientLineId.trim() === ''
+        value.clientLineId.trim() === '' ||
+        typeof value.meetingId !== 'string' ||
+        value.meetingId.trim() === '' ||
+        typeof value.participantIdentity !== 'string' ||
+        value.participantIdentity.trim() === ''
       ) {
         sendJson(response, 400, {
-          error: 'Body must be a human line with a seat, text, source and clientLineId',
+          error:
+            'Body must be a human line with a meetingId, participantIdentity, seat, text, source and clientLineId',
         });
         return;
       }
       try {
-        context.writeHumanLine({ seat: value.seat, text: value.text, clientLineId: value.clientLineId });
+        context.writeHumanLine({
+          seat: value.seat,
+          text: value.text,
+          source: value.source,
+          clientLineId: value.clientLineId,
+          meetingId: value.meetingId,
+          participantIdentity: value.participantIdentity,
+        });
       } catch (error) {
         if (error instanceof CommandError) {
           sendJson(response, 409, { error: error.message });
@@ -1263,6 +1289,7 @@ export async function createApp({
   startAckTimeoutMs = 6_000,
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
   meetingCode: meetingCodeOption,
+  speechRecognition = 'server',
 }: CreateAppOptions): Promise<KakiApp> {
   assertSafeBind(host, auth !== undefined);
   assertSafeMattermost(auth !== undefined);
@@ -1645,20 +1672,39 @@ export async function createApp({
     roomPoll.reset();
   });
 
+  /** Speech lines are bounded separately: a long recognised turn is still one line. */
+  const HUMAN_LINE_MAX_SPEECH_CHARS = 2_000;
+  /** Per seat, at most this many lines in the window; a retry is deduped before it is counted. */
+  const HUMAN_LINE_RATE_LIMIT = 5;
+  const HUMAN_LINE_RATE_WINDOW_MS = 1_000;
+  /** How many recent line ids one seat is remembered by, so a retry cannot write twice. */
+  const HUMAN_LINE_MEMORY_PER_SEAT = 200;
+
   /**
    * The one writer for a person's finalized speech or typed line. The speaker is always resolved
    * from the socket's current seat holder and the setup, never from the client payload. The line
    * is published as an ordinary transcript chunk, so the screen, notetaker and minutes all see it.
    */
-  const humanLineIds = new Set<string>();
+  interface HumanLineMemory {
+    ids: Set<string>;
+    order: string[];
+  }
+  const humanLineIds = new Map<string, HumanLineMemory>();
+  const humanLineTimes = new Map<string, number[]>();
   hub.subscribe((event) => {
-    if (event.type === 'MEETING_RESET' || event.type === 'MEETING_STARTED') humanLineIds.clear();
+    if (event.type !== 'MEETING_RESET') return;
+    humanLineIds.clear();
+    humanLineTimes.clear();
   });
 
+  function seatKey(seat: string): string {
+    return seat.trim().toLowerCase();
+  }
+
   function speakerForSeat(seat: string): string | undefined {
-    const wanted = seat.trim().toLowerCase();
+    const wanted = seatKey(seat);
     const setup = session.sealed() ?? session.draft();
-    const named = setup.seats.find((candidate) => candidate.roleId.trim().toLowerCase() === wanted);
+    const named = setup.seats.find((candidate) => seatKey(candidate.roleId) === wanted);
     if (named !== undefined && named.displayName.trim() !== '') return named.displayName;
     const attendee = session.active().attendees.find(
       (candidate) => candidate.role.trim().toLowerCase() === wanted,
@@ -1669,29 +1715,80 @@ export async function createApp({
   function writeHumanLine({
     seat,
     text,
+    source,
     clientLineId,
+    meetingId,
+    participantIdentity,
   }: {
     seat: string;
     text: string;
+    source: 'speech' | 'typed';
     clientLineId: string;
+    meetingId?: string;
+    participantIdentity?: string;
   }): void {
-    if (session.phase() !== 'running') throw new CommandError('The meeting is not running');
-    const holder = session.holders().find(
-      (candidate) => candidate.seat.trim().toLowerCase() === seat.trim().toLowerCase(),
-    );
-    if (holder === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
+    if (meetingId !== undefined && meetingId !== meeting.id) {
+      throw new CommandError('That line belongs to a different meeting');
+    }
+    const phase = session.phase();
+    if (phase !== 'running' && phase !== 'starting') {
+      throw new CommandError('The meeting is not running');
+    }
+    const holders = session.holders();
+    const wantedSeat = seatKey(seat);
+    const holder =
+      participantIdentity === undefined
+        ? holders.find((candidate) => seatKey(candidate.seat) === wantedSeat)
+        : holders.find(
+            (candidate) => candidate.name.trim().toLowerCase() === participantIdentity.trim().toLowerCase(),
+          );
+    if (holder === undefined) {
+      throw new CommandError(
+        participantIdentity === undefined
+          ? 'Only a person seated in this meeting can add a line'
+          : 'That person is no longer seated in this meeting',
+      );
+    }
+    if (seatKey(holder.seat) !== wantedSeat) {
+      throw new CommandError('That person no longer holds that seat');
+    }
     const cleaned = text.trim();
     if (cleaned === '') throw new CommandError('A line needs some words');
-    if (humanLineIds.has(clientLineId)) return;
+    const cap = source === 'typed' ? MAX_TYPED_LENGTH : HUMAN_LINE_MAX_SPEECH_CHARS;
+    if (cleaned.length > cap) {
+      throw new CommandError(`That line is too long; keep it under ${cap} characters`);
+    }
+    const key = seatKey(holder.seat);
+    const seen = humanLineIds.get(key);
+    if (seen?.ids.has(clientLineId)) return;
+    const now = Date.now();
+    const times = (humanLineTimes.get(key) ?? []).filter((at) => now - at < HUMAN_LINE_RATE_WINDOW_MS);
+    if (times.length >= HUMAN_LINE_RATE_LIMIT) {
+      throw new CommandError('Too many lines at once; wait a moment and try again');
+    }
     const speaker = speakerForSeat(holder.seat);
     if (speaker === undefined || speaker.trim() === '') {
       throw new CommandError('That seat has no name in this meeting');
     }
-    humanLineIds.add(clientLineId);
+    times.push(now);
+    humanLineTimes.set(key, times);
+    const memory = seen ?? { ids: new Set<string>(), order: [] };
+    memory.ids.add(clientLineId);
+    memory.order.push(clientLineId);
+    if (memory.order.length > HUMAN_LINE_MEMORY_PER_SEAT) {
+      const oldest = memory.order.shift();
+      if (oldest !== undefined) memory.ids.delete(oldest);
+    }
+    humanLineIds.set(key, memory);
     hub.publish({
       type: 'TRANSCRIPT_CHUNK',
       audience: { kind: 'all' },
-      payload: { speaker, text: cleaned, timestamp: new Date().toISOString() },
+      payload: {
+        speaker,
+        text: cleaned,
+        timestamp: new Date().toISOString(),
+        speakerRole: holder.seat,
+      },
     });
   }
 
@@ -1707,7 +1804,7 @@ export async function createApp({
     if (command.type !== 'HUMAN_LINE') return;
     const seat = seatForSender(sender);
     if (seat === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
-    writeHumanLine({ seat, text: command.text, clientLineId: command.clientLineId });
+    writeHumanLine({ seat, text: command.text, source: command.source, clientLineId: command.clientLineId });
   });
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
@@ -1754,6 +1851,22 @@ export async function createApp({
     if (event.type === 'MEETING_STARTED' || event.type === 'MEETING_RECORD_UPDATED') {
       publishRunnerState();
     }
+  });
+  // Server-side recognition lives in the runner, so the screen must know when that service is gone.
+  // Browser recognition needs no runner, and then this is always on.
+  const servicePresence = (): { connected: boolean; serverSpeech: boolean } =>
+    hub.servicePresence?.() ?? { connected: false, serverSpeech: false };
+  function publishSpeechRecording(): void {
+    if (session.phase() !== 'running') return;
+    const recording = speechRecognition === 'browser' || servicePresence().serverSpeech;
+    hub.publish(
+      { type: 'SPEECH_RECORDING', audience: { kind: 'all' }, payload: { recording } },
+      { retainKey: 'speech:recording' },
+    );
+  }
+  hub.onServicePresence?.(() => publishSpeechRecording());
+  hub.subscribe((event) => {
+    if (event.type === 'MEETING_STARTED') publishSpeechRecording();
   });
   // The grace ending is not proof the room is empty: a still-connected holder must survive. Only a
   // roster read that succeeds, shows no person and no live reservation may prune and abandon.
@@ -2195,6 +2308,18 @@ export async function createApp({
         // Seal the meeting as a new value; the live scenario keeps serving everyone until this commits.
         const candidate = derived.scenario;
         const activeAi = (candidate.npcs ?? []).length > 0;
+        // Server-side recognition is the runner's job, so even a meeting with no AI cast needs it
+        // to hear anyone at all. Without it, refuse loudly instead of opening a silent meeting.
+        if (!activeAi && speechRecognition === 'server' && !servicePresence().serverSpeech) {
+          return {
+            status: 503,
+            body: {
+              error:
+                "Speech recording isn't ready, the AI service is not connected. Start it with npm run npc, then try again.",
+              retryable: true,
+            },
+          };
+        }
         const attempt = `start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
         const meetingId = requestedMeetingId;
         const generation = requestedGeneration;

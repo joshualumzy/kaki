@@ -58,6 +58,9 @@ function ScreenFeed() {
       task.artifactUrl !== undefined,
   );
   const record = events.filter(isRecord).at(-1);
+  const speechRecording = events
+    .filter((event): event is Extract<KakiEvent, { type: 'SPEECH_RECORDING' }> => event.type === 'SPEECH_RECORDING')
+    .at(-1)?.payload.recording;
   // After an end the closing line is the last host cue; a new meeting clears the feed.
   const meetingEnded = events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING');
   const activity = events.filter((event) => !isRecord(event)).slice(-40).reverse();
@@ -89,6 +92,9 @@ function ScreenFeed() {
       </header>
 
       {connected ? null : <ConnectionBanner />}
+      {speechRecording === false ? (
+        <RejectionBanner message="Speech is not being recorded: the AI service is not connected." />
+      ) : null}
       {rejection === null ? null : <RejectionBanner message={`${rejection.commandType}: ${rejection.reason}`} />}
       {restoredAt === undefined ? null : (
         <div className="connection-banner sc-restored" role="status">

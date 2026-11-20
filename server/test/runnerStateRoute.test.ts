@@ -76,7 +76,7 @@ function expectNewerThan(after: RunnerSnapshotVersion, before: RunnerSnapshotVer
 
 describe('the service-only runner meeting endpoint', () => {
   it('refuses browsers without the service token and serves the snapshot with it', async () => {
-    app = await createApp({ scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
+    app = await createApp({ speechRecognition: 'browser', scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
 
     const anonymous = await fetch(`${baseUrl()}/api/runner/meeting-state`);
     expect(anonymous.status).toBe(401);
@@ -97,7 +97,7 @@ describe('the service-only runner meeting endpoint', () => {
 
 describe('a reset always yields a newer snapshot', () => {
   it('bumps the version even when the meeting id stays the same', async () => {
-    app = await createApp({ scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
+    app = await createApp({ speechRecognition: 'browser', scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
     const before = await runnerState();
 
     app.session.reset({ rotateIdentity: false });
@@ -110,7 +110,7 @@ describe('a reset always yields a newer snapshot', () => {
 
 describe('server-owned host mode', () => {
   it('is still correct when a runner asks again after a restart', async () => {
-    app = await createApp({ scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
+    app = await createApp({ speechRecognition: 'browser', scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
     app.session.addHolder({ name: 'Mia', seat: 'studio_manager' });
 
     const first = await runnerState();
@@ -127,6 +127,7 @@ describe('RUNNER_STATE over the service channel', () => {
     const scenario = await loadScenario('kopitiam');
     const clock = createAgendaClock({ agenda: scenario.agenda });
     app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       serviceToken: TOKEN,
       roomRoster: async () => [],
@@ -190,6 +191,7 @@ describe('RUNNER_STATE over the service channel', () => {
     const scenario = await loadScenario('kopitiam');
     const clock = createAgendaClock({ agenda: scenario.agenda });
     app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       serviceToken: TOKEN,
       roomRoster: async () => roster,

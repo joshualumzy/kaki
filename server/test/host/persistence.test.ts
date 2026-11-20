@@ -389,6 +389,7 @@ describe('meeting persistence across a restart', () => {
     store.saved = savedState({ agenda: ['Service', 'Prep'], agendaIndex: 1 });
     const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
       persistence,
@@ -439,6 +440,7 @@ describe('meeting persistence across a restart', () => {
     store.saved.sealed = { ...setup, agenda: setup.agenda.slice(0, 2) };
     const persistence = createMeetingPersistence({ store, saved: store.saved, log: () => undefined });
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
       persistence,
@@ -473,6 +475,7 @@ describe('meeting persistence across a restart', () => {
 
     await expect(
       createApp({
+        speechRecognition: 'browser',
         scenario: testScenario,
         modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
         persistence,
@@ -689,6 +692,7 @@ describe('meeting persistence across a restart', () => {
 
     await expect(
       createApp({
+        speechRecognition: 'browser',
         scenario: testScenario,
         modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
         persistence,

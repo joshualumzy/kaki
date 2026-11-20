@@ -195,6 +195,7 @@ describe('security round 2', () => {
     });
     const app = track(
       await createApp({
+        speechRecognition: 'browser',
         scenario,
         auth,
         meetingCode,
@@ -562,7 +563,7 @@ describe('security round 2', () => {
 
     const code = createMeetingCodeSource(MEETING_CODE);
     const auth = makeAuth(code);
-    await expect(createApp({ scenario: testScenario, host: '0.0.0.0', auth, meetingCode: code })).rejects.toThrow(
+    await expect(createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0', auth, meetingCode: code })).rejects.toThrow(
       /KAKI_PUBLIC_URL/,
     );
     await auth.close();
@@ -571,7 +572,7 @@ describe('security round 2', () => {
     const httpCode = createMeetingCodeSource(MEETING_CODE);
     const httpAuth = makeAuth(httpCode);
     await expect(
-      createApp({ scenario: testScenario, host: '0.0.0.0', auth: httpAuth, meetingCode: httpCode }),
+      createApp({ speechRecognition: 'browser', scenario: testScenario, host: '0.0.0.0', auth: httpAuth, meetingCode: httpCode }),
     ).rejects.toThrow(/KAKI_PUBLIC_URL/);
     await httpAuth.close();
 
@@ -579,6 +580,7 @@ describe('security round 2', () => {
     const allowedCode = createMeetingCodeSource(MEETING_CODE);
     const allowedAuth = makeAuth(allowedCode);
     const allowed = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       host: '0.0.0.0',
       auth: allowedAuth,
@@ -591,6 +593,7 @@ describe('security round 2', () => {
     const httpsCode = createMeetingCodeSource(MEETING_CODE);
     const httpsAuth = makeAuth(httpsCode);
     const https = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       host: '0.0.0.0',
       auth: httpsAuth,
@@ -661,7 +664,7 @@ describe('security round 2', () => {
     vi.stubEnv('MATTERMOST_URL', 'http://127.0.0.1:8083');
     vi.stubEnv('MATTERMOST_PUBLIC_URL', 'https://mm.public.example');
     vi.stubEnv('MATTERMOST_PASSWORD', 'a-real-password');
-    const app = track(await createApp({ scenario: testScenario }));
+    const app = track(await createApp({ speechRecognition: 'browser', scenario: testScenario }));
 
     const realFetch = globalThis.fetch;
     vi.stubGlobal(

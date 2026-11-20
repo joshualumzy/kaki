@@ -61,6 +61,7 @@ afterEach(async () => {
 
 async function startApp(scenario: Scenario, options: Omit<CreateAppOptions, 'scenario'> = {}): Promise<KakiApp> {
   const app = await createApp({
+    speechRecognition: 'browser',
     scenario,
     roomRoster: async () => [],
     rejoinGraceMs: 60_000,

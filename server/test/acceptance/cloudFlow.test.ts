@@ -126,7 +126,7 @@ for (const kind of ['memory', 'postgres'] as const) {
         pause: (kind) => clock.pause(kind),
         resume: () => clock.resume(),
       };
-      app = await createApp({ scenario: structuredClone(scenario), auth, meetingCode, serviceToken,
+      app = await createApp({ speechRecognition: 'browser', scenario: structuredClone(scenario), auth, meetingCode, serviceToken,
         modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
         roomRoster: async () => roster, rejoinGraceMs: 25, rejoinPollMs: 5, admissionReservationMs: 5,
         meetingAgendaIndex: () => (clock.snapshot().started ? clock.snapshot().agendaIndex : undefined),
@@ -327,7 +327,7 @@ describe('auth-off local demo compatibility', () => {
     vi.stubEnv('KAKI_AUTH', '0');
     vi.stubEnv('KAKI_DEV_ROUTES', '1');
     const meetingCode = createMeetingCodeSource(code);
-    app = await createApp({ scenario: structuredClone(testScenario), meetingCode, devRoutes: true,
+    app = await createApp({ speechRecognition: 'browser', scenario: structuredClone(testScenario), meetingCode, devRoutes: true,
       roomRoster: async () => [] });
     const port = portOf(app);
     const base = `http://127.0.0.1:${port}`;

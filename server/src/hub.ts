@@ -77,6 +77,12 @@ export interface PublishOptions {
   retainKey?: string;
 }
 
+/** Which AI runner service channels are connected, and whether one hears speech server-side. */
+export interface ServicePresence {
+  connected: boolean;
+  serverSpeech: boolean;
+}
+
 /** The meeting hub: routes events to their audience and collects client commands. */
 export interface Hub {
   /** Validate an event, deliver it to its audience, and notify in-process subscribers. */
@@ -87,6 +93,10 @@ export interface Hub {
   onCommand(handler: CommandHandler): void;
   /** Ask every connected AI runner to open the meeting; false when no runner is connected. */
   requestStart?(request: RunnerStartRequest): boolean;
+  /** The AI runner service channels connected right now. */
+  servicePresence?(): ServicePresence;
+  /** Called whenever a runner service channel connects or disconnects. */
+  onServicePresence?(handler: (presence: ServicePresence) => void): void;
   /** Listen for readiness and failure messages from the AI runner. */
   onServiceMessage?(handler: (message: ServiceMessage) => void): void;
   /** Forget retained events whose key starts with `prefix`, so clients that connect later do not get them. */
@@ -268,6 +278,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   const commandHandlers: CommandHandler[] = [];
   const serviceHandlers = new Set<(message: ServiceMessage) => void>();
   const serviceSockets = new Set<WebSocket>();
+  /** The speech side each service channel announced; only the runner knows, so it names it on connect. */
+  const serviceSpeechSides = new Map<WebSocket, 'server' | 'browser'>();
+  const servicePresenceHandlers = new Set<(presence: ServicePresence) => void>();
   /** Command sockets opened with the AI runner's token instead of a person's session. */
   const runnerSockets = new Set<WebSocket>();
   /** Sockets behind a participant's phone session, whatever audience they follow. */
@@ -275,12 +288,36 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   /** The session each person's socket was authorized by, so replacing it can close the socket. */
   const socketSessions = new Map<WebSocket, string>();
 
+  function currentServicePresence(): ServicePresence {
+    let connected = false;
+    let serverSpeech = false;
+    for (const socket of serviceSockets) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      connected = true;
+      if (serviceSpeechSides.get(socket) !== 'browser') serverSpeech = true;
+    }
+    return { connected, serverSpeech };
+  }
+
+  function notifyServicePresence(): void {
+    const presence = currentServicePresence();
+    for (const handler of servicePresenceHandlers) {
+      try {
+        handler(presence);
+      } catch (error) {
+        console.error('kaki hub: a service-presence handler failed', error);
+      }
+    }
+  }
+
   function forgetSocket(socket: WebSocket): void {
+    const wasService = serviceSockets.delete(socket);
     clients.delete(socket);
-    serviceSockets.delete(socket);
+    serviceSpeechSides.delete(socket);
     runnerSockets.delete(socket);
     participantSockets.delete(socket);
     socketSessions.delete(socket);
+    if (wasService) notifyServicePresence();
   }
 
   /** Drop every authority the socket had before starting the close handshake. */
@@ -448,13 +485,16 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     }
 
     clients.set(socket, audience);
-    if (audience === 'service') serviceSockets.add(socket);
-    else if (authorization?.runner === true) runnerSockets.add(socket);
+    if (audience === 'service') {
+      serviceSockets.add(socket);
+      serviceSpeechSides.set(socket, url.searchParams.get('stt') === 'browser' ? 'browser' : 'server');
+    } else if (authorization?.runner === true) runnerSockets.add(socket);
     else if (authorization?.participant === true) participantSockets.add(socket);
     if (authorization?.sessionTokenHash !== undefined) {
       socketSessions.set(socket, authorization.sessionTokenHash);
     }
     sendRetained(socket, audience);
+    if (audience === 'service') notifyServicePresence();
     socket.on('close', () => {
       forgetSocket(socket);
     });
@@ -531,6 +571,12 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     onServiceMessage(handler) {
       serviceHandlers.add(handler);
     },
+    servicePresence() {
+      return currentServicePresence();
+    },
+    onServicePresence(handler) {
+      servicePresenceHandlers.add(handler);
+    },
     clearRetained(prefix) {
       for (const key of [...retained.keys()]) if (key.startsWith(prefix)) retained.delete(key);
     },
@@ -557,11 +603,13 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       for (const socket of clients.keys()) socket.terminate();
       clients.clear();
       serviceSockets.clear();
+      serviceSpeechSides.clear();
       runnerSockets.clear();
       participantSockets.clear();
       socketSessions.clear();
       revokedSessions.clear();
       serviceHandlers.clear();
+      servicePresenceHandlers.clear();
       retained.clear();
       subscribers.clear();
       wss.close();

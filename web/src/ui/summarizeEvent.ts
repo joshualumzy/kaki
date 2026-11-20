@@ -35,6 +35,8 @@ export function summarizeEvent(event: KakiEvent): string {
       return `Meeting restored from ${new Date(event.payload.startedAt).toLocaleString()}`;
     case 'RUNNER_STATE':
       return `Runner state ${event.payload.version.epoch.id.slice(0, 8)}#${event.payload.version.seq} (${event.payload.phase})`;
+    case 'SPEECH_RECORDING':
+      return event.payload.recording ? 'Speech recording is on' : 'Speech recording is off';
     case 'COMMAND_REJECTED':
       return `Command ${event.payload.commandType} rejected: ${event.payload.reason}`;
   }

@@ -257,6 +257,7 @@ describe('app', () => {
   it('stamps a settled card with the meeting second the call was made, and a retry keeps it', async () => {
     let meetingSeconds = 930;
     const clocked = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       devRoutes: true,
       meetingElapsedSeconds: () => meetingSeconds,
@@ -436,7 +437,7 @@ describe('app', () => {
         throw new Error('Expected the occupied server to listen on a TCP port');
       }
       await expect(
-        createApp({ port: address.port, scenario: testScenario }),
+        createApp({ speechRecognition: 'browser', port: address.port, scenario: testScenario }),
       ).rejects.toMatchObject({ code: 'EADDRINUSE' });
     } finally {
       await new Promise<void>((resolve, reject) => {
@@ -448,6 +449,7 @@ describe('app', () => {
   it('rejects createApp when a module fails to start, naming the module', async () => {
     await expect(
       createApp({
+        speechRecognition: 'browser',
         scenario: testScenario,
         modules: [
           {
@@ -478,7 +480,7 @@ describe('app', () => {
   it('serves a parseable meeting scenario after a join resets the agenda', async () => {
     const full = await loadScenario('kopitiam');
     const agendaReference = full.agenda;
-    const meeting = await createApp({ scenario: full, roomRoster: async () => [] });
+    const meeting = await createApp({ speechRecognition: 'browser', scenario: full, roomRoster: async () => [] });
     try {
       const base = `http://127.0.0.1:${portOf(meeting)}`;
       const joined = await fetch(`${base}/api/livekit/token`, {
@@ -524,6 +526,7 @@ describe('rejoining an empty meeting', () => {
   ) {
     const scenario = await loadScenario('kopitiam');
     return createApp({
+      speechRecognition: 'browser',
       scenario,
       roomRoster: async () => (options.roster === undefined ? [] : options.roster()),
       rejoinGraceMs,
@@ -747,6 +750,7 @@ describe('one server-owned meeting start', () => {
     } = {},
   ) {
     return createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       modules: options.modules ?? [],
       roomRoster: async () => (options.roster === undefined ? [] : options.roster()),
@@ -785,6 +789,7 @@ describe('one server-owned meeting start', () => {
       ],
     };
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
       roomRoster: async () => [],
@@ -856,6 +861,7 @@ describe('one server-owned meeting start', () => {
       ],
     };
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
       roomRoster: async () => [],
@@ -937,6 +943,7 @@ describe('one server-owned meeting start', () => {
       ],
     };
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
       roomRoster: async () => [],

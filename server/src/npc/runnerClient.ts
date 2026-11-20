@@ -16,6 +16,8 @@ import { postMeetingMemory, postSettledTopic } from './settlement';
 export interface RunnerClient {
   emit(event: KakiEvent): Promise<Response>;
   postHumanLine(line: {
+    meetingId: string;
+    participantIdentity: string;
     seat: string;
     text: string;
     source: 'speech' | 'typed';
@@ -33,6 +35,12 @@ export interface RunnerClientOptions {
   serviceToken?: string | undefined;
   fetch?: typeof fetch;
   log?: (message: string) => void;
+  /** How many times a human line is posted before it is dropped (default 3). */
+  humanLineAttempts?: number;
+  /** Base backoff between human-line attempts; it doubles each time (default 1000 ms). */
+  humanLineRetryBaseMs?: number;
+  /** Injected by tests so retries do not wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export function createRunnerClient({
@@ -40,6 +48,9 @@ export function createRunnerClient({
   serviceToken,
   fetch: fetchImpl = fetch,
   log = () => undefined,
+  humanLineAttempts = 3,
+  humanLineRetryBaseMs = 1_000,
+  sleep = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
 }: RunnerClientOptions): RunnerClient {
   const base = baseUrl.replace(/\/+$/, '');
   const authorization: Record<string, string> =
@@ -61,9 +72,40 @@ export function createRunnerClient({
       body: JSON.stringify(body),
     });
 
+  /** A 409 the server marks retryable is a race (for example the meeting is still starting). */
+  async function isRetryableConflict(response: Response): Promise<boolean> {
+    if (response.status !== 409) return false;
+    const body = (await response.clone().json().catch(() => undefined)) as
+      | { retryable?: unknown }
+      | undefined;
+    return body?.retryable === true;
+  }
+
+  /**
+   * One recognised line, retried with the same id: the server's dedupe makes every retry safe.
+   * Network errors and a retryable 409 are transient; anything else is the server's final answer.
+   */
+  async function postHumanLine(line: Parameters<RunnerClient['postHumanLine']>[0]): Promise<Response> {
+    let attempt = 1;
+    for (;;) {
+      try {
+        const response = await postJson('/api/runner/human-line', line);
+        if (response.ok || attempt >= humanLineAttempts || !(await isRetryableConflict(response))) {
+          return response;
+        }
+        log(`Kaki did not take a recognised line yet (HTTP ${response.status}); retrying`);
+      } catch (error) {
+        if (attempt >= humanLineAttempts) throw error;
+        log(`could not reach Kaki with a recognised line (${String(error)}); retrying`);
+      }
+      await sleep(humanLineRetryBaseMs * 2 ** (attempt - 1));
+      attempt += 1;
+    }
+  }
+
   return {
     emit: (event) => postJson('/api/runner/emit', event),
-    postHumanLine: (line) => postJson('/api/runner/human-line', line),
+    postHumanLine,
     suggestTask: (input) => postJson('/api/runner/suggest-task', input),
     postMeetingMemory: (entries) =>
       postMeetingMemory(request, `${base}/api/runner/meeting-memory`, entries, log),

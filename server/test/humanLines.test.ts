@@ -69,24 +69,27 @@ function connect(port: number, role: string, cookie?: string): Promise<SocketRes
   });
 }
 
-async function humanOnlyApp(): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
+async function humanOnlyApp(
+  speechRecognition: 'server' | 'browser' = 'browser',
+): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
   const pack = await loadScenario('kopitiam');
   const llm = createFakeLlm(() => JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [] }));
   const app = await createApp({
     scenario: pack,
     modules: [createMeetingModule({ llm, notetakerIntervalMs: 40 })],
     roomRoster: async () => [],
+    speechRecognition,
   });
   apps.push(app);
   return { app, port: portOf(app), llm };
 }
 
-async function humanOnlyMeeting(): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
-  const { app, port, llm } = await humanOnlyApp();
+async function seatTwoPeople(app: KakiApp, port: number, setup?: MeetingSetup): Promise<void> {
+  const chosen = setup ?? twoPersonSetup(await loadScenario('kopitiam'));
   const put = await fetch(`http://127.0.0.1:${port}/api/setup`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(twoPersonSetup(await loadScenario('kopitiam'))),
+    body: JSON.stringify(chosen),
   });
   expect(put.status).toBe(200);
   const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
@@ -108,11 +111,32 @@ async function humanOnlyMeeting(): Promise<{ app: KakiApp; port: number; llm: Re
   });
   expect(second.status).toBe(200);
   expect(app.session.holders()).toHaveLength(2);
-  // No service socket is opened: a human-only meeting needs no AI runner at all.
+}
+
+async function humanOnlyMeeting(
+  options: { speechRecognition?: 'server' | 'browser'; setup?: MeetingSetup } = {},
+): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
+  const { app, port, llm } = await humanOnlyApp(options.speechRecognition ?? 'browser');
+  await seatTwoPeople(app, port, options.setup);
+  // No service socket is opened: browser-side recognition needs no AI runner at all.
   const started = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
   expect(started.status).toBe(200);
   await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
   return { app, port, llm };
+}
+
+function serviceSocket(port: number, stt: 'server' | 'browser' = 'server'): Promise<SocketResult> {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?role=service&stt=${stt}`);
+  const messages: KakiEvent[] = [];
+  ws.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
+  return new Promise((resolve) => {
+    ws.once('open', () => resolve({ ok: true, ws, messages }));
+    ws.once('unexpected-response', (_request, response) => {
+      response.resume();
+      resolve({ ok: false, status: response.statusCode ?? 0 });
+    });
+    ws.once('error', () => resolve({ ok: false, status: 0 }));
+  });
 }
 
 function humanLine(text: string, clientLineId: string, extra: Record<string, unknown> = {}): string {
@@ -229,6 +253,151 @@ describe('human-only meetings record people\'s lines', () => {
   });
 });
 
+describe('a renamed person seat keeps its role', () => {
+  it('writes the setup name with the seat role, so talk time and the notetaker still know who spoke', async () => {
+    const pack = await loadScenario('kopitiam');
+    const setup = twoPersonSetup(pack);
+    setup.seats = setup.seats.map((seat) =>
+      seat.roleId === 'producer' ? { ...seat, displayName: 'Alice Tan' } : seat,
+    );
+    const { port, llm } = await humanOnlyMeeting({ setup });
+    const screen = await connect(port, 'screen');
+    const producer = await connect(port, 'producer');
+    if (!screen.ok || !producer.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, producer.ws);
+
+    producer.ws.send(humanLine('I checked the front counter this morning.', 'renamed-line'));
+    const line = await waitFor(
+      () => screen.messages.find((event) => event.type === 'TRANSCRIPT_CHUNK'),
+      'the renamed seat transcript line',
+    );
+    expect(line).toMatchObject({
+      payload: { speaker: 'Alice Tan', speakerRole: 'producer', text: 'I checked the front counter this morning.' },
+    });
+
+    const record = await waitFor(
+      () =>
+        screen.messages.find(
+          (event) =>
+            event.type === 'MEETING_RECORD_UPDATED' &&
+            (event.payload.speakerTalkSeconds.producer ?? 0) >= 1,
+        ),
+      'talk time for the renamed seat',
+    );
+    expect(record).toMatchObject({ payload: { speakerTalkSeconds: { producer: expect.any(Number) } } });
+
+    const producerLabel = pack.roles.find((role) => role.id === 'producer')?.label;
+    expect(producerLabel).toBeDefined();
+    await waitFor(
+      () =>
+        llm.calls.some((messages) =>
+          messages.some((message) => message.content.includes(`Alice Tan (${producerLabel})`)),
+        )
+          ? true
+          : undefined,
+      'the notetaker line to carry the role',
+    );
+  });
+});
+
+describe('speech recording needs the runner when recognition is server-side', () => {
+  it('refuses Start in a human-only meeting with no runner, with a clear reason', async () => {
+    const { app, port } = await humanOnlyApp('server');
+    await seatTwoPeople(app, port);
+    const refused = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+    expect(refused.status).toBe(503);
+    expect(((await refused.json()) as { error?: string }).error).toMatch(/Speech recording isn't ready/);
+    expect(app.session.phase()).toBe('lobby');
+  });
+
+  it('opens with a server-side runner and says so when that runner drops mid-meeting', async () => {
+    const { app, port } = await humanOnlyApp('server');
+    const service = await serviceSocket(port);
+    if (!service.ok) throw new Error('service socket did not open');
+    sockets.push(service.ws);
+    await seatTwoPeople(app, port);
+    const screen = await connect(port, 'screen');
+    if (!screen.ok) throw new Error('screen socket did not open');
+    sockets.push(screen.ws);
+
+    const started = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+    expect(started.status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
+    await waitFor(
+      () => screen.messages.find((event) => event.type === 'SPEECH_RECORDING' && event.payload.recording === true),
+      'the recording-on notice',
+    );
+
+    service.ws.close();
+    await waitFor(
+      () => screen.messages.find((event) => event.type === 'SPEECH_RECORDING' && event.payload.recording === false),
+      'the recording-off notice when the runner drops',
+    );
+  });
+});
+
+describe('human lines are bounded, rate limited and deduped per seat', () => {
+  it('refuses typed and speech lines beyond their caps with a clear reason', async () => {
+    const { port } = await humanOnlyMeeting();
+    const producer = await connect(port, 'producer');
+    if (!producer.ok) throw new Error('producer socket did not open');
+    sockets.push(producer.ws);
+
+    producer.ws.send(humanLine('x'.repeat(501), 'too-long-typed'));
+    const typed = await waitFor(
+      () => producer.messages.find((event) => event.type === 'COMMAND_REJECTED'),
+      'the long typed line refusal',
+    );
+    expect(typed).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: expect.stringMatching(/too long/i) } });
+
+    producer.ws.send(
+      JSON.stringify({
+        type: 'HUMAN_LINE',
+        text: 'y'.repeat(2_001),
+        source: 'speech',
+        clientLineId: 'too-long-speech',
+      }),
+    );
+    await waitFor(
+      () =>
+        producer.messages.filter(
+          (event) => event.type === 'COMMAND_REJECTED' && /too long/i.test(event.payload.reason),
+        ).length >= 2
+          ? true
+          : undefined,
+      'the long speech line refusal',
+    );
+  });
+
+  it('refuses a burst from one seat while another seat keeps its own dedupe memory', async () => {
+    const { port } = await humanOnlyMeeting();
+    const screen = await connect(port, 'screen');
+    const producer = await connect(port, 'producer');
+    const programmer = await connect(port, 'lead_programmer');
+    if (!screen.ok || !producer.ok || !programmer.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, producer.ws, programmer.ws);
+
+    producer.ws.send(humanLine('A line from the producer.', 'shared-id'));
+    programmer.ws.send(humanLine('A line from the programmer.', 'shared-id'));
+    await waitFor(
+      () => screen.messages.filter((event) => event.type === 'TRANSCRIPT_CHUNK').length >= 2 ? true : undefined,
+      'both seats to use the same line id',
+    );
+
+    for (let index = 0; index < 6; index += 1) {
+      producer.ws.send(humanLine(`Burst line ${index}.`, `burst-${index}`));
+    }
+    const refused = await waitFor(
+      () =>
+        producer.messages.find(
+          (event) => event.type === 'COMMAND_REJECTED' && /Too many lines/i.test(event.payload.reason),
+        ),
+      'the per-seat rate-limit refusal',
+    );
+    expect(refused).toMatchObject({ payload: { commandType: 'HUMAN_LINE' } });
+  });
+});
+
 describe('human lines are not held for a human-only meeting but are held with an AI cast', () => {
   it('dispatches a human-only task and holds an AI meeting task until its topic settles', async () => {
     // Human-only: the same suggestion is released by the normal non-held rule.
@@ -316,6 +485,7 @@ describe('human-line security with sign-in on', () => {
       rejoinGraceMs: 60_000,
       rejoinPollMs: 20,
       emptyRoomPauseMs: 20,
+      speechRecognition: 'browser',
     });
     apps.push(app);
     return { app, port: portOf(app), clock, setPeople: (next) => { people = next; } };
@@ -392,7 +562,11 @@ describe('human-line security with sign-in on', () => {
     if (!screen.ok) throw new Error('screen socket did not open');
     sockets.push(screen.ws);
 
+    const meetingId = ((await (await fetch(`http://127.0.0.1:${port}/api/meeting/state`)).json()) as { meetingId: string })
+      .meetingId;
     const line = {
+      meetingId,
+      participantIdentity: 'Ada',
       seat: 'chef',
       text: 'This was recognised by the server.',
       source: 'speech',
@@ -409,6 +583,30 @@ describe('human-line security with sign-in on', () => {
       'the service transcript line',
     );
     expect(transcript).toMatchObject({ payload: { speaker: 'Ada' } });
+
+    const wrongSeat = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ ...line, seat: 'cashier', clientLineId: 'service-wrong-seat' }),
+    });
+    expect(wrongSeat.status).toBe(409);
+    expect(((await wrongSeat.json()) as { error?: string }).error).toMatch(/no longer holds that seat/i);
+
+    const unknownPerson = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ ...line, participantIdentity: 'Mallory', clientLineId: 'service-unknown' }),
+    });
+    expect(unknownPerson.status).toBe(409);
+    expect(((await unknownPerson.json()) as { error?: string }).error).toMatch(/no longer seated/i);
+
+    const oldMeeting = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ ...line, meetingId: 'an-old-meeting', clientLineId: 'service-old' }),
+    });
+    expect(oldMeeting.status).toBe(409);
+    expect(((await oldMeeting.json()) as { error?: string }).error).toMatch(/different meeting/i);
 
     const refused = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
       method: 'POST',

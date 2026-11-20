@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
@@ -41,6 +41,7 @@ describe('the AI runner HTTP client', () => {
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
     const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     app = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       auth,
       meetingCode,
@@ -75,6 +76,70 @@ describe('the AI runner HTTP client', () => {
     );
     const scenario = await client.fetchScenario();
     expect(scenario.id).toBe(testScenario.id);
+  });
+
+  it('retries a recognised line with the same id on network errors and a retryable conflict', async () => {
+    const line = {
+      meetingId: 'meeting-1',
+      participantIdentity: 'Ada',
+      seat: 'chef',
+      text: 'The till is short.',
+      source: 'speech' as const,
+      clientLineId: 'same-id',
+    };
+    const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
+    const retryable = () =>
+      new Response(JSON.stringify({ error: 'The meeting is starting', retryable: true }), { status: 409 });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(retryable())
+      .mockResolvedValueOnce(ok());
+    const sleep = vi.fn(async () => undefined);
+    const client = createRunnerClient({
+      baseUrl: 'http://127.0.0.1:1',
+      fetch: fetchMock,
+      sleep,
+      humanLineRetryBaseMs: 10,
+    });
+
+    const response = await client.postHumanLine(line);
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(JSON.parse(String(call[1]?.body))).toMatchObject({ clientLineId: 'same-id' });
+    }
+    expect(sleep.mock.calls).toEqual([[10], [20]]);
+  });
+
+  it('drops a recognised line after the last attempt and does not retry a final conflict', async () => {
+    const line = {
+      meetingId: 'meeting-1',
+      participantIdentity: 'Ada',
+      seat: 'chef',
+      text: 'The till is short.',
+      source: 'speech' as const,
+      clientLineId: 'same-id',
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'));
+    const client = createRunnerClient({
+      baseUrl: 'http://127.0.0.1:1',
+      fetch: fetchMock,
+      sleep: async () => undefined,
+    });
+    await expect(client.postHumanLine(line)).rejects.toThrow(/offline/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    const conflict = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ error: 'That line belongs to a different meeting' }), { status: 409 }));
+    const second = createRunnerClient({ baseUrl: 'http://127.0.0.1:1', fetch: conflict, sleep: async () => undefined });
+    expect((await second.postHumanLine(line)).status).toBe(409);
+    expect(conflict).toHaveBeenCalledTimes(1);
   });
 
   it('does not reach a service route without the credential', async () => {

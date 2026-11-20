@@ -91,7 +91,7 @@ describe('POST /api/livekit/token', () => {
   it('admits two distinct human seats from the scenario capacity and refuses the rest', async () => {
     const [chef, cashier] = testScenario.roles;
     let present: Roster = [];
-    app = await createApp({ devRoutes: false, scenario: testScenario, roomRoster: async () => present });
+    app = await createApp({ speechRecognition: 'browser', devRoutes: false, scenario: testScenario, roomRoster: async () => present });
 
     const first = await post({ roomName: 'room', participantName: 'One', participantRole: chef!.label });
     expect(first.status).toBe(200);
@@ -111,7 +111,7 @@ describe('POST /api/livekit/token', () => {
     vi.stubEnv('KAKI_MEETING_CODE', 'K7QX');
     const [chef, cashier] = testScenario.roles;
     let present: Roster = [{ name: 'Foo', role: chef!.label }];
-    app = await createApp({ devRoutes: false, scenario: testScenario, roomRoster: async () => present });
+    app = await createApp({ speechRecognition: 'browser', devRoutes: false, scenario: testScenario, roomRoster: async () => present });
 
     const takenSeat = await post({ roomName: 'room', participantName: 'Other', participantRole: chef!.label, meetingCode: 'K7QX' });
     expect(takenSeat.status).toBe(409);
@@ -127,6 +127,7 @@ describe('POST /api/livekit/token', () => {
     let present: Roster = [];
     // Grace 0: an empty room starts a new meeting at once, so the next person gets a fresh code.
     app = await createApp({
+      speechRecognition: 'browser',
       devRoutes: false,
       scenario: testScenario,
       roomRoster: async () => present,
@@ -153,7 +154,7 @@ describe('POST /api/livekit/token', () => {
 
   it('fails clearly when LiveKit cannot say who is in the room', async () => {
     const chef = testScenario.roles[0]!;
-    app = await createApp({ devRoutes: false, scenario: testScenario, roomRoster: async () => undefined });
+    app = await createApp({ speechRecognition: 'browser', devRoutes: false, scenario: testScenario, roomRoster: async () => undefined });
     const response = await post({ roomName: 'room', participantName: 'Josh', participantRole: chef.label });
     expect(response.status).toBe(503);
     const body = (await response.json()) as { error: string; retryable?: boolean };
@@ -169,6 +170,7 @@ describe('POST /api/livekit/token', () => {
       openGate = resolve;
     });
     app = await createApp({
+      speechRecognition: 'browser',
       devRoutes: false,
       scenario: testScenario,
       rejoinGraceMs: 0,
@@ -191,6 +193,7 @@ describe('POST /api/livekit/token', () => {
   it('rejects the name of an AI attendee from the scenario', async () => {
     const cashier = testScenario.roles[1]!;
     app = await createApp({
+      speechRecognition: 'browser',
       devRoutes: false,
       scenario: {
         ...testScenario,

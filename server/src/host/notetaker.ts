@@ -68,7 +68,7 @@ export interface NotetakerState {
 
 /** Turns new transcript into the Meeting Record and suggests tasks through the task store. */
 export interface Notetaker {
-  addChunk(chunk: { speaker: string; text: string }): void;
+  addChunk(chunk: { speaker: string; text: string; speakerRole?: Role }): void;
   /** Send transcript added since the last pass to the LLM; does nothing if a pass is running. */
   run(): Promise<void>;
   state(): NotetakerState;
@@ -1236,8 +1236,13 @@ export function createNotetaker({
   }
 
   return {
-    addChunk({ speaker, text }) {
-      const role = roleForZoomName(scenario(), speaker);
+    addChunk({ speaker, text, speakerRole }) {
+      const role =
+        speakerRole !== undefined
+          ? isRoleIn(scenario(), speakerRole)
+            ? speakerRole
+            : undefined
+          : roleForZoomName(scenario(), speaker);
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
       const isFacilitator = role !== undefined && scenario().roles.some((candidate) => candidate.id === role && candidate.facilitator === true);

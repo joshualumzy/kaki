@@ -88,6 +88,7 @@ async function startedMeeting(
   const people: Array<{ name: string; role?: string }> = [];
   const meetingCode = createMeetingCodeSource();
   const app = await createApp({
+    speechRecognition: 'browser',
     scenario,
     meetingCode,
     roomRoster: async () => people,
@@ -173,6 +174,7 @@ describe('join admission decides before it resets', () => {
     const people: Array<{ name: string; role?: string }> = [];
     const meetingCode = createMeetingCodeSource();
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario: testScenario,
       meetingCode,
       roomRoster: async () => people,
@@ -307,6 +309,7 @@ describe('New meeting', () => {
     const reset = vi.spyOn(clock, 'reset');
     const scenario = await loadScenario('kopitiam');
     const app = await createApp({
+      speechRecognition: 'browser',
       scenario,
       modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
       roomRoster: async () => [],
