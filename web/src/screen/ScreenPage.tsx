@@ -9,7 +9,8 @@ import { JoinPhones } from './JoinPhones';
 
 /** Shared screen shell: asks the host to sign in when auth is on, then shows the meeting. */
 export function ScreenPage() {
-  const auth = useMe();
+  const [authKey, setAuthKey] = useState(0);
+  const auth = useMe(authKey);
 
   if (auth.status === 'loading') {
     return (
@@ -26,6 +27,9 @@ export function ScreenPage() {
           <p className="connection-banner" role="alert">
             {auth.message}
           </p>
+          <Button variant="ghost" onClick={() => setAuthKey((key) => key + 1)}>
+            Try again
+          </Button>
         </Card>
       </main>
     );

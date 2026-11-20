@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeetingSetup, Scenario } from '@kaki/shared';
 import { ScenarioProvider } from '../kaki';
@@ -141,6 +141,19 @@ function renderPage(): void {
     <MemoryRouter initialEntries={['/setup']}>
       <ScenarioProvider>
         <SetupPage />
+      </ScenarioProvider>
+    </MemoryRouter>,
+  );
+}
+
+function renderPageWithMeeting(): void {
+  render(
+    <MemoryRouter initialEntries={['/setup']}>
+      <ScenarioProvider>
+        <Routes>
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/meeting" element={<p>owner meeting room</p>} />
+        </Routes>
       </ScenarioProvider>
     </MemoryRouter>,
   );
@@ -322,7 +335,7 @@ describe('SetupPage', () => {
 
     expect(await screen.findByText(/The meeting has started; setup is locked\./)).toBeTruthy();
     const link = screen.getByRole('link', { name: 'Go to the meeting' });
-    expect(link.getAttribute('href')).toBe('/demo');
+    expect(link.getAttribute('href')).toBe('/meeting');
     expect((screen.getByRole('button', { name: 'Load Kopitiam demo' }) as HTMLButtonElement).disabled).toBe(true);
     expect(
       ((await screen.findByRole('button', { name: 'Test connection' })) as HTMLButtonElement).disabled,
@@ -355,7 +368,7 @@ describe('SetupPage', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Only the meeting owner can change the setup.');
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login');
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login?return=/setup');
     expect(screen.queryByRole('button', { name: 'Load Kopitiam demo' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Test connection' })).toBeNull();
   });
@@ -519,4 +532,34 @@ describe('SetupPage', () => {
     expect(screen.queryByLabelText('Seat 3 AI stand-in')).toBeNull();
     expect(screen.getByText('Person only')).toBeTruthy();
   });
+  it('handles a practice meeting in progress when opening the room', async () => {
+    let opens = 0;
+    installFetch(
+      baseRoutes({
+        'POST /api/meeting/open': () => {
+          opens += 1;
+          return opens === 1
+            ? reply(
+                {
+                  error: 'A practice meeting is in progress right now. End it before opening the team meeting.',
+                  practiceInProgress: true,
+                },
+                409,
+              )
+            : reply({ kind: 'real', phase: 'lobby' });
+        },
+        'POST /api/meeting/end-practice': () => reply({ ok: true, phase: 'lobby' }),
+      }),
+    );
+    renderPageWithMeeting();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the meeting room' }));
+
+    expect(await screen.findByText('A practice meeting is running right now.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'End the practice meeting' }));
+
+    expect(await screen.findByText('owner meeting room')).toBeTruthy();
+    expect(opens).toBe(2);
+  });
+
 });

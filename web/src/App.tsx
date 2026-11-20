@@ -4,6 +4,9 @@ import { ScenarioProvider } from './kaki';
 import { PhonePage } from './phone/PhonePage';
 import { ScreenPage } from './screen/ScreenPage';
 import { SetupPage } from './setup/SetupPage';
+import { LandingPage } from './landing/LandingPage';
+import { OwnerMeetingPage } from './meeting/OwnerMeetingPage';
+import { ParticipantJoinPage } from './meeting/ParticipantJoinPage';
 import Meeting from './demo/Meeting';
 
 /** Route shell for the single Kaki web app: shared screen, phone, and a redirect home. */
@@ -12,8 +15,11 @@ export function App() {
     <div className="app-shell">
       <ScenarioProvider>
         <Routes>
-          <Route path="/" element={<Meeting />} />
-          <Route path="/demo" element={<Meeting />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/practice" element={<Meeting variant="practice" />} />
+          <Route path="/demo" element={<Meeting variant="practice" />} />
+          <Route path="/join" element={<ParticipantJoinPage />} />
+          <Route path="/meeting" element={<OwnerMeetingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/screen" element={<ScreenPage />} />

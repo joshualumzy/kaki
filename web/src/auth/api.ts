@@ -1,4 +1,5 @@
 import type { MeetingEnded } from '@kaki/shared';
+import { fetchWithTimeout } from '../net/withTimeout';
 
 /** What GET /api/auth/me says about this browser's cookie. */
 export type Me =
@@ -43,7 +44,7 @@ export async function fetchMe(signal?: AbortSignal): Promise<Me> {
 /** Sign the host in and set the session cookie. */
 export async function signIn(email: string, password: string): Promise<Outcome> {
   try {
-    const response = await fetch('/api/auth/login', {
+    const response = await fetchWithTimeout('/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -58,7 +59,7 @@ export async function signIn(email: string, password: string): Promise<Outcome> 
 /** Join as a participant with the meeting code and role. */
 export async function joinMeeting(code: string, role: string): Promise<JoinOutcome> {
   try {
-    const response = await fetch('/api/join', {
+    const response = await fetchWithTimeout('/api/join', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code, role }),

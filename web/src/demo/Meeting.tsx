@@ -1,21 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import type { RoomOptions } from 'livekit-client';
 import { demoRoomName, joinSeatRoles } from '@kaki/shared';
 import { useKaki, useRefreshScenario, useScenario } from '../kaki';
+import { fetchWithTimeout } from '../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
 import type { MediaChoice } from './MediaPreview';
 import { MeetingGrid } from './MeetingGrid';
 import { Dock } from './Dock';
 import { ConnectedStartPrompt } from './StartPrompt';
+import { OwnerLobby, WaitingOverlay } from '../meeting/MeetingOverlays';
+import { TeamJoinForm } from '../meeting/TeamJoinForm';
 import './demo.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
 const ROOM_OPTIONS: RoomOptions = {
   audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
+
+/** Which journey this page is: the practice demo, a team participant, or the meeting owner. */
+export type MeetingVariant = 'practice' | 'participant' | 'owner';
 
 interface Session {
   token: string;
@@ -70,16 +77,27 @@ interface HotMeetingData {
 }
 const hotData = (import.meta as unknown as { hot?: { data: HotMeetingData } }).hot?.data;
 
-/** The live demo meeting: join with a name and role, then talk to the AI attendees. */
-export default function Meeting() {
+/**
+ * The meeting page. Practice keeps the Kopitiam story and its own Start prompt; a team participant
+ * waits for the owner; the owner gets the invite lobby. All three share the stage and the Dock.
+ */
+export default function Meeting({
+  variant = 'practice',
+  initialCode,
+}: {
+  variant?: MeetingVariant;
+  initialCode?: string;
+}) {
   const scenario = useScenario();
   const refreshScenario = useRefreshScenario();
   // The same seats the server offers: the setup's person seats when it names them, else every
   // human seat and the host's chair when a person can take it.
   const roles = useMemo(() => joinSeatRoles(scenario), [scenario]);
+  const practice = variant === 'practice';
   const [session, setSession] = useState<Session | undefined>(() => hotData?.session);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [realInProgress, setRealInProgress] = useState(false);
   const [needsCode, setNeedsCode] = useState(false);
   const [pane, setPane] = useState<'meeting' | 'kaki'>(() => hotData?.pane ?? 'meeting');
   const [kakiBadgeCount, setKakiBadgeCount] = useState(0);
@@ -92,25 +110,52 @@ export default function Meeting() {
       hotData.started = started;
     }
   }, [session, pane, started]);
-  const linkCode = useMemo(() => new URLSearchParams(window.location.search).get('code') ?? '', []);
+  const linkCode = useMemo(
+    () => initialCode ?? new URLSearchParams(window.location.search).get('code') ?? '',
+    [initialCode],
+  );
   const markMeetingStarted = useCallback(() => setStarted(true), []);
   const markMeetingReset = useCallback(() => setStarted(false), []);
 
   const hasAi = (scenario.npcs ?? []).length > 0;
   // A human-only setup names its person seats; those are the seats to offer even with no AI cast.
-  const offersSeats = hasAi || scenario.joinSeats !== undefined;
+  const offersSeats = practice ? hasAi || scenario.joinSeats !== undefined : roles.length > 0;
+  const seatsError = practice
+    ? `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`
+    : 'The meeting owner has not opened any seats yet.';
 
   async function join(name: string, roleId: string, media: MediaChoice, meetingCode?: string): Promise<void> {
     setBusy(true);
     setError(undefined);
+    setRealInProgress(false);
     try {
-      const response = await fetch('/api/livekit/token', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ roomName: demoRoomName(scenario), participantName: name, participantRole: roleId, ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }) }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { token?: unknown; url?: unknown; error?: unknown; needsCode?: unknown; meetingCode?: unknown; resumed?: unknown; started?: unknown };
+      const response = await fetchWithTimeout(
+        '/api/livekit/token',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomName: demoRoomName(scenario),
+            participantName: name,
+            participantRole: roleId,
+            ...(practice ? { kind: 'practice' } : {}),
+            ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }),
+          }),
+        },
+        12_000,
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        token?: unknown;
+        url?: unknown;
+        error?: unknown;
+        needsCode?: unknown;
+        meetingCode?: unknown;
+        resumed?: unknown;
+        started?: unknown;
+        realInProgress?: unknown;
+      };
       if (body.needsCode === true) setNeedsCode(true);
+      if (body.realInProgress === true) setRealInProgress(true);
       if (!response.ok || typeof body.token !== 'string') {
         throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
       }
@@ -138,15 +183,35 @@ export default function Meeting() {
   }
 
   if (session === undefined) {
+    if (practice) {
+      return (
+        <JoinForm
+          meetingTitle={scenario.meetingTitle}
+          roles={offersSeats ? roles : []}
+          agenda={scenario.agenda}
+          busy={busy}
+          error={offersSeats ? error : seatsError}
+          askCode={needsCode}
+          initialCode={linkCode}
+          errorAction={
+            realInProgress ? (
+              <p className="kd-hint">
+                <Link to="/">Back to Kaki</Link>
+              </p>
+            ) : undefined
+          }
+          onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
+        />
+      );
+    }
     return (
-      <JoinForm
+      <TeamJoinForm
         meetingTitle={scenario.meetingTitle}
         roles={offersSeats ? roles : []}
-        agenda={scenario.agenda}
         busy={busy}
-        error={offersSeats ? error : `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`}
-        askCode={needsCode}
+        error={offersSeats ? error : seatsError}
         initialCode={linkCode}
+        owner={variant === 'owner'}
         onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
       />
     );
@@ -157,7 +222,7 @@ export default function Meeting() {
   const needsStart = !started;
 
   return (
-    <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart}>
+    <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart} data-variant={variant}>
       <div className="kd-stage">
         <LiveKitRoom
           video={session.media.camera}
@@ -183,13 +248,17 @@ export default function Meeting() {
           </ErrorBoundary>
           <CleanDisconnectOnUnload />
           <MeetingLifecycleWatcher onStarted={markMeetingStarted} onReset={markMeetingReset} />
-          {needsStart && (
+          {needsStart && practice && (
             <ConnectedStartPrompt
               role={seatRole}
               viewerName={session.name}
               seatName={scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName}
               onStarted={() => setStarted(true)}
             />
+          )}
+          {needsStart && variant === 'participant' && <WaitingOverlay />}
+          {needsStart && variant === 'owner' && (
+            <OwnerLobby initialCode={session.meetingCode} onStarted={markMeetingStarted} />
           )}
         </LiveKitRoom>
       </div>

@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
@@ -28,12 +29,16 @@ vi.mock('@livekit/components-react', () => ({
 }));
 
 vi.mock('./JoinForm', () => ({
-  JoinForm: ({ roles, onJoin }: {
+  JoinForm: ({ roles, onJoin, error, errorAction }: {
     roles: Array<{ id: string; label: string }>;
+    error?: string;
+    errorAction?: ReactNode;
     onJoin(name: string, role: string, media: { microphone: boolean; camera: boolean }): void;
   }) => (
     <>
       <output data-testid="join-roles">{roles.map((role) => role.label).join(',')}</output>
+      {error === undefined ? null : <p role="alert">{error}</p>}
+      {errorAction}
       <button
         type="button"
         onClick={() => onJoin('Josh', 'producer', { microphone: false, camera: false })}
@@ -41,6 +46,19 @@ vi.mock('./JoinForm', () => ({
         Join now
       </button>
     </>
+  ),
+}));
+
+vi.mock('../meeting/TeamJoinForm', () => ({
+  TeamJoinForm: ({ onJoin }: {
+    onJoin(name: string, role: string, media: { microphone: boolean; camera: boolean }): void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onJoin('Josh', 'producer', { microphone: false, camera: false })}
+    >
+      Join team
+    </button>
   ),
 }));
 
@@ -176,4 +194,52 @@ describe('Meeting join', () => {
     expect(await screen.findByRole('region', { name: 'Before the meeting starts' })).toBeTruthy();
     expect(document.querySelector('[data-needs-start="true"]')).toBeTruthy();
   });
+  it('joins a practice meeting with kind practice', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'token', url: 'ws://localhost:7880', meetingCode: 'ABCD', started: false }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<Meeting />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.parse(String(init?.body))).toMatchObject({ kind: 'practice' });
+  });
+
+  it('shows the realMeeting refusal and the way back home', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'A team meeting is in progress right now. Try practice again later.',
+        realInProgress: true,
+      }),
+    })));
+    render(
+      <MemoryRouter>
+        <Meeting />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
+
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'A team meeting is in progress right now. Try practice again later.',
+    );
+    expect(screen.getByRole('link', { name: 'Back to Kaki' }).getAttribute('href')).toBe('/');
+  });
+
+  it('waits for the owner instead of showing the story in a team meeting', async () => {
+    replyWith({ started: false });
+    render(<Meeting variant="participant" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join team' }));
+
+    expect(await screen.findByRole('region', { name: 'Waiting for the meeting to start' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start the meeting' })).toBeNull();
+    expect(screen.queryByText(/How to play/)).toBeNull();
+  });
+
 });

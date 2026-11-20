@@ -286,6 +286,7 @@ for (const kind of ['memory', 'postgres'] as const) {
         expect(Object.keys((await publicState.json()) as Record<string, unknown>).sort()).toEqual([
           'kind',
           'meetingId',
+          'participants',
           'started',
         ]);
         expect((await request('/api/runner/meeting-state', 'GET', undefined, credentials)).status).toBe(401);

@@ -1,14 +1,28 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card } from '../ui';
 import { signIn } from './api';
 import { useMe } from './useMe';
 import './auth.css';
 
-/** Host sign-in page; a signed-in host goes straight to the shared screen. */
+/** Only a path on this site is a safe place to return to after sign-in. */
+function returnPath(value: string | null | undefined): string {
+  return value !== null && value !== undefined && value.startsWith('/') && !value.startsWith('//')
+    ? value
+    : '/screen';
+}
+
+/** Host sign-in page; a signed-in host goes straight to the page that asked for sign-in. */
 export function LoginPage() {
-  const auth = useMe();
+  const [reloadKey, setReloadKey] = useState(0);
+  const auth = useMe(reloadKey);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [search] = useSearchParams();
+  const fromState = (location.state as { from?: unknown } | null)?.from;
+  const destination = returnPath(
+    typeof fromState === 'string' ? fromState : search.get('return'),
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,13 +43,16 @@ export function LoginPage() {
           <p className="connection-banner" role="alert">
             {auth.message}
           </p>
+          <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
+            Try again
+          </Button>
         </Card>
       </main>
     );
   }
 
   if (!auth.me.authEnabled || auth.me.kind === 'host') {
-    return <Navigate to="/screen" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -59,7 +76,7 @@ export function LoginPage() {
       setPending(false);
       return;
     }
-    navigate('/screen', { replace: true });
+    navigate(destination, { replace: true });
   }
 
   return (

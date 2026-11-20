@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { AgendaItem, ScenarioRole } from '@kaki/shared';
 import { resolveArtifactUrl } from '../ui';
 import { MediaPreview, type MediaChoice } from './MediaPreview';
@@ -19,6 +19,8 @@ export interface JoinFormProps {
   error?: string;
   /** Show the meeting code box: someone is already in the meeting, or the page was opened with a code. */
   askCode?: boolean;
+  /** A link or hint to show with the error, such as the way back when a team meeting is running. */
+  errorAction?: ReactNode;
   /** A code from the page's link, to fill the box with. */
   initialCode?: string;
   /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
@@ -42,7 +44,7 @@ function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
 }
 
 /** The screen before the meeting: a name and a role, then a microphone. */
-export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, initialCode = '', onJoin }: JoinFormProps) {
+export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, errorAction, initialCode = '', onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
   const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
@@ -173,9 +175,12 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           )}
 
           {(problem ?? error) !== undefined && (
-            <p role="alert" className="kd-alert">
-              {problem ?? error}
-            </p>
+            <>
+              <p role="alert" className="kd-alert">
+                {problem ?? error}
+              </p>
+              {errorAction}
+            </>
           )}
 
           <button type="submit" className="kd-go" disabled={!ready}>

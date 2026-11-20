@@ -86,10 +86,11 @@ describe('the service-only runner meeting endpoint', () => {
     expect(state.phase).toBe('lobby');
     expect(state.cast.length).toBeGreaterThan(0);
 
-    // The browser-facing state keeps its small shape.
+    // The browser-facing state keeps its small shape, plus the lobby's list of who joined.
     const publicState = await fetch(`${baseUrl()}/api/meeting/state`);
     expect(Object.keys((await publicState.json()) as Record<string, unknown>).sort()).toEqual([
       'meetingId',
+      'participants',
       'started',
     ]);
   });

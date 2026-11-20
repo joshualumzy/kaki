@@ -1,4 +1,5 @@
 import type { MeetingSetup, SetupFieldError } from '@kaki/shared';
+import { fetchWithTimeout } from '../net/withTimeout';
 
 export interface SetupResponse {
   setup: MeetingSetup;
@@ -73,7 +74,7 @@ function parseSetupResponse(body: Record<string, unknown> | null, fallback: stri
 export async function loadSetup(): Promise<SetupResponse> {
   let response: Response;
   try {
-    response = await fetch('/api/setup');
+    response = await fetchWithTimeout('/api/setup');
   } catch {
     throw networkFailure('load the setup');
   }
@@ -84,7 +85,7 @@ export async function loadSetup(): Promise<SetupResponse> {
 export async function importKopitiamDemo(): Promise<SetupResponse> {
   let response: Response;
   try {
-    response = await fetch('/api/setup/import-calendar', { method: 'POST' });
+    response = await fetchWithTimeout('/api/setup/import-calendar', { method: 'POST' });
   } catch {
     throw networkFailure('load the Kopitiam demo');
   }
@@ -95,7 +96,7 @@ export async function importKopitiamDemo(): Promise<SetupResponse> {
 export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
   let response: Response;
   try {
-    response = await fetch('/api/setup', {
+    response = await fetchWithTimeout('/api/setup', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(setup),
@@ -110,7 +111,7 @@ export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
 export async function loadTools(): Promise<ToolStatus[]> {
   let response: Response;
   try {
-    response = await fetch('/api/setup/tools');
+    response = await fetchWithTimeout('/api/setup/tools');
   } catch {
     throw networkFailure('check the tools');
   }
@@ -125,7 +126,7 @@ export async function loadTools(): Promise<ToolStatus[]> {
 export async function testTool(kind: string): Promise<ToolProbeResult> {
   let response: Response;
   try {
-    response = await fetch(`/api/setup/tools/${encodeURIComponent(kind)}/test`, { method: 'POST' });
+    response = await fetchWithTimeout(`/api/setup/tools/${encodeURIComponent(kind)}/test`, { method: 'POST' });
   } catch {
     throw networkFailure('test the connection');
   }
@@ -140,4 +141,49 @@ export async function testTool(kind: string): Promise<ToolProbeResult> {
     ...(typeof body.problem === 'string' ? { problem: body.problem } : {}),
     ...(typeof body.message === 'string' ? { message: body.message } : {}),
   };
+}
+
+/** What the owner's "Open the meeting room" got back when it failed. */
+export class OpenMeetingError extends SetupApiError {
+  readonly practiceInProgress: boolean;
+
+  constructor(message: string, status: number, practiceInProgress = false) {
+    super(message, status);
+    this.name = 'OpenMeetingError';
+    this.practiceInProgress = practiceInProgress;
+  }
+}
+
+/** Ask the server to open the team meeting from the saved draft. */
+export async function openMeeting(): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetchWithTimeout('/api/meeting/open', { method: 'POST' }, 12_000);
+  } catch (error) {
+    throw new SetupApiError(
+      error instanceof Error ? error.message : 'Could not reach the server to open the meeting.',
+      0,
+    );
+  }
+  if (response.ok) return;
+  const body = await readJson(response);
+  throw new OpenMeetingError(
+    typeof body?.error === 'string' ? body.error : `Could not open the meeting (HTTP ${response.status}).`,
+    response.status,
+    body?.practiceInProgress === true,
+  );
+}
+
+/** End a practice meeting so the team meeting can be opened. */
+export async function endPracticeMeeting(): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetchWithTimeout('/api/meeting/end-practice', { method: 'POST' }, 12_000);
+  } catch (error) {
+    throw new SetupApiError(
+      error instanceof Error ? error.message : 'Could not reach the server to end the practice meeting.',
+      0,
+    );
+  }
+  if (!response.ok) throw await failure(response, 'Could not end the practice meeting');
 }

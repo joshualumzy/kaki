@@ -830,6 +830,8 @@ async function handleRequest(
         meetingId: context.meeting.id,
         started: context.session.phase() === 'running',
         ...(context.session.kind() === undefined ? {} : { kind: context.session.kind() }),
+        // Who has joined, so the owner's lobby can show the room filling up before Start.
+        participants: context.session.holders().map((holder) => ({ name: holder.name, seat: holder.seat })),
       });
       return;
     }

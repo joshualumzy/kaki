@@ -6,25 +6,43 @@ export type MeState =
   | { status: 'error'; message: string }
   | { status: 'ready'; me: Me };
 
-/** Load who this browser is signed in as, once per mount. */
-export function useMe(): MeState {
+/** How long a page waits for the sign-in check before saying so and offering a retry. */
+const ME_TIMEOUT_MS = 8_000;
+
+/**
+ * Load who this browser is signed in as. `reloadKey` re-runs the check when a page offers a retry.
+ */
+export function useMe(reloadKey = 0): MeState {
   const [state, setState] = useState<MeState>({ status: 'loading' });
 
   useEffect(() => {
+    let cancelled = false;
     const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ME_TIMEOUT_MS);
 
     fetchMe(controller.signal)
-      .then((me) => setState({ status: 'ready', me }))
+      .then((me) => {
+        if (!cancelled) setState({ status: 'ready', me });
+      })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (cancelled) return;
         setState({
           status: 'error',
-          message: error instanceof Error ? error.message : 'Could not check the sign-in state.',
+          message: controller.signal.aborted
+            ? 'Could not check the sign-in state: the server did not answer in time.'
+            : error instanceof Error
+              ? error.message
+              : 'Could not check the sign-in state.',
         });
-      });
+      })
+      .finally(() => clearTimeout(timer));
 
-    return () => controller.abort();
-  }, []);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [reloadKey]);
 
   return state;
 }
