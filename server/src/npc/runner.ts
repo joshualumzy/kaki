@@ -35,8 +35,8 @@ import {
   type MeetingMemoryEntry,
 } from '@kaki/shared';
 import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenAgendaName } from '../host/opening';
-import type { ChatMessage } from '../llm';
-import { createRoomToken } from '../livekit';
+import type { ChatMessage } from '../services/llm';
+import { createRoomToken } from '../services/livekit';
 import { visitorDispatchLine } from './cardPointer';
 import { NpcConversation } from './conversation';
 import { MeetingMemory } from './meetingMemory';
@@ -492,11 +492,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           // it here too would duplicate it (and lose it entirely when no runner is connected).
           if (transcriptOptions?.human === true) return;
           const attendee = meeting.scenario().attendees.find((candidate) => candidate.name === speaker);
-          options.postTranscript(attendee?.zoomDisplayName ?? speaker, text, transcriptOptions);
+          options.postTranscript(attendee?.displayName ?? speaker, text, transcriptOptions);
         },
         emitTranscriptUpdate: (speaker, text, updateOptions) => {
           const attendee = meeting.scenario().attendees.find((candidate) => candidate.name === speaker);
-          options.postTranscriptUpdate(attendee?.zoomDisplayName ?? speaker, text, updateOptions);
+          options.postTranscriptUpdate(attendee?.displayName ?? speaker, text, updateOptions);
         },
         emitState: (state) => {
           lastConversationState = state;

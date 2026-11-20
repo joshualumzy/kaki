@@ -21,8 +21,8 @@ const participantRoleScenario: Scenario = {
     { id: 'chef', label: 'Chef' },
   ],
   attendees: [
-    { name: 'Ada', role: 'participant', zoomDisplayName: 'Ada (Participant)' },
-    { name: 'Bao', role: 'chef', zoomDisplayName: 'Bao (Chef)' },
+    { name: 'Ada', role: 'participant', displayName: 'Ada (Participant)' },
+    { name: 'Bao', role: 'chef', displayName: 'Bao (Chef)' },
   ],
   npcs: [
     { attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'participant' },
@@ -36,8 +36,8 @@ const personParticipantScenario: Scenario = {
     { id: 'chef', label: 'Chef' },
   ],
   attendees: [
-    { name: 'Ada', role: 'participant', zoomDisplayName: 'Ada (Participant)' },
-    { name: 'Bao', role: 'chef', zoomDisplayName: 'Bao (Chef)' },
+    { name: 'Ada', role: 'participant', displayName: 'Ada (Participant)' },
+    { name: 'Bao', role: 'chef', displayName: 'Bao (Chef)' },
   ],
 };
 

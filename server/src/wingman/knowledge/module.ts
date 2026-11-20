@@ -7,7 +7,7 @@ import {
   type SearchCompanyData,
 } from '@kaki/shared';
 import { Pool } from 'pg';
-import type { KakiContext, KakiModule } from '../../modules';
+import type { KakiContext, KakiModule } from '../../core/modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
 import { createCompanySearchFromEnv } from './search';
 

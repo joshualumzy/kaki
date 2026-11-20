@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
-import { LlmError, type ChatMessage, type CompleteOptions } from '../server/src/llm';
+import { LlmError, type ChatMessage, type CompleteOptions } from '../server/src/services/llm';
 import type { Line } from './live-playtest';
 import {
   cannedRoomReply, decideRoomReply, parseRoomReply, roomReplyPrompt, type RoomReplyRequest,
@@ -9,18 +9,18 @@ import {
 const scenario: Scenario = {
   id: 'kopitiam', organisation: 'Nanyang Kopi & Toast', meetingTitle: 'Opening',
   roles: [
-    { id: 'producer', label: 'Operations Director', card: { youAre: 'You are Wei Ling.', facts: [], responsibility: 'Lead opening day.' } },
+    { id: 'operations_director', label: 'Operations Director', card: { youAre: 'You are Wei Ling.', facts: [], responsibility: 'Lead opening day.' } },
   ],
-  attendees: [{ name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' }],
+  attendees: [{ name: 'Wei Ling', role: 'operations_director', displayName: 'Wei Ling' }],
   agenda: [
     {
-      title: 'Delivery app', minutes: 5, canWait: false, deadline: 'before the lunch rush', ownerRole: 'producer',
+      title: 'Delivery app', minutes: 5, canWait: false, deadline: 'before the lunch rush', ownerRole: 'operations_director',
       briefing: [{ text: 'The office orders are the only profitable line.', knownBy: [{ attendee: 'Wei Ling', why: 'you saw the numbers' }] }],
       decision: 'How do we sell the platter?',
-      seatFacts: { producer: 'Only 30 trays came in this morning.' },
+      seatFacts: { operations_director: 'Only 30 trays came in this morning.' },
     },
     {
-      title: 'Counter staffing', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer',
+      title: 'Counter staffing', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'operations_director',
       briefing: [{ text: 'One person called in sick.', knownBy: [{ attendee: 'Wei Ling', why: 'you got the text' }] }],
     },
   ],
@@ -37,7 +37,7 @@ const fresh = transcript.slice(2);
 function request(overrides: Partial<RoomReplyRequest> = {}): RoomReplyRequest {
   return {
     scenario,
-    role: 'producer',
+    role: 'operations_director',
     topicTitle: 'Delivery app',
     transcript,
     decision: "Let's push the fifty-dollar platter.",

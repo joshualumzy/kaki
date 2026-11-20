@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { createMeetingModule } from '../../src/host/meeting';
-import { createFakeLlm } from '../../src/llm';
-import type { Hub } from '../../src/hub';
-import type { TaskStore } from '../../src/tasks';
+import { createFakeLlm } from '../../src/services/llm';
+import type { Hub } from '../../src/core/hub';
+import type { TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 
 afterEach(() => vi.useRealTimers());
@@ -29,7 +29,7 @@ it('does not let the live notetaker move the agenda from a model guess', async (
   const stop = createMeetingModule({ llm, notetakerIntervalMs: 5 }).start({ hub, tasks, activeScenario: () => scenario });
   hub.publish({ type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { meetingId: 'meeting-1', startedAt: new Date().toISOString() } });
   hub.publish({ type: 'TRANSCRIPT_CHUNK', audience: { kind: 'screen' }, payload: {
-    speaker: testScenario.attendees[0]!.zoomDisplayName, text: 'Let us discuss the second topic early.', timestamp: new Date().toISOString(),
+    speaker: testScenario.attendees[0]!.displayName, text: 'Let us discuss the second topic early.', timestamp: new Date().toISOString(),
   } });
   await vi.advanceTimersByTimeAsync(30);
   const records = events.filter((event): event is Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }> =>

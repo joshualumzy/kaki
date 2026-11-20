@@ -1,10 +1,10 @@
 import type { KakiEvent } from '@kaki/shared';
-import { CommandError, audienceRole } from '../hub';
-import type { LlmClient } from '../llm';
-import type { KakiContext, KakiModule } from '../modules';
+import { CommandError, audienceRole } from '../core/hub';
+import type { LlmClient } from '../services/llm';
+import type { KakiContext, KakiModule } from '../core/modules';
 import { createAgendaClock, type AgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
-import { hostIsHumanFromSession } from '../runnerState';
+import { hostIsHumanFromSession } from '../meeting/runnerState';
 import { createNotetaker, hasTaskAssignment } from './notetaker';
 import { cleanSpokenTopic, openingLine, spokenAgendaName } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';

@@ -1,5 +1,5 @@
 import { itemMode, type AgendaItem, type MeetingMemoryEntry, type NpcProfile, type Scenario } from '@kaki/shared';
-import { escapeRegExp } from '../text';
+import { escapeRegExp } from '../core/text';
 import type { TopicPromptView } from './topicRecord';
 
 /** One thing an AI attendee says aloud: a sentence, tagged with who says it. */

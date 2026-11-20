@@ -7,17 +7,17 @@ import type { AnswerContext, FinishContext, Line } from './live-playtest';
 const scenario: Scenario = {
   id: 'kopitiam', organisation: 'Nanyang Kopi & Toast', meetingTitle: 'Opening',
   roles: [
-    { id: 'producer', label: 'Operations Director', card: { youAre: 'You are Wei Ling.', facts: [], responsibility: 'Lead opening day.' } },
+    { id: 'operations_director', label: 'Operations Director', card: { youAre: 'You are Wei Ling.', facts: [], responsibility: 'Lead opening day.' } },
     { id: 'marketing_lead', label: 'Marketing Lead' },
   ],
   attendees: [
-    { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' },
-    { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
+    { name: 'Wei Ling', role: 'operations_director', displayName: 'Wei Ling' },
+    { name: 'Daniel', role: 'marketing_lead', displayName: 'Daniel' },
   ],
   agenda: [
-    { title: 'Counter staffing', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'producer', briefing: [{ text: 'One person called in sick.', knownBy: [{ attendee: 'Wei Ling', why: 'you got the text' }] }], decision: 'Who covers?', seatFacts: { producer: 'Rest day means double pay.' } },
-    { title: 'Kopi prices', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'producer', briefing: [{ text: 'Prices changed.', knownBy: [{ attendee: 'Wei Ling', why: 'you saw the new menu' }] }] },
-    { title: 'Food safety complaint', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'producer', sensitive: true, briefing: [{ text: 'A customer was sick.', knownBy: [{ attendee: 'Daniel', why: 'her email came to you' }] }], sayExactly: ['$85'] },
+    { title: 'Counter staffing', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'operations_director', briefing: [{ text: 'One person called in sick.', knownBy: [{ attendee: 'Wei Ling', why: 'you got the text' }] }], decision: 'Who covers?', seatFacts: { operations_director: 'Rest day means double pay.' } },
+    { title: 'Kopi prices', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'operations_director', briefing: [{ text: 'Prices changed.', knownBy: [{ attendee: 'Wei Ling', why: 'you saw the new menu' }] }] },
+    { title: 'Food safety complaint', minutes: 5, canWait: false, deadline: 'before doors open', ownerRole: 'operations_director', sensitive: true, briefing: [{ text: 'A customer was sick.', knownBy: [{ attendee: 'Daniel', why: 'her email came to you' }] }], sayExactly: ['$85'] },
   ],
   npcs: [
     { attendee: 'Wei Ling', voice: 'voice', personality: 'Direct.', agenda: 'Keep the opening sound.', concerns: ['Making a promise the shop cannot keep.'], knows: ['The fridge log shows a three-hour gap.'] },
@@ -27,7 +27,7 @@ const transcript: Line[] = [
   { at: 'a', sourceTime: 'a', agendaIndex: 0, speaker: 'Sam', text: 'Who covers the counter?' },
   { at: 'b', sourceTime: 'b', agendaIndex: 0, speaker: 'Robot Visitor', text: 'Ask Mary, with double pay.' },
 ];
-const answer: AnswerContext = { scenario, role: 'producer', topicTitle: 'Counter staffing', transcript, intent: 'Make a call.' };
+const answer: AnswerContext = { scenario, role: 'operations_director', topicTitle: 'Counter staffing', transcript, intent: 'Make a call.' };
 const finish: FinishContext = { scenario, transcript, playedTopics: [0] };
 const validJudgement = JSON.stringify({
   natural: { score: 4, reason: 'Sounds conversational.' }, dynamic: { score: 3, reason: 'Sam asks a question.' },

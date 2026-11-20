@@ -10,7 +10,7 @@ import { createAuth } from '../../src/auth/module';
 import { hashPassword } from '../../src/auth/password';
 import { createMemoryAuthStore } from '../../src/auth/store';
 import { createMeetingModule } from '../../src/host/meeting';
-import { createMeetingCodeSource } from '../../src/meetingCode';
+import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingPersistence } from '../../src/persist/persistence';
 import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from '../../src/persist/postgres';
 import {

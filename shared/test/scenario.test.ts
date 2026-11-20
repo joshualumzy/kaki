@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRoleIn, parseScenario, roleForZoomName, roleLabel } from '../src/scenario';
+import { isRoleIn, parseScenario, roleForDisplayName, roleLabel } from '../src/scenario';
 import { testScenario } from './fixtures';
 
 function cloneScenario(): Record<string, unknown> {
@@ -143,7 +143,7 @@ describe('parseScenario', () => {
 
   it('rejects an attendee with an unknown role', () => {
     const scenario = cloneScenario();
-    scenario.attendees = [{ name: 'Ada', role: 'waiter', zoomDisplayName: 'Ada' }];
+    scenario.attendees = [{ name: 'Ada', role: 'waiter', displayName: 'Ada' }];
     expect(() => parseScenario(scenario)).toThrow(/not a known role/);
   });
 
@@ -316,7 +316,7 @@ describe('parseScenario', () => {
     ];
     scenario.attendees = [
       ...(scenario.attendees as Array<Record<string, unknown>>),
-      { name: 'Sam', role: 'manager', zoomDisplayName: 'Sam' },
+      { name: 'Sam', role: 'manager', displayName: 'Sam' },
     ];
     scenario.agenda = [{
       title: 'Prep',
@@ -454,7 +454,7 @@ describe('parseScenario', () => {
     const scenario = cloneScenario();
     scenario.id = '';
     scenario.agenda = [{ title: 'Prep', minutes: -5, canWait: false, deadline: 'before service', ownerRole: 'chef' }];
-    scenario.attendees = [{ name: '', role: 'waiter', zoomDisplayName: 'Ada' }];
+    scenario.attendees = [{ name: '', role: 'waiter', displayName: 'Ada' }];
 
     expect(() => parseScenario(scenario)).toThrow(
       /id must be a non-empty string[\s\S]*attendees\[0\]\.name[\s\S]*attendees\[0\]\.role "waiter"[\s\S]*minutes/,
@@ -475,8 +475,8 @@ describe('scenario helpers', () => {
     expect(() => roleLabel(testScenario, 'waiter')).toThrow(/Unknown role/);
   });
 
-  it('maps Zoom display names to roles', () => {
-    expect(roleForZoomName(testScenario, '  ADA (chef) ')).toBe('chef');
-    expect(roleForZoomName(testScenario, 'Nobody')).toBeUndefined();
+  it('maps display names to roles', () => {
+    expect(roleForDisplayName(testScenario, '  ADA (chef) ')).toBe('chef');
+    expect(roleForDisplayName(testScenario, 'Nobody')).toBeUndefined();
   });
 });

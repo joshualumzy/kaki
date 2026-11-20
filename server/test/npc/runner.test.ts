@@ -1,6 +1,6 @@
 import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
 import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
@@ -23,7 +23,7 @@ const prejoined = vi.hoisted(
     }>,
 );
 
-vi.mock('../../src/livekit', () => ({
+vi.mock('../../src/services/livekit', () => ({
   createRoomToken: async (options: { participantName: string }) => {
     tokens.push(options.participantName);
     return 'offline-token';
@@ -113,7 +113,7 @@ describe('startNpcRunner visitor pointer count', () => {
       sentenceGapMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted();
@@ -154,7 +154,7 @@ describe('startNpcRunner topic transition', () => {
     });
     try {
       const listener = rooms[0]!;
-      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
       listener.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted();
@@ -172,8 +172,8 @@ describe('startNpcRunner topic transition', () => {
 
 describe('startNpcRunner visitor transcript identity', () => {
   it.each([
-    ['producer', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],
-    ['producer', STT_TOPIC, { text: 'Recognized visitor line' }, 'Recognized visitor line'],
+    ['operations_director', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],
+    ['operations_director', STT_TOPIC, { text: 'Recognized visitor line' }, 'Recognized visitor line'],
   ])('keeps %s input on %s out of the runner transcript and still sends it to the AI', async (role, topic, message, line) => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
@@ -228,7 +228,7 @@ describe('server-owned start preparation', () => {
       sentenceGapMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       // Hold the cast join that the arriving person triggers, then queue the server's prepare behind it.
       startup.hold = true;
       rooms[0]!.emit('participantConnected', participant);
@@ -267,7 +267,7 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       tokens.length = 0;
@@ -366,7 +366,7 @@ describe('server-owned start preparation', () => {
         attempt: 'attempt-1',
         snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', cast: withoutMei }),
       });
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' });
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
       await vi.waitFor(() => expect(transcript.some((line) => line.includes('what happened'))).toBe(true));
@@ -393,7 +393,7 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       const voices = rooms.slice(1);
@@ -434,7 +434,7 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
 
@@ -472,7 +472,7 @@ describe('server-owned start preparation', () => {
       sentenceGapMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -513,7 +513,7 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -522,7 +522,7 @@ describe('server-owned start preparation', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       // The server's MEETING_RESET arrives after the grace window: no rejoin, a fresh meeting.
       runner.resetMeeting('meeting-2');
-      const second = { identity: 'visitor-2', name: 'Second Visitor', metadata: 'producer' };
+      const second = { identity: 'visitor-2', name: 'Second Visitor', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', second);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-2' });
@@ -547,7 +547,7 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -566,7 +566,7 @@ describe('server-owned start preparation', () => {
         }),
       );
 
-      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', back);
       runner.reconcileMeeting(
         runnerSnapshot(scenario, {
@@ -603,13 +603,13 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       rooms[0]!.emit('participantDisconnected', first);
       await new Promise((resolve) => setTimeout(resolve, 20));
 
-      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', back);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -637,7 +637,7 @@ describe('server-owned start preparation', () => {
       responseDelayMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -645,7 +645,7 @@ describe('server-owned start preparation', () => {
 
       // The person vanished and came back between two roster polls: the server never paused.
       rooms[0]!.emit('participantDisconnected', first);
-      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', back);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
 
@@ -713,7 +713,7 @@ describe('startNpcRunner with no AI cast', () => {
       });
       expect(runner.visitorName()).toBeUndefined();
 
-      const participant = { identity: 'Alice', name: 'Alice', metadata: 'producer' };
+      const participant = { identity: 'Alice', name: 'Alice', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await runner.markStarted({ meetingId: 'meeting-1' });
 
@@ -725,7 +725,7 @@ describe('startNpcRunner with no AI cast', () => {
       expect(postHumanLine.mock.calls[0]![0]).toMatchObject({
         meetingId: 'meeting-1',
         participantIdentity: 'Alice',
-        seat: 'producer',
+        seat: 'operations_director',
         text: 'The queue is out the door.',
       });
     } finally {
@@ -744,7 +744,7 @@ describe('startNpcRunner with no AI cast', () => {
     prejoined.push({
       identity: 'Alice',
       name: 'Alice',
-      metadata: 'producer',
+      metadata: 'operations_director',
       trackPublications: new Map([['mic-1', { subscribed: true, track: { kind: 1, sid: 'mic-1' } }]]),
     });
     const runner = await startNpcRunner({
@@ -826,7 +826,7 @@ describe('startNpcRunner with no AI cast', () => {
     });
     try {
       expect(tokens).toEqual([KAKI_LISTENER_IDENTITY]);
-      rooms[0]!.emit('participantConnected', { identity: 'Alice', name: 'Alice', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'Alice', name: 'Alice', metadata: 'operations_director' });
 
       await runner.prepareMeeting({
         meetingId: 'meeting-1',
@@ -861,7 +861,7 @@ describe('startNpcRunner serialized start', () => {
     });
     try {
       const listener = rooms[0]!;
-      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
       listener.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
 
@@ -903,7 +903,7 @@ describe('startNpcRunner serialized start', () => {
     try {
       const listener = rooms[0]!;
       await runner.markStarted({ agendaIndex: 1, resumed: true });
-      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
       listener.emit('participantConnected', participant);
 
       await vi.waitFor(() => expect(runner.onCurrentAgenda(restoredOrder[1]!.title)).toBe(true));
@@ -937,7 +937,7 @@ describe('boot from a server snapshot', () => {
       responseDelayMs: 0,
     });
     try {
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' });
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       runner.reconcileMeeting(state);
       await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
@@ -965,7 +965,7 @@ describe('reconnect catch-up', () => {
       sentenceGapMs: 0,
     });
     try {
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' });
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
       await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
@@ -1008,7 +1008,7 @@ describe('setup edits before Start', () => {
       responseDelayMs: 0,
     });
     try {
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' });
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
 
       const renamed = pack.agenda[4]!;
@@ -1048,7 +1048,7 @@ describe('an ended meeting on reconnect', () => {
       sentenceGapMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -1090,7 +1090,7 @@ describe('an ended meeting on reconnect', () => {
       sentenceGapMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -1103,7 +1103,7 @@ describe('an ended meeting on reconnect', () => {
         runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
       );
 
-      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', back);
       rooms[0]!.emit(
         'dataReceived',
@@ -1147,7 +1147,7 @@ describe('an ended meeting on reconnect', () => {
       sentenceGapMs: 0,
     });
     try {
-      const host = { identity: 'host-1', name: 'Mia', metadata: 'studio_manager' };
+      const host = { identity: 'host-1', name: 'Mia', metadata: 'general_manager' };
       rooms[0]!.emit('participantConnected', host);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       const before = transcript.length;
@@ -1196,7 +1196,7 @@ describe('an ended meeting on reconnect', () => {
       sentenceGapMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -1222,11 +1222,11 @@ describe('a facilitator moved before Start', () => {
     const draft = defaultMeetingSetup(pack);
     const moved = {
       ...draft,
-      agenda: [{ id: 'agenda-1', title: 'Opening plan', minutes: 5, ownerRoleId: 'producer' }],
+      agenda: [{ id: 'agenda-1', title: 'Opening plan', minutes: 5, ownerRoleId: 'operations_director' }],
       roles: draft.roles.map((role) =>
-        role.id === 'lead_programmer'
+        role.id === 'tech_pos_lead'
           ? { ...role, facilitator: true }
-          : role.id === 'studio_manager'
+          : role.id === 'general_manager'
             ? { ...role, facilitator: false }
             : role,
       ),
@@ -1247,7 +1247,7 @@ describe('a facilitator moved before Start', () => {
       sentenceGapMs: 0,
     });
     try {
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' });
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false });
 
@@ -1262,7 +1262,7 @@ describe('a facilitator moved before Start', () => {
 });
 
 describe('meeting sync with the real runner', () => {
-  const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+  const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
 
   async function openRunner(transcript: string[]) {
     const scenario = await loadScenario('kopitiam');
@@ -1402,7 +1402,7 @@ describe('meeting sync with the real runner', () => {
       sentenceGapMs: 0,
     });
     try {
-      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       // Hold a snapshot first, so the Stop remembers exactly where the runner was.
@@ -1836,7 +1836,7 @@ describe('meeting sync with the real runner', () => {
       responseDelayMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -1855,7 +1855,7 @@ describe('meeting sync with the real runner', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
 
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' });
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(1));
     } finally {
       await runner.stop();
@@ -1876,7 +1876,7 @@ describe('meeting sync with the real runner', () => {
       responseDelayMs: 0,
     });
     try {
-      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', first);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -1898,7 +1898,7 @@ describe('meeting sync with the real runner', () => {
         }),
       );
 
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' });
       await new Promise((resolve) => setTimeout(resolve, 40));
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
     } finally {
@@ -1964,7 +1964,7 @@ describe('per-person speech status', () => {
       responseDelayMs: 0,
     });
     try {
-      const visitor = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const visitor = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', visitor);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -2007,7 +2007,7 @@ describe('per-person speech status', () => {
       responseDelayMs: 0,
     });
     try {
-      const visitor = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      const visitor = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'operations_director' };
       rooms[0]!.emit('participantConnected', visitor);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });

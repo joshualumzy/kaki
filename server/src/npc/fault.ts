@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../llm';
+import type { ChatMessage } from '../services/llm';
 import type { Utterance } from './director';
 
 /** A fault the live demo can be told to show on purpose; see KAKI_FAULT. */

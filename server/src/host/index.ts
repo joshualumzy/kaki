@@ -1,7 +1,7 @@
 import type { Scenario } from '@kaki/shared';
-import { notetakerLlmFromEnv } from '../llm';
-import { scenarioFolder } from '../loadScenario';
-import type { KakiModule } from '../modules';
+import { notetakerLlmFromEnv } from '../services/llm';
+import { scenarioFolder } from '../core/loadScenario';
+import type { KakiModule } from '../core/modules';
 import { createAgendaClock, type MeetingPauseKind } from './clock';
 import { createMeetingModule } from './meeting';
 

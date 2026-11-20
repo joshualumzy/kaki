@@ -3,7 +3,7 @@
  * need the guest at all, and writes the short line if they do. The regex choices below are only the
  * logged backstop for a failed call, never the way a meaning is guessed.
  */
-import { createOpenAiLlm, parseJsonReply, reasoningControlFromEnv, type ChatMessage, type LlmClient } from '../server/src/llm';
+import { createOpenAiLlm, parseJsonReply, reasoningControlFromEnv, type ChatMessage, type LlmClient } from '../server/src/services/llm';
 import type { Scenario } from '@kaki/shared';
 import type { Line } from './live-playtest';
 import { modelFailureKind } from './lib/playtest';

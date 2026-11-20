@@ -8,7 +8,7 @@
  */
 
 import { isObject } from '@kaki/shared';
-import { parseJsonReply, type ChatMessage } from '../llm';
+import { parseJsonReply, type ChatMessage } from '../services/llm';
 
 export type GuestLineKind =
   | 'idea'

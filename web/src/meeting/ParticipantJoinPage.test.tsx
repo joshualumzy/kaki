@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../demo/Meeting', () => ({
+vi.mock('./room/Meeting', () => ({
   default: ({ variant, initialCode }: { variant?: string; initialCode?: string }) => (
     <p>{`${variant ?? 'practice'}:${initialCode ?? ''}`}</p>
   ),

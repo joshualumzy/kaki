@@ -3,8 +3,8 @@ import '../../env';
 import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import { loadEnv } from '../../../../docker/seed/env';
-import type { TaskStore } from '../../tasks';
-import { audienceLabel, roleAudience, type ClientAudience, type Hub } from '../../hub';
+import type { TaskStore } from '../../meeting/tasks';
+import { audienceLabel, roleAudience, type ClientAudience, type Hub } from '../../core/hub';
 import { chatComplete, embedText, gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
 import { createKnowledgeModule } from './module';
 import {
@@ -18,16 +18,16 @@ const scenario: Scenario = {
   organisation: 'Nanyang Kopi & Toast',
   meetingTitle: 'Raffles Place Flagship Opening Day',
   roles: [
-    { id: 'producer', label: 'Operations Director' },
-    { id: 'lead_programmer', label: 'Tech & POS Lead' },
-    { id: 'game_designer', label: 'Menu & Store Experience Lead' },
+    { id: 'operations_director', label: 'Operations Director' },
+    { id: 'tech_pos_lead', label: 'Tech & POS Lead' },
+    { id: 'menu_store_lead', label: 'Menu & Store Experience Lead' },
     { id: 'marketing_lead', label: 'Marketing Lead' },
   ],
   attendees: [
-    { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' },
-    { name: 'Arjun', role: 'lead_programmer', zoomDisplayName: 'Arjun' },
-    { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
-    { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
+    { name: 'Wei Ling', role: 'operations_director', displayName: 'Wei Ling' },
+    { name: 'Arjun', role: 'tech_pos_lead', displayName: 'Arjun' },
+    { name: 'Mei', role: 'menu_store_lead', displayName: 'Mei' },
+    { name: 'Daniel', role: 'marketing_lead', displayName: 'Daniel' },
   ],
   agenda: [
     {
@@ -35,7 +35,7 @@ const scenario: Scenario = {
       minutes: 5,
       canWait: false,
       deadline: 'before doors open at 8',
-      ownerRole: 'game_designer',
+      ownerRole: 'menu_store_lead',
     },
   ],
 };
@@ -123,9 +123,9 @@ async function waitFor(check: () => boolean, label: string, timeoutMs = 4_000): 
 async function checkAudience(): Promise<void> {
   const fake = inMemoryHub([
     { kind: 'screen' },
-    roleAudience('producer'),
-    roleAudience('lead_programmer'),
-    roleAudience('game_designer'),
+    roleAudience('operations_director'),
+    roleAudience('tech_pos_lead'),
+    roleAudience('menu_store_lead'),
     roleAudience('marketing_lead'),
   ]);
   const module = createKnowledgeModule({
@@ -142,7 +142,7 @@ async function checkAudience(): Promise<void> {
       payload: {
         agendaIndex: 1,
         openQuestions: [
-          { id: 'q-quit', text: 'Where do players quit?', forRole: 'game_designer', agendaIndex: 1 },
+          { id: 'q-quit', text: 'Where do players quit?', forRole: 'menu_store_lead', agendaIndex: 1 },
         ],
         elapsedSeconds: 10,
         speakerTalkSeconds: {},
@@ -153,14 +153,14 @@ async function checkAudience(): Promise<void> {
         (event): event is Extract<KakiEvent, { type: 'FACT_FOUND' }> =>
           event.type === 'FACT_FOUND' && event.payload.questionId === 'q-quit',
       );
-    await waitFor(() => questionCards(roleAudience('game_designer')).length > 0, 'the game designer card');
-    assert(questionCards(roleAudience('producer')).length === 0, 'the producer received the question card');
-    assert(questionCards(roleAudience('lead_programmer')).length === 0, 'the lead programmer received the question card');
+    await waitFor(() => questionCards(roleAudience('menu_store_lead')).length > 0, 'the menu and store experience lead card');
+    assert(questionCards(roleAudience('operations_director')).length === 0, 'the operations_director received the question card');
+    assert(questionCards(roleAudience('tech_pos_lead')).length === 0, 'the tech and POS lead received the question card');
     assert(questionCards(roleAudience('marketing_lead')).length === 0, 'the marketing lead received the question card');
-    const card = questionCards(roleAudience('game_designer'))[0];
-    assert(card !== undefined, 'the game designer did not receive the question card');
-    assert(card.audience.kind === 'role' && card.audience.role === 'game_designer', 'the card audience is wrong');
-    console.log('PASS hub check: the question FACT_FOUND went only to game_designer');
+    const card = questionCards(roleAudience('menu_store_lead'))[0];
+    assert(card !== undefined, 'the menu and store experience lead did not receive the question card');
+    assert(card.audience.kind === 'role' && card.audience.role === 'menu_store_lead', 'the card audience is wrong');
+    console.log('PASS hub check: the question FACT_FOUND went only to menu_store_lead');
   } finally {
     if (typeof stop === 'function') stop();
   }
@@ -182,7 +182,7 @@ async function main(): Promise<void> {
       check: (facts: Fact[]) => void;
     }> = [
       {
-        role: 'game_designer',
+        role: 'menu_store_lead',
         text: 'What do the records say about the old regulars and the new kopi prices?',
         expectedRef: /regulars_pricing\/|kopi-pricing|kopi-prices/,
         check: (facts) => {
@@ -192,13 +192,13 @@ async function main(): Promise<void> {
         },
       },
       {
-        role: 'producer',
+        role: 'operations_director',
         text: 'What is the delivery commission margin and the food-safety goodwill limit?',
         expectedRef: /delivery_commission_tiers\/|food_safety_incident\/|delivery-pricing/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/32%|0\.50|2,?400/i.test(text), `producer facts do not mention the delivery commission: ${text}`);
-          assert(/3,?000|goodwill/i.test(text), `producer facts do not mention the goodwill limit: ${text}`);
+          assert(/32%|0\.50|2,?400/i.test(text), `operations_director facts do not mention the delivery commission: ${text}`);
+          assert(/3,?000|goodwill/i.test(text), `operations_director facts do not mention the goodwill limit: ${text}`);
         },
       },
     ];

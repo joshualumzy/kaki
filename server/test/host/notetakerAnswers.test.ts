@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
+import type { Hub } from '../../src/core/hub';
 import {
   answerMatchesQuestion,
   createNotetaker,
@@ -11,9 +11,9 @@ import {
   type ResolvedTaskCandidate,
   type VerifierResult,
 } from '../../src/host/notetaker';
-import { createFakeLlm } from '../../src/llm';
-import { loadScenario } from '../../src/loadScenario';
-import { createTaskStore } from '../../src/tasks';
+import { createFakeLlm } from '../../src/services/llm';
+import { loadScenario } from '../../src/core/loadScenario';
+import { createTaskStore } from '../../src/meeting/tasks';
 
 const quietHub: Hub = {
   publish: (_event: KakiEvent) => {},

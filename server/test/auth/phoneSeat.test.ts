@@ -5,8 +5,8 @@ import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { hashPassword } from '../../src/auth/password';
-import { loadScenario } from '../../src/loadScenario';
-import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meetingCode';
+import { loadScenario } from '../../src/core/loadScenario';
+import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meeting/meetingCode';
 import { testScenario } from '../fixtures/scenario';
 import { createTestApp, portOf, settle, waitFor } from '../helpers';
 
@@ -57,7 +57,7 @@ function connect(
 const aiScenario: Scenario = {
   ...testScenario,
   roles: [...testScenario.roles, { id: 'manager', label: 'Manager' }],
-  attendees: [...testScenario.attendees, { name: 'Cy', role: 'manager', zoomDisplayName: 'Cy' }],
+  attendees: [...testScenario.attendees, { name: 'Cy', role: 'manager', displayName: 'Cy' }],
   npcs: [
     {
       attendee: 'Cy',
@@ -271,7 +271,7 @@ describe('phone and screen seat authority', () => {
     const setup: MeetingSetup = defaultMeetingSetup(pack);
     setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
     setup.seats = [
-      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
       { displayName: 'Runner One', roleId: 'runner', kind: 'person' },
     ];
     expect((await put('/api/setup', setup, host)).status).toBe(200);
@@ -297,11 +297,11 @@ describe('phone and screen seat authority', () => {
     expect((await put('/api/setup', setup, host)).status).toBe(200);
     expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
 
-    const refused = await post('/api/join', { code: FIXED_CODE, role: 'producer' });
+    const refused = await post('/api/join', { code: FIXED_CODE, role: 'operations_director' });
     expect([403, 409]).toContain(refused.status);
     expect(((await refused.json()) as { error: string }).error).toMatch(/human seat|no place/);
 
-    const allowed = await post('/api/join', { code: FIXED_CODE, role: 'lead_programmer' });
+    const allowed = await post('/api/join', { code: FIXED_CODE, role: 'tech_pos_lead' });
     expect(allowed.status).toBe(200);
   });
 

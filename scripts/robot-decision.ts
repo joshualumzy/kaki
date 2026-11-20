@@ -3,7 +3,7 @@
  * what the room has said so far, and writes the call in the guest's own words. The title-specific
  * lines below are only the logged backstop for a failed call, never the decision itself.
  */
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/services/llm';
 import type { Scenario } from '@kaki/shared';
 import type { Line } from './live-playtest';
 import { modelFailureKind } from './lib/playtest';

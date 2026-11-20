@@ -1,5 +1,5 @@
 import { isObject } from '@kaki/shared';
-import { parseJsonReply } from '../llm';
+import { parseJsonReply } from '../services/llm';
 
 /** Parse the one JSON object an LLM draft reply should hold, or undefined when it is unusable. */
 export function parseDraftObject(reply: string): Record<string, unknown> | undefined {

@@ -5,7 +5,7 @@ import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword, hashToken, verifyPassword } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meetingCode';
+import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { testScenario } from '../fixtures/scenario';
 import { createTestApp, portOf, waitFor } from '../helpers';
 
@@ -346,7 +346,7 @@ describe('auth', () => {
     const scenario = {
       ...testScenario,
       roles: [...testScenario.roles, { id: 'manager', label: 'Manager' }],
-      attendees: [...testScenario.attendees, { name: 'Cy', role: 'manager', zoomDisplayName: 'Cy' }],
+      attendees: [...testScenario.attendees, { name: 'Cy', role: 'manager', displayName: 'Cy' }],
       npcs: [
         { attendee: 'Cy', voice: 'test-voice', personality: 'Quiet.', agenda: 'Keep the kitchen running.', concerns: [] },
       ],

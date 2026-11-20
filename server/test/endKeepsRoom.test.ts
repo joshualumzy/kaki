@@ -3,14 +3,14 @@ import WebSocket from 'ws';
 import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../src/app';
 import { createMeetingModule } from '../src/host/meeting';
-import { createFakeLlm } from '../src/llm';
+import { createFakeLlm } from '../src/services/llm';
 import { portOf, waitFor } from './helpers';
 import { testScenario } from './fixtures/scenario';
 
 const removals = vi.hoisted(() => [] as string[]);
 
-vi.mock('../src/livekit', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/livekit')>()),
+vi.mock('../src/services/livekit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/livekit')>()),
   removeRoomHumans: async (roomName: string) => {
     removals.push(roomName);
   },

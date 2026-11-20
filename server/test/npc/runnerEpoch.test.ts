@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RunnerMeetingSnapshot } from '@kaki/shared';
 import { createMeetingSync, type MeetingSyncRunner } from '../../src/npc/meetingSync';
 import { createRunnerMeeting } from '../../src/npc/runnerMeeting';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
 const epochA = { epoch: { startedAt: 1_000, id: 'server-a' }, seq: 5 };

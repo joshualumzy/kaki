@@ -8,10 +8,10 @@ import '../env';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { KakiEvent, Role, Task } from '@kaki/shared';
-import type { Hub } from '../hub';
-import { notetakerLlmFromEnv } from '../llm';
-import { loadScenario, scenarioDir, scenarioFolder } from '../loadScenario';
-import { createTaskStore } from '../tasks';
+import type { Hub } from '../core/hub';
+import { notetakerLlmFromEnv } from '../services/llm';
+import { loadScenario, scenarioDir, scenarioFolder } from '../core/loadScenario';
+import { createTaskStore } from '../meeting/tasks';
 import { createNotetaker } from './notetaker';
 import { loadReplay } from './replay';
 

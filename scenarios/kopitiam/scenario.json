@@ -10,7 +10,7 @@
   "speechRegister": "Use warm, casual Singapore or British phrasing (\"shop\", \"queue\", \"counter\", \"steady\", \"can\", \"fair point\"). Avoid Americanisms and office buzzwords: \"awesome\", \"super excited\", \"totally\", \"gotten\", \"touch base\", \"kudos\", \"math\", \"store clerk\", \"line up\", \"friction points\", \"bandwidth\", \"alignment\", \"deep dive\". Each colleague sounds like their own speech style, temperament and stake.",
   "roles": [
     {
-      "id": "producer",
+      "id": "operations_director",
       "label": "Operations Director",
       "stance": "Guards staff, hygiene & margins",
       "card": {
@@ -20,7 +20,7 @@
       }
     },
     {
-      "id": "lead_programmer",
+      "id": "tech_pos_lead",
       "label": "Tech & POS Lead",
       "stance": "Keeps POS & kiosks simple",
       "card": {
@@ -30,7 +30,7 @@
       }
     },
     {
-      "id": "game_designer",
+      "id": "menu_store_lead",
       "label": "Menu & Store Experience Lead",
       "stance": "Protects Kopi & Toast craft",
       "card": {
@@ -50,7 +50,7 @@
       }
     },
     {
-      "id": "studio_manager",
+      "id": "general_manager",
       "label": "General Manager",
       "facilitator": true,
       "stance": "Chairs the meeting",
@@ -64,32 +64,32 @@
   "attendees": [
     {
       "name": "Wei Ling",
-      "role": "producer",
-      "zoomDisplayName": "Wei Ling",
+      "role": "operations_director",
+      "displayName": "Wei Ling",
       "spokenJob": "who looks after the floor team and the money"
     },
     {
       "name": "Arjun",
-      "role": "lead_programmer",
-      "zoomDisplayName": "Arjun",
+      "role": "tech_pos_lead",
+      "displayName": "Arjun",
       "spokenJob": "on tills and tech"
     },
     {
       "name": "Mei",
-      "role": "game_designer",
-      "zoomDisplayName": "Mei",
+      "role": "menu_store_lead",
+      "displayName": "Mei",
       "spokenJob": "on the menu and the store"
     },
     {
       "name": "Daniel",
       "role": "marketing_lead",
-      "zoomDisplayName": "Daniel",
+      "displayName": "Daniel",
       "spokenJob": "on marketing"
     },
     {
       "name": "Sam",
-      "role": "studio_manager",
-      "zoomDisplayName": "Sam"
+      "role": "general_manager",
+      "displayName": "Sam"
     }
   ],
   "agenda": [
@@ -99,7 +99,7 @@
       "minutes": 5,
       "canWait": false,
       "deadline": "before doors open at 8",
-      "ownerRole": "producer",
+      "ownerRole": "operations_director",
       "contested": true,
       "briefing": [
         {
@@ -146,9 +146,9 @@
         "howTheyAnswer": "Auntie Mary answers once, in character. She may agree, refuse, or agree with a condition such as starting at 9. A warm, fair ask is more likely to get a yes; decide her answer from how the guest asks."
       },
       "seatFacts": {
-        "producer": "I signed off on today's roster. Auntie Mary is on her rest day, so calling her in means double pay, and she's free to say no.",
-        "lead_programmer": "Setting up a till login for someone new takes me about 15 minutes before opening.",
-        "game_designer": "Toast sets are what slow the counter down; drinks ordered on the kiosk barely touch the counter.",
+        "operations_director": "I signed off on today's roster. Auntie Mary is on her rest day, so calling her in means double pay, and she's free to say no.",
+        "tech_pos_lead": "Setting up a till login for someone new takes me about 15 minutes before opening.",
+        "menu_store_lead": "Toast sets are what slow the counter down; drinks ordered on the kiosk barely touch the counter.",
         "marketing_lead": "Our free-kopi flyers went to every office in the building, about 200 of them."
       },
       "links": [
@@ -175,28 +175,28 @@
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
-            "role": "producer",
+            "role": "operations_director",
             "idea": "Call Auntie Mary in",
             "tradeOff": "It's her rest day though. Double pay, and she's allowed to say no.",
             "question": "Who is actually going to stand on that counter with them from 8?"
           },
           {
             "attendee": "Arjun",
-            "role": "lead_programmer",
+            "role": "tech_pos_lead",
             "idea": "Agency temp",
             "tradeOff": "A temp needs a till login, that's fifteen minutes of mine. And they won't know the menu.",
             "question": "What do you want me to set up for a temp before eight?"
           },
           {
             "attendee": "Wei Ling",
-            "role": "producer",
+            "role": "operations_director",
             "idea": "A manager covers the counter",
             "tradeOff": "Then whoever it is drops their own job this morning.",
             "question": "Which job do we drop if a manager takes the counter?"
           },
           {
             "attendee": "Mei",
-            "role": "game_designer",
+            "role": "menu_store_lead",
             "idea": "Cut to drinks and toast",
             "tradeOff": "Then there are no breakfast sets on opening day.",
             "question": "What do we tell people who came for a breakfast set?"
@@ -218,7 +218,7 @@
       "minutes": 5,
       "canWait": false,
       "deadline": "before doors open at 8",
-      "ownerRole": "game_designer",
+      "ownerRole": "menu_store_lead",
       "contested": true,
       "briefing": [
         {
@@ -265,9 +265,9 @@
         "howTheyAnswer": "Uncle Lim answers once, in character. He may offer to vouch for the regulars, or say he will not be the one turning people away. Decide his answer from how the guest asks."
       },
       "seatFacts": {
-        "producer": "Kopi costs us about $1.60 a cup to serve here. Going back to the old $1.30 loses money on every cup.",
-        "lead_programmer": "I can add a regulars' price button on the till in about 10 minutes, but we need a clear rule on who gets it.",
-        "game_designer": "Kopi was $1.30 at the old shop and it's $2.40 on the new menu, right under the photos of the old regulars on our wall.",
+        "operations_director": "Kopi costs us about $1.60 a cup to serve here. Going back to the old $1.30 loses money on every cup.",
+        "tech_pos_lead": "I can add a regulars' price button on the till in about 10 minutes, but we need a clear rule on who gets it.",
+        "menu_store_lead": "Kopi was $1.30 at the old shop and it's $2.40 on the new menu, right under the photos of the old regulars on our wall.",
         "marketing_lead": "The nephew's Facebook post has been shared a few hundred times since last night. The food blogger reads those local groups."
       },
       "links": [
@@ -298,28 +298,28 @@
         "tradeOffs": [
           {
             "attendee": "Wei Ling",
-            "role": "producer",
+            "role": "operations_director",
             "idea": "Old price / old-price hour",
             "tradeOff": "A cup costs us about $1.60 to make here. At $1.30, we lose money on every one.",
             "question": "How do we do right by the uncles without selling kopi at a loss?"
           },
           {
             "attendee": "Arjun",
-            "role": "lead_programmer",
+            "role": "tech_pos_lead",
             "idea": "Regulars' price on the till",
             "tradeOff": "I can add the button in ten minutes. But who decides who's a regular? The cashier?",
             "question": "How do we decide who gets the regulars' price at the till?"
           },
           {
             "attendee": "Mei",
-            "role": "game_designer",
+            "role": "menu_store_lead",
             "idea": "Seniors' discount",
             "tradeOff": "Not all our regulars are seniors. And half the office workers' parents would qualify.",
             "question": "How do we look after the old regulars who aren't seniors?"
           },
           {
             "attendee": "Mei",
-            "role": "game_designer",
+            "role": "menu_store_lead",
             "idea": "Keep the price and explain",
             "tradeOff": "We put the uncles' photos on the wall, then priced them out. A note at the counter won't fix that.",
             "question": "How do we look after the old regulars without gutting the new menu?"
@@ -334,7 +334,7 @@
       "minutes": 5,
       "canWait": false,
       "deadline": "before doors open at 8",
-      "ownerRole": "lead_programmer",
+      "ownerRole": "tech_pos_lead",
       "contested": true,
       "briefing": [
         {
@@ -375,9 +375,9 @@
         "Many laptop users work in the offices upstairs."
       ],
       "seatFacts": {
-        "producer": "Losing those tables cost us about $420 in breakfast sales yesterday, and our floor crew shouldn't be getting yelled at over seats.",
-        "lead_programmer": "The booth sockets are all on one timer switch, and I can set the Wi-Fi to print a 45-minute code on each receipt in about 10 minutes.",
-        "game_designer": "Most morning customers come in alone with a hot tray, and we have ten window-bar stools in the storeroom we can put out.",
+        "operations_director": "Losing those tables cost us about $420 in breakfast sales yesterday, and our floor crew shouldn't be getting yelled at over seats.",
+        "tech_pos_lead": "The booth sockets are all on one timer switch, and I can set the Wi-Fi to print a 45-minute code on each receipt in about 10 minutes.",
+        "menu_store_lead": "Most morning customers come in alone with a hot tray, and we have ten window-bar stools in the storeroom we can put out.",
         "marketing_lead": "Over half the laptop crowd wore lanyards from the offices upstairs, and a couple of those offices have asked about bulk orders."
       },
       "links": [
@@ -407,28 +407,28 @@
         "tradeOffs": [
           {
             "attendee": "Arjun",
-            "role": "lead_programmer",
+            "role": "tech_pos_lead",
             "idea": "Cut plugs or Wi-Fi",
             "tradeOff": "I can, the plugs are on one timer. But it's ten minutes, and I can't test it before 8.",
             "question": "What do you want me to change before eight, if anything?"
           },
           {
             "attendee": "Mei",
-            "role": "game_designer",
+            "role": "menu_store_lead",
             "idea": "Laptop zone at window bar",
             "tradeOff": "The window bar's only got ten stools. That won't hold half the shop.",
             "question": "What do we do when the window bar fills up?"
           },
           {
             "attendee": "Wei Ling",
-            "role": "producer",
+            "role": "operations_director",
             "idea": "Minimum spend",
             "tradeOff": "Then my floor staff are checking receipts. That's exactly the fight we had yesterday.",
             "question": "How do we enforce a minimum spend without a fight at the counter?"
           },
           {
             "attendee": "Wei Ling",
-            "role": "producer",
+            "role": "operations_director",
             "idea": "Deal for offices upstairs",
             "tradeOff": "A deal doesn't free up a seat by 8.",
             "question": "How does a deal upstairs free a seat down here by eight?"
@@ -451,7 +451,7 @@
       "minutes": 5,
       "canWait": false,
       "deadline": "before doors open at 8",
-      "ownerRole": "producer",
+      "ownerRole": "operations_director",
       "contested": true,
       "briefing": [
         {
@@ -499,9 +499,9 @@
         "The customer ate Set A at yesterday's trial, before the fridge was unplugged overnight, so the fridge is probably not the cause."
       ],
       "seatFacts": {
-        "producer": "I signed the hygiene sign-off for HQ. The chef signed the disposal log, and the fridge log shows the three-hour gap last night. The officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
-        "lead_programmer": "The fridge has no alarm. I was asked for a POS temperature alert last month; it takes about ten minutes. I can also remove Set A from the till and kiosk.",
-        "game_designer": "I designed Set A. It's our biggest breakfast seller, and it needs eggs and kaya. We have no fresh stock until the 10 o'clock delivery.",
+        "operations_director": "I signed the hygiene sign-off for HQ. The chef signed the disposal log, and the fridge log shows the three-hour gap last night. The officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
+        "tech_pos_lead": "The fridge has no alarm. I was asked for a POS temperature alert last month; it takes about ten minutes. I can also remove Set A from the till and kiosk.",
+        "menu_store_lead": "I designed Set A. It's our biggest breakfast seller, and it needs eggs and kaya. We have no fresh stock until the 10 o'clock delivery.",
         "marketing_lead": "Her email is polite, but she says she'll post a review tonight. The food blogger is booked for later this morning."
       },
       "links": [
@@ -531,7 +531,7 @@
         "tradeOffs": [
           {
             "attendee": "Arjun",
-            "role": "lead_programmer",
+            "role": "tech_pos_lead",
             "idea": "Open at 8 without Set A",
             "tradeOff": "Then I've got to pull Set A off the kiosk and the till. That's time I'm not testing anything else.",
             "question": "What do you want me to pull before opening?"
@@ -552,7 +552,7 @@
           },
           {
             "attendee": "Arjun",
-            "role": "lead_programmer",
+            "role": "tech_pos_lead",
             "idea": "Socket cover + fridge alarm",
             "tradeOff": "The alarm's ten minutes. Fine, but that's ten minutes less for everything else.",
             "question": "What do you want me to fix before the inspector arrives?"
@@ -612,9 +612,9 @@
         "Direct pickup with 10% off takes $9.00 in, costs $7.00 with no delivery packaging, and makes $2 profit."
       ],
       "seatFacts": {
-        "producer": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, and on a full morning that adds up to about $120. A five-set platter at $50 shares packaging and makes $5.",
-        "lead_programmer": "GrabFood hides shops that charge more on the app than at the counter, and any app menu change takes me about 15 minutes to push live before 8.",
-        "game_designer": "Each five-set platter needs one of our large trays, and we only have 30 of those trays in the shop.",
+        "operations_director": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, and on a full morning that adds up to about $120. A five-set platter at $50 shares packaging and makes $5.",
+        "tech_pos_lead": "GrabFood hides shops that charge more on the app than at the counter, and any app menu change takes me about 15 minutes to push live before 8.",
+        "menu_store_lead": "Each five-set platter needs one of our large trays, and we only have 30 of those trays in the shop.",
         "marketing_lead": "A dozen office managers have asked me for a direct order code, and most office orders are for several sets. We keep the GrabFood launch banner only while the full menu is live."
       },
       "links": [
@@ -645,21 +645,21 @@
         "tradeOffs": [
           {
             "attendee": "Arjun",
-            "role": "lead_programmer",
+            "role": "tech_pos_lead",
             "idea": "Raise app price",
             "tradeOff": "GrabFood hides shops that charge more on the app than at the counter. We'd just disappear.",
             "question": "What happens to our listing if we raise the app price?"
           },
           {
             "attendee": "Mei",
-            "role": "game_designer",
+            "role": "menu_store_lead",
             "idea": "Office platters",
             "tradeOff": "Each platter needs a big tray, and we've only got 30.",
             "question": "How many platters can we actually make this morning?"
           },
           {
             "attendee": "Wei Ling",
-            "role": "producer",
+            "role": "operations_director",
             "idea": "Direct order code",
             "tradeOff": "Someone has to come down to pick it up. At 8 in the morning, will they?",
             "question": "How do we make a direct pickup code work at 8 in the morning?"
@@ -742,10 +742,10 @@
       ],
       "knows": [],
       "withRoles": {
-        "producer": "Your boss on operations. Explain system constraints and time clearly.",
-        "game_designer": "Respect her care for customers and say what a change asks of the till or kiosk.",
+        "operations_director": "Your boss on operations. Explain system constraints and time clearly.",
+        "menu_store_lead": "Respect her care for customers and say what a change asks of the till or kiosk.",
         "marketing_lead": "Hear his case for the offices and explain what the systems can support.",
-        "studio_manager": "The host keeping time. Flag technical catches briefly."
+        "general_manager": "The host keeping time. Flag technical catches briefly."
       },
       "tensions": [
         {
@@ -786,10 +786,10 @@
       ],
       "knows": [],
       "withRoles": {
-        "producer": "Your operations partner. Speak for customers and the shop's character.",
-        "lead_programmer": "Ask how system changes will feel to customers.",
+        "operations_director": "Your operations partner. Speak for customers and the shop's character.",
+        "tech_pos_lead": "Ask how system changes will feel to customers.",
         "marketing_lead": "Keep customer experience in the picture.",
-        "studio_manager": "The host. Share customer and menu concerns plainly."
+        "general_manager": "The host. Share customer and menu concerns plainly."
       },
       "tensions": [
         {
@@ -827,11 +827,11 @@
       ],
       "knows": [],
       "withRoles": {
-        "producer": "The floor and the money are yours. Ask for a costed plan, then decide cleanly.",
-        "lead_programmer": "Rely on him for systems and ask what a change needs.",
-        "game_designer": "Back her on customers and heritage when the cost works.",
+        "operations_director": "The floor and the money are yours. Ask for a costed plan, then decide cleanly.",
+        "tech_pos_lead": "Rely on him for systems and ask what a change needs.",
+        "menu_store_lead": "Back her on customers and heritage when the cost works.",
         "marketing_lead": "Hold him to promises the shop can keep.",
-        "studio_manager": "Back the host by keeping every call practical and owned."
+        "general_manager": "Back the host by keeping every call practical and owned."
       },
       "tensions": [
         {
@@ -866,10 +866,10 @@
       ],
       "knows": [],
       "withRoles": {
-        "producer": "Your budget and ops boss. Make the customer case, then listen to the cost.",
-        "lead_programmer": "Work with him on what the shop systems can support.",
-        "game_designer": "Work with her on the shop's warmth and customers.",
-        "studio_manager": "The host. Protect the shop's public reputation without overpromising."
+        "operations_director": "Your budget and ops boss. Make the customer case, then listen to the cost.",
+        "tech_pos_lead": "Work with him on what the shop systems can support.",
+        "menu_store_lead": "Work with her on the shop's warmth and customers.",
+        "general_manager": "The host. Protect the shop's public reputation without overpromising."
       },
       "tensions": [
         {
@@ -901,9 +901,9 @@
       "concerns": [],
       "knows": [],
       "withRoles": {
-        "producer": "Ask for the cost and the owner behind each call.",
-        "lead_programmer": "Keep him on what can be done before 8.",
-        "game_designer": "Help her balance customers, the menu and time.",
+        "operations_director": "Ask for the cost and the owner behind each call.",
+        "tech_pos_lead": "Keep him on what can be done before 8.",
+        "menu_store_lead": "Help her balance customers, the menu and time.",
         "marketing_lead": "Pin him down on what the shop can actually deliver."
       }
     }

@@ -1,6 +1,6 @@
 import { DEFAULT_MEETING_PACE, type KakiEvent, type MeetingPace, type Role, type SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
-import type { KakiContext, KakiModule } from '../../modules';
+import type { KakiContext, KakiModule } from '../../core/modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from '../knowledge/gateway';
 import { createCompanySearchFromEnv } from '../knowledge/search';
 

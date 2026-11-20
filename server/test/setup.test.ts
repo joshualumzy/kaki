@@ -4,7 +4,7 @@ import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createTestApp, portOf } from './helpers';
 
 interface SetupResponse {
@@ -146,8 +146,8 @@ describe('scenario shown for a touched draft', () => {
       { id: 'cashier', label: 'Cashier' },
     ],
     attendees: [
-      { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
-      { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
+      { name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' },
+      { name: 'Bao', role: 'cashier', displayName: 'Bao (Cashier)' },
     ],
     agenda: [
       {

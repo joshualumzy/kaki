@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { isObject } from '@kaki/shared';
+import { errorMessage, isObject } from '@kaki/shared';
 import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-import type { ChatMessage, LlmClient } from '../llm';
-import type { KakiModule } from '../modules';
+import type { ChatMessage, LlmClient } from '../services/llm';
+import type { KakiModule } from '../core/modules';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -181,7 +181,7 @@ async function probeSendingSide(
     }
     return probeFailed(
       'unreachable',
-      `${SENDING_SIDE} could not be reached. Check that its SMTP host and port are correct, then press Retry. (${messageOf(error)})`,
+      `${SENDING_SIDE} could not be reached. Check that its SMTP host and port are correct, then press Retry. (${errorMessage(error)})`,
     );
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -290,7 +290,7 @@ export function createEmailModule({
       try {
         reply = await llm.complete(messages, { json: true, signal });
       } catch (error) {
-        throw new ActionError(`Could not draft the email: ${messageOf(error)}`);
+        throw new ActionError(`Could not draft the email: ${errorMessage(error)}`);
       }
 
       const draft = parseDraft(reply);

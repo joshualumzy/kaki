@@ -5,9 +5,9 @@ import {
   type MattermostModuleOptions,
   type MattermostSettings,
 } from '../../src/action/mattermost';
-import type { Hub } from '../../src/hub';
-import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import { createFakeLlm, LlmError, type LlmClient } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { settle, waitFor } from '../helpers';
 
@@ -244,7 +244,7 @@ describe('mattermost action module', () => {
       roles: testScenario.roles.map((role) => role.id === 'chef'
         ? { ...role, label: 'Kitchen Lead', card: { youAre: 'The kitchen lead.', facts: [], responsibility: 'Run prep.' } }
         : role),
-      attendees: [{ name: 'Ada', role: 'chef' as const, zoomDisplayName: 'Ada' }],
+      attendees: [{ name: 'Ada', role: 'chef' as const, displayName: 'Ada' }],
     };
     const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl }, ownerScenario);
     const task = visitorTask(tasks, 'Mei');

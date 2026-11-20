@@ -11,9 +11,9 @@ import {
 } from '@livekit/rtc-node';
 import { NPC_STATE_TOPIC, STT_TOPIC, demoRoomName, type NpcStateMessage } from '@kaki/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ChatMessage } from '../../src/llm';
-import { createRoomToken } from '../../src/livekit';
-import { loadScenario } from '../../src/loadScenario';
+import type { ChatMessage } from '../../src/services/llm';
+import { createRoomToken } from '../../src/services/livekit';
+import { loadScenario } from '../../src/core/loadScenario';
 import { SAMPLE_RATE, startNpcRunner, type NpcRunner } from '../../src/npc/runner';
 
 /**
@@ -138,7 +138,7 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     const token = await createRoomToken({
       roomName: demoRoomName(scenario, 'e2e-meeting'),
       participantName: 'Josh',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
     });
     human = new Room();
     await human.connect(livekitUrl, token);

@@ -3,7 +3,7 @@ import type { MeetingMemoryEntry, MeetingSetup } from '@kaki/shared';
 import { createMeetingPersistence } from '../../src/persist/persistence';
 import { MEETING_STATE_SCHEMA_VERSION } from '../../src/persist/state';
 import type { MeetingSnapshot, MeetingStateStore, SavedMeetingState, StoredMeeting } from '../../src/persist/state';
-import { createMeetingSession } from '../../src/session';
+import { createMeetingSession } from '../../src/meeting/session';
 import { testScenario } from '../fixtures/scenario';
 
 const setup: MeetingSetup = {

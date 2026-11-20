@@ -5,10 +5,10 @@ import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
-import { loadScenario } from '../src/loadScenario';
+import { loadScenario } from '../src/core/loadScenario';
 import { createMeetingModule } from '../src/host/meeting';
-import type { KakiModule } from '../src/modules';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import type { KakiModule } from '../src/core/modules';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { portOf, waitFor } from './helpers';
 
 const CODE = 'K7M2Q9';
@@ -89,7 +89,7 @@ function tokenRoom(token: string): string {
   return payload.video.room;
 }
 
-function practiceJoin(port: number, name: string, role = 'producer'): Promise<Response> {
+function practiceJoin(port: number, name: string, role = 'operations_director'): Promise<Response> {
   return request(port, '/api/livekit/token', 'POST', {
     participantName: name,
     participantRole: role,
@@ -195,7 +195,7 @@ describe('meeting kind in auth mode', () => {
     expect(app.session.kind()).toBe('practice');
 
     // The practice meeting takes one person.
-    const second = await practiceJoin(port, 'Ben', 'game_designer');
+    const second = await practiceJoin(port, 'Ben', 'menu_store_lead');
     expect(second.status).toBe(409);
     expect(((await second.json()) as { error: string }).error).toMatch(/full/);
 
@@ -241,13 +241,13 @@ describe('meeting kind in auth mode', () => {
     // A participant needs the meeting code.
     const noCode = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Cara',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
     });
     expect(noCode.status).toBe(403);
     expect(await noCode.json()).toMatchObject({ needsCode: true });
     const withCode = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Cara',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
       meetingCode: CODE,
     });
     expect(withCode.status).toBe(200);
@@ -296,7 +296,7 @@ describe('meeting kind in open mode', () => {
     // A real participant still joins the open meeting exactly as before (first arrival, no code).
     const realJoin = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Alice',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
       kind: 'real',
     });
     expect(realJoin.status).toBe(200);
@@ -308,7 +308,7 @@ describe('meeting kind in open mode', () => {
 
     const refused = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Alice',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
     });
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as { error: string }).error).toBe(
@@ -318,7 +318,7 @@ describe('meeting kind in open mode', () => {
     expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
     const legacy = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Alice',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
     });
     expect(legacy.status).toBe(200);
     expect(((await legacy.json()) as { started: boolean }).started).toBe(false);
@@ -338,7 +338,7 @@ describe('meeting kind in open mode', () => {
       port,
       '/api/livekit/token',
       'POST',
-      { participantName: 'Owner', participantRole: 'producer' },
+      { participantName: 'Owner', participantRole: 'operations_director' },
       host,
     );
     expect(joined.status).toBe(200);
@@ -380,7 +380,7 @@ describe('meeting kind in open mode', () => {
       port,
       '/api/livekit/token',
       'POST',
-      { participantName: 'Owner', participantRole: 'producer' },
+      { participantName: 'Owner', participantRole: 'operations_director' },
       host,
     );
     expect(joined.status).toBe(200);
@@ -392,12 +392,12 @@ describe('meeting kind in open mode', () => {
       {
         title: 'Publish meeting minutes to the team wiki',
         context: 'The full meeting summary.',
-        suggestedAssignee: 'producer',
+        suggestedAssignee: 'operations_director',
         actionKind: 'wiki_page',
       },
       'meeting_minutes',
     );
-    app.tasks.transition(minutes.id, 'DISPATCHED', { assignee: 'producer' });
+    app.tasks.transition(minutes.id, 'DISPATCHED', { assignee: 'operations_director' });
     app.tasks.transition(minutes.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
     app.tasks.transition(minutes.id, 'DRAFT_READY', {
       draft: { target: 'Wiki: meeting notes', subject: 'Minutes', body: 'Unapproved draft' },
@@ -503,7 +503,7 @@ describe('meeting kind security regressions', () => {
 
     const screen = await connect(port, 'screen', practiceCookie);
     const lifecycle = await connect(port, 'lifecycle', practiceCookie);
-    const seat = await connect(port, 'producer', practiceCookie);
+    const seat = await connect(port, 'operations_director', practiceCookie);
     expect(screen.ok && lifecycle.ok && seat.ok).toBe(true);
     const screenClosed = waitForClose(screen.ws);
     const lifecycleClosed = waitForClose(lifecycle.ws);
@@ -569,7 +569,7 @@ describe('meeting kind security regressions', () => {
     expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
     const real = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Cara',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
       meetingCode: CODE,
     });
     expect(real.status).toBe(200);
@@ -585,22 +585,22 @@ describe('meeting kind security regressions', () => {
     const practiceCookie = cookieFrom(practice);
     expect(((await practice.json()) as { meetingCode?: unknown }).meetingCode).toBeUndefined();
 
-    const otherSeat = await request(port, '/api/join', 'POST', { code: CODE, role: 'game_designer' }, practiceCookie);
+    const otherSeat = await request(port, '/api/join', 'POST', { code: CODE, role: 'menu_store_lead' }, practiceCookie);
     expect(otherSeat.status).toBe(403);
     expect(((await otherSeat.json()) as { error: string }).error).toMatch(/only opens the seat its visitor took/);
 
-    const noCapability = await request(port, '/api/join', 'POST', { code: CODE, role: 'producer' });
+    const noCapability = await request(port, '/api/join', 'POST', { code: CODE, role: 'operations_director' });
     expect(noCapability.status).toBe(403);
 
-    const ownSeat = await request(port, '/api/join', 'POST', { code: CODE, role: 'producer' }, practiceCookie);
+    const ownSeat = await request(port, '/api/join', 'POST', { code: CODE, role: 'operations_director' }, practiceCookie);
     expect(ownSeat.status).toBe(200);
     expect(ownSeat.headers.get('set-cookie')).toBeNull();
-    expect(await ownSeat.json()).toEqual({ kind: 'practice', role: 'producer' });
+    expect(await ownSeat.json()).toEqual({ kind: 'practice', role: 'operations_director' });
   });
 
   it('never lets a name alone resume or replace a practice seat', async () => {
     const { app, port } = await authModeApp({ rejoinGraceMs: 60_000, admissionReservationMs: 0 });
-    const first = await practiceJoin(port, 'Alice', 'producer');
+    const first = await practiceJoin(port, 'Alice', 'operations_director');
     expect(first.status).toBe(200);
     const capability = cookieFrom(first);
     const meetingId = app.session.snapshot().meetingId;
@@ -611,7 +611,7 @@ describe('meeting kind security regressions', () => {
       port,
       '/api/livekit/token',
       'POST',
-      { participantName: 'Alice', participantRole: 'game_designer', kind: 'practice' },
+      { participantName: 'Alice', participantRole: 'menu_store_lead', kind: 'practice' },
       capability,
     );
     expect(wrongSeat.status).toBe(403);
@@ -620,13 +620,13 @@ describe('meeting kind security regressions', () => {
     // meeting, rotating the identity and generation and revoking the old visitor's authority.
     const takeover = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Alice',
-      participantRole: 'game_designer',
+      participantRole: 'menu_store_lead',
       kind: 'practice',
     });
     expect(takeover.status).toBe(200);
     expect(app.session.snapshot().meetingId).not.toBe(meetingId);
     expect(app.session.generation()).toBeGreaterThan(generation);
-    expect(app.session.practiceSeat()).toBe('game_designer');
+    expect(app.session.practiceSeat()).toBe('menu_store_lead');
     const stale = await request(port, '/api/meeting/start', 'POST', undefined, capability);
     expect([401, 403]).toContain(stale.status);
   });
@@ -697,7 +697,7 @@ describe('meeting kind security regressions', () => {
     const host = await loginHost(port);
     const owner = await request(port, '/api/meeting/participants', 'GET', undefined, host);
     expect(owner.status).toBe(200);
-    expect(await owner.json()).toEqual({ participants: [{ name: 'alice', seat: 'producer' }] });
+    expect(await owner.json()).toEqual({ participants: [{ name: 'alice', seat: 'operations_director' }] });
     expect(app.session.holders()).toHaveLength(1);
   });
 
@@ -713,7 +713,7 @@ describe('meeting kind security regressions', () => {
     // friend with the code joins that meeting; a reset here would wipe the opened lobby.
     const friend = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Cara',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
       meetingCode: CODE,
     });
     expect(friend.status).toBe(200);
@@ -744,7 +744,7 @@ describe('meeting kind security regressions', () => {
     expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);
     const joined = await request(port, '/api/livekit/token', 'POST', {
       participantName: 'Alice',
-      participantRole: 'producer',
+      participantRole: 'operations_director',
     });
     expect(joined.status).toBe(200);
     people = [];

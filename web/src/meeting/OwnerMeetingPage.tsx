@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
-import Meeting from '../demo/Meeting';
+import Meeting from './room/Meeting';
 import { Button, Card } from '../ui';
 
 /** The owner's room: only the signed-in owner may open it when sign-in is on. */

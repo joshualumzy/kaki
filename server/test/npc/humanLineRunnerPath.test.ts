@@ -7,7 +7,7 @@ import {
   type MeetingSetup,
 } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { startNpcRunner, type NpcRunner } from '../../src/npc/runner';
 import type { Recognizer } from '../../src/npc/utterance';
@@ -17,8 +17,8 @@ const TOKEN = 'local-test-runner-token';
 const audio = vi.hoisted(() => ({ frames: [] as Int16Array[] }));
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void }>);
 
-vi.mock('../../src/livekit', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/livekit')>()),
+vi.mock('../../src/services/livekit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/livekit')>()),
   createRoomToken: async () => 'offline-token',
 }));
 
@@ -101,10 +101,10 @@ function twoPersonSetup(pack: Awaited<ReturnType<typeof loadScenario>>): Meeting
   return {
     ...defaultMeetingSetup(pack),
     title: 'Opening huddle',
-    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'producer' }],
+    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' }],
     seats: [
-      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
-      { displayName: 'Arjun', roleId: 'lead_programmer', kind: 'person' },
+      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Arjun', roleId: 'tech_pos_lead', kind: 'person' },
     ],
     pace: { ...DEFAULT_MEETING_PACE },
   };
@@ -130,7 +130,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
     const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'producer' }),
+      body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'operations_director' }),
     });
     expect(first.status).toBe(200);
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
@@ -142,7 +142,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
           body: JSON.stringify({
             roomName: 'room',
             participantName: 'Ben',
-            participantRole: 'lead_programmer',
+            participantRole: 'tech_pos_lead',
             meetingCode: code,
           }),
         })
@@ -188,7 +188,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
 
     const snapshot = await client.fetchMeetingState();
     runner.reconcileMeeting(snapshot, { currentConnection: true, authoritative: true });
-    const participant = { identity: 'Alice', name: 'Alice', metadata: 'producer' };
+    const participant = { identity: 'Alice', name: 'Alice', metadata: 'operations_director' };
     rooms[0]!.emit('participantConnected', participant);
     await runner.markStarted({ meetingId: snapshot.meetingId });
 
@@ -207,7 +207,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
     expect(line).toMatchObject({
       payload: {
         speaker: 'Alice',
-        speakerRole: 'producer',
+        speakerRole: 'operations_director',
         text: 'The queue is out the door.',
         speechStartedAt: expect.any(String),
         speechEndedAt: expect.any(String),

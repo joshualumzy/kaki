@@ -3,7 +3,7 @@
  * One visible, one-visitor rehearsal. The operator starts the draft-only stack separately.
  * `--act` needs a stack started without KAKI_DRAFT_ONLY, and writes to the local mock tools only.
  */
-import '../server/src/env.ts';
+import '../server/src/env';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';

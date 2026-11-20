@@ -2,7 +2,7 @@
 
 Kaki is scenario-agnostic: every role, attendee, NPC personality, agenda item, and company dataset is loaded from `scenarios/<id>/`.
 
-The shipped scenario is `SCENARIO=kopitiam` (`scenarios/kopitiam/`): **Nanyang Kopi & Toast** reopening its Raffles Place flagship tomorrow morning (Operations Director, Tech & POS Lead, Menu & Store Experience Lead, Marketing Lead, General Manager).
+The shipped scenario is `SCENARIO=kopitiam` (`scenarios/kopitiam/`): **Nanyang Kopi & Toast** reopening its Raffles Place flagship tomorrow morning (Operations Director, Tech & POS Lead, Menu & Store Experience Lead, Marketing Lead, General Manager; role ids `operations_director`, `tech_pos_lead`, `menu_store_lead`, `marketing_lead`, `general_manager`).
 
 ## Scenario Folder Layout
 

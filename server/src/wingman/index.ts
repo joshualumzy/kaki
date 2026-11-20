@@ -1,4 +1,4 @@
-import type { KakiModule } from '../modules';
+import type { KakiModule } from '../core/modules';
 import { knowledgeModule } from './knowledge/module';
 import { nudgeModule } from './nudges/module';
 

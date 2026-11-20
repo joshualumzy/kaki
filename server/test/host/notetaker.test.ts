@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
+import type { Hub } from '../../src/core/hub';
 import {
   answerMatchesQuestion,
   createNotetaker,
@@ -18,9 +18,9 @@ import {
   type VerifierResult,
 } from '../../src/host/notetaker';
 import { loadReplay, type ReplayLine } from '../../src/host/replay';
-import { createFakeLlm, type ChatMessage } from '../../src/llm';
-import { loadScenario } from '../../src/loadScenario';
-import { createTaskStore } from '../../src/tasks';
+import { createFakeLlm, type ChatMessage } from '../../src/services/llm';
+import { loadScenario } from '../../src/core/loadScenario';
+import { createTaskStore } from '../../src/meeting/tasks';
 
 function quietHub(): Hub {
   return {
@@ -129,14 +129,14 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
       if (text.includes("draft the regulars' note")) {
         return reply({
           newQuestions: [
-            { text: 'Who counts as a regular?', forRole: 'producer' },
-            { text: 'Where does a solo diner sit while the queue clears?', forRole: 'producer' },
+            { text: 'Who counts as a regular?', forRole: 'operations_director' },
+            { text: 'Where does a solo diner sit while the queue clears?', forRole: 'operations_director' },
           ],
           newTasks: [
             {
               title: 'Draft the regulars note',
               context: 'Draft the regulars note with the old price explained at the counter.',
-              suggestedAssignee: 'game_designer',
+              suggestedAssignee: 'menu_store_lead',
               actionKind: 'gitea_issue',
               evidence: "Mei, can you draft the regulars' note for the counter and Facebook?",
             },
@@ -146,7 +146,7 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
       if (text.includes('set the booth socket timer')) {
         return reply({
           agendaIndex: 2,
-          newQuestions: [{ text: 'Who sets the booth socket timer before 8?', forRole: 'producer' }],
+          newQuestions: [{ text: 'Who sets the booth socket timer before 8?', forRole: 'operations_director' }],
         });
       }
       if (text.includes('email GrabFood')) {
@@ -163,7 +163,7 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
             {
               title: 'Post the final plan in the team channel',
               context: 'Post the agreed launch plan in the team channel once the delivery decision is settled.',
-              suggestedAssignee: 'producer',
+              suggestedAssignee: 'operations_director',
               actionKind: 'mattermost_post',
               evidence: "I'll post the final plan in the team channel once we settle the pickup code.",
             },
@@ -185,14 +185,14 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
 
     expect(llm.calls).toHaveLength(4);
     expect(tasks.list().map((task) => [task.suggestedAssignee, task.actionKind, task.status])).toEqual([
-      ['game_designer', 'gitea_issue', 'SUGGESTED'],
+      ['menu_store_lead', 'gitea_issue', 'SUGGESTED'],
       ['marketing_lead', 'email', 'SUGGESTED'],
-      ['producer', 'mattermost_post', 'SUGGESTED'],
+      ['operations_director', 'mattermost_post', 'SUGGESTED'],
     ]);
     expect(notetaker.state().openQuestions).toEqual([
-      { id: 'q-1', text: 'Who counts as a regular?', forRole: 'producer', agendaIndex: 0 },
-      { id: 'q-2', text: 'Where does a solo diner sit while the queue clears?', forRole: 'producer', agendaIndex: 0 },
-      { id: 'q-3', text: 'Who sets the booth socket timer before 8?', forRole: 'producer', agendaIndex: 2 },
+      { id: 'q-1', text: 'Who counts as a regular?', forRole: 'operations_director', agendaIndex: 0 },
+      { id: 'q-2', text: 'Where does a solo diner sit while the queue clears?', forRole: 'operations_director', agendaIndex: 0 },
+      { id: 'q-3', text: 'Who sets the booth socket timer before 8?', forRole: 'operations_director', agendaIndex: 2 },
     ]);
     expect(notetaker.state().status).toBe('ok');
   });
@@ -206,7 +206,7 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
               {
                 title: 'Draft the regulars note',
                 context: 'Draft the regulars note with the old price explained at the counter.',
-                suggestedAssignee: 'game_designer',
+                suggestedAssignee: 'menu_store_lead',
                 evidence: "Mei, can you draft the regulars' note for the counter and Facebook?",
               },
             ],
@@ -221,10 +221,10 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
     await notetaker.run();
 
     const [system, user] = llm.calls[1]!;
-    expect(system!.content).toContain('lead_programmer: Tech & POS Lead (Arjun)');
+    expect(system!.content).toContain('tech_pos_lead: Tech & POS Lead (Arjun)');
     expect(system!.content).toContain(scenario.agenda[0]!.title);
     expect(user!.content).toContain('- q-1: Who counts as a regular?');
-    expect(user!.content).toMatch(/- task-[\w-]+: Draft the regulars note \(owner: game_designer\) — Draft the regulars note with the old price explained at the counter\./);
+    expect(user!.content).toMatch(/- task-[\w-]+: Draft the regulars note \(owner: menu_store_lead\) — Draft the regulars note with the old price explained at the counter\./);
     expect(user!.content).toContain('[Arjun (Tech & POS Lead)] Anyone new on the till needs a login');
     // Earlier lines travel as context, while the new-lines section still carries only the batch since the last pass.
     expect(user!.content).toContain('[Wei Ling (Operations Director)] First topic');
@@ -237,7 +237,7 @@ describe('notetaker record keeping', () => {
     const task = {
       title: 'Review the trial numbers',
       context: 'c',
-      suggestedAssignee: 'game_designer',
+      suggestedAssignee: 'menu_store_lead',
       evidence: "I'll review the trial numbers tonight.",
     };
     const { tasks, notetaker, feed } = setup((_messages, call) =>
@@ -422,7 +422,7 @@ describe('notetaker record keeping', () => {
     await notetaker.run();
 
     expect(notetaker.state()).toMatchObject({ status: 'off', openQuestions: [] });
-    expect(notetaker.state().talkSecondsFor(0)).toEqual({ lead_programmer: 2 });
+    expect(notetaker.state().talkSecondsFor(0)).toEqual({ tech_pos_lead: 2 });
   });
 });
 
@@ -441,8 +441,8 @@ describe('task precision', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Review the trial numbers', 'game_designer', manualLine),
-          candidate('Post the final plan in the team channel', 'producer', deliverableLine, {
+          candidate('Review the trial numbers', 'menu_store_lead', manualLine),
+          candidate('Post the final plan in the team channel', 'operations_director', deliverableLine, {
             actionKind: 'mattermost_post',
           }),
         ],
@@ -464,10 +464,10 @@ describe('task precision', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Order new office chairs', 'producer', 'Wei Ling promised to order new chairs for everyone'),
+          candidate('Order new office chairs', 'operations_director', 'Wei Ling promised to order new chairs for everyone'),
           candidate(
             'Draft the regulars note',
-            'game_designer',
+            'menu_store_lead',
             "Mei, can you draft the regulars' note for the counter and Facebook?",
           ),
         ],
@@ -488,23 +488,23 @@ describe('task precision', () => {
       if (call === 0) {
         return reply({
           newTasks: [
-            candidate('Review trial numbers', 'game_designer', trialTask),
-            candidate('Review the butter margin', 'producer', butterTask),
+            candidate('Review trial numbers', 'menu_store_lead', trialTask),
+            candidate('Review the butter margin', 'operations_director', butterTask),
           ],
         });
       }
       const trialCard = tasks.list().find((card) => card.title === 'Review trial numbers');
       return reply({
         newTasks: [
-          candidate('Review the trial numbers', 'game_designer', trialTask, {
+          candidate('Review the trial numbers', 'menu_store_lead', trialTask, {
             duplicateOf: trialCard?.id ?? 'missing-task',
           }),
-          candidate('Track the seat trial numbers', 'game_designer', trialTask, {
+          candidate('Track the seat trial numbers', 'menu_store_lead', trialTask, {
             duplicateOf: trialCard?.id ?? 'missing-task',
           }),
           candidate(
             'Post the butter plan in the team channel',
-            'producer',
+            'operations_director',
             "I'll post the final plan in the team channel once we settle the pickup code.",
           ),
         ],
@@ -531,13 +531,13 @@ describe('task precision', () => {
         newTasks: [
           candidate(
             'Confirm GrabFood platter promotion terms (rate and vouchers)',
-            'studio_manager',
+            'general_manager',
             "GrabFood's promo rate on its cut for all our shops ended today, and we lose about 50 cents on each $10 breakfast set delivered.",
             { actionKind: 'mattermost_post' },
           ),
           candidate(
             'Confirm GrabFood platter promotion terms (rate and vouchers)',
-            'studio_manager',
+            'general_manager',
             "I'll post the final plan in the team channel once we settle the pickup code.",
             { actionKind: 'mattermost_post' },
           ),
@@ -561,14 +561,14 @@ describe('task precision', () => {
         newTasks: [
           candidate(
             'Post the delivery plan in the team channel',
-            'producer',
+            'operations_director',
             "I'll email GrabFood tonight and confirm the details.",
             { actionKind: 'mattermost_post' },
           ),
-          candidate('Email the egg supplier', 'producer', "I'll email GrabFood tonight and confirm the details.", {
+          candidate('Email the egg supplier', 'operations_director', "I'll email GrabFood tonight and confirm the details.", {
             actionKind: 'email',
           }),
-          candidate('Send the update', 'producer', "I'll email GrabFood tonight and confirm the details.", {
+          candidate('Send the update', 'operations_director', "I'll email GrabFood tonight and confirm the details.", {
             actionKind: 'email',
           }),
         ],
@@ -592,7 +592,7 @@ describe('task precision', () => {
           }),
           candidate(
             'Post the final plan in the team channel',
-            'producer',
+            'operations_director',
             "I'll post the final plan in the team channel once we settle the pickup code.",
             { actionKind: 'mattermost_post' },
           ),
@@ -606,7 +606,7 @@ describe('task precision', () => {
 
     expect(tasks.list().map((task) => [task.title, task.suggestedAssignee, task.actionKind])).toEqual([
       ['Email GrabFood to confirm the five-set platter listing', 'marketing_lead', 'email'],
-      ['Post the final plan in the team channel', 'producer', 'mattermost_post'],
+      ['Post the final plan in the team channel', 'operations_director', 'mattermost_post'],
     ]);
   });
 
@@ -617,7 +617,7 @@ describe('task precision', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Post the agreed plan in the team channel', 'studio_manager', line, {
+          candidate('Post the agreed plan in the team channel', 'general_manager', line, {
             actionKind: 'mattermost_post',
           }),
         ],
@@ -628,7 +628,7 @@ describe('task precision', () => {
     await notetaker.run();
 
     expect(tasks.list().map((task) => [task.title, task.suggestedAssignee])).toEqual([
-      ['Post the agreed plan in the team channel', 'producer'],
+      ['Post the agreed plan in the team channel', 'operations_director'],
     ]);
   });
 
@@ -636,7 +636,7 @@ describe('task precision', () => {
     const line = 'I will update the signage to point to the new cash desk.';
     const { tasks, notetaker } = setup(() =>
       reply({
-        newTasks: [candidate('Update signage to point to the new cash desk', 'game_designer', line)],
+        newTasks: [candidate('Update signage to point to the new cash desk', 'menu_store_lead', line)],
       }),
     );
 
@@ -646,7 +646,7 @@ describe('task precision', () => {
     expect(tasks.list().map((task) => [task.title, task.suggestedAssignee, task.assignmentEvidence])).toEqual([
       [
         'Update signage to point to the new cash desk',
-        'lead_programmer',
+        'tech_pos_lead',
         {
           speaker: 'Arjun',
           quote: line,
@@ -664,7 +664,7 @@ describe('task precision', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Post the opening plan in the team channel', 'producer', line, {
+          candidate('Post the opening plan in the team channel', 'operations_director', line, {
             actionKind: 'mattermost_post',
           }),
         ],
@@ -689,7 +689,7 @@ describe('task precision', () => {
     const line = 'Arjun, can you update the signage to point to the new cash desk?';
     const { tasks, notetaker } = setup(() =>
       reply({
-        newTasks: [candidate('Update signage to point to the new cash desk', 'lead_programmer', line)],
+        newTasks: [candidate('Update signage to point to the new cash desk', 'tech_pos_lead', line)],
       }),
     );
 
@@ -697,7 +697,7 @@ describe('task precision', () => {
     await notetaker.run();
 
     expect(tasks.list().map((task) => [task.suggestedAssignee, task.assignmentEvidence])).toEqual([
-      ['lead_programmer', undefined],
+      ['tech_pos_lead', undefined],
     ]);
   });
 
@@ -705,7 +705,7 @@ describe('task precision', () => {
     const line = 'I will ask Mei to update the signage to point to the new cash desk.';
     const { tasks, notetaker } = setup(() =>
       reply({
-        newTasks: [candidate('Update signage to point to the new cash desk', 'lead_programmer', line)],
+        newTasks: [candidate('Update signage to point to the new cash desk', 'tech_pos_lead', line)],
       }),
     );
 
@@ -713,7 +713,7 @@ describe('task precision', () => {
     await notetaker.run();
 
     expect(tasks.list().map((task) => [task.suggestedAssignee, task.assignmentEvidence])).toEqual([
-      ['lead_programmer', undefined],
+      ['tech_pos_lead', undefined],
     ]);
   });
 
@@ -725,7 +725,7 @@ describe('task precision', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Post the agreed plan in the team channel', 'studio_manager', line, {
+          candidate('Post the agreed plan in the team channel', 'general_manager', line, {
             actionKind: 'mattermost_post',
           }),
         ],
@@ -746,16 +746,16 @@ describe('task precision', () => {
     expect(isGrounded('file it', lines)).toBe(false);
 
     const existing = [
-      { id: 't', title: 'Fix pause menu text overlap', context: '', suggestedAssignee: 'lead_programmer',
+      { id: 't', title: 'Fix pause menu text overlap', context: '', suggestedAssignee: 'tech_pos_lead',
         agendaItemTitle: 'Kiosk rollout', status: 'SUGGESTED', updatedAt: '' },
     ] as const;
-    const same = { title: 'Pause menu text overlaps on small screens', context: '', suggestedAssignee: 'lead_programmer',
+    const same = { title: 'Pause menu text overlaps on small screens', context: '', suggestedAssignee: 'tech_pos_lead',
       agendaItemTitle: 'Kiosk rollout' };
     expect(isLikelyDuplicate(same, [...existing])).toBe(true);
-    expect(isLikelyDuplicate({ ...same, suggestedAssignee: 'producer' }, [...existing])).toBe(false);
+    expect(isLikelyDuplicate({ ...same, suggestedAssignee: 'operations_director' }, [...existing])).toBe(false);
     expect(isLikelyDuplicate({ ...same, agendaItemTitle: 'Delivery costs' }, [...existing])).toBe(false);
     expect(
-      isLikelyDuplicate({ title: 'Fix tutorial skip button', context: '', suggestedAssignee: 'lead_programmer',
+      isLikelyDuplicate({ title: 'Fix tutorial skip button', context: '', suggestedAssignee: 'tech_pos_lead',
         agendaItemTitle: 'Kiosk rollout' }, [...existing]),
     ).toBe(false);
   });
@@ -779,7 +779,7 @@ describe('task precision', () => {
         newTasks: [
           candidate(
             'Post cash box decision in team channel',
-            'producer',
+            'operations_director',
             'Feifei Li, could you post that decision in the team channel today so everyone has it?',
             { context: decision, actionKind: 'mattermost_post' },
           ),
@@ -803,7 +803,7 @@ describe('task precision', () => {
     expect(task?.context).not.toContain('Move the counter?');
   });
 
-  it('routes a natural second-person task request ("Could you post...") to the visitor role even when zoomDisplayName has no parentheses', async () => {
+  it('routes a natural second-person task request ("Could you post...") to the visitor role even when displayName has no parentheses', async () => {
     const kopitiamScenario = await loadScenario('kopitiam');
     const tasks = createTaskStore({ hub: quietHub(), scenario: kopitiamScenario });
     const llm = createFakeLlm(() =>
@@ -811,7 +811,7 @@ describe('task precision', () => {
         newTasks: [
           candidate(
             'Post the regulars price decision in team channel',
-            'game_designer',
+            'menu_store_lead',
             'Feifei Li, could you post that decision in the team channel today so everyone has it?',
             { actionKind: 'mattermost_post' },
           ),
@@ -826,7 +826,7 @@ describe('task precision', () => {
     });
     await notetaker.run();
     expect(tasks.list()).toHaveLength(1);
-    expect(tasks.list()[0]?.suggestedAssignee).toBe('producer');
+    expect(tasks.list()[0]?.suggestedAssignee).toBe('operations_director');
   });
 });
 
@@ -910,7 +910,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the seating decision in the team channel',
                   context: 'Announce the seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: assignment,
                   decisionEvidence: seatingDecision,
@@ -944,7 +944,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the seating decision in the team channel',
                   context: 'Announce the seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: assignment,
                   decisionEvidence:
@@ -977,7 +977,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the seating decision in the team channel',
                   context: 'Announce the seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: assignment,
                   decisionEvidence: 'We will order extra napkins for the lunch crowd.',
@@ -1010,7 +1010,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the seating decision in the team channel',
                   context: 'Announce the seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: first,
                   decisionEvidence: seatingDecision,
@@ -1035,7 +1035,7 @@ describe('decision context across notetaker batches', () => {
     notetaker.addChunk({ speaker: 'Daniel', text: second });
     await notetaker.run();
 
-    expect(tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['game_designer', 'marketing_lead']);
+    expect(tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['marketing_lead', 'menu_store_lead']);
   });
 
   it('keeps separate announcements for two different decisions', async () => {
@@ -1052,7 +1052,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the seating decision in the team channel',
                   context: 'Announce the seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: seatingAssignment,
                   decisionEvidence: seatingDecision,
@@ -1060,7 +1060,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the cash decision in the team channel',
                   context: 'Announce the till and float rule.',
-                  suggestedAssignee: 'producer',
+                  suggestedAssignee: 'operations_director',
                   actionKind: 'mattermost_post',
                   evidence: cashAssignment,
                   decisionEvidence: cashDecision,
@@ -1096,7 +1096,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the corrected seating decision in the team channel',
                   context: 'Announce the corrected seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: assignment,
                   decisionEvidence: corrected,
@@ -1135,7 +1135,7 @@ describe('decision context across notetaker batches', () => {
                 {
                   title: 'Post the corrected seating decision in the team channel',
                   context: 'Announce the corrected seating rule.',
-                  suggestedAssignee: 'game_designer',
+                  suggestedAssignee: 'menu_store_lead',
                   actionKind: 'mattermost_post',
                   evidence: assignment,
                   decisionEvidence: seatingDecision,
@@ -1175,7 +1175,7 @@ describe('decision revisions', () => {
         {
           title: 'Post the seating decision in the team channel',
           context: 'Announce the seating rule.',
-          suggestedAssignee: 'game_designer',
+          suggestedAssignee: 'menu_store_lead',
           actionKind: 'mattermost_post',
           evidence: seatingAssignment,
           decisionEvidence: seatingDecision,
@@ -1183,7 +1183,7 @@ describe('decision revisions', () => {
         {
           title: 'Post the cash decision in the team channel',
           context: 'Announce the till and float rule.',
-          suggestedAssignee: 'producer',
+          suggestedAssignee: 'operations_director',
           actionKind: 'mattermost_post',
           evidence: cashAssignment,
           decisionEvidence: cashDecision,
@@ -1237,7 +1237,7 @@ describe('decision revisions', () => {
             {
               title: 'Post the seating decision in the team channel',
               context: 'Announce the seating rule.',
-              suggestedAssignee: 'game_designer',
+              suggestedAssignee: 'menu_store_lead',
               actionKind: 'mattermost_post',
               evidence: assignment,
               decisionEvidence: turnedDecision,
@@ -1330,7 +1330,7 @@ describe('decision revisions', () => {
     feedFirstPass(notetaker);
     await notetaker.run();
     const seatingTask = tasks.list().find((task) => task.title.startsWith('Post the seating'))!;
-    tasks.transition(seatingTask.id, 'DISPATCHED', { assignee: 'game_designer' });
+    tasks.transition(seatingTask.id, 'DISPATCHED', { assignee: 'menu_store_lead' });
     notetaker.addChunk({ speaker: 'Feifei Li', text: seatingCorrection });
     await notetaker.run();
 
@@ -1453,7 +1453,7 @@ describe('semantic verifier for tasks', () => {
   const task = {
     title: 'Post the final plan in the team channel',
     context: 'Post the agreed plan once the pickup code is settled.',
-    suggestedAssignee: 'producer',
+    suggestedAssignee: 'operations_director',
     actionKind: 'mattermost_post',
     evidence: line,
   };
@@ -1475,7 +1475,7 @@ describe('semantic verifier for tasks', () => {
   it('uses the verifier\'s owner even when the lexical address check sees another role', async () => {
     const assignment = 'Mei, can you post the seating decision in the team channel today?';
     const verifier = createFakeLlm(() =>
-      JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'yes', assigneeRole: 'producer' }] }),
+      JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'yes', assigneeRole: 'operations_director' }] }),
     );
     const { tasks, notetaker } = setup(
       () =>
@@ -1484,7 +1484,7 @@ describe('semantic verifier for tasks', () => {
             {
               title: 'Post the seating decision in the team channel',
               context: 'Announce the seating rule.',
-              suggestedAssignee: 'game_designer',
+              suggestedAssignee: 'menu_store_lead',
               actionKind: 'mattermost_post',
               evidence: assignment,
             },
@@ -1498,14 +1498,14 @@ describe('semantic verifier for tasks', () => {
     notetaker.addChunk({ speaker: 'Mei', text: assignment });
     await notetaker.run();
 
-    expect(tasks.list()[0]?.suggestedAssignee).toBe('producer');
+    expect(tasks.list()[0]?.suggestedAssignee).toBe('operations_director');
   });
 
   it('keeps the batch pending when the verifier call or reply fails, and retries it on the next tick', async () => {
     const verifier = createFakeLlm((_messages, call) =>
       call < 2
         ? 'not json'
-        : JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'yes', assigneeRole: 'producer' }] }),
+        : JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'yes', assigneeRole: 'operations_director' }] }),
     );
     const { tasks, notetaker } = setup(() => reply({ newTasks: [task] }), 0, lexicalVerify, verifier);
 
@@ -1564,7 +1564,7 @@ describe('duplicate handling across batches', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Review the trial numbers', 'game_designer', assignment, { duplicateOf: 'task-invented' }),
+          candidate('Review the trial numbers', 'menu_store_lead', assignment, { duplicateOf: 'task-invented' }),
         ],
       }),
     );
@@ -1585,7 +1585,7 @@ describe('duplicate handling across batches', () => {
               {
                 title: 'Post the cash decision in the team channel',
                 context: 'Announce the till and float rule.',
-                suggestedAssignee: 'game_designer',
+                suggestedAssignee: 'menu_store_lead',
                 actionKind: 'mattermost_post',
                 evidence: cashAssignment,
                 decisionEvidence: cashDecision,
@@ -1598,7 +1598,7 @@ describe('duplicate handling across batches', () => {
             {
               title: 'Post the seating decision in the team channel',
               context: 'Announce the seating rule.',
-              suggestedAssignee: 'game_designer',
+              suggestedAssignee: 'menu_store_lead',
               actionKind: 'mattermost_post',
               evidence: seatingAssignment,
               decisionEvidence: seatingDecision,
@@ -1633,7 +1633,7 @@ describe('duplicate handling across batches', () => {
         newTasks: [
           candidate(
             call === 0 ? 'Review the trial numbers' : 'Review the trial numbers and notes',
-            'game_designer',
+            'menu_store_lead',
             call === 0 ? firstLine : secondLine,
           ),
         ],
@@ -1657,7 +1657,7 @@ describe('duplicate handling across batches', () => {
     const { tasks, notetaker } = setup(() =>
       reply({
         newTasks: [
-          candidate('Post the update in the team channel', 'game_designer', meiLine, {
+          candidate('Post the update in the team channel', 'menu_store_lead', meiLine, {
             actionKind: 'mattermost_post',
           }),
           candidate('Post the update in the team channel', 'marketing_lead', danielLine, {
@@ -1671,7 +1671,7 @@ describe('duplicate handling across batches', () => {
     notetaker.addChunk({ speaker: 'Daniel', text: danielLine });
     await notetaker.run();
 
-    expect(tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['game_designer', 'marketing_lead']);
+    expect(tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['marketing_lead', 'menu_store_lead']);
   });
 
   it('does not treat a task as a duplicate of one on another agenda item', async () => {
@@ -1681,14 +1681,14 @@ describe('duplicate handling across batches', () => {
       call === 0
         ? reply({
             newTasks: [
-              candidate('Post the response plan in the team channel', 'game_designer', firstAssignment, {
+              candidate('Post the response plan in the team channel', 'menu_store_lead', firstAssignment, {
                 actionKind: 'mattermost_post',
               }),
             ],
           })
         : reply({
             newTasks: [
-              candidate('Post the delivery response plan in the team channel', 'game_designer', secondAssignment, {
+              candidate('Post the delivery response plan in the team channel', 'menu_store_lead', secondAssignment, {
                 actionKind: 'mattermost_post',
                 duplicateOf: tasks.list()[0]?.id ?? 'missing-task',
               }),
@@ -1721,7 +1721,7 @@ describe('duplicate handling across batches', () => {
               {
                 title: 'Post the seating decision in the team channel',
                 context: 'Announce the seating rule.',
-                suggestedAssignee: 'game_designer',
+                suggestedAssignee: 'menu_store_lead',
                 actionKind: 'mattermost_post',
                 evidence: seatingAssignment,
                 decisionEvidence: seatingDecision,
@@ -1754,7 +1754,7 @@ describe('duplicate handling across batches', () => {
     await notetaker.run();
 
     expect(tasks.list().map((task) => [task.title, task.suggestedAssignee])).toEqual([
-      ['Post the seating decision in the team channel', 'game_designer'],
+      ['Post the seating decision in the team channel', 'menu_store_lead'],
       ['Announce the seating rule in the team channel', 'marketing_lead'],
     ]);
   });
@@ -1770,7 +1770,7 @@ describe('duplicate handling across batches', () => {
               {
                 title: 'Post the seating decision in the team channel',
                 context: 'Announce the seating rule.',
-                suggestedAssignee: 'game_designer',
+                suggestedAssignee: 'menu_store_lead',
                 actionKind: 'mattermost_post',
                 evidence: seatingAssignment,
                 decisionEvidence: seatingDecision,
@@ -1814,9 +1814,9 @@ describe('facilitator identity', () => {
     const moved: Scenario = {
       ...scenario,
       roles: scenario.roles.map((role) =>
-        role.id === 'lead_programmer'
+        role.id === 'tech_pos_lead'
           ? { ...role, facilitator: true }
-          : role.id === 'studio_manager'
+          : role.id === 'general_manager'
             ? { ...role, facilitator: false }
             : role,
       ),
@@ -1839,10 +1839,10 @@ describe('facilitator identity', () => {
 
     notetaker.addChunk({
       speaker: 'Arjun (Tech & POS Lead)',
-      speakerRole: 'lead_programmer',
+      speakerRole: 'tech_pos_lead',
       text: 'Morning everyone, let us get started.',
     });
-    notetaker.addChunk({ speaker: 'Mei', speakerRole: 'game_designer', text: 'Who owns the till today?' });
+    notetaker.addChunk({ speaker: 'Mei', speakerRole: 'menu_store_lead', text: 'Who owns the till today?' });
     await notetaker.run();
 
     const transcript = newLines(llm.calls[0]!);
@@ -1864,8 +1864,8 @@ describe('talk time', () => {
     notetaker.addChunk({ speaker: 'Kaki', text: 'Not an attendee, so not counted.' });
 
     const state = notetaker.state();
-    expect(Object.keys(state.talkSecondsFor(1)).sort()).toEqual(['game_designer', 'lead_programmer', 'marketing_lead', 'producer', 'studio_manager']);
-    expect(state.talkSecondsFor(1).producer).toBeGreaterThan(0);
+    expect(Object.keys(state.talkSecondsFor(1)).sort()).toEqual(['general_manager', 'marketing_lead', 'menu_store_lead', 'operations_director', 'tech_pos_lead']);
+    expect(state.talkSecondsFor(1).operations_director).toBeGreaterThan(0);
     expect(state.talkSecondsFor(3).marketing_lead).toBeGreaterThan(0);
   });
 
@@ -1905,13 +1905,13 @@ describe('notetaker reply parsing', () => {
             {
               title: 'Book tablets',
               context: 'For the booth.',
-              suggestedAssignee: 'producer',
+              suggestedAssignee: 'operations_director',
               actionKind: 'fax',
               evidence: 'we save about four hundred',
             },
-            { title: 'No evidence', context: 'x', suggestedAssignee: 'producer' },
+            { title: 'No evidence', context: 'x', suggestedAssignee: 'operations_director' },
             { title: 'Ghost task', context: 'x', suggestedAssignee: 'qa_lead' },
-            { context: 'no title', suggestedAssignee: 'producer' },
+            { context: 'no title', suggestedAssignee: 'operations_director' },
           ],
         }) +
         '\n```',
@@ -1923,7 +1923,7 @@ describe('notetaker reply parsing', () => {
       newQuestions: [{ text: 'Who owns QA?' }],
       answeredQuestionIds: ['q-1'],
       newTasks: [
-        { title: 'Book tablets', context: 'For the booth.', suggestedAssignee: 'producer', evidence: 'we save about four hundred' },
+        { title: 'Book tablets', context: 'For the booth.', suggestedAssignee: 'operations_director', evidence: 'we save about four hundred' },
       ],
       revisions: [],
     });
@@ -2097,7 +2097,7 @@ describe('task agenda origin', () => {
           {
             title: 'Post the opening plan',
             context: 'Share the agreed opening plan with the team.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'mattermost_post',
             evidence: "Mei: I'll post the opening plan in the team channel today.",
           },
@@ -2119,7 +2119,7 @@ describe('task agenda origin', () => {
           {
             title: 'Post the opening plan',
             context: 'Share the agreed opening plan with the team.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'mattermost_post',
             evidence: "Mei: I'll post the opening plan in the team channel today.",
           },
@@ -2148,7 +2148,7 @@ describe('task agenda origin', () => {
             {
               title: 'Post the opening plan',
               context: 'Share the agreed opening plan with the team.',
-              suggestedAssignee: 'producer',
+              suggestedAssignee: 'operations_director',
               actionKind: 'mattermost_post',
               evidence: "Mei: I'll post the opening plan in the team channel today.",
             },
@@ -2183,7 +2183,7 @@ describe('task agenda origin', () => {
                 {
                   title: 'Post the regulars price decision in Mattermost',
                   context: 'Share the regulars price decision with the team.',
-                  suggestedAssignee: 'producer',
+                  suggestedAssignee: 'operations_director',
                   actionKind: 'mattermost_post',
                   evidence: handover,
                   decisionEvidence: regularsPlan,
@@ -2203,7 +2203,7 @@ describe('task agenda origin', () => {
 
     expect(tasks.list()).toHaveLength(1);
     expect(tasks.list()[0]).toMatchObject({
-      suggestedAssignee: 'producer',
+      suggestedAssignee: 'operations_director',
       decisionSource: regularsPlan,
       agendaItemTitle: scenario.agenda[0]?.title,
     });
@@ -2216,14 +2216,14 @@ describe('task agenda origin', () => {
           {
             title: 'Post the opening plan',
             context: 'Share the agreed opening plan with the team.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'mattermost_post',
             evidence: "Mei: I'll post the opening plan in the team channel today.",
           },
           {
             title: 'Email the seating plan',
             context: 'Send the agreed seating plan to the team.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'email',
             evidence: "Daniel: I'll email the seating plan to the team tomorrow.",
           },
@@ -2256,7 +2256,7 @@ describe('grounded recovery from a verified assignment decision line', () => {
           {
             title: 'Post the seating plan in Mattermost',
             context: 'Share the seating plan with the team.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'mattermost_post',
             evidence: acknowledgement,
             decisionEvidence: seatingPlan,
@@ -2272,7 +2272,7 @@ describe('grounded recovery from a verified assignment decision line', () => {
     expect(tasks.list()).toHaveLength(1);
     expect(tasks.list()[0]).toMatchObject({
       title: 'Post the seating plan in Mattermost',
-      suggestedAssignee: 'producer',
+      suggestedAssignee: 'operations_director',
       actionKind: 'mattermost_post',
       decisionSource: seatingPlan,
       agendaItemTitle: scenario.agenda[0]?.title,
@@ -2288,7 +2288,7 @@ describe('grounded recovery from a verified assignment decision line', () => {
           {
             title: 'Post the seating plan in Mattermost',
             context: 'Share the seating plan with the team.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'mattermost_post',
             evidence: acknowledgement,
             decisionEvidence: noPromise,
@@ -2311,7 +2311,7 @@ describe('grounded recovery from a verified assignment decision line', () => {
           {
             title: 'File the seating plan as a Gitea issue',
             context: 'Create a tracking issue for the seating plan.',
-            suggestedAssignee: 'producer',
+            suggestedAssignee: 'operations_director',
             actionKind: 'gitea_issue',
             evidence: acknowledgement,
             decisionEvidence: seatingPlan,

@@ -10,7 +10,7 @@ import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import type { MeetingPauseControl } from '../../src/host';
 import { createAgendaClock } from '../../src/host/clock';
 import { createMeetingModule } from '../../src/host/meeting';
-import { createMeetingCodeSource } from '../../src/meetingCode';
+import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { testScenario } from '../fixtures/scenario';
 import { portOf, settle, waitFor } from '../helpers';
@@ -30,7 +30,7 @@ const scenario: Scenario = {
   ],
   attendees: [
     ...testScenario.attendees,
-    { name: 'Mia', role: 'manager', zoomDisplayName: 'Mia (Manager)' },
+    { name: 'Mia', role: 'manager', displayName: 'Mia (Manager)' },
   ],
   agenda: [{ ...testScenario.agenda[0]!, directions: ['private direction'], seatFacts: {
     chef: 'chef agenda secret', cashier: 'cashier agenda secret', manager: 'manager agenda secret',

@@ -70,11 +70,11 @@ describe('company search', () => {
       }),
     );
 
-    const facts = await search('How much does delivery commission cost us?', 'producer');
+    const facts = await search('How much does delivery commission cost us?', 'operations_director');
 
     expect(embedded).toBe('How much does delivery commission cost us?');
     expect(retrievedLimit).toBe(8);
-    expect(requests[0]).toContain('producer');
+    expect(requests[0]).toContain('operations_director');
     expect(requests[0]).toContain('Anchor butter price notice');
     expect(requests[0]).toContain('published=2026-11-10');
     expect(facts).toHaveLength(1);
@@ -83,7 +83,7 @@ describe('company search', () => {
 
   it('allows an empty fact list when nothing is relevant', async () => {
     const search = createSearchCompanyData(deps({ chat: async () => '{"facts":[]}' }));
-    expect(await search('What is for lunch?', 'producer')).toEqual([]);
+    expect(await search('What is for lunch?', 'operations_director')).toEqual([]);
   });
 
   it('returns no facts without calling the model when nothing is retrieved', async () => {
@@ -97,7 +97,7 @@ describe('company search', () => {
         },
       }),
     );
-    expect(await search('Unknown', 'producer')).toEqual([]);
+    expect(await search('Unknown', 'operations_director')).toEqual([]);
     expect(called).toBe(false);
   });
 

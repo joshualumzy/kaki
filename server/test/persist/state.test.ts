@@ -116,7 +116,7 @@ describe('saved meeting validation', () => {
     [
       'a task that does not belong to this scenario',
       (meeting: StoredMeeting) => {
-        (meeting.state.tasks[0] as unknown as { suggestedAssignee: string }).suggestedAssignee = 'producer';
+        (meeting.state.tasks[0] as unknown as { suggestedAssignee: string }).suggestedAssignee = 'operations_director';
       },
       'task 1 is not valid for this scenario',
     ],

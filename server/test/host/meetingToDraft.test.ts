@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
 import { createMattermostModule, type MattermostSettings } from '../../src/action/mattermost';
 import { createMeetingModule } from '../../src/host/meeting';
-import { createFakeLlm } from '../../src/llm';
+import { createFakeLlm } from '../../src/services/llm';
 import { connectClient, createTestApp, portOf, settle, waitForEvent, type TestClient } from '../helpers';
 
 // A test verifier: trust the extraction model's suggested owner for the cards it extracted.

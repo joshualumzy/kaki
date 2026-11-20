@@ -6,7 +6,7 @@ import {
   isObject,
   isRoleIn,
   isSuggestInput,
-  roleForZoomName,
+  roleForDisplayName,
   roleLabel,
   speakerName,
   type AssignmentEvidence,
@@ -18,9 +18,9 @@ import {
   type SuggestInput,
   type Task,
 } from '@kaki/shared';
-import { LlmError, parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
+import { LlmError, parseJsonReply, type ChatMessage, type LlmClient } from '../services/llm';
 import type { SavedNotetakerState, SavedTranscriptLine } from '../persist/state';
-import type { TaskStore } from '../tasks';
+import type { TaskStore } from '../meeting/tasks';
 
 /** Rough speaking rate used to turn transcript words into talk time. */
 const WORDS_PER_SECOND = 2.5;
@@ -1741,7 +1741,7 @@ export function createNotetaker({
           ? isRoleIn(scenario(), speakerRole)
             ? speakerRole
             : undefined
-          : roleForZoomName(scenario(), speaker);
+          : roleForDisplayName(scenario(), speaker);
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
       const isFacilitator = role !== undefined && scenario().roles.some((candidate) => candidate.id === role && candidate.facilitator === true);

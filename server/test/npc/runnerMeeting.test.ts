@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { createRunnerMeeting } from '../../src/npc/runnerMeeting';
 import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 

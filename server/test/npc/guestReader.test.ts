@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatMessage } from '../../src/llm';
+import type { ChatMessage } from '../../src/services/llm';
 import { readGuestLine, type GuestReaderInput, type GuestReaderPorts } from '../../src/npc/guestReader';
 
 const input: GuestReaderInput = {

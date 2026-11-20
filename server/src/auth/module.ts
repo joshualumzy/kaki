@@ -2,16 +2,16 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
 import { isObject, MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
-import type { ClientAudience } from '../hub';
-import { clientAddress, publicUrlIsHttps, type Principal } from '../access';
-import { readJsonBody, sendJson } from '../http';
-import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
+import type { ClientAudience } from '../core/hub';
+import { clientAddress, publicUrlIsHttps, type Principal } from '../http/access';
+import { readJsonBody, sendJson } from '../http/http';
+import { createAttemptLimiter, type AttemptLimiter } from '../http/attemptLimiter';
 import {
   MEETING_CODE_FAILURE_LIMIT,
   MEETING_CODE_RATE_LIMIT_MESSAGE,
   MEETING_CODE_WINDOW_MS,
   type MeetingCodeSource,
-} from '../meetingCode';
+} from '../meeting/meetingCode';
 import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } from './cookie';
 import { hashPassword, hashToken, verifyPassword } from './password';
 import { createPostgresAuthStore } from './postgres';

@@ -2,9 +2,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { defaultMeetingSetup, type KakiEvent, type MeetingSetup, type Task } from '@kaki/shared';
 import { createApp, type CreateAppOptions } from '../../src/app';
 import { createMeetingModule } from '../../src/host/meeting';
-import { loadScenario } from '../../src/loadScenario';
-import { createFakeLlm } from '../../src/llm';
-import { createMeetingCodeSource } from '../../src/meetingCode';
+import { loadScenario } from '../../src/core/loadScenario';
+import { createFakeLlm } from '../../src/services/llm';
+import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import {
   assertCompatibleSavedMeeting,
@@ -422,7 +422,7 @@ describe('meeting persistence across a restart', () => {
       id: 'task-restored',
       title: 'Keep the plan',
       context: 'From before the restart.',
-      suggestedAssignee: 'producer',
+      suggestedAssignee: 'operations_director',
       status: 'SUGGESTED',
       updatedAt: '2026-01-01T00:00:20.000Z',
     };
@@ -454,7 +454,7 @@ describe('meeting persistence across a restart', () => {
     const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'test-room', participantName: 'Visitor', participantRole: 'producer' }),
+      body: JSON.stringify({ roomName: 'test-room', participantName: 'Visitor', participantRole: 'operations_director' }),
     });
     expect(response.status).toBe(200);
     const joined = (await response.json()) as { resumed?: boolean };

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
 import { buildIcs, createCalendarModule, formatBody, parseBody, parseEvents, upcomingDays, viewEvent, type CalendarModuleOptions, type CalendarSettings } from '../../src/action/calendar';
-import type { Hub } from '../../src/hub';
-import { createFakeLlm } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import { createFakeLlm } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { waitFor } from '../helpers';
 

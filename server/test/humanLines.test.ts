@@ -13,9 +13,9 @@ import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
-import { createFakeLlm } from '../src/llm';
-import { loadScenario } from '../src/loadScenario';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import { createFakeLlm } from '../src/services/llm';
+import { loadScenario } from '../src/core/loadScenario';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { portOf, settle, waitFor } from './helpers';
 import { testScenario } from './fixtures/scenario';
 
@@ -38,10 +38,10 @@ function twoPersonSetup(pack: Scenario): MeetingSetup {
   return {
     ...defaultMeetingSetup(pack),
     title: 'Opening huddle',
-    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'producer' }],
+    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' }],
     seats: [
-      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
-      { displayName: 'Arjun', roleId: 'lead_programmer', kind: 'person' },
+      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Arjun', roleId: 'tech_pos_lead', kind: 'person' },
     ],
     pace: { ...DEFAULT_MEETING_PACE },
   };
@@ -97,7 +97,7 @@ async function seatTwoPeople(app: KakiApp, port: number, setup?: MeetingSetup): 
   const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'producer' }),
+    body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'operations_director' }),
   });
   expect(first.status).toBe(200);
   const code = ((await first.json()) as { meetingCode: string }).meetingCode;
@@ -107,7 +107,7 @@ async function seatTwoPeople(app: KakiApp, port: number, setup?: MeetingSetup): 
     body: JSON.stringify({
       roomName: 'room',
       participantName: 'Ben',
-      participantRole: 'lead_programmer',
+      participantRole: 'tech_pos_lead',
       meetingCode: code,
     }),
   });
@@ -149,12 +149,12 @@ describe('human-only meetings record people\'s lines', () => {
   it('writes speech and typed lines with the admitted person\'s name, sets the seat as role metadata, feeds the notetaker, and dedupes', async () => {
     const { port, llm } = await humanOnlyMeeting();
     const screen = await connect(port, 'screen');
-    const producer = await connect(port, 'producer');
-    const programmer = await connect(port, 'lead_programmer');
-    if (!screen.ok || !producer.ok || !programmer.ok) throw new Error('sockets did not open');
-    sockets.push(screen.ws, producer.ws, programmer.ws);
+    const operations_director = await connect(port, 'operations_director');
+    const programmer = await connect(port, 'tech_pos_lead');
+    if (!screen.ok || !operations_director.ok || !programmer.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, operations_director.ws, programmer.ws);
 
-    producer.ws.send(humanLine('I checked the front counter this morning.', 'line-1'));
+    operations_director.ws.send(humanLine('I checked the front counter this morning.', 'line-1'));
     // A spoofed speaker field must never decide who said it.
     programmer.ws.send(
       JSON.stringify({
@@ -166,8 +166,8 @@ describe('human-only meetings record people\'s lines', () => {
       }),
     );
     // A retry with the same id is the same line, not a second one.
-    producer.ws.send(humanLine('The queue was out the door.', 'line-3'));
-    producer.ws.send(humanLine('The queue was out the door.', 'line-3'));
+    operations_director.ws.send(humanLine('The queue was out the door.', 'line-3'));
+    operations_director.ws.send(humanLine('The queue was out the door.', 'line-3'));
 
     await waitFor(
       () => screen.messages.filter((event) => event.type === 'TRANSCRIPT_CHUNK').length >= 3 ? true : undefined,
@@ -181,9 +181,9 @@ describe('human-only meetings record people\'s lines', () => {
     expect(lines).toHaveLength(3);
     expect(lines.map((line) => [line.payload.speaker, line.payload.speakerRole, line.payload.text])).toEqual(
       expect.arrayContaining([
-        ['Alice', 'producer', 'I checked the front counter this morning.'],
-        ['Ben', 'lead_programmer', 'The laptop campers bought one kopi each.'],
-        ['Alice', 'producer', 'The queue was out the door.'],
+        ['Alice', 'operations_director', 'I checked the front counter this morning.'],
+        ['Ben', 'tech_pos_lead', 'The laptop campers bought one kopi each.'],
+        ['Alice', 'operations_director', 'The queue was out the door.'],
       ]),
     );
 
@@ -216,7 +216,7 @@ describe('human-only meetings record people\'s lines', () => {
     const first = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'producer' }),
+      body: JSON.stringify({ roomName: 'room', participantName: 'Alice', participantRole: 'operations_director' }),
     });
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
     await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
@@ -225,17 +225,17 @@ describe('human-only meetings record people\'s lines', () => {
       body: JSON.stringify({
         roomName: 'room',
         participantName: 'Ben',
-        participantRole: 'lead_programmer',
+        participantRole: 'tech_pos_lead',
         meetingCode: code,
       }),
     });
-    const producer = await connect(port, 'producer');
-    if (!producer.ok) throw new Error('producer socket did not open');
-    sockets.push(producer.ws);
+    const operations_director = await connect(port, 'operations_director');
+    if (!operations_director.ok) throw new Error('operations_director socket did not open');
+    sockets.push(operations_director.ws);
 
-    producer.ws.send(humanLine('Too early.', 'lobby-line'));
+    operations_director.ws.send(humanLine('Too early.', 'lobby-line'));
     const lobby = await waitFor(
-      () => producer.messages.find((event) => event.type === 'COMMAND_REJECTED'),
+      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED'),
       'a lobby rejection',
     );
     expect(lobby).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: 'The meeting is not running' } });
@@ -256,9 +256,9 @@ describe('human-only meetings record people\'s lines', () => {
     screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
     await waitFor(() => (app.session.phase() === 'ended' ? true : undefined), 'the meeting to end');
 
-    producer.ws.send(humanLine('Too late.', 'ended-line'));
+    operations_director.ws.send(humanLine('Too late.', 'ended-line'));
     const ended = await waitFor(
-      () => producer.messages.find((event) => event.type === 'COMMAND_REJECTED' && event.payload.reason === 'The meeting is not running'),
+      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED' && event.payload.reason === 'The meeting is not running'),
       'an ended rejection',
     );
     expect(ended).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: 'The meeting is not running' } });
@@ -270,21 +270,21 @@ describe('a renamed person seat keeps its role', () => {
     const pack = await loadScenario('kopitiam');
     const setup = twoPersonSetup(pack);
     setup.seats = setup.seats.map((seat) =>
-      seat.roleId === 'producer' ? { ...seat, displayName: 'Alice Tan' } : seat,
+      seat.roleId === 'operations_director' ? { ...seat, displayName: 'Alice Tan' } : seat,
     );
     const { port, llm } = await humanOnlyMeeting({ setup });
     const screen = await connect(port, 'screen');
-    const producer = await connect(port, 'producer');
-    if (!screen.ok || !producer.ok) throw new Error('sockets did not open');
-    sockets.push(screen.ws, producer.ws);
+    const operations_director = await connect(port, 'operations_director');
+    if (!screen.ok || !operations_director.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, operations_director.ws);
 
-    producer.ws.send(humanLine('I checked the front counter this morning.', 'renamed-line'));
+    operations_director.ws.send(humanLine('I checked the front counter this morning.', 'renamed-line'));
     const line = await waitFor(
       () => screen.messages.find((event) => event.type === 'TRANSCRIPT_CHUNK'),
       'the renamed seat transcript line',
     );
     expect(line).toMatchObject({
-      payload: { speaker: 'Alice', speakerRole: 'producer', text: 'I checked the front counter this morning.' },
+      payload: { speaker: 'Alice', speakerRole: 'operations_director', text: 'I checked the front counter this morning.' },
     });
 
     const record = await waitFor(
@@ -292,18 +292,18 @@ describe('a renamed person seat keeps its role', () => {
         screen.messages.find(
           (event) =>
             event.type === 'MEETING_RECORD_UPDATED' &&
-            (event.payload.speakerTalkSeconds.producer ?? 0) >= 1,
+            (event.payload.speakerTalkSeconds.operations_director ?? 0) >= 1,
         ),
       'talk time for the renamed seat',
     );
-    expect(record).toMatchObject({ payload: { speakerTalkSeconds: { producer: expect.any(Number) } } });
+    expect(record).toMatchObject({ payload: { speakerTalkSeconds: { operations_director: expect.any(Number) } } });
 
-    const producerLabel = pack.roles.find((role) => role.id === 'producer')?.label;
-    expect(producerLabel).toBeDefined();
+    const operationsDirectorLabel = pack.roles.find((role) => role.id === 'operations_director')?.label;
+    expect(operationsDirectorLabel).toBeDefined();
     await waitFor(
       () =>
         llm.calls.some((messages) =>
-          messages.some((message) => message.content.includes(`Alice (${producerLabel})`)),
+          messages.some((message) => message.content.includes(`Alice (${operationsDirectorLabel})`)),
         )
           ? true
           : undefined,
@@ -351,18 +351,18 @@ describe('speech recording needs the runner when recognition is server-side', ()
 describe('human lines are bounded, rate limited and deduped per seat', () => {
   it('refuses typed and speech lines beyond their caps with a clear reason', async () => {
     const { port } = await humanOnlyMeeting();
-    const producer = await connect(port, 'producer');
-    if (!producer.ok) throw new Error('producer socket did not open');
-    sockets.push(producer.ws);
+    const operations_director = await connect(port, 'operations_director');
+    if (!operations_director.ok) throw new Error('operations_director socket did not open');
+    sockets.push(operations_director.ws);
 
-    producer.ws.send(humanLine('x'.repeat(501), 'too-long-typed'));
+    operations_director.ws.send(humanLine('x'.repeat(501), 'too-long-typed'));
     const typed = await waitFor(
-      () => producer.messages.find((event) => event.type === 'COMMAND_REJECTED'),
+      () => operations_director.messages.find((event) => event.type === 'COMMAND_REJECTED'),
       'the long typed line refusal',
     );
     expect(typed).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: expect.stringMatching(/too long/i) } });
 
-    producer.ws.send(
+    operations_director.ws.send(
       JSON.stringify({
         type: 'HUMAN_LINE',
         text: 'y'.repeat(2_001),
@@ -372,7 +372,7 @@ describe('human lines are bounded, rate limited and deduped per seat', () => {
     );
     await waitFor(
       () =>
-        producer.messages.filter(
+        operations_director.messages.filter(
           (event) => event.type === 'COMMAND_REJECTED' && /too long/i.test(event.payload.reason),
         ).length >= 2
           ? true
@@ -384,12 +384,12 @@ describe('human lines are bounded, rate limited and deduped per seat', () => {
   it('refuses a burst from one seat while another seat keeps its own dedupe memory', async () => {
     const { port } = await humanOnlyMeeting();
     const screen = await connect(port, 'screen');
-    const producer = await connect(port, 'producer');
-    const programmer = await connect(port, 'lead_programmer');
-    if (!screen.ok || !producer.ok || !programmer.ok) throw new Error('sockets did not open');
-    sockets.push(screen.ws, producer.ws, programmer.ws);
+    const operations_director = await connect(port, 'operations_director');
+    const programmer = await connect(port, 'tech_pos_lead');
+    if (!screen.ok || !operations_director.ok || !programmer.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, operations_director.ws, programmer.ws);
 
-    producer.ws.send(humanLine('A line from the producer.', 'shared-id'));
+    operations_director.ws.send(humanLine('A line from the operations_director.', 'shared-id'));
     programmer.ws.send(humanLine('A line from the programmer.', 'shared-id'));
     await waitFor(
       () => screen.messages.filter((event) => event.type === 'TRANSCRIPT_CHUNK').length >= 2 ? true : undefined,
@@ -397,11 +397,11 @@ describe('human lines are bounded, rate limited and deduped per seat', () => {
     );
 
     for (let index = 0; index < 6; index += 1) {
-      producer.ws.send(humanLine(`Burst line ${index}.`, `burst-${index}`));
+      operations_director.ws.send(humanLine(`Burst line ${index}.`, `burst-${index}`));
     }
     const refused = await waitFor(
       () =>
-        producer.messages.find(
+        operations_director.messages.find(
           (event) => event.type === 'COMMAND_REJECTED' && /Too many lines/i.test(event.payload.reason),
         ),
       'the per-seat rate-limit refusal',
@@ -417,7 +417,7 @@ describe('human lines are not held for a human-only meeting but are held with an
     const humanTask = human.app.tasks.suggest({
       title: 'Post the opening checklist',
       context: 'The room agreed on the opening checklist.',
-      suggestedAssignee: 'producer',
+      suggestedAssignee: 'operations_director',
       actionKind: 'mattermost_post',
       agendaItemTitle: 'Opening checklist',
     });
@@ -449,7 +449,7 @@ describe('human lines are not held for a human-only meeting but are held with an
     const joined = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomName: 'room', participantName: 'Booth Playtest', participantRole: 'lead_programmer' }),
+      body: JSON.stringify({ roomName: 'room', participantName: 'Booth Playtest', participantRole: 'tech_pos_lead' }),
     });
     const joinedBody = await joined.json().catch(() => undefined);
     expect(joined.status, JSON.stringify(joinedBody)).toBe(200);
@@ -459,7 +459,7 @@ describe('human lines are not held for a human-only meeting but are held with an
     const aiTask = app.tasks.suggest({
       title: 'Send the breakfast seat sign',
       context: 'The room agreed on the seat crunch.',
-      suggestedAssignee: 'lead_programmer',
+      suggestedAssignee: 'tech_pos_lead',
       actionKind: 'mattermost_post',
       agendaItemTitle: pack.agenda[2]!.title,
     });

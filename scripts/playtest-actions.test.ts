@@ -9,7 +9,7 @@ import {
   type ActableTask,
 } from './playtest-actions';
 
-const task = (id: string, status: string, assignee = 'producer'): ActableTask => ({
+const task = (id: string, status: string, assignee = 'operations_director'): ActableTask => ({
   id, title: `Card ${id}`, status, assignee,
 });
 
@@ -36,10 +36,10 @@ describe('robot speaker identity', () => {
 describe('next robot task action', () => {
   it('claims a dispatched card assigned to the robot role, ignoring other roles and cards', () => {
     const tasks = [task('s', 'SUGGESTED'), task('d', 'DISPATCHED'), task('o', 'DISPATCHED', 'designer')];
-    expect(nextRobotTaskAction(tasks, 'producer', new Set(), new Set())).toMatchObject({
+    expect(nextRobotTaskAction(tasks, 'operations_director', new Set(), new Set())).toMatchObject({
       step: 'claim', task: { id: 'd' },
     });
-    expect(nextRobotTaskAction(tasks, 'producer', new Set(['d']), new Set())).toBeUndefined();
+    expect(nextRobotTaskAction(tasks, 'operations_director', new Set(['d']), new Set())).toBeUndefined();
     expect(nextRobotTaskAction(tasks, 'designer', new Set(), new Set())).toMatchObject({
       step: 'claim', task: { id: 'o' },
     });
@@ -47,15 +47,15 @@ describe('next robot task action', () => {
 
   it('approves a drafted card that was claimed and not yet approved', () => {
     const tasks = [task('d', 'DRAFT_READY')];
-    expect(nextRobotTaskAction(tasks, 'producer', new Set(['d']), new Set())).toMatchObject({
+    expect(nextRobotTaskAction(tasks, 'operations_director', new Set(['d']), new Set())).toMatchObject({
       step: 'approve', task: { id: 'd' },
     });
-    expect(nextRobotTaskAction(tasks, 'producer', new Set(['d']), new Set(['d']))).toBeUndefined();
+    expect(nextRobotTaskAction(tasks, 'operations_director', new Set(['d']), new Set(['d']))).toBeUndefined();
   });
 
   it('claims before approving when both are pending', () => {
     const tasks = [task('ready', 'DRAFT_READY'), task('fresh', 'DISPATCHED')];
-    expect(nextRobotTaskAction(tasks, 'producer', new Set(['ready']), new Set())).toMatchObject({
+    expect(nextRobotTaskAction(tasks, 'operations_director', new Set(['ready']), new Set())).toMatchObject({
       step: 'claim', task: { id: 'fresh' },
     });
   });

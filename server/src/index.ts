@@ -4,8 +4,8 @@ import { actionModules, calendarFromEnv, logMissingActionConfig } from './action
 import { createApp } from './app';
 import { createAuthFromEnv } from './auth/module';
 import { createHostModules } from './host';
-import { loadScenario } from './loadScenario';
-import { createMeetingCodeSource } from './meetingCode';
+import { loadScenario } from './core/loadScenario';
+import { createMeetingCodeSource } from './meeting/meetingCode';
 import { createMeetingPersistenceFromEnv } from './persist/persistence';
 import { wingmanModules } from './wingman';
 

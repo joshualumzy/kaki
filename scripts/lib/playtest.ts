@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { errorMessage } from '@kaki/shared';
-import { LlmError } from '../../server/src/llm';
+import { LlmError } from '../../server/src/services/llm';
 
 export { errorMessage };
 

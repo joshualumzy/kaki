@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scenario, SuggestInput } from '@kaki/shared';
-import type { ChatMessage } from '../../src/llm';
+import type { ChatMessage } from '../../src/services/llm';
 import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import type { GuestReaderInput, GuestReading } from '../../src/npc/guestReader';
@@ -17,9 +17,9 @@ const scenario: Scenario = {
     { id: 'host', label: 'Host' },
   ],
   attendees: [
-    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
-    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
-    { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' },
+    { name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' },
+    { name: 'Bao', role: 'cashier', displayName: 'Bao (Cashier)' },
+    { name: 'Sam', role: 'host', displayName: 'Sam (Host)' },
   ],
   npcs: [
     { attendee: 'Sam', voice: 'v0', role: 'host', personality: 'Calm', agenda: 'Keep time', concerns: [] },

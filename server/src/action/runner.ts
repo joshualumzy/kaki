@@ -1,6 +1,6 @@
 import { errorMessage, type ActionDraft, type ActionKind, type MeetingMemoryEntry, type Scenario, type Task, type TaskStatus } from '@kaki/shared';
-import type { KakiContext, KakiModule } from '../modules';
-import type { TaskStore } from '../tasks';
+import type { KakiContext, KakiModule } from '../core/modules';
+import type { TaskStore } from '../meeting/tasks';
 import { withActionFooter } from './footer';
 
 /** An expected action failure whose message can go straight onto the task. */
@@ -18,12 +18,9 @@ interface ActionModuleOptions {
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
 
-/** The readable text of anything thrown. */
-export const messageOf = errorMessage;
-
 /** The error in plain words for a person: a connection failure says what to do, with the technical detail after it. */
 export function plainReason(error: unknown, service: string): string {
-  const raw = messageOf(error);
+  const raw = errorMessage(error);
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|fetch failed/i.test(`${raw} ${cause}`)) {
     return `${service} is not answering. Check that it is running, then press Retry. (${cause === '' ? raw : `${raw}: ${cause}`})`;
@@ -120,7 +117,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             result = await draft(task, shutdown.signal, activeScenario(), visitorFor(task), memory);
           } catch (error) {
-            fail(task, messageOf(error));
+            fail(task, errorMessage(error));
             return;
           }
           if (!isCurrent(task)) return;
@@ -151,7 +148,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task));
           } catch (error) {
-            fail(task, messageOf(error));
+            fail(task, errorMessage(error));
             return;
           }
           if (!isCurrent(task)) return;

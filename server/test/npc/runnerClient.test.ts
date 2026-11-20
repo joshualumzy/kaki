@@ -4,7 +4,7 @@ import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashPassword } from '../../src/auth/password';
 import { createMemoryAuthStore } from '../../src/auth/store';
-import { createMeetingCodeSource } from '../../src/meetingCode';
+import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { testScenario } from '../fixtures/scenario';
 import { portOf } from '../helpers';

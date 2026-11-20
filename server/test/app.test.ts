@@ -2,8 +2,8 @@ import { createServer, request as httpRequest } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createApp } from '../src/app';
-import { CommandError } from '../src/hub';
-import { loadScenario } from '../src/loadScenario';
+import { CommandError } from '../src/core/hub';
+import { loadScenario } from '../src/core/loadScenario';
 import { createTestApp, connectClient, portOf, settle, waitFor, waitForEvent, type TestClient } from './helpers';
 import { testScenario } from './fixtures/scenario';
 import { createAgendaClock } from '../src/host/clock';
@@ -567,11 +567,11 @@ describe('app', () => {
     const scenario = await loadScenario('kopitiam');
     expect(scenario.id).toBe('kopitiam');
     expect(scenario.roles.map((role) => role.id)).toEqual([
-      'producer',
-      'lead_programmer',
-      'game_designer',
+      'operations_director',
+      'tech_pos_lead',
+      'menu_store_lead',
       'marketing_lead',
-      'studio_manager',
+      'general_manager',
     ]);
     expect(scenario.agenda).toHaveLength(5);
     expect(scenario.excludedPairs).toHaveLength(2);
@@ -607,7 +607,7 @@ describe('app', () => {
   it('keeps the shipped Auntie Mary facts to what the records say', async () => {
     const scenario = await loadScenario('kopitiam');
     const noShow = scenario.agenda.find((item) => item.title === 'One counter staff short for the opening rush');
-    const fact = noShow?.seatFacts?.producer ?? '';
+    const fact = noShow?.seatFacts?.operations_director ?? '';
     expect(fact).toContain('rest day');
     expect(fact).toContain('double pay');
     expect(fact).toContain('free to say no');
@@ -648,7 +648,7 @@ describe('rejoining an empty meeting', () => {
   }
 
   async function firstJoinAndTask(app: Awaited<ReturnType<typeof startApp>>) {
-    const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+    const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
     expect(first.status).toBe(200);
     const { meetingCode } = (await first.json()) as { meetingCode: string };
     const agenda = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/scenario`)).json()) as {
@@ -656,7 +656,7 @@ describe('rejoining an empty meeting', () => {
     };
     // Sam's opening is what marks the meeting as begun; a task card alone does not.
     app.hub.publish({ type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' }, payload: { kind: 'OPENING', text: 'Welcome.' } });
-    const task = app.tasks.suggest({ title: 'Keep the plan', context: 'From this meeting', suggestedAssignee: 'producer' });
+    const task = app.tasks.suggest({ title: 'Keep the plan', context: 'From this meeting', suggestedAssignee: 'operations_director' });
     await settle();
     return { meetingCode, agenda, task };
   }
@@ -670,7 +670,7 @@ describe('rejoining an empty meeting', () => {
       const resetsBefore = resetCount(screen);
 
       // The room is empty to LiveKit, but no poll has run yet: this is the 0.1 s rejoin race.
-      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(back.status).toBe(200);
       const resumed = (await back.json()) as { meetingCode: string; resumed?: boolean };
       expect(resumed.meetingCode).toBe(meetingCode);
@@ -692,14 +692,14 @@ describe('rejoining an empty meeting', () => {
   it('keeps the Start prompt (resumed: false) when the same person returns before the meeting has begun', async () => {
     const app = await startApp(60_000);
     try {
-      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(first.status).toBe(200);
       const { meetingCode } = (await first.json()) as { meetingCode: string };
       // A task card or record heartbeat before Start must not count as the meeting having begun.
-      app.tasks.suggest({ title: 'Early card', context: 'Before Start', suggestedAssignee: 'producer' });
+      app.tasks.suggest({ title: 'Early card', context: 'Before Start', suggestedAssignee: 'operations_director' });
       await settle();
 
-      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(back.status).toBe(200);
       const rejoined = (await back.json()) as { meetingCode: string; resumed?: boolean };
       expect(rejoined.meetingCode).toBe(meetingCode);
@@ -712,10 +712,10 @@ describe('rejoining an empty meeting', () => {
   it('does not let speech or a transcript before Start change admission', async () => {
     const app = await startApp(60_000);
     try {
-      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(first.status).toBe(200);
       const { meetingCode } = (await first.json()) as { meetingCode: string };
-      const kept = app.tasks.suggest({ title: 'Keep me', context: 'Before Start', suggestedAssignee: 'producer' });
+      const kept = app.tasks.suggest({ title: 'Keep me', context: 'Before Start', suggestedAssignee: 'operations_director' });
       app.hub.publish({
         type: 'HOST_SPEECH_TRIGGERED',
         audience: { kind: 'screen' },
@@ -728,7 +728,7 @@ describe('rejoining an empty meeting', () => {
       });
       await settle();
 
-      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(back.status).toBe(200);
       const body = (await back.json()) as { meetingCode: string; resumed?: boolean };
       expect(body.meetingCode).toBe(meetingCode);
@@ -748,7 +748,7 @@ describe('rejoining an empty meeting', () => {
       const resetsBefore = resetCount(screen);
       await settle(50);
 
-      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(back.status).toBe(200);
       expect(((await back.json()) as { meetingCode: string }).meetingCode).toBe(meetingCode);
       expect(app.tasks.get(task.id)?.title).toBe('Keep the plan');
@@ -769,7 +769,7 @@ describe('rejoining an empty meeting', () => {
       const { meetingCode, task } = await firstJoinAndTask(app);
       const resetsBefore = resetCount(screen);
 
-      const next = await join(app, { participantName: 'Priya', participantRole: 'producer' });
+      const next = await join(app, { participantName: 'Priya', participantRole: 'operations_director' });
       expect(next.status).toBe(200);
       const fresh = (await next.json()) as { meetingCode: string; resumed?: boolean };
       expect(fresh.meetingCode).not.toBe(meetingCode);
@@ -787,11 +787,11 @@ describe('rejoining an empty meeting', () => {
     let people: Roster = [];
     const app = await startApp(60_000, { roster: () => people });
     try {
-      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const first = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(first.status).toBe(200);
-      people = [{ name: 'Booth Playtest', role: 'producer' }];
+      people = [{ name: 'Booth Playtest', role: 'operations_director' }];
 
-      const second = await join(app, { participantName: 'Priya', participantRole: 'producer' });
+      const second = await join(app, { participantName: 'Priya', participantRole: 'operations_director' });
       expect(second.status).toBe(409);
       expect(((await second.json()) as { error: string }).error).toMatch(/seat is taken/i);
     } finally {
@@ -809,7 +809,7 @@ describe('rejoining an empty meeting', () => {
 
       // The poll sees the empty room, then its grace expires before the person comes back.
       await settle(60);
-      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(back.status).toBe(200);
       expect(app.tasks.get(task.id)).toBeUndefined();
       await settle();
@@ -828,7 +828,7 @@ describe('rejoining an empty meeting', () => {
       const { task } = await firstJoinAndTask(app);
       const resetsBefore = resetCount(screen);
 
-      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'producer' });
+      const back = await join(app, { participantName: 'Booth Playtest', participantRole: 'operations_director' });
       expect(back.status).toBe(200);
       expect(app.tasks.get(task.id)).toBeUndefined();
       await settle();

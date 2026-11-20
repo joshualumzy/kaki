@@ -11,17 +11,17 @@ const scenario: Scenario = {
   organisation: 'Test Kopitiam',
   meetingTitle: 'Morning huddle',
   roles: [
-    { id: 'producer', label: 'Producer' },
-    { id: 'game_designer', label: 'Menu Lead' },
+    { id: 'operations_director', label: 'Producer' },
+    { id: 'menu_store_lead', label: 'Menu Lead' },
     { id: 'host', label: 'Host', facilitator: true },
   ],
   attendees: [
-    { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' },
-    { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
-    { name: 'Cy', role: 'host', zoomDisplayName: 'Cy' },
+    { name: 'Wei Ling', role: 'operations_director', displayName: 'Wei Ling' },
+    { name: 'Mei', role: 'menu_store_lead', displayName: 'Mei' },
+    { name: 'Cy', role: 'host', displayName: 'Cy' },
   ],
   agenda: [
-    { title: 'Service handover', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'producer' },
+    { title: 'Service handover', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'operations_director' },
   ],
   npcs: [
     {
@@ -54,15 +54,15 @@ const scenario: Scenario = {
 const draft: MeetingSetup = {
   title: 'Morning huddle',
   agenda: [
-    { id: 'agenda-1', title: 'Service handover', minutes: 5, ownerRoleId: 'producer' },
+    { id: 'agenda-1', title: 'Service handover', minutes: 5, ownerRoleId: 'operations_director' },
     { id: 'agenda-2', title: 'Opening plan', minutes: 10, ownerRoleId: 'host' },
   ],
   roles: [
-    { id: 'producer', label: 'Producer', facilitator: false },
+    { id: 'operations_director', label: 'Producer', facilitator: false },
     { id: 'host', label: 'Host', facilitator: true },
   ],
   seats: [
-    { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+    { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
     { displayName: 'Cy', roleId: 'host', kind: 'ai', npcProfileId: 'Cy' },
   ],
   pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
@@ -80,7 +80,7 @@ const importedDraft: MeetingSetup = {
   title: 'Kopitiam launch',
   agenda: [{ id: 'agenda-1', title: 'Launch checklist', minutes: 8, ownerRoleId: 'host' }],
   seats: [
-    { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+    { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
     { displayName: 'Cy', roleId: 'host', kind: 'person' },
   ],
   source: {
@@ -109,10 +109,10 @@ const blankDraft: MeetingSetup = {
 
 const twoPeopleOneAi: MeetingSetup = {
   ...draft,
-  roles: [...draft.roles, { id: 'game_designer', label: 'Menu Lead', facilitator: false }],
+  roles: [...draft.roles, { id: 'menu_store_lead', label: 'Menu Lead', facilitator: false }],
   seats: [
-    { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
-    { displayName: 'Mei', roleId: 'game_designer', kind: 'person' },
+    { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
+    { displayName: 'Mei', roleId: 'menu_store_lead', kind: 'person' },
     { displayName: 'Cy', roleId: 'host', kind: 'ai', npcProfileId: 'Cy' },
   ],
 };
@@ -221,7 +221,7 @@ describe('SetupPage', () => {
   it('renders the saved draft read-only with a source label for every section', async () => {
     installFetch(
       baseRoutes({
-        'GET /api/auth/me': () => reply({ authEnabled: true, kind: 'participant', role: 'producer' }),
+        'GET /api/auth/me': () => reply({ authEnabled: true, kind: 'participant', role: 'operations_director' }),
       }),
     );
     renderPage();
@@ -395,7 +395,7 @@ describe('SetupPage', () => {
   it('gives a participant the read-only draft and no action buttons', async () => {
     installFetch(
       baseRoutes({
-        'GET /api/auth/me': () => reply({ authEnabled: true, kind: 'participant', role: 'producer' }),
+        'GET /api/auth/me': () => reply({ authEnabled: true, kind: 'participant', role: 'operations_director' }),
       }),
     );
     renderPage();

@@ -3,8 +3,8 @@ import { toString as qrCodeSvg } from 'qrcode';
 import type { Scenario } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import { fetchWithTimeout } from '../net/withTimeout';
-import { clearAllStoredJoins } from '../demo/rejoinSession';
-import '../demo/demo.css';
+import { clearAllStoredJoins } from './room/rejoinSession';
+import './room/demo.css';
 
 const LOBBY_POLL_MS = 4_000;
 
@@ -29,7 +29,7 @@ async function errorOf(response: Response, fallback: string): Promise<string> {
   return typeof body?.error === 'string' ? body.error : `${fallback} (HTTP ${response.status})`;
 }
 
-function messageOf(reason: unknown, fallback: string): string {
+function reasonText(reason: unknown, fallback: string): string {
   return reason instanceof Error ? reason.message : fallback;
 }
 
@@ -95,7 +95,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
         } else if (codeResult.status === 'fulfilled') {
           problems.push(await errorOf(codeResult.value, 'Could not read the meeting code'));
         } else {
-          problems.push(messageOf(codeResult.reason, 'Could not read the meeting code'));
+          problems.push(reasonText(codeResult.reason, 'Could not read the meeting code'));
         }
 
         if (stateResult.status === 'fulfilled' && stateResult.value.ok) {
@@ -106,7 +106,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
         } else if (stateResult.status === 'fulfilled') {
           problems.push(await errorOf(stateResult.value, 'Could not read the meeting state'));
         } else {
-          problems.push(messageOf(stateResult.reason, 'Could not read the meeting state'));
+          problems.push(reasonText(stateResult.reason, 'Could not read the meeting state'));
         }
 
         if (peopleResult.status === 'fulfilled' && peopleResult.value.ok) {
@@ -117,7 +117,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
         } else if (peopleResult.status === 'fulfilled') {
           problems.push(await errorOf(peopleResult.value, 'Could not read who has joined'));
         } else {
-          problems.push(messageOf(peopleResult.reason, 'Could not read who has joined'));
+          problems.push(reasonText(peopleResult.reason, 'Could not read who has joined'));
         }
 
         if (cancelled) return;

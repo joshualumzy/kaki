@@ -1,10 +1,10 @@
-import { humanSeatRoles, isObject, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
-import type { ChatMessage, LlmClient } from '../llm';
-import type { KakiModule } from '../modules';
+import { errorMessage, humanSeatRoles, isObject, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
+import type { ChatMessage, LlmClient } from '../services/llm';
+import type { KakiModule } from '../core/modules';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MINUTES_DELAY_MS = 1_500;
@@ -254,7 +254,7 @@ export function createWikiModule({
     try {
       body = await response.json();
     } catch (error) {
-      throw wikiError(`The wiki reply is not valid JSON: ${messageOf(error)}`);
+      throw wikiError(`The wiki reply is not valid JSON: ${errorMessage(error)}`);
     }
     if (!isObject(body)) throw wikiError('The wiki reply is not valid JSON');
     if (Array.isArray(body.errors) && body.errors.length > 0) {
@@ -315,7 +315,7 @@ export function createWikiModule({
         );
       } catch (lookupError) {
         throw wikiError(
-          `${error.message} and could not be checked afterwards (${messageOf(lookupError)}); check the wiki for ${path} before retrying`,
+          `${error.message} and could not be checked afterwards (${errorMessage(lookupError)}); check the wiki for ${path} before retrying`,
         );
       }
       if (recent.pages.list.some((page) => page.path === path)) return undefined;
@@ -365,7 +365,7 @@ export function createWikiModule({
       try {
         reply = await llm.complete(messages, { json: true, signal });
       } catch (error) {
-        throw new ActionError(`Could not draft the page: ${messageOf(error)}`);
+        throw new ActionError(`Could not draft the page: ${errorMessage(error)}`);
       }
       const draft = parseDraft(reply);
       if (draft === undefined) throw new ActionError('The LLM did not return usable JSON with a title and body');
@@ -455,13 +455,13 @@ export function createWikiModule({
               });
               context.tasks.transition(minutesTask.id, 'DRAFT_READY');
             } catch (error) {
-              console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${messageOf(error)}`);
+              console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${errorMessage(error)}`);
               // The end-of-meeting card waits on this task: leave the failure visible on it, never
               // a panel stuck on "syncing".
               try {
                 const id = minutesTask?.id;
                 if (id !== undefined && context.tasks.get(id)?.status === 'CLAIMED') {
-                  context.tasks.transition(id, 'FAILED', { error: messageOf(error) });
+                  context.tasks.transition(id, 'FAILED', { error: errorMessage(error) });
                 }
               } catch (failure) {
                 console.error('kaki action-wiki: could not mark the minutes task failed', failure);

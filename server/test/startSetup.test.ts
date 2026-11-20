@@ -20,10 +20,10 @@ import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createMeetingModule } from '../src/host/meeting';
-import { loadScenario } from '../src/loadScenario';
-import type { KakiModule } from '../src/modules';
+import { loadScenario } from '../src/core/loadScenario';
+import type { KakiModule } from '../src/core/modules';
 import { createMeetingPersistence } from '../src/persist/persistence';
 import { MEETING_STATE_SCHEMA_VERSION, type MeetingStateStore, type StoredMeeting } from '../src/persist/state';
 import { connectClient, portOf, settle, waitFor, waitForEvent } from './helpers';
@@ -32,9 +32,9 @@ import { testScenario } from './fixtures/scenario';
 const packScenario: Scenario = {
   ...testScenario,
   attendees: [
-    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
-    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
-    { name: 'Cy', role: 'barista', zoomDisplayName: 'Cy (Barista)' },
+    { name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' },
+    { name: 'Bao', role: 'cashier', displayName: 'Bao (Cashier)' },
+    { name: 'Cy', role: 'barista', displayName: 'Cy (Barista)' },
   ],
   roles: [
     { id: 'chef', label: 'Chef' },
@@ -55,8 +55,8 @@ const topicScenario: Scenario = {
     { id: 'cashier', label: 'Cashier' },
   ],
   attendees: [
-    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
-    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
+    { name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' },
+    { name: 'Bao', role: 'cashier', displayName: 'Bao (Cashier)' },
   ],
   agenda: [
     {
@@ -85,20 +85,20 @@ function humanOnlySetup(pack: Scenario): MeetingSetup {
   return {
     ...defaultMeetingSetup(pack),
     title: 'Floor huddle',
-    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'producer' }],
+    agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'operations_director' }],
     seats: [
-      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
-      { displayName: 'Arjun', roleId: 'lead_programmer', kind: 'person' },
+      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Arjun', roleId: 'tech_pos_lead', kind: 'person' },
     ],
   };
 }
 
-/** The real pack's setup with the producer role wrongly marked as the facilitator. */
-function producerAsFacilitator(pack: Scenario): MeetingSetup {
+/** The real pack's setup with the operations_director role wrongly marked as the facilitator. */
+function operationsDirectorAsFacilitator(pack: Scenario): MeetingSetup {
   const setup = defaultMeetingSetup(structuredClone(pack));
-  const producer = setup.roles.find((role) => role.id === 'producer');
-  if (producer === undefined) throw new Error('Expected the producer role');
-  producer.facilitator = true;
+  const operations_director = setup.roles.find((role) => role.id === 'operations_director');
+  if (operations_director === undefined) throw new Error('Expected the operations_director role');
+  operations_director.facilitator = true;
   return setup;
 }
 
@@ -110,7 +110,7 @@ function storedMeetingWithSetup(setup: MeetingSetup, started: boolean): StoredMe
     draft: setup,
     draftTouched: true,
     ...(started ? { sealed: setup } : {}),
-    holders: [{ name: 'Wei Ling', seat: 'producer' }],
+    holders: [{ name: 'Wei Ling', seat: 'operations_director' }],
     meetingCode: 'ABC123',
     savedAt: '2026-01-01T00:05:00.000Z',
     ...(started ? { startedAt: '2026-01-01T00:00:00.000Z' } : {}),
@@ -449,7 +449,7 @@ describe('Start applies the validated setup', () => {
     expect(setup).toEqual(defaultMeetingSetup(pack));
     expect(setup.pace).toEqual(DEFAULT_MEETING_PACE);
 
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const shaped = structuredClone(await getScenario(app));
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
@@ -501,7 +501,7 @@ describe('Start applies the validated setup', () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
     await connectService(portOf(app));
-    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
 
     const chosen = structuredClone(await getScenario(app));
     expect(chosen.agenda).toHaveLength(2);
@@ -517,7 +517,7 @@ describe('Start applies the validated setup', () => {
       const scenario = await loadScenario('kopitiam');
       const app = await startApp(scenario);
       await connectService(portOf(app));
-      expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+      expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
 
       const picked = scenario.agenda.slice(0, 2);
       expect((await getScenario(app)).agenda.map((item) => item.title)).toEqual(
@@ -541,7 +541,7 @@ describe('Start applies the validated setup', () => {
       const scenario = await loadScenario('kopitiam');
       const app = await startApp(scenario);
       await connectService(portOf(app));
-      expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+      expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
       const picked = (await getScenario(app)).agenda.map((item) => item.title);
       expect(picked).toEqual([
         'One counter staff short for the opening rush',
@@ -569,7 +569,7 @@ describe('Start applies the validated setup', () => {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
       persistence: firstPersistence,
     });
-    expect((await join(first, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(first, 'Booth Playtest', 'operations_director')).status).toBe(200);
     const chosen = structuredClone(await getScenario(first));
     expect(chosen.agenda).toHaveLength(2);
     await firstPersistence.flush();
@@ -601,7 +601,7 @@ describe('Start applies the validated setup', () => {
       persistence: firstPersistence,
     });
     const service = await connectHeldService(portOf(first));
-    expect((await join(first, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(first, 'Booth Playtest', 'operations_director')).status).toBe(200);
     const chosen = structuredClone(await getScenario(first));
     expect(chosen.agenda).toHaveLength(2);
 
@@ -658,12 +658,12 @@ describe('Start applies the validated setup', () => {
         id: 'agenda-1',
         title: 'One counter staff short for the opening rush',
         minutes: 5,
-        ownerRoleId: 'producer',
+        ownerRoleId: 'operations_director',
       },
       { id: 'agenda-2', title: 'Delivery app commission squeeze', minutes: 4, ownerRoleId: 'marketing_lead' },
     ];
     expect((await putSetup(app, setup)).status).toBe(200);
-    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
 
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
@@ -683,7 +683,7 @@ describe('Start applies the validated setup', () => {
     const scenario = await loadScenario('kopitiam');
     const app = await startApp(scenario);
     await connectService(portOf(app));
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
 
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
@@ -922,7 +922,7 @@ describe('Start applies the validated setup', () => {
       modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
     });
     await connectService(portOf(app));
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const screen = await connectClient(portOf(app), 'screen');
     expect((await getScenario(app)).agenda).toHaveLength(2);
 
@@ -930,7 +930,7 @@ describe('Start applies the validated setup', () => {
     screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the New meeting reset');
     // A reset forgets its holders, so the person joins the new meeting before Start.
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const afterNew = structuredClone(await getScenario(app));
     expect(afterNew.agenda).toHaveLength(2);
     expect(afterNew.agenda.every((item) => pack.agenda.some((packItem) => packItem.title === item.title))).toBe(true);
@@ -942,7 +942,7 @@ describe('Start applies the validated setup', () => {
     screen.messages.length = 0;
     screen.ws.send(JSON.stringify({ type: 'END_MEETING', silent: true }));
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset after the end');
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const afterEnd = structuredClone(await getScenario(app));
     expect(afterEnd.agenda).toHaveLength(2);
     expect(await getSetup(app)).toEqual(defaultMeetingSetup(pack));
@@ -964,25 +964,25 @@ describe('Start applies the validated setup', () => {
     arjun.npcProfileId = 'Arjun';
     expect((await putSetup(app, setup)).status).toBe(200);
 
-    expect((await getScenario(app)).joinSeats).toEqual(['producer']);
-    const refused = await join(app, 'Guest', 'lead_programmer');
+    expect((await getScenario(app)).joinSeats).toEqual(['operations_director']);
+    const refused = await join(app, 'Guest', 'tech_pos_lead');
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({
       error: "This meeting's setup has no place for Tech & POS Lead; the owner set the seats.",
     });
-    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
   });
 
   it('still refuses a visitor named like a character after another person took that seat', async () => {
     const app = await startApp(await loadScenario('kopitiam'), { admissionReservationMs: 0 });
     await connectService(portOf(app));
-    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     expect((await getSetup(app)).seats).toContainEqual(
       expect.objectContaining({ displayName: 'Wei Ling', kind: 'person' }),
     );
 
-    const refused = await join(app, 'Wei Ling', 'lead_programmer');
+    const refused = await join(app, 'Wei Ling', 'tech_pos_lead');
     expect(refused.status).toBe(400);
     expect(((await refused.json()) as { error?: string }).error).toMatch(/AI attendee/);
   });
@@ -991,7 +991,7 @@ describe('Start applies the validated setup', () => {
     const scenario = await loadScenario('kopitiam');
     const pack = structuredClone(scenario);
     const app = await startApp(scenario);
-    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
     const before = structuredClone(await getScenario(app));
 
     const pair = pack.excludedPairs?.[0];
@@ -1029,14 +1029,14 @@ describe('Start applies the validated setup', () => {
     const pack = await loadScenario('kopitiam');
     const app = await startApp(pack);
     expect((await putSetup(app, humanOnlySetup(pack))).status).toBe(200);
-    expect((await getScenario(app)).joinSeats).toEqual(['producer', 'lead_programmer']);
+    expect((await getScenario(app)).joinSeats).toEqual(['operations_director', 'tech_pos_lead']);
 
-    const first = await join(app, 'Alice', 'producer');
+    const first = await join(app, 'Alice', 'operations_director');
     expect(first.status).toBe(200);
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
 
-    expect((await joinWithCode(app, 'Ben', 'lead_programmer', code)).status).toBe(200);
-    const third = await joinWithCode(app, 'Cara', 'producer', code);
+    expect((await joinWithCode(app, 'Ben', 'tech_pos_lead', code)).status).toBe(200);
+    const third = await joinWithCode(app, 'Cara', 'operations_director', code);
     expect(third.status).toBe(409);
     expect(((await third.json()) as { error: string }).error).toMatch(/seat is taken|full/i);
   });
@@ -1051,13 +1051,13 @@ describe('Start applies the validated setup', () => {
     expect(setup.seats.filter((seat) => seat.kind === 'ai').length).toBeGreaterThan(0);
     // A legacy or derived setup can name two people while the pack's AI stand-ins are still present.
     const scenario = meetingScenarioFromSetup(pack, setup);
-    expect(scenario.joinSeats).toEqual(['producer', 'lead_programmer']);
+    expect(scenario.joinSeats).toEqual(['operations_director', 'tech_pos_lead']);
     const app = await startApp(scenario);
 
-    const first = await join(app, 'Alice', 'producer');
+    const first = await join(app, 'Alice', 'operations_director');
     expect(first.status).toBe(200);
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    const second = await joinWithCode(app, 'Ben', 'lead_programmer', code);
+    const second = await joinWithCode(app, 'Ben', 'tech_pos_lead', code);
     expect(second.status).toBe(409);
     expect(((await second.json()) as { error: string }).error).toMatch(
       /Meetings with AI stand-ins take one person/,
@@ -1068,19 +1068,19 @@ describe('Start applies the validated setup', () => {
     const app = await startApp(await loadScenario('kopitiam'));
     await connectService(portOf(app));
     const setup = await getSetup(app);
-    const producer = setup.roles.find((role) => role.id === 'producer');
-    if (producer === undefined) throw new Error('Expected the producer role');
-    producer.label = 'Floor Lead';
+    const operations_director = setup.roles.find((role) => role.id === 'operations_director');
+    if (operations_director === undefined) throw new Error('Expected the operations_director role');
+    operations_director.label = 'Floor Lead';
     expect((await putSetup(app, setup)).status).toBe(200);
 
     // The offered seat keeps its canonical id, and the lobby shows the owner's label.
     const offered = await getScenario(app);
-    expect(offered.joinSeats).toEqual(['producer']);
-    expect(offered.roles.find((role) => role.id === 'producer')?.label).toBe('Floor Lead');
+    expect(offered.joinSeats).toEqual(['operations_director']);
+    expect(offered.roles.find((role) => role.id === 'operations_director')?.label).toBe('Floor Lead');
 
-    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
-    expect((await getScenario(app)).roles.find((role) => role.id === 'producer')?.label).toBe('Floor Lead');
+    expect((await getScenario(app)).roles.find((role) => role.id === 'operations_director')?.label).toBe('Floor Lead');
   });
 
   it('offers and seats a role added in setup, counting it toward capacity', async () => {
@@ -1089,16 +1089,16 @@ describe('Start applies the validated setup', () => {
     const setup = humanOnlySetup(pack);
     setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
     setup.seats = [
-      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
       { displayName: 'Runner One', roleId: 'runner', kind: 'person' },
     ];
     expect((await putSetup(app, setup)).status).toBe(200);
 
     const offered = await getScenario(app);
-    expect(offered.joinSeats).toEqual(['producer', 'runner']);
+    expect(offered.joinSeats).toEqual(['operations_director', 'runner']);
     expect(offered.roles.find((role) => role.id === 'runner')?.label).toBe('Runner');
 
-    const first = await join(app, 'Alice', 'producer');
+    const first = await join(app, 'Alice', 'operations_director');
     expect(first.status).toBe(200);
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
     expect((await joinWithCode(app, 'Bob', 'runner', code)).status).toBe(200);
@@ -1108,7 +1108,7 @@ describe('Start applies the validated setup', () => {
     expect((await startMeeting(app)).status).toBe(200);
     const active = await getScenario(app);
     expect(active.roles.find((role) => role.id === 'runner')?.label).toBe('Runner');
-    expect(active.joinSeats).toEqual(['producer', 'runner']);
+    expect(active.joinSeats).toEqual(['operations_director', 'runner']);
   });
 
   it('seats people in setup roles that the demo pack has never heard of', async () => {
@@ -1143,8 +1143,8 @@ describe('Start applies the validated setup', () => {
     expect(refused.status).toBe(400);
     const body = (await refused.json()) as { error: string };
     expect(body.error).toContain('"astronaut" is not a human seat');
-    expect(body.error).toContain('producer (Operations Director)');
-    expect(body.error).toContain('lead_programmer (Tech & POS Lead)');
+    expect(body.error).toContain('operations_director (Operations Director)');
+    expect(body.error).toContain('tech_pos_lead (Tech & POS Lead)');
   });
 
   it('refuses a role label where a role id is required', async () => {
@@ -1160,10 +1160,10 @@ describe('Start applies the validated setup', () => {
     const pack = await loadScenario('kopitiam');
     const app = await startApp(pack);
     expect((await putSetup(app, humanOnlySetup(pack))).status).toBe(200);
-    const first = await join(app, 'Alice', 'producer');
+    const first = await join(app, 'Alice', 'operations_director');
     expect(first.status).toBe(200);
     const code = ((await first.json()) as { meetingCode: string }).meetingCode;
-    expect((await joinWithCode(app, 'Ben', 'lead_programmer', code)).status).toBe(200);
+    expect((await joinWithCode(app, 'Ben', 'tech_pos_lead', code)).status).toBe(200);
 
     const started = await startMeeting(app);
     expect(started.status).toBe(200);
@@ -1454,7 +1454,7 @@ describe('Start applies the validated setup', () => {
     arjun.kind = 'ai';
     arjun.npcProfileId = 'Arjun';
     expect((await putSetup(first, setup)).status).toBe(200);
-    expect((await join(first, 'First Visitor', 'producer')).status).toBe(200);
+    expect((await join(first, 'First Visitor', 'operations_director')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
 
     const screen = await connectClient(portOf(first), 'screen');
@@ -1476,7 +1476,7 @@ describe('Start applies the validated setup', () => {
       persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
     });
     expect(await getSetup(restored)).toEqual(defaultMeetingSetup(pack));
-    expect((await join(restored, 'Second Visitor', 'lead_programmer')).status).toBe(200);
+    expect((await join(restored, 'Second Visitor', 'tech_pos_lead')).status).toBe(200);
   });
 
   it('keeps the ended meeting saved intact when the owner edits the next draft', async () => {
@@ -1588,13 +1588,13 @@ describe('Start applies the validated setup', () => {
     const pack = await loadScenario('kopitiam');
     // Let the join's seat reservation expire first: a live reservation keeps the holder on purpose.
     const app = await startApp(pack, { rejoinGraceMs: 20, rejoinPollMs: 5, admissionReservationMs: 20 });
-    expect((await join(app, 'Departed', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Departed', 'tech_pos_lead')).status).toBe(200);
     // The room poll sees the empty room and the short grace runs out; the holder is pruned.
     await new Promise((resolve) => setTimeout(resolve, 150));
     const setup = humanOnlySetup(pack);
     setup.seats = [
-      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
-      { displayName: 'Mei', roleId: 'game_designer', kind: 'person' },
+      { displayName: 'Wei Ling', roleId: 'operations_director', kind: 'person' },
+      { displayName: 'Mei', roleId: 'menu_store_lead', kind: 'person' },
     ];
     expect((await putSetup(app, setup)).status).toBe(200);
 
@@ -1613,7 +1613,7 @@ describe('Start applies the validated setup', () => {
       persistence: firstPersistence,
     });
     await connectService(portOf(first));
-    expect((await join(first, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(first, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
     const firstState = await meetingState(first);
 
@@ -1642,7 +1642,7 @@ describe('Start applies the validated setup', () => {
     expect(humanRoles(next).map((role) => role.id)).toEqual(
       expect.arrayContaining(pack.roles.filter((role) => role.facilitator !== true).map((role) => role.id)),
     );
-    expect((await join(restored, 'Second Visitor', 'producer')).status).toBe(200);
+    expect((await join(restored, 'Second Visitor', 'operations_director')).status).toBe(200);
   });
 
   it('returns an edited draft to untouched after Start and end, so the next visitor takes any human seat', async () => {
@@ -1662,7 +1662,7 @@ describe('Start applies the validated setup', () => {
     arjun.kind = 'ai';
     arjun.npcProfileId = 'Arjun';
     expect((await putSetup(app, setup)).status).toBe(200);
-    expect((await join(app, 'First Visitor', 'producer')).status).toBe(200);
+    expect((await join(app, 'First Visitor', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
 
     const screen = await connectClient(portOf(app), 'screen');
@@ -1676,7 +1676,7 @@ describe('Start applies the validated setup', () => {
 
     // The ended meeting's setup is consumed: the next arrival starts an untouched meeting.
     expect((await getScenario(app)).joinSeats).toBeUndefined();
-    expect((await join(app, 'Second Visitor', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Second Visitor', 'tech_pos_lead')).status).toBe(200);
     expect(await getSetup(app)).toEqual(defaultMeetingSetup(pack));
     expect((await getScenario(app)).joinSeats).toBeUndefined();
   });
@@ -1689,11 +1689,11 @@ describe('Start applies the validated setup', () => {
     const setup = await getSetup(app);
     setup.title = 'Friday huddle';
     expect((await putSetup(app, setup)).status).toBe(200);
-    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     const meetingId = (await meetingState(app)).meetingId;
 
-    const back = await join(app, 'Booth Playtest', 'producer');
+    const back = await join(app, 'Booth Playtest', 'operations_director');
     expect(back.status).toBe(200);
     expect(((await back.json()) as { resumed?: boolean }).resumed).toBe(true);
     expect((await meetingState(app)).meetingId).toBe(meetingId);
@@ -1701,7 +1701,7 @@ describe('Start applies the validated setup', () => {
 
   it('refuses Start when a joined person is not a person seat in the setup being sealed', async () => {
     const app = await startApp(await loadScenario('kopitiam'));
-    expect((await join(app, 'Booth Playtest', 'lead_programmer')).status).toBe(200);
+    expect((await join(app, 'Booth Playtest', 'tech_pos_lead')).status).toBe(200);
     const setup = await getSetup(app);
     const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
     const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
@@ -1724,14 +1724,14 @@ describe('Start applies the validated setup', () => {
     const pack = await loadScenario('kopitiam');
     const app = await startApp(pack);
     const setup = await getSetup(app);
-    const producerIndex = setup.roles.findIndex((role) => role.id === 'producer');
-    if (producerIndex < 0) throw new Error('Expected the producer role');
-    setup.roles[producerIndex]!.facilitator = true;
+    const operationsDirectorIndex = setup.roles.findIndex((role) => role.id === 'operations_director');
+    if (operationsDirectorIndex < 0) throw new Error('Expected the operations_director role');
+    setup.roles[operationsDirectorIndex]!.facilitator = true;
 
     const response = await putSetup(app, setup);
     expect(response.status).toBe(422);
     const body = (await response.json()) as { error?: string; errors?: Array<{ field: string; message: string }> };
-    expect(body.errors?.some((problem) => problem.field === `roles[${producerIndex}].facilitator`)).toBe(true);
+    expect(body.errors?.some((problem) => problem.field === `roles[${operationsDirectorIndex}].facilitator`)).toBe(true);
     expect(
       body.errors?.some(
         (problem) =>
@@ -1740,12 +1740,12 @@ describe('Start applies the validated setup', () => {
           /One counter staff short/.test(problem.message),
       ),
     ).toBe(true);
-    expect((await getSetup(app)).roles[producerIndex]!.facilitator).toBe(false);
+    expect((await getSetup(app)).roles[operationsDirectorIndex]!.facilitator).toBe(false);
   });
 
   it('refuses Start with a saved invalid setup as 422 rather than a server error', async () => {
     const pack = await loadScenario('kopitiam');
-    const setup = producerAsFacilitator(pack);
+    const setup = operationsDirectorAsFacilitator(pack);
     const saved = storedMeetingWithSetup(setup, false);
     const store = new MemoryStore();
     const app = await startApp(pack, {
@@ -1763,7 +1763,7 @@ describe('Start applies the validated setup', () => {
 
   it('refuses to boot a saved meeting whose setup describes a meeting that cannot run', async () => {
     const pack = await loadScenario('kopitiam');
-    const setup = producerAsFacilitator(pack);
+    const setup = operationsDirectorAsFacilitator(pack);
     const saved = storedMeetingWithSetup(setup, true);
     const store = new MemoryStore();
     const persistence = createMeetingPersistence({ store, saved, log: () => undefined });

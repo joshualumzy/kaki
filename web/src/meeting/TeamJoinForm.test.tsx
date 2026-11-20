@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TeamJoinForm } from './TeamJoinForm';
 
-vi.mock('../demo/MediaPreview', () => ({
+vi.mock('./room/MediaPreview', () => ({
   MediaPreview: ({
     value,
     onChange,
@@ -23,7 +23,7 @@ vi.mock('../demo/MediaPreview', () => ({
 }));
 
 const roles = [
-  { id: 'producer', label: 'Producer' },
+  { id: 'operations_director', label: 'Producer' },
   { id: 'marketing_lead', label: 'Marketing Lead' },
 ];
 
@@ -68,7 +68,7 @@ describe('TeamJoinForm', () => {
 
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Josh' } });
     fireEvent.click(screen.getByRole('button', { name: 'Join with mic' }));
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false }, 'ABCD');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'operations_director', { microphone: true, camera: false }, 'ABCD');
   });
 
   it('gives the owner no code box', () => {

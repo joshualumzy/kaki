@@ -706,7 +706,7 @@ function setupAttendees(scenario: Scenario, setup: MeetingSetup): Attendee[] {
     attendees.push({
       name,
       role: seat.roleId,
-      zoomDisplayName: pack?.zoomDisplayName ?? name,
+      displayName: pack?.displayName ?? name,
       ...(pack?.spokenJob === undefined ? {} : { spokenJob: pack.spokenJob }),
     });
   }

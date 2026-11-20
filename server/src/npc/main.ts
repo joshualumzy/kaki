@@ -1,9 +1,9 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
-import { llmFromEnv } from '../llm';
+import { llmFromEnv } from '../services/llm';
 import { isRunnerMeetingSnapshot, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
-import { loadScenario } from '../loadScenario';
+import { loadScenario } from '../core/loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { encodeWav } from './wav';

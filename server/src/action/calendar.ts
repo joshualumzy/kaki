@@ -1,10 +1,10 @@
-import { eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from '@kaki/shared';
-import type { ChatMessage, LlmClient } from '../llm';
-import type { KakiModule } from '../modules';
+import { errorMessage, eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from '@kaki/shared';
+import type { ChatMessage, LlmClient } from '../services/llm';
+import type { KakiModule } from '../core/modules';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, messageOf, plainReason } from './runner';
+import { ActionError, createActionModule, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -407,7 +407,7 @@ export function createCalendarModule({
       try {
         reply = await llm.complete(messages, { json: true, signal });
       } catch (error) {
-        throw new ActionError(`Could not draft the event: ${messageOf(error)}`);
+        throw new ActionError(`Could not draft the event: ${errorMessage(error)}`);
       }
       const draft = parseDraft(reply);
       if (draft === undefined) throw new ActionError('The LLM did not return usable JSON with a title and a start time');

@@ -6,7 +6,7 @@ import { SetupPage } from './setup/SetupPage';
 import { LandingPage } from './landing/LandingPage';
 import { OwnerMeetingPage } from './meeting/OwnerMeetingPage';
 import { ParticipantJoinPage } from './meeting/ParticipantJoinPage';
-import Meeting from './demo/Meeting';
+import Meeting from './meeting/room/Meeting';
 
 /** Load the scenario the current page needs: the practice pack on practice routes. */
 function ScenarioShell({ children }: { children: ReactNode }) {

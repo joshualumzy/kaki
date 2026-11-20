@@ -1,5 +1,5 @@
 import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
-import type { ChatMessage } from '../llm';
+import type { ChatMessage } from '../services/llm';
 import { cleanSpokenTopic, liveNextItemLine, liveWrapUpLine, spokenAgendaName } from '../host/opening';
 import { CardPointer, visitorCardPointerLine } from './cardPointer';
 import { buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';

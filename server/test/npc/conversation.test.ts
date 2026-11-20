@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChatMessage } from '../../src/llm';
+import type { ChatMessage } from '../../src/services/llm';
 import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { readGuestLine, type GuestReaderInput, type GuestReading } from '../../src/npc/guestReader';
@@ -142,7 +142,7 @@ function harness(
         : `${request.speaker}: How about we ${lower}?`;
     })(),
     ...optionOverrides });
-  conversation.setHuman({ name: 'Josh', role: 'producer', transcriptName: 'Ada (Chef)' });
+  conversation.setHuman({ name: 'Josh', role: 'operations_director', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
     await vi.advanceTimersByTimeAsync(0);
@@ -241,7 +241,7 @@ describe('one-speaker replies to the guest', () => {
   const withColleagueHost = (base: typeof scenario) => ({
     ...base,
     roles: [...base.roles, { id: 'host', label: 'Host' }],
-    attendees: [...base.attendees, { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' }],
+    attendees: [...base.attendees, { name: 'Sam', role: 'host', displayName: 'Sam (Host)' }],
     npcs: [
       ...base.npcs,
       { attendee: 'Sam', voice: 'v0', role: 'host' as const, personality: 'Calm', agenda: 'Keep time', concerns: [] },
@@ -598,7 +598,7 @@ describe('one-speaker replies to the guest', () => {
       ...scenario,
       npcs: [...scenario.npcs,
         { attendee: 'Cai', voice: 'v3', personality: 'Quiet', agenda: 'Open on time', concerns: [] }],
-      attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', zoomDisplayName: 'Cai' }],
+      attendees: [...scenario.attendees, { name: 'Cai', role: 'cashier', displayName: 'Cai' }],
     };
     const h = harness(withCai, 0);
     await h.say('Ada, let us check the till.');
@@ -1369,7 +1369,7 @@ describe('one-speaker replies to the guest', () => {
     const samHosted = {
       ...scenario,
       roles: [...scenario.roles, { id: 'host', label: 'Host' }],
-      attendees: [...scenario.attendees, { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' }],
+      attendees: [...scenario.attendees, { name: 'Sam', role: 'host', displayName: 'Sam (Host)' }],
       npcs: [...scenario.npcs,
         { attendee: 'Sam', role: 'host' as const, voice: 'v4', personality: 'Calm', agenda: 'Keep time', concerns: [] }],
     };
@@ -1600,7 +1600,7 @@ describe('robustness with real people', () => {
     const twoAis = {
       ...scenario,
       roles: [...scenario.roles, { id: 'host', label: 'Host' }],
-      attendees: [...scenario.attendees, { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' }],
+      attendees: [...scenario.attendees, { name: 'Sam', role: 'host', displayName: 'Sam (Host)' }],
       npcs: [
         { attendee: 'Sam', voice: 'v0', role: 'host' as const, personality: 'Calm', agenda: 'Keep time', concerns: [] },
         { attendee: 'Bao', voice: 'v2', personality: 'Chatty cashier', agenda: 'Fix queues', concerns: ['Lines'] },

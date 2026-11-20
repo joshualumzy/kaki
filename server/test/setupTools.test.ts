@@ -5,7 +5,7 @@ import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import type { EmailTransportFactory } from '../src/action/email';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createTestApp, portOf } from './helpers';
 
 const SECRETS = {

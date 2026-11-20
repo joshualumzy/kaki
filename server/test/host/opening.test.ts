@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveNextItemLine, liveOpeningLine, liveWrapUpLine, spokenAgendaName, topicSpeaker } from '../../src/host/opening';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { testScenario } from '../fixtures/scenario';
 
 describe('liveOpeningLine', () => {
@@ -103,8 +103,8 @@ describe('liveOpeningLine', () => {
       ],
       attendees: [
         ...testScenario.attendees,
-        { name: 'Sam', role: 'manager', zoomDisplayName: 'Sam', spokenJob: 'who runs the meeting' },
-        { name: 'Mei', role: 'runner', zoomDisplayName: 'Mei', spokenJob: 'on the floor' },
+        { name: 'Sam', role: 'manager', displayName: 'Sam', spokenJob: 'who runs the meeting' },
+        { name: 'Mei', role: 'runner', displayName: 'Mei', spokenJob: 'on the floor' },
       ],
     };
     const line = liveOpeningLine(scenario, { name: 'Visitor', seat: 'Bao' });
@@ -121,7 +121,7 @@ describe('topic handover', () => {
   const factScenario = {
     ...testScenario,
     roles: [...testScenario.roles, { id: 'manager', label: 'Manager', facilitator: true }],
-    attendees: [...testScenario.attendees, { name: 'Sam', role: 'manager', zoomDisplayName: 'Sam' }],
+    attendees: [...testScenario.attendees, { name: 'Sam', role: 'manager', displayName: 'Sam' }],
     agenda: [{
       ...testScenario.agenda[0]!,
       spoken: 'the prep gap',

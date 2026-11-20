@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spokenAgendaName } from '../../src/host/opening';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { silenceCheckInLine, silenceCheckInNote, silenceColleagueNote } from '../../src/npc/silence';
 
 describe('silence nudge stage 1', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Fact, KakiEvent, Scenario, SearchCompanyData } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
-import type { TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import type { TaskStore } from '../../src/meeting/tasks';
 import { createKnowledgeModule } from '../../src/wingman/knowledge/module';
 import { settle, waitFor } from '../helpers';
 
@@ -12,8 +12,8 @@ const scenario: Scenario = {
   roles: [
     { id: 'chef', label: 'Chef' },
     { id: 'cashier', label: 'Cashier' },
-    { id: 'game_designer', label: 'Game Designer' },
-    { id: 'producer', label: 'Producer' },
+    { id: 'menu_store_lead', label: 'Game Designer' },
+    { id: 'operations_director', label: 'Producer' },
   ],
   attendees: [],
   agenda: [
@@ -32,9 +32,9 @@ const wingmanScenario: Scenario = {
     { id: 'host', label: 'Host', facilitator: true },
   ],
   attendees: [
-    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada' },
-    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao' },
-    { name: 'Sam', role: 'host', zoomDisplayName: 'Sam' },
+    { name: 'Ada', role: 'chef', displayName: 'Ada' },
+    { name: 'Bao', role: 'cashier', displayName: 'Bao' },
+    { name: 'Sam', role: 'host', displayName: 'Sam' },
   ],
   agenda: [
     { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', decision: 'Do we prep early?' },
@@ -84,7 +84,7 @@ function fakeHub(): {
 
 function recordUpdate(
   questionId = 'q-quit',
-  forRole: 'game_designer' | 'producer' | null = 'game_designer',
+  forRole: 'menu_store_lead' | 'operations_director' | null = 'menu_store_lead',
   agendaIndex = 0,
   questionAgendaIndex = agendaIndex,
 ): KakiEvent {
@@ -154,11 +154,11 @@ describe('knowledge module', () => {
       await waitFor(() => fake.published.length > 0, 'the fact card');
       await settle();
 
-      expect(calls).toEqual(['Where do players quit?:game_designer']);
+      expect(calls).toEqual(['Where do players quit?:menu_store_lead']);
       expect(fake.published).toEqual([
         {
           type: 'FACT_FOUND',
-          audience: { kind: 'role', role: 'game_designer' },
+          audience: { kind: 'role', role: 'menu_store_lead' },
           payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact], agendaIndex: 0 },
         },
       ]);
@@ -173,7 +173,7 @@ describe('knowledge module', () => {
     const stop = start(async () => [fact], fake.hub);
 
     try {
-      fake.emit(recordUpdate('q-level-5', 'game_designer', 1));
+      fake.emit(recordUpdate('q-level-5', 'menu_store_lead', 1));
       await waitFor(() => fake.published.length > 0, 'the fact card');
 
       expect(fake.published[0]).toMatchObject({
@@ -266,7 +266,7 @@ describe('knowledge module', () => {
       expect(fake.published).toEqual([
         {
           type: 'NUDGE',
-          audience: { kind: 'role', role: 'game_designer' },
+          audience: { kind: 'role', role: 'menu_store_lead' },
           payload: { text: "Kaki's company search isn't working right now, so there is no record check for this question.", agendaIndex: 0 },
         },
       ]);
@@ -556,7 +556,7 @@ describe('knowledge module', () => {
       fake.emit(recordUpdate());
       await waitFor(() => fake.published.length === 1, 'the open-question fact card');
 
-      expect(search).toHaveBeenCalledWith('Where do players quit?', 'game_designer');
+      expect(search).toHaveBeenCalledWith('Where do players quit?', 'menu_store_lead');
       expect(fake.published[0]).toMatchObject({
         type: 'FACT_FOUND',
         payload: { questionId: 'q-quit', question: 'Where do players quit?', facts: [fact], agendaIndex: 0 },
@@ -573,7 +573,7 @@ describe('knowledge module', () => {
     const stop = start(search, fake.hub);
 
     try {
-      fake.emit(recordUpdate('q-early', 'game_designer', 1, 0));
+      fake.emit(recordUpdate('q-early', 'menu_store_lead', 1, 0));
       await settle();
 
       expect(search).not.toHaveBeenCalled();

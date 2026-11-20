@@ -3,7 +3,7 @@ import type { KakiEvent } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createMeetingModule, openingLine } from '../../src/host/meeting';
 import { liveOpeningLine } from '../../src/host/opening';
-import { createFakeLlm } from '../../src/llm';
+import { createFakeLlm } from '../../src/services/llm';
 import { testScenario } from '../fixtures/scenario';
 import { connectClient, createTestApp, portOf, settle, waitFor, waitForEvent, type TestClient } from '../helpers';
 
@@ -333,7 +333,7 @@ describe('host meeting module', () => {
         roles: [...testScenario.roles, { id: 'host', label: 'Host', facilitator: true }],
         attendees: [
           ...testScenario.attendees,
-          { name: 'Mia', role: 'host', zoomDisplayName: 'Mia (Host)' },
+          { name: 'Mia', role: 'host', displayName: 'Mia (Host)' },
         ],
       };
       app = await createApp({ speechRecognition: 'browser', scenario: hosted, modules: [createMeetingModule()] });

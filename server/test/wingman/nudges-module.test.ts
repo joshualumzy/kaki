@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { defaultMeetingSetup, type Fact, type KakiEvent, type MeetingPace, type Role, type Scenario, type SearchCompanyData } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
-import type { TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import type { TaskStore } from '../../src/meeting/tasks';
 import { createNudgeModule } from '../../src/wingman/nudges/module';
 import { settle, waitFor } from '../helpers';
 
@@ -10,16 +10,16 @@ const scenario: Scenario = {
   organisation: 'Test Kitchen',
   meetingTitle: 'Lunch service',
   roles: [
-    { id: 'lead_programmer', label: 'Lead Programmer' },
-    { id: 'game_designer', label: 'Game Designer' },
-    { id: 'producer', label: 'Producer' },
+    { id: 'tech_pos_lead', label: 'Lead Programmer' },
+    { id: 'menu_store_lead', label: 'Game Designer' },
+    { id: 'operations_director', label: 'Producer' },
     { id: 'marketing_lead', label: 'Marketing Lead' },
   ],
   attendees: [],
   agenda: [
-    { title: 'Build and bugs', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
-    { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'game_designer' },
-    { title: 'Publisher milestone', minutes: 8, canWait: false, deadline: 'before doors open at 8', ownerRole: 'producer' },
+    { title: 'Build and bugs', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'tech_pos_lead' },
+    { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'menu_store_lead' },
+    { title: 'Publisher milestone', minutes: 8, canWait: false, deadline: 'before doors open at 8', ownerRole: 'operations_director' },
   ],
 };
 
@@ -126,21 +126,21 @@ describe('nudge module', () => {
     const stop = start(search, fake.hub);
 
     try {
-      fake.emit(recordUpdate(0, 539, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 539, { tech_pos_lead: 300 }));
       await settle(20);
       expect(nudges(fake.published)).toEqual([]);
 
-      fake.emit(recordUpdate(0, 540, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 540, { tech_pos_lead: 300 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the coming-up nudge');
 
-      fake.emit(recordUpdate(0, 540, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 540, { tech_pos_lead: 300 }));
       await settle();
       expect(nudges(fake.published)).toHaveLength(1);
-      expect(calls).toEqual(['Level 5 difficulty and playtest feedback:game_designer']);
+      expect(calls).toEqual(['Level 5 difficulty and playtest feedback:menu_store_lead']);
       expect(fake.retainKeys).toEqual(['nudge:coming_up:1']);
       expect(nudges(fake.published)[0]).toEqual({
         type: 'NUDGE',
-        audience: { kind: 'role', role: 'game_designer' },
+        audience: { kind: 'role', role: 'menu_store_lead' },
         payload: {
           text: `Level 5 difficulty and playtest feedback starts in 1 min. ${fact.text} ${comment}`,
           agendaIndex: 1,
@@ -157,14 +157,14 @@ describe('nudge module', () => {
 
     try {
       // Item 1 is 10 minutes long; elapsedSeconds restarts at 0 for each item.
-      fake.emit(recordUpdate(1, 539, { game_designer: 300 }));
+      fake.emit(recordUpdate(1, 539, { menu_store_lead: 300 }));
       await settle(20);
       expect(nudges(fake.published)).toEqual([]);
 
-      fake.emit(recordUpdate(1, 540, { game_designer: 300 }));
+      fake.emit(recordUpdate(1, 540, { menu_store_lead: 300 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the coming-up nudge');
       expect(nudges(fake.published)[0]).toMatchObject({
-        audience: { kind: 'role', role: 'producer' },
+        audience: { kind: 'role', role: 'operations_director' },
         payload: { text: expect.stringContaining('Publisher milestone starts in 1 min.'), agendaIndex: 2 },
       });
       expect(fake.retainKeys).toEqual(['nudge:coming_up:2']);
@@ -178,19 +178,19 @@ describe('nudge module', () => {
     const stop = start(async () => [fact], fake.hub);
 
     try {
-      fake.emit(recordUpdate(0, 119, { lead_programmer: 5 }));
+      fake.emit(recordUpdate(0, 119, { tech_pos_lead: 5 }));
       await settle(20);
       expect(nudges(fake.published)).toEqual([]);
 
-      fake.emit(recordUpdate(0, 120, { lead_programmer: 5 }));
+      fake.emit(recordUpdate(0, 120, { tech_pos_lead: 5 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the quiet-owner nudge');
 
-      fake.emit(recordUpdate(0, 120, { lead_programmer: 5 }));
+      fake.emit(recordUpdate(0, 120, { tech_pos_lead: 5 }));
       await settle();
       expect(nudges(fake.published)).toHaveLength(1);
       expect(nudges(fake.published)[0]).toEqual({
         type: 'NUDGE',
-        audience: { kind: 'role', role: 'lead_programmer' },
+        audience: { kind: 'role', role: 'tech_pos_lead' },
         payload: {
           text: `Build and bugs has 8 min left. ${fact.text} ${comment}`,
           agendaIndex: 0,
@@ -207,7 +207,7 @@ describe('nudge module', () => {
     const stop = start(search, fake.hub);
 
     try {
-      fake.emit(recordUpdate(0, 200, { lead_programmer: 30 }));
+      fake.emit(recordUpdate(0, 200, { tech_pos_lead: 30 }));
       await settle();
       expect(nudges(fake.published)).toEqual([]);
       expect(search).not.toHaveBeenCalled();
@@ -225,7 +225,7 @@ describe('nudge module', () => {
     const stop = start(search, fake.hub);
 
     try {
-      fake.emit(recordUpdate(0, 120, { lead_programmer: 5 }));
+      fake.emit(recordUpdate(0, 120, { tech_pos_lead: 5 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the fallback nudge');
 
       const nudge = nudges(fake.published)[0];
@@ -247,11 +247,11 @@ describe('nudge module', () => {
     const stop = start(async () => [fact], fake.hub);
 
     try {
-      fake.emit(recordUpdate(0, 540, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 540, { tech_pos_lead: 300 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the coming-up nudge');
 
       expect(fake.published).toEqual([
-        expect.objectContaining({ audience: { kind: 'role', role: 'game_designer' } }),
+        expect.objectContaining({ audience: { kind: 'role', role: 'menu_store_lead' } }),
       ]);
     } finally {
       stop();
@@ -264,15 +264,15 @@ describe('nudge module', () => {
     const sameOwner: Scenario = {
       ...scenario,
       agenda: [
-        { title: 'Build and bugs', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
-        { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'lead_programmer' },
+        { title: 'Build and bugs', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'tech_pos_lead' },
+        { title: 'Level 5 difficulty and playtest feedback', minutes: 10, canWait: false, deadline: 'before doors open at 8', ownerRole: 'tech_pos_lead' },
       ],
     };
     const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => sameOwner });
 
     try {
       if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
-      fake.emit(recordUpdate(0, 540, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 540, { tech_pos_lead: 300 }));
       await settle();
       expect(nudges(fake.published)).toEqual([]);
     } finally {
@@ -285,13 +285,13 @@ describe('nudge module', () => {
     const stop = start(async () => [fact], fake.hub, { ownerQuietBelow: 5, quietCheckAfter: 60, comingUpBefore: 60 });
 
     try {
-      fake.emit(recordUpdate(0, 59, { lead_programmer: 1 }));
+      fake.emit(recordUpdate(0, 59, { tech_pos_lead: 1 }));
       await settle(20);
       expect(nudges(fake.published)).toEqual([]);
 
-      fake.emit(recordUpdate(0, 60, { lead_programmer: 1 }));
+      fake.emit(recordUpdate(0, 60, { tech_pos_lead: 1 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the configured quiet check');
-      expect(nudges(fake.published)[0]).toMatchObject({ audience: { kind: 'role', role: 'lead_programmer' } });
+      expect(nudges(fake.published)[0]).toMatchObject({ audience: { kind: 'role', role: 'tech_pos_lead' } });
     } finally {
       stop();
     }
@@ -301,7 +301,7 @@ describe('nudge module', () => {
     const quiet = fakeHub();
     const quietStop = start(async () => [fact], quiet.hub, { ownerQuietBelow: 50, quietCheckAfter: 60, comingUpBefore: 60 });
     try {
-      quiet.emit(recordUpdate(0, 60, { lead_programmer: 49 }));
+      quiet.emit(recordUpdate(0, 60, { tech_pos_lead: 49 }));
       await waitFor(() => nudges(quiet.published).length > 0, 'the configured quiet-owner nudge');
     } finally {
       quietStop();
@@ -310,7 +310,7 @@ describe('nudge module', () => {
     const talkative = fakeHub();
     const talkativeStop = start(async () => [fact], talkative.hub, { ownerQuietBelow: 50, quietCheckAfter: 60, comingUpBefore: 60 });
     try {
-      talkative.emit(recordUpdate(0, 60, { lead_programmer: 50 }));
+      talkative.emit(recordUpdate(0, 60, { tech_pos_lead: 50 }));
       await settle();
       expect(nudges(talkative.published)).toEqual([]);
     } finally {
@@ -323,14 +323,14 @@ describe('nudge module', () => {
     const stop = start(async () => [fact], fake.hub, { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 30 });
 
     try {
-      fake.emit(recordUpdate(0, 569, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 569, { tech_pos_lead: 300 }));
       await settle(20);
       expect(nudges(fake.published)).toEqual([]);
 
-      fake.emit(recordUpdate(0, 570, { lead_programmer: 300 }));
+      fake.emit(recordUpdate(0, 570, { tech_pos_lead: 300 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the configured coming-up nudge');
       expect(nudges(fake.published)[0]).toMatchObject({
-        audience: { kind: 'role', role: 'game_designer' },
+        audience: { kind: 'role', role: 'menu_store_lead' },
         payload: { agendaIndex: 1 },
       });
     } finally {
@@ -344,13 +344,13 @@ describe('nudge module', () => {
     const stop = start(search, fake.hub, undefined, () => true);
 
     try {
-      fake.emit(recordUpdate(0, 120, { lead_programmer: 5 }));
+      fake.emit(recordUpdate(0, 120, { tech_pos_lead: 5 }));
       await waitFor(() => nudges(fake.published).length > 0, 'the quiet-owner nudge');
 
       expect(search).not.toHaveBeenCalled();
       expect(nudges(fake.published)[0]).toEqual({
         type: 'NUDGE',
-        audience: { kind: 'role', role: 'lead_programmer' },
+        audience: { kind: 'role', role: 'tech_pos_lead' },
         payload: { text: 'Build and bugs has 8 min left. Ask the room for the details.', agendaIndex: 0 },
       });
     } finally {

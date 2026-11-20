@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { buildSttPhrases } from '../../src/npc/sttPhrases';
 import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
@@ -13,8 +13,8 @@ const team = {
   ...pack,
   organisation: 'Ana and Ben LLP',
   attendees: [
-    { name: 'Ana', role: 'studio_manager', zoomDisplayName: 'Ana' },
-    { name: 'Ben', role: 'lead_programmer', zoomDisplayName: 'Ben' },
+    { name: 'Ana', role: 'general_manager', displayName: 'Ana' },
+    { name: 'Ben', role: 'tech_pos_lead', displayName: 'Ben' },
   ],
   npcs: [],
 };

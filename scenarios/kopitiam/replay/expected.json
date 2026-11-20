@@ -1,8 +1,8 @@
 {
   "tasks": [
-    { "name": "regulars' note", "assignee": "game_designer", "keywords": ["regulars", "note"] },
-    { "name": "booth socket timer", "assignee": "lead_programmer", "keywords": ["socket", "timer"] },
-    { "name": "customer email and logs", "assignee": "producer", "keywords": ["customer", "logs"] },
+    { "name": "regulars' note", "assignee": "menu_store_lead", "keywords": ["regulars", "note"] },
+    { "name": "booth socket timer", "assignee": "tech_pos_lead", "keywords": ["socket", "timer"] },
+    { "name": "customer email and logs", "assignee": "operations_director", "keywords": ["customer", "logs"] },
     { "name": "GrabFood platter email", "assignee": "marketing_lead", "keywords": ["grabfood", "platter"] }
   ],
   "acceptedTasks": [],

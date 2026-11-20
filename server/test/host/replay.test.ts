@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
+import type { Hub } from '../../src/core/hub';
 import { loadReplay, parseReplay, startReplay, type ReplayLine } from '../../src/host/replay';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { testScenario } from '../fixtures/scenario';
 
 function recordingHub(): Hub & { published: KakiEvent[] } {

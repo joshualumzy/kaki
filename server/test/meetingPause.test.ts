@@ -5,7 +5,7 @@ import { createApp, type KakiApp } from '../src/app';
 import { createAgendaClock, type AgendaClock } from '../src/host/clock';
 import type { MeetingPauseControl } from '../src/host';
 import { createMeetingModule } from '../src/host/meeting';
-import { loadScenario } from '../src/loadScenario';
+import { loadScenario } from '../src/core/loadScenario';
 import { createMeetingPersistence } from '../src/persist/persistence';
 import type { MeetingStateStore, StoredMeeting } from '../src/persist/state';
 import { connectClient, portOf, settle, waitFor } from './helpers';
@@ -104,7 +104,7 @@ describe('the server owns the empty-room pause', () => {
     });
     apps.push(first);
     await connectService(first);
-    expect((await join(first, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(first, 'Guest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(first)).status).toBe(200);
     await waitFor(() => (first.session.phase() === 'running' ? true : undefined), 'the meeting to run');
 
@@ -159,7 +159,7 @@ describe('the server owns the empty-room pause', () => {
     });
     apps.push(app);
     await connectService(app);
-    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
     // Let the poll observe the room occupied before its next empty observation.
@@ -207,7 +207,7 @@ describe('the server owns the empty-room pause', () => {
     });
     apps.push(app);
     await connectService(app);
-    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
     expect((await startMeeting(app)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
 
@@ -251,7 +251,7 @@ describe('the server owns the empty-room pause', () => {
     });
     apps.push(app);
     await connectService(app);
-    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
     // The roster sees the guest as soon as they have joined, before Start.
     people = [{ name: 'Guest' }];
     expect((await startMeeting(app)).status).toBe(200);
@@ -289,7 +289,7 @@ describe('the server owns the empty-room pause', () => {
     });
     apps.push(app);
     await connectService(app);
-    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
     people.push({ name: 'Guest' });
     expect((await startMeeting(app)).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
@@ -322,7 +322,7 @@ describe('the server owns the empty-room pause', () => {
     });
     apps.push(app);
     await connectService(app);
-    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await join(app, 'Guest', 'operations_director')).status).toBe(200);
     // The roster sees the guest as soon as they have joined, before Start, so the meeting does not
     // auto-pause between Start and the screen connecting.
     people = [{ name: 'Guest' }];

@@ -1,6 +1,6 @@
 import { roleLabel, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
-import type { Hub } from '../hub';
-import type { TaskStore } from '../tasks';
+import type { Hub } from '../core/hub';
+import type { TaskStore } from '../meeting/tasks';
 
 /** First name of whoever sits in a role in this scenario, else the role's label. */
 function addressee(scenario: Scenario, task: Task): string {

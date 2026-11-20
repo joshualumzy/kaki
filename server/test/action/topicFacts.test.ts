@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
-import { createTaskStore } from '../../src/tasks';
-import { createFakeLlm } from '../../src/llm';
+import { createTaskStore } from '../../src/meeting/tasks';
+import { createFakeLlm } from '../../src/services/llm';
 import { createGiteaModule } from '../../src/action/gitea';
 import { createMattermostModule } from '../../src/action/mattermost';
 import { createWikiModule } from '../../src/action/wiki';
@@ -15,8 +15,8 @@ const scenario: Scenario = {
     { id: 'cashier', label: 'Cashier', card: { youAre: 'Cashier', responsibility: 'Serve', facts: ['OTHER FOREIGN CARD FACT'] } },
   ],
   attendees: [
-    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada' },
-    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao' },
+    { name: 'Ada', role: 'chef', displayName: 'Ada' },
+    { name: 'Bao', role: 'cashier', displayName: 'Bao' },
   ],
   agenda: [
     { title: 'First', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', seatFacts: { chef: 'FIRST CHEF FACT', cashier: 'FIRST CASHIER FACT' } },

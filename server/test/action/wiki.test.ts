@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Scenario, Task } from '@kaki/shared';
 import { buildMeetingMinutes, createWikiModule, pagePath, type WikiModuleOptions, type WikiSettings } from '../../src/action/wiki';
-import { roleAudience, type Hub } from '../../src/hub';
+import { roleAudience, type Hub } from '../../src/core/hub';
 import type { SavedMeetingDetails } from '../../src/persist/state';
-import { createFakeLlm } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import { createFakeLlm } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { waitFor } from '../helpers';
 
@@ -388,9 +388,9 @@ describe('wiki action module', () => {
         { id: 'guest', label: 'Guest' },
       ],
       attendees: [
-        { name: 'Bot', role: 'ai_bot', zoomDisplayName: 'Bot' },
-        { name: 'Ola', role: 'owner', zoomDisplayName: 'Ola (Owner)' },
-        { name: 'Gil', role: 'guest', zoomDisplayName: 'Gil (Guest)' },
+        { name: 'Bot', role: 'ai_bot', displayName: 'Bot' },
+        { name: 'Ola', role: 'owner', displayName: 'Ola (Owner)' },
+        { name: 'Gil', role: 'guest', displayName: 'Gil (Guest)' },
       ],
       agenda: [{ ...testScenario.agenda[0]!, ownerRole: 'owner' }],
       npcs: [

@@ -11,10 +11,10 @@ const scenarioMock = vi.hoisted(() => {
     meetingTitle: 'Prep',
     roles: [
       { id: 'chef', label: 'Chef' },
-      { id: 'producer', label: 'Producer' },
+      { id: 'operations_director', label: 'Producer' },
       { id: 'host', label: 'Host', facilitator: true },
     ],
-    attendees: [{ name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' }],
+    attendees: [{ name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' }],
     agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' }],
   };
   return { current: original, original };
@@ -97,7 +97,7 @@ function recordEvent(agendaIndex: number): { data: string } {
 function transcriptEvent(
   speaker: string,
   text: string,
-  speakerRole?: 'chef' | 'producer' | 'host',
+  speakerRole?: 'chef' | 'operations_director' | 'host',
 ): { data: string } {
   return {
     data: JSON.stringify({
@@ -388,7 +388,7 @@ describe('useKaki lifecycle state', () => {
       })).toBe(true);
     });
 
-    rerender({ audience: { kind: 'role', role: 'producer' } });
+    rerender({ audience: { kind: 'role', role: 'operations_director' } });
     await waitFor(() => expect(sockets.length).toBeGreaterThan(1), { timeout: 2_000 });
     const second = sockets[sockets.length - 1]! as unknown as {
       emit(type: string, event?: unknown): void;
@@ -531,9 +531,9 @@ describe('useKaki topic speech', () => {
         socket.emit('message', transcriptEvent('Sam', `filler ${index}`));
       }
     });
-    act(() => socket.emit('message', transcriptEvent('Renamed Guest', 'The practical catch is the rush.', 'producer')));
+    act(() => socket.emit('message', transcriptEvent('Renamed Guest', 'The practical catch is the rush.', 'operations_director')));
 
-    await waitFor(() => expect(result.current.speechByTopic.get(2)?.roles.has('producer')).toBe(true));
+    await waitFor(() => expect(result.current.speechByTopic.get(2)?.roles.has('operations_director')).toBe(true));
     expect(result.current.events.some((event) => event.type === 'MEETING_RECORD_UPDATED')).toBe(false);
     expect(result.current.speechByTopic.get(2)?.names.has('sam')).toBe(true);
   });
@@ -548,7 +548,7 @@ describe('useKaki topic speech', () => {
     act(() => socket.emit('message', transcriptEvent('Other Person', 'Stock is fine.', 'host')));
 
     await waitFor(() => expect(result.current.speechByTopic.get(1)?.roles.has('host')).toBe(true));
-    expect(result.current.speechByTopic.get(1)?.roles.has('producer')).toBe(false);
+    expect(result.current.speechByTopic.get(1)?.roles.has('operations_director')).toBe(false);
   });
 
   it('forgets who spoke when the meeting resets', async () => {

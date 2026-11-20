@@ -6,9 +6,9 @@ import {
   type EmailSettings,
   type SendMail,
 } from '../../src/action/email';
-import type { Hub } from '../../src/hub';
-import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import { createFakeLlm, LlmError, type LlmClient } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { settle, waitFor } from '../helpers';
 

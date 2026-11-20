@@ -1,9 +1,9 @@
-import { isObject, speakerName } from '@kaki/shared';
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
-import type { KakiModule } from '../modules';
+import { errorMessage, isObject, speakerName } from '@kaki/shared';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../services/llm';
+import type { KakiModule } from '../core/modules';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -127,7 +127,7 @@ export function createMattermostModule({
     try {
       return await response.json();
     } catch (error) {
-      throw new ActionError(`Mattermost reply is not valid JSON: ${messageOf(error)}`);
+      throw new ActionError(`Mattermost reply is not valid JSON: ${errorMessage(error)}`);
     }
   }
 
@@ -174,7 +174,7 @@ export function createMattermostModule({
       try {
         reply = await llm.complete(messages, { json: true, signal });
       } catch (error) {
-        throw new ActionError(`Could not draft the message: ${messageOf(error)}`);
+        throw new ActionError(`Could not draft the message: ${errorMessage(error)}`);
       }
 
       const message = parseMessage(reply);

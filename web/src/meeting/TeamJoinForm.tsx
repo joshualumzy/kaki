@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ScenarioRole } from '@kaki/shared';
-import { MediaPreview, type MediaChoice } from '../demo/MediaPreview';
-import '../demo/demo.css';
+import { MediaPreview, type MediaChoice } from './room/MediaPreview';
+import './room/demo.css';
 
 interface TeamJoinFormProps {
   meetingTitle: string;

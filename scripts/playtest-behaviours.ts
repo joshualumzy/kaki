@@ -1,5 +1,5 @@
 /** Behaviour switches and browser-free checks for the AI-guest live playtest personas. */
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/services/llm';
 
 export const BEHAVIOURS = ['silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
 export type Behaviour = (typeof BEHAVIOURS)[number];

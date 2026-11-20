@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
-import { LlmError, type ChatMessage, type CompleteOptions } from '../server/src/llm';
+import { LlmError, type ChatMessage, type CompleteOptions } from '../server/src/services/llm';
 import type { Line } from './live-playtest';
 import {
   cannedRobotDecision, decideRobotCall, parseRobotDecision, robotDecisionPrompt, type RobotDecisionRequest,
@@ -9,15 +9,15 @@ import {
 const scenario: Scenario = {
   id: 'kopitiam', organisation: 'Nanyang Kopi & Toast', meetingTitle: 'Opening',
   roles: [
-    { id: 'producer', label: 'Operations Director', card: { youAre: 'You are Wei Ling.', facts: [], responsibility: 'Lead opening day.' } },
+    { id: 'operations_director', label: 'Operations Director', card: { youAre: 'You are Wei Ling.', facts: [], responsibility: 'Lead opening day.' } },
   ],
-  attendees: [{ name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' }],
+  attendees: [{ name: 'Wei Ling', role: 'operations_director', displayName: 'Wei Ling' }],
   agenda: [
     {
-      title: 'Delivery app', minutes: 5, canWait: false, deadline: 'before the lunch rush', ownerRole: 'producer',
+      title: 'Delivery app', minutes: 5, canWait: false, deadline: 'before the lunch rush', ownerRole: 'operations_director',
       briefing: [{ text: 'The office orders are the only profitable line.', knownBy: [{ attendee: 'Wei Ling', why: 'you saw the numbers' }] }],
       decision: 'How do we sell the platter?',
-      seatFacts: { producer: 'Only 30 trays came in this morning.' },
+      seatFacts: { operations_director: 'Only 30 trays came in this morning.' },
     },
   ],
 };
@@ -28,7 +28,7 @@ const transcript: Line[] = [
 ];
 
 function request(overrides: Partial<RobotDecisionRequest> = {}): RobotDecisionRequest {
-  return { scenario, role: 'producer', topicTitle: 'Delivery app', transcript, ...overrides };
+  return { scenario, role: 'operations_director', topicTitle: 'Delivery app', transcript, ...overrides };
 }
 
 function fakeModel(reply: string | Error) {

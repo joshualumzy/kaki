@@ -22,7 +22,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 ## A visit, start to finish
 
 1. **Join.** The visitor picks a name and a role (any role no AI plays) and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, 2 minutes per item) tailored to that role.
-2. **Briefing.** The stage shows "Read your briefing first" (`web/src/demo/StartPrompt.tsx`). The AI attendees are in the room but
+2. **Briefing.** The stage shows "Read your briefing first" (`web/src/meeting/room/StartPrompt.tsx`). The AI attendees are in the room but
    silent, and anything the visitor says or types is ignored. The role card and situation are in the unified Kaki Wingman dock on the right.
    A visitor in the facilitator's seat skips this: they open the meeting themselves.
 3. **Start.** Pressing the button sends `{ kind: 'start' }` on the `kaki.control` data topic. Only then does the host speak the welcome, which
@@ -46,7 +46,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 | Server-side speech recognition (Azure) of only the stretches the detector marks as the visitor talking | `azureStt.ts`, `utterance.ts` |
 | Instant-stop playback into LiveKit; Azure text-to-speech | `playback.ts`, `azureTts.ts` |
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
-| Join form, start prompt, stage, captions, type bar | `web/src/demo/` |
+| Join form, start prompt, stage, captions, type bar | `web/src/meeting/room/` |
 
 Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (typed text, "typing", Stop, Start).
 

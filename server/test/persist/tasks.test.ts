@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
-import { createTaskStore, INTERRUPTED_TASK_ERROR } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import { createTaskStore, INTERRUPTED_TASK_ERROR } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 
 function quietHub(): Hub {

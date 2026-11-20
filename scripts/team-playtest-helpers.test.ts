@@ -128,7 +128,7 @@ describe('minutes recipient', () => {
       ok: false,
       detail: "Minutes card went to a participant's seat role_2, not the owner role_1",
     });
-    expect(judgeMinutesRecipient({ suggestedAssignee: 'producer' }, 'role_1', ['role_2']).detail)
+    expect(judgeMinutesRecipient({ suggestedAssignee: 'operations_director' }, 'role_1', ['role_2']).detail)
       .toContain('not the owner role_1');
     expect(judgeMinutesRecipient(undefined, 'role_1', []).ok).toBe(false);
   });

@@ -3,7 +3,7 @@ import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
 import { createEmailModule, type EmailMessage } from '../src/action/email';
 import { createGiteaModule } from '../src/action/gitea';
 import { createMattermostModule } from '../src/action/mattermost';
-import { createFakeLlm } from '../src/llm';
+import { createFakeLlm } from '../src/services/llm';
 import {
   connectClient,
   createTestApp,

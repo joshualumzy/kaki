@@ -1,6 +1,6 @@
 /** Model-backed guest and post-meeting judge for the existing live playtest driver. */
-import '../server/src/env.ts';
-import { createOpenAiLlm, LlmError, reasoningControlFromEnv, parseJsonReply, type ChatMessage, type CompleteOptions, type CompletionUsage } from '../server/src/llm';
+import '../server/src/env';
+import { createOpenAiLlm, LlmError, reasoningControlFromEnv, parseJsonReply, type ChatMessage, type CompleteOptions, type CompletionUsage } from '../server/src/services/llm';
 import { roomReplyModelFromEnv } from './room-reply';
 import { runLivePlaytest, type AnswerContext, type FinishContext, type Line, type PlaytestHooks } from './live-playtest';
 import { behaviourForPersona, reversalLine, type Behaviour } from './playtest-behaviours';
@@ -215,7 +215,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   let failed = false;
   for (const persona of personas) {
     const visitor = new AiVisitor(persona, guest, judge);
-    const result = await runLivePlaytest({ role: 'producer', phone: options.phone, maxMinutes: options.maxMinutes }, visitor, roomReplyModelFromEnv());
+    const result = await runLivePlaytest({ role: 'operations_director', phone: options.phone, maxMinutes: options.maxMinutes }, visitor, roomReplyModelFromEnv());
     console.log(`AI usage (${persona}): ${visitor.visitorCalls} visitor calls, ${visitor.judgeCalls} judge calls, ${visitor.totalTokens} total tokens (${visitor.promptTokens} prompt, ${visitor.completionTokens} completion)`);
     const scores = visitor.judgement === undefined ? '—' : scoreNames.map((name) => visitor.judgement![name].score).join('/');
     rows.push(`| ${persona} | ${result.passed ? 'PASS' : 'FAIL'} | ${scores} | ${visitor.judgement?.contradictions.length ?? '—'} | ${visitor.visitorCalls}+${visitor.judgeCalls} | ${visitor.totalTokens} | ${result.reportPath} |`);

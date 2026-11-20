@@ -3,7 +3,7 @@ import { ACTION_KINDS, aiCast, humanRoles, type Scenario } from '@kaki/shared';
 import { colleagueAskNote, guestCardNote } from '../../src/host/autoDispatch';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 
 afterEach(() => vi.useRealTimers());
 

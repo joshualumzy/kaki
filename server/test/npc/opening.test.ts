@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiCast, humanRoles, type Scenario } from '@kaki/shared';
-import type { ChatMessage } from '../../src/llm';
+import type { ChatMessage } from '../../src/services/llm';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { gateSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages } from '../../src/npc/openingWriter';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 
 interface LlmCall {
   messages: ChatMessage[];
@@ -267,7 +267,7 @@ describe('one-speaker topic opening', () => {
   );
 
   it('speaks the host announcement before the opening when the room was busy as it was queued', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[1]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -291,7 +291,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('briefs the room after the observe delay when nothing interrupts it', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -308,7 +308,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('briefs once the room frees after being busy past the old retry window', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -331,7 +331,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('drops a stale next-topic announcement after the topic has already opened', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[1]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -349,7 +349,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('rejects a reply with another speaker or no speech whole, retries once, then skips to the host question', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -388,7 +388,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('cancels the rest of the opening, including the prefetched line, when the guest speaks', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -417,7 +417,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('keeps the opening going through a sound-only cut-in', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -460,7 +460,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('fetches only the next topic\'s first one-speaker call while the host winds down', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const nextTitle = TOPICS[1]!;
@@ -496,7 +496,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('tells a briefing colleague to link truthfully to the previous line, never to say it caused their news', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -521,7 +521,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('strips a self-introduction before anything is played', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -544,7 +544,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('arms the silence check-in after the host\'s question is heard', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -576,7 +576,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('asks the fallback question when the host\'s invite cannot be heard after its retry', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -615,7 +615,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('abandons an opening line that sends a sentence and then never finishes', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -643,7 +643,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('abandons a fresh opening stream that sends a sentence and then never finishes', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -666,7 +666,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('abandons a prefetched opening line that sends a sentence and then never finishes', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -695,7 +695,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('keeps a wordless cut-in before the next opening line\'s first sound inside the opening run', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -745,7 +745,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('resumes the opening after Stop from the last line the room fully heard', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -798,7 +798,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('marks a cut sentence and shows the full line again once it is re-said', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -850,7 +850,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('records a resumed opening that says something new as a new line and leaves the cut line cut', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -897,7 +897,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('rejects a prefetched brief that does not carry its fact before any of it plays', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -935,7 +935,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('rejects a brief reply that does not carry its fact, retries once, then skips to the host', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -970,7 +970,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('accepts a brief paraphrase that keeps the fact\'s numbers and content', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -994,7 +994,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('shows an opening line as text when its playback fails, and still counts it heard', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
@@ -1019,7 +1019,7 @@ describe('one-speaker topic opening', () => {
   });
 
   it('counts a brief sentence the room heard before a cut-off, so the same fact is not told again', async () => {
-    const roleId = 'producer';
+    const roleId = 'operations_director';
     const seat = 'Wei Ling';
     const title = 'Laptop campers and the breakfast seat crunch';
     const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };

@@ -8,7 +8,7 @@ import { createMemoryAuthStore, type AuthStore } from '../src/auth/store';
 import { createAgendaClock } from '../src/host/clock';
 import type { MeetingPauseControl } from '../src/host';
 import { createMeetingModule } from '../src/host/meeting';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { testScenario } from './fixtures/scenario';
 import { portOf, settle, waitFor } from './helpers';
 

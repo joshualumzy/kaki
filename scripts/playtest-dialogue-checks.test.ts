@@ -18,18 +18,18 @@ const item: AgendaItem = {
     openingViews: [{ attendee: 'Arjun', angle: 'The POS fees are eating the margin.' }],
     tradeOffs: [
       {
-        attendee: 'Mei', role: 'game_designer', idea: 'drop the single sets',
+        attendee: 'Mei', role: 'menu_store_lead', idea: 'drop the single sets',
         tradeOff: 'Margin first: dropping single sets protects every tray', question: 'Which orders do we keep?',
       },
       {
-        attendee: 'Wei Ling', role: 'producer', idea: 'keep single sets',
+        attendee: 'Wei Ling', role: 'operations_director', idea: 'keep single sets',
         tradeOff: 'Regulars first: the lunchtime regulars still want single sets', question: 'How do we keep them?',
       },
     ],
   },
 };
 
-const visitor = { name: 'Foo', role: 'producer', seat: 'Wei Ling' };
+const visitor = { name: 'Foo', role: 'operations_director', seat: 'Wei Ling' };
 
 describe('dialogue turn checks', () => {
   const good: UtteranceRecord[] = [
@@ -55,9 +55,9 @@ describe('dialogue turn checks', () => {
 
 describe('Wingman output checks', () => {
   it('treats the visitor seat and role as their own seat', () => {
-    expect(isVisitorTradeOff({ attendee: 'Wei Ling', role: 'producer' }, visitor)).toBe(true);
+    expect(isVisitorTradeOff({ attendee: 'Wei Ling', role: 'operations_director' }, visitor)).toBe(true);
     expect(isVisitorTradeOff({ attendee: 'Foo', role: 'marketing_lead' }, visitor)).toBe(true);
-    expect(isVisitorTradeOff({ attendee: 'Mei', role: 'game_designer' }, visitor)).toBe(false);
+    expect(isVisitorTradeOff({ attendee: 'Mei', role: 'menu_store_lead' }, visitor)).toBe(false);
   });
 
   it('passes a raised catch and live tip for other seats on this topic', () => {

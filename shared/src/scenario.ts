@@ -7,7 +7,7 @@ export interface ScenarioRole {
   id: Role;
   label: string;
   /**
-   * The role that runs the meeting (for example Sam, the studio manager). It is never counted as quiet or offered to a
+   * The role that runs the meeting (for example Sam, the general manager). It is never counted as quiet or offered to a
    * participant. An AI plays it unless its attendee's npc is `playable`, which makes it the host mode seat.
    */
   facilitator?: boolean;
@@ -30,11 +30,11 @@ export interface RoleCard {
   responsibility: string;
 }
 
-/** A participant joining the meeting, with the name Zoom shows for them. */
+/** A participant joining the meeting, with the name the meeting shows for them. */
 export interface Attendee {
   name: string;
   role: Role;
-  zoomDisplayName: string;
+  displayName: string;
   /** A few plain words for their job, said after their name when the host introduces them, for example "on tills and tech". */
   spokenJob?: string;
 }
@@ -342,8 +342,8 @@ function readAttendees(value: unknown, roleIds: Set<string>, problems: string[])
     if (!isNonEmptyString(attendee.name)) {
       problems.push(`attendees[${index}].name must be a non-empty string`);
     }
-    if (!isNonEmptyString(attendee.zoomDisplayName)) {
-      problems.push(`attendees[${index}].zoomDisplayName must be a non-empty string`);
+    if (!isNonEmptyString(attendee.displayName)) {
+      problems.push(`attendees[${index}].displayName must be a non-empty string`);
     }
     if (!isNonEmptyString(attendee.role)) {
       problems.push(`attendees[${index}].role must be a non-empty string`);
@@ -770,8 +770,8 @@ export function roleLabel(scenario: Scenario, role: Role): string {
 }
 
 /**
- * The person and role label for a role in the scenario (for example "Arjun (Lead Programmer)"),
- * or the visitor's own name when `viewer` holds that seat (for example "Boo (you · Producer)").
+ * The person and role label for a role in the scenario (for example "Arjun (Tech & POS Lead)"),
+ * or the visitor's own name when `viewer` holds that seat (for example "Boo (you · Operations Director)").
  */
 export function assigneeLabel(
   scenario: Scenario,
@@ -790,11 +790,11 @@ export function assigneeLabel(
   return `${attendee.name} (${label})`;
 }
 
-/** Map a Zoom display name to that attendee's role, if they are in this scenario. */
-export function roleForZoomName(scenario: Scenario, name: string): Role | undefined {
+/** Map a display name to that attendee's role, if they are in this scenario. */
+export function roleForDisplayName(scenario: Scenario, name: string): Role | undefined {
   const wanted = name.trim().toLowerCase();
   const exact = scenario.attendees.find(
-    (attendee) => attendee.zoomDisplayName.trim().toLowerCase() === wanted || attendee.name.trim().toLowerCase() === wanted,
+    (attendee) => attendee.displayName.trim().toLowerCase() === wanted || attendee.name.trim().toLowerCase() === wanted,
   )?.role;
   if (exact !== undefined) return exact;
   const roleMatch = /\(([^)]+)\)\s*$/.exec(wanted);

@@ -5,7 +5,7 @@ import type { CalendarSettings } from '../src/action/calendar';
 import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
-import { createMeetingCodeSource } from '../src/meetingCode';
+import { createMeetingCodeSource } from '../src/meeting/meetingCode';
 import { createTestApp, portOf } from './helpers';
 
 const settings: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };

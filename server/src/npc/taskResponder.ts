@@ -1,4 +1,4 @@
-import { parseJsonReply, type LlmClient } from '../llm';
+import { parseJsonReply, type LlmClient } from '../services/llm';
 import { isAssignmentEvidence, speakerName, type ActionDraft, type KakiCommand, type KakiEvent, type NpcProfile, type Role, type Scenario, type Task } from '@kaki/shared';
 import { isHypotheticalProposal, isSelfVolunteerCommitment } from '../host/notetaker';
 

@@ -9,7 +9,7 @@ const scenario: Scenario = {
   organisation: 'Test',
   meetingTitle: 'Launch',
   roles: [
-    { id: 'producer', label: 'Producer' },
+    { id: 'operations_director', label: 'Producer' },
     { id: 'marketing_lead', label: 'Marketing Lead' },
   ],
   attendees: [],
@@ -72,7 +72,7 @@ describe('OwnerLobby', () => {
     installFetch({
       '/api/meeting-code': () => reply({ code: 'K7QX' }),
       '/api/meeting/state': () => reply({ started: false }),
-      '/api/meeting/participants': () => reply({ participants: [{ name: 'Ada', seat: 'producer' }] }),
+      '/api/meeting/participants': () => reply({ participants: [{ name: 'Ada', seat: 'operations_director' }] }),
       '/api/meeting/start': () => reply({ started: true }),
     });
     render(<OwnerLobby initialCode="K7QX" onStarted={onStarted} />);
@@ -96,7 +96,7 @@ describe('OwnerLobby', () => {
     installFetch({
       '/api/meeting-code': () => reply({ error: 'Not found' }, 404),
       '/api/meeting/state': () => reply({ started: false }),
-      '/api/meeting/participants': () => reply({ participants: [{ name: 'Ada', seat: 'producer' }] }),
+      '/api/meeting/participants': () => reply({ participants: [{ name: 'Ada', seat: 'operations_director' }] }),
     });
     render(<OwnerLobby initialCode="K7QX" onStarted={vi.fn()} />);
 

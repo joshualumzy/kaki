@@ -13,16 +13,16 @@ import {
   tokenMatches,
   type Principal,
   type Route,
-} from './access';
-import { cookieValue, readJsonBody, sendJson } from './http';
-import { projectScenario } from './scenarioProjection';
+} from './http/access';
+import { cookieValue, readJsonBody, sendJson } from './http/http';
+import { projectScenario } from './meeting/scenarioProjection';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from './persist/state';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
-import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
-import { CommandError, createHub, audienceRole, type ClientAudience, type Hub } from './hub';
-import type { KakiModule } from './modules';
+import { createAttemptLimiter, type AttemptLimiter } from './http/attemptLimiter';
+import { CommandError, createHub, audienceRole, type ClientAudience, type Hub } from './core/hub';
+import type { KakiModule } from './core/modules';
 import type { MeetingPersistence } from './persist/persistence';
 import {
   createMeetingCodeSource,
@@ -30,13 +30,13 @@ import {
   MEETING_CODE_RATE_LIMIT_MESSAGE,
   MEETING_CODE_WINDOW_MS,
   type MeetingCodeSource,
-} from './meetingCode';
+} from './meeting/meetingCode';
 import type { MeetingPauseControl } from './host';
-import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS, type Admission, type RejoinGuard } from './rejoin';
-import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './runnerState';
-import { createMeetingSession, type MeetingSession } from './session';
-import { createTaskStore, type TaskStore } from './tasks';
-import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, joinNameProblem, JoinError, livekitPublicUrl, livekitRoster, removeRoomHumans, type RoomRoster, type SeatReservations } from './livekit';
+import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS, type Admission, type RejoinGuard } from './meeting/rejoin';
+import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './meeting/runnerState';
+import { createMeetingSession, type MeetingSession } from './meeting/session';
+import { createTaskStore, type TaskStore } from './meeting/tasks';
+import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, joinNameProblem, JoinError, livekitPublicUrl, livekitRoster, removeRoomHumans, type RoomRoster, type SeatReservations } from './services/livekit';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {

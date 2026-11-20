@@ -37,7 +37,7 @@ describe('meeting carry-over prompt', () => {
       ...npcScenario,
       agenda: [{ ...testScenario.agenda[0]!, contested: true }],
       roles: [...npcScenario.roles, { id: 'host', label: 'Host', facilitator: true }],
-      attendees: [...npcScenario.attendees, { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' }],
+      attendees: [...npcScenario.attendees, { name: 'Hal', role: 'host', displayName: 'Hal (Host)' }],
       npcs: [...npcScenario.npcs, { attendee: 'Hal', role: 'host' as const, voice: 'v0', personality: 'Calm', agenda: 'Keep time', concerns: [] }],
     };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'chef' });
@@ -51,7 +51,7 @@ describe('meeting carry-over prompt', () => {
       ...npcScenario,
       agenda: [{ ...testScenario.agenda[0]!, contested: true }],
       roles: [...npcScenario.roles, { id: 'host', label: 'Host', facilitator: true }],
-      attendees: [...npcScenario.attendees, { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' }],
+      attendees: [...npcScenario.attendees, { name: 'Hal', role: 'host', displayName: 'Hal (Host)' }],
       npcs: [...npcScenario.npcs, { attendee: 'Hal', role: 'host' as const, voice: 'v0', personality: 'Calm', agenda: 'Keep time', concerns: [] }],
     };
     const prompt = buildSystemPrompt(scenario, { name: 'Visitor', role: 'chef' });
@@ -216,7 +216,7 @@ describe('pushingColleague', () => {
   const scenario = {
     ...testScenario,
     roles: [...testScenario.roles, { id: 'host', label: 'Host' }],
-    attendees: [...testScenario.attendees, { name: 'Hal', role: 'host', zoomDisplayName: 'Hal (Host)' }],
+    attendees: [...testScenario.attendees, { name: 'Hal', role: 'host', displayName: 'Hal (Host)' }],
   };
   const item = {
     ...testScenario.agenda[0]!,

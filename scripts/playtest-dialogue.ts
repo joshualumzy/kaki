@@ -9,8 +9,8 @@
  *   npx tsx scripts/playtest-dialogue.ts
  */
 import '../server/src/env';
-import { loadScenario } from '../server/src/loadScenario';
-import { llmFromEnv } from '../server/src/llm';
+import { loadScenario } from '../server/src/core/loadScenario';
+import { llmFromEnv } from '../server/src/services/llm';
 import { NpcConversation } from '../server/src/npc/conversation';
 import { liveNextItemLine } from '../server/src/host/opening';
 import type { AgendaItem, Scenario } from '@kaki/shared';
@@ -33,7 +33,7 @@ if (!llm) {
   process.exit(1);
 }
 
-const human = { name: 'Foo', role: 'producer', transcriptName: 'Foo', seat: 'Wei Ling' };
+const human = { name: 'Foo', role: 'operations_director', transcriptName: 'Foo', seat: 'Wei Ling' };
 
 async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise<ItemResult> {
   const transcript: UtteranceRecord[] = [];

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
+import type { Hub } from '../../src/core/hub';
 import {
   addressedRole,
   createNotetaker,
@@ -9,9 +9,9 @@ import {
   type VerifierResult,
   volunteerRole,
 } from '../../src/host/notetaker';
-import { createFakeLlm } from '../../src/llm';
-import { loadScenario } from '../../src/loadScenario';
-import { createTaskStore } from '../../src/tasks';
+import { createFakeLlm } from '../../src/services/llm';
+import { loadScenario } from '../../src/core/loadScenario';
+import { createTaskStore } from '../../src/meeting/tasks';
 
 const quietHub: Hub = {
   publish: (_event: KakiEvent) => {},
@@ -67,7 +67,7 @@ async function assigneeAfter(
 
 describe('who owns a task', () => {
   it('is the speaker when the evidence is their own "I\'ll ..."', async () => {
-    expect(await assigneeAfter('Wei Ling', "I'll send the update to the venue tonight.", 'marketing_lead')).toBe('producer');
+    expect(await assigneeAfter('Wei Ling', "I'll send the update to the venue tonight.", 'marketing_lead')).toBe('operations_director');
   });
 
   it('is the role the model chose when someone else is asked', async () => {
@@ -81,17 +81,17 @@ describe('who owns a task', () => {
   });
 
   // The visitor (Wei Ling's seat, shown with their own name) asks Daniel mid-line, after stating the decision.
-  const visitorLines = [{ speaker: 'Robot Visitor (Wei Ling)', role: 'producer' as const, text: 'Four window seats.' }];
+  const visitorLines = [{ speaker: 'Robot Visitor (Wei Ling)', role: 'operations_director' as const, text: 'Four window seats.' }];
 
   it('is the colleague the visitor names right before "can you", even mid-line', () => {
     expect(addressedRole(
       'Right, four window seats breakfast-only till 10.30 with small table signs. Daniel, can you print and place those before we open?',
-      scenario, visitorLines, 'producer',
+      scenario, visitorLines, 'operations_director',
     )).toBe('marketing_lead');
   });
 
   it('is the visitor when a colleague asks "can you" without naming anyone', () => {
-    expect(addressedRole('Sounds right. Can you post that to the team?', scenario, visitorLines, 'marketing_lead')).toBe('producer');
+    expect(addressedRole('Sounds right. Can you post that to the team?', scenario, visitorLines, 'marketing_lead')).toBe('operations_director');
   });
 
   it('does not route an unaddressed "can you" to a visitor when two or more people are in the room', async () => {
@@ -110,12 +110,12 @@ describe('who owns a task', () => {
     expect(addressedRole(
       'Can you email the venue confirmation to the team?',
       scenario, visitorLines, 'marketing_lead', { visitorShortcut: true },
-    )).toBe('producer');
+    )).toBe('operations_director');
   });
 
   it('volunteerRole needs both a commitment and a known role', () => {
-    expect(volunteerRole("Yes, I'll file it today.", { role: 'lead_programmer' })).toBe('lead_programmer');
+    expect(volunteerRole("Yes, I'll file it today.", { role: 'tech_pos_lead' })).toBe('tech_pos_lead');
     expect(volunteerRole("Yes, I'll file it today.", {})).toBeUndefined();
-    expect(volunteerRole('Can you file it today?', { role: 'producer' })).toBeUndefined();
+    expect(volunteerRole('Can you file it today?', { role: 'operations_director' })).toBeUndefined();
   });
 });

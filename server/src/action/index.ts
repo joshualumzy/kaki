@@ -1,6 +1,6 @@
 import type { ActionKind } from '@kaki/shared';
-import { llmFromEnv } from '../llm';
-import type { KakiModule } from '../modules';
+import { llmFromEnv } from '../services/llm';
+import type { KakiModule } from '../core/modules';
 import { createCalendarModule } from './calendar';
 import { createEmailModule } from './email';
 import { createGiteaModule } from './gitea';

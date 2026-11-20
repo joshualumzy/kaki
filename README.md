@@ -119,9 +119,13 @@ npm test                  # Run the full Vitest suite
 │   ├── src/host/         # Kaki Host (agenda clock, grounded LLM notetaker, auto-dispatch)
 │   ├── src/npc/          # LiveKit WebRTC runner, NPC Director, VAD barge-in & Azure STT/TTS
 │   ├── src/wingman/      # Kaki Wingman (pgvector RAG company search & private role nudges)
+│   ├── src/http/         # HTTP plumbing: bodies, responses, access levels, attempt limits
+│   ├── src/meeting/      # Meeting state: codes, rejoin, sessions, tasks, projections, runner state
+│   ├── src/services/     # Shared LiveKit and LLM clients
+│   ├── src/core/         # Event hub, module registry, scenario loading and text helpers
 │   └── test/             # Unit & integration test suite mirroring src/
 ├── web/                  # React + Vite frontend
-│   ├── src/demo/         # Interactive meeting stage + unified Kaki Wingman dock (/demo, /practice)
+│   ├── src/meeting/room/ # Interactive meeting stage + unified Kaki Wingman dock (/demo, /practice)
 │   ├── src/meeting/      # Owner and participant meeting routes, join lobby and overlays
 │   ├── src/setup/        # Pre-meeting setup editor
 │   ├── src/auth/         # Host sign-in page and session API
