@@ -299,6 +299,12 @@ function parseServiceMessage(value: unknown): ServiceMessage | undefined {
  * here: a person's Stop/Resume goes straight from their browser to the server, never via the runner.
  */
 const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_HOST_MODE']);
+/**
+ * The screen commands a practice visitor may send for their own practice meeting. The practice
+ * credential is a lower-trust capability than the owner's screen, so it still cannot dispatch,
+ * dismiss, reset or pause the room; it may only move its own agenda or end its own practice.
+ */
+const PRACTICE_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING']);
 const RUNNER_ROLE_COMMANDS = new Set([
   'CLAIM_TASK',
   'DECLINE_TASK',
@@ -604,17 +610,20 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       return;
     }
 
-    // A practice visitor may read the shared screen to render their practice meeting, but the
-    // screen's command authority (dispatch, dismiss, end, reset) belongs to the owner.
+    // A practice visitor may read the shared screen to render their practice meeting and may move
+    // or end that practice, but the rest of the screen's command authority (dispatch, dismiss,
+    // reset) belongs to the owner.
     if (practiceSockets.has(socket) && audience.kind === 'screen') {
       const rawType =
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
           : 'unknown';
-      const reason = 'Practice access may read the screen but not control it';
-      console.warn(`kaki hub: refused ${rawType} from ${audienceLabel(audience)}: ${reason}`);
-      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, reason, seat)));
-      return;
+      if (!PRACTICE_SCREEN_COMMANDS.has(rawType)) {
+        const reason = 'Practice access may read the screen but not control it';
+        console.warn(`kaki hub: refused ${rawType} from ${audienceLabel(audience)}: ${reason}`);
+        sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, reason, seat)));
+        return;
+      }
     }
 
     if (!isKakiCommand(parsed, activeScenario())) {

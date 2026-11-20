@@ -296,12 +296,6 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     return mutedNow;
   }
 
-  async function microphoneIsOn(page: Page): Promise<boolean> {
-    const microphone = page.getByRole('button', { name: 'Microphone', exact: true });
-    if (await microphone.count() === 0) return false;
-    return await microphone.getAttribute('aria-pressed').catch(() => null) === 'true';
-  }
-
   function latestAgendaIndex(): number {
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index];
@@ -505,15 +499,15 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
   async function joinOwner(page: Page): Promise<boolean> {
     await page.getByRole('heading', { name: 'Open your meeting room' }).waitFor({ state: 'visible', timeout: 20_000 });
     if (voice) {
-      const micOn = await microphoneIsOn(page);
-      await check('Owner microphone stays on for voice', micOn, micOn ? 'Owner joins to speak' : 'The Microphone control was missing or off', page);
+      const micOn = await turnMicrophoneOn(page);
+      await check('Owner turns the microphone on for voice', micOn, micOn ? 'Owner joins to speak' : 'The Microphone control was missing or would not turn on', page);
     } else {
       const micOff = await muteMicrophone(page, 'Owner');
       await check('Owner microphone is off', micOff, micOff ? 'Owner joins to type' : 'The Microphone control was missing or still on', page);
     }
     await page.getByLabel('Your name').fill('Owner');
     await page.getByLabel('Your seat').selectOption({ label: 'Owner' });
-    await page.getByRole('button', { name: 'Join the meeting room' }).click({ timeout: 10_000 });
+    await page.getByRole('button', { name: /^Join the meeting room/ }).click({ timeout: 10_000 });
     return waitFor('Owner joins their own room', async () => await page.locator('.kd-meeting').count() > 0, 25_000, page);
   }
 
@@ -526,14 +520,48 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
 
   async function submitJoin(page: Page): Promise<void> {
     const typed = page.getByRole('button', { name: 'Join to type' });
-    if (await typed.count() > 0) await typed.click({ timeout: 10_000 });
-    else await page.getByRole('button', { name: 'Join', exact: true }).click({ timeout: 10_000 });
+    if (await typed.count() > 0) {
+      await typed.click({ timeout: 10_000 });
+      return;
+    }
+    const withMic = page.getByRole('button', { name: 'Join with mic' });
+    if (await withMic.count() > 0) {
+      await withMic.click({ timeout: 10_000 });
+      return;
+    }
+    await page.getByRole('button', { name: 'Join', exact: true }).click({ timeout: 10_000 });
+  }
+
+  /** The one label set belongs to the person the server authorises; nobody else sees any. */
+  async function checkMeetingControls(actor: Actor, shouldSee: boolean): Promise<void> {
+    const next = actor.page.getByRole('button', { name: 'Next agenda item' });
+    const end = actor.page.getByRole('button', { name: 'End meeting' });
+    const oldNext = actor.page.getByRole('button', { name: 'Skip to next topic →' });
+    const nextVisible = await next.count() > 0 && await next.first().isVisible().catch(() => false);
+    const endVisible = await end.count() > 0 && await end.first().isVisible().catch(() => false);
+    const oldVisible = await oldNext.count() > 0 && await oldNext.first().isVisible().catch(() => false);
+    await check(
+      `${actor.name} ${shouldSee ? 'sees' : 'does not see'} the meeting controls`,
+      nextVisible === shouldSee && endVisible === shouldSee && !oldVisible,
+      `Next agenda item: ${nextVisible ? 'visible' : 'absent'}; End meeting: ${endVisible ? 'visible' : 'absent'}; Skip to next topic: ${oldVisible ? 'visible' : 'absent'}`,
+      actor.page,
+    );
+  }
+
+  /** Turn the microphone on with the visible control the way a person would before joining. */
+  async function turnMicrophoneOn(page: Page): Promise<boolean> {
+    const microphone = page.getByRole('button', { name: 'Microphone', exact: true });
+    if (await microphone.count() === 0) return false;
+    if (await microphone.getAttribute('aria-pressed').catch(() => null) === 'false') {
+      await microphone.click({ timeout: 5_000 });
+    }
+    return await microphone.getAttribute('aria-pressed').catch(() => null) === 'true';
   }
 
   async function joinParticipant(actor: Actor, seat: string): Promise<boolean> {
     if (voice) {
-      const micOn = await microphoneIsOn(actor.page);
-      await check(`${actor.name} microphone stays on for voice`, micOn, micOn ? `${actor.name} joins to speak` : 'The Microphone control was missing or off', actor.page);
+      const micOn = await turnMicrophoneOn(actor.page);
+      await check(`${actor.name} turns the microphone on for voice`, micOn, micOn ? `${actor.name} joins to speak` : 'The Microphone control was missing or would not turn on', actor.page);
     } else {
       const micOff = await muteMicrophone(actor.page, actor.name);
       await check(`${actor.name} microphone is off`, micOff, micOff ? `${actor.name} joins to type` : 'The Microphone control was missing or still on', actor.page);
@@ -657,17 +685,17 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     const button = owner.page.getByRole('button', { name: 'Next agenda item' }).first();
     const visible = await button.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false);
     if (!visible) {
-      await check('The voice meeting moves to the second agenda item', false, 'The Next agenda item control did not appear', owner.page);
+      await check('The meeting moves to the second agenda item', false, 'The Next agenda item control did not appear', owner.page);
       throw new Error('The Next agenda item control did not appear');
     }
     const enabled = await waitFor('Next agenda item becomes enabled', () => button.isEnabled(), 20_000, owner.page, false);
     if (!enabled) {
-      await check('The voice meeting moves to the second agenda item', false, 'The Next agenda item control stayed disabled', owner.page);
+      await check('The meeting moves to the second agenda item', false, 'The Next agenda item control stayed disabled', owner.page);
       throw new Error('The Next agenda item control stayed disabled');
     }
     await button.click({ timeout: 10_000 });
     const moved = await waitFor('The meeting moves to the second agenda item', () => latestAgendaIndex() === 1, 20_000, owner.page, false);
-    await check('The voice meeting moves to the second agenda item', moved,
+    await check('The meeting moves to the second agenda item', moved,
       moved ? 'The agenda reached item 2' : `The agenda stayed on item ${latestAgendaIndex() + 1}`, owner.page);
     if (!moved) throw new Error('The meeting did not move to the second agenda item');
   }
@@ -1120,6 +1148,10 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     20_000, ben.page);
     await check('Owner Start leaves all three out of the waiting state', ownerStarted && anaStarted && benStarted,
       `Owner: ${ownerStarted}; Ana: ${anaStarted}; Ben: ${benStarted}`, owner.page);
+
+    await checkMeetingControls(owner, true);
+    await checkMeetingControls(ana, false);
+    await checkMeetingControls(ben, false);
 
     if (voice) {
       await runVoiceMeeting();

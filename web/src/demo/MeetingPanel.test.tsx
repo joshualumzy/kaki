@@ -4,6 +4,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
+import type { KakiRejection } from '../kaki';
 import { speechByTopicFromEvents } from '../kaki/topicSpeech';
 
 const mocks = vi.hoisted(() => ({
@@ -85,7 +86,7 @@ function withSpeech(
     events: KakiEvent[];
     tasks: Map<string, Task>;
     connected: boolean;
-    rejection: null;
+    rejection: KakiRejection | null;
     send: () => void;
   },
   initialAgendaIndex = 0,
@@ -626,6 +627,137 @@ describe('MeetingPanel', () => {
 
     expect(screen.queryByText('Old superseded decision')).toBeNull();
     expect(screen.getByText('Current decision')).toBeTruthy();
+  });
+
+  it('gives the shared-screen person one pair of meeting controls and nobody else any', () => {
+    const recordOnly: KakiEvent[] = [{
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'all' },
+      payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 5, speakerTalkSeconds: {} },
+    }];
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: recordOnly,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    const { unmount } = render(
+      <MeetingPanel
+        viewer={{ name: 'Owner', seatName: 'Owner' }}
+        role={scenario.roles[0]}
+        sharedAudience="screen"
+      />,
+    );
+    expect(screen.getAllByRole('button', { name: 'Next agenda item' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'End meeting' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Skip to next topic/ })).toBeNull();
+    unmount();
+
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Ana', seatName: 'Ana' }}
+        role={scenario.roles[0]}
+        sharedAudience="participant"
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Next agenda item' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'End meeting' })).toBeNull();
+  });
+
+  it('shows a rejected command to whoever pressed it', () => {
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map(),
+      connected: true,
+      rejection: { commandType: 'NEXT_AGENDA_ITEM', reason: 'That was the last agenda item' },
+      send: vi.fn(),
+    }));
+
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Ana', seatName: 'Ana' }}
+        role={scenario.roles[0]}
+        sharedAudience="participant"
+      />,
+    );
+
+    expect(screen.getByRole('alert').textContent).toContain('That was the last agenda item');
+  });
+
+  it('shows the minutes draft, its reviewer and a link to that card until it is published', () => {
+    const draft: Task = {
+      id: 'minutes-draft',
+      title: 'Publish meeting minutes to the team wiki',
+      context: 'The end-of-meeting minutes.',
+      suggestedAssignee: 'producer',
+      assignee: 'producer',
+      actionKind: 'wiki_page',
+      purpose: 'meeting_minutes',
+      status: 'DRAFT_READY',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    const closing: KakiEvent = {
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [closing],
+      tasks: new Map([[draft.id, draft]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Joshua', seatName: 'Wei Ling' }}
+        role={scenario.roles[0]}
+        sharedAudience="screen"
+      />,
+    );
+
+    expect(screen.getByText('Minutes draft ready for review.')).toBeTruthy();
+    expect(screen.getByText(/Assigned to/).textContent).toContain('Joshua');
+    expect(screen.getByRole('link', { name: /Open the minutes draft/ }).getAttribute('href')).toBe(
+      '#task-minutes-draft',
+    );
+    expect(screen.queryByText(/publishing meeting minutes/i)).toBeNull();
+  });
+
+  it('shows why the minutes draft failed instead of pretending it is being published', () => {
+    const failed: Task = {
+      id: 'minutes-failed',
+      title: 'Publish meeting minutes to the team wiki',
+      context: 'The end-of-meeting minutes.',
+      suggestedAssignee: 'producer',
+      assignee: 'producer',
+      actionKind: 'wiki_page',
+      purpose: 'meeting_minutes',
+      status: 'FAILED',
+      error: 'The wiki is not reachable.',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    const closing: KakiEvent = {
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [closing],
+      tasks: new Map([[failed.id, failed]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+
+    expect(screen.getByText('The meeting minutes could not be prepared.')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toBe('The wiki is not reachable.');
+    expect(screen.queryByText(/publishing meeting minutes/i)).toBeNull();
   });
 
   it('shows the minutes link for the minutes task even when its title is reworded', () => {

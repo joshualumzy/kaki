@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
-import type { RoomOptions } from 'livekit-client';
+import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
 import { useKaki, useRefreshScenario, useScenario } from '../kaki';
 import { fetchWithTimeout } from '../net/withTimeout';
@@ -14,6 +14,15 @@ import { Dock } from './Dock';
 import { ConnectedStartPrompt } from './StartPrompt';
 import { OwnerLobby, WaitingOverlay } from '../meeting/MeetingOverlays';
 import { TeamJoinForm } from '../meeting/TeamJoinForm';
+import { AudioUnlockPrompt } from './AudioUnlock';
+import {
+  clearStoredJoin,
+  formatGraceRemaining,
+  readStoredJoin,
+  REJOIN_GRACE_MS,
+  storeJoin,
+  type StoredJoin,
+} from './rejoinSession';
 import './demo.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
@@ -77,6 +86,16 @@ interface HotMeetingData {
 }
 const hotData = (import.meta as unknown as { hot?: { data: HotMeetingData } }).hot?.data;
 
+/** The join this tab should return to after a reload or a dropped connection. */
+function storedFromSession(session: Session): StoredJoin {
+  return {
+    name: session.name,
+    role: session.role,
+    media: session.media,
+    ...(session.meetingCode === undefined ? {} : { meetingCode: session.meetingCode }),
+  };
+}
+
 /**
  * The meeting page. Practice keeps the Kopitiam story and its own Start prompt; a team participant
  * waits for the owner; the owner gets the invite lobby. All three share the stage and the Dock.
@@ -95,6 +114,22 @@ export default function Meeting({
   const roles = useMemo(() => joinSeatRoles(scenario), [scenario]);
   const practice = variant === 'practice';
   const [session, setSession] = useState<Session | undefined>(() => hotData?.session);
+  // A reload must not throw the person back to the name/seat form: remember the join this tab used
+  // and ask the server for a fresh token for the same name and seat.
+  const initialStored = useRef<StoredJoin | undefined>(
+    hotData?.session === undefined ? readStoredJoin(variant) : undefined,
+  );
+  const [restore, setRestore] = useState<StoredJoin | undefined>(initialStored.current);
+  const [rejoinState, setRejoinState] = useState<'idle' | 'reconnecting' | 'failed'>(
+    initialStored.current === undefined ? 'idle' : 'reconnecting',
+  );
+  const [rejoinProblem, setRejoinProblem] = useState<string | undefined>();
+  const [rejoinDeadline, setRejoinDeadline] = useState<number | undefined>(
+    initialStored.current === undefined ? undefined : Date.now() + REJOIN_GRACE_MS,
+  );
+  const autoRejoinAttempted = useRef(false);
+  // Cleared as soon as a drop starts a rejoin, so an unmount cannot start a second join for the same room.
+  const activeSession = useRef<Session | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [realInProgress, setRealInProgress] = useState(false);
@@ -110,6 +145,10 @@ export default function Meeting({
       hotData.started = started;
     }
   }, [session, pane, started]);
+
+  useEffect(() => {
+    activeSession.current = session;
+  }, [session]);
   const linkCode = useMemo(
     () => initialCode ?? new URLSearchParams(window.location.search).get('code') ?? '',
     [initialCode],
@@ -124,10 +163,22 @@ export default function Meeting({
     ? `${scenario.id} has no AI attendees: add "npcs" to its scenario.json.`
     : 'The meeting owner has not opened any seats yet.';
 
-  async function join(name: string, roleId: string, media: MediaChoice, meetingCode?: string): Promise<void> {
-    setBusy(true);
-    setError(undefined);
-    setRealInProgress(false);
+  async function join(
+    name: string,
+    roleId: string,
+    media: MediaChoice,
+    meetingCode?: string,
+    options: { reconnecting?: boolean } = {},
+  ): Promise<void> {
+    const reconnecting = options.reconnecting === true;
+    if (reconnecting) {
+      setRejoinState('reconnecting');
+      setRejoinProblem(undefined);
+    } else {
+      setBusy(true);
+      setError(undefined);
+      setRealInProgress(false);
+    }
     try {
       const response = await fetchWithTimeout(
         '/api/livekit/token',
@@ -166,19 +217,74 @@ export default function Meeting({
       setPane('meeting');
       // The server owns whether the meeting has started: a started (or resumed) meeting goes straight in.
       setStarted(body.started === true || body.resumed === true);
+      const effectiveCode =
+        meetingCode ?? (typeof body.meetingCode === 'string' ? body.meetingCode : undefined);
       setSession({
         token: body.token,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
         role: roleId,
         name,
         media,
-        ...(typeof body.meetingCode === 'string' ? { meetingCode: body.meetingCode } : {}),
+        ...(effectiveCode === undefined ? {} : { meetingCode: effectiveCode }),
+      });
+      setRestore(undefined);
+      setRejoinState('idle');
+      setRejoinProblem(undefined);
+      setRejoinDeadline(undefined);
+      storeJoin(variant, {
+        name,
+        role: roleId,
+        media,
+        ...(effectiveCode === undefined ? {} : { meetingCode: effectiveCode }),
       });
     } catch (joinError) {
-      setError(joinError instanceof Error ? joinError.message : String(joinError));
+      const message = joinError instanceof Error ? joinError.message : String(joinError);
+      if (reconnecting) {
+        setRejoinState('failed');
+        setRejoinProblem(message);
+      } else {
+        setError(message);
+      }
     } finally {
-      setBusy(false);
+      if (!reconnecting) setBusy(false);
     }
+  }
+
+  /** Keep the meeting's recoverable state and ask for a fresh token for the same seat. */
+  function beginReconnect(target: StoredJoin): void {
+    setRestore(target);
+    setRejoinState('reconnecting');
+    setRejoinProblem(undefined);
+    setRejoinDeadline(Date.now() + REJOIN_GRACE_MS);
+    setSession(undefined);
+    void join(target.name, target.role, target.media, target.meetingCode, { reconnecting: true });
+  }
+
+  useEffect(() => {
+    if (autoRejoinAttempted.current || restore === undefined) return;
+    autoRejoinAttempted.current = true;
+    void join(restore.name, restore.role, restore.media, restore.meetingCode, { reconnecting: true });
+  }, [restore]);
+
+  if (session === undefined && restore !== undefined) {
+    return (
+      <RejoinScreen
+        meetingTitle={scenario.meetingTitle}
+        state={rejoinState}
+        problem={rejoinProblem}
+        deadline={rejoinDeadline}
+        onRejoin={() =>
+          void join(restore.name, restore.role, restore.media, restore.meetingCode, { reconnecting: true })
+        }
+        onLeave={() => {
+          clearStoredJoin(variant);
+          setRestore(undefined);
+          setRejoinState('idle');
+          setRejoinProblem(undefined);
+          setRejoinDeadline(undefined);
+        }}
+      />
+    );
   }
 
   if (session === undefined) {
@@ -230,9 +336,22 @@ export default function Meeting({
           token={session.token}
           serverUrl={session.serverUrl}
           options={ROOM_OPTIONS}
-          onDisconnected={() => setSession(undefined)}
+          onDisconnected={() => {
+            const target = activeSession.current;
+            if (target === undefined) return;
+            activeSession.current = undefined;
+            beginReconnect(storedFromSession(target));
+          }}
           onError={(roomError) => {
-            setError(`Could not reach the meeting server at ${session.serverUrl}: ${roomError.message}. Is LiveKit running (npm run stack:up)?`);
+            const target = activeSession.current;
+            if (target === undefined) return;
+            activeSession.current = undefined;
+            setRestore(storedFromSession(target));
+            setRejoinState('failed');
+            setRejoinProblem(
+              `Could not reach the meeting server at ${target.serverUrl}: ${roomError.message}. Is LiveKit running (npm run stack:up)?`,
+            );
+            setRejoinDeadline(Date.now() + REJOIN_GRACE_MS);
             setSession(undefined);
           }}
           data-lk-theme="default"
@@ -247,6 +366,8 @@ export default function Meeting({
             />
           </ErrorBoundary>
           <CleanDisconnectOnUnload />
+          <LiveConnectionNotice />
+          <AudioUnlockPrompt />
           <MeetingLifecycleWatcher onStarted={markMeetingStarted} onReset={markMeetingReset} />
           {needsStart && practice && (
             <ConnectedStartPrompt
@@ -287,6 +408,84 @@ export default function Meeting({
           )}
         </button>
       </nav>
+    </div>
+  );
+}
+
+
+/** Shown while LiveKit itself is trying to recover from a network switch or a short screen lock. */
+function LiveConnectionNotice() {
+  const room = useRoomContext();
+  const [state, setState] = useState<ConnectionState | undefined>(room.state);
+  useEffect(() => {
+    const update = (next: ConnectionState): void => setState(next);
+    room.on(RoomEvent.ConnectionStateChanged, update);
+    return () => {
+      room.off(RoomEvent.ConnectionStateChanged, update);
+    };
+  }, [room]);
+  if (state !== ConnectionState.Reconnecting && state !== ConnectionState.SignalReconnecting) {
+    return null;
+  }
+  return (
+    <div className="kd-reconnect-banner" role="status">
+      Reconnecting…
+    </div>
+  );
+}
+
+/** The way back into a meeting whose connection dropped, instead of the blank join form. */
+function RejoinScreen({
+  meetingTitle,
+  state,
+  problem,
+  deadline,
+  onRejoin,
+  onLeave,
+}: {
+  meetingTitle: string;
+  state: 'idle' | 'reconnecting' | 'failed';
+  problem: string | undefined;
+  deadline: number | undefined;
+  onRejoin(): void;
+  onLeave(): void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const remaining = deadline === undefined ? undefined : Math.max(0, deadline - now);
+  return (
+    <div className="kd-join" role="region" aria-label="Reconnecting to the meeting">
+      <div className="kd-card">
+        <div className="kd-live">
+          <span className="kd-dot" />
+          {state === 'failed' ? 'Rejoin needed' : 'Reconnecting'}
+        </div>
+        <h1 className="kd-title">
+          {state === 'failed' ? 'Could not get back into the meeting yet' : 'Reconnecting to your meeting…'}
+        </h1>
+        <p className="kd-sub">{meetingTitle}</p>
+        <p className="kd-hint">Same seat and name.</p>
+        {remaining === undefined ? null : (
+          <p className="kd-hint">
+            Your seat is held for about {formatGraceRemaining(remaining)}.
+            {remaining === 0 ? ' Rejoining may start a fresh meeting if the hold has ended.' : ''}
+          </p>
+        )}
+        {problem === undefined ? null : (
+          <p role="alert" className="kd-alert">
+            {problem}
+          </p>
+        )}
+        <button type="button" className="kd-go" onClick={onRejoin} disabled={state === 'reconnecting'}>
+          {state === 'reconnecting' ? 'Rejoining…' : 'Rejoin'}
+        </button>
+        <button type="button" className="kd-chip" onClick={onLeave}>
+          Leave and join as someone else
+        </button>
+      </div>
     </div>
   );
 }

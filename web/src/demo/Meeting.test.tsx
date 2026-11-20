@@ -23,6 +23,9 @@ vi.mock('@livekit/components-react', () => ({
   useRoomContext: () => ({
     disconnect: vi.fn().mockResolvedValue(undefined),
     localParticipant: { identity: 'visitor-1', publishData: vi.fn() },
+    state: 'connected',
+    canPlaybackAudio: true,
+    startAudio: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
     off: vi.fn(),
   }),
@@ -90,6 +93,7 @@ function replyWith(meeting: { resumed?: boolean; started?: boolean }): void {
 
 beforeEach(async () => {
   vi.resetModules();
+  window.sessionStorage.clear();
   mocks.events = [];
   mocks.lifecycleStarted = undefined;
   mocks.refreshScenario.mockReset();
@@ -242,4 +246,101 @@ describe('Meeting join', () => {
     expect(screen.queryByText(/How to play/)).toBeNull();
   });
 
+});
+
+
+describe('Meeting rejoin', () => {
+  const storedKey = 'kaki.join.participant';
+
+  function rememberSeat(): void {
+    window.sessionStorage.setItem(
+      storedKey,
+      JSON.stringify({
+        name: 'Ana',
+        role: 'producer',
+        media: { microphone: false, camera: false },
+        meetingCode: 'ABCD',
+      }),
+    );
+  }
+
+  it('restores the same name and seat automatically after a reload', async () => {
+    rememberSeat();
+    replyWith({ resumed: true });
+    const fetchMock = vi.mocked(fetch);
+
+    render(<Meeting variant="participant" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      participantName: 'Ana',
+      participantRole: 'producer',
+      meetingCode: 'ABCD',
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Reconnecting to the meeting' })).toBeNull(),
+    );
+    expect(screen.queryByRole('button', { name: 'Join team' })).toBeNull();
+    expect(window.sessionStorage.getItem(storedKey)).not.toBeNull();
+  });
+
+  it('keeps a rejoin screen with the reason and a way back when the automatic rejoin is refused', async () => {
+    rememberSeat();
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'This meeting has ended; the meeting owner must start the next one.' }),
+    })));
+
+    render(<Meeting variant="participant" />);
+
+    expect(await screen.findByRole('region', { name: 'Reconnecting to the meeting' })).toBeTruthy();
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'This meeting has ended; the meeting owner must start the next one.',
+    );
+    expect(screen.queryByRole('button', { name: 'Join team' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Leave and join as someone else' }));
+    expect(await screen.findByRole('button', { name: 'Join team' })).toBeTruthy();
+    expect(window.sessionStorage.getItem(storedKey)).toBeNull();
+  });
+
+  it('lets the person rejoin by hand after the automatic attempt fails', async () => {
+    rememberSeat();
+    let refuse = true;
+    const fetchMock = vi.fn(async () => refuse
+      ? { ok: false, status: 503, json: async () => ({ error: 'Could not check who is in the meeting right now.' }) }
+      : { ok: true, status: 200, json: async () => ({ token: 'token', url: 'ws://localhost:7880', meetingCode: 'ABCD', resumed: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Meeting variant="participant" />);
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Could not check who is in the meeting right now.',
+    );
+    expect(screen.queryByRole('button', { name: 'Join team' })).toBeNull();
+
+    refuse = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Rejoin' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Reconnecting to the meeting' })).toBeNull(),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('remembers the seat after a normal join so the next reload can restore it', async () => {
+    replyWith({ started: true });
+    render(<Meeting variant="participant" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Join team' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Join team' })).toBeNull());
+    expect(JSON.parse(String(window.sessionStorage.getItem(storedKey)))).toMatchObject({
+      name: 'Josh',
+      role: 'producer',
+      media: { microphone: false, camera: false },
+      meetingCode: 'ABCD',
+    });
+  });
 });

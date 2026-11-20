@@ -3,7 +3,24 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TeamJoinForm } from './TeamJoinForm';
 
-vi.mock('../demo/MediaPreview', () => ({ MediaPreview: () => null }));
+vi.mock('../demo/MediaPreview', () => ({
+  MediaPreview: ({
+    value,
+    onChange,
+  }: {
+    value: { microphone: boolean; camera: boolean };
+    onChange(next: { microphone: boolean; camera: boolean }): void;
+  }) => (
+    <button
+      type="button"
+      aria-label="Microphone"
+      aria-pressed={value.microphone}
+      onClick={() => onChange({ ...value, microphone: !value.microphone })}
+    >
+      {value.microphone ? 'Mic on' : 'Mic off'}
+    </button>
+  ),
+}));
 
 const roles = [
   { id: 'producer', label: 'Producer' },
@@ -32,15 +49,38 @@ describe('TeamJoinForm', () => {
 
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: ' Josh ' } });
     fireEvent.change(screen.getByLabelText('Your seat'), { target: { value: 'marketing_lead' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Join to type' }));
 
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'marketing_lead', { microphone: true, camera: false }, 'ABCD');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'marketing_lead', { microphone: false, camera: false }, 'ABCD');
+  });
+
+  it('starts with the microphone off and asks the browser only after a tap', () => {
+    const onJoin = vi.fn();
+    render(
+      <TeamJoinForm meetingTitle="Launch readiness" roles={roles} initialCode="ABCD" onJoin={onJoin} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Join to type' })).toBeTruthy();
+    expect(screen.getByLabelText('Microphone').getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(screen.getByLabelText('Microphone'));
+    expect(screen.getByRole('button', { name: 'Join with mic' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Josh' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Join with mic' }));
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false }, 'ABCD');
   });
 
   it('gives the owner no code box', () => {
     render(<TeamJoinForm meetingTitle="Launch readiness" roles={roles} owner onJoin={vi.fn()} />);
     expect(screen.queryByLabelText('Meeting code')).toBeNull();
     expect(screen.getByRole('button', { name: 'Join the meeting room' })).toBeTruthy();
+  });
+
+  it('makes the owner voice join explicit after they tap the microphone', () => {
+    render(<TeamJoinForm meetingTitle="Launch readiness" roles={roles} owner onJoin={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('Microphone'));
+    expect(screen.getByRole('button', { name: 'Join the meeting room with mic' })).toBeTruthy();
   });
 
   it('shows the server error in plain words', () => {

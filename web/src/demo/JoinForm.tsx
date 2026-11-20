@@ -47,7 +47,7 @@ function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
 export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, errorAction, initialCode = '', onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
-  const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
+  const [media, setMedia] = useState<MediaChoice>({ microphone: false, camera: false });
   const [code, setCode] = useState(initialCode);
   const showCode = askCode || initialCode.length > 0;
   const [problem, setProblem] = useState<string | undefined>();
@@ -190,9 +190,11 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           )}
 
           <button type="submit" className="kd-go" disabled={!ready}>
-            {busy ? 'Joining…' : media.microphone ? 'Join' : 'Join to type'}
+            {busy ? 'Joining…' : media.microphone ? 'Join with mic' : 'Join to type'}
           </button>
-          <p className="kd-hint">Headphones work best. With the microphone off you can type to the AI attendees.</p>
+          <p className="kd-hint">
+            Headphones work best. Tap the microphone to speak; with it off you can type to the AI attendees.
+          </p>
         </div>
       </form>
 

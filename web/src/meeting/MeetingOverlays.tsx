@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Scenario } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import { fetchWithTimeout } from '../net/withTimeout';
+import { clearAllStoredJoins } from '../demo/rejoinSession';
+import { RoleQrCode } from '../screen/JoinPhones';
 import '../demo/demo.css';
 
 const LOBBY_POLL_MS = 4_000;
@@ -168,6 +170,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
           typeof body.error === 'string' ? body.error : `Could not close the room (HTTP ${response.status}).`,
         );
       }
+      clearAllStoredJoins();
       window.location.assign('/setup');
     } catch (error) {
       setStartError(error instanceof Error ? error.message : 'Could not close the room.');
@@ -205,6 +208,10 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
               <span>
                 Meeting code: <strong>{code}</strong>
               </span>
+            </div>
+            <div className="kd-lobby-qr">
+              <RoleQrCode value={inviteLink} label="the meeting" />
+              <p className="kd-hint">Scan to join on a phone.</p>
             </div>
             {copyProblem === undefined ? null : <p className="kd-alert">{copyProblem}</p>}
           </div>

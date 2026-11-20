@@ -18,6 +18,8 @@ const scenario: Scenario = {
 
 vi.mock('../kaki', () => ({ useScenario: () => scenario }));
 
+vi.mock('qrcode', () => ({ toString: vi.fn(async () => '<svg />') }));
+
 function reply(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -79,6 +81,8 @@ describe('OwnerLobby', () => {
     expect(link.getAttribute('href')).toMatch(/\/join\?code=K7QX$/);
     expect(screen.getByText('Ada')).toBeTruthy();
     expect(screen.getByText('Meeting code:')).toBeTruthy();
+    const qr = await screen.findByAltText('QR code for the meeting');
+    expect(qr.getAttribute('src')).toContain('data:image/svg+xml');
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(link.getAttribute('href')));

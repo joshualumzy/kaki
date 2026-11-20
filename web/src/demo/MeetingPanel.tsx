@@ -10,6 +10,7 @@ import {
   type Task,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
+import { clearAllStoredJoins } from './rejoinSession';
 import { resolveArtifactUrl } from '../ui';
 import { MeetingRecordCard, isRecord, type RecordEvent } from '../screen/ScreenPage';
 import type { TranscriptViewer } from './captions';
@@ -41,6 +42,9 @@ export function MeetingPanel({
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
   // needs auth off or a signed-in host (the page cannot connect otherwise).
   const { events, tasks, connected, rejection, send, speechByTopic } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
+  // Only the person the server authorises to drive the shared screen may advance or end the meeting.
+  // Everyone else gets no controls at all, rather than controls the server refuses.
+  const canControlMeeting = sharedAudience === 'screen';
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -187,12 +191,12 @@ export function MeetingPanel({
     [tasks],
   );
   const minutesTask = useMemo(
-    () =>
-      visibleTasks.find(
-        (task) => task.purpose === 'meeting_minutes' && task.artifactUrl !== undefined,
-      ),
+    () => visibleTasks.find((task) => task.purpose === 'meeting_minutes'),
     [visibleTasks],
   );
+  const minutesPublished =
+    minutesTask?.artifactUrl !== undefined &&
+    (minutesTask.status === 'COMPLETED' || minutesTask.status === 'SYNCED');
   const meetingEnded = useMemo(
     () =>
       minutesTask !== undefined ||
@@ -243,14 +247,23 @@ export function MeetingPanel({
     <div className="page kd-host kd-meeting-panel">
       {!connected && <p className="connection-banner">Reconnecting…</p>}
       {isHost && <HostBrief scenario={scenario} />}
-      {isHost && rejection !== null && (
+      {rejection !== null && (
         <p className="connection-banner" role="alert">
           {rejection.commandType}: {rejection.reason}
         </p>
       )}
-      {isHost && (
+      {canControlMeeting && (
         <div className="kd-host-controls">
-          <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}>
+          <button
+            type="button"
+            className="kd-chip"
+            disabled={
+              record === undefined ||
+              meetingEnded ||
+              record.payload.agendaIndex + 1 >= scenario.agenda.length
+            }
+            onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
+          >
             Next agenda item
           </button>
           <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'END_MEETING' })}>
@@ -261,21 +274,53 @@ export function MeetingPanel({
       {meetingEnded && (
         <section className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">
-            {minutesTask?.artifactUrl !== undefined
+            {minutesPublished
               ? '🎉 Kaki Host · Meeting Minutes & Live Artifacts Ready'
-              : '🎉 Kaki Host · Meeting Concluded'}
+              : minutesTask === undefined
+                ? '🎉 Kaki Host · Meeting Concluded'
+                : '📝 Kaki Host · Meeting Minutes Draft'}
           </p>
           <p style={{ marginBottom: 10 }}>
-            {minutesTask?.artifactUrl !== undefined
+            {minutesPublished
               ? 'Full meeting notes (agenda items, action items, open questions, and transcript) and your team deliverables are live:'
-              : 'Syncing final action items and publishing meeting minutes to the team wiki…'}
+              : minutesTask === undefined
+                ? 'Syncing final action items and preparing the meeting minutes draft…'
+                : minutesTask.status === 'RUNNING'
+                  ? 'The approved minutes are being published now.'
+                  : minutesTask.status === 'FAILED' || minutesTask.error !== undefined
+                    ? 'The meeting minutes could not be prepared.'
+                    : minutesTask.status === 'DRAFT_READY'
+                      ? 'Minutes draft ready for review.'
+                      : 'Preparing the minutes draft…'}
           </p>
+          {minutesTask !== undefined && !minutesPublished && (
+            <p style={{ marginBottom: 10 }}>
+              Assigned to{' '}
+              {assigneeLabel(
+                scenario,
+                minutesTask.assignee ?? minutesTask.suggestedAssignee,
+                viewer,
+              )}
+              .
+            </p>
+          )}
+          {minutesTask?.error !== undefined && (
+            <p role="alert" className="kd-alert">
+              {minutesTask.error}
+            </p>
+          )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {minutesTask?.artifactUrl !== undefined && (
+            {minutesPublished && minutesTask?.artifactUrl !== undefined && (
               <a className="artifact-link" href={resolveArtifactUrl(minutesTask.artifactUrl)} target="_blank" rel="noreferrer">
                 Open meeting minutes in Wiki ↗
               </a>
             )}
+            {minutesTask !== undefined && !minutesPublished && role?.id !== undefined &&
+              (minutesTask.assignee ?? minutesTask.suggestedAssignee) === role.id && (
+                <a className="artifact-link" href={`#task-${minutesTask.id}`}>
+                  Open the minutes draft to review ↓
+                </a>
+              )}
             {publishedDeliverables.map((task) => (
               <a
                 key={task.id}
@@ -290,7 +335,10 @@ export function MeetingPanel({
             <button
               type="button"
               className="kd-chip"
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                clearAllStoredJoins();
+                window.location.reload();
+              }}
             >
               Start new meeting / Switch role
             </button>
@@ -328,26 +376,6 @@ export function MeetingPanel({
               events={events}
               agendaIndex={record.payload.agendaIndex}
             />
-          )}
-          {!isHost && !meetingEnded && (
-            <div className="kd-host-controls" aria-label="Meeting controls" style={{ marginTop: 6 }}>
-              {record.payload.agendaIndex + 1 < scenario.agenda.length && (
-                <button
-                  type="button"
-                  className="kd-chip"
-                  onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
-                >
-                  Skip to next topic →
-                </button>
-              )}
-              <button
-                type="button"
-                className="kd-chip"
-                onClick={() => send({ type: 'END_MEETING' })}
-              >
-                End meeting
-              </button>
-            </div>
           )}
         </>
       )}

@@ -71,6 +71,7 @@ describe('JoinForm', () => {
     fireEvent.change(name, { target: { value: '  Josh ' } });
     expect([...role.options].map((option) => option.value)).toEqual(['producer', 'marketing_lead']);
     fireEvent.change(role, { target: { value: 'marketing_lead' } });
+    fireEvent.click(screen.getByLabelText('Microphone'));
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'marketing_lead', { microphone: true, camera: false });
   });
@@ -78,6 +79,7 @@ describe('JoinForm', () => {
   it('joins with the first role when the person does not change it', () => {
     const { button, name, onJoin } = setup();
     fireEvent.change(name, { target: { value: 'Josh' } });
+    fireEvent.click(screen.getByLabelText('Microphone'));
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false });
   });
@@ -104,13 +106,17 @@ describe('JoinForm', () => {
     expect(button.disabled).toBe(true);
   });
 
-  it('toggles the microphone and camera like a call, and joins with the choice', () => {
+  it('starts with the microphone off and asks for it only after a tap', () => {
     const { button, name, onJoin } = setup();
     const mic = screen.getByLabelText('Microphone');
     const camera = screen.getByLabelText('Camera');
-    expect(mic.getAttribute('aria-pressed')).toBe('true');
+    expect(mic.getAttribute('aria-pressed')).toBe('false');
     expect(camera.getAttribute('aria-pressed')).toBe('false');
+    expect(button.textContent).toBe('Join to type');
+
     fireEvent.change(name, { target: { value: 'Josh' } });
+    fireEvent.click(mic);
+    expect(button.textContent).toBe('Join with mic');
     fireEvent.click(mic);
     expect(button.textContent).toBe('Join to type');
     fireEvent.click(button);
@@ -127,6 +133,7 @@ describe('JoinForm', () => {
     fireEvent.change(name, { target: { value: 'Josh' } });
     expect(button.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Meeting code'), { target: { value: 'k7qx' } });
+    fireEvent.click(screen.getByLabelText('Microphone'));
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false }, 'K7QX');
@@ -136,6 +143,7 @@ describe('JoinForm', () => {
     const { onJoin, name, button } = setup({ initialCode: 'ABCD' });
     fireEvent.change(name, { target: { value: 'Josh' } });
     expect((screen.getByLabelText('Meeting code') as HTMLInputElement).value).toBe('ABCD');
+    fireEvent.click(screen.getByLabelText('Microphone'));
     fireEvent.click(button);
     expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false }, 'ABCD');
   });

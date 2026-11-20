@@ -610,6 +610,7 @@ export function ActiveRoleCards({
               return (
                 <TaskCard
                   key={taskKey(item)}
+                  id={`task-${item.id}`}
                   task={item}
                   scenario={scenario}
                   send={send}
@@ -647,6 +648,7 @@ export function ActiveRoleCards({
                   <span className="kd-role-pending-action">Hide</span>
                 </button>
                 <TaskCard
+                  id={`task-${item.id}`}
                   task={item}
                   scenario={scenario}
                   send={send}
@@ -672,6 +674,7 @@ function TaskCard(props: {
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
   viewer?: { name: string; seatName?: string };
+  id?: string;
 }) {
   const { task, send, rejection } = props;
   const [approvedAt, setApprovedAt] = useState<number | null>(null);
@@ -704,12 +707,14 @@ function TaskCardBody({
   send,
   rejection,
   viewer,
+  id,
 }: {
   task: Task;
   scenario: Scenario;
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
   viewer?: { name: string; seatName?: string };
+  id?: string;
 }) {
   const [body, setBody] = useState(task.draft?.body ?? '');
   const [target, setTarget] = useState(task.draft?.target ?? '');
@@ -751,7 +756,7 @@ function TaskCardBody({
         : 1;
 
   return (
-    <Card>
+    <Card id={id}>
       <div className="phone-item-head">
         <p className="phone-item-kind">Task</p>
         <TimeLabel at={updatedAtMs(task)} />

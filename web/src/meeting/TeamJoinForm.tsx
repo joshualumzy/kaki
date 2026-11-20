@@ -28,7 +28,7 @@ export function TeamJoinForm({
 }: TeamJoinFormProps) {
   const [name, setName] = useState('');
   const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
-  const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
+  const [media, setMedia] = useState<MediaChoice>({ microphone: false, camera: false });
   const [code, setCode] = useState(initialCode);
   const [problem, setProblem] = useState<string | undefined>();
   const ready = name.trim().length > 0 && roleId.length > 0 && !busy;
@@ -115,9 +115,19 @@ export function TeamJoinForm({
           )}
 
           <button type="submit" className="kd-go" disabled={!ready}>
-            {busy ? 'Joining…' : owner ? 'Join the meeting room' : media.microphone ? 'Join' : 'Join to type'}
+            {busy
+              ? 'Joining…'
+              : owner
+                ? media.microphone
+                  ? 'Join the meeting room with mic'
+                  : 'Join the meeting room'
+                : media.microphone
+                  ? 'Join with mic'
+                  : 'Join to type'}
           </button>
-          <p className="kd-hint">Headphones work best. The meeting starts when the owner starts it.</p>
+          <p className="kd-hint">
+            Headphones work best. Tap the microphone to speak; the meeting starts when the owner starts it.
+          </p>
         </div>
       </form>
     </div>

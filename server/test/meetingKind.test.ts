@@ -6,6 +6,8 @@ import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
 import { loadScenario } from '../src/loadScenario';
+import { createMeetingModule } from '../src/host/meeting';
+import type { KakiModule } from '../src/modules';
 import { createMeetingCodeSource } from '../src/meetingCode';
 import { portOf, waitFor } from './helpers';
 
@@ -124,10 +126,12 @@ async function openModeApp(options: {
   rejoinGraceMs?: number;
   rejoinPollMs?: number;
   admissionReservationMs?: number;
+  modules?: KakiModule[];
 } = {}): Promise<{ app: KakiApp; port: number }> {
   const app = await createApp({
     speechRecognition: 'browser',
     scenario: pack,
+    ...(options.modules === undefined ? {} : { modules: options.modules }),
     roomRoster: options.roomRoster ?? (async () => []),
     meetingCode: createMeetingCodeSource(CODE),
     rejoinGraceMs: options.rejoinGraceMs ?? 60_000,
@@ -505,8 +509,9 @@ describe('meeting kind security regressions', () => {
     const lifecycleClosed = waitForClose(lifecycle.ws);
     const seatClosed = waitForClose(seat.ws);
 
-    // The practice page may read the screen, but it never holds the screen's command authority.
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    // The practice page may read the screen and move its own agenda, but the rest of the screen's
+    // command authority (here: replacing the meeting) belongs to the owner.
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
     const rejection = await waitFor(
       () => screen.messages.find((message) => message.type === 'COMMAND_REJECTED'),
       'the practice screen command to be refused',
@@ -521,6 +526,33 @@ describe('meeting kind security regressions', () => {
     expect(await Promise.all([screenClosed, lifecycleClosed, seatClosed])).toEqual([4001, 4001, 4001]);
     const stale = await connect(port, 'screen', practiceCookie);
     expect(stale.ok).toBe(false);
+  });
+
+  it('lets the practice visitor advance and end their own practice meeting', async () => {
+    const { app, port } = await openModeApp({ modules: [createMeetingModule()] });
+    await connectService(port);
+    const joined = await practiceJoin(port, 'Alice');
+    expect(joined.status).toBe(200);
+    expect((await request(port, '/api/meeting/start', 'POST')).status).toBe(200);
+    expect(app.session.phase()).toBe('running');
+
+    const screen = await connect(port, 'screen');
+    expect(screen.ok).toBe(true);
+    screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    const advanced = await waitFor(
+      () =>
+        screen.messages.find(
+          (message) =>
+            message.type === 'MEETING_RECORD_UPDATED' &&
+            (message as { payload: { agendaIndex?: number } }).payload.agendaIndex === 1,
+        ),
+      'the practice agenda to move to item 2',
+    );
+    expect(advanced).toBeTruthy();
+
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitFor(() => (app.session.phase() === 'ended' ? true : undefined), 'the practice meeting to end');
+    expect(app.session.phase()).toBe('ended');
   });
 
   it('never lets an old practice LiveKit token name the room of the real meeting that replaces it', async () => {

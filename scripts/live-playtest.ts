@@ -999,7 +999,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         }
         if (speaking) {
           const priorLines = transcript.length;
-          await page.getByRole('button', { name: /Skip to next topic/ }).click();
+          await page.getByRole('button', { name: 'Next agenda item' }).click();
           await check('Skip during AI reply', await waitFor('Skip advanced agenda', () => agendaIndex > i, 20_000),
             `Skip clicked while AI tile was speaking; transcript had ${priorLines} lines`);
         }
@@ -1021,7 +1021,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         const advanced = agendaIndex > i || (i === count - 1 && closing);
         await check(`Topic ${i + 1} advanced`, advanced, advanced ? 'Agenda moved or meeting concluded' : 'No advancement within 125 seconds');
         if (!advanced && i + 1 < count) {
-          const skip = page.getByRole('button', { name: /Skip to next topic/ });
+          const skip = page.getByRole('button', { name: 'Next agenda item' });
           if (await skip.isVisible().catch(() => false)) {
             await skip.click();
             notes.push(`${stamp()} Recovery: clicked Skip after advancement timeout`);

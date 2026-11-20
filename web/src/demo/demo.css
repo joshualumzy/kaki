@@ -485,3 +485,73 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-lobby-people li span {
   color: var(--color-muted);
 }
+
+/* The owner lobby's join QR and the in-meeting sound / reconnect prompts. */
+.kd-lobby-qr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.kd-lobby-qr .join-qr {
+  width: 7.5rem;
+  max-width: 7.5rem;
+  flex: none;
+}
+
+.kd-lobby-qr .kd-hint {
+  margin: 0;
+}
+
+.kd-audio-unlock {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 65;
+  width: min(320px, calc(100% - 20px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 18px 44px -20px var(--color-ink);
+  box-sizing: border-box;
+}
+
+.kd-audio-unlock p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
+.kd-audio-unlock .kd-go {
+  width: 100%;
+}
+
+.kd-reconnect-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 65;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .kd-lobby-qr {
+    align-items: flex-start;
+  }
+
+  .kd-lobby-qr .join-qr {
+    width: 6rem;
+    max-width: 6rem;
+  }
+}

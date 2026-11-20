@@ -130,7 +130,7 @@ export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
   );
 }
 
-function RoleQrCode({ value, label }: { value: string; label: string }) {
+export function RoleQrCode({ value, label }: { value: string; label: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -170,7 +170,7 @@ function RoleQrCode({ value, label }: { value: string; label: string }) {
     <img
       className="join-qr"
       src={src}
-      alt={`QR code to join as ${label}`}
+      alt={`QR code for ${label}`}
       width={220}
       height={220}
     />
