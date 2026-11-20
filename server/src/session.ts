@@ -75,9 +75,10 @@ export interface MeetingSessionDeps {
   /**
    * A meeting handoff invalidated every credential tied to the previous generation. The app uses
    * this to close practice sockets and remove people from the room they can no longer belong to.
-   * `ended` is true when the meeting itself ended: its room stays for the minutes review.
+   * `ended` is true when the meeting itself ended: only a real meeting's room stays for the
+   * minutes review. `kind` is the journey that ended, captured before the kind is cleared.
    */
-  onCredentialChange?(ended: boolean): void;
+  onCredentialChange?(ended: boolean, kind?: MeetingKind): void;
   persistence?: Pick<MeetingPersistence, 'replaceSaved'>;
 }
 
@@ -127,6 +128,13 @@ export interface MeetingSession {
    * blocked forever. Its phase and abandonment mark stay for the restart path.
    */
   releaseRealMeeting(): void;
+  /**
+   * True while an ended team meeting is still being reviewed: its owner may be approving or
+   * publishing the minutes. Practice may not take over and wipe it until this clears.
+   */
+  reviewingEndedTeamMeeting(): boolean;
+  /** The owner has finished with the minutes (published or dismissed): practice may take over. */
+  finishReview(): void;
   /** When the meeting started; absent until Start commits and after a reset. */
   startedAt(): string | undefined;
   setStartedAt(startedAt: string | undefined): void;
@@ -175,6 +183,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let restoredNoMeeting = false;
   // An ended meeting keeps its seal in the saved shape until Start or reset moves on.
   let storedEnded = false;
+  // A real meeting that ended is still the owner's until the minutes review is over: practice must
+  // not take over and wipe its minutes, holders or room while that review is still open.
+  let endedTeamReview = false;
   const hooks: Array<() => void> = [];
 
   function refuse(transition: string): never {
@@ -196,9 +207,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   }
 
   /** A handoff: every credential granted in the old generation must stop working. */
-  function bumpGeneration(ended = false): void {
+  function bumpGeneration(ended = false, kind?: MeetingKind): void {
     generation += 1;
-    deps.onCredentialChange?.(ended);
+    deps.onCredentialChange?.(ended, kind);
   }
 
   function restore(saved: StoredMeeting): void {
@@ -229,6 +240,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     sealedSetup = undefined;
     practiceSeal = undefined;
     activeSealKind = restoredSealKind;
+    // An ended team meeting is still the owner's until the review finishes; a restart must not
+    // hand it to the next practice visitor while its minutes are waiting.
+    endedTeamReview = ended && restoredSealKind === 'real';
     if (restoredSealKind === 'practice' && saved.sealed !== undefined) practiceSeal = saved.sealed;
     else if (saved.sealed !== undefined) sealedSetup = saved.sealed;
 
@@ -288,6 +302,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     abandonedMeeting = false;
     restoredNoMeeting = false;
     storedEnded = false;
+    endedTeamReview = false;
     meetingKind = undefined;
     practiceGrant = undefined;
     deps.memory.splice(0, deps.memory.length);
@@ -395,7 +410,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       if (meetingKind !== 'real') return;
       meetingKind = undefined;
       practiceGrant = undefined;
+      endedTeamReview = false;
       bumpGeneration();
+    },
+    reviewingEndedTeamMeeting: () => endedTeamReview,
+    finishReview() {
+      endedTeamReview = false;
     },
     startedAt: () => started,
     setStartedAt(value) {
@@ -439,11 +459,15 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       if (phase !== 'running') refuse('end the meeting');
       abandonedMeeting = false;
       // A finished meeting is neither real nor practice until the next one is opened. Ending is a
-      // handoff: every credential granted for it stops working now.
+      // handoff: every credential granted for it stops working now. The journey is captured before
+      // the kind clears: a practice room must lose its people, while a real room is kept for the
+      // minutes review, and that review protects it from a practice takeover.
+      const endedKind = meetingKind;
+      endedTeamReview = endedKind === 'real';
       meetingKind = undefined;
       practiceGrant = undefined;
       phase = 'ended';
-      bumpGeneration(true);
+      bumpGeneration(true, endedKind);
     },
     reset,
     onReset(hook) {

@@ -277,22 +277,27 @@ describe('auth', () => {
     expect(wrongRole.ok).toBe(false);
     if (!wrongRole.ok) expect(wrongRole.status).toBe(401);
 
+    // A participant never reads the owner's screen; their own projection is the shared feed.
     const participantAsScreen = await connect(port, 'screen', chef);
-    expect(participantAsScreen.ok).toBe(true);
-    if (participantAsScreen.ok) sockets.push({ ws: participantAsScreen.ws });
+    expect(participantAsScreen.ok).toBe(false);
+    if (!participantAsScreen.ok) expect(participantAsScreen.status).toBe(401);
+
+    const participant = await connect(port, 'participant', chef);
+    expect(participant.ok).toBe(true);
+    if (participant.ok) sockets.push({ ws: participant.ws });
   });
 
-  it('lets a participant read the screen but never command it', async () => {
+  it('gives a participant a read-only projection that cannot command the meeting', async () => {
     const host = await signInAsHost();
     expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
     const chef = await joinAs('chef');
-    const screen = await connect(port, 'screen', chef);
-    expect(screen.ok).toBe(true);
-    if (!screen.ok) return;
-    sockets.push({ ws: screen.ws });
+    const participant = await connect(port, 'participant', chef);
+    expect(participant.ok).toBe(true);
+    if (!participant.ok) return;
+    sockets.push({ ws: participant.ws });
 
     const rejected: string[] = [];
-    screen.ws.on('message', (data) => {
+    participant.ws.on('message', (data) => {
       const event = JSON.parse(data.toString()) as {
         type?: string;
         payload?: { reason?: string };
@@ -302,9 +307,9 @@ describe('auth', () => {
       }
     });
 
-    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
-    const reason = await waitFor(() => rejected[0], 'participant screen command rejection');
-    expect(reason).toMatch(/read the screen but not control it/);
+    participant.ws.send(JSON.stringify({ type: 'DISPATCH_TASK', taskId: 'not-a-task', assignee: 'cashier' }));
+    const reason = await waitFor(() => rejected[0], 'participant command rejection');
+    expect(reason).toMatch(/Only the shared screen can do that/);
   });
 
   it('lets signed-in people read the lifecycle and the runner use its authenticated service channel', async () => {

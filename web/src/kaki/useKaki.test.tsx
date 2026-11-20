@@ -226,11 +226,19 @@ describe('useKaki lifecycle state', () => {
     expect(scenarioRevision()).toBeGreaterThan(afterStart);
   });
 
-  it('holds a typed line across a reconnect instead of dropping it', async () => {
+  it('holds a typed line across a reconnect and sends it only after catch-up confirms the meeting', async () => {
+    const answers: Array<(value: unknown) => void> = [];
+    vi.stubGlobal('fetch', vi.fn(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    ));
     const { useKaki } = await import('./useKaki');
     const { result } = renderHook(() => useKaki('chef'));
     const first = sockets[0]!;
     act(() => first.emit('open'));
+    act(() => first.emit('message', startEvent('meeting-a')));
     await waitFor(() => expect(result.current.connected).toBe(true));
 
     act(() => (first as unknown as { close(): void }).close());
@@ -245,9 +253,80 @@ describe('useKaki lifecycle state', () => {
     expect(result.current.rejection).toBeNull();
 
     await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
-    const second = sockets[1]! as unknown as { emit(type: string): void; sent: string[] };
+    const second = sockets[1]! as unknown as {
+      emit(type: string, event?: unknown): void;
+      sent: string[];
+    };
     act(() => second.emit('open'));
+    // Opening alone is not catch-up: the line must wait for the server's meeting identity.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(second.sent).toEqual([]);
+    await act(async () => {
+      answers[1]!({
+        ok: true,
+        status: 200,
+        json: async () => ({ meetingId: 'meeting-a', started: true }),
+      });
+      await Promise.resolve();
+    });
     await waitFor(() => expect(second.sent.map((message) => JSON.parse(message).type)).toContain('HUMAN_LINE'));
+    const sentLine = JSON.parse(second.sent.find((message) => JSON.parse(message).type === 'HUMAN_LINE')!);
+    expect(sentLine.meetingId).toBe('meeting-a');
+    expect(sentLine.seat).toBe('chef');
+  });
+
+  it('drops a held line when the room comes back as a different meeting', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('chef'));
+    const first = sockets[0]!;
+    act(() => first.emit('open'));
+    act(() => first.emit('message', startEvent('meeting-a')));
+    act(() => (first as unknown as { close(): void }).close());
+    act(() => {
+      expect(result.current.send({
+        type: 'HUMAN_LINE',
+        text: 'This belonged to meeting A.',
+        source: 'typed',
+        clientLineId: 'held-line',
+      })).toBe(true);
+    });
+
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const second = sockets[1]! as unknown as { emit(type: string, event?: unknown): void; sent: string[] };
+    act(() => second.emit('open'));
+    act(() => second.emit('message', startEvent('meeting-b')));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(second.sent).toEqual([]);
+  });
+
+  it('drops a held line when the audience changes', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result, rerender } = renderHook(({ audience }) => useKaki(audience), {
+      initialProps: { audience: 'chef' as 'chef' | 'producer' },
+    });
+    const first = sockets[0]!;
+    act(() => first.emit('open'));
+    act(() => first.emit('message', startEvent('meeting-a')));
+    act(() => (first as unknown as { close(): void }).close());
+    act(() => {
+      expect(result.current.send({
+        type: 'HUMAN_LINE',
+        text: 'Typed as the chef.',
+        source: 'typed',
+        clientLineId: 'held-line',
+      })).toBe(true);
+    });
+
+    rerender({ audience: 'producer' });
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(1), { timeout: 2_000 });
+    const second = sockets[sockets.length - 1]! as unknown as {
+      emit(type: string, event?: unknown): void;
+      sent: string[];
+    };
+    act(() => second.emit('open'));
+    act(() => second.emit('message', startEvent('meeting-a')));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(second.sent).toEqual([]);
   });
 
   it('keeps the newest meeting record even after it leaves the event window', async () => {

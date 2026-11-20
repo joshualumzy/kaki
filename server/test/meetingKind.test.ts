@@ -321,7 +321,7 @@ describe('meeting kind in open mode', () => {
     expect(app.session.kind()).toBe('real');
   });
 
-  it('starts a fresh practice meeting after a team meeting ends, even while its room still lists people', async () => {
+  it('protects an ended team meeting from practice until its owner leaves the room', async () => {
     let people: Array<{ name: string }> = [];
     const { app, port } = await authModeApp({
       roomRoster: async () => people,
@@ -345,13 +345,73 @@ describe('meeting kind in open mode', () => {
     app.session.end();
     expect(app.session.phase()).toBe('ended');
     expect(app.session.kind()).toBeUndefined();
+    expect(app.session.reviewingEndedTeamMeeting()).toBe(true);
 
-    // The owner is still in the old room, reviewing the minutes. That seat belongs to the ended
-    // team meeting, not to the practice meeting the next visitor starts.
+    // The owner is still in the old room. That seat belongs to the ended team meeting, so a
+    // practice visitor must not reset the review under them.
+    const refused = await practiceJoin(port, 'Ben');
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ realInProgress: true });
+    expect(app.session.holders().map((holder) => holder.name)).toEqual(['owner']);
+
+    // Nobody is left in the room: the empty-room expiry drops the review and practice may start.
+    app.session.pruneHolders();
+    app.session.finishReview();
     const practice = await practiceJoin(port, 'Ben');
     expect(practice.status).toBe(200);
     expect(app.session.kind()).toBe('practice');
     expect(app.session.holders().map((holder) => holder.name)).toEqual(['ben']);
+  });
+
+  it('protects an ended team meeting until its unapproved minutes are published', async () => {
+    let people: Array<{ name: string }> = [];
+    const { app, port } = await authModeApp({
+      roomRoster: async () => people,
+      admissionReservationMs: 0,
+    });
+    await connectService(port, `Bearer ${TOKEN}`);
+    const host = await loginHost(port);
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    const joined = await request(
+      port,
+      '/api/livekit/token',
+      'POST',
+      { participantName: 'Owner', participantRole: 'producer' },
+      host,
+    );
+    expect(joined.status).toBe(200);
+    const seatCookie = cookieFrom(joined);
+    people = [{ name: 'Owner' }];
+    expect((await request(port, '/api/meeting/start', 'POST', undefined, seatCookie)).status).toBe(200);
+
+    const minutes = app.tasks.suggestWithPurpose(
+      {
+        title: 'Publish meeting minutes to the team wiki',
+        context: 'The full meeting summary.',
+        suggestedAssignee: 'producer',
+        actionKind: 'wiki_page',
+      },
+      'meeting_minutes',
+    );
+    app.tasks.transition(minutes.id, 'DISPATCHED', { assignee: 'producer' });
+    app.tasks.transition(minutes.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    app.tasks.transition(minutes.id, 'DRAFT_READY', {
+      draft: { target: 'Wiki: meeting notes', subject: 'Minutes', body: 'Unapproved draft' },
+    });
+
+    app.session.end();
+    expect(app.session.reviewingEndedTeamMeeting()).toBe(true);
+    const refused = await practiceJoin(port, 'Ben');
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ realInProgress: true });
+
+    // Published: the review is over, so practice may take the server.
+    app.tasks.transition(minutes.id, 'RUNNING');
+    app.tasks.transition(minutes.id, 'COMPLETED', { artifactUrl: 'https://wiki.example/minutes' });
+    expect(app.session.reviewingEndedTeamMeeting()).toBe(false);
+    const practice = await practiceJoin(port, 'Ben');
+    expect(practice.status).toBe(200);
+    expect(app.session.kind()).toBe('practice');
   });
 
   it('frees a practice meeting once its visitor leaves, and the next practice visitor gets a fresh one', async () => {

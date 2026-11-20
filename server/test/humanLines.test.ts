@@ -554,6 +554,45 @@ describe('human-line security with sign-in on', () => {
     expect((await connect(port, 'chef', chef)).ok).toBe(false);
   });
 
+  it('refuses a held line tagged with another meeting or another seat', async () => {
+    const { app, port, setPeople } = await authOnApp();
+    const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    const chef = cookieFrom(await request(port, '/api/livekit/token', 'POST', {
+      roomName: 'room', participantName: 'Ada', participantRole: 'chef', meetingCode: CODE,
+    }));
+    setPeople([{ name: 'Ada' }]);
+    expect((await request(port, '/api/meeting/start', 'POST', {}, host)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the auth meeting to run');
+    const screen = await connect(port, 'screen', host);
+    const phone = await connect(port, 'chef', chef);
+    if (!screen.ok || !phone.ok) throw new Error('sockets did not open');
+    sockets.push(screen.ws, phone.ws);
+
+    phone.ws.send(humanLine('This belongs to an old meeting.', 'held-old-meeting', { meetingId: 'an-old-meeting' }));
+    const wrongMeeting = await waitFor(
+      () => phone.messages.find((event) => event.type === 'COMMAND_REJECTED' && /different meeting/i.test(event.payload.reason)),
+      'the old-meeting refusal',
+    );
+    expect(wrongMeeting).toMatchObject({ payload: { commandType: 'HUMAN_LINE' } });
+
+    phone.ws.send(humanLine('The chef cannot speak as the cashier.', 'held-wrong-seat', { seat: 'cashier' }));
+    await waitFor(
+      () => phone.messages.find((event) => event.type === 'COMMAND_REJECTED' && /different seat/i.test(event.payload.reason)),
+      'the wrong-seat refusal',
+    );
+
+    await settle(50);
+    expect(
+      screen.messages.some(
+        (event) =>
+          event.type === 'TRANSCRIPT_CHUNK' &&
+          (event.payload.text === 'This belongs to an old meeting.' ||
+            event.payload.text === 'The chef cannot speak as the cashier.'),
+      ),
+    ).toBe(false);
+  });
+
   it('records a signed-in host\'s own line when the host takes a seat', async () => {
     const { app, port, setPeople } = await authOnApp();
     const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));

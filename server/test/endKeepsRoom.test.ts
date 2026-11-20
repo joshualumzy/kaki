@@ -71,4 +71,29 @@ describe('ending a meeting keeps its room', () => {
     await waitFor(() => (app.session.phase() === 'lobby' ? true : undefined), 'the reset');
     expect(removals).toHaveLength(1);
   });
+
+  it('removes the practice visitor from the practice room when the practice meeting ends', async () => {
+    const app = await createApp({
+      scenario: testScenario,
+      roomRoster: async () => [],
+      speechRecognition: 'browser',
+      rejoinGraceMs: 60_000,
+    });
+    apps.push(app);
+    const port = portOf(app);
+    const joined = await fetch(`http://127.0.0.1:${port}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ participantName: 'Ada', participantRole: 'chef', kind: 'practice' }),
+    });
+    expect(joined.status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the practice meeting to run');
+    removals.splice(0);
+
+    app.session.end();
+
+    await waitFor(() => (removals.length > 0 ? true : undefined), 'the practice room removal');
+    expect(removals).toHaveLength(1);
+  });
 });

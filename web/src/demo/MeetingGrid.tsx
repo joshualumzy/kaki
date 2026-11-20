@@ -236,16 +236,19 @@ export function MeetingGrid({
   role,
   onOpenKaki,
   onKakiBadgeChange,
+  sharedAudience = 'screen',
 }: {
   role: string;
   onOpenKaki?: () => void;
   onKakiBadgeChange?: (count: number) => void;
+  /** A team participant reads the seat-bound projection; the owner and practice keep the screen. */
+  sharedAudience?: 'screen' | 'participant';
 }) {
   const scenario = useScenario();
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
   const { events, send: sendToServer, rejection: commandRejection } = useKaki(role);
-  const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki('screen');
+  const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience);
   // One path for every line the person produces: the server writes it whether or not an AI runner is up.
   const sendHumanLine = useCallback(
     (text: string, source: 'speech' | 'typed') => {

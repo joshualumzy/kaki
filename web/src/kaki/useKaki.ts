@@ -7,6 +7,14 @@ import { addTopicSpeech, type TopicSpeech } from './topicSpeech';
 
 export type { TopicSpeech } from './topicSpeech';
 
+type HumanLineCommand = Extract<KakiCommand, { type: 'HUMAN_LINE' }>;
+
+/** A typed line waiting for the socket, with the meeting it was typed in so a reconnect can check it. */
+interface PendingLine {
+  command: HumanLineCommand;
+  meetingId: string | undefined;
+}
+
 /** A command the server refused, with the reason to show the user. */
 export interface KakiRejection {
   commandType: string;
@@ -46,7 +54,7 @@ export interface UseKakiResult {
 }
 
 /** Subscribe to the server for one audience and keep the task list up to date. */
-export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult {
+export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant'): UseKakiResult {
   const scenario = useScenario();
   const [events, setEvents] = useState<KakiEvent[]>([]);
   const [latestRecord, setLatestRecord] = useState<MeetingRecordEvent | undefined>(undefined);
@@ -69,10 +77,19 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const meetingId = useRef<string | undefined>(undefined);
   /** The newest record read synchronously, so a line is filed under the topic it arrived on. */
   const latestRecordRef = useRef<MeetingRecordEvent | undefined>(undefined);
-  /** Typed lines written while the socket is reconnecting; they go out when it opens, not into the void. */
-  const pendingLines = useRef<KakiCommand[]>([]);
+  /** Typed lines written while the socket is reconnecting; they go out once catch-up confirms the meeting. */
+  const pendingLines = useRef<PendingLine[]>([]);
+  /** The audience the queued lines were typed for; a changed seat/audience drops them. */
+  const queuedAudience = useRef(audience);
 
   useEffect(() => {
+    if (queuedAudience.current !== audience) {
+      // The same browser tab changed seat (or left the screen): a held line belonged to the old
+      // speaker, so it must never go out as this one.
+      pendingLines.current = [];
+      queuedAudience.current = audience;
+      meetingId.current = undefined;
+    }
     setEvents([]);
     setLatestRecord(undefined);
     latestRecordRef.current = undefined;
@@ -88,6 +105,20 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
     let endedForGood = false;
     let opened = false;
     let socket: WebSocket | undefined;
+
+    function flushHeldLines(target: WebSocket, currentMeetingId: string | undefined): void {
+      if (pendingLines.current.length === 0 || currentMeetingId === undefined) return;
+      const queue = pendingLines.current;
+      pendingLines.current = [];
+      for (const entry of queue) {
+        if (entry.meetingId !== currentMeetingId) continue;
+        if (target.readyState !== WebSocket.OPEN) {
+          pendingLines.current.push(entry);
+          continue;
+        }
+        target.send(JSON.stringify(entry.command));
+      }
+    }
 
     function connect(): void {
       if (closed || endedForGood) return;
@@ -112,48 +143,49 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         setMeetingIdentity(undefined);
         setEnded(undefined);
         setConnected(true);
-        if (pendingLines.current.length > 0) {
-          const queued = pendingLines.current.splice(0);
-          for (const command of queued) {
-            if (current.readyState !== WebSocket.OPEN) {
-              pendingLines.current.push(command);
-              break;
+        // A held line goes out only after the server's catch-up names the meeting it was typed in.
+        // A reset may also have happened while this tab was disconnected, so ask instead of guessing.
+        const askedOn = current;
+        const askedAtRevision = lifecycleRevision.current;
+        const knownBefore = meetingId.current;
+        if (audience === 'lifecycle') meetingId.current = undefined;
+        void fetch('/api/meeting/state')
+          .then(async (response) => {
+            const body = (await response.json().catch(() => ({}))) as {
+              meetingId?: unknown;
+              started?: unknown;
+              kind?: unknown;
+            };
+            if (!response.ok || typeof body.started !== 'boolean') return;
+            if (typeof body.meetingId !== 'string' || body.meetingId === '') return;
+            // Only the connection that is still current may apply an answer, and only for the
+            // newest meeting: a fetch from a closed or replaced socket belongs to the past.
+            if (closed || socketRef.current !== askedOn || askedOn.readyState !== WebSocket.OPEN) return;
+            // A start/reset event that arrived while this answer was in flight is newer.
+            if (lifecycleRevision.current !== askedAtRevision) return;
+            if (
+              audience === 'lifecycle' &&
+              meetingId.current !== undefined &&
+              meetingId.current !== body.meetingId
+            ) {
+              return;
             }
-            current.send(JSON.stringify(command));
-          }
-        }
-        if (audience === 'lifecycle') {
-          // A reset may have happened while this tab was disconnected; ask instead of inferring.
-          const askedOn = current;
-          const askedAtRevision = lifecycleRevision.current;
-          meetingId.current = undefined;
-          void fetch('/api/meeting/state')
-            .then(async (response) => {
-              const body = (await response.json().catch(() => ({}))) as {
-                meetingId?: unknown;
-                started?: unknown;
-                kind?: unknown;
-              };
-              if (!response.ok || typeof body.started !== 'boolean') return;
-              if (typeof body.meetingId !== 'string' || body.meetingId === '') return;
-              // Only the connection that is still current may apply an answer, and only for the
-              // newest meeting: a fetch from a closed or replaced socket belongs to the past.
-              if (closed || socketRef.current !== askedOn || askedOn.readyState !== WebSocket.OPEN) return;
-              // A start/reset event that arrived while this answer was in flight is newer.
-              if (lifecycleRevision.current !== askedAtRevision) return;
-              if (meetingId.current !== undefined && meetingId.current !== body.meetingId) return;
-              meetingId.current = body.meetingId;
+            // The room came back as a different meeting: the old queue can never go into it.
+            if (knownBefore !== undefined && knownBefore !== body.meetingId) pendingLines.current = [];
+            meetingId.current = body.meetingId;
+            if (audience === 'lifecycle') {
               noteMeetingIdentity({
                 meetingId: body.meetingId,
                 ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
               });
               startedRef.current = body.started;
               setStarted(body.started);
-            })
-            .catch((error: unknown) => {
-              console.warn('kaki web: could not read the meeting lifecycle state', error);
-            });
-        }
+            }
+            if (body.started === true) flushHeldLines(askedOn, body.meetingId);
+          })
+          .catch((error: unknown) => {
+            console.warn('kaki web: could not read the meeting lifecycle state', error);
+          });
       });
 
       current.addEventListener('message', (message) => {
@@ -195,6 +227,9 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
             latestRecordRef.current = undefined;
             setSpeechByTopic(new Map());
           }
+          // The retained START is the authoritative catch-up for a held line: only this meeting's
+          // line goes out, and a line from another meeting is dropped, never sent to this one.
+          flushHeldLines(current, parsed.payload.meetingId);
         }
 
         if (parsed.type === 'MEETING_RESET') {
@@ -312,11 +347,26 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
 
   const send = useCallback((command: KakiCommand): boolean => {
     const socket = socketRef.current;
+    // A line is always bound to the meeting and seat it was written for, so a held line can never
+    // surface in the next meeting or under another speaker.
+    const line: KakiCommand =
+      command.type === 'HUMAN_LINE'
+        ? {
+            ...command,
+            ...(meetingId.current === undefined ? {} : { meetingId: meetingId.current }),
+            ...(audience === 'screen' || audience === 'lifecycle' || audience === 'participant'
+              ? {}
+              : { seat: audience }),
+          }
+        : command;
     if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
-      // A person's words are not a control command: hold a typed line until the socket reopens, so
-      // a reconnect at Start never swallows it. The server writes the same clientLineId only once.
-      if (command.type === 'HUMAN_LINE') {
-        pendingLines.current = [...pendingLines.current, command].slice(-20);
+      // A person's words are not a control command: hold a typed line until catch-up confirms the
+      // same meeting, so a reconnect at Start never swallows it. The server writes one clientLineId once.
+      if (line.type === 'HUMAN_LINE') {
+        pendingLines.current = [
+          ...pendingLines.current,
+          { command: line, meetingId: meetingId.current },
+        ].slice(-20);
         return true;
       }
       setRejections((previous) =>
@@ -324,9 +374,9 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
       );
       return false;
     }
-    socket.send(JSON.stringify(command));
+    socket.send(JSON.stringify(line));
     return true;
-  }, []);
+  }, [audience]);
 
   return {
     events,

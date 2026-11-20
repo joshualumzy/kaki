@@ -66,8 +66,8 @@ function mockTasks(tasks: Task[]): void {
 /** The role socket carries tasks; topic changes arrive only on the shared screen socket, as on the server. */
 function mockSockets({ screenEvents, tasks }: { screenEvents: KakiEvent[]; tasks: Map<string, Task> } & Record<string, unknown>): void {
   mocks.useKaki.mockImplementation((audience: string) => ({
-    events: audience === 'screen' ? screenEvents : [],
-    tasks: audience === 'screen' ? new Map() : tasks,
+    events: audience === 'screen' || audience === 'participant' ? screenEvents : [],
+    tasks: audience === 'screen' || audience === 'participant' ? new Map() : tasks,
     connected: true,
     rejections: [],
     rejection: null,

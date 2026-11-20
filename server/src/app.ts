@@ -170,6 +170,13 @@ interface RequestContext {
   seating(returning?: boolean, roomEmpty?: boolean): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup; admissionCap?: number };
   /** The scenario a browser is shown now: the sealed meeting once started, the draft setup in the lobby. */
   visibleScenario(service?: boolean): Scenario;
+  /**
+   * What a non-owner sees before a meeting starts: the plan captured when the owner opened the
+   * room, or the pack when no meeting has been opened. Never the owner's unopened draft.
+   */
+  publicScenario(): Scenario;
+  /** Freeze the plan the owner just opened as the public lobby view. */
+  captureLobbySnapshot(): void;
   /** Why setup cannot change right now, if it cannot. */
   setupLocked(): 'starting' | 'started' | undefined;
   /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
@@ -495,7 +502,10 @@ async function handleRequest(
         sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
         return;
       }
-      if (wantsPractice && context.session.kind() === 'real') {
+      if (
+        wantsPractice &&
+        (context.session.kind() === 'real' || context.session.reviewingEndedTeamMeeting())
+      ) {
         sendJson(response, 409, { error: REAL_IN_PROGRESS_MESSAGE, realInProgress: true });
         return;
       }
@@ -528,7 +538,10 @@ async function handleRequest(
             sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
             return;
           }
-          if (wantsPractice && context.session.kind() === 'real') {
+          if (
+            wantsPractice &&
+            (context.session.kind() === 'real' || context.session.reviewingEndedTeamMeeting())
+          ) {
             sendJson(response, 409, { error: REAL_IN_PROGRESS_MESSAGE, realInProgress: true });
             return;
           }
@@ -910,6 +923,8 @@ async function handleRequest(
           context.session.reset();
         }
         context.session.setKind('real');
+        // Freeze the plan people may see from now on: later draft edits are the next meeting's.
+        context.captureLobbySnapshot();
         context.runnerStateChanged();
         context.scheduleSave();
         return { status: 200, body: { kind: 'real', phase: context.session.phase() } };
@@ -922,10 +937,14 @@ async function handleRequest(
     // without inventing a timer; closing rotates the identity, so its old room and tokens are gone.
     if (request.method === 'POST' && path === '/api/meeting/close') {
       const outcome = await context.admit(async () => {
-        if (context.session.kind() !== 'real') {
+        // An ended team meeting can be closed once the owner is done reviewing its minutes. That is
+        // the explicit way to release the server for practice before the empty-room expiry.
+        const endedReview =
+          context.session.phase() === 'ended' && context.session.reviewingEndedTeamMeeting();
+        if (context.session.kind() !== 'real' && !endedReview) {
           return { status: 409, body: { error: 'There is no team meeting room open to close.' } };
         }
-        if (context.session.phase() !== 'lobby') {
+        if (context.session.phase() !== 'lobby' && !endedReview) {
           return {
             status: 409,
             body: { error: 'This meeting has already started. End it instead of closing the room.' },
@@ -1125,13 +1144,23 @@ async function handleRequest(
         return;
       }
       // The practice picker follows the pack, never the owner's real-meeting draft: practice
-      // admission validates exactly these roles, so the two can never disagree.
+      // admission validates exactly these roles, so the two can never disagree. Everyone but the
+      // owner also never sees an unopened draft: they get the pack until the room is opened, then
+      // the plan frozen at that moment, and the sealed meeting once it is running.
       const active =
         requestedView === 'practice'
           ? context.session.kind() === 'practice'
             ? context.session.active()
             : context.fullScenario
-          : context.visibleScenario(principal.kind === 'service');
+          : context.auth === undefined
+            ? context.visibleScenario(principal.kind === 'service')
+            : principal.kind === 'host' || principal.kind === 'service'
+              ? context.visibleScenario(principal.kind === 'service')
+              : context.session.kind() === 'practice'
+                ? context.session.active()
+                : context.session.phase() === 'running' || context.session.phase() === 'starting'
+                  ? context.visibleScenario(false)
+                  : context.publicScenario();
       // A seat holder sees that seat, whether a participant or the host playing it.
       const seat =
         principal.kind === 'seat'
@@ -1773,6 +1802,8 @@ export async function createApp({
   // The pack owns the reserved names for the whole meeting, whatever cast is active right now.
   const packNpcNames = (fullScenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
   let watchedRoom: string | undefined;
+  // The plan the owner opened, frozen for non-owners so later draft edits never leak into it.
+  let lobbySnapshot: Scenario | undefined;
   // The server owns the empty-room pause: a running meeting pauses once the room has read empty
   // across the poll debounce (EMPTY_ROOM_PAUSE_MS), and resumes the moment someone returns, but
   // only when the pause was the empty-room kind. A person's explicit Stop stays paused, and the
@@ -1832,11 +1863,12 @@ export async function createApp({
    * A meeting handoff: close every practice authority and remove the people from the room that no
    * longer exists. Room identity alone already refuses an old token; this makes it immediate.
    */
-  function onCredentialChange(ended: boolean): void {
+  function onCredentialChange(ended: boolean, kind?: 'real' | 'practice'): void {
     hub.endPracticeSessions?.(MEETING_ENDED_MESSAGE);
-    // Ending a meeting keeps its room: the owner and participants stay to review and publish the
-    // minutes. Only a handoff that replaces the room (a reset or a new meeting) removes people.
-    if (ended) return;
+    // Ending a real meeting keeps its room: the owner and participants stay to review and publish
+    // the minutes. A practice meeting has no review, so END must remove its people and end the
+    // publish/subscribe grant it issued. A handoff that replaces the room also removes people.
+    if (ended && kind === 'real') return;
     const roomName = watchedRoom ?? demoRoomName(session.active(), meeting.id);
     void removeRoomHumans(roomName, packNpcNames).catch((error: unknown) => {
       if (roomCleanupWarned) return;
@@ -1845,7 +1877,7 @@ export async function createApp({
     });
   }
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, publicScenario, captureLobbySnapshot, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -1896,9 +1928,15 @@ export async function createApp({
       // With sign-in off there is no owner to tell apart from the one practice visitor. Tag every
       // socket of a practice meeting as practice, so it is read-only on the screen and dies with
       // the meeting instead of carrying into the real one that replaces it.
-      return session.kind() === 'practice'
-        ? { ok: true, principal: { kind: 'practice' } }
-        : { ok: true };
+      if (session.kind() === 'practice') {
+        const seat = session.practiceSeat();
+        return {
+          ok: true,
+          principal: { kind: 'practice' },
+          ...(seat === undefined ? {} : { seat }),
+        };
+      }
+      return { ok: true };
     }
     // A practice visitor follows only their own practice meeting: its lifecycle, its screen and
     // the seat they took. The capability dies with the meeting, so it can never reach another one.
@@ -1906,7 +1944,11 @@ export async function createApp({
     if (practice !== undefined) {
       const seat = session.practiceSeat();
       if (audience === 'lifecycle' || audience === 'screen' || (seat !== undefined && audience === seat)) {
-        return { ok: true, principal: practice };
+        return {
+          ok: true,
+          principal: practice,
+          ...(seat === undefined ? {} : { seat }),
+        };
       }
       return { ok: false, message: 'Practice access belongs to its practice meeting only' };
     }
@@ -1928,6 +1970,19 @@ export async function createApp({
   auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
   const tasks = createTaskStore({ hub, scenario: () => session.active() });
   hub.onCommand(tasks.handleCommand);
+  // The ended team meeting is the owner's until the minutes are published or dismissed. Any other
+  // task moving says nothing about that review, so leave the protection alone.
+  tasks.onChange((task) => {
+    if (task.purpose !== 'meeting_minutes') return;
+    if (
+      task.status === 'COMPLETED' ||
+      task.status === 'SYNCED' ||
+      task.status === 'DISMISSED' ||
+      task.status === 'SUPERSEDED'
+    ) {
+      session.finishReview();
+    }
+  });
 
   // The AI runner must confirm it prepared the meeting before Start succeeds. Without that
   // acknowledgement a guest would sit on "Starting..." forever while nobody speaks.
@@ -2014,6 +2069,9 @@ export async function createApp({
     if (auth !== undefined || !meetingCode.fixed) hub.endRoleSessions?.(MEETING_ENDED_MESSAGE);
     void auth?.releaseMeeting(previousMeetingId);
     cancelPendingStart('the meeting was reset while it was starting');
+    // A new meeting identity means the opened room is gone; its public lobby snapshot must not
+    // carry into the next one. The first arrival's reset keeps the identity, so it keeps the plan.
+    lobbySnapshot = undefined;
     meeting.id = randomUUID();
     return meeting.id;
   }
@@ -2187,7 +2245,18 @@ export async function createApp({
     if (command.type !== 'HUMAN_LINE') return;
     const seat = seatForSender(sender);
     if (seat === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
-    writeHumanLine({ seat, text: command.text, source: command.source, clientLineId: command.clientLineId });
+    // A held line names the seat it was typed in. A socket that now writes as another seat must not
+    // deliver it as that other person.
+    if (command.seat !== undefined && seatKey(command.seat) !== seatKey(seat)) {
+      throw new CommandError('That line belongs to a different seat');
+    }
+    writeHumanLine({
+      seat,
+      text: command.text,
+      source: command.source,
+      clientLineId: command.clientLineId,
+      ...(command.meetingId === undefined ? {} : { meetingId: command.meetingId }),
+    });
   });
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
@@ -2290,6 +2359,8 @@ export async function createApp({
         if (reservations.active(roster.map((person) => person.name)).length > 0) return;
         session.pruneHolders();
         publishRunnerState();
+        // An ended meeting that is verified empty has nobody left to review the minutes.
+        if (session.phase() === 'ended') session.finishReview();
         if (session.phase() === 'running') session.abandon();
         // A verified empty real meeting is released, so it can never block practice forever. A
         // running one keeps its abandonment mark for the restart path; a lobby is rotated clean.
@@ -2425,6 +2496,16 @@ export async function createApp({
       return service ? session.candidate() ?? session.active() : session.active();
     }
     return phase === 'running' ? session.active() : seating().scenario;
+  }
+
+  /** What the public may see of the plan: the pack until the owner opens a room, then that snapshot. */
+  function publicScenario(): Scenario {
+    return lobbySnapshot ?? fullScenario;
+  }
+
+  /** The owner opened the room: freeze exactly the plan they opened as the public lobby view. */
+  function captureLobbySnapshot(): void {
+    lobbySnapshot = seating().scenario;
   }
 
   /** True when the sealed meeting carries no demo-pack content, so its facts must stay out of it. */
@@ -2759,6 +2840,22 @@ export async function createApp({
     if (persistence.saved !== undefined) {
       try {
         tasks.restore(persistence.saved.state.tasks);
+        // Restored tasks do not fire a change: an ended meeting whose minutes were already
+        // published before the restart is not under review any more.
+        if (
+          tasks
+            .list()
+            .some(
+              (task) =>
+                task.purpose === 'meeting_minutes' &&
+                (task.status === 'COMPLETED' ||
+                  task.status === 'SYNCED' ||
+                  task.status === 'DISMISSED' ||
+                  task.status === 'SUPERSEDED'),
+            )
+        ) {
+          session.finishReview();
+        }
       } catch (error) {
         closeRejoin();
         hub.close();

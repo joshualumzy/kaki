@@ -27,6 +27,8 @@ export type AuthDecision =
       sessionTokenHash?: string;
       /** True when the AI runner's service token authorized the socket. */
       runner?: boolean;
+      /** The seat a participant projection is bound to. */
+      seat?: string;
     }
   | { ok: false; message: string };
 
@@ -611,10 +613,22 @@ export function createAuth({
         return { ok: true, participant, principal, sessionTokenHash };
       }
       if (audience === 'screen') {
-        // Every signed-in person may read the shared screen: it carries the transcript, the agenda
-        // clock and the tasks the room is working on. Only the host may command it (the hub enforces
-        // that on the socket), so a participant cannot dispatch, end or reset the meeting.
+        // The shared screen is the owner's: it carries every seat's private facts and unfinished
+        // drafts. A participant follows the meeting through their own projection instead.
+        if (session.kind !== 'host') {
+          return { ok: false, message: 'Only the meeting owner can follow the shared screen' };
+        }
         return { ok: true, participant, principal, sessionTokenHash };
+      }
+      if (audience === 'participant') {
+        // A participant projection is bound to one seat; the hub redacts every other seat's work.
+        if (principal.kind === 'seat') {
+          return { ok: true, participant, principal, sessionTokenHash, seat: principal.role };
+        }
+        if (principal.kind === 'host' && principal.seat !== undefined) {
+          return { ok: true, participant, principal, sessionTokenHash, seat: principal.seat };
+        }
+        return { ok: false, message: 'Join this meeting with a role first' };
       }
       // A participant holds their seat; a host may also hold the seat they took, without losing host powers.
       const holdsSeat =

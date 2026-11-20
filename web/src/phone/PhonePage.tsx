@@ -513,9 +513,11 @@ function actionStepRank(task: Task): number {
 export function ActiveRoleCards({
   role,
   viewer,
+  sharedAudience = 'participant',
 }: {
   role: string;
   viewer?: { name: string; seatName?: string };
+  sharedAudience?: 'screen' | 'participant';
 }) {
   const scenario = useScenario();
   const { tasks, rejection, send } = useKaki(role);
@@ -524,8 +526,8 @@ export function ActiveRoleCards({
   const lastScrolledKey = useRef<string>('');
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
-  // Topic changes and the closing line go to the shared screen only, never to a role's own socket.
-  const { events: screenEvents } = useKaki('screen');
+  // Topic changes and the closing line go to the shared projection, never to a role's private feed.
+  const { events: screenEvents } = useKaki(sharedAudience);
   let currentAgendaTitle: string | undefined;
   let meetingEnded = false;
   for (const event of screenEvents) {

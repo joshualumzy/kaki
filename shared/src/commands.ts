@@ -28,9 +28,18 @@ export type KakiCommand =
   /**
    * A person's finalized speech or typed line, sent straight to the server so the transcript is
    * written even when no AI runner is present. The speaker comes from the sending socket's seat;
-   * `clientLineId` lets a retry be recognised as the same line.
+   * `clientLineId` lets a retry be recognised as the same line. `meetingId` (and, for a seat, the
+   * `seat` it was typed in) binds a line held across a reconnect to the meeting it belongs to; the
+   * server refuses a line whose meeting is no longer current.
    */
-  | { type: 'HUMAN_LINE'; text: string; source: 'speech' | 'typed'; clientLineId: string };
+  | {
+      type: 'HUMAN_LINE';
+      text: string;
+      source: 'speech' | 'typed';
+      clientLineId: string;
+      meetingId?: string;
+      seat?: Role;
+    };
 
 const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'DISPATCH_TASK',
@@ -57,6 +66,10 @@ function isString(value: unknown): value is string {
   return typeof value === 'string';
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim() !== '';
+}
+
 function isCommandType(value: unknown): value is KakiCommand['type'] {
   return typeof value === 'string' && (COMMAND_TYPES as readonly string[]).includes(value);
 }
@@ -73,7 +86,9 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
       value.text.trim() !== '' &&
       (value.source === 'speech' || value.source === 'typed') &&
       isString(value.clientLineId) &&
-      value.clientLineId.trim() !== ''
+      value.clientLineId.trim() !== '' &&
+      (value.meetingId === undefined || isNonEmptyString(value.meetingId)) &&
+      (value.seat === undefined || isRoleIn(scenario, value.seat))
     );
   }
   if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';

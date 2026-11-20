@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { demoRoomName, type Scenario } from '@kaki/shared';
+import { defaultMeetingSetup, demoRoomName, type Scenario } from '@kaki/shared';
 import { ACCESS_LEVELS } from '../src/access';
 import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
@@ -180,6 +180,12 @@ describe('one access layer', () => {
     return fetch(`${base(app)}${path}`, cookie === undefined ? undefined : { headers: { cookie } });
   }
 
+  function put(app: KakiApp, path: string, body: unknown, cookie?: string): Promise<Response> {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (cookie !== undefined) headers.cookie = cookie;
+    return fetch(`${base(app)}${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+  }
+
   async function join(app: KakiApp, role: string): Promise<string> {
     const response = await post(app, '/api/join', { code: MEETING_CODE, role });
     expect(response.status).toBe(200);
@@ -337,6 +343,44 @@ describe('one access layer', () => {
     expect(seatBody.roles.find((role) => role.id === 'cashier')?.card?.facts).toEqual([]);
     expect(seatBody.agenda[0]?.seatFacts?.cashier).toBeUndefined();
     expect(seatBody.agenda[0]?.directions).toBeUndefined();
+  });
+
+  it('never exposes an unopened owner draft on the public scenario, only the opened snapshot', async () => {
+    const app = await authApp();
+    const host = await signInAsHost(app);
+    const base = defaultMeetingSetup(testScenario);
+    const draft = {
+      ...base,
+      title: 'Private draft title',
+      agenda: [{ id: 'agenda-1', title: 'Private draft topic', minutes: 5, ownerRoleId: 'chef' }],
+    };
+    expect((await put(app, '/api/setup', draft, host)).status).toBe(200);
+
+    const publicBefore = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    expect(publicBefore.meetingTitle).not.toBe('Private draft title');
+    expect(publicBefore.agenda.map((item) => item.title)).not.toContain('Private draft topic');
+    const ownerBefore = (await (await get(app, '/api/scenario', host)).json()) as Scenario;
+    expect(ownerBefore.meetingTitle).toBe('Private draft title');
+
+    // Opening the room publishes exactly the plan that was opened.
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    const publicOpened = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    expect(publicOpened.meetingTitle).toBe('Private draft title');
+    expect(publicOpened.agenda.map((item) => item.title)).toContain('Private draft topic');
+
+    // A later edit is the next meeting's draft; it must not change what this room shows.
+    const nextDraft = { ...draft, title: 'Next private title', agenda: [{ ...draft.agenda[0]!, title: 'Next private topic' }] };
+    expect((await put(app, '/api/setup', nextDraft, host)).status).toBe(200);
+    const publicStillOpened = (await (await get(app, '/api/scenario')).json()) as Scenario;
+    expect(publicStillOpened.meetingTitle).toBe('Private draft title');
+    expect(publicStillOpened.agenda.map((item) => item.title)).not.toContain('Next private topic');
+    const ownerAfter = (await (await get(app, '/api/scenario', host)).json()) as Scenario;
+    expect(ownerAfter.meetingTitle).toBe('Next private title');
+
+    const chef = await join(app, 'chef');
+    const seatBody = (await (await get(app, '/api/scenario', chef)).json()) as Scenario;
+    expect(seatBody.meetingTitle).toBe('Private draft title');
+    expect(seatBody.agenda.map((item) => item.title)).not.toContain('Next private topic');
   });
 
   it('keeps a playable seat card public but never its facts, and hides AI-only cards', async () => {

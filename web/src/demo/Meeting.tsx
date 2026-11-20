@@ -241,6 +241,7 @@ export default function Meeting({
           <ErrorBoundary>
             <MeetingGrid
               role={session.role}
+              sharedAudience={variant === 'participant' ? 'participant' : 'screen'}
               onOpenKaki={() => setPane('kaki')}
               onKakiBadgeChange={setKakiBadgeCount}
             />
@@ -266,6 +267,7 @@ export default function Meeting({
       <Dock
         meetingCode={session.meetingCode}
         role={seatRole}
+        sharedAudience={variant === 'participant' ? 'participant' : 'screen'}
         started={!needsStart}
         viewer={{
           name: session.name,

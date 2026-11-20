@@ -19,11 +19,13 @@ export function Dock({
   viewer,
   meetingCode,
   started = false,
+  sharedAudience = 'screen',
 }: {
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
   meetingCode?: string;
   started?: boolean;
+  sharedAudience?: 'screen' | 'participant';
 }) {
   const scenario = useScenario();
   const [briefingOpen, setBriefingOpen] = useState(!started);
@@ -64,9 +66,19 @@ export function Dock({
           <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} agenda={scenario.agenda} />
           <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
         </details>
-        <ErrorBoundary>{role !== undefined && <ActiveRoleCards role={role.id} viewer={viewer} />}</ErrorBoundary>
         <ErrorBoundary>
-          <MeetingPanel viewer={viewer} role={role} isHost={role?.facilitator === true} started={started} />
+          {role !== undefined && (
+            <ActiveRoleCards role={role.id} viewer={viewer} sharedAudience={sharedAudience} />
+          )}
+        </ErrorBoundary>
+        <ErrorBoundary>
+          <MeetingPanel
+            viewer={viewer}
+            role={role}
+            isHost={role?.facilitator === true}
+            started={started}
+            sharedAudience={sharedAudience}
+          />
         </ErrorBoundary>
       </div>
     </aside>
