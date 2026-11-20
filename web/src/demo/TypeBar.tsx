@@ -25,8 +25,8 @@ export interface TypeBarProps {
   onPauseChange?(paused: boolean): boolean | void;
   /** The latest command the server refused, so a refused pause can revert with a notice. */
   pauseRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
-  /** A refused human line, so the person sees why their words were not recorded. */
-  lineRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
+  /** A refused human line, so the person sees why their words were not recorded and can try again. */
+  lineRejection?: Pick<KakiRejection, 'commandType' | 'reason' | 'text'> | null;
 }
 
 /**
@@ -55,6 +55,8 @@ export function TypeBar({
   const awaitingSendText = useRef<string | null>(null);
   /** Whether a failed resume belongs to a typed line, so the notice can say the message was not sent. */
   const resumeKeptMessage = useRef(false);
+  /** The last line this box submitted, so a refusal can put the words back for another try. */
+  const lastLine = useRef<string | null>(null);
 
   const failRequest = useCallback((direction: boolean) => {
     setPendingPaused(undefined);
@@ -138,10 +140,15 @@ export function TypeBar({
     failRequest(pendingPaused);
   }, [failRequest, pauseRejection, pendingPaused]);
 
-  // A refused line (the meeting has not started, or has ended) says why, rather than vanishing.
+  // A refused line (the meeting has not started, has ended, or changed) says why and puts the
+  // words back in the box, so it never disappears without a trace.
   useEffect(() => {
     if (lineRejection === null || lineRejection.commandType !== 'HUMAN_LINE') return;
     setNotice(`Couldn't add your line: ${lineRejection.reason}`);
+    const lost = lineRejection.text ?? lastLine.current;
+    if (lost !== null && lost.trim() !== '') {
+      setText((current) => (current.trim() === '' ? lost : current));
+    }
   }, [lineRejection]);
 
   // A record that never arrives must not leave the button stuck in its pending state.
@@ -212,6 +219,7 @@ export function TypeBar({
   function submit(): void {
     const typed = text.trim();
     if (typed.length === 0) return;
+    lastLine.current = typed;
     // Typing is the person taking their turn: resume the meeting they had paused. The line stays in
     // the box and is only sent once the server's record confirms the resume, so a failed or refused
     // resume never sends it.

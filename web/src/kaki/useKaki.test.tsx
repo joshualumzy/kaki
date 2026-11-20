@@ -4,8 +4,8 @@ import type { KakiAudience } from './useKaki';
 import { MEETING_ENDED_MESSAGE } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./ScenarioContext', () => {
-  const scenario = {
+const scenarioMock = vi.hoisted(() => {
+  const original = {
     id: 'lifecycle-test',
     organisation: 'Test Kitchen',
     meetingTitle: 'Prep',
@@ -17,8 +17,10 @@ vi.mock('./ScenarioContext', () => {
     attendees: [{ name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' }],
     agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' }],
   };
-  return { useScenario: () => scenario };
+  return { current: original, original };
 });
+
+vi.mock('./ScenarioContext', () => ({ useScenario: () => scenarioMock.current }));
 
 interface FakeSocketInstance {
   emit(type: string, event?: unknown): void;
@@ -113,6 +115,7 @@ function transcriptEvent(
 
 beforeEach(() => {
   sockets.splice(0);
+  scenarioMock.current = scenarioMock.original;
   vi.stubGlobal('WebSocket', FakeWebSocket);
 });
 
@@ -227,6 +230,68 @@ describe('useKaki lifecycle state', () => {
     expect(scenarioRevision()).toBeGreaterThan(afterStart);
   });
 
+  it('does not tear down a live feed or its transcript when the meeting plan refreshes', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result, rerender } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const first = sockets[0]!;
+    act(() => first.emit('open'));
+    act(() => first.emit('message', transcriptEvent('Ada', 'The stock count is in.')));
+    await waitFor(() => expect(result.current.events.some((event) => event.type === 'TRANSCRIPT_CHUNK')).toBe(true));
+
+    scenarioMock.current = { ...scenarioMock.original, meetingTitle: 'Prep (sealed)' };
+    rerender();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(sockets).toHaveLength(1);
+    expect(result.current.events.some((event) => event.type === 'TRANSCRIPT_CHUNK')).toBe(true);
+  });
+
+  it('sends a line typed before the meeting id is known once catch-up names the meeting', async () => {
+    const answers: Array<(value: unknown) => void> = [];
+    vi.stubGlobal('fetch', vi.fn(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    ));
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const first = sockets[0]! as unknown as {
+      readyState: number;
+      emit(type: string, event?: unknown): void;
+      sent: string[];
+    };
+    // The socket is still opening and this feed has not heard any meeting id yet (a page that
+    // mounted during Start). The person's line must not be thrown away for that.
+    first.readyState = 0;
+    act(() => {
+      expect(result.current.send({
+        type: 'HUMAN_LINE',
+        text: 'I will confirm the stock count before lunch.',
+        source: 'typed',
+        clientLineId: 'no-id-yet',
+      })).toBe(true);
+    });
+    first.readyState = 1;
+    act(() => first.emit('open'));
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => {
+      answers[0]!({
+        ok: true,
+        status: 200,
+        json: async () => ({ meetingId: 'meeting-a', started: true }),
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(first.sent.map((message) => JSON.parse(message).type)).toContain('HUMAN_LINE'),
+    );
+    const sentLine = JSON.parse(first.sent.find((message) => JSON.parse(message).type === 'HUMAN_LINE')!);
+    expect(sentLine.meetingId).toBe('meeting-a');
+    expect(sentLine.seat).toBe('chef');
+    expect(result.current.rejection).toBeNull();
+  });
+
   it('holds a typed line across a reconnect and sends it only after catch-up confirms the meeting', async () => {
     const answers: Array<(value: unknown) => void> = [];
     vi.stubGlobal('fetch', vi.fn(
@@ -298,6 +363,11 @@ describe('useKaki lifecycle state', () => {
     act(() => second.emit('message', startEvent('meeting-b')));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(second.sent).toEqual([]);
+    expect(result.current.rejection).toMatchObject({
+      commandType: 'HUMAN_LINE',
+      text: 'This belonged to meeting A.',
+      reason: expect.stringMatching(/different meeting/i),
+    });
   });
 
   it('drops a held line when the audience changes', async () => {
@@ -328,6 +398,10 @@ describe('useKaki lifecycle state', () => {
     act(() => second.emit('message', startEvent('meeting-a')));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(second.sent).toEqual([]);
+    expect(result.current.rejection).toMatchObject({
+      commandType: 'HUMAN_LINE',
+      text: 'Typed as the chef.',
+    });
   });
 
   it('keeps the newest meeting record even after it leaves the event window', async () => {

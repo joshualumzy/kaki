@@ -586,13 +586,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
           : 'unknown';
-      sendTo(
-        socket,
-        audience,
-        JSON.stringify(
-          rejectionFor(audience, rawType, 'Meeting participants may read the screen but not control it', seat),
-        ),
-      );
+      const reason = 'Meeting participants may read the screen but not control it';
+      console.warn(`kaki hub: refused ${rawType} from ${audienceLabel(audience)}: ${reason}`);
+      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, reason, seat)));
       return;
     }
 
@@ -603,13 +599,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
           : 'unknown';
-      sendTo(
-        socket,
-        audience,
-        JSON.stringify(
-          rejectionFor(audience, rawType, 'Practice access may read the screen but not control it', seat),
-        ),
-      );
+      const reason = 'Practice access may read the screen but not control it';
+      console.warn(`kaki hub: refused ${rawType} from ${audienceLabel(audience)}: ${reason}`);
+      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, reason, seat)));
       return;
     }
 
@@ -618,7 +610,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
           : 'unknown';
-      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, 'Invalid command', seat)));
+      const reason = 'Invalid command';
+      console.warn(`kaki hub: refused ${rawType} from ${audienceLabel(audience)}: ${reason}`);
+      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, reason, seat)));
       return;
     }
 
@@ -639,11 +633,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     }
 
     if (commandHandlers.length === 0) {
-      sendTo(
-        socket,
-        audience,
-        JSON.stringify(rejectionFor(audience, parsed.type, 'No command handler is registered', seat)),
-      );
+      const reason = 'No command handler is registered';
+      console.warn(`kaki hub: refused ${parsed.type} from ${audienceLabel(audience)}: ${reason}`);
+      sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, reason, seat)));
       return;
     }
 
@@ -651,6 +643,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       await dispatchCommand(socket, audience, parsed);
     } catch (error) {
       if (error instanceof CommandError) {
+        console.warn(`kaki hub: refused ${parsed.type} from ${audienceLabel(audience)}: ${error.message}`);
         sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, error.message, seat)));
         return;
       }

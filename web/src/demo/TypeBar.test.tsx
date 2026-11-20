@@ -228,4 +228,26 @@ describe('TypeBar', () => {
       "Couldn't add your line: The meeting is not running",
     );
   });
+
+  it('puts a refused line back in the box so the person can send it again', () => {
+    const send = vi.fn();
+    const view = render(<TypeBar send={send} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '  The stock count is in.  ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(input.value).toBe('');
+
+    // A server refusal carries no words back; the box still remembers what this person sent.
+    view.rerender(
+      <TypeBar
+        send={send}
+        lineRejection={{ commandType: 'HUMAN_LINE', reason: 'The meeting is not running' }}
+      />,
+    );
+    expect(input.value).toBe('The stock count is in.');
+    expect(screen.getByRole('alert').textContent).toBe(
+      "Couldn't add your line: The meeting is not running",
+    );
+  });
 });

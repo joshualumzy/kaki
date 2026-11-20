@@ -19,6 +19,8 @@ interface PendingLine {
 export interface KakiRejection {
   commandType: string;
   reason: string;
+  /** The words the person typed, when the app could not send them, so the box can offer them again. */
+  text?: string;
 }
 
 /** The server's latest record for the meeting, including the agenda item it is on and its pause. */
@@ -63,6 +65,9 @@ export type KakiAudience =
 /** Subscribe to the server for one audience and keep the task list up to date. */
 export function useKaki(audience: KakiAudience): UseKakiResult {
   const scenario = useScenario();
+  /** The scenario is only used to validate messages; a new plan must not tear down a live socket. */
+  const scenarioRef = useRef(scenario);
+  scenarioRef.current = scenario;
   const audienceKind = audience.kind;
   const audienceRole = audience.kind === 'role' ? audience.role : undefined;
   const [events, setEvents] = useState<KakiEvent[]>([]);
@@ -93,9 +98,27 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
 
   useEffect(() => {
     const currentAudience = `${audienceKind}:${audienceRole ?? ''}`;
+    /** Tell the person about words that cannot go out, instead of dropping them without a trace. */
+    function refuseHeldLines(entries: readonly PendingLine[], reason: string): void {
+      if (entries.length === 0) return;
+      setRejections((previous) =>
+        [
+          ...previous,
+          ...entries.map((entry) => ({
+            commandType: 'HUMAN_LINE' as const,
+            reason,
+            text: entry.command.text,
+          })),
+        ].slice(-5),
+      );
+    }
+
+    let refusedOnAudienceChange: PendingLine[] = [];
     if (queuedAudience.current !== currentAudience) {
       // The same browser tab changed seat (or left the screen): a held line belonged to the old
-      // speaker, so it must never go out as this one.
+      // speaker, so it must never go out as this one. The person gets their words back below,
+      // after this run has cleared the previous seat's state.
+      refusedOnAudienceChange = pendingLines.current;
       pendingLines.current = [];
       queuedAudience.current = currentAudience;
       meetingId.current = undefined;
@@ -110,23 +133,34 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     setRestoredAt(undefined);
     setMeetingIdentity(undefined);
     setEnded(undefined);
+    if (refusedOnAudienceChange.length > 0) {
+      refuseHeldLines(refusedOnAudienceChange, 'Your seat changed before your line was sent.');
+    }
     attempts.current = 0;
     let closed = false;
     let endedForGood = false;
     let opened = false;
     let socket: WebSocket | undefined;
 
+    /**
+     * Send the lines held while the socket was down, once catch-up names the meeting. A line typed
+     * before its meeting id was known is bound to the meeting that catch-up names; a line typed in
+     * a different meeting is refused out loud. Every line leaves at most once.
+     */
     function flushHeldLines(target: WebSocket, currentMeetingId: string | undefined): void {
       if (pendingLines.current.length === 0 || currentMeetingId === undefined) return;
       const queue = pendingLines.current;
       pendingLines.current = [];
       for (const entry of queue) {
-        if (entry.meetingId !== currentMeetingId) continue;
+        if (entry.meetingId !== undefined && entry.meetingId !== currentMeetingId) {
+          refuseHeldLines([entry], 'Your line was for a different meeting, so it was not sent.');
+          continue;
+        }
         if (target.readyState !== WebSocket.OPEN) {
           pendingLines.current.push(entry);
           continue;
         }
-        target.send(JSON.stringify(entry.command));
+        target.send(JSON.stringify({ ...entry.command, meetingId: currentMeetingId }));
       }
     }
 
@@ -187,7 +221,10 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
               return;
             }
             // The room came back as a different meeting: the old queue can never go into it.
-            if (knownBefore !== undefined && knownBefore !== body.meetingId) pendingLines.current = [];
+            if (knownBefore !== undefined && knownBefore !== body.meetingId) {
+              refuseHeldLines(pendingLines.current, 'The meeting changed before your line was sent.');
+              pendingLines.current = [];
+            }
             meetingId.current = body.meetingId;
             if (audienceKind === 'lifecycle') {
               noteMeetingIdentity({
@@ -213,7 +250,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
           console.warn('kaki web: ignored a non-JSON message');
           return;
         }
-        if (!isKakiEvent(parsed, scenario)) {
+        if (!isKakiEvent(parsed, scenarioRef.current)) {
           console.warn('kaki web: ignored an invalid event', parsed);
           return;
         }
@@ -250,6 +287,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
 
         if (parsed.type === 'MEETING_RESET') {
           // A queued line belongs to the meeting that just ended; never write it into the next one.
+          refuseHeldLines(pendingLines.current, 'The meeting ended before your line was sent.');
           pendingLines.current = [];
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
@@ -311,6 +349,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
         const closeEvent = event as CloseEvent | undefined;
         if (closeEvent?.code === 4001) {
           endedForGood = true;
+          refuseHeldLines(pendingLines.current, 'The meeting ended before your line was sent.');
           pendingLines.current = [];
           if (reconnectTimer.current !== undefined) {
             window.clearTimeout(reconnectTimer.current);
@@ -327,6 +366,8 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
               if (closed || endedForGood) return;
               if (me.authEnabled && me.kind === null && me.ended === true) {
                 endedForGood = true;
+                refuseHeldLines(pendingLines.current, 'The meeting ended before your line was sent.');
+                pendingLines.current = [];
                 if (reconnectTimer.current !== undefined) {
                   window.clearTimeout(reconnectTimer.current);
                   reconnectTimer.current = undefined;
@@ -359,7 +400,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       socket?.close();
       socketRef.current = undefined;
     };
-  }, [audienceKind, audienceRole, scenario]);
+  }, [audienceKind, audienceRole]);
 
   const send = useCallback((command: KakiCommand): boolean => {
     const socket = socketRef.current;
@@ -388,7 +429,22 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
       );
       return false;
     }
-    socket.send(JSON.stringify(line));
+    try {
+      socket.send(JSON.stringify(line));
+    } catch {
+      // A socket that failed as it was closing must not swallow a person's words.
+      if (line.type === 'HUMAN_LINE') {
+        pendingLines.current = [
+          ...pendingLines.current,
+          { command: line, meetingId: meetingId.current },
+        ].slice(-20);
+        return true;
+      }
+      setRejections((previous) =>
+        [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
+      );
+      return false;
+    }
     return true;
   }, [audienceRole]);
 

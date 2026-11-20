@@ -202,7 +202,8 @@ describe('human-only meetings record people\'s lines', () => {
     );
   });
 
-  it('refuses human lines in the lobby and after the meeting has ended', async () => {
+  it('refuses human lines in the lobby and after the meeting has ended, and logs the refusal', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { app, port } = await humanOnlyApp();
     const pack = await loadScenario('kopitiam');
     const put = await fetch(`http://127.0.0.1:${port}/api/setup`, {
@@ -238,6 +239,14 @@ describe('human-only meetings record people\'s lines', () => {
       'a lobby rejection',
     );
     expect(lobby).toMatchObject({ payload: { commandType: 'HUMAN_LINE', reason: 'The meeting is not running' } });
+    expect(
+      warn.mock.calls.some(
+        ([message]) =>
+          typeof message === 'string' &&
+          message.includes('refused HUMAN_LINE') &&
+          message.includes('The meeting is not running'),
+      ),
+    ).toBe(true);
 
     expect((await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' })).status).toBe(200);
     await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
