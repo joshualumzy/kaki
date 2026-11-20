@@ -611,9 +611,10 @@ export function createAuth({
         return { ok: true, participant, principal, sessionTokenHash };
       }
       if (audience === 'screen') {
-        return session.kind === 'host'
-          ? { ok: true, principal, sessionTokenHash }
-          : { ok: false, message: 'Host sign-in required' };
+        // Every signed-in person may read the shared screen: it carries the transcript, the agenda
+        // clock and the tasks the room is working on. Only the host may command it (the hub enforces
+        // that on the socket), so a participant cannot dispatch, end or reset the meeting.
+        return { ok: true, participant, principal, sessionTokenHash };
       }
       // A participant holds their seat; a host may also hold the seat they took, without losing host powers.
       const holdsSeat =

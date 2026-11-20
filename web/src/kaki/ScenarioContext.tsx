@@ -102,6 +102,8 @@ export function ScenarioProvider({
   const loadId = useRef(0);
   /** The view currently on screen: a change of view shows Loading, a refresh keeps the page usable. */
   const shownView = useRef<ScenarioView | undefined>(undefined);
+  /** The revision the scenario on screen belongs to: never show it for a different meeting. */
+  const shownRevision = useRef<number | undefined>(undefined);
 
   useEffect(() => subscribeScenarioRevision(() => setRevision(scenarioRevision())), []);
 
@@ -124,13 +126,15 @@ export function ScenarioProvider({
       .then((scenario) => {
         if (cancelled || loadId.current !== id) return;
         shownView.current = view;
+        shownRevision.current = revision;
         setStarting(false);
         setState({ status: 'ready', scenario });
       })
       .catch((error: unknown) => {
         if (cancelled || loadId.current !== id) return;
-        if (shownView.current === view) {
-          // A background refresh failed. Keep the last scenario the page could show, and say so.
+        if (shownView.current === view && shownRevision.current === revision) {
+          // A background refresh failed for the same meeting. Keep the last scenario the page can
+          // show, and say so. A new revision must never fall back to the previous meeting's plan.
           console.error('kaki web: could not refresh the scenario; keeping the last one', error);
           return;
         }
@@ -168,9 +172,16 @@ export function ScenarioProvider({
   }
 
   async function refresh(): Promise<Scenario> {
+    const id = (loadId.current += 1);
+    const askedRevision = scenarioRevision();
     const fresh = await fetchScenario(view);
-    shownView.current = view;
-    setState({ status: 'ready', scenario: fresh });
+    // Only the newest load may apply, and only if no invalidation happened while it was in flight:
+    // otherwise a manual refresh could put back the meeting the provider has already left behind.
+    if (loadId.current === id && scenarioRevision() === askedRevision) {
+      shownView.current = view;
+      shownRevision.current = askedRevision;
+      setState({ status: 'ready', scenario: fresh });
+    }
     return fresh;
   }
 

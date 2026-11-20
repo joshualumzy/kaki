@@ -431,6 +431,23 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       return;
     }
 
+    // A participant may read the shared screen to follow the meeting, but the screen's command
+    // authority (dispatch, dismiss, end, reset) belongs to the owner.
+    if (participantSockets.has(socket) && audience === 'screen') {
+      const rawType =
+        typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
+          ? parsed.type
+          : 'unknown';
+      sendTo(
+        socket,
+        audience,
+        JSON.stringify(
+          rejectionFor(audience, rawType, 'Meeting participants may read the screen but not control it'),
+        ),
+      );
+      return;
+    }
+
     // A practice visitor may read the shared screen to render their practice meeting, but the
     // screen's command authority (dispatch, dismiss, end, reset) belongs to the owner.
     if (practiceSockets.has(socket) && audience === 'screen') {
@@ -642,9 +659,11 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
           revokeSocket(socket, 4001, reason);
           continue;
         }
-        if (audience === 'screen' || audience === 'service') continue;
+        if (audience === 'service') continue;
+        // A host's read-only lifecycle feed and screen survive a handoff; a participant's must not
+        // follow the new meeting.
+        if (audience === 'screen' && !participantSockets.has(socket)) continue;
         if (runnerSockets.has(socket)) continue;
-        // A host's read-only lifecycle feed survives; a participant's must not follow the new meeting.
         if (audience === 'lifecycle' && !participantSockets.has(socket)) continue;
         const session = socketSessions.get(socket);
         if (session !== undefined) revokedSessions.add(session);

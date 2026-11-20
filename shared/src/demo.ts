@@ -416,6 +416,29 @@ export function setMeetingAgenda(
 }
 
 /**
+ * Drop references to agenda titles a scenario no longer has: an item's links to a removed topic
+ * and an excluded pair naming one. Replacing a scenario's agenda (for example with the owner's
+ * draft) must not leave either behind, or the scenario is invalid and every reader refuses it.
+ */
+export function pruneAgendaReferences(scenario: Scenario): Scenario {
+  const titles = new Set(scenario.agenda.map((item) => item.title));
+  const agenda = scenario.agenda.map((item) => {
+    if (item.links === undefined) return item;
+    const links = item.links.filter((link) => titles.has(link.with));
+    if (links.length === item.links.length) return item;
+    const { links: _links, ...rest } = item;
+    return links.length > 0 ? { ...rest, links } : rest;
+  });
+  const pairs = scenario.excludedPairs?.filter(([left, right]) => titles.has(left) && titles.has(right));
+  const { excludedPairs: _excludedPairs, ...rest } = scenario;
+  return {
+    ...rest,
+    agenda,
+    ...(pairs !== undefined && pairs.length > 0 ? { excludedPairs: pairs } : {}),
+  };
+}
+
+/**
  * Resolve `KAKI_AGENDA_PICK` (comma-separated agenda titles or 0-based canon indexes) to an
  * ordered agenda subset for repeatable playtests. Unknown titles, out-of-range indexes,
  * duplicates and excluded pairs are refused with a clear error.

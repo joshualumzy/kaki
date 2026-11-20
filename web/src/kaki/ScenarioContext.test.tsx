@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
 
@@ -13,9 +14,18 @@ const scenario: Scenario = {
 };
 
 let ScenarioProvider: typeof import('./ScenarioContext').ScenarioProvider;
+let useScenario: typeof import('./ScenarioContext').useScenario;
+
+function ScenarioTitle(): ReactElement {
+  return <p>{useScenario().meetingTitle}</p>;
+}
 
 function okResponse(): Response {
   return { ok: true, status: 200, json: async () => scenario } as unknown as Response;
+}
+
+function scenarioResponse(value: unknown): Response {
+  return { ok: true, status: 200, json: async () => value } as unknown as Response;
 }
 
 function statusResponse(status: number): Response {
@@ -45,7 +55,7 @@ async function advance(ms: number): Promise<void> {
 beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
-  ({ ScenarioProvider } = await import('./ScenarioContext'));
+  ({ ScenarioProvider, useScenario } = await import('./ScenarioContext'));
 });
 
 afterEach(() => {
@@ -106,6 +116,35 @@ describe('ScenarioProvider', () => {
 
     await advance(10_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an error instead of the previous meeting when a new revision cannot be read', async () => {
+    const pack: Scenario = { ...scenario, meetingTitle: 'Raffles Place Flagship Opening Day' };
+    const unreadable: Scenario = {
+      ...scenario,
+      meetingTitle: 'Team playtest meeting',
+      excludedPairs: [['Gone', 'Also gone']],
+    };
+    let answer: Response = scenarioResponse(pack);
+    const fetchMock = vi.fn(async () => answer);
+    vi.stubGlobal('fetch', fetchMock);
+    const { invalidateScenario } = await import('./scenarioRevision');
+
+    render(
+      <ScenarioProvider>
+        <ScenarioTitle />
+      </ScenarioProvider>,
+    );
+    await flush();
+    expect(screen.getByText('Raffles Place Flagship Opening Day')).toBeTruthy();
+
+    answer = scenarioResponse(unreadable);
+    act(() => invalidateScenario());
+    await flush();
+
+    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.queryByText('Raffles Place Flagship Opening Day')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('excludedPairs');
   });
 
   it('gives up after 90 s of 502s, and Try again can succeed', async () => {

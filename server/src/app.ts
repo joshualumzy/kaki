@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, pruneAgendaReferences, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -2385,20 +2385,24 @@ export async function createApp({
     }
     const setup = session.draft();
     const joinSeats = personSeatRoles(setup);
+    // A blank draft has no agenda yet: keep the live one rather than publish an empty scenario.
+    const useDraftAgenda = sealed === undefined && setup.agenda.length > 0;
+    // The live view keeps its cast; its title, roles and offered seats follow the owner's setup,
+    // so a renamed meeting or role is shown (and admitted) by the plan people will actually join.
+    const scenario: Scenario = {
+      ...active,
+      meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
+      roles: setupScenarioRoles(fullScenario, setup),
+      // A kept seal (an ended meeting) still owns the view; only the next meeting's draft
+      // replaces the agenda once that meeting is really gone.
+      agenda: useDraftAgenda
+        ? meetingAgendaFromSetup(setup, active, setup.agenda.map((item) => item.title))
+        : active.agenda,
+      joinSeats,
+    };
     return {
-      // The live view keeps its cast; its title, roles and offered seats follow the owner's setup,
-      // so a renamed meeting or role is shown (and admitted) by the plan people will actually join.
-      scenario: {
-        ...active,
-        meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
-        roles: setupScenarioRoles(fullScenario, setup),
-        // A kept seal (an ended meeting) still owns the view; only the next meeting's draft
-        // replaces the agenda once that meeting is really gone.
-        agenda: sealed === undefined
-          ? meetingAgendaFromSetup(setup, active, setup.agenda.map((item) => item.title))
-          : active.agenda,
-        joinSeats,
-      },
+      // A replaced agenda must not keep links or excluded pairs that name a topic it dropped.
+      scenario: useDraftAgenda ? pruneAgendaReferences(scenario) : scenario,
       admissionScenario: scenarioFromSetup(setup),
       setup,
       admissionCap: personSeatCapacity(setup),

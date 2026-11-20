@@ -278,8 +278,33 @@ describe('auth', () => {
     if (!wrongRole.ok) expect(wrongRole.status).toBe(401);
 
     const participantAsScreen = await connect(port, 'screen', chef);
-    expect(participantAsScreen.ok).toBe(false);
-    if (!participantAsScreen.ok) expect(participantAsScreen.status).toBe(401);
+    expect(participantAsScreen.ok).toBe(true);
+    if (participantAsScreen.ok) sockets.push({ ws: participantAsScreen.ws });
+  });
+
+  it('lets a participant read the screen but never command it', async () => {
+    const host = await signInAsHost();
+    expect((await post('/api/meeting/open', {}, host)).status).toBe(200);
+    const chef = await joinAs('chef');
+    const screen = await connect(port, 'screen', chef);
+    expect(screen.ok).toBe(true);
+    if (!screen.ok) return;
+    sockets.push({ ws: screen.ws });
+
+    const rejected: string[] = [];
+    screen.ws.on('message', (data) => {
+      const event = JSON.parse(data.toString()) as {
+        type?: string;
+        payload?: { reason?: string };
+      };
+      if (event.type === 'COMMAND_REJECTED' && event.payload?.reason !== undefined) {
+        rejected.push(event.payload.reason);
+      }
+    });
+
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    const reason = await waitFor(() => rejected[0], 'participant screen command rejection');
+    expect(reason).toMatch(/read the screen but not control it/);
   });
 
   it('lets signed-in people read the lifecycle and the runner use its authenticated service channel', async () => {

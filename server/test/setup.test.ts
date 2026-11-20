@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { MeetingSetup, Scenario } from '@kaki/shared';
-import type { KakiApp } from '../src/app';
+import { parseScenario, type MeetingSetup, type Scenario } from '@kaki/shared';
+import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
 import { createMemoryAuthStore } from '../src/auth/store';
@@ -133,6 +133,83 @@ describe('setup API', () => {
     app.session.reset();
 
     expect((await getSetup()).setup.title).toBe('Edited before reset');
+  });
+});
+
+describe('scenario shown for a touched draft', () => {
+  const scenarioWithPairs: Scenario = {
+    id: 'test-pairs',
+    organisation: 'Test Kitchen',
+    meetingTitle: 'Lunch service readiness',
+    roles: [
+      { id: 'chef', label: 'Chef' },
+      { id: 'cashier', label: 'Cashier' },
+    ],
+    attendees: [
+      { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
+      { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
+    ],
+    agenda: [
+      {
+        title: 'Prep',
+        minutes: 5,
+        canWait: false,
+        deadline: 'before service',
+        ownerRole: 'chef',
+        links: [{ with: 'Restock', effect: 'Restocking waits until prep is done.' }],
+      },
+      { title: 'Restock', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'cashier' },
+      { title: 'Service', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' },
+    ],
+    excludedPairs: [
+      ['Prep', 'Restock'],
+      ['Restock', 'Service'],
+    ],
+  };
+  let app: KakiApp;
+  let base: string;
+
+  beforeEach(async () => {
+    app = await createApp({ scenario: scenarioWithPairs, speechRecognition: 'browser', roomRoster: async () => [] });
+    base = `http://127.0.0.1:${portOf(app)}`;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('drops excluded pairs and links that named an agenda item the draft removed', async () => {
+    const loaded = await fetch(`${base}/api/setup`);
+    expect(loaded.status).toBe(200);
+    const { setup } = (await loaded.json()) as SetupResponse;
+    setup.title = 'Friday lunch readiness';
+    setup.source.title = 'typed';
+    setup.agenda = [setup.agenda[0]!];
+    const saved = await fetch(`${base}/api/setup`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(setup),
+    });
+    expect(saved.status).toBe(200);
+
+    const response = await fetch(`${base}/api/scenario`);
+    expect(response.status).toBe(200);
+    const visible = (await response.json()) as Scenario;
+    expect(() => parseScenario(visible)).not.toThrow();
+    expect(visible.agenda.map((item) => item.title)).toEqual(['Prep']);
+    expect(visible.excludedPairs).toBeUndefined();
+    expect(visible.agenda[0]?.links).toBeUndefined();
+  });
+
+  it('keeps the live agenda while the draft is blank', async () => {
+    const blank = await fetch(`${base}/api/setup/blank`, { method: 'POST' });
+    expect(blank.status).toBe(200);
+
+    const response = await fetch(`${base}/api/scenario`);
+    expect(response.status).toBe(200);
+    const visible = (await response.json()) as Scenario;
+    expect(() => parseScenario(visible)).not.toThrow();
+    expect(visible.agenda.map((item) => item.title)).toEqual(scenarioWithPairs.agenda.map((item) => item.title));
   });
 });
 
