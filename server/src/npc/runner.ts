@@ -265,6 +265,10 @@ export interface NpcRunner {
   markStarted(state?: RunnerStartState & { meetingId?: string }): Promise<void>;
   /** The server meeting this runner currently belongs to, or undefined before it has heard one. */
   meetingId(): string | undefined;
+  /** The server's snapshot of the meeting the runner follows now, or undefined before it has heard one. */
+  meetingSnapshot(): RunnerMeetingSnapshot | undefined;
+  /** Display names of the people in the room now, with any role suffix still attached. */
+  presentNames(): string[];
   /** True when this runner prepared exactly this meeting and the server has not opened it yet. */
   wasPreparedFor(meetingId: string): boolean;
   /**
@@ -306,7 +310,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const log = options.log ?? (() => undefined);
   const logError = options.logError ?? log;
   // Everything that can change during the meeting is read from this one snapshot. The boot pack
-  // only supplies what a snapshot does not carry (organisation, attendees, knowledge).
+  // only supplies content the snapshot does not carry (situation and knowledge).
   const meeting = createRunnerMeeting(bootScenario, options.initialMeeting, log);
   const memory = new MeetingMemory(meeting.scenario(), (entries) => options.onMemoryChange?.(entries), log);
   // Characters nobody can play stay in the room and listen; the rest join for the person who arrives,
@@ -1611,6 +1615,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     announce,
     meetingId() {
       return meeting.meetingId();
+    },
+    meetingSnapshot() {
+      return meeting.current();
+    },
+    presentNames() {
+      return [...humans.values()].map((person) => person.name);
     },
     hostName() {
       return meeting.hostName();

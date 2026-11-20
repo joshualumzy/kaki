@@ -91,6 +91,20 @@ describe('the runner meeting snapshot', () => {
     expect(lobby.agenda.map((item) => item.title)).toEqual(['Prep']);
   });
 
+  it('reports the active meeting kind, company and attendee names for the recogniser', async () => {
+    const current = await appFor(testScenario);
+    current.session.setKind('real');
+    const state = buildRunnerMeetingSnapshot({
+      meetingId: 'meeting-1',
+      session: current.session,
+      fullScenario: testScenario,
+    });
+
+    expect(state.kind).toBe('real');
+    expect(state.organisation).toBe(testScenario.organisation);
+    expect(state.attendeeNames).toEqual(testScenario.attendees.map((attendee) => attendee.name));
+  });
+
   it('derives host mode from the seat holders, so a runner restart cannot make it stale', async () => {
     const pack = await loadScenario('kopitiam');
     const current = await appFor(pack);

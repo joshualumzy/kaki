@@ -55,6 +55,7 @@ export function buildRunnerMeetingSnapshot(input: RunnerStateInput): Omit<Runner
   const scenario = runnerScenario(input);
   const host = hostIdentityOf(scenario);
   const agenda = scenario.agenda;
+  const kind = input.session.kind();
   const requested = input.agendaIndex ?? 0;
   const agendaIndex = agenda.length === 0 ? 0 : Math.max(0, Math.min(requested, agenda.length - 1));
   return {
@@ -65,6 +66,9 @@ export function buildRunnerMeetingSnapshot(input: RunnerStateInput): Omit<Runner
     agenda: agenda.map((item) => ({ ...item })),
     roles: scenario.roles.map((role) => ({ ...role })),
     cast: castWithHostProfile(scenario.npcs ?? [], host.name),
+    ...(kind === undefined ? {} : { kind }),
+    organisation: scenario.organisation,
+    attendeeNames: scenario.attendees.map((attendee) => attendee.name),
     ...(scenario.meetingTitle === undefined ? {} : { meetingTitle: scenario.meetingTitle }),
     ...(host.name === undefined ? {} : { hostName: host.name }),
     ...(host.seat === undefined ? {} : { hostSeat: host.seat }),

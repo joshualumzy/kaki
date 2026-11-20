@@ -48,6 +48,12 @@ export interface RunnerMeetingSnapshot {
   roles: ScenarioRole[];
   /** The AI seats the meeting voices, with their names and voices. */
   cast: NpcProfile[];
+  /** Whether this is the owner's team meeting or a practice run; absent before one is active. */
+  kind?: 'real' | 'practice';
+  /** The active meeting's company, so wiring outside the conversation need not lean on the boot pack. */
+  organisation?: string;
+  /** Names of everyone the active meeting seats, AI or person. */
+  attendeeNames?: string[];
   meetingTitle?: string;
   hostName?: string;
   /** The host's seat (a role id), so a person in that seat is recognisable from the roster. */
@@ -135,6 +141,10 @@ export function isRunnerMeetingSnapshot(value: unknown): value is RunnerMeetingS
     value.roles.every(isScenarioRole) &&
     Array.isArray(value.cast) &&
     value.cast.every(isNpcProfile) &&
+    (value.kind === undefined || value.kind === 'real' || value.kind === 'practice') &&
+    (value.organisation === undefined || isNonEmptyString(value.organisation)) &&
+    (value.attendeeNames === undefined ||
+      (Array.isArray(value.attendeeNames) && value.attendeeNames.every(isNonEmptyString))) &&
     (value.meetingTitle === undefined || typeof value.meetingTitle === 'string') &&
     (value.hostName === undefined || typeof value.hostName === 'string') &&
     (value.hostSeat === undefined || typeof value.hostSeat === 'string') &&

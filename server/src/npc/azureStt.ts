@@ -1,12 +1,13 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import { confidenceFrom, DEFAULT_MIN_CONFIDENCE, keepRecognised } from './sttFilter';
+import { MAX_STT_PHRASES, tidySttPhrases } from './sttPhrases';
 import type { Recognizer, SttSession } from './utterance';
 
 export interface AzureSttOptions {
   /** Recognition language, for example "en-SG". */
   locale: string;
-  /** Names and words likely to come up; Azure leans towards them when it is unsure. */
-  phrases: string[];
+  /** Names and words likely to come up; Azure leans towards them when it is unsure. Read on every start. */
+  phrases: () => string[];
   /** How long to wait for the result once the audio has ended. */
   finishTimeoutMs?: number;
   /** Short results scoring below this are treated as noise and dropped (default 0.6). */
@@ -23,12 +24,19 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
   config.speechRecognitionLanguage = options.locale;
   config.outputFormat = sdk.OutputFormat.Detailed;
   const finishTimeoutMs = options.finishTimeoutMs ?? 6000;
+  let warnedCapped = false;
 
   return {
     start(): SttSession {
       const stream = sdk.AudioInputStream.createPushStream(sdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1));
       const recognizer = new sdk.SpeechRecognizer(config, sdk.AudioConfig.fromStreamInput(stream));
-      if (options.phrases.length > 0) sdk.PhraseListGrammar.fromRecognizer(recognizer).addPhrases(options.phrases);
+      const allPhrases = tidySttPhrases(options.phrases());
+      if (allPhrases.length > MAX_STT_PHRASES && !warnedCapped) {
+        warnedCapped = true;
+        options.log?.(`speech recognition phrase list capped at ${MAX_STT_PHRASES} entries`);
+      }
+      const phrases = allPhrases.slice(0, MAX_STT_PHRASES);
+      if (phrases.length > 0) sdk.PhraseListGrammar.fromRecognizer(recognizer).addPhrases(phrases);
 
       const parts: string[] = [];
       let stopped: () => void = () => undefined;

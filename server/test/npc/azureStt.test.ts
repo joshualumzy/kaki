@@ -51,6 +51,8 @@ const sdk = vi.hoisted(() => {
     }
   }
 
+  const addedPhrases: string[][] = [];
+
   return {
     FakeRecognizer,
     SpeechRecognizer: FakeRecognizer,
@@ -67,18 +69,26 @@ const sdk = vi.hoisted(() => {
     },
     AudioStreamFormat: { getWaveFormatPCM: () => ({}) },
     AudioConfig: { fromStreamInput: () => ({}) },
-    PhraseListGrammar: { fromRecognizer: () => ({ addPhrases: () => undefined }) },
+    addedPhrases,
+    PhraseListGrammar: {
+      fromRecognizer: () => ({
+        addPhrases: (phrases: string[]) => {
+          addedPhrases.push([...phrases]);
+        },
+      }),
+    },
   };
 });
 
 vi.mock('microsoft-cognitiveservices-speech-sdk', () => sdk);
 
 import { createAzureStt } from '../../src/npc/azureStt';
+import { MAX_STT_PHRASES } from '../../src/npc/sttPhrases';
 
 const TIMEOUT_MS = 1_000;
 
 function createSession(finishTimeoutMs = TIMEOUT_MS) {
-  const stt = createAzureStt('key', 'region', { locale: 'en-SG', phrases: [], finishTimeoutMs });
+  const stt = createAzureStt('key', 'region', { locale: 'en-SG', phrases: () => [], finishTimeoutMs });
   const session = stt.start();
   const recognizer = sdk.FakeRecognizer.instances.at(-1)!;
   return { session, recognizer };
@@ -101,10 +111,39 @@ describe('createAzureStt', () => {
     sdk.FakeRecognizer.startBehavior = 'ok';
     sdk.FakeRecognizer.stopBehavior = 'ok';
     sdk.FakeRecognizer.stops = 0;
+    sdk.addedPhrases.length = 0;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('reads the phrase list again for every stretch of speech', () => {
+    const phrases = vi.fn().mockReturnValueOnce(['Ana', 'Ana', '  ']).mockReturnValueOnce(['Ben']);
+    const stt = createAzureStt('key', 'region', { locale: 'en-SG', phrases, finishTimeoutMs: TIMEOUT_MS });
+
+    stt.start();
+    stt.start();
+
+    expect(phrases).toHaveBeenCalledTimes(2);
+    expect(sdk.addedPhrases).toEqual([['Ana'], ['Ben']]);
+  });
+
+  it('caps a huge phrase list and says so once', () => {
+    const log = vi.fn();
+    const many = Array.from({ length: MAX_STT_PHRASES + 1 }, (_, index) => `phrase ${index}`);
+    const stt = createAzureStt('key', 'region', {
+      locale: 'en-SG',
+      phrases: () => many,
+      finishTimeoutMs: TIMEOUT_MS,
+      log,
+    });
+
+    stt.start();
+    stt.start();
+
+    expect(sdk.addedPhrases.map((phrases) => phrases.length)).toEqual([MAX_STT_PHRASES, MAX_STT_PHRASES]);
+    expect(log.mock.calls.filter(([message]) => message.includes('capped'))).toHaveLength(1);
   });
 
   it('fails loudly and closes the recognizer when starting never answers', async () => {

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
+import { buildSttPhrases } from './sttPhrases';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner, type NpcRunner } from './runner';
 import { createMeetingSync, parsePrepareRequest, parseStartedEvent, type PrepareRequest } from './meetingSync';
@@ -106,6 +107,8 @@ const readerFallbackStreamWithFault = fallback === undefined
 const azureHint = 'Add your Azure Speech key and region to .env (see .env.example).';
 // The voice belongs to the meeting snapshot's cast, which can change after the process boots.
 let runnerForVoice: NpcRunner | undefined;
+// The recogniser's phrase list follows the meeting snapshot too; until the runner is ready, it is the boot pack's.
+let runnerForStt: NpcRunner | undefined;
 const synthesize = faultySynthesize(
   createAzureTts(
     requireEnv('AZURE_SPEECH_KEY', azureHint),
@@ -126,13 +129,14 @@ const recognizer =
         locale: process.env.NPC_STT_LOCALE || 'en-SG',
         minConfidence: numberEnv('NPC_STT_MIN_CONFIDENCE', 0.6),
         log,
-        phrases: [
-          ...new Set([
-            ...(scenario.vocabulary ?? []),
-            ...scenario.attendees.map((attendee) => attendee.name),
-            scenario.organisation,
-          ]),
-        ],
+        phrases: () => {
+          const meeting = runnerForStt?.meetingSnapshot();
+          return buildSttPhrases({
+            startupPack: scenario,
+            ...(meeting === undefined ? {} : { meeting }),
+            joinedNames: runnerForStt?.presentNames() ?? [],
+          });
+        },
       });
 
 // The runner writes as the screen and as each AI role over command sockets, exactly as a phone would.
@@ -348,6 +352,7 @@ const runner = await startNpcRunner({
   ...(initialMeeting === undefined ? {} : { initialMeeting }),
 });
 runnerForVoice = runner;
+runnerForStt = runner;
 runnerMeetingId = () => runner.meetingId();
 
 // Sam asks an AI colleague aloud, then the colleague answers: the answer waits for the question (see cueOrder.ts).
