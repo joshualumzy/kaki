@@ -18,25 +18,36 @@ vi.mock('@livekit/components-react', () => ({
   useParticipants: () => [], useRoomContext: () => ({ localParticipant: { publishData: vi.fn().mockResolvedValue(undefined) } }),
   useTrackRefContext: () => ({ participant: { identity: 'Sam' } }), useTracks: () => [],
 }));
-vi.mock('../kaki', () => ({
-  useScenario: () => ({
-    id: 'test', organisation: 'Test', meetingTitle: 'Prep', roles: [{ id: 'chef', label: 'Chef' }],
-    attendees: [{ name: 'Sam', role: 'chef' }],
-    agenda: [
-      { title: 'Prep', minutes: 5, ownerRole: 'chef' },
-      { title: 'Stock', minutes: 5, ownerRole: 'chef' },
-    ],
-    npcs: [{ attendee: 'Sam', role: 'host' }],
-  }),
-  useKaki: (audience: string) => audience === 'screen'
-    ? {
+vi.mock('../kaki', async () => {
+  const { speechByTopicFromEvents } = await import('../kaki/topicSpeech');
+  return {
+    useScenario: () => ({
+      id: 'test', organisation: 'Test', meetingTitle: 'Prep', roles: [{ id: 'chef', label: 'Chef' }],
+      attendees: [{ name: 'Sam', role: 'chef' }],
+      agenda: [
+        { title: 'Prep', minutes: 5, ownerRole: 'chef' },
+        { title: 'Stock', minutes: 5, ownerRole: 'chef' },
+      ],
+      npcs: [{ attendee: 'Sam', role: 'host' }],
+    }),
+    useKaki: (audience: string) => {
+      if (audience !== 'screen') {
+        return { tasks: [], events: mocks.roleEvents, latestRecord: undefined, speechByTopic: new Map() };
+      }
+      const latestRecord = mocks.latestRecord
+        ?? [...mocks.screenEvents].reverse().find((event) => event.type === 'MEETING_RECORD_UPDATED');
+      return {
         events: mocks.screenEvents,
         tasks: mocks.screenTasks,
-        latestRecord: mocks.latestRecord
-          ?? [...mocks.screenEvents].reverse().find((event) => event.type === 'MEETING_RECORD_UPDATED'),
-      }
-    : { tasks: [], events: mocks.roleEvents, latestRecord: undefined },
-}));
+        latestRecord,
+        speechByTopic: speechByTopicFromEvents(
+          mocks.screenEvents,
+          latestRecord?.type === 'MEETING_RECORD_UPDATED' ? latestRecord.payload.agendaIndex : 0,
+        ),
+      };
+    },
+  };
+});
 vi.mock('./TypeBar', () => ({
   ConnectedTypeBar: (props: { paused?: boolean; pauseRejection?: unknown }) => {
     mocks.typeBarProps.push(props);
@@ -63,11 +74,20 @@ function record(
   };
 }
 
-function line(speaker: string, text: string): KakiEvent {
+function line(
+  speaker: string,
+  text: string,
+  speakerRole?: Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }>['payload']['speakerRole'],
+): KakiEvent {
   return {
     type: 'TRANSCRIPT_CHUNK',
     audience: { kind: 'screen' },
-    payload: { speaker, text, timestamp: new Date().toISOString() },
+    payload: {
+      speaker,
+      text,
+      timestamp: new Date().toISOString(),
+      ...(speakerRole === undefined ? {} : { speakerRole }),
+    },
   };
 }
 
@@ -123,6 +143,38 @@ describe('MeetingGrid starter ideas', () => {
       line('Sam', 'What do you think about stock?'),
       line('Chef', 'We should order more.'),
       line('Visitor', 'Let us wait a week.'),
+    );
+    render(<MeetingGrid role="chef" />);
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
+  });
+
+  it('offers the Table topic chip on topic 2 after the topic record has left the event window', () => {
+    mocks.latestRecord = record(2);
+    mocks.screenEvents.splice(0, mocks.screenEvents.length,
+      ...Array.from({ length: 60 }, (_, index) => line('Sam', `filler ${index}`)),
+      line('Renamed Guest', 'Before I call it, what is the practical catch for the team?', 'chef'),
+    );
+    render(<MeetingGrid role="chef" />);
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.getByRole('button', { name: /Table topic/ })).toBeTruthy();
+  });
+
+  it('does not offer the Table topic chip before the viewer speaks on the current topic', () => {
+    mocks.latestRecord = record(2);
+    mocks.screenEvents.splice(0, mocks.screenEvents.length,
+      line('Sam', 'Here is the stock question.'),
+      line('Other Person', 'We should order more.', 'host'),
+    );
+    render(<MeetingGrid role="chef" />);
+    fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));
+    expect(screen.queryByRole('button', { name: /Table topic/ })).toBeNull();
+  });
+
+  it('counts a renamed seat by its speakerRole even when its name matches an AI attendee', () => {
+    mocks.latestRecord = record(2);
+    mocks.screenEvents.splice(0, mocks.screenEvents.length,
+      line('Sam', 'Before I call it, what is the practical catch for the team?', 'chef'),
     );
     render(<MeetingGrid role="chef" />);
     fireEvent.click(screen.getByRole('button', { name: /Need an idea/ }));

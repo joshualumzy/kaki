@@ -36,7 +36,7 @@ export function MeetingPanel({
   const scenario = useScenario();
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
   // needs auth off or a signed-in host (the page cannot connect otherwise).
-  const { events, tasks, connected, rejection, send } = useKaki('screen');
+  const { events, tasks, connected, rejection, send, speechByTopic } = useKaki('screen');
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -74,26 +74,21 @@ export function MeetingPanel({
     return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
   }, [scenario]);
 
+  // Who spoke on each topic is recorded by the hook as lines arrive, so it survives the record
+  // leaving the 50-event window (same source as MeetingGrid).
+  const facilitatorRole = useMemo(() => scenario.roles.find((r) => r.facilitator === true)?.id, [scenario]);
   const topicBriefingStarted = useMemo(() => {
-    const targetIdx = record?.payload.agendaIndex ?? 0;
-    let currentIdx = 0;
-    let briefedOnTarget = false;
-    for (const event of events) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        if (event.payload.agendaIndex !== currentIdx) {
-          currentIdx = event.payload.agendaIndex;
-          if (currentIdx === targetIdx) briefedOnTarget = false;
-        }
-      } else if (
-        event.type === 'TRANSCRIPT_CHUNK' &&
-        currentIdx === targetIdx &&
-        !event.payload.speaker.startsWith(facilitatorName)
-      ) {
-        briefedOnTarget = true;
-      }
+    const speech = speechByTopic.get(record?.payload.agendaIndex ?? 0);
+    if (speech === undefined) return false;
+    for (const speakerRole of speech.roles) {
+      if (speakerRole !== facilitatorRole) return true;
     }
-    return briefedOnTarget;
-  }, [events, facilitatorName, record]);
+    const facilitator = facilitatorName.toLowerCase();
+    for (const speaker of speech.names) {
+      if (!speaker.startsWith(facilitator)) return true;
+    }
+    return false;
+  }, [speechByTopic, facilitatorRole, facilitatorName, record]);
 
   const { currentFact, liveWingmanBrief } = useMemo<{
     currentFact: FactEvent | undefined;

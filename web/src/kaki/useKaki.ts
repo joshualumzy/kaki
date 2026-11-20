@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isKakiEvent, type KakiCommand, type KakiEvent, type Role, type Task } from '@kaki/shared';
 import { fetchMe } from '../auth/api';
 import { useScenario } from './ScenarioContext';
+import { addTopicSpeech, type TopicSpeech } from './topicSpeech';
+
+export type { TopicSpeech } from './topicSpeech';
 
 /** What the server says when a phone's meeting code has been replaced. */
 const MEETING_ENDED_MESSAGE = 'This meeting has ended; scan the new code.';
@@ -20,6 +23,11 @@ export interface UseKakiResult {
   events: KakiEvent[];
   /** The newest MEETING_RECORD_UPDATED, kept outside the short event window so it is never lost. */
   latestRecord: MeetingRecordEvent | undefined;
+  /**
+   * Who has spoken on each agenda item, keyed by the item that was current when each line arrived.
+   * Kept outside the short event window so a topic's speech is not forgotten between records.
+   */
+  speechByTopic: ReadonlyMap<number, TopicSpeech>;
   tasks: Map<string, Task>;
   rejections: KakiRejection[];
   rejection: KakiRejection | null;
@@ -44,6 +52,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const scenario = useScenario();
   const [events, setEvents] = useState<KakiEvent[]>([]);
   const [latestRecord, setLatestRecord] = useState<MeetingRecordEvent | undefined>(undefined);
+  const [speechByTopic, setSpeechByTopic] = useState<ReadonlyMap<number, TopicSpeech>>(() => new Map());
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
   const [connected, setConnected] = useState(false);
@@ -58,10 +67,14 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const lifecycleRevision = useRef(0);
   /** The newest meeting the browser has seen, so an answer for an older one is thrown away. */
   const meetingId = useRef<string | undefined>(undefined);
+  /** The newest record read synchronously, so a line is filed under the topic it arrived on. */
+  const latestRecordRef = useRef<MeetingRecordEvent | undefined>(undefined);
 
   useEffect(() => {
     setEvents([]);
     setLatestRecord(undefined);
+    latestRecordRef.current = undefined;
+    setSpeechByTopic(new Map());
     setTasks(new Map());
     setRejections([]);
     setConnected(false);
@@ -91,6 +104,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         // so a restarted server never leaves stale task cards on screen.
         setEvents([]);
         setLatestRecord(undefined);
+        latestRecordRef.current = undefined;
         setTasks(new Map());
         setRestoredAt(undefined);
         setMeetingIdentity(undefined);
@@ -149,10 +163,15 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         }
 
         if (parsed.type === 'MEETING_STARTED') {
+          const isNewMeeting = meetingId.current !== parsed.payload.meetingId;
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
           setMeetingIdentity(parsed.payload.meetingId);
           setStarted(true);
+          if (isNewMeeting) {
+            latestRecordRef.current = undefined;
+            setSpeechByTopic(new Map());
+          }
         }
 
         if (parsed.type === 'MEETING_RESET') {
@@ -161,6 +180,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           setMeetingIdentity(parsed.payload.meetingId);
           setStarted(false);
           setLatestRecord(undefined);
+          latestRecordRef.current = undefined;
+          setSpeechByTopic(new Map());
           setEvents((previous) => {
             const last = previous.at(-1);
             // When a new meeting starts on its first transcript line, the hub sends that line just before
@@ -189,7 +210,17 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
 
         // Keep the newest record in its own state: it is the source of the agenda and pause, and it
         // must outlive the 50-event window that older transcript lines push it out of.
-        if (parsed.type === 'MEETING_RECORD_UPDATED') setLatestRecord(parsed);
+        if (parsed.type === 'MEETING_RECORD_UPDATED') {
+          latestRecordRef.current = parsed;
+          setLatestRecord(parsed);
+        }
+
+        // File each line under the topic it arrived on, not under whichever record survives the
+        // 50-event window. Seats are exact; names are only a fallback for lines with no seat.
+        if (parsed.type === 'TRANSCRIPT_CHUNK') {
+          const agendaIndex = latestRecordRef.current?.payload.agendaIndex ?? 0;
+          setSpeechByTopic((previous) => addTopicSpeech(previous, agendaIndex, parsed));
+        }
 
         setEvents((previous) => [...previous, Object.assign(parsed, { receivedAt: Date.now() })].slice(-50));
       });
@@ -264,6 +295,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   return {
     events,
     latestRecord,
+    speechByTopic,
     tasks,
     rejections,
     rejection: rejections[rejections.length - 1] ?? null,

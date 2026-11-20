@@ -7,7 +7,11 @@ vi.mock('./ScenarioContext', () => {
     id: 'lifecycle-test',
     organisation: 'Test Kitchen',
     meetingTitle: 'Prep',
-    roles: [{ id: 'chef', label: 'Chef' }],
+    roles: [
+      { id: 'chef', label: 'Chef' },
+      { id: 'producer', label: 'Producer' },
+      { id: 'host', label: 'Host', facilitator: true },
+    ],
     attendees: [{ name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' }],
     agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' }],
   };
@@ -66,6 +70,42 @@ function startEvent(meetingId = 'meeting-a'): { data: string } {
 function resetEvent(meetingId = 'meeting-b'): { data: string } {
   return {
     data: JSON.stringify({ type: 'MEETING_RESET', audience: { kind: 'all' }, payload: { meetingId } }),
+  };
+}
+
+function recordEvent(agendaIndex: number): { data: string } {
+  return {
+    data: JSON.stringify({
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'screen' },
+      payload: {
+        agendaIndex,
+        openQuestions: [],
+        elapsedSeconds: 0,
+        speakerTalkSeconds: {},
+        notetakerStatus: 'ok',
+        quietRoles: [],
+      },
+    }),
+  };
+}
+
+function transcriptEvent(
+  speaker: string,
+  text: string,
+  speakerRole?: 'chef' | 'producer' | 'host',
+): { data: string } {
+  return {
+    data: JSON.stringify({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: {
+        speaker,
+        text,
+        timestamp: new Date().toISOString(),
+        ...(speakerRole === undefined ? {} : { speakerRole }),
+      },
+    }),
   };
 }
 
@@ -245,4 +285,54 @@ describe('useKaki lifecycle state', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/me', undefined);
   });
 
+});
+
+describe('useKaki topic speech', () => {
+  it('records a seat that spoke on the topic even after its record leaves the event window', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('screen'));
+    const socket = sockets[0]!;
+
+    act(() => socket.emit('open'));
+    act(() => socket.emit('message', recordEvent(2)));
+    await waitFor(() => expect(result.current.latestRecord?.payload.agendaIndex).toBe(2));
+
+    act(() => {
+      for (let index = 0; index < 55; index += 1) {
+        socket.emit('message', transcriptEvent('Sam', `filler ${index}`));
+      }
+    });
+    act(() => socket.emit('message', transcriptEvent('Renamed Guest', 'The practical catch is the rush.', 'producer')));
+
+    await waitFor(() => expect(result.current.speechByTopic.get(2)?.roles.has('producer')).toBe(true));
+    expect(result.current.events.some((event) => event.type === 'MEETING_RECORD_UPDATED')).toBe(false);
+    expect(result.current.speechByTopic.get(2)?.names.has('sam')).toBe(true);
+  });
+
+  it('does not record a colleague seat as the viewer', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('screen'));
+    const socket = sockets[0]!;
+
+    act(() => socket.emit('open'));
+    act(() => socket.emit('message', recordEvent(1)));
+    act(() => socket.emit('message', transcriptEvent('Other Person', 'Stock is fine.', 'host')));
+
+    await waitFor(() => expect(result.current.speechByTopic.get(1)?.roles.has('host')).toBe(true));
+    expect(result.current.speechByTopic.get(1)?.roles.has('producer')).toBe(false);
+  });
+
+  it('forgets who spoke when the meeting resets', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('screen'));
+    const socket = sockets[0]!;
+
+    act(() => socket.emit('open'));
+    act(() => socket.emit('message', recordEvent(1)));
+    act(() => socket.emit('message', transcriptEvent('Ada', 'One decision.', 'chef')));
+    await waitFor(() => expect(result.current.speechByTopic.size).toBeGreaterThan(0));
+
+    act(() => socket.emit('message', resetEvent('meeting-b')));
+    await waitFor(() => expect(result.current.speechByTopic.size).toBe(0));
+  });
 });

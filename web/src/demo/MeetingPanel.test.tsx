@@ -4,6 +4,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
+import { speechByTopicFromEvents } from '../kaki/topicSpeech';
 
 const mocks = vi.hoisted(() => ({
   useKaki: vi.fn(),
@@ -79,15 +80,28 @@ const events: KakiEvent[] = [
   },
 ];
 
+function withSpeech(
+  result: {
+    events: KakiEvent[];
+    tasks: Map<string, Task>;
+    connected: boolean;
+    rejection: null;
+    send: () => void;
+  },
+  initialAgendaIndex = 0,
+) {
+  return { ...result, speechByTopic: speechByTopicFromEvents(result.events, initialAgendaIndex) };
+}
+
 beforeEach(() => {
   mocks.useScenario.mockReturnValue(scenario);
-  mocks.useKaki.mockReturnValue({
+  mocks.useKaki.mockReturnValue(withSpeech({
     events,
     tasks: new Map(),
     connected: true,
     rejection: null,
     send: vi.fn(),
-  });
+  }));
 });
 
 afterEach(cleanup);
@@ -95,8 +109,8 @@ afterEach(cleanup);
 describe('MeetingPanel', () => {
   it('uses the active item seat fact instead of a role-card fact from another topic', () => {
     scenario.agenda[0]!.seatFacts = { producer: 'Current topic fact' };
-    mocks.useKaki.mockReturnValue({ events: events.filter((event) => event.type !== 'FACT_FOUND'),
-      tasks: new Map(), connected: true, rejection: null, send: vi.fn() });
+    mocks.useKaki.mockReturnValue(withSpeech({ events: events.filter((event) => event.type !== 'FACT_FOUND'),
+      tasks: new Map(), connected: true, rejection: null, send: vi.fn() }));
     try {
       render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
       expect(screen.getByText('Current topic fact')).toBeTruthy();
@@ -120,6 +134,60 @@ describe('MeetingPanel', () => {
     expect(screen.getByText(distinctFact)).toBeTruthy();
   });
 
+  it('keeps the topic-2 Wingman surface after more than 50 events since the topic changed', () => {
+    const topicFact = 'The third topic fact the visitor can share.';
+    mocks.useScenario.mockReturnValue({
+      ...scenario,
+      agenda: [
+        scenario.agenda[0]!,
+        { title: 'Second topic', minutes: 4, canWait: false, deadline: 'before lunch', ownerRole: 'lead_programmer' },
+        {
+          title: 'Third topic',
+          minutes: 4,
+          canWait: false,
+          deadline: 'before close',
+          ownerRole: 'lead_programmer',
+          seatFacts: { producer: topicFact },
+        },
+      ],
+    });
+
+    const briefingLine = (text: string): KakiEvent => ({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Wei Ling', text, timestamp: '2026-11-07T10:05:00Z', speakerRole: 'producer' },
+    });
+    const topicTwo: KakiEvent = {
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'all' },
+      payload: { agendaIndex: 2, openQuestions: [], elapsedSeconds: 0, speakerTalkSeconds: {} },
+    };
+
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [topicTwo, briefingLine('Here is my stance on the third topic.')],
+      tasks: new Map(), connected: true, rejection: null, send: vi.fn(),
+    }));
+    const view = render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+    expect(screen.getByLabelText('Current topic context')).toBeTruthy();
+
+    const laterEvents: KakiEvent[] = [
+      ...Array.from({ length: 60 }, (_, index): KakiEvent => ({
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: { speaker: 'Arjun', text: `filler ${index}`, timestamp: '2026-11-07T10:06:00Z' },
+      })),
+      briefingLine('Still speaking on the same topic.'),
+    ];
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: laterEvents,
+      tasks: new Map(), connected: true, rejection: null, send: vi.fn(),
+    }, 2));
+    view.rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+
+    expect(screen.getByLabelText('Current topic context')).toBeTruthy();
+    expect(screen.getByText(topicFact)).toBeTruthy();
+  });
+
   it('shows the accepted decision on a task card', () => {
     const decision = 'We will move the cash box away from the food prep area and count the float every night.';
     const task: Task = {
@@ -133,13 +201,13 @@ describe('MeetingPanel', () => {
       status: 'DISPATCHED',
       updatedAt: '2026-11-08T10:00:00Z',
     };
-    mocks.useKaki.mockReturnValue({
+    mocks.useKaki.mockReturnValue(withSpeech({
       events: [],
       tasks: new Map([[task.id, task]]),
       connected: true,
       rejection: null,
       send: vi.fn(),
-    });
+    }));
 
     render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} />);
 
@@ -184,7 +252,7 @@ describe('MeetingPanel', () => {
     mocks.useScenario.mockReturnValue(scenarioWithTradeOffs);
 
     // Daniel and Mei have both spoken at length, but neither catch has been raised yet.
-    mocks.useKaki.mockReturnValue({
+    mocks.useKaki.mockReturnValue(withSpeech({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
@@ -206,7 +274,7 @@ describe('MeetingPanel', () => {
       connected: true,
       rejection: null,
       send: vi.fn(),
-    });
+    }));
 
     const { rerender } = render(
       <MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />,
@@ -216,7 +284,7 @@ describe('MeetingPanel', () => {
     expect(screen.queryByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeNull();
 
     // Daniel's catch is heard: only his card appears.
-    mocks.useKaki.mockReturnValue({
+    mocks.useKaki.mockReturnValue(withSpeech({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
@@ -248,7 +316,7 @@ describe('MeetingPanel', () => {
       connected: true,
       rejection: null,
       send: vi.fn(),
-    });
+    }));
 
     rerender(<MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />);
 
@@ -256,7 +324,7 @@ describe('MeetingPanel', () => {
     expect(screen.queryByText('Takeaway steam melts butter flat; doubling costs $1100')).toBeNull();
 
     // Mei's catch is heard too: both cards are now shown.
-    mocks.useKaki.mockReturnValue({
+    mocks.useKaki.mockReturnValue(withSpeech({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
@@ -298,7 +366,7 @@ describe('MeetingPanel', () => {
       connected: true,
       rejection: null,
       send: vi.fn(),
-    });
+    }));
 
     rerender(<MeetingPanel viewer={{ name: 'Visitor', seatName: 'Visitor' }} role={undefined} />);
 
@@ -343,7 +411,7 @@ describe('MeetingPanel', () => {
 
     // Visitor joined as Operations Director (role: producer, name: Foo)
     // Daniel and "Wei Ling" both have transcript chunks
-    mocks.useKaki.mockReturnValue({
+    mocks.useKaki.mockReturnValue(withSpeech({
       events: [
         {
           type: 'MEETING_RECORD_UPDATED',
@@ -370,7 +438,7 @@ describe('MeetingPanel', () => {
       connected: true,
       rejection: null,
       send: vi.fn(),
-    });
+    }));
 
     render(
       <MeetingPanel
@@ -405,13 +473,13 @@ describe('MeetingPanel', () => {
       status: 'DISPATCHED',
       updatedAt: '2026-11-08T10:05:00Z',
     };
-    mocks.useKaki.mockReturnValue({
+    mocks.useKaki.mockReturnValue(withSpeech({
       events: [],
       tasks: new Map([[superseded.id, superseded], [current.id, current]]),
       connected: true,
       rejection: null,
       send: vi.fn(),
-    });
+    }));
 
     render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} />);
 

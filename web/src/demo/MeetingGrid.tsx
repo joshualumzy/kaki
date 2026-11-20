@@ -238,7 +238,7 @@ export function MeetingGrid({
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
   const { events, send: sendToServer, rejection: commandRejection } = useKaki(role);
-  const { events: screenEvents, latestRecord, tasks: screenTasks } = useKaki('screen');
+  const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki('screen');
   // One path for every line the person produces: the server writes it whether or not an AI runner is up.
   const sendHumanLine = useCallback(
     (text: string, source: 'speech' | 'typed') => {
@@ -301,51 +301,39 @@ export function MeetingGrid({
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
     return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
   }, [scenario]);
+  const facilitatorRole = useMemo(
+    () => scenario.roles.find((role) => role.facilitator === true)?.id,
+    [scenario.roles],
+  );
   const activeAgendaIndex = latestRecord?.payload.agendaIndex ?? 0;
   // The pause button follows the server's latest record, so a reload, another seat's Stop or an
   // empty-room auto-pause all show the same truth the meeting clock has.
   const serverPaused = latestRecord?.payload.paused === true;
 
-  // The agenda record only goes to the screen audience, so these must read the screen feed: it carries both that
-  // record and every transcript line, in order.
+  // Who spoke is recorded by the hook as each line arrives, so it survives the record leaving the
+  // 50-event window. Exact seats come from speakerRole; names only for older lines without one.
   const hasColleagueBriefed = useMemo(() => {
-    let currentIdx = 0;
-    let sawCurrentItemBrief = false;
-    for (const event of screenEvents) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        if (event.payload.agendaIndex !== currentIdx) {
-          currentIdx = event.payload.agendaIndex;
-          sawCurrentItemBrief = false;
-        }
-      } else if (
-        event.type === 'TRANSCRIPT_CHUNK' &&
-        currentIdx === activeAgendaIndex &&
-        !event.payload.speaker.startsWith(facilitatorName)
-      ) {
-        sawCurrentItemBrief = true;
-      }
+    const speech = speechByTopic.get(activeAgendaIndex);
+    if (speech === undefined) return false;
+    for (const speakerRole of speech.roles) {
+      if (speakerRole !== facilitatorRole) return true;
     }
-    return sawCurrentItemBrief;
-  }, [screenEvents, facilitatorName, activeAgendaIndex]);
+    const facilitator = facilitatorName.toLowerCase();
+    for (const speaker of speech.names) {
+      if (!speaker.startsWith(facilitator)) return true;
+    }
+    return false;
+  }, [speechByTopic, facilitatorRole, facilitatorName, activeAgendaIndex]);
   const hasVisitorSpokenOnTopic = useMemo(() => {
+    const speech = speechByTopic.get(activeAgendaIndex);
+    if (speech === undefined) return false;
+    if (speech.roles.has(role)) return true;
     const npcNameSet = new Set((scenario.npcs ?? []).map((n) => n.attendee.toLowerCase()));
-    let currentIdx = 0;
-    let spoken = false;
-    for (const event of screenEvents) {
-      if (event.type === 'MEETING_RECORD_UPDATED') {
-        if (event.payload.agendaIndex !== currentIdx) {
-          currentIdx = event.payload.agendaIndex;
-          spoken = false;
-        }
-      } else if (event.type === 'TRANSCRIPT_CHUNK' && currentIdx === activeAgendaIndex) {
-        const cleanSpeaker = event.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
-        if (cleanSpeaker.length > 0 && !npcNameSet.has(cleanSpeaker)) {
-          spoken = true;
-        }
-      }
+    for (const speaker of speech.names) {
+      if (!npcNameSet.has(speaker)) return true;
     }
-    return spoken;
-  }, [screenEvents, scenario.npcs, activeAgendaIndex]);
+    return false;
+  }, [speechByTopic, scenario.npcs, activeAgendaIndex, role]);
   const waitingForHuman =
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
   const idleAfterBriefing = npcState.kind === 'idle' && hasColleagueBriefed;
