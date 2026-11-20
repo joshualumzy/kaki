@@ -1264,7 +1264,7 @@ describe('decision revisions', () => {
     expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('not a suggested card'))).toBe(true);
   });
 
-  it('keeps cards unchanged and still lets the agenda move when the revision list cannot be read twice', async () => {
+  it('keeps the lines on the first unreadable revision list, then gives up and lets the agenda move on the second', async () => {
     const { tasks, llm, notetaker, onAgendaIndex, setAgendaIndex } = setup((_messages, call) =>
       call === 0
         ? firstPassReply()
@@ -1277,11 +1277,84 @@ describe('decision revisions', () => {
     notetaker.addChunk({ speaker: 'Feifei Li', text: 'Let us move on to delivery.' });
     await notetaker.run();
 
-    // One good pass, then the malformed reply and its one retry.
+    // One good pass, then the malformed reply and its one retry: the lines are kept and nothing moves.
     expect(llm.calls).toHaveLength(3);
     expect(tasks.list().map((task) => task.status)).toEqual(['SUGGESTED', 'SUGGESTED']);
-    expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('withdrawn or replaced'))).toBe(true);
+    expect(notetaker.state().reviewIssues).toEqual([]);
+    expect(onAgendaIndex).not.toHaveBeenCalled();
+
+    // A second failed pass is the visible exit: one review issue, the lines consumed, the agenda may move.
+    await notetaker.run();
+
+    expect(llm.calls).toHaveLength(5);
+    expect(tasks.list().map((task) => task.status)).toEqual(['SUGGESTED', 'SUGGESTED']);
+    expect(notetaker.state().reviewIssues.filter((issue) => issue.text.includes('withdrawn or replaced'))).toHaveLength(1);
     expect(onAgendaIndex).toHaveBeenCalledWith(1);
+
+    // Nothing is left pending, so another tick has nothing to re-read.
+    await notetaker.run();
+    expect(llm.calls).toHaveLength(5);
+  });
+
+  it('keeps a follow-up request when the retry still has no revisions list, and a later good reply makes the card', async () => {
+    const assignment = 'Daniel, please email the supplier the new tray sizes by Friday.';
+    const missing = JSON.stringify({
+      newQuestions: [],
+      answeredQuestionIds: [],
+      answeredQuestions: [],
+      newTasks: [],
+    });
+    const { tasks, llm, notetaker } = setup((_messages, call) =>
+      call < 2
+        ? missing
+        : reply({
+            newTasks: [
+              {
+                title: 'Email the supplier the new tray sizes',
+                context: 'Send the supplier the new tray sizes before Friday.',
+                suggestedAssignee: 'marketing_lead',
+                actionKind: 'email',
+                evidence: assignment,
+              },
+            ],
+          }),
+    );
+
+    notetaker.addChunk({ speaker: 'Wei Ling', text: assignment });
+    await notetaker.run();
+
+    expect(llm.calls).toHaveLength(2);
+    expect(tasks.list()).toEqual([]);
+    expect(notetaker.state().status).toBe('stale');
+    expect(notetaker.state().reviewIssues).toEqual([]);
+
+    await notetaker.run();
+
+    expect(llm.calls).toHaveLength(3);
+    expect(tasks.list().map((task) => [task.title, task.actionKind, task.status])).toEqual([
+      ['Email the supplier the new tray sizes', 'email', 'SUGGESTED'],
+    ]);
+    expect(notetaker.state().status).toBe('ok');
+  });
+
+  it('asks for a strict JSON schema on both the first call and its retry', async () => {
+    const { llm, notetaker } = setup(() =>
+      JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [] }),
+    );
+
+    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us keep the till rule as it is.' });
+    await notetaker.run();
+
+    expect(llm.callOptions).toHaveLength(2);
+    for (const options of llm.callOptions) {
+      expect(options?.json).toBe(true);
+      expect(options?.schema?.name).toBe('notetaker_reply');
+      expect(options?.schema?.schema).toMatchObject({
+        type: 'object',
+        additionalProperties: false,
+        required: ['agendaIndex', 'newQuestions', 'answeredQuestions', 'newTasks', 'revisions'],
+      });
+    }
   });
 
   it('does not invent a revision when the guest never withdraws a decision', async () => {
@@ -1688,6 +1761,41 @@ describe('notetaker reply parsing', () => {
       ],
       revisions: [],
     });
+  });
+
+  it('reads a null optional field exactly like an absent one', () => {
+    const assignment = 'Daniel, please email the supplier the new tray sizes by Friday.';
+    const parsed = parseNotetakerReply(
+      JSON.stringify({
+        agendaIndex: 0,
+        newQuestions: [{ text: 'Who owns QA?', forRole: null }],
+        answeredQuestionIds: [],
+        answeredQuestions: [],
+        newTasks: [
+          {
+            title: 'Email the supplier the new tray sizes',
+            context: 'Send the supplier the new tray sizes before Friday.',
+            suggestedAssignee: 'marketing_lead',
+            actionKind: null,
+            evidence: assignment,
+            decisionEvidence: null,
+            duplicateOf: null,
+          },
+        ],
+        revisions: [],
+      }),
+      scenario,
+    );
+
+    expect(parsed.newQuestions).toEqual([{ text: 'Who owns QA?' }]);
+    expect(parsed.newTasks).toEqual([
+      {
+        title: 'Email the supplier the new tray sizes',
+        context: 'Send the supplier the new tray sizes before Friday.',
+        suggestedAssignee: 'marketing_lead',
+        evidence: assignment,
+      },
+    ]);
   });
 
   it('rejects a reply that is not a JSON object', () => {

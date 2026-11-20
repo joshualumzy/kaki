@@ -69,6 +69,8 @@ export interface SavedNotetakerState {
   reviewIssueCount?: number;
   status: NotetakerStatus;
   lastError?: string;
+  /** Consecutive passes whose reply lacked a usable `revisions` list; optional so an older save still loads. */
+  revisionFailures?: number;
   talkByItem: Array<[number, Partial<Record<Role, number>>]>;
   talkTotals: Array<[Role, number]>;
   talkTotal: number;
@@ -252,6 +254,9 @@ function notetakerProblem(value: unknown, scenario: Scenario): string | undefine
   }
   if (value.lastError !== undefined && typeof value.lastError !== 'string') {
     return 'its notetaker last error is not text';
+  }
+  if (value.revisionFailures !== undefined && !isNonNegativeInteger(value.revisionFailures)) {
+    return 'its notetaker revision failure count is not valid';
   }
   const byItem = talkByItemProblem(value.talkByItem, scenario);
   if (byItem !== undefined) return byItem;

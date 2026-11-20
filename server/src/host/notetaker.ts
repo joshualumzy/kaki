@@ -35,6 +35,8 @@ const EVIDENCE_MATCH = 0.8;
 const DUPLICATE_OVERLAP = 0.6;
 /** A model that explicitly names a duplicate may use looser wording than the automatic title check. */
 const EXPLICIT_DUPLICATE_OVERLAP = 0.5;
+/** Extra passes allowed when the model leaves out the required `revisions` list; after this it is given up on. */
+const REVISION_FAILURE_LIMIT = 2;
 
 // Words that say nothing about which task it is, ignored when comparing task titles.
 const FILLER_WORDS = new Set(
@@ -907,6 +909,82 @@ export function parseNotetakerReply(text: string, scenario: Scenario): Notetaker
   };
 }
 
+/**
+ * The strict JSON schema for one notetaker reply. Optional item fields are nullable because a strict schema
+ * must require every property; `parseNotetakerReply` reads null exactly like an absent field.
+ */
+function notetakerReplySchema(scenario: Scenario): { name: string; schema: Record<string, unknown> } {
+  const roles = scenario.roles.map((role) => role.id);
+  const nullableRole = { type: ['string', 'null'], enum: [...roles, null] };
+  const nullableActionKind = { type: ['string', 'null'], enum: [...ACTION_KINDS, null] };
+  const nullableString = { type: ['string', 'null'] };
+  return {
+    name: 'notetaker_reply',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['agendaIndex', 'newQuestions', 'answeredQuestions', 'newTasks', 'revisions'],
+      properties: {
+        agendaIndex: { type: 'integer' },
+        newQuestions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['text', 'forRole'],
+            properties: {
+              text: { type: 'string' },
+              forRole: nullableRole,
+            },
+          },
+        },
+        answeredQuestions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'evidence'],
+            properties: {
+              id: { type: 'string' },
+              evidence: { type: 'string' },
+            },
+          },
+        },
+        newTasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['title', 'context', 'suggestedAssignee', 'actionKind', 'evidence', 'decisionEvidence', 'duplicateOf'],
+            properties: {
+              title: { type: 'string' },
+              context: { type: 'string' },
+              suggestedAssignee: { type: 'string', enum: roles },
+              actionKind: nullableActionKind,
+              evidence: { type: 'string' },
+              decisionEvidence: nullableString,
+              duplicateOf: nullableString,
+            },
+          },
+        },
+        revisions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['oldDecisionEvidence', 'changeEvidence', 'taskIds'],
+            properties: {
+              oldDecisionEvidence: { type: 'string' },
+              changeEvidence: { type: 'string' },
+              taskIds: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string {
   const roles = scenario.roles.map((role) => {
     const lineSpeaker = lines.find((l) => l.role === role.id)?.speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
@@ -1241,6 +1319,8 @@ export function createNotetaker({
   let reviewIssueCount = 0;
   let status: NotetakerStatus = llm === undefined ? 'off' : 'waiting';
   let lastError: string | undefined;
+  // How many passes in a row have failed only because the reply had no usable `revisions` list.
+  let revisionFailures = 0;
   const talkByItem = new Map<number, Partial<Record<Role, number>>>();
   const talkTotals = new Map<Role, number>();
   let talkTotal = 0;
@@ -1719,6 +1799,7 @@ export function createNotetaker({
 
       let succeeded = false;
       try {
+        const replySchema = notetakerReplySchema(scenario());
         const messages: ChatMessage[] = [
           { role: 'system', content: systemPrompt(scenario(), [...recentGrounded, ...batch]) },
           {
@@ -1726,32 +1807,51 @@ export function createNotetaker({
             content: userPrompt(scenario(), currentAgendaIndex, openQuestions, tasks.list(), agendaContext, batch),
           },
         ];
-        let reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario());
+        let reply = parseNotetakerReply(await llm.complete(messages, { json: true, schema: replySchema }), scenario());
         if (startedIn !== generation) return; // the meeting was reset while the model was thinking
         if (reply.revisionsError !== undefined) {
-          // A broken reversal list is retried once. After that the pass is not trusted: no card or decision changes,
-          // a specific issue goes on the record, and the agenda is still allowed to move on.
+          // A broken reversal list is retried once before the pass counts as failed.
           console.warn(`kaki notetaker: ${reply.revisionsError}; asking once more`);
-          reply = parseNotetakerReply(await llm.complete(messages, { json: true }), scenario());
+          reply = parseNotetakerReply(await llm.complete(messages, { json: true, schema: replySchema }), scenario());
           if (startedIn !== generation) return;
         }
         if (reply.revisionsError !== undefined) {
-          await apply(
-            reply,
-            batch,
-            startedIn,
-            `The notetaker could not tell whether a decision was withdrawn or replaced (${reply.revisionsError}). Every card and decision was left as it was.`,
-          );
-          if (startedIn !== generation) return;
-          status = 'stale';
-          lastError = reply.revisionsError;
+          revisionFailures += 1;
+          if (revisionFailures < REVISION_FAILURE_LIMIT) {
+            // Never consume a batch whose reversals could not be read: keep its lines and try them again.
+            keepPending([...batch, ...pending]);
+            status = 'stale';
+            lastError = reply.revisionsError;
+            console.warn(
+              `kaki notetaker: ${reply.revisionsError}; keeping these lines for another pass ` +
+                `(${revisionFailures}/${REVISION_FAILURE_LIMIT})`,
+            );
+          } else {
+            // Give the lines a visible exit so the meeting can never stall on them. Today's behaviour:
+            // no card or decision changes, one review issue goes on the record, and the agenda may move on.
+            await apply(
+              reply,
+              batch,
+              startedIn,
+              `The notetaker could not tell whether a decision was withdrawn or replaced (${reply.revisionsError}). Every card and decision was left as it was.`,
+            );
+            if (startedIn !== generation) return;
+            status = 'stale';
+            lastError = reply.revisionsError;
+            revisionFailures = 0;
+            console.warn(
+              `kaki notetaker: giving up on these lines after ${REVISION_FAILURE_LIMIT} failed passes; ${reply.revisionsError}`,
+            );
+            succeeded = true;
+          }
         } else {
           await apply(reply, batch, startedIn);
           if (startedIn !== generation) return;
           status = 'ok';
           lastError = undefined;
+          revisionFailures = 0;
+          succeeded = true;
         }
-        succeeded = true;
       } catch (error) {
         if (startedIn !== generation) return;
         // Keep the last good record and try these lines again on the next pass.
@@ -1782,6 +1882,7 @@ export function createNotetaker({
       reviewIssueCount = 0;
       status = llm === undefined ? 'off' : 'waiting';
       lastError = undefined;
+      revisionFailures = 0;
       talkByItem.clear();
       talkTotals.clear();
       talkTotal = 0;
@@ -1800,6 +1901,7 @@ export function createNotetaker({
         reviewIssueCount,
         status,
         ...(lastError === undefined ? {} : { lastError }),
+        revisionFailures,
         talkByItem: [...talkByItem.entries()].map(
           ([index, talk]): [number, Partial<Record<Role, number>>] => [index, { ...talk }],
         ),
@@ -1822,6 +1924,7 @@ export function createNotetaker({
       reviewIssueCount = saved.reviewIssueCount ?? reviewIssues.length;
       status = llm === undefined ? 'off' : saved.status;
       lastError = saved.lastError;
+      revisionFailures = saved.revisionFailures ?? 0;
       talkByItem.clear();
       for (const [index, talk] of saved.talkByItem) talkByItem.set(index, { ...talk });
       talkTotals.clear();

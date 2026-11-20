@@ -67,6 +67,68 @@ describe('OpenAI-compatible LLM client', () => {
     );
   });
 
+  it('sends a strict JSON schema instead of plain JSON mode when one is given', async () => {
+    let request: Record<string, unknown> = {};
+    const schema = {
+      name: 'reply',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['ok'],
+        properties: { ok: { type: 'boolean' } },
+      },
+    };
+    const llm = createOpenAiLlm({
+      baseUrl: 'https://gateway.example',
+      apiKey: 'k',
+      model: 'qwen',
+      fetchImpl: async (_url, init) => {
+        request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
+      },
+    });
+
+    expect(await llm.complete([], { json: true, schema })).toBe('{"ok":true}');
+    expect(request.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'reply', strict: true, schema: schema.schema },
+    });
+  });
+
+  it('falls back once to plain JSON mode when the model refuses a JSON schema, then remembers it', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const schema = { name: 'reply', schema: { type: 'object' } };
+    const llm = createOpenAiLlm({
+      baseUrl: 'https://gateway.example',
+      apiKey: 'k',
+      model: 'qwen3.6:35b',
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        bodies.push(body);
+        if ((body.response_format as { type?: string } | undefined)?.type === 'json_schema') {
+          return new Response('{"error":"json_schema is not supported by this model"}', { status: 400 });
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }));
+      },
+    });
+
+    try {
+      expect(await llm.complete([], { json: true, schema })).toBe('{}');
+      expect(await llm.complete([], { json: true, schema })).toBe('{}');
+      expect(bodies.map((body) => (body.response_format as { type?: string } | undefined)?.type)).toEqual([
+        'json_schema',
+        'json_object',
+        'json_object',
+      ]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('qwen3.6:35b');
+      expect(String(warn.mock.calls[0]?.[0])).toContain('refused a JSON schema');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('drops response_format, once and for good, when the model refuses it', async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const llm = createOpenAiLlm({

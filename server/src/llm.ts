@@ -8,6 +8,8 @@ export interface ChatMessage {
 export interface CompleteOptions {
   /** Ask the model for a single JSON object. */
   json?: boolean;
+  /** Ask for a reply shaped by this JSON schema instead of plain JSON mode. */
+  schema?: { name: string; schema: Record<string, unknown> };
   signal?: AbortSignal;
   /** Sampling temperature; defaults to 0 so analysis is repeatable. Conversation wants more. */
   temperature?: number;
@@ -191,6 +193,8 @@ export function createOpenAiLlm({
   const controlReasoning = reasoningControl ?? /deepseek/i.test(model);
   // Not every OpenAI-compatible model accepts response_format; stop sending it once one refuses.
   let jsonModeSupported = true;
+  // A model may accept plain JSON mode yet refuse a strict JSON schema; fall back once, then stay there.
+  let jsonSchemaSupported = true;
 
   async function post(body: Record<string, unknown>, signal: AbortSignal, failureReason: () => string | undefined): Promise<Response> {
     try {
@@ -217,18 +221,41 @@ export function createOpenAiLlm({
         ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
         ...(controlReasoning && effort !== undefined ? { reasoning_effort: effort } : {}),
       };
-      const askForJson = options.json === true && jsonModeSupported;
+      const wantsSchema = options.json === true && options.schema !== undefined && jsonSchemaSupported;
+      const responseFormat = options.json !== true || !jsonModeSupported
+        ? undefined
+        : wantsSchema
+          ? {
+              type: 'json_schema',
+              json_schema: { name: options.schema!.name, strict: true, schema: options.schema!.schema },
+            }
+          : { type: 'json_object' };
+      const timeoutReason = () => (timeout.aborted ? `timed out after ${timeoutMs} ms` : undefined);
 
       let response = await post(
-        askForJson ? { ...request, response_format: { type: 'json_object' } } : request,
+        responseFormat === undefined ? request : { ...request, response_format: responseFormat },
         signal,
-        () => (timeout.aborted ? `timed out after ${timeoutMs} ms` : undefined),
+        timeoutReason,
       );
       let detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
-      if (askForJson && response.status === 400 && detail.includes('response_format')) {
-        jsonModeSupported = false;
-        response = await post(request, signal, () => (timeout.aborted ? `timed out after ${timeoutMs} ms` : undefined));
-        detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
+      if (responseFormat !== undefined && response.status === 400) {
+        const refusedSchema =
+          responseFormat.type === 'json_schema' && /response_format|json_schema|schema/i.test(detail);
+        if (refusedSchema) {
+          jsonSchemaSupported = false;
+          console.warn(`kaki llm: ${model} refused a JSON schema; falling back to plain JSON mode`);
+          response = await post(
+            jsonModeSupported ? { ...request, response_format: { type: 'json_object' } } : request,
+            signal,
+            timeoutReason,
+          );
+          detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
+        }
+        if (jsonModeSupported && response.status === 400 && detail.includes('response_format')) {
+          jsonModeSupported = false;
+          response = await post(request, signal, timeoutReason);
+          detail = response.ok ? '' : (await response.text().catch(() => '')).slice(0, 200);
+        }
       }
 
       if (!response.ok) {
@@ -360,6 +387,8 @@ export function createOpenAiLlm({
 /** A scripted LLM for tests: records every call and answers with `respond`. */
 export interface FakeLlm extends LlmClient {
   calls: ChatMessage[][];
+  /** The options each call carried, so tests can check things like the requested schema. */
+  callOptions: Array<CompleteOptions | undefined>;
 }
 
 /** Create a fake LLM; `respond` may return text or throw to simulate an outage. */
@@ -367,10 +396,13 @@ export function createFakeLlm(
   respond: (messages: ChatMessage[], call: number) => string | Promise<string>,
 ): FakeLlm {
   const calls: ChatMessage[][] = [];
+  const callOptions: Array<CompleteOptions | undefined> = [];
   return {
     calls,
-    async complete(messages) {
+    callOptions,
+    async complete(messages, options) {
       calls.push(messages);
+      callOptions.push(options);
       return respond(messages, calls.length - 1);
     },
   };
