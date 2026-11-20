@@ -115,13 +115,18 @@ export function createMeetingModule({
         };
       });
       let humanHost = false;
+      // A held suggestion waits for the active cast's Director to settle its topic. With no AI cast
+      // there is no Director and no TOPIC_SETTLED, so the normal non-held rule must apply. Read the
+      // cast now, not the pack captured at boot: Start can replace it with an all-person meeting.
+      const holdSuggestionsUntilSettled = (): boolean =>
+        replay === undefined && (activeScenario().npcs?.length ?? 0) > 0;
       // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
       const stopAutoDispatch =
         process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario: activeScenario,
           hostIsHuman: session === undefined
             ? () => humanHost
             : () => hostIsHumanFromSession(session, activeScenario()),
-          holdUntilSettled: replay === undefined && (activeScenario().npcs?.length ?? 0) > 0 });
+          holdUntilSettled: holdSuggestionsUntilSettled });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;

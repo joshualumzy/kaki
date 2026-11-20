@@ -205,4 +205,27 @@ describe('TypeBar', () => {
     expect(onPauseChange).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
   });
+
+  it('reports the finalized typed line to the server path', () => {
+    const send = vi.fn();
+    const onTextSent = vi.fn();
+    render(<TypeBar send={send} onTextSent={onTextSent} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '  What is the status?  ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onTextSent).toHaveBeenCalledWith('What is the status?');
+  });
+
+  it('shows why the server refused a human line', () => {
+    render(
+      <TypeBar
+        send={vi.fn()}
+        lineRejection={{ commandType: 'HUMAN_LINE', reason: 'The meeting is not running' }}
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toBe(
+      "Couldn't add your line: The meeting is not running",
+    );
+  });
 });

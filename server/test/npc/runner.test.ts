@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, defaultMeetingSetup, meetingScenarioFromSetup, roleForZoomName, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, defaultMeetingSetup, meetingScenarioFromSetup, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -148,16 +148,21 @@ describe('startNpcRunner visitor transcript identity', () => {
   it.each([
     ['producer', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],
     ['producer', STT_TOPIC, { text: 'Recognized visitor line' }, 'Recognized visitor line'],
-  ])('attributes %s input on %s to the visitor and preserves the role', async (role, topic, message, line) => {
+  ])('keeps %s input on %s out of the runner transcript and still sends it to the AI', async (role, topic, message, line) => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: Array<[string, string]> = [];
+    const postHumanLine = vi.fn();
+    const stream = vi.fn(async function* () {
+      yield 'Sam: Noted, thanks.';
+    });
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
+      stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (speaker, text) => transcript.push([speaker, text]),
+      postHumanLine,
       responseDelayMs: 0,
     });
     try {
@@ -167,10 +172,10 @@ describe('startNpcRunner visitor transcript identity', () => {
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted();
       listener.emit('dataReceived', new TextEncoder().encode(JSON.stringify(message)), participant, undefined, topic);
-      await vi.waitFor(() => expect(transcript.some(([, text]) => text === line)).toBe(true));
-      const speaker = transcript.find(([, text]) => text === line)![0];
-      expect(speaker).toBe('Booth Playtest (Operations Director)');
-      expect(roleForZoomName(scenario, speaker)).toBe('producer');
+
+      await vi.waitFor(() => expect(stream).toHaveBeenCalled());
+      expect(transcript.some(([, text]) => text === line)).toBe(false);
+      expect(postHumanLine).not.toHaveBeenCalled();
     } finally {
       await runner.stop();
     }
@@ -1163,10 +1168,11 @@ describe('meeting sync with the real runner', () => {
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
     const log: string[] = [];
+    const stream = vi.fn(async function* () {});
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
+      stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
       log: (line) => log.push(line),
@@ -1209,6 +1215,7 @@ describe('meeting sync with the real runner', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(transcript).not.toContain('Carry on please');
 
+      const callsBefore = stream.mock.calls.length;
       expect(
         runner.reconcileMeeting(
           runnerSnapshot(scenario, {
@@ -1216,7 +1223,9 @@ describe('meeting sync with the real runner', () => {
           }),
         ),
       ).toBe(true);
-      await vi.waitFor(() => expect(transcript.some((line) => line === 'Carry on please')).toBe(true));
+      // The line is answered by the AI now; the app server owns its transcript.
+      await vi.waitFor(() => expect(stream.mock.calls.length).toBeGreaterThan(callsBefore));
+      expect(transcript).not.toContain('Carry on please');
     } finally {
       await runner.stop();
     }
@@ -1372,10 +1381,11 @@ describe('meeting sync with the real runner', () => {
     const transcript: string[] = [];
     const log: string[] = [];
     const recheck = vi.fn();
+    const stream = vi.fn(async function* () {});
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
+      stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
       log: (line) => log.push(line),
@@ -1406,12 +1416,14 @@ describe('meeting sync with the real runner', () => {
       await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
       await vi.waitFor(() => expect(recheck.mock.calls.length).toBeGreaterThan(0));
 
+      const streamCallsBefore = stream.mock.calls.length;
       runner.reconcileMeeting(
         runnerSnapshot(scenario, {
           meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
         }),
       );
-      await vi.waitFor(() => expect(transcript.some((line) => line === 'Carry on please')).toBe(true));
+      await vi.waitFor(() => expect(stream.mock.calls.length).toBeGreaterThan(streamCallsBefore));
+      expect(transcript).not.toContain('Carry on please');
 
       const calls = recheck.mock.calls.length;
       await new Promise((resolve) => setTimeout(resolve, 60));

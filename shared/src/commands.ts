@@ -24,7 +24,13 @@ export type KakiCommand =
    * The shared screen (host) or a person seated in this meeting. Pauses or resumes the agenda
    * clock when the visitor clicks Pause / Play. Sent straight to the server, never via the runner.
    */
-  | { type: 'SET_PAUSED'; paused: boolean };
+  | { type: 'SET_PAUSED'; paused: boolean }
+  /**
+   * A person's finalized speech or typed line, sent straight to the server so the transcript is
+   * written even when no AI runner is present. The speaker comes from the sending socket's seat;
+   * `clientLineId` lets a retry be recognised as the same line.
+   */
+  | { type: 'HUMAN_LINE'; text: string; source: 'speech' | 'typed'; clientLineId: string };
 
 const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'DISPATCH_TASK',
@@ -40,6 +46,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'NEXT_AGENDA_ITEM',
   'SET_HOST_MODE',
   'SET_PAUSED',
+  'HUMAN_LINE',
 ];
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -60,6 +67,15 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
   if (value.type === 'NEXT_AGENDA_ITEM' || value.type === 'NEW_MEETING') return true;
   if (value.type === 'SET_HOST_MODE') return typeof value.human === 'boolean';
   if (value.type === 'SET_PAUSED') return typeof value.paused === 'boolean';
+  if (value.type === 'HUMAN_LINE') {
+    return (
+      isString(value.text) &&
+      value.text.trim() !== '' &&
+      (value.source === 'speech' || value.source === 'typed') &&
+      isString(value.clientLineId) &&
+      value.clientLineId.trim() !== ''
+    );
+  }
   if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';
   if (!isString(value.taskId)) return false;
 

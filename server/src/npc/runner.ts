@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   AudioSource,
   AudioStream,
@@ -103,6 +104,16 @@ export interface RunnerOptions {
     text: string,
     options?: { textOnly?: boolean; catchId?: string },
   ): void;
+  /**
+   * Forward speech that only the server-side recogniser heard to Kaki's one transcript writer.
+   * The app server resolves the speaker from the seat, so no client-chosen name is trusted.
+   */
+  postHumanLine?(line: {
+    seat: string;
+    text: string;
+    source: 'speech' | 'typed';
+    clientLineId: string;
+  }): void;
   responseDelayMs?: number;
   /** Called when the last person has left the room (not when the room was empty to begin with). */
   onRoomEmpty?: () => void;
@@ -397,6 +408,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         },
         clipDurationMs: (clip) => (clip.length / SAMPLE_RATE) * 1000,
         emitTranscript: (speaker, text, transcriptOptions) => {
+          // The person's own line is written by the app server from their seat socket, so posting
+          // it here too would duplicate it (and lose it entirely when no runner is connected).
+          if (transcriptOptions?.human === true) return;
           const attendee = meeting.scenario().attendees.find((candidate) => candidate.name === speaker);
           options.postTranscript(attendee?.zoomDisplayName ?? speaker, text, transcriptOptions);
         },
@@ -1073,7 +1087,18 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
                 return;
               }
               log(`recognised "${text}"`);
-              conversation?.humanText(text);
+              // With the server-side recogniser the browser has no final line to send, so the
+              // accepted words are forwarded through the app server's one human-line writer.
+              const accepted = conversation === undefined ? text : conversation.humanText(text);
+              if (accepted === undefined) return;
+              const seat = humans.get(identity)?.role;
+              if (seat === undefined) return;
+              options.postHumanLine?.({
+                seat,
+                text: accepted,
+                source: 'speech',
+                clientLineId: randomUUID(),
+              });
             },
           });
     const vad: EnergyVad = new EnergyVad(

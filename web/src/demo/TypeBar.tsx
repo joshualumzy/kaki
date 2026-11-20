@@ -13,6 +13,8 @@ const PAUSE_NOTICE_MS = 5_000;
 
 export interface TypeBarProps {
   send(message: ControlMessage): void;
+  /** Called once a typed line actually leaves the browser, so the server can record it too. */
+  onTextSent?(text: string): void;
   /** The server record's paused flag; the button never keeps its own copy. */
   paused?: boolean;
   canLock?: boolean;
@@ -23,6 +25,8 @@ export interface TypeBarProps {
   onPauseChange?(paused: boolean): boolean | void;
   /** The latest command the server refused, so a refused pause can revert with a notice. */
   pauseRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
+  /** A refused human line, so the person sees why their words were not recorded. */
+  lineRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
 }
 
 /**
@@ -32,10 +36,12 @@ export interface TypeBarProps {
  */
 export function TypeBar({
   send,
+  onTextSent,
   paused = false,
   canLock = false,
   onPauseChange,
   pauseRejection = null,
+  lineRejection = null,
 }: TypeBarProps) {
   const [text, setText] = useState('');
   const [pendingPaused, setPendingPaused] = useState<boolean | undefined>(undefined);
@@ -119,9 +125,10 @@ export function TypeBar({
       const queued = awaitingSendText.current;
       awaitingSendText.current = null;
       send({ kind: 'text', text: queued });
+      onTextSent?.(queued);
       setText((current) => (current.trim() === queued ? '' : current));
     }
-  }, [paused, pendingPaused, send]);
+  }, [paused, pendingPaused, send, onTextSent]);
 
   // A command the server refuses reverts to the current record and explains itself.
   useEffect(() => {
@@ -130,6 +137,12 @@ export function TypeBar({
     if (pauseRejection.commandType !== 'SET_PAUSED') return;
     failRequest(pendingPaused);
   }, [failRequest, pauseRejection, pendingPaused]);
+
+  // A refused line (the meeting has not started, or has ended) says why, rather than vanishing.
+  useEffect(() => {
+    if (lineRejection === null || lineRejection.commandType !== 'HUMAN_LINE') return;
+    setNotice(`Couldn't add your line: ${lineRejection.reason}`);
+  }, [lineRejection]);
 
   // A record that never arrives must not leave the button stuck in its pending state.
   useEffect(() => {
@@ -209,6 +222,7 @@ export function TypeBar({
       return;
     }
     send({ kind: 'text', text: typed });
+    onTextSent?.(typed);
     setText('');
   }
 
@@ -271,13 +285,17 @@ export function TypeBar({
 export function ConnectedTypeBar({
   micOnline,
   paused,
+  onTextSent,
   onPauseChange,
   pauseRejection,
+  lineRejection,
 }: {
   micOnline?: boolean;
   paused?: boolean;
+  onTextSent?(text: string): void;
   onPauseChange?(paused: boolean): boolean | void;
   pauseRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
+  lineRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
 }) {
   const room = useRoomContext();
   const [canLock, setCanLock] = useState(false);
@@ -319,9 +337,11 @@ export function ConnectedTypeBar({
       <TypeBar
         send={send}
         canLock={canLock}
+        {...(onTextSent === undefined ? {} : { onTextSent })}
         {...(paused === undefined ? {} : { paused })}
         {...(onPauseChange === undefined ? {} : { onPauseChange })}
         {...(pauseRejection === undefined ? {} : { pauseRejection })}
+        {...(lineRejection === undefined ? {} : { lineRejection })}
       />
     </div>
   );

@@ -34,12 +34,13 @@ export interface NpcPorts<Clip> {
   clipDurationMs?(clip: Clip): number;
   /**
    * A line said in the meeting, for Kaki's transcript; `textOnly` marks a line shown as text because its voice failed,
-   * and `catchId` marks the last sentence of the line that raises a catch.
+   * `catchId` marks the last sentence of the line that raises a catch, and `human` marks the person's own line, which
+   * the app server writes so it is recorded even with no AI runner.
    */
   emitTranscript(
     speaker: string,
     text: string,
-    options?: { textOnly?: boolean; catchId?: string },
+    options?: { textOnly?: boolean; catchId?: string; human?: boolean },
   ): void;
   /** What the AI attendees are doing, for the screen. */
   emitState(state: NpcUiState): void;
@@ -882,7 +883,7 @@ export class NpcConversation<Clip> {
     this.askedGuestInRound = false;
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
-    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed);
+    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed, { human: true });
     this.pending.push(typed);
     this.noteHumanLine(typed);
     this.noteDecisionLine(typed);
@@ -1157,21 +1158,25 @@ export class NpcConversation<Clip> {
     }
   }
 
-  /** The browser recognised some of the person's words. */
-  humanText(text: string): void {
+  /**
+   * The browser recognised some of the person's words.
+   * Returns the accepted words (which may have the AI's own echo trimmed out), or undefined when
+   * the line was ignored. The runner uses that to forward only accepted speech to the transcript.
+   */
+  humanText(text: string): string | undefined {
     this.humanRecognizing(false);
     const heard = text.trim();
-    if (this.closed || this.concluded || heard.length === 0) return;
+    if (this.closed || this.concluded || heard.length === 0) return undefined;
     if (this.paused) {
       this.ports.log?.(`ignored "${heard}": the meeting is paused`);
-      return;
+      return undefined;
     }
 
     const decision = this.gate.check(heard);
     if (!decision.ok) {
       const mic = this.ports.describeMic?.();
       this.ports.log?.(`ignored "${heard}" (${decision.reason}${mic === undefined ? '' : `; ${mic}`})`);
-      return;
+      return undefined;
     }
 
     const accepted = decision.text ?? heard;
@@ -1194,7 +1199,7 @@ export class NpcConversation<Clip> {
     }
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
-    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted);
+    this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted, { human: true });
     this.clearPrefetchedBrief('the person spoke first');
     this.chain = 0;
     this.bridgedStatementOnTurn = false;
@@ -1215,6 +1220,7 @@ export class NpcConversation<Clip> {
     this.cutOff = false;
     this.scheduleRespond();
     this.ports.emitState(this.idleState());
+    return accepted;
   }
 
   /**

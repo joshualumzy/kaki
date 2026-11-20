@@ -6,7 +6,6 @@ import { demoRoomName, joinSeatRoles } from '@kaki/shared';
 import { useKaki, useRefreshScenario, useScenario } from '../kaki';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
-import { LocalSpeechSTT } from './LocalSpeechSTT';
 import type { MediaChoice } from './MediaPreview';
 import { MeetingGrid } from './MeetingGrid';
 import { Dock } from './Dock';
@@ -182,7 +181,6 @@ export default function Meeting() {
               onKakiBadgeChange={setKakiBadgeCount}
             />
           </ErrorBoundary>
-          <LocalSpeechSTT />
           <CleanDisconnectOnUnload />
           <MeetingLifecycleWatcher onStarted={markMeetingStarted} onReset={markMeetingReset} />
           {needsStart && (

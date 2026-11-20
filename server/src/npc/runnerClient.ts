@@ -15,6 +15,12 @@ import { postMeetingMemory, postSettledTopic } from './settlement';
  */
 export interface RunnerClient {
   emit(event: KakiEvent): Promise<Response>;
+  postHumanLine(line: {
+    seat: string;
+    text: string;
+    source: 'speech' | 'typed';
+    clientLineId: string;
+  }): Promise<Response>;
   suggestTask(input: SuggestInput): Promise<Response>;
   postMeetingMemory(entries: readonly MeetingMemoryEntry[]): Promise<void>;
   postSettledTopic(followUp: SuggestInput, reopened?: boolean): Promise<void>;
@@ -57,6 +63,7 @@ export function createRunnerClient({
 
   return {
     emit: (event) => postJson('/api/runner/emit', event),
+    postHumanLine: (line) => postJson('/api/runner/human-line', line),
     suggestTask: (input) => postJson('/api/runner/suggest-task', input),
     postMeetingMemory: (entries) =>
       postMeetingMemory(request, `${base}/api/runner/meeting-memory`, entries, log),

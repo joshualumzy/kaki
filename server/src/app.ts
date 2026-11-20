@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -34,7 +34,7 @@ import {
 } from './meetingCode';
 import type { MeetingPauseControl } from './host';
 import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS, type Admission, type RejoinGuard } from './rejoin';
-import { buildRunnerMeetingSnapshot } from './runnerState';
+import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
 import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster, type SeatReservations } from './livekit';
@@ -168,6 +168,8 @@ interface RequestContext {
   setupLocked(): 'starting' | 'started' | undefined;
   /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
   scheduleSave(): void;
+  /** The one writer for a person's finalized line; speaker and seat are checked server-side. */
+  writeHumanLine(input: { seat: string; text: string; clientLineId: string }): void;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -257,6 +259,7 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'POST', path: '/api/setup/import-calendar', access: 'host' },
     { method: 'GET', path: '/api/join-info', access: 'public' },
     { method: 'POST', path: '/api/runner/emit', access: 'service' },
+    { method: 'POST', path: '/api/runner/human-line', access: 'service' },
     { method: 'POST', path: '/api/runner/suggest-task', access: 'service' },
     { method: 'POST', path: '/api/runner/meeting-memory', access: 'service' },
     { method: 'POST', path: '/api/runner/settle-topic', access: 'service' },
@@ -1078,6 +1081,50 @@ async function handleRequest(
       return;
     }
 
+    // The default server-side recogniser hears the person on the runner's echo-cancelled track.
+    // The runner forwards the accepted words here so the app server still owns the transcript write.
+    if (request.method === 'POST' && path === '/api/runner/human-line') {
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      const value = body.value as {
+        seat?: unknown;
+        text?: unknown;
+        source?: unknown;
+        clientLineId?: unknown;
+      };
+      if (
+        typeof value !== 'object' ||
+        value === null ||
+        Array.isArray(value) ||
+        typeof value.seat !== 'string' ||
+        value.seat.trim() === '' ||
+        typeof value.text !== 'string' ||
+        value.text.trim() === '' ||
+        (value.source !== 'speech' && value.source !== 'typed') ||
+        typeof value.clientLineId !== 'string' ||
+        value.clientLineId.trim() === ''
+      ) {
+        sendJson(response, 400, {
+          error: 'Body must be a human line with a seat, text, source and clientLineId',
+        });
+        return;
+      }
+      try {
+        context.writeHumanLine({ seat: value.seat, text: value.text, clientLineId: value.clientLineId });
+      } catch (error) {
+        if (error instanceof CommandError) {
+          sendJson(response, 409, { error: error.message });
+          return;
+        }
+        throw error;
+      }
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
     if (request.method === 'POST' && (path === '/dev/suggest-task' || path === '/api/runner/suggest-task')) {
       const body = await readJsonBody(request);
       if (!body.ok) {
@@ -1413,7 +1460,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -1596,6 +1643,71 @@ export async function createApp({
   session.onReset(() => {
     tasks.reset();
     roomPoll.reset();
+  });
+
+  /**
+   * The one writer for a person's finalized speech or typed line. The speaker is always resolved
+   * from the socket's current seat holder and the setup, never from the client payload. The line
+   * is published as an ordinary transcript chunk, so the screen, notetaker and minutes all see it.
+   */
+  const humanLineIds = new Set<string>();
+  hub.subscribe((event) => {
+    if (event.type === 'MEETING_RESET' || event.type === 'MEETING_STARTED') humanLineIds.clear();
+  });
+
+  function speakerForSeat(seat: string): string | undefined {
+    const wanted = seat.trim().toLowerCase();
+    const setup = session.sealed() ?? session.draft();
+    const named = setup.seats.find((candidate) => candidate.roleId.trim().toLowerCase() === wanted);
+    if (named !== undefined && named.displayName.trim() !== '') return named.displayName;
+    const attendee = session.active().attendees.find(
+      (candidate) => candidate.role.trim().toLowerCase() === wanted,
+    );
+    return attendee?.zoomDisplayName?.trim() || attendee?.name;
+  }
+
+  function writeHumanLine({
+    seat,
+    text,
+    clientLineId,
+  }: {
+    seat: string;
+    text: string;
+    clientLineId: string;
+  }): void {
+    if (session.phase() !== 'running') throw new CommandError('The meeting is not running');
+    const holder = session.holders().find(
+      (candidate) => candidate.seat.trim().toLowerCase() === seat.trim().toLowerCase(),
+    );
+    if (holder === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
+    const cleaned = text.trim();
+    if (cleaned === '') throw new CommandError('A line needs some words');
+    if (humanLineIds.has(clientLineId)) return;
+    const speaker = speakerForSeat(holder.seat);
+    if (speaker === undefined || speaker.trim() === '') {
+      throw new CommandError('That seat has no name in this meeting');
+    }
+    humanLineIds.add(clientLineId);
+    hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker, text: cleaned, timestamp: new Date().toISOString() },
+    });
+  }
+
+  /** The seat a socket writes as: its own role, or the host's chair when a person hosts the screen. */
+  function seatForSender(sender: ClientAudience): string | undefined {
+    if (sender === 'service' || sender === 'lifecycle') return undefined;
+    if (sender !== 'screen') return sender;
+    if (!hostIsHumanFromSession(session, session.active())) return undefined;
+    return hostIdentityOf(session.active()).seat;
+  }
+
+  hub.onCommand((command, sender) => {
+    if (command.type !== 'HUMAN_LINE') return;
+    const seat = seatForSender(sender);
+    if (seat === undefined) throw new CommandError('Only a person seated in this meeting can add a line');
+    writeHumanLine({ seat, text: command.text, clientLineId: command.clientLineId });
   });
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.

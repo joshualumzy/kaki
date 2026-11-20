@@ -33,7 +33,7 @@ function recognitionLanguage(): string {
  * person or the AI's own voice coming back through the speakers is decided on the server, which
  * can see the echo-cancelled microphone track and this page cannot.
  */
-export function LocalSpeechSTT() {
+export function LocalSpeechSTT({ onSpeechLine }: { onSpeechLine?(text: string): void } = {}) {
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
   const wanted = useMemo(() => browserRecognitionWanted(window.location.search), []);
@@ -50,6 +50,8 @@ export function LocalSpeechSTT() {
       Recognition,
       {
       onFinal: (text) => {
+        // The server records the line from this socket, so it survives with no AI runner connected.
+        onSpeechLine?.(text);
         const message: SttMessage = { text };
         room.localParticipant
           .publishData(encoder.encode(JSON.stringify(message)), { reliable: true, topic: STT_TOPIC })
@@ -61,7 +63,7 @@ export function LocalSpeechSTT() {
     },
       { lang: recognitionLanguage() },
     );
-  }, [Recognition, isMicrophoneEnabled, room]);
+  }, [Recognition, isMicrophoneEnabled, room, onSpeechLine]);
 
   if (!wanted) {
     return null;

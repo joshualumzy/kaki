@@ -93,7 +93,7 @@ export function installAutoDispatch({
   tasks,
   scenario: activeScenario,
   hostIsHuman = () => false,
-  holdUntilSettled = false,
+  holdUntilSettled = () => false,
 }: {
   hub: Hub;
   tasks: TaskStore;
@@ -101,10 +101,17 @@ export function installAutoDispatch({
   scenario: () => Scenario;
   /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
   hostIsHuman?: () => boolean;
-  holdUntilSettled?: boolean;
+  /**
+   * Whether suggestions wait for TOPIC_SETTLED. Read for every new suggestion, because the active
+   * cast can change at Start: no AI cast means no Director will ever publish a settlement.
+   * A plain boolean is accepted for callers that own the decision themselves.
+   */
+  holdUntilSettled?: boolean | (() => boolean);
 }): () => void {
   let sent = 0;
   let active = true;
+  const holdsSuggestions = (): boolean =>
+    typeof holdUntilSettled === 'function' ? holdUntilSettled() : holdUntilSettled;
   const settledTopics = new Set<string>();
   const held = new Map<string, Task>();
   const dispatch = (task: Task): void => {
@@ -163,7 +170,7 @@ export function installAutoDispatch({
   });
   const unsubscribeTasks = tasks.onChange((task, previous) => {
     if (!active || previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
-    if (holdUntilSettled && task.agendaItemTitle !== undefined && !settledTopics.has(task.agendaItemTitle)) {
+    if (holdsSuggestions() && task.agendaItemTitle !== undefined && !settledTopics.has(task.agendaItemTitle)) {
       held.set(task.id, task);
       return;
     }

@@ -16,8 +16,16 @@ import { Track } from 'livekit-client';
 import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
+import { LocalSpeechSTT } from './LocalSpeechSTT';
 import { Orb, orbPalette } from './Orb';
 import { captionFor, textOnlyNote, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
+
+/** A retry of the same browser line carries the same id, so the server writes it once. */
+export function newClientLineId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi !== undefined && typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
+  return `line-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 const COLLEAGUE_STANCE: Record<string, string> = {
   producer: 'Guards staff, hygiene & margins',
@@ -229,6 +237,15 @@ export function MeetingGrid({
   const { isMicrophoneEnabled } = useLocalParticipant();
   const { events, send: sendToServer, rejection: commandRejection } = useKaki(role);
   const { events: screenEvents, latestRecord, tasks: screenTasks } = useKaki('screen');
+  // One path for every line the person produces: the server writes it whether or not an AI runner is up.
+  const sendHumanLine = useCallback(
+    (text: string, source: 'speech' | 'typed') => {
+      sendToServer({ type: 'HUMAN_LINE', text, source, clientLineId: newClientLineId() });
+    },
+    [sendToServer],
+  );
+  const sendTypedLine = useCallback((text: string) => sendHumanLine(text, 'typed'), [sendHumanLine]);
+  const sendSpeechLine = useCallback((text: string) => sendHumanLine(text, 'speech'), [sendHumanLine]);
   const participants = useParticipants();
   const tracks = useTracks(
     [
@@ -394,8 +411,9 @@ export function MeetingGrid({
       room.localParticipant
         .publishData(new TextEncoder().encode(JSON.stringify(msg)), { reliable: true, topic: CONTROL_TOPIC })
         .catch(() => undefined);
+      sendHumanLine(text, 'typed');
     },
-    [room],
+    [room, sendHumanLine],
   );
 
   const [dismissedToastKey, setDismissedToastKey] = useState<string>('');
@@ -699,10 +717,13 @@ export function MeetingGrid({
             )}
           </div>
         )}
+        <LocalSpeechSTT onSpeechLine={sendSpeechLine} />
         <ConnectedTypeBar
           micOnline={isMicrophoneEnabled}
           paused={serverPaused}
+          onTextSent={sendTypedLine}
           pauseRejection={commandRejection}
+          lineRejection={commandRejection}
           onPauseChange={(paused) => sendToServer({ type: 'SET_PAUSED', paused })}
         />
         <ControlBar controls={{ screenShare: false, chat: false }} />

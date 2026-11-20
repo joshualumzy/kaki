@@ -188,6 +188,33 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
     .catch((error: unknown) => complain(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
 }
 
+/**
+ * Forward speech that only the server-side recogniser heard. The app server resolves the speaker
+ * from the seat and writes the one transcript line, so a retry with the same id cannot duplicate it.
+ */
+function postHumanLine(line: {
+  seat: string;
+  text: string;
+  source: 'speech' | 'typed';
+  clientLineId: string;
+}): void {
+  const complain = (message: string): void => {
+    if (Date.now() - lastTranscriptError < 10_000) return;
+    lastTranscriptError = Date.now();
+    log(message);
+  };
+  runnerClient
+    .postHumanLine(line)
+    .then(async (response) => {
+      if (!response.ok) {
+        complain(
+          `Kaki rejected a recognised human line (HTTP ${response.status}); check the server and runner token. ${await response.text()}`,
+        );
+      }
+    })
+    .catch((error: unknown) => complain(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
+}
+
 // NPC_DEBUG_AUDIO_DIR=some/folder saves every stretch of your speech that was sent to Azure as a WAV file,
 // named by time like the log lines, so you can listen to exactly what the server heard.
 const debugAudioDir = process.env.NPC_DEBUG_AUDIO_DIR || undefined;
@@ -220,6 +247,7 @@ const runner = await startNpcRunner({
   ...(readerFallbackStreamWithFault === undefined ? {} : { readerFallbackStream: readerFallbackStreamWithFault }),
   synthesize,
   postTranscript,
+  postHumanLine,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),
   recognizer,
   debugAudio: debugAudioDir === undefined ? undefined : debugAudio,

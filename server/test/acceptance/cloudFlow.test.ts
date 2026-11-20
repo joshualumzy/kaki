@@ -204,6 +204,18 @@ for (const kind of ['memory', 'postgres'] as const) {
       expect((await request('/api/auth/me', 'GET', undefined, { cookie: phone })).status).toBe(200);
       expect(phoneSocket.ws.readyState).toBe(WebSocket.OPEN);
 
+      // A seated guest's line goes straight to the server and is recorded with their setup seat name.
+      guestSocket.ws.send(JSON.stringify({
+        type: 'HUMAN_LINE', text: 'The chiller is down.', source: 'typed', clientLineId: 'cloud-human-1',
+      }));
+      const humanLine = await waitFor(
+        () => guestSocket.messages.find(
+          (message) => message.type === 'TRANSCRIPT_CHUNK' && message.payload.text === 'The chiller is down.',
+        ),
+        'the seated guest human line',
+      );
+      expect(humanLine).toMatchObject({ payload: { speaker: 'Ada' } });
+
       // 5. Use the actual client from npc/main against the app and the same bearer socket path.
       const runner = createRunnerClient({ baseUrl: base, serviceToken });
       // A seated person's Stop goes straight from their browser socket to the server; the runner

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
-import type { KakiEvent, Scenario, Task } from '@kaki/shared';
+import type { KakiEvent, MeetingSetup, Scenario, Task } from '@kaki/shared';
 import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
 import {
   draftOnlyRefusal, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction, wingmanFactVerdicts,
@@ -74,6 +74,16 @@ const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
 function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }
 function stamp(): string { return new Date().toISOString(); }
 function lineKey(line: Line): string { return `${line.sourceTime}|${line.speaker}|${line.text}`; }
+
+/**
+ * The transcript speaker for this run's own seat. The server writes a person's line under the
+ * setup's seat display name, not the name typed at join, so reading the transcript must follow it.
+ */
+let robotSpeaker = 'Robot Visitor';
+function isRobotSpeaker(speaker: string): boolean {
+  const wanted = robotSpeaker.trim().toLowerCase();
+  return wanted !== '' && speaker.trim().toLowerCase().includes(wanted);
+}
 
 export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestHooks): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
@@ -201,7 +211,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       seenLines.add(key);
       transcript.push({ at: stamp(), agendaIndex, speaker, text, sourceTime: timestamp });
       lastProgressAt = now;
-      if (!/robot visitor/i.test(speaker)) lastAiLineAt = now;
+      if (!isRobotSpeaker(speaker)) lastAiLineAt = now;
     } else if (event.type === 'TASK_UPDATED') {
       const previous = tasks.get(event.payload.task.id);
       tasks.set(event.payload.task.id, event.payload.task);
@@ -335,11 +345,11 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       return undefined;
     })();
     const landed = await waitFor(`Topic ${index + 1} typed line after interrupt`, () =>
-      transcript.slice(robotLineBefore).some((line) => line.agendaIndex === index && /robot visitor/i.test(line.speaker)), 15_000, false);
+      transcript.slice(robotLineBefore).some((line) => line.agendaIndex === index && isRobotSpeaker(line.speaker)), 15_000, false);
     const ended = await endedAt;
     const robotAt = lastRobotLineIndex(index);
     const nextLine = await waitFor(`Topic ${index + 1} AI line after interrupt`, () =>
-      robotAt >= 0 && transcript.slice(robotAt + 1).some((line) => !/robot visitor/i.test(line.speaker)), 20_000, false);
+      robotAt >= 0 && transcript.slice(robotAt + 1).some((line) => !isRobotSpeaker(line.speaker)), 20_000, false);
     const duplicates = robotAt < 0 ? [] : duplicatedAiLines(transcript.filter((line) => line.agendaIndex === index));
     const within = ended !== undefined && ended - typedAt <= 4_000;
     const ok = wasSpeaking && landed && within && nextLine && duplicates.length === 0;
@@ -557,25 +567,25 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   }
 
   function latestAiLine(index: number): Line | undefined {
-    const lines = transcript.filter((line) => line.agendaIndex === index && !/robot visitor/i.test(line.speaker));
+    const lines = transcript.filter((line) => line.agendaIndex === index && !isRobotSpeaker(line.speaker));
     return lines[lines.length - 1];
   }
 
   function firstColleagueLine(index: number, host: string): Line | undefined {
     return transcript.find((line) =>
-      line.agendaIndex === index && !/robot visitor/i.test(line.speaker) && line.speaker !== host);
+      line.agendaIndex === index && !isRobotSpeaker(line.speaker) && line.speaker !== host);
   }
 
   function lastRobotLineIndex(index: number): number {
     for (let line = transcript.length - 1; line >= 0; line -= 1) {
       const candidate = transcript[line]!;
-      if (candidate.agendaIndex === index && /robot visitor/i.test(candidate.speaker)) return line;
+      if (candidate.agendaIndex === index && isRobotSpeaker(candidate.speaker)) return line;
     }
     return -1;
   }
 
   function robotLineCount(index: number): number {
-    return transcript.filter((line) => line.agendaIndex === index && /robot visitor/i.test(line.speaker)).length;
+    return transcript.filter((line) => line.agendaIndex === index && isRobotSpeaker(line.speaker)).length;
   }
 
   function aiSpeaking(): Promise<boolean> {
@@ -634,7 +644,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     // Only react to AI lines spoken after the robot's own latest line: lines from before it have already been answered.
     const afterRobot = Math.max(from, lastRobotLineIndex(index) + 1);
     const fresh = transcript.slice(afterRobot).filter((line) =>
-      line.agendaIndex === index && !/robot visitor/i.test(line.speaker) && !reacted.has(lineKey(line)));
+      line.agendaIndex === index && !isRobotSpeaker(line.speaker) && !reacted.has(lineKey(line)));
     for (const [position, line] of fresh.entries()) {
       // A host line can arrive split into sentences ("Robot Visitor, so your call is X." then "Is that right?"):
       // read the question together with the same speaker's sentence just before it.
@@ -772,6 +782,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario returned HTTP ${activeResponse.status()}`);
     scenario = await activeResponse.json() as Scenario;
     hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
+    // The server records this person's lines under the setup seat name, which can differ from the
+    // pack attendee's name if the owner renamed the seat.
+    const setupResponse = await page.request.get(`${BASE}/api/setup`, { timeout: 10_000 });
+    if (setupResponse.ok()) {
+      const setupBody = await setupResponse.json() as { setup?: MeetingSetup };
+      const seat = setupBody.setup?.seats.find((candidate) => candidate.roleId === visitorRole);
+      if (seat !== undefined && seat.displayName.trim() !== '') robotSpeaker = seat.displayName;
+    }
     await check('Two agenda topics for the session', scenario.agenda.length === 2,
       `API returned ${scenario.agenda.length}; each meeting draws two of the five topics`);
     await check('Event API connection', await waitFor('Screen event stream', async () =>
@@ -832,7 +850,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
         notes.push(`${stamp()} Topic ${i + 1}: the Table topic chip needs a visitor line on this topic, so typed a short non-decision line first.`);
         await speak('Before I call it, what is the practical catch for the team?', 'Ask a practical question before making a decision.');
         await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
-          transcript.slice(before).some((line) => line.agendaIndex === i && /robot visitor/i.test(line.speaker)), 15_000);
+          transcript.slice(before).some((line) => line.agendaIndex === i && isRobotSpeaker(line.speaker)), 15_000);
         // The starter button only appears when the room is idle, and colleagues may keep talking for 50+ s after the
         // visitor's question, so wait for the visitor's turn again before looking for it.
         if (!await waitForVisitorTurn(i)) continue;
@@ -845,7 +863,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
           if (visible) {
             if (await quietBeforeTyping(i)) {
               for (const line of transcript) {
-                if (line.agendaIndex === i && !/robot visitor/i.test(line.speaker)) reacted.add(lineKey(line));
+                if (line.agendaIndex === i && !isRobotSpeaker(line.speaker)) reacted.add(lineKey(line));
               }
               await chip.click();
             }
@@ -867,7 +885,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
           const replied = await waitFor(`Topic ${i + 1} colleague reply after first call`, () => {
             const firstAt = lastRobotLineIndex(i);
             return firstAt >= 0 && transcript.slice(firstAt + 1).some((line) =>
-              line.agendaIndex === i && !/robot visitor/i.test(line.speaker));
+              line.agendaIndex === i && !isRobotSpeaker(line.speaker));
           }, 60_000, false);
           if (replied && await quietBeforeTyping(i)) {
             if (await speak('', 'Actually, scrap that — reverse your last call completely and choose a clearly different option, starting the line with "Actually, scrap that —".')) {
@@ -889,7 +907,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       }
 
       await waitFor(`Topic ${i + 1} typed line in transcript`, () =>
-        transcript.slice(before).some((line) => line.agendaIndex === i && /robot visitor/i.test(line.speaker)), 15_000);
+        transcript.slice(before).some((line) => line.agendaIndex === i && isRobotSpeaker(line.speaker)), 15_000);
 
       const settleEnd = Math.min(Date.now() + 90_000, globalDeadline);
       while (!settled.has(title) && agendaIndex === i && Date.now() < settleEnd) {
@@ -1016,7 +1034,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     await check('No duplicate follow-up cards', repeated.length === 0,
       repeated.length ? repeated.map(([key, ids]) => `${key}: ${ids.join(', ')}`).join(' / ') : 'At most one active card per agenda item, kind and owner');
     const stale = transcript.filter((line) => {
-      if (line.agendaIndex <= 0 || /robot visitor/i.test(line.speaker)) return false;
+      if (line.agendaIndex <= 0 || isRobotSpeaker(line.speaker)) return false;
       const current = scenario?.agenda[line.agendaIndex]?.title ?? '';
       const currentPattern = topicMarkers.find((item) => item.matches.test(current))?.markers;
       if (currentPattern?.test(line.text)) return false;
