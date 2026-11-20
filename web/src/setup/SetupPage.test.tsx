@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeetingSetup, Scenario } from '@kaki/shared';
-import { ScenarioProvider } from '../kaki';
+import { ScenarioProvider, useScenario } from '../kaki';
 import { SetupPage } from './SetupPage';
 
 const scenario: Scenario = {
@@ -172,6 +172,34 @@ function renderPageWithMeeting(): void {
         <Routes>
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/meeting" element={<p>owner meeting room</p>} />
+        </Routes>
+      </ScenarioProvider>
+    </MemoryRouter>,
+  );
+}
+
+/** What the meeting page sees after the provider has followed the meeting. */
+function ScenarioProbe() {
+  const scenario = useScenario();
+  return (
+    <div>
+      <h1>{scenario.meetingTitle}</h1>
+      <ul>
+        {scenario.roles.map((role) => (
+          <li key={role.id}>{role.label}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function renderPageWithScenarioProbe(): void {
+  render(
+    <MemoryRouter initialEntries={['/setup']}>
+      <ScenarioProvider>
+        <Routes>
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/meeting" element={<ScenarioProbe />} />
         </Routes>
       </ScenarioProvider>
     </MemoryRouter>,
@@ -660,6 +688,41 @@ describe('SetupPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use the Kopitiam template' }));
     expect(await screen.findByDisplayValue('Kopitiam launch')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Close the meeting room' })).toBeTruthy();
+  });
+
+  it('shows the owner plan after opening the room in-app, not the scenario loaded before it', async () => {
+    const ownerScenario: Scenario = {
+      ...scenario,
+      meetingTitle: 'Team playtest meeting',
+      roles: [
+        { id: 'role_1', label: 'Owner' },
+        { id: 'role_2', label: 'Ana' },
+        { id: 'role_3', label: 'Ben' },
+      ],
+      joinSeats: ['role_1', 'role_2', 'role_3'],
+      attendees: [],
+      npcs: [],
+      agenda: scenario.agenda.map((item) => ({ ...item, ownerRole: 'role_1' })),
+    };
+    let opened = false;
+    installFetch(
+      baseRoutes({
+        'GET /api/scenario': () => reply(opened ? ownerScenario : scenario),
+        'POST /api/meeting/open': () => {
+          opened = true;
+          return reply({ kind: 'real', phase: 'lobby' });
+        },
+      }),
+    );
+    renderPageWithScenarioProbe();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the meeting room' }));
+
+    expect(await screen.findByText('Team playtest meeting')).toBeTruthy();
+    expect(screen.getByText('Owner')).toBeTruthy();
+    expect(screen.getByText('Ana')).toBeTruthy();
+    expect(screen.getByText('Ben')).toBeTruthy();
+    expect(screen.queryByText('Producer')).toBeNull();
   });
 
   it('handles a practice meeting in progress when opening the room', async () => {

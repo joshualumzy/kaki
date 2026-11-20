@@ -57,6 +57,11 @@ describe('WaitingOverlay', () => {
     expect(screen.queryByText(/How to play/)).toBeNull();
     expect(screen.queryByText(/Kopitiam/)).toBeNull();
   });
+
+  it("shows the owner's meeting title while the participant waits", () => {
+    render(<WaitingOverlay meetingTitle="Team playtest meeting" />);
+    expect(screen.getByText('Team playtest meeting')).toBeTruthy();
+  });
 });
 
 describe('OwnerLobby', () => {

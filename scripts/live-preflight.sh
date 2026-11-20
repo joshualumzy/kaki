@@ -29,6 +29,9 @@ check_url "Mattermost" "http://127.0.0.1:8083/api/v4/system/ping"
 check_url "Mailpit" "http://127.0.0.1:8084/api/v1/info"
 check_url "LiveKit" "http://127.0.0.1:7880/"
 check_url "Kaki web (npm run dev)" "http://localhost:5173/"
+api_port="$(kaki_api_port .env)"
+check_url "Kaki API directly" "http://127.0.0.1:${api_port}/health"
+check_url "Kaki API through the web app" "http://localhost:5173/health"
 if pgrep -f "src/npc/main" >/dev/null 2>&1; then
   ok "AI attendees are running (npm run npc)"
 else

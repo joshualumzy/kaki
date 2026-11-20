@@ -255,7 +255,9 @@ export default function Meeting({
               onStarted={() => setStarted(true)}
             />
           )}
-          {needsStart && variant === 'participant' && <WaitingOverlay />}
+          {needsStart && variant === 'participant' && (
+            <WaitingOverlay meetingTitle={scenario.meetingTitle} />
+          )}
           {needsStart && variant === 'owner' && (
             <OwnerLobby initialCode={session.meetingCode} onStarted={markMeetingStarted} />
           )}

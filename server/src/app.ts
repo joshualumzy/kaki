@@ -2383,9 +2383,14 @@ export async function createApp({
     const setup = session.draft();
     const joinSeats = personSeatRoles(setup);
     return {
-      // The live view keeps its title and cast; its roles and offered seats follow the owner's setup,
-      // so a renamed or newly added role is shown (and admitted) by its canonical id.
-      scenario: { ...active, roles: setupScenarioRoles(fullScenario, setup), joinSeats },
+      // The live view keeps its cast; its title, roles and offered seats follow the owner's setup,
+      // so a renamed meeting or role is shown (and admitted) by the plan people will actually join.
+      scenario: {
+        ...active,
+        meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
+        roles: setupScenarioRoles(fullScenario, setup),
+        joinSeats,
+      },
       admissionScenario: scenarioFromSetup(setup),
       setup,
       admissionCap: personSeatCapacity(setup),

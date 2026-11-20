@@ -56,6 +56,14 @@ describe('required keys in .env.example', () => {
   });
 });
 
+describe('live preflight', () => {
+  it('checks the Kaki API directly and through the web proxy', () => {
+    const text = readFileSync(join(repo, 'scripts/live-preflight.sh'), 'utf8');
+    expect(text).toContain('http://127.0.0.1:${api_port}/health');
+    expect(text).toContain('http://localhost:5173/health');
+  });
+});
+
 describe('missing required keys', () => {
   it('names every key that is missing, empty or only whitespace', () => {
     const env = tempEnv([
@@ -171,6 +179,14 @@ describe('meeting:reset configuration', () => {
   it('lets a shell POSTGRES_URL win over docker/.env, as npm start does', () => {
     const project = resetProject('POSTGRES_URL=\n', 'POSTGRES_URL=postgres://from-docker\n');
     expect(project.run({ POSTGRES_URL: 'postgres://from-shell' })).toBe('postgres://from-shell');
+  });
+});
+
+describe('kaki_api_port', () => {
+  it('uses PORT from the shell, then .env, then the server default', () => {
+    expect(run('kaki_api_port "$@"', [tempEnv('PORT=4123\n')], { PORT: '' })).toBe('4123');
+    expect(run('kaki_api_port "$@"', [tempEnv('')], { PORT: '5555' })).toBe('5555');
+    expect(run('kaki_api_port "$@"', [join(tempDir(), '.env')], { PORT: '' })).toBe('3001');
   });
 });
 

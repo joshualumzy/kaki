@@ -32,10 +32,13 @@ function seatLabel(scenario: Scenario, seat: string): string {
 }
 
 /** Covers the stage for a participant until the owner starts the meeting. */
-export function WaitingOverlay() {
+export function WaitingOverlay({ meetingTitle }: { meetingTitle?: string } = {}) {
   return (
     <div className="kd-start" role="region" aria-label="Waiting for the meeting to start">
       <div className="kd-start-card">
+        {meetingTitle === undefined || meetingTitle.trim() === '' ? null : (
+          <p className="kd-sub">{meetingTitle}</p>
+        )}
         <h2>Waiting for the meeting owner to start</h2>
         <p>You are in the meeting room. The meeting begins when the owner starts it.</p>
       </div>

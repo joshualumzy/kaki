@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { parseScenario, type Scenario } from '@kaki/shared';
 import { Button, Card } from '../ui';
+import { scenarioRevision, subscribeScenarioRevision } from './scenarioRevision';
 
 type ScenarioState =
   | { status: 'loading' }
@@ -23,8 +24,6 @@ export type ScenarioView = 'practice' | 'meeting';
 
 const ScenarioContext = createContext<Scenario | null>(null);
 const RefreshScenarioContext = createContext<(() => Promise<Scenario>) | null>(null);
-
-const scenarioPromises: Partial<Record<ScenarioView, Promise<Scenario>>> = {};
 
 /** Practice pages follow the pack; every other page follows the meeting in progress. */
 export function viewForPath(pathname: string): ScenarioView {
@@ -79,15 +78,16 @@ async function fetchScenario(
   }
 }
 
+/**
+ * Fetch the scenario for the meeting revision the provider knows. The revision is the identity of
+ * the answer: when it changes the provider loads again, so a page can never keep a scenario that
+ * describes an older meeting or an older plan.
+ */
 function loadScenario(view: ScenarioView, onRetry?: () => void): Promise<Scenario> {
-  scenarioPromises[view] ??= fetchScenario(view, { onRetry }).catch((error: unknown) => {
-    scenarioPromises[view] = undefined;
-    throw error;
-  });
-  return scenarioPromises[view];
+  return fetchScenario(view, { onRetry });
 }
 
-/** Fetch the active scenario once per view and make it available to every page. */
+/** Fetch the active scenario for the meeting the browser knows and make it available to every page. */
 export function ScenarioProvider({
   children,
   view = 'meeting',
@@ -97,32 +97,52 @@ export function ScenarioProvider({
 }) {
   const [state, setState] = useState<ScenarioState>({ status: 'loading' });
   const [starting, setStarting] = useState(false);
+  const [revision, setRevision] = useState(scenarioRevision);
+  const [retryCount, setRetryCount] = useState(0);
   const loadId = useRef(0);
+  /** The view currently on screen: a change of view shows Loading, a refresh keeps the page usable. */
+  const shownView = useRef<ScenarioView | undefined>(undefined);
+
+  useEffect(() => subscribeScenarioRevision(() => setRevision(scenarioRevision())), []);
 
   const start = useCallback(() => {
-    const id = (loadId.current += 1);
     setStarting(false);
-    setState({ status: 'loading' });
-    // Not id-guarded: a remount (StrictMode) reuses the cached load, whose callback is the first mount's.
-    loadScenario(view, () => setStarting(true))
+    setRetryCount((count) => count + 1);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const id = (loadId.current += 1);
+    const viewChanged = shownView.current !== view;
+    if (viewChanged) {
+      setStarting(false);
+      setState({ status: 'loading' });
+    }
+    loadScenario(view, () => {
+      if (!cancelled && loadId.current === id) setStarting(true);
+    })
       .then((scenario) => {
-        if (loadId.current === id) setState({ status: 'ready', scenario });
+        if (cancelled || loadId.current !== id) return;
+        shownView.current = view;
+        setStarting(false);
+        setState({ status: 'ready', scenario });
       })
       .catch((error: unknown) => {
-        if (loadId.current !== id) return;
+        if (cancelled || loadId.current !== id) return;
+        if (shownView.current === view) {
+          // A background refresh failed. Keep the last scenario the page could show, and say so.
+          console.error('kaki web: could not refresh the scenario; keeping the last one', error);
+          return;
+        }
         setState({
           status: 'error',
           message: error instanceof Error ? error.message : 'Could not load the scenario',
         });
       });
-  }, [view]);
-
-  useEffect(() => {
-    start();
     return () => {
-      loadId.current += 1;
+      cancelled = true;
     };
-  }, [start]);
+  }, [view, revision, retryCount]);
 
   if (state.status === 'loading') {
     return (
@@ -149,7 +169,7 @@ export function ScenarioProvider({
 
   async function refresh(): Promise<Scenario> {
     const fresh = await fetchScenario(view);
-    scenarioPromises[view] = Promise.resolve(fresh);
+    shownView.current = view;
     setState({ status: 'ready', scenario: fresh });
     return fresh;
   }

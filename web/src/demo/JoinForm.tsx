@@ -72,7 +72,13 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           }
         }}
       >
-        <MediaPreview name={name} value={media} onChange={setMedia} onProblem={setProblem} />
+        <MediaPreview
+          name={name}
+          value={media}
+          onChange={setMedia}
+          onProblem={setProblem}
+          typingHint="Microphone off: you will type to the AI attendees"
+        />
 
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
           <div className="kd-live">

@@ -54,6 +54,14 @@ key_is_set() { # key file...
   return 1
 }
 
+# The port the Kaki API listens on: PORT from the shell, else the root .env, else the server default.
+kaki_api_port() { # env-file
+  local port="${PORT:-}"
+  [ -n "$port" ] || port="$(env_value "$1" PORT)"
+  [ -n "$port" ] || port=3001
+  printf '%s' "$port"
+}
+
 # Export the integration settings the seed generates in docker/.env, unless the shell or the user's
 # .env already set them (their values win). The names it exported are appended to WIRED_KEYS.
 WIRED_KEYS=()

@@ -85,7 +85,8 @@ export function MeetingPanel({
 
   const facilitatorName = useMemo(() => {
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
-    return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
+    if (hostRole === undefined) return 'the host';
+    return scenario.attendees.find((a) => a.role === hostRole.id)?.name ?? roleLabel(scenario, hostRole.id);
   }, [scenario]);
 
   // Who spoke on each topic is recorded by the hook as lines arrive, so it survives the record
@@ -681,7 +682,13 @@ function HostCueCard({
   const item = scenario.agenda[agendaIndex] ?? scenario.agenda[0];
   if (item === undefined) return null;
   const ownerAttendee = scenario.attendees.find((a) => a.role === item.ownerRole)?.name ?? roleLabel(scenario, item.ownerRole);
-  const coHostAttendee = scenario.attendees.find((a) => a.role === 'producer')?.name ?? 'Wei Ling';
+  const coHostRole =
+    scenario.roles.find((role) => role.id === 'producer' && role.id !== item.ownerRole) ??
+    scenario.roles.find((role) => role.id !== item.ownerRole && role.facilitator !== true);
+  const coHostName =
+    coHostRole === undefined
+      ? undefined
+      : scenario.attendees.find((a) => a.role === coHostRole.id)?.name ?? roleLabel(scenario, coHostRole.id);
   return (
     <section className="kd-role kd-topic-card" aria-label="Host cue card">
       <p className="kd-role-eyebrow">Kaki Wingman · Host Cue Card (Item {agendaIndex + 1} of {scenario.agenda.length})</p>
@@ -691,9 +698,11 @@ function HostCueCard({
       <p style={{ marginBottom: 6 }}>
         Try saying: <em>&ldquo;Hey team, let&rsquo;s start with {item.title}. {ownerAttendee}, can you walk us through it?&rdquo;</em>
       </p>
-      <small style={{ display: 'block', opacity: 0.85 }}>
-        Tip: {coHostAttendee} (Operations Director) will help co-host if the room goes quiet, or you can click <b>Next agenda item</b> above anytime.
-      </small>
+      {coHostRole === undefined || coHostName === undefined ? null : (
+        <small style={{ display: 'block', opacity: 0.85 }}>
+          Tip: {coHostName} ({roleLabel(scenario, coHostRole.id)}) will help co-host if the room goes quiet, or you can click <b>Next agenda item</b> above anytime.
+        </small>
+      )}
     </section>
   );
 }

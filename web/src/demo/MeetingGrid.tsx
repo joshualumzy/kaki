@@ -13,7 +13,7 @@ import {
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
-import { CONTROL_TOPIC, NPC_STATE_TOPIC, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario, type Task } from '@kaki/shared';
+import { CONTROL_TOPIC, NPC_STATE_TOPIC, roleLabel, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { LocalSpeechSTT } from './LocalSpeechSTT';
@@ -299,7 +299,8 @@ export function MeetingGrid({
   const voiceNote = textOnlyNote(chunks, now);
   const facilitatorName = useMemo(() => {
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
-    return scenario.attendees.find((a) => a.role === hostRole?.id)?.name ?? 'Sam';
+    if (hostRole === undefined) return 'the host';
+    return scenario.attendees.find((a) => a.role === hostRole.id)?.name ?? roleLabel(scenario, hostRole.id);
   }, [scenario]);
   const facilitatorRole = useMemo(
     () => scenario.roles.find((role) => role.facilitator === true)?.id,

@@ -11,6 +11,8 @@ export interface MediaPreviewProps {
   onChange(next: MediaChoice): void;
   /** Called when the browser refuses a device, so the toggle can fall back to off and say why. */
   onProblem(message: string | undefined): void;
+  /** What typing does with the microphone off; the default stays neutral for a team meeting. */
+  typingHint?: string;
 }
 
 function describeFailure(kind: 'microphone' | 'camera', error: unknown): string {
@@ -129,7 +131,13 @@ function CameraIcon({ off }: { off: boolean }) {
 }
 
 /** Zoom-style pre-join: a preview of the camera, a loudness meter for the microphone, and a toggle for each. */
-export function MediaPreview({ value, onChange, onProblem, name = '' }: MediaPreviewProps & { name?: string }) {
+export function MediaPreview({
+  value,
+  onChange,
+  onProblem,
+  name = '',
+  typingHint = 'Microphone off: you will type your lines',
+}: MediaPreviewProps & { name?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const turnOff = (kind: keyof MediaChoice) => (message: string) => {
     onChange({ ...value, [kind]: false });
@@ -178,7 +186,7 @@ export function MediaPreview({ value, onChange, onProblem, name = '' }: MediaPre
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="kd-meter-text">
-            {value.microphone ? 'Say something to test your microphone' : 'Microphone off: you will type to the AI attendees'}
+            {value.microphone ? 'Say something to test your microphone' : typingHint}
           </div>
           <div role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Number(level.toFixed(2))} className="kd-meter">
             {Array.from({ length: 24 }, (_, i) => (

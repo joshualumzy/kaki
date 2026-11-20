@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { MeetingSetup } from '@kaki/shared';
+import type { MeetingSetup, Scenario } from '@kaki/shared';
 import type { KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { hashPassword } from '../src/auth/password';
@@ -69,6 +69,24 @@ describe('setup API', () => {
     const stored = (await response.json()) as SetupResponse;
     expect(stored.setup.title).toBe('Friday lunch readiness');
     expect((await getSetup()).setup.title).toBe('Friday lunch readiness');
+  });
+
+  it('shows the saved plan title and person seats before the meeting starts', async () => {
+    const { setup } = await getSetup();
+    setup.title = 'Friday lunch readiness';
+    setup.source.title = 'typed';
+    setup.roles = setup.roles.map((role, index) => ({
+      ...role,
+      label: index === 0 ? 'Owner' : 'Ana',
+    }));
+    expect((await putSetup(setup)).status).toBe(200);
+
+    const response = await fetch(`${base}/api/scenario`);
+    expect(response.status).toBe(200);
+    const scenario = (await response.json()) as Scenario;
+    expect(scenario.meetingTitle).toBe('Friday lunch readiness');
+    expect(scenario.joinSeats).toEqual(setup.roles.map((role) => role.id));
+    expect(scenario.roles.map((role) => role.label)).toEqual(['Owner', 'Ana']);
   });
 
   it('returns field-specific errors and keeps the previous draft', async () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isKakiEvent, MEETING_ENDED_MESSAGE, type KakiCommand, type KakiEvent, type Role, type Task } from '@kaki/shared';
 import { fetchMe } from '../auth/api';
 import { useScenario } from './ScenarioContext';
+import { noteMeetingIdentity } from './scenarioRevision';
 import { addTopicSpeech, type TopicSpeech } from './topicSpeech';
 
 export type { TopicSpeech } from './topicSpeech';
@@ -117,6 +118,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
               const body = (await response.json().catch(() => ({}))) as {
                 meetingId?: unknown;
                 started?: unknown;
+                kind?: unknown;
               };
               if (!response.ok || typeof body.started !== 'boolean') return;
               if (typeof body.meetingId !== 'string' || body.meetingId === '') return;
@@ -127,6 +129,10 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
               if (lifecycleRevision.current !== askedAtRevision) return;
               if (meetingId.current !== undefined && meetingId.current !== body.meetingId) return;
               meetingId.current = body.meetingId;
+              noteMeetingIdentity({
+                meetingId: body.meetingId,
+                ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
+              });
               setStarted(body.started);
             })
             .catch((error: unknown) => {
@@ -164,6 +170,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
           setMeetingIdentity(parsed.payload.meetingId);
+          noteMeetingIdentity({ meetingId: parsed.payload.meetingId });
           setStarted(true);
           if (isNewMeeting) {
             latestRecordRef.current = undefined;
@@ -175,6 +182,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
           setMeetingIdentity(parsed.payload.meetingId);
+          noteMeetingIdentity({ meetingId: parsed.payload.meetingId });
           setStarted(false);
           setLatestRecord(undefined);
           latestRecordRef.current = undefined;

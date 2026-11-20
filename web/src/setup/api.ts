@@ -1,4 +1,5 @@
 import type { MeetingSetup, SetupFieldError } from '@kaki/shared';
+import { invalidateScenario } from '../kaki/scenarioRevision';
 import { fetchWithTimeout } from '../net/withTimeout';
 
 export interface SetupResponse {
@@ -95,7 +96,9 @@ export async function importKopitiamDemo(): Promise<SetupResponse> {
     throw networkFailure('load the Kopitiam demo');
   }
   if (!response.ok) throw await failure(response, 'Could not load the Kopitiam demo');
-  return parseSetupResponse(await readJson(response), 'Could not load the Kopitiam demo.');
+  const result = parseSetupResponse(await readJson(response), 'Could not load the Kopitiam demo.');
+  invalidateScenario();
+  return result;
 }
 
 export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
@@ -110,7 +113,9 @@ export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
     throw networkFailure('save the setup');
   }
   if (!response.ok) throw await failure(response, 'Could not save the setup');
-  return parseSetupResponse(await readJson(response), 'Could not save the setup.');
+  const result = parseSetupResponse(await readJson(response), 'Could not save the setup.');
+  invalidateScenario();
+  return result;
 }
 
 export async function startBlankSetup(): Promise<SetupResponse> {
@@ -121,7 +126,9 @@ export async function startBlankSetup(): Promise<SetupResponse> {
     throw networkFailure('start a blank meeting');
   }
   if (!response.ok) throw await failure(response, 'Could not start a blank meeting');
-  return parseSetupResponse(await readJson(response), 'Could not start a blank meeting.');
+  const result = parseSetupResponse(await readJson(response), 'Could not start a blank meeting.');
+  invalidateScenario();
+  return result;
 }
 
 export async function loadTools(): Promise<ToolStatus[]> {
@@ -181,7 +188,10 @@ export async function openMeeting(): Promise<void> {
       0,
     );
   }
-  if (response.ok) return;
+  if (response.ok) {
+    invalidateScenario();
+    return;
+  }
   const body = await readJson(response);
   throw new OpenMeetingError(
     typeof body?.error === 'string' ? body.error : `Could not open the meeting (HTTP ${response.status}).`,
@@ -202,6 +212,7 @@ export async function closeMeetingRoom(): Promise<void> {
     );
   }
   if (!response.ok) throw await failure(response, 'Could not close the meeting room');
+  invalidateScenario();
 }
 
 /** End a practice meeting so the team meeting can be opened. */
@@ -216,4 +227,5 @@ export async function endPracticeMeeting(): Promise<void> {
     );
   }
   if (!response.ok) throw await failure(response, 'Could not end the practice meeting');
+  invalidateScenario();
 }
