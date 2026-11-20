@@ -1112,7 +1112,7 @@ function verifierMessages(
     VERIFIER_MARKER,
     'You check meeting evidence by meaning, not word overlap.',
     'For each exact question/quote pair, judge meaning rather than word overlap. Answer "yes" only when the line gives the requested fact without material uncertainty. Return "no" for unrelated, hypothetical, deferred, or different information; "unclear" when evidence is insufficient.',
-    'For each deliverable/quote pair, answer "yes" only when the line explicitly assigns or volunteers that same after-meeting deliverable to its owner. Return "no" for unrelated, hypothetical, deferred, or different work; "unclear" when evidence is insufficient.',
+    'For each deliverable/quote pair, answer "yes" only when the line assigns that same after-meeting deliverable to its owner, asks that named person to do it (for example "Ben, can you email the supplier?"), or the owner volunteers for it. The card is a suggestion the owner can still accept or decline, so a direct request counts. Return "no" for unrelated, hypothetical, deferred, or different work, or a request to nobody in particular; "unclear" when evidence is insufficient.',
     'Roles (use the id on the left):',
     ...roles,
     'Reply with one JSON object only.',
