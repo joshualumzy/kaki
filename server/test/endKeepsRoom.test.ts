@@ -72,7 +72,7 @@ describe('ending a meeting keeps its room', () => {
     expect(removals).toHaveLength(1);
   });
 
-  it('removes the practice visitor from the practice room when the practice meeting ends', async () => {
+  it('keeps the practice visitor in the room for wrap-up and minutes, and removes them on the reset', async () => {
     const app = await createApp({
       scenario: testScenario,
       roomRoster: async () => [],
@@ -93,7 +93,12 @@ describe('ending a meeting keeps its room', () => {
 
     app.session.end();
 
-    await waitFor(() => (removals.length > 0 ? true : undefined), 'the practice room removal');
+    // The visitor stays to receive the closing cue, the frozen record and the minutes card.
+    expect(app.session.phase()).toBe('ended');
+    expect(removals).toEqual([]);
+
+    app.session.reset();
+    await waitFor(() => (removals.length > 0 ? true : undefined), 'the practice room removal on reset');
     expect(removals).toHaveLength(1);
   });
 });

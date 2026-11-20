@@ -1866,10 +1866,14 @@ export async function createApp({
    * longer exists. Room identity alone already refuses an old token; this makes it immediate.
    */
   function onCredentialChange(ended: boolean, kind?: 'real' | 'practice'): void {
+    // A practice END is the end of its agenda, not a handoff: the visitor must stay connected to
+    // receive the closing cue, the frozen record and the minutes card, exactly as in open mode.
+    // Its people are removed and its sockets revoked on the next reset or owner handoff.
+    if (ended && kind === 'practice') return;
     hub.endPracticeSessions?.(MEETING_ENDED_MESSAGE);
     // Ending a real meeting keeps its room: the owner and participants stay to review and publish
-    // the minutes. A practice meeting has no review, so END must remove its people and end the
-    // publish/subscribe grant it issued. A handoff that replaces the room also removes people.
+    // the minutes. Everything else here is a handoff that replaces the room, so its people and
+    // practice authority go with it.
     if (ended && kind === 'real') return;
     const roomName = watchedRoom ?? demoRoomName(session.active(), meeting.id);
     void removeRoomHumans(roomName, packNpcNames).catch((error: unknown) => {

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
-import { joinSeatRoles, type KakiEvent, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import { joinSeatRoles, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
 import {
   duplicatedAiLines, judgeCardFollowsFinalCall, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour,
 } from './playtest-behaviours';
@@ -731,8 +731,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
           errors.push(`${stamp()} WebSocket ${socket.url()}: ${text}`);
         });
       }
-      if (!socket.url().includes('/ws?audience=screen')) return;
-      screenSocketSeen = true;
+      // Read the shared screen and this visitor's own seat feed, the two channels the practice page
+      // itself opens. Facts arrive on the seat feed (and, for a practice screen, only for that seat);
+      // commands stay on the page, so the robot never needs an owner channel.
+      const socketUrl = new URL(socket.url());
+      const isScreen = socketUrl.searchParams.get('audience') === 'screen';
+      const isSeat = visitorRole !== '' && socketUrl.searchParams.get('role') === visitorRole;
+      if (!isScreen && !isSeat) return;
+      if (isScreen) screenSocketSeen = true;
       socket.on('framereceived', (frame) => {
         try {
           const raw = typeof frame.payload === 'string' ? frame.payload : frame.payload.toString();
@@ -766,8 +772,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     `);
     lastNavigationAt = Date.now();
     await page.goto(`${BASE}/demo?mode=live`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    const response = await page.request.get(`${BASE}/api/scenario`, { timeout: 10_000 });
-    if (!response.ok()) throw new Error(`/api/scenario returned HTTP ${response.status()}`);
+    const response = await page.request.get(`${BASE}/api/scenario?kind=practice`, { timeout: 10_000 });
+    if (!response.ok()) throw new Error(`/api/scenario?kind=practice returned HTTP ${response.status()}`);
     scenario = await response.json() as Scenario;
     // The seats the join form offers (one shared function), minus the chair: the robot plays a guest, not Sam.
     const playable = joinSeatRoles(scenario).filter((role) => role.facilitator !== true);
@@ -786,31 +792,21 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       await checkPhoneLayout('after join');
       await keepShot('after join');
     }
-    const activeResponse = await page.request.get(`${BASE}/api/scenario`, { timeout: 10_000 });
-    if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario returned HTTP ${activeResponse.status()}`);
+    const activeResponse = await page.request.get(`${BASE}/api/scenario?kind=practice`, { timeout: 10_000 });
+    if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario?kind=practice returned HTTP ${activeResponse.status()}`);
     scenario = await activeResponse.json() as Scenario;
     hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
-    // The server records this person's lines under the setup seat name, which can differ from the
-    // pack attendee's name if the owner renamed the seat.
-    try {
-      const setupResponse = await page.request.get(`${BASE}/api/setup`, { timeout: 10_000 });
-      if (!setupResponse.ok()) {
-        await check('Robot speaker identity', false,
-          `/api/setup returned HTTP ${setupResponse.status()}: cannot tell the robot's lines from other people's`);
-      } else {
-        const setupBody = await setupResponse.json() as { setup?: MeetingSetup };
-        const seat = setupBody.setup?.seats.find((candidate) => candidate.roleId === visitorRole);
-        if (seat === undefined || seat.displayName.trim() === '') {
-          await check('Robot speaker identity', false,
-            `No named seat for role ${visitorRole} in /api/setup: cannot tell the robot's lines from other people's`);
-        } else {
-          robotSpeaker = seat.displayName;
-          await check('Robot speaker identity', true, `Transcript speaker is exactly "${robotSpeaker}"`);
-        }
-      }
-    } catch (error) {
+    // The server records this person's lines under the practice seat's name from the meeting setup,
+    // which the practice projection carries as the attendee for this role. That is all a practice
+    // visitor legitimately has: its own seat, never the owner-only /api/setup.
+    const seat = scenario.attendees.find((candidate) => candidate.role === visitorRole);
+    const seatName = seat?.name.trim() || seat?.zoomDisplayName.trim();
+    if (seatName === undefined || seatName === '') {
       await check('Robot speaker identity', false,
-        `/api/setup could not be read: ${String(error)}; cannot tell the robot's lines from other people's`);
+        `No named attendee for role ${visitorRole} in the practice scenario: cannot tell the robot's lines from other people's`);
+    } else {
+      robotSpeaker = seatName;
+      await check('Robot speaker identity', true, `Transcript speaker is exactly "${robotSpeaker}"`);
     }
     await check('Two agenda topics for the session', scenario.agenda.length === 2,
       `API returned ${scenario.agenda.length}; each meeting draws two of the five topics`);

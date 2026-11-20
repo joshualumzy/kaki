@@ -245,7 +245,13 @@ function projectedEvent(
 ): KakiEvent | undefined {
   // A practice screen already filters facts; this also keeps other seats' task drafts out of it.
   if (practiceScreen) {
-    if (event.audience.kind === 'role') return undefined;
+    // The practice visitor's screen may show its own seat's facts (the Kaki panel reads this feed),
+    // but no other seat's private work.
+    if (event.audience.kind === 'role') {
+      return event.type === 'FACT_FOUND' && seat !== undefined && event.audience.role === seat
+        ? event
+        : undefined;
+    }
     if (event.type !== 'TASK_UPDATED' || seat === undefined) return event;
     const task = taskForSeat(event.payload.task, seat);
     return task === undefined ? undefined : { ...event, payload: { task } };

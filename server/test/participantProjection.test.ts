@@ -299,6 +299,33 @@ describe('participant projection', () => {
     expect(practice.status).toBe(200);
     const practiceCookie = cookieFrom(practice);
 
+    app.hub.publish(
+      {
+        type: 'FACT_FOUND',
+        audience: { kind: 'role', role: 'chef' },
+        payload: {
+          questionId: 'practice-own-question',
+          question: 'Practice own question',
+          facts: [{ text: 'PRACTICE OWN FACT', source: 'handbook', date: '2026-01-01' }],
+          agendaIndex: 0,
+        },
+      },
+      { retainKey: 'fact:practice:chef' },
+    );
+    app.hub.publish(
+      {
+        type: 'FACT_FOUND',
+        audience: { kind: 'role', role: 'cashier' },
+        payload: {
+          questionId: 'practice-other-question',
+          question: 'Practice other question',
+          facts: [{ text: 'PRACTICE OTHER FACT', source: 'handbook', date: '2026-01-01' }],
+          agendaIndex: 0,
+        },
+      },
+      { retainKey: 'fact:practice:cashier' },
+    );
+
     const own = taskWithDraft(app, {
       title: 'Practice own job',
       context: 'PRACTICE OWN CONTEXT',
@@ -326,5 +353,22 @@ describe('participant projection', () => {
     expect(seen.get(own.id)).toMatchObject({ context: 'PRACTICE OWN CONTEXT', draft: { body: 'PRACTICE OWN DRAFT' } });
     expect(seen.get(other.id)).toMatchObject({ title: 'Practice other job', context: '' });
     expect(seen.get(other.id)?.draft).toBeUndefined();
+
+    // The Kaki panel reads the practice screen, so the visitor's own facts must arrive there;
+    // another seat's facts must not.
+    expect(
+      screen.messages.some(
+        (event) =>
+          event.type === 'FACT_FOUND' &&
+          event.payload.facts.some((fact) => fact.text === 'PRACTICE OWN FACT'),
+      ),
+    ).toBe(true);
+    expect(
+      screen.messages.some(
+        (event) =>
+          event.type === 'FACT_FOUND' &&
+          event.payload.facts.some((fact) => fact.text === 'PRACTICE OTHER FACT'),
+      ),
+    ).toBe(false);
   });
 });
