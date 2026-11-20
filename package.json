@@ -26,6 +26,7 @@
     "eval:notetaker": "tsx server/src/host/evalNotetaker.ts",
     "playtest:dialogue": "tsx scripts/playtest-dialogue.ts",
     "playtest:live": "tsx scripts/live-playtest.ts",
+    "playtest:team": "tsx scripts/team-playtest.ts",
     "playtest:ai": "tsx scripts/ai-visitor.ts",
     "stack:up": "docker compose -f docker/docker-compose.yml up -d",
     "stack:down": "docker compose -f docker/docker-compose.yml down",
