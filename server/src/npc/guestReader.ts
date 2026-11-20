@@ -300,6 +300,7 @@ function readerMessages(input: GuestReaderInput): ChatMessage[] {
     '{"kind":"idea","addressee":null,"answersOpenQuestion":false,"relevantFactIds":[],"relevantCatchIds":[],"chosenOption":null,"readiness":{"action":{"covered":false},"catchAddressed":{"covered":false},"practical":{"covered":false}}}',
     'Replace the example values with your reading, keeping every field. Use null for "addressee" and "chosenOption" when they do not apply.',
     '"action" means the guest has actually chosen what to do about this topic.',
+    'A bare "yes", "ok" or "let\'s go with that" agrees with what was just put to the guest, but it is not a call when no concrete call was put to them: in that case leave the action slot uncovered, and the host will offer one concrete call.',
     'When this line changes or takes back a call the guest gave earlier on this topic, instead of adding to it, the action slot also has "revises": true: {"covered": true, "evidence": "...", "revises": true}. A line that only adds a step keeps the earlier call and has no "revises".',
     '"catchAddressed" means the guest has answered the real catch or cost that was raised against their idea.',
     '"practical" means the immediate who/what/when is clear, or the guest has named a safe interim step.',

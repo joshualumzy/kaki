@@ -168,6 +168,21 @@ describe('guest line reader', () => {
     expect(prompt).toContain('There is no open question.');
   });
 
+  it('says a bare agreement is not a call when no concrete call was put to the guest', async () => {
+    let seen: ChatMessage[] = [];
+    const capture = (messages: ChatMessage[]): AsyncIterable<string> => {
+      seen = messages;
+      return streamOf(reading())(messages, new AbortController().signal);
+    };
+    const p = ports({ stream: capture });
+
+    await readGuestLine(input, p);
+    const prompt = seen.map((message) => message.content).join('\n');
+    expect(prompt).toContain(
+      'A bare "yes", "ok" or "let\'s go with that" agrees with what was just put to the guest, but it is not a call when no concrete call was put to them: in that case leave the action slot uncovered, and the host will offer one concrete call.',
+    );
+  });
+
   it('names who an open question is addressed to', async () => {
     let seen: ChatMessage[] = [];
     const capture = (messages: ChatMessage[]): AsyncIterable<string> => {

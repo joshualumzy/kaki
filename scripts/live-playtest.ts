@@ -3,6 +3,7 @@
  * One visible, one-visitor rehearsal. The operator starts the draft-only stack separately.
  * `--act` needs a stack started without KAKI_DRAFT_ONLY, and writes to the local mock tools only.
  */
+import '../server/src/env.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -13,6 +14,9 @@ import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, 
 import {
   draftOnlyRefusal, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction, wingmanFactVerdicts,
 } from './playtest-actions';
+import {
+  decideRoomReply, roomReplyModelFromEnv, type RoomReplyModel, type RoomReplyOutcome,
+} from './room-reply';
 
 /** The demo to test; set KAKI_PLAYTEST_URL (e.g. the cloud URL) to test a deployed copy instead of the local stack. */
 const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
@@ -85,7 +89,7 @@ function isRobotSpeaker(speaker: string): boolean {
   return wanted !== '' && speaker.trim().toLowerCase().includes(wanted);
 }
 
-export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestHooks): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
+export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHooks | undefined, roomReply: RoomReplyModel): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
   const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
   const reportPath = join(LOG_DIR, `${stem}.md`);
@@ -112,6 +116,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
   const playedTopics = new Set<number>();
   let extraReportLines: string[] = [];
   let summaryLines: string[] = [];
+  let roomReplyFallbacks = 0;
   let scenario: Scenario | undefined;
   let page: Page | undefined;
   let browser: Browser | undefined;
@@ -623,62 +628,46 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     return false;
   }
 
-  function isActionRequest(text: string): boolean {
-    return /(?:can|could|would|will)\s+you\b[^?]*\b(?:post|email|send|schedule|confirm|draft|share|set\s+up|put\s+(?:that|this)\s+in)\b/i.test(text) ||
-      /^(?:please\s+)?(?:post|email|send|schedule|confirm)\b/i.test(text);
-  }
-
-  function reasonFor(title: string): string {
-    const name = title.toLowerCase();
-    if (name.includes('counter staff')) return 'it covers the counter without spending more than the rush is worth.';
-    if (name.includes('regulars')) return 'it keeps the old regulars while the new menu pays its way.';
-    if (name.includes('laptop')) return 'it frees breakfast seats without putting staff in a confrontation.';
-    if (name.includes('food safety')) return 'it keeps us straight with the officer and the customer.';
-    if (name.includes('delivery')) return 'it protects margin while keeping the office orders.';
-    throw new Error(`No scenario reason prepared for: ${title}`);
+  function replyIntent(outcome: RoomReplyOutcome, asked: string): string {
+    return `Answer this latest line: "${asked}". The point to make (${outcome.kind}): "${outcome.reply}". Say it in your own words, in one short line.`;
   }
 
   async function reactToRoom(index: number, title: string, decision: string | undefined, from: number): Promise<void> {
-    if (page === undefined) return;
-    const latest = latestAiLine(index);
+    if (page === undefined || scenario === undefined) return;
     // Only react to AI lines spoken after the robot's own latest line: lines from before it have already been answered.
     const afterRobot = Math.max(from, lastRobotLineIndex(index) + 1);
     const fresh = transcript.slice(afterRobot).filter((line) =>
       line.agendaIndex === index && !isRobotSpeaker(line.speaker) && !reacted.has(lineKey(line)));
-    for (const [position, line] of fresh.entries()) {
-      // A host line can arrive split into sentences ("Robot Visitor, so your call is X." then "Is that right?"):
-      // read the question together with the same speaker's sentence just before it.
-      const before = fresh[position - 1];
-      const asked = before !== undefined && before.speaker === line.speaker ? `${before.text} ${line.text}` : line.text;
-      const isLatestQuestion = latest !== undefined && lineKey(latest) === lineKey(line) &&
-        /\?\s*$/.test(line.text.trim()) && /robot visitor/i.test(asked);
-      // A real guest answers Sam's read-back of their own call; without it the topic can never settle. Sam writes
-      // the read-back in his own words and may not name the guest, so any question from him after the robot's
-      // call counts; the persona model is told to correct it if it does not match.
-      const hostQuestion = latest !== undefined && lineKey(latest) === lineKey(line) &&
-        /\?\s*$/.test(line.text.trim()) && line.speaker === hostName;
-      const readBack = hostQuestion && decision !== undefined && robotLineCount(index) > 0;
-      // On the tabling topic the robot has no call of its own. If Sam refuses to table (an urgent topic) he asks
-      // again and then offers a call; a real guest takes that offer, or the topic can never settle.
-      const hostOffer = hostQuestion && decision === undefined && robotLineCount(index) > 0;
-      let reply: string | undefined;
-      let intent = `Reply to this latest colleague line and move the discussion forward: ${asked}`;
-      if (/\brecap\b/i.test(line.text)) reply = `No need, here's my call: ${decision ?? "let's table it and settle it in the follow-up."}`;
-      else if (isActionRequest(line.text)) reply = 'Yes, please draft that for me.';
-      else if (readBack) {
-        reply = "Yes, that's my call.";
-        intent = `Sam is checking your call back to you: "${asked}". If it matches what you decided, say yes in a few words; if it does not, correct it in one short line.`;
-      } else if (hostOffer) {
-        reply = "Yes, let's go with that.";
-        intent = `You asked to table this topic, but Sam needs a call now: "${asked}". If he is proposing a call or checking one back, accept it in a few words; if he is only asking for yours, say you'll go with whatever he suggests.`;
-      } else if (isLatestQuestion) {
-        reply = decision === undefined ? "Let's settle that in the follow-up." : `My call stands: ${reasonFor(title)}`;
-      }
-      if (reply === undefined) { reacted.add(lineKey(line)); continue; }
-      if (robotLineCount(index) >= (readBack || hostOffer ? 6 : 4)) { reacted.add(lineKey(line)); return; }
-      if (!await quietBeforeTyping(index)) return;
-      if (await speak(reply, intent)) reacted.add(lineKey(line));
-      return;
+    if (fresh.length === 0) return;
+    const markFresh = (): void => { for (const line of fresh) reacted.add(lineKey(line)); };
+    const request = {
+      scenario,
+      role: visitorRole,
+      topicTitle: title,
+      transcript: [...transcript],
+      ...(decision === undefined ? {} : { decision }),
+      fresh,
+      hostName,
+      robotLineCount: robotLineCount(index),
+    };
+    // The model judges whether and how the guest answers; an AI visitor then rewrites that line in its persona.
+    const outcome: RoomReplyOutcome = await decideRoomReply(request, roomReply);
+    if (outcome.warning !== undefined) {
+      roomReplyFallbacks += 1;
+      await check(`Topic ${index + 1} room reply model`, false, outcome.warning, 'warn');
+    }
+    // The model call takes time; the topic may have settled or moved on while it was thinking.
+    if (settled.has(title) || agendaIndex !== index || closing) { markFresh(); return; }
+    if (outcome.reply === null) { markFresh(); return; }
+    const cap = outcome.kind === 'confirm' || outcome.kind === 'accept-offer' ? 6 : 4;
+    if (robotLineCount(index) >= cap) { markFresh(); return; }
+    if (!await quietBeforeTyping(index)) return;
+    const last = fresh.at(-1)!;
+    const previous = fresh.at(-2);
+    const asked = previous !== undefined && previous.speaker === last.speaker ? `${previous.text} ${last.text}` : last.text;
+    if (await speak(outcome.reply, replyIntent(outcome, asked))) {
+      markFresh();
+      notes.push(`${stamp()} Robot reply (${outcome.kind}): ${outcome.reply}`);
     }
   }
 
@@ -1087,6 +1076,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       }
       extraReportLines.push(...hooks.reportLines());
     }
+    summaryLines.push(`Room reply fallbacks: ${roomReplyFallbacks}`);
     const lines = [
       `# Kopitiam live playtest — ${startedAt.toISOString()}`,
       '',
@@ -1145,5 +1135,5 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
       process.exit(2);
     }
   }
-  void runLivePlaytest(parsed).then((result) => { process.exitCode = result.passed ? 0 : 1; });
+  void runLivePlaytest(parsed, undefined, roomReplyModelFromEnv()).then((result) => { process.exitCode = result.passed ? 0 : 1; });
 }

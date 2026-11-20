@@ -1,8 +1,10 @@
 /** Model-backed guest and post-meeting judge for the existing live playtest driver. */
 import '../server/src/env.ts';
 import { createOpenAiLlm, LlmError, reasoningControlFromEnv, parseJsonReply, type ChatMessage, type CompleteOptions, type CompletionUsage } from '../server/src/llm';
+import { roomReplyModelFromEnv } from './room-reply';
 import { runLivePlaytest, type AnswerContext, type FinishContext, type Line, type PlaytestHooks } from './live-playtest';
 import { behaviourForPersona, reversalLine, type Behaviour } from './playtest-behaviours';
+import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 import { pathToFileURL } from 'node:url';
 
 export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive', 'delegator', 'silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
@@ -40,17 +42,11 @@ const personaDirections: Record<Persona, string> = {
   rejoin: 'Step out briefly after the first decision, then come back and carry on as if you never left.',
 };
 
-function transcriptText(lines: Line[]): string {
-  return lines.map((line) => `[topic ${line.agendaIndex + 1}] ${line.speaker}: ${line.text}`).join('\n') || '(no lines yet)';
-}
-
 export function visitorPrompt(persona: Persona, context: AnswerContext): ChatMessage[] {
-  const topic = context.scenario.agenda.find((item) => item.title === context.topicTitle);
-  const seat = context.scenario.roles.find((role) => role.id === context.role);
-  const attendee = context.scenario.attendees.find((person) => person.role === context.role);
+  const topic = topicContext(context.scenario, context.role, context.topicTitle);
   return [
-    { role: 'system', content: `You are ${attendee?.name ?? 'the guest'}, ${seat?.label ?? context.role}, the opening-day lead at ${context.scenario.organisation}. ${seat?.card?.youAre ?? ''} ${seat?.card?.responsibility ?? ''}\nPersona: ${personaDirections[persona]}\nWrite only your next line as if typed in a live meeting. Keep it short, chatty, and specific. No speaker label, quotation marks, markdown, or stage directions. Stay consistent with established facts and your earlier lines. Respond to the latest exchange. Do not claim an action is complete unless the transcript says so.` },
-    { role: 'user', content: `Current topic: ${context.topicTitle}\nBriefing: ${(topic?.briefing ?? []).map((fact) => fact.text).join(' ')}\nDecision at hand: ${topic?.decision ?? ''}\nYour seat's known fact: ${topic?.seatFacts?.[context.role] ?? ''}\nImmediate purpose for your next line: ${context.intent}\nMeeting transcript so far:\n${transcriptText(context.transcript)}` },
+    { role: 'system', content: `${guestIdentity(context.scenario, context.role)}\nPersona: ${personaDirections[persona]}\nWrite only your next line as if typed in a live meeting. Keep it short, chatty, and specific. No speaker label, quotation marks, markdown, or stage directions. Stay consistent with established facts and your earlier lines. Respond to the latest exchange. Do not claim an action is complete unless the transcript says so.` },
+    { role: 'user', content: `Current topic: ${context.topicTitle}\nBriefing: ${topic.briefing}\nDecision at hand: ${topic.decision}\nYour seat's known fact: ${topic.seatFact}\nImmediate purpose for your next line: ${context.intent}\nMeeting transcript so far:\n${transcriptText(context.transcript)}` },
   ];
 }
 
@@ -219,7 +215,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   let failed = false;
   for (const persona of personas) {
     const visitor = new AiVisitor(persona, guest, judge);
-    const result = await runLivePlaytest({ role: 'producer', phone: options.phone, maxMinutes: options.maxMinutes }, visitor);
+    const result = await runLivePlaytest({ role: 'producer', phone: options.phone, maxMinutes: options.maxMinutes }, visitor, roomReplyModelFromEnv());
     console.log(`AI usage (${persona}): ${visitor.visitorCalls} visitor calls, ${visitor.judgeCalls} judge calls, ${visitor.totalTokens} total tokens (${visitor.promptTokens} prompt, ${visitor.completionTokens} completion)`);
     const scores = visitor.judgement === undefined ? '—' : scoreNames.map((name) => visitor.judgement![name].score).join('/');
     rows.push(`| ${persona} | ${result.passed ? 'PASS' : 'FAIL'} | ${scores} | ${visitor.judgement?.contradictions.length ?? '—'} | ${visitor.visitorCalls}+${visitor.judgeCalls} | ${visitor.totalTokens} | ${result.reportPath} |`);
