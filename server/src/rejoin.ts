@@ -87,6 +87,8 @@ export interface RejoinGuard {
   graceActive(): boolean;
   /** The window has been started and not cleared, even if it has already expired. */
   isEmpty(): boolean;
+  /** Bumped whenever the grace window starts or is cleared, so a delayed read can tell it changed. */
+  epoch(): number;
   /** Whether a known holder would be kept if they arrived now (the pre-commit decision). */
   wouldHold(): boolean;
   /** A person joined: clear the window and log how long the pause was. */
@@ -110,6 +112,7 @@ export function createRejoinGuard({
   }
 
   let emptySince: number | undefined;
+  let graceEpoch = 0;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   const expiryHooks = new Set<() => void>();
 
@@ -130,6 +133,7 @@ export function createRejoinGuard({
   function emptied(): void {
     if (emptySince !== undefined) return;
     emptySince = now();
+    graceEpoch += 1;
     if (graceMs <= 0) return;
     log('[rejoin] grace started');
     expiryTimer = setTimeout(() => {
@@ -149,6 +153,7 @@ export function createRejoinGuard({
   function occupied(): void {
     if (emptySince === undefined) return;
     emptySince = undefined;
+    graceEpoch += 1;
     clearExpiry();
   }
 
@@ -160,6 +165,7 @@ export function createRejoinGuard({
     },
     graceActive,
     isEmpty: () => emptySince !== undefined,
+    epoch: () => graceEpoch,
     wouldHold: () => graceMs > 0 && (emptySince === undefined || (elapsed() ?? 0) < graceMs),
     joined() {
       if (emptySince === undefined) return;

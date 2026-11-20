@@ -58,6 +58,7 @@ const meeting: StoredMeeting = {
   sealed: setup,
   holders: [{ name: 'ada', seat: 'chef' }],
   meetingCode: 'AB12CD',
+  runnerRevision: 7,
   startedAt: '2026-02-03T04:05:06.000Z',
   savedAt: '2026-02-03T04:06:07.000Z',
   state: {

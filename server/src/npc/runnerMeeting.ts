@@ -1,4 +1,11 @@
-import type { AgendaItem, NpcProfile, RunnerMeetingSnapshot, Scenario, ScenarioRole } from '@kaki/shared';
+import {
+  hostIdentityOf,
+  type AgendaItem,
+  type NpcProfile,
+  type RunnerMeetingSnapshot,
+  type Scenario,
+  type ScenarioRole,
+} from '@kaki/shared';
 
 /**
  * The runner's one view of the meeting. It holds the server's immutable snapshot and replaces it
@@ -21,26 +28,14 @@ export interface RunnerMeeting {
   hostIsHuman(): boolean;
   /** The scenario the conversation should use, made from the snapshot over the boot pack. */
   scenario(): Scenario;
-  /** Replace the snapshot when it is newer; returns false when it is stale or identical. */
-  apply(snapshot: RunnerMeetingSnapshot): boolean;
+  /**
+   * Replace the snapshot when it is newer; returns false when it is stale or identical.
+   * `newSequence` lets a fenced reconnect/prepare adopt a different meeting id even at a lower
+   * revision, because that meeting's revision starts again.
+   */
+  apply(snapshot: RunnerMeetingSnapshot, options?: { newSequence?: boolean }): boolean;
   /** Forget the snapshot, remembering which meeting (if known) must be fenced next. */
   clear(nextMeetingId?: string): void;
-}
-
-function hostRoleOf(scenario: Scenario): ScenarioRole | undefined {
-  const facilitator = scenario.roles.find((role) => role.facilitator === true);
-  if (facilitator !== undefined) return facilitator;
-  const hostNpc = (scenario.npcs ?? []).find((npc) => npc.role === 'host');
-  if (hostNpc === undefined) return undefined;
-  const attendee = scenario.attendees.find((candidate) => candidate.name === hostNpc.attendee);
-  return scenario.roles.find((role) => role.id === attendee?.role);
-}
-
-function hostNameOf(scenario: Scenario, hostRole: ScenarioRole | undefined): string | undefined {
-  const hostNpc = (scenario.npcs ?? []).find((npc) => npc.role === 'host');
-  if (hostNpc !== undefined) return hostNpc.attendee;
-  if (hostRole === undefined) return undefined;
-  return scenario.attendees.find((attendee) => attendee.role === hostRole.id)?.name;
 }
 
 function scenarioFromSnapshot(base: Scenario, snapshot: RunnerMeetingSnapshot): Scenario {
@@ -75,8 +70,8 @@ export function createRunnerMeeting(base: Scenario, initial?: RunnerMeetingSnaps
     return snapshot === undefined ? base : derived;
   }
 
-  function hostRole(): ScenarioRole | undefined {
-    return hostRoleOf(view());
+  function host(): ReturnType<typeof hostIdentityOf> {
+    return hostIdentityOf(view());
   }
 
   return {
@@ -90,12 +85,21 @@ export function createRunnerMeeting(base: Scenario, initial?: RunnerMeetingSnaps
     roles: () => view().roles,
     cast: () => view().npcs ?? [],
     castNames: () => names,
-    hostName: () => snapshot?.hostName ?? hostNameOf(view(), hostRole()),
-    hostSeat: () => snapshot?.hostSeat ?? hostRole()?.id,
+    hostName: () => snapshot?.hostName ?? host().name,
+    hostSeat: () => snapshot?.hostSeat ?? host().seat,
     hostIsHuman: () => snapshot?.hostIsHuman === true,
     scenario: view,
-    apply(next) {
-      if (next.version <= knownVersion) return false;
+    apply(next, options) {
+      if (knownMeetingId !== undefined || snapshot !== undefined) {
+        if (next.meetingId === knownMeetingId) {
+          // After a clear the snapshot is gone but its id is expected: that meeting's revision may
+          // start again. A snapshot still held only ever moves forward.
+          if (snapshot !== undefined && next.version <= knownVersion) return false;
+        } else if (options?.newSequence !== true) {
+          // Without a fenced path, a stale answer for another meeting must never replace this one.
+          return false;
+        }
+      }
       adopt(next);
       return true;
     },

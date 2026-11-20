@@ -19,6 +19,7 @@ function fakeRunner(meetingId: string | undefined) {
     meetingId: () => meetingId,
     wasPreparedFor: (_id: string) => false,
     reconcileMeeting: vi.fn((_state: RunnerMeetingSnapshot) => undefined),
+    prepareMeeting: vi.fn(async (_request: unknown) => undefined),
     markStarted: vi.fn(async (_state: RunnerStartState & { meetingId?: string }) => undefined),
     resetMeeting: vi.fn((next?: string) => {
       meetingId = next;
@@ -130,5 +131,48 @@ describe('meeting sync', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(changed).toEqual(['meeting-2']);
+  });
+
+  it('prepares the exact snapshot it fetched for the attempt', async () => {
+    const runner = fakeRunner('meeting-1');
+    const state = stateOf('meeting-1', false);
+    const sync = createMeetingSync({ runner, fetchState: async () => state, log: () => undefined });
+
+    const outcome = await sync.prepare({ requestId: 'request-1', attempt: 'attempt-1', meetingId: 'meeting-1' });
+
+    expect(outcome).toEqual({ kind: 'prepared' });
+    expect(runner.prepareMeeting).toHaveBeenCalledWith({
+      meetingId: 'meeting-1',
+      attempt: 'attempt-1',
+      snapshot: state,
+    });
+  });
+
+  it('refuses a prepare whose snapshot arrived after a reset and never touches the newer meeting', async () => {
+    const runner = fakeRunner('meeting-1');
+    const stale = deferred<RunnerMeetingSnapshot>();
+    const sync = createMeetingSync({ runner, fetchState: () => stale.promise, log: () => undefined });
+
+    const outcome = sync.prepare({ requestId: 'request-1', attempt: 'attempt-1', meetingId: 'meeting-1' });
+    sync.reset('meeting-2');
+    stale.resolve(stateOf('meeting-1', false));
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'superseded' });
+    expect(runner.prepareMeeting).not.toHaveBeenCalled();
+    expect(runner.meetingId()).toBe('meeting-2');
+  });
+
+  it('refuses a prepare whose snapshot names another meeting', async () => {
+    const runner = fakeRunner('meeting-1');
+    const sync = createMeetingSync({
+      runner,
+      fetchState: async () => stateOf('meeting-2', false),
+      log: () => undefined,
+    });
+
+    const outcome = await sync.prepare({ requestId: 'request-1', attempt: 'attempt-1', meetingId: 'meeting-1' });
+
+    expect(outcome).toMatchObject({ kind: 'failed' });
+    expect(runner.prepareMeeting).not.toHaveBeenCalled();
   });
 });

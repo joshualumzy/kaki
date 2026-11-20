@@ -19,7 +19,7 @@ import {
  * The server refuses to load a meeting saved by a different version, so an old row is never
  * guessed at or silently replaced with an empty meeting.
  */
-export const MEETING_STATE_SCHEMA_VERSION = 6;
+export const MEETING_STATE_SCHEMA_VERSION = 7;
 
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
@@ -108,6 +108,8 @@ export interface SavedMeetingDetails {
 /** Everything one save point writes: the session's details plus the running record. */
 export interface MeetingSnapshot extends SavedMeetingDetails {
   state: SavedMeetingState;
+  /** The runner snapshot revision at this save; a restored meeting continues from it, never the clock. */
+  runnerRevision?: number;
 }
 
 /** One saved meeting, as stored and loaded. */
@@ -293,6 +295,13 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
     return 'its save time is not a date';
   }
   if (!isNonEmptyString(saved.meetingId)) return 'its meeting identity is missing';
+  const runnerRevision = (saved as { runnerRevision?: unknown }).runnerRevision;
+  if (
+    runnerRevision !== undefined &&
+    (!Number.isInteger(runnerRevision) || (runnerRevision as number) < 0)
+  ) {
+    return 'its runner revision is not valid';
+  }
   const phase = phaseProblem((saved as { phase?: unknown }).phase);
   if (phase !== undefined) return phase;
   const draft = setupProblem((saved as { draft?: unknown }).draft, scenario);

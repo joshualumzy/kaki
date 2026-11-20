@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { defaultMeetingSetup, type Scenario } from '@kaki/shared';
+import { defaultMeetingSetup, meetingScenarioFromSetup, type Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../src/app';
 import { createAuth } from '../src/auth/module';
 import { createMemoryAuthStore } from '../src/auth/store';
@@ -86,7 +86,7 @@ interface StartOptions {
   saved?: StoredMeeting;
   store?: MemoryStore;
   scenario?: Scenario;
-  roster?: () => Array<{ name: string }> | undefined;
+  roster?: () => Array<{ name: string }> | undefined | Promise<Array<{ name: string }> | undefined>;
   graceMs?: number;
   pollMs?: number;
   reservationMs?: number;
@@ -201,6 +201,39 @@ describe('restoring a running meeting keeps the people LiveKit still shows', () 
     await persistence.flush();
     expect(store.saved?.abandoned).toBe(true);
     expect(store.saved?.holders).toEqual([]);
+  });
+});
+
+describe('a delayed grace read never prunes a replacement meeting', () => {
+  it('drops an empty roster answer that a reset and a new Start superseded', async () => {
+    let rosterCalls = 0;
+    let release!: (roster: Array<{ name: string }>) => void;
+    const firstRead = new Promise<Array<{ name: string }>>((resolve) => {
+      release = resolve;
+    });
+    const { app } = await startApp({
+      saved: savedRunning(),
+      roster: () => {
+        rosterCalls += 1;
+        return rosterCalls === 1 ? firstRead : [];
+      },
+      graceMs: 20,
+      pollMs: 60_000,
+    });
+    await waitFor(() => (rosterCalls > 0 ? true : undefined), 'the old grace roster read');
+
+    const setup = defaultMeetingSetup(structuredClone(testScenario));
+    app.session.reset();
+    app.session.addHolder({ name: 'bea', seat: 'cashier' });
+    app.session.beginStart(meetingScenarioFromSetup(testScenario, setup), setup);
+    app.session.commitStart('2026-01-02T00:00:00.000Z');
+
+    release([]);
+    await settle(80);
+
+    expect(app.session.holders()).toEqual([{ name: 'bea', seat: 'cashier' }]);
+    expect(app.session.abandoned()).toBe(false);
+    expect(app.session.phase()).toBe('running');
   });
 });
 

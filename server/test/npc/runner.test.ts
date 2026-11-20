@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, roleForZoomName, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, defaultMeetingSetup, meetingScenarioFromSetup, roleForZoomName, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -627,6 +627,131 @@ describe('reconnect catch-up', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(transcript.length).toBe(before);
       expect(transcript.some((line) => line.startsWith('Next up'))).toBe(false);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('setup edits before Start', () => {
+  it('rebuilds the conversation so a renamed agenda item keeps its briefing', async () => {
+    rooms.length = 0;
+    const pack = await loadScenario('kopitiam');
+    const bootPack = { ...pack, agenda: pack.agenda.slice(0, 2) };
+    const runner = await startNpcRunner({
+      scenario: bootPack,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      responseDelayMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+
+      const renamed = pack.agenda[4]!;
+      const editedAgenda = [renamed, pack.agenda[1]!];
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-1',
+        snapshot: runnerSnapshot(pack, { meetingId: 'meeting-1', agenda: editedAgenda, version: 2 }),
+      });
+      await runner.markStarted({ meetingId: 'meeting-1' });
+
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(renamed.title)).toBe(true));
+      expect(runner.onCurrentAgenda(bootPack.agenda[0]!.title)).toBe(false);
+      expect(renamed.briefing?.length ?? 0).toBeGreaterThan(0);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('an ended meeting on reconnect', () => {
+  it('stops the conversation and never speaks the closing line on catch-up', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      const before = transcript.length;
+
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
+      );
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Are we still going?' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      expect(transcript).toHaveLength(before);
+      expect(log.some((line) => line.includes('ended'))).toBe(true);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('a facilitator moved before Start', () => {
+  it('announces as the facilitator attendee, not the old host profile', async () => {
+    rooms.length = 0;
+    const pack = await loadScenario('kopitiam');
+    const draft = defaultMeetingSetup(pack);
+    const moved = {
+      ...draft,
+      agenda: [{ id: 'agenda-1', title: 'Opening plan', minutes: 5, ownerRoleId: 'producer' }],
+      roles: draft.roles.map((role) =>
+        role.id === 'lead_programmer'
+          ? { ...role, facilitator: true }
+          : role.id === 'studio_manager'
+            ? { ...role, facilitator: false }
+            : role,
+      ),
+    };
+    const effective = meetingScenarioFromSetup(pack, moved);
+    const state = runnerSnapshot(effective, { meetingId: 'meeting-1', version: 2 });
+    const transcript: Array<[string, string]> = [];
+    const runner = await startNpcRunner({
+      scenario: pack,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (speaker, text) => transcript.push([speaker, text]),
+      initialMeeting: state,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false });
+
+      expect(runner.hostName()).toBe('Arjun');
+      await vi.waitFor(() => expect(transcript.some(([, text]) => text.startsWith('Welcome to'))).toBe(true));
+      const welcome = transcript.find(([, text]) => text.startsWith('Welcome to'))!;
+      expect(welcome[0]).toBe('Arjun');
     } finally {
       await runner.stop();
     }

@@ -1,4 +1,6 @@
 import type { NpcProfile, RunnerMeetingSnapshot } from '@kaki/shared';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { waitForRunnerCast } from '../../src/npc/bootMeeting';
 import { testScenario } from '../fixtures/scenario';
@@ -54,4 +56,41 @@ describe('runner boot with no AI cast on disk', () => {
     expect(result.scenario.npcs).toEqual([sam]);
     expect(lines.filter((line) => line.includes('no AI cast'))).toHaveLength(1);
   });
+
+  it('keeps the process alive while it waits for a cast to appear', async () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const script = `
+      import { waitForRunnerCast } from './server/src/npc/bootMeeting.ts';
+      import { testScenario } from './server/test/fixtures/scenario.ts';
+      import { runnerSnapshot } from './server/test/fixtures/runnerSnapshot.ts';
+      const none = runnerSnapshot(testScenario, { cast: [], version: 1 });
+      const cast = runnerSnapshot(testScenario, {
+        cast: [{ attendee: 'Ada', voice: 'v', personality: 'p', agenda: 'a', concerns: [], role: 'host' }],
+        version: 2,
+      });
+      let reads = 0;
+      const boot = await waitForRunnerCast({
+        base: testScenario,
+        fetchState: async () => (reads++ === 0 ? none : cast),
+        retryMs: 100,
+      });
+      console.log('BOOTED ' + boot.snapshot.cast.length);
+    `;
+    const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    const code = await new Promise<number | null>((resolve) => child.once('exit', resolve));
+    clearTimeout(timeout);
+
+    expect(stderr).toBe('');
+    expect(code).toBe(0);
+    // Without a referenced retry timer the child exits before the second read, so nothing is booted.
+    expect(stdout).toContain('BOOTED 1');
+  }, 10_000);
 });

@@ -14,11 +14,22 @@ describe('RunnerMeeting', () => {
     expect(meeting.agendaIndex()).toBe(0);
   });
 
-  it('rejects another meeting when it is not newer than the one already held', async () => {
+  it('treats another meeting id as a new sequence, even at a lower version', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const meeting = createRunnerMeeting(scenario, runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 40 }));
+
+    expect(
+      meeting.apply(runnerSnapshot(scenario, { meetingId: 'meeting-2', version: 1 }), { newSequence: true }),
+    ).toBe(true);
+    expect(meeting.meetingId()).toBe('meeting-2');
+    expect(meeting.version()).toBe(1);
+  });
+
+  it('refuses another meeting id on an unfenced path', async () => {
     const scenario = await loadScenario('kopitiam');
     const meeting = createRunnerMeeting(scenario, runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 4 }));
 
-    expect(meeting.apply(runnerSnapshot(scenario, { meetingId: 'meeting-2', version: 4 }))).toBe(false);
+    expect(meeting.apply(runnerSnapshot(scenario, { meetingId: 'meeting-2', version: 5 }))).toBe(false);
     expect(meeting.meetingId()).toBe('meeting-1');
   });
 
@@ -38,6 +49,7 @@ describe('RunnerMeeting', () => {
           cast,
           hostIsHuman: true,
         }),
+        { newSequence: true },
       ),
     ).toBe(true);
     expect(meeting.meetingId()).toBe('meeting-2');

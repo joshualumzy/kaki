@@ -378,7 +378,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   // --- The person: their voice activity, and the words the browser recognised. ---
   let conversation: NpcConversation<Int16Array> | undefined;
-  let castNames = '';
+  /** Everything the conversation was built from; a snapshot edit before Start rebuilds it. */
+  let conversationKey = '';
   interface Person {
     name: string;
     role: string;
@@ -406,15 +407,17 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /**
    * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
    * nothing the person says or types reaches them. A person in the host's seat opens the meeting themselves, so they skip this.
+   * This is the runner having opened the conversation locally, not a mirror of the server snapshot's `started`.
    */
-  let started = false;
-  let paused = false;
+  let openedLocally = false;
+  /** The conversation's local playback pause; it follows the snapshot but also holds a visitor stop or an empty room. */
+  let pausedLocally = false;
   /** The Start attempt that prepared the cast, if the server has not opened the meeting yet. */
   let prepared: { meetingId: string; attempt: string } | undefined;
   /** Bumped whenever the local meeting is cleared, so a prepare that was overtaken cannot report ready. */
   let runnerGeneration = 0;
-  /** The server's authoritative place for this start: item 0 normally, the saved item after a restore. */
-  let startAgendaIndex = 0;
+  /** The item this Start was asked to open at; a Start event can arrive before the matching snapshot. */
+  let openingAgendaIndex = 0;
   let startResumed = false;
   /** The first topic is opened once per meeting, independently of whether the welcome was already spoken. */
   let startInitialized = false;
@@ -430,9 +433,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   function markMeetingStarted(reason: string, state?: RunnerStartState): Promise<void> {
     if (closing) return Promise.resolve();
-    if (!started) {
-      started = true;
-      startAgendaIndex = Number.isInteger(state?.agendaIndex) ? Math.max(0, state?.agendaIndex ?? 0) : 0;
+    if (!openedLocally) {
+      openedLocally = true;
+      openingAgendaIndex = Number.isInteger(state?.agendaIndex) ? Math.max(0, state?.agendaIndex ?? 0) : 0;
       startResumed = state?.resumed === true;
       log(reason);
       let resolve!: () => void;
@@ -446,7 +449,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     return startWait?.promise ?? Promise.resolve();
   }
-  const meetingOpen = (): boolean => (started || hostIsHuman()) && !paused;
+  const meetingOpen = (): boolean => (openedLocally || hostIsHuman()) && !pausedLocally;
 
   /** Make the room match the people in it and have a conversation ready, without opening the meeting. */
   async function ensureCast(): Promise<void> {
@@ -462,7 +465,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       if (conversation !== undefined) {
         conversation.close();
         conversation = undefined;
-        castNames = '';
+        conversationKey = '';
       }
       return;
     }
@@ -477,27 +480,30 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       log(`${name} left ${roomName}`);
     }
 
-    const names = wanted.map((npc) => npc.attendee).join(',');
     if (wanted.length === 0) {
       // A sealed setup can take every seat as a person: nobody is voiced, and the old conversation is gone.
       if (conversation !== undefined) {
         conversation.close();
         conversation = undefined;
-        castNames = '';
+        conversationKey = '';
       }
       return;
     }
-    if (conversation === undefined || names !== castNames || !started) {
-      if (conversation === undefined || names !== castNames) {
-        conversation?.close();
-        conversation = makeConversation(wanted);
-        castNames = names;
-      }
+    // The conversation carries the agenda and roles it was built with, so a lobby edit that keeps the
+    // same AI names still needs a fresh conversation before Start.
+    const key = JSON.stringify({ agenda: meeting.agenda(), roles: meeting.roles(), cast: wanted });
+    const rebuilt = conversation === undefined || key !== conversationKey;
+    if (rebuilt) {
+      conversation?.close();
+      conversation = makeConversation(wanted);
+      conversationKey = key;
+    }
+    if (rebuilt || !openedLocally) {
       const person = [...humans.values()].at(-1)!;
       const role = meeting.roles().find(
         (candidate) => candidate.id.toLowerCase() === person.role.trim().toLowerCase() || candidate.label.toLowerCase() === person.role.trim().toLowerCase(),
       );
-      conversation.setHuman({
+      conversation!.setHuman({
         name: person.name,
         role: person.role,
         transcriptName: role === undefined ? person.name : `${person.name} (${role.label})`,
@@ -523,9 +529,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         // Open the first topic once per meeting, through this one serialized path. It must not depend
         // on the welcome: a coalesced host cue may already have spoken the welcome and set `welcomed`
         // before this queue runs, which used to leave the briefing, question and timer uninitialized.
-        if (started && !startInitialized) {
+        if (openedLocally && !startInitialized) {
           startInitialized = true;
-          const index = Math.max(0, Math.min(startAgendaIndex, Math.max(0, meeting.agenda().length - 1)));
+          const index = Math.max(0, Math.min(openingAgendaIndex, Math.max(0, meeting.agenda().length - 1)));
           const title = meeting.agenda()[index]?.title;
           if (startResumed) {
             // A restored meeting was already welcomed; resume its saved item instead of opening item zero again.
@@ -552,9 +558,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         // can genuinely try again instead of resolving a no-op.
         const failedOpening = startWait !== undefined;
         if (failedOpening) {
-          started = false;
+          openedLocally = false;
           startInitialized = false;
-          startAgendaIndex = 0;
+          openingAgendaIndex = 0;
           startResumed = false;
         }
         settleStart(error);
@@ -568,15 +574,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     prepared = undefined;
     conversation?.close();
     conversation = undefined;
-    castNames = '';
+    conversationKey = '';
     welcomed = false;
     visitorTaskDispatches = 0;
     visitorDispatchTopic = undefined;
-    started = false;
+    openedLocally = false;
     startInitialized = false;
-    startAgendaIndex = 0;
+    openingAgendaIndex = 0;
     startResumed = false;
-    paused = false;
+    pausedLocally = false;
     emptyPaused = false;
     rejoinPending = false;
     memory.reset();
@@ -595,7 +601,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function adoptSnapshot(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
     const changed = held !== undefined && held !== state.meetingId;
-    if (!meeting.apply(state)) return;
+    if (!meeting.apply(state, { newSequence: true })) return;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
@@ -604,8 +610,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   /** The person's local pause follows the server's snapshot; a pause reported by this runner is a no-op. */
   function adoptPaused(next: boolean): void {
-    if (paused === next) return;
-    paused = next;
+    if (pausedLocally === next) return;
+    pausedLocally = next;
     if (next) {
       talking.clear();
       for (const vad of vads.values()) vad.close();
@@ -651,7 +657,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function reconcileMeeting(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
     const changed = held !== undefined && held !== state.meetingId;
-    const accepted = meeting.apply(state);
+    const accepted = meeting.apply(state, { newSequence: true });
     const current = meeting.current();
     // The same snapshot arriving again (for example on reconnect) is still reconciled locally: a
     // process that booted from it has not yet opened the meeting or caught up its topic.
@@ -665,12 +671,28 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
     }
-    const lostStart = started && !state.started && state.phase !== 'ended';
+    if (state.phase === 'ended') {
+      // A reconnect can learn the meeting ended without hearing the live END cue. A closing line is
+      // only spoken for a live cue; catching up here just stops the conversation and clears local start.
+      if (openedLocally) log(`the server says meeting ${state.meetingId} ended; stopping the conversation`);
+      openedLocally = false;
+      startInitialized = false;
+      openingAgendaIndex = 0;
+      startResumed = false;
+      pausedLocally = true;
+      prepared = undefined;
+      talking.clear();
+      for (const vad of vads.values()) vad.close();
+      conversation?.stop();
+      if (changed && humans.size > 0) syncCast();
+      return;
+    }
+    const lostStart = openedLocally && !state.started;
     if (lostStart) {
       log(`the server no longer has meeting ${state.meetingId} started; clearing it`);
       clearLocalMeeting();
     }
-    if (state.started && !started) {
+    if (state.started && !openedLocally) {
       // A preparation for exactly this meeting is the Start attempt we were asked to get ready for:
       // open it through the fresh path so the guest hears the one welcome and the topic initializes.
       // Only an unprepared meeting (a restart or another runner instance) resumes, and a resume
@@ -681,9 +703,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         agendaIndex: state.agendaIndex,
         resumed: !fresh,
       }).catch((error: unknown) => log(`could not resume the running meeting: ${String(error)}`));
-    } else if (state.started && started) {
+    } else if (state.started && openedLocally) {
       // Catch-up after a dropped socket: move the topic exactly as a "Next up" cue would, silently.
-      startAgendaIndex = state.agendaIndex;
+      openingAgendaIndex = state.agendaIndex;
       const title = meeting.agenda()[state.agendaIndex]?.title;
       if (title !== undefined && conversation?.currentTopicTitle() !== title) {
         resetDispatchCountOn(title);
@@ -702,9 +724,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   /** Nobody is in the room: hold the conversation exactly where it is, like pressing Pause. */
   function pauseForEmptyRoom(): void {
-    if (!started && !hostIsHuman()) return;
-    if (paused) return;
-    paused = true;
+    if (!openedLocally && !hostIsHuman()) return;
+    if (pausedLocally) return;
+    pausedLocally = true;
     emptyPaused = true;
     talking.clear();
     for (const vad of vads.values()) vad.close();
@@ -717,7 +739,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function resumeFromEmptyRoom(): void {
     if (!emptyPaused) return;
     emptyPaused = false;
-    paused = false;
+    pausedLocally = false;
     options.onPauseChange?.(false);
     const hostName = meeting.hostName();
     if (conversation !== undefined && !hostIsHuman() && hostName !== undefined) {
@@ -880,32 +902,32 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         // MEETING_STARTED. A browser Start that still arrives here must not open anything.
         log(`ignored a LiveKit Start from ${participant.identity}: the meeting starts on the server`);
       } else if (message.kind === 'stop') {
-        if (!started && !hostIsHuman()) {
+        if (!openedLocally && !hostIsHuman()) {
           log('ignored stop: the meeting has not started');
           return;
         }
-        paused = true;
+        pausedLocally = true;
         options.onPauseChange?.(true);
         talking.clear();
         for (const vad of vads.values()) vad.close();
         log(`${participant.identity} pressed stop`);
         conversation?.stop();
       } else if (message.kind === 'resume') {
-        if (!started && !hostIsHuman()) {
+        if (!openedLocally && !hostIsHuman()) {
           log('ignored resume: the meeting has not started');
           return;
         }
-        paused = false;
+        pausedLocally = false;
         options.onPauseChange?.(false);
         log(`${participant.identity} pressed resume`);
         conversation?.resumeFromPause();
       } else if (message.kind === 'lock') {
-        if (started || hostIsHuman()) conversation?.lockDecision();
-      } else if (!started && !hostIsHuman()) {
+        if (openedLocally || hostIsHuman()) conversation?.lockDecision();
+      } else if (!openedLocally && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {
-        if (paused) {
-          paused = false;
+        if (pausedLocally) {
+          pausedLocally = false;
           options.onPauseChange?.(false);
         }
         typingUntil = Date.now() + TYPING_QUIET_MS;
@@ -1095,7 +1117,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       conversation.pointAtCard(note, options);
     },
     pause() {
-      paused = true;
+      pausedLocally = true;
       talking.clear();
       for (const vad of vads.values()) vad.close();
       conversation?.stop();
@@ -1103,7 +1125,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     announceClosing(text) {
       const hostName = meeting.hostName();
       if (hostName === undefined || conversation === undefined) return;
-      paused = true;
+      pausedLocally = true;
       talking.clear();
       for (const vad of vads.values()) vad.close();
       conversation.announceClosing(hostName, text);

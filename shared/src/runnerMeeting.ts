@@ -1,4 +1,4 @@
-import type { AgendaItem, NpcProfile, ScenarioRole } from './scenario';
+import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenario';
 import type { Role } from './roles';
 
 /** The one meeting snapshot the AI runner reads; the server replaces it wholesale on every change. */
@@ -99,4 +99,45 @@ export function isRunnerMeetingSnapshot(value: unknown): value is RunnerMeetingS
 /** The role that chairs this meeting, when the scenario names one. */
 export function facilitatorRole(roles: readonly ScenarioRole[]): Role | undefined {
   return roles.find((role) => role.facilitator === true)?.id;
+}
+
+/** The seat and attendee that chair a meeting, read from the same effective scenario everywhere. */
+export interface MeetingHostIdentity {
+  /** The role id of the facilitator, or of the NPC marked as host when no role is the facilitator. */
+  seat?: string;
+  /** The attendee who holds that seat. */
+  name?: string;
+}
+
+/**
+ * Resolve the meeting's host from its effective setup. A facilitator role decides the seat and the
+ * attendee in it; the legacy `role: 'host'` NPC profile is only a fallback for scenarios with no
+ * facilitator. Moving the facilitator therefore moves the host identity with it.
+ */
+export function hostIdentityOf(scenario: Scenario): MeetingHostIdentity {
+  const facilitator = scenario.roles.find((role) => role.facilitator === true);
+  if (facilitator !== undefined) {
+    const attendee = scenario.attendees.find((candidate) => candidate.role === facilitator.id);
+    return { seat: facilitator.id, ...(attendee === undefined ? {} : { name: attendee.name }) };
+  }
+  const hostNpc = (scenario.npcs ?? []).find((npc) => npc.role === 'host');
+  if (hostNpc === undefined) return {};
+  const attendee = scenario.attendees.find((candidate) => candidate.name === hostNpc.attendee);
+  return { ...(attendee === undefined ? {} : { seat: attendee.role }), name: hostNpc.attendee };
+}
+
+/**
+ * Give the effective host attendee the host profile the conversation reads. A pack's old host
+ * profile is demoted when the facilitator seat moved to another AI attendee.
+ */
+export function castWithHostProfile(
+  cast: readonly NpcProfile[],
+  hostName: string | undefined,
+): NpcProfile[] {
+  if (hostName === undefined) return cast.map((npc) => ({ ...npc }));
+  return cast.map((npc) => {
+    if (npc.attendee === hostName) return { ...npc, role: 'host' };
+    if (npc.role === 'host') return { ...npc, role: 'participant' };
+    return { ...npc };
+  });
 }

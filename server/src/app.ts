@@ -1551,11 +1551,13 @@ export async function createApp({
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
   // Its version moves only when a field a runner can see changes, so a reconnect can fence old reads.
-  // Seeded from the wall clock so a restarted server still publishes a version a runner considers newer.
-  let runnerStateVersion = 0;
+  // The version is a saved monotonic revision, not the clock: a restored meeting continues it, while a
+  // fresh server has a new meetingId and the runner treats that new id (learned through the fenced
+  // reconnect/prepare paths) as a new sequence whose revision starts again.
+  let runnerStateVersion = savedMeeting?.runnerRevision ?? 0;
   let runnerStateSignature: string | undefined;
   function nextRunnerStateVersion(): number {
-    runnerStateVersion = Math.max(Date.now(), runnerStateVersion + 1);
+    runnerStateVersion += 1;
     return runnerStateVersion;
   }
   function publishRunnerState(): RunnerMeetingSnapshot {
@@ -1593,9 +1595,21 @@ export async function createApp({
   // roster read that succeeds, shows no person and no live reservation may prune and abandon.
   let rosterOutageLogged = false;
   function checkRoomBeforePruning(): void {
+    // The read can arrive after the owner reset and started a replacement meeting. It only applies
+    // to the grace window it was asked for, never to the next meeting's holders.
+    const forMeetingId = meeting.id;
+    const forGeneration = session.generation();
+    const forGraceEpoch = rejoin.epoch();
     const roomName = watchedRoom ?? demoRoomName(session.active());
     void roomRoster(roomName)
       .then((roster) => {
+        if (
+          meeting.id !== forMeetingId ||
+          session.generation() !== forGeneration ||
+          rejoin.epoch() !== forGraceEpoch
+        ) {
+          return;
+        }
         if (roster === undefined) {
           if (!rosterOutageLogged) {
             console.warn(
@@ -1620,6 +1634,13 @@ export async function createApp({
         persistence?.scheduleSave();
       })
       .catch((error: unknown) => {
+        if (
+          meeting.id !== forMeetingId ||
+          session.generation() !== forGeneration ||
+          rejoin.epoch() !== forGraceEpoch
+        ) {
+          return;
+        }
         if (rosterOutageLogged) return;
         rosterOutageLogged = true;
         console.warn(
@@ -2072,6 +2093,7 @@ export async function createApp({
         session,
         packFree,
         meetingDetails: () => session.snapshot(),
+        runnerRevision: () => runnerStateVersion,
       });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {

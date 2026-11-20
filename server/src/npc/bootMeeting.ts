@@ -56,12 +56,15 @@ export async function waitForRunnerCast({
       }
     }
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, retryMs);
-      timer.unref?.();
-      signal?.addEventListener('abort', () => {
+      // This timer must stay referenced: with no cast yet it is the only thing keeping the runner
+      // process alive until the server publishes one.
+      const done = (): void => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', done);
         resolve();
-      }, { once: true });
+      };
+      const timer = setTimeout(done, retryMs);
+      signal?.addEventListener('abort', done, { once: true });
     });
   }
 }

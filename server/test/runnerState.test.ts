@@ -103,4 +103,29 @@ describe('the runner meeting snapshot', () => {
     expect(after.hostIsHuman).toBe(true);
     expect(after.hostName).toBe('Sam');
   });
+
+  it('moves the host name and host profile with the facilitator seat in the effective setup', async () => {
+    const pack = await loadScenario('kopitiam');
+    const current = await appFor(pack);
+    const draft = defaultMeetingSetup(pack);
+    const moved = {
+      ...draft,
+      agenda: [{ id: 'agenda-1', title: 'Opening plan', minutes: 5, ownerRoleId: 'producer' }],
+      roles: draft.roles.map((role) =>
+        role.id === 'lead_programmer'
+          ? { ...role, facilitator: true }
+          : role.id === 'studio_manager'
+            ? { ...role, facilitator: false }
+            : role,
+      ),
+    };
+    current.session.setDraft(moved);
+
+    const state = buildRunnerMeetingSnapshot({ meetingId: 'meeting-1', session: current.session, fullScenario: pack });
+
+    expect(state.hostSeat).toBe('lead_programmer');
+    expect(state.hostName).toBe('Arjun');
+    expect(state.cast.find((npc) => npc.attendee === 'Arjun')?.role).toBe('host');
+    expect(state.cast.find((npc) => npc.attendee === 'Sam')?.role).not.toBe('host');
+  });
 });

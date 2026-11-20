@@ -377,36 +377,21 @@ function wireServiceSocket(socket: WebSocket): void {
   };
 
   const prepareMeeting = (request: PrepareRequest): void => {
-    // Anything the runner learned from a state read before this attempt is already out of date.
-    meetingSync.prepareStarted();
-    // The cast and agenda come from the server's one snapshot, fetched for this exact attempt.
-    void runnerClient
-      .fetchMeetingState()
-      .then((snapshot) => {
-        if (snapshot.meetingId !== request.meetingId) {
-          throw new Error(`the server state names meeting ${snapshot.meetingId}, not ${request.meetingId}`);
-        }
-        // The sync module is the only writer of the runner's meeting snapshot.
-        meetingSync.snapshot(snapshot);
-        return runner.prepareMeeting({
-          meetingId: request.meetingId,
-          attempt: request.attempt,
-          ...(request.agendaIndex === undefined ? {} : { agendaIndex: request.agendaIndex }),
-          ...(request.resumed === undefined ? {} : { resumed: request.resumed }),
-        });
-      })
-      .then(() => {
-        if (runner.meetingId() !== request.meetingId) {
-          throw new Error(`the runner moved to meeting ${runner.meetingId()} while preparing ${request.meetingId}`);
-        }
+    // The sync module is the only writer of the runner's meeting snapshot, and its generation fence
+    // covers the whole fetch-and-prepare continuation: a superseded attempt never reaches the runner.
+    void meetingSync.prepare(request).then((outcome) => {
+      if (outcome.kind === 'prepared') {
         log(`prepared meeting ${request.meetingId} for server Start attempt ${request.attempt}`);
         acknowledge(request.requestId, request.attempt, request.meetingId, true);
-      })
-      .catch((error: unknown) => {
-        const reason = error instanceof Error ? error.message : String(error);
-        logError(`the meeting failed to prepare for server Start attempt ${request.attempt}: ${reason}`);
-        acknowledge(request.requestId, request.attempt, request.meetingId, false, reason);
-      });
+        return;
+      }
+      if (outcome.kind === 'superseded') {
+        log(`refused a stale prepare for meeting ${request.meetingId}: ${outcome.reason}`);
+        return;
+      }
+      logError(`the meeting failed to prepare for server Start attempt ${request.attempt}: ${outcome.reason}`);
+      acknowledge(request.requestId, request.attempt, request.meetingId, false, outcome.reason);
+    });
   };
 
   const onPrepare = (event: ServiceEvent): void => {

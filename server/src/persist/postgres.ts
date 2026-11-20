@@ -38,6 +38,7 @@ export async function ensureMeetingStateSchema(pool: Pool): Promise<void> {
   await pool.query('alter table meeting_state add column if not exists holders jsonb');
   await pool.query('alter table meeting_state add column if not exists lobby_agenda jsonb');
   await pool.query('alter table meeting_state add column if not exists abandoned boolean');
+  await pool.query('alter table meeting_state add column if not exists runner_revision integer');
 }
 
 interface MeetingStateRow {
@@ -56,6 +57,7 @@ interface MeetingStateRow {
   seats: SavedSeatAssignment[] | null;
   lobby_agenda: string[] | null;
   abandoned: boolean | null;
+  runner_revision: number | null;
 }
 
 /** The Postgres-backed store the running server uses. */
@@ -65,7 +67,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
       const result = await pool.query<MeetingStateRow>(
         `select schema_version, saved_at, started_at, state, meeting_id, phase, draft, sealed,
                 draft_touched, draft_edited_since_seal, meeting_code, holders, seats,
-                lobby_agenda, abandoned
+                lobby_agenda, abandoned, runner_revision
            from meeting_state where id = $1`,
         [MEETING_STATE_ID],
       );
@@ -87,6 +89,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
         holders: row.holders ?? row.seats ?? [],
         ...(row.lobby_agenda === null ? {} : { lobbyAgenda: row.lobby_agenda }),
         ...(row.abandoned === true ? { abandoned: true } : {}),
+        ...(row.runner_revision === null ? {} : { runnerRevision: row.runner_revision }),
       };
       return meeting;
     },
@@ -95,8 +98,9 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
       await pool.query(
         `insert into meeting_state
            (id, schema_version, saved_at, started_at, state, meeting_id, phase, draft, sealed,
-            draft_touched, draft_edited_since_seal, meeting_code, holders, lobby_agenda, abandoned)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            draft_touched, draft_edited_since_seal, meeting_code, holders, lobby_agenda, abandoned,
+            runner_revision)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          on conflict (id) do update set
            schema_version = excluded.schema_version,
            saved_at = excluded.saved_at,
@@ -111,7 +115,8 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
            meeting_code = excluded.meeting_code,
            holders = excluded.holders,
            lobby_agenda = excluded.lobby_agenda,
-           abandoned = excluded.abandoned`,
+           abandoned = excluded.abandoned,
+           runner_revision = excluded.runner_revision`,
         [
           MEETING_STATE_ID,
           meeting.schemaVersion,
@@ -128,6 +133,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
           JSON.stringify(meeting.holders),
           meeting.lobbyAgenda === undefined ? null : JSON.stringify(meeting.lobbyAgenda),
           meeting.abandoned === true,
+          meeting.runnerRevision ?? null,
         ],
       );
     },

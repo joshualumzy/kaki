@@ -1,26 +1,13 @@
-import type { RunnerMeetingSnapshot, Scenario } from '@kaki/shared';
-
-function hostRoleOf(scenario: Scenario): string | undefined {
-  const facilitator = scenario.roles.find((role) => role.facilitator === true);
-  if (facilitator !== undefined) return facilitator.id;
-  const hostNpc = (scenario.npcs ?? []).find((npc) => npc.role === 'host');
-  if (hostNpc === undefined) return undefined;
-  return scenario.attendees.find((attendee) => attendee.name === hostNpc.attendee)?.role;
-}
-
-function hostNameOf(scenario: Scenario, hostSeat: string | undefined): string | undefined {
-  const hostNpc = (scenario.npcs ?? []).find((npc) => npc.role === 'host');
-  if (hostNpc !== undefined) return hostNpc.attendee;
-  return scenario.attendees.find((attendee) => attendee.role === hostSeat)?.name;
-}
+import { castWithHostProfile, hostIdentityOf, type RunnerMeetingSnapshot, type Scenario } from '@kaki/shared';
 
 /** A complete runner snapshot from a scenario, so tests never hand-build the wire shape. */
 export function runnerSnapshot(
   scenario: Scenario,
   overrides: Partial<RunnerMeetingSnapshot> = {},
 ): RunnerMeetingSnapshot {
-  const hostSeat = hostRoleOf(scenario);
-  const hostName = hostNameOf(scenario, hostSeat);
+  const host = hostIdentityOf(scenario);
+  const hostSeat = host.seat;
+  const hostName = host.name;
   return {
     meetingId: 'meeting-1',
     phase: 'lobby',
@@ -28,7 +15,7 @@ export function runnerSnapshot(
     agendaIndex: 0,
     agenda: scenario.agenda.map((item) => ({ ...item })),
     roles: scenario.roles.map((role) => ({ ...role })),
-    cast: (scenario.npcs ?? []).map((npc) => ({ ...npc })),
+    cast: castWithHostProfile(scenario.npcs ?? [], hostName),
     ...(scenario.meetingTitle === undefined ? {} : { meetingTitle: scenario.meetingTitle }),
     ...(hostName === undefined ? {} : { hostName }),
     ...(hostSeat === undefined ? {} : { hostSeat }),

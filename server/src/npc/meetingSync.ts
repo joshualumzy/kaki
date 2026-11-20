@@ -59,11 +59,24 @@ export function parseStartedEvent(value: unknown): StartedEvent | undefined {
   };
 }
 
+/** How one server prepare attempt ended. */
+export type PrepareOutcome =
+  | { kind: 'prepared' }
+  | { kind: 'failed'; reason: string }
+  | { kind: 'superseded'; reason: string };
+
 /** The runner operations the sync needs; the real one is `startNpcRunner`'s return value. */
 export interface MeetingSyncRunner {
   meetingId(): string | undefined;
   wasPreparedFor(meetingId: string): boolean;
   reconcileMeeting(state: RunnerMeetingSnapshot): void;
+  prepareMeeting(request: {
+    meetingId: string;
+    attempt: string;
+    agendaIndex?: number;
+    resumed?: boolean;
+    snapshot?: RunnerMeetingSnapshot;
+  }): Promise<void>;
   markStarted(state: { meetingId?: string; agendaIndex?: number; resumed?: boolean }): Promise<void>;
   resetMeeting(meetingId?: string): void;
 }
@@ -80,8 +93,11 @@ export interface MeetingSyncOptions {
 export interface MeetingSync {
   /** A service socket (re)connected: discard anything older, then adopt the server's snapshot. */
   connected(): void;
-  /** A Start attempt is beginning: a state read asked for before it belongs to the old meeting. */
-  prepareStarted(): void;
+  /**
+   * Prepare one Start attempt from one snapshot, fenced end to end. A reset, reconnect or newer
+   * attempt supersedes it: the late answer is logged and never reaches the runner.
+   */
+  prepare(request: PrepareRequest): Promise<PrepareOutcome>;
   /** MEETING_STARTED arrived: open immediately for this attempt, otherwise hydrate from the server. */
   started(event: StartedEvent): void;
   /** A RUNNER_STATE event arrived: adopt it unless it is older than the snapshot already held. */
@@ -128,8 +144,60 @@ export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }:
       generation += 1;
       readState(apply);
     },
-    prepareStarted() {
+    async prepare(request) {
+      // One generation fence covers the whole continuation: fetch, snapshot adoption and the
+      // runner's preparation. Any reset, reconnect, Start or newer prepare changes it.
       generation += 1;
+      const fence = generation;
+      const supersededReason = `prepare attempt ${request.attempt} for meeting ${request.meetingId} was superseded`;
+      let state: RunnerMeetingSnapshot;
+      try {
+        state = await fetchState();
+      } catch (error: unknown) {
+        if (fence !== generation) {
+          log(`discarded a superseded meeting-state read: ${supersededReason}`);
+          return { kind: 'superseded', reason: supersededReason };
+        }
+        log(`could not read the meeting state: ${String(error)}`);
+        return { kind: 'failed', reason: error instanceof Error ? error.message : String(error) };
+      }
+      if (fence !== generation) {
+        log(`discarded a superseded prepare snapshot: ${supersededReason}`);
+        return { kind: 'superseded', reason: supersededReason };
+      }
+      if (state.meetingId !== request.meetingId) {
+        return {
+          kind: 'failed',
+          reason: `the server state names meeting ${state.meetingId}, not ${request.meetingId}`,
+        };
+      }
+      apply(state);
+      try {
+        await runner.prepareMeeting({
+          meetingId: request.meetingId,
+          attempt: request.attempt,
+          ...(request.agendaIndex === undefined ? {} : { agendaIndex: request.agendaIndex }),
+          ...(request.resumed === undefined ? {} : { resumed: request.resumed }),
+          snapshot: state,
+        });
+      } catch (error: unknown) {
+        if (fence !== generation) {
+          log(`discarded a superseded prepare: ${supersededReason}`);
+          return { kind: 'superseded', reason: supersededReason };
+        }
+        return { kind: 'failed', reason: error instanceof Error ? error.message : String(error) };
+      }
+      if (fence !== generation) {
+        log(`discarded a superseded prepare: ${supersededReason}`);
+        return { kind: 'superseded', reason: supersededReason };
+      }
+      if (runner.meetingId() !== request.meetingId) {
+        return {
+          kind: 'failed',
+          reason: `the runner moved to meeting ${runner.meetingId()} while preparing ${request.meetingId}`,
+        };
+      }
+      return { kind: 'prepared' };
     },
     started(event) {
       // Any state read asked for before this start would say "not started"; it must not undo it.
