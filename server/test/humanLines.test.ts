@@ -73,7 +73,7 @@ async function humanOnlyApp(
   speechRecognition: 'server' | 'browser' = 'browser',
 ): Promise<{ app: KakiApp; port: number; llm: ReturnType<typeof createFakeLlm> }> {
   const pack = await loadScenario('kopitiam');
-  const llm = createFakeLlm(() => JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [] }));
+  const llm = createFakeLlm(() => JSON.stringify({ newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [] }));
   const app = await createApp({
     scenario: pack,
     modules: [createMeetingModule({ llm, notetakerIntervalMs: 40 })],

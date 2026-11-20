@@ -29,6 +29,17 @@ export type NotetakerStatus = 'waiting' | 'ok' | 'stale' | 'off';
 /** Every notetaker status. */
 export const NOTETAKER_STATUSES: readonly NotetakerStatus[] = ['waiting', 'ok', 'stale', 'off'];
 
+/**
+ * A judgement the notetaker could not make (a reversal, an answer's meaning, or a follow-up assignment)
+ * after its one retry. Cards and decisions are left as they were; the room can resolve it later.
+ */
+export interface ReviewIssue {
+  id: string;
+  text: string;
+  /** The agenda item the doubtful evidence belongs to. */
+  agendaIndex: number;
+}
+
 /** The event types the meeting protocol knows about. */
 export type KakiEventType =
   | 'TRANSCRIPT_CHUNK'
@@ -101,6 +112,8 @@ export type KakiEvent =
         paused?: boolean;
         /** Why the meeting is paused, so a phone's button reflects an empty-room pause too. */
         pauseKind?: 'empty-room' | 'person';
+        /** Judgements the notetaker could not make; cards and questions were left unchanged. */
+        reviewIssues?: ReviewIssue[];
       }
     >
   | KakiEventOf<
@@ -191,6 +204,15 @@ function isFact(value: unknown): value is Fact {
   return isObject(value) && isString(value.text) && isString(value.source) && isString(value.date);
 }
 
+function isReviewIssue(value: unknown): value is ReviewIssue {
+  return (
+    isObject(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.text) &&
+    isAgendaIndex(value.agendaIndex)
+  );
+}
+
 function isQuestion(value: unknown, scenario: Scenario): value is Question {
   return (
     isObject(value) &&
@@ -240,7 +262,9 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     (payload.quietRoles === undefined ||
       (Array.isArray(payload.quietRoles) && payload.quietRoles.every((role) => isRoleIn(scenario, role)))) &&
     (payload.paused === undefined || typeof payload.paused === 'boolean') &&
-    (payload.pauseKind === undefined || payload.pauseKind === 'empty-room' || payload.pauseKind === 'person'),
+    (payload.pauseKind === undefined || payload.pauseKind === 'empty-room' || payload.pauseKind === 'person') &&
+    (payload.reviewIssues === undefined ||
+      (Array.isArray(payload.reviewIssues) && payload.reviewIssues.every(isReviewIssue))),
   HOST_SPEECH_TRIGGERED: (payload) =>
     (payload.kind === 'OPENING' ||
       payload.kind === 'TIMEOUT' ||

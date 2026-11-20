@@ -370,10 +370,11 @@ const taskResponder = createTaskResponder({
   llm,
   plays: (attendee) => runner.plays(attendee),
   volunteeredOnTopic: (attendee) => runner.volunteeredOnTopic(attendee),
+  completedLinesOnTopic: () => runner.completedLinesOnTopic(),
   say: (attendee, text, onDone) =>
     cueOrder.after((spoken) => {
       if (spoken) runner.say(attendee, text, onDone);
-      else onDone();
+      else onDone(false);
     }),
   send: sendAs,
   log,
@@ -547,8 +548,10 @@ function wireServiceSocket(socket: WebSocket): void {
       if (colleague) {
         const name = payload.assignee!;
         const title = payload.title!;
+        // The old topic-wide volunteer flag no longer silences Sam: a line on the topic is not proof the
+        // colleague promised this exact task. The exact judgement happens when the colleague answers.
         const cue = colleagueCue(runner.hostName() ?? 'Sam', name, title, {
-          volunteered: runner.volunteeredOnTopic(name),
+          volunteered: false,
           assignedByGuest: runner.askedByGuestOnTopic(name),
         });
         if (cue.quietBecause !== undefined) {

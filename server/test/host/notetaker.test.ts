@@ -2,14 +2,19 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { Hub } from '../../src/hub';
 import {
+  answerMatchesQuestion,
   createNotetaker,
   hasTaskAssignment,
+  isAffirmativeAnswer,
   isGrounded,
   isHypotheticalProposal,
   isLikelyDuplicate,
   isLikelyDuplicateQuestion,
   parseNotetakerReply,
   taskMatchesAssignment,
+  type AnswerCandidate,
+  type ResolvedTaskCandidate,
+  type VerifierResult,
 } from '../../src/host/notetaker';
 import { loadReplay, type ReplayLine } from '../../src/host/replay';
 import { createFakeLlm, type ChatMessage } from '../../src/llm';
@@ -27,7 +32,44 @@ function quietHub(): Hub {
 }
 
 function reply(body: Record<string, unknown>): string {
-  return JSON.stringify({ newQuestions: [], answeredQuestionIds: [], newTasks: [], ...body });
+  return JSON.stringify({
+    newQuestions: [],
+    answeredQuestionIds: [],
+    answeredQuestions: [],
+    newTasks: [],
+    revisions: [],
+    ...body,
+  });
+}
+
+/** Reproduce the old lexical verdicts for the tests that check record keeping rather than meaning. */
+async function lexicalVerify(answers: AnswerCandidate[], tasks: ResolvedTaskCandidate[]): Promise<VerifierResult> {
+  return {
+    answers: new Map(
+      answers.map((answer) => [
+        answer.id,
+        isAffirmativeAnswer(answer.source.text) && answerMatchesQuestion(answer.question.text, answer.source.text)
+          ? 'yes'
+          : 'no',
+      ]),
+    ),
+    tasks: new Map(
+      tasks.map((candidate) => {
+        const lexicalOk =
+          hasTaskAssignment(candidate.source.text) &&
+          !isHypotheticalProposal(candidate.source.text) &&
+          taskMatchesAssignment(candidate.task, candidate.source);
+        return [
+          candidate.index,
+          {
+            verdict: lexicalOk ? 'yes' : 'no',
+            assigneeRole: lexicalOk ? (candidate.lexicalOwner ?? candidate.task.suggestedAssignee) : null,
+          },
+        ];
+      }),
+    ),
+    issues: [],
+  };
 }
 
 function userMessage(messages: ChatMessage[]): string {
@@ -52,14 +94,26 @@ function slice(from: number, to: number): ReplayLine[] {
   return replay.filter((line) => line.at >= from && line.at < to);
 }
 
-function setup(respond: Parameters<typeof createFakeLlm>[0], startIndex = 0) {
+function setup(
+  respond: Parameters<typeof createFakeLlm>[0],
+  startIndex = 0,
+  verify: (answers: AnswerCandidate[], tasks: ResolvedTaskCandidate[]) => Promise<VerifierResult> = lexicalVerify,
+  verifier?: ReturnType<typeof createFakeLlm>,
+) {
   const tasks = createTaskStore({ hub: quietHub(), scenario });
   const llm = createFakeLlm(respond);
   let agendaIndex = startIndex;
   const onAgendaIndex = vi.fn((index: number) => {
     agendaIndex = index;
   });
-  const notetaker = createNotetaker({ scenario: () => scenario, tasks, llm, agendaIndex: () => agendaIndex, onAgendaIndex });
+  const notetaker = createNotetaker({
+    scenario: () => scenario,
+    tasks,
+    llm,
+    ...(verifier === undefined ? { verify } : { verifier }),
+    agendaIndex: () => agendaIndex,
+    onAgendaIndex,
+  });
   const feed = (lines: ReplayLine[]) => lines.forEach((line) => notetaker.addChunk(line));
   const setAgendaIndex = (index: number) => {
     agendaIndex = index;
@@ -657,7 +711,7 @@ describe('task precision', () => {
         ],
       }),
     );
-    const notetaker = createNotetaker({ scenario: () => kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
+    const notetaker = createNotetaker({ scenario: () => kopitiamScenario, tasks, llm, verify: lexicalVerify, agendaIndex: () => 1 });
     notetaker.addChunk({ speaker: 'Feifei Li', text: 'We should separate cash collection from food prep.' });
     notetaker.addChunk({ speaker: 'Arjun', text: 'Move the counter?' });
     notetaker.addChunk({ speaker: 'Feifei Li', text: 'Whatever that that that that box. Away from the food, right?' });
@@ -689,7 +743,7 @@ describe('task precision', () => {
         ],
       }),
     );
-    const notetaker = createNotetaker({ scenario: () => kopitiamScenario, tasks, llm, agendaIndex: () => 1 });
+    const notetaker = createNotetaker({ scenario: () => kopitiamScenario, tasks, llm, verify: lexicalVerify, agendaIndex: () => 1 });
     notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us add the regulars price on the till.' });
     notetaker.addChunk({
       speaker: 'Mei',
@@ -726,7 +780,15 @@ describe('decision context across notetaker batches', () => {
   it('drops a superseded decision instead of mixing it with the correction', async () => {
     const corrected =
       'Actually wait, make it 8:30 to 10 AM; the floor managers still enforce it and we measure table turnover.';
-    const { llm, notetaker, setAgendaIndex } = setup(() => reply({}), 1);
+    const { llm, notetaker, setAgendaIndex } = setup(
+      (_messages, call) =>
+        call === 1
+          ? reply({
+              revisions: [{ oldDecisionEvidence: seatingDecision, changeEvidence: corrected, taskIds: [] }],
+            })
+          : reply({}),
+      1,
+    );
     setAgendaIndex(1);
 
     notetaker.addChunk({ speaker: 'Feifei Li', text: seatingDecision });
@@ -989,7 +1051,11 @@ describe('decision context across notetaker batches', () => {
     const assignment = 'Mei, can you post the corrected decision in the team channel today?';
     const { tasks, notetaker, setAgendaIndex } = setup(
       (_messages, call) =>
-        call === 2
+        call === 1
+          ? reply({
+              revisions: [{ oldDecisionEvidence: seatingDecision, changeEvidence: corrected, taskIds: [] }],
+            })
+          : call === 2
           ? reply({
               newTasks: [
                 {
@@ -1016,6 +1082,248 @@ describe('decision context across notetaker batches', () => {
 
     expect(tasks.list()).toHaveLength(1);
     expect(tasks.list()[0]?.decisionSource).toBeUndefined();
+  });
+});
+
+describe('decision revisions', () => {
+  const seatingDecision =
+    'We will run the booth rule from 8 to 10:30 AM, the floor managers enforce it, and we measure table turnover every morning.';
+  const cashDecision =
+    'We will keep one cashier on the till from 8 to 11 AM, Wei Ling owns it, and we count the float at close every night.';
+  const seatingAssignment = 'Mei, can you post the seating decision in the team channel today so everyone has it?';
+  const cashAssignment = 'Wei Ling, can you post the cash decision in the team channel today so everyone has it?';
+  const seatingCorrection =
+    'Actually wait, make it 8:30 to 10 AM; the floor managers still enforce it and we measure table turnover.';
+
+  function firstPassReply() {
+    return reply({
+      newTasks: [
+        {
+          title: 'Post the seating decision in the team channel',
+          context: 'Announce the seating rule.',
+          suggestedAssignee: 'game_designer',
+          actionKind: 'mattermost_post',
+          evidence: seatingAssignment,
+          decisionEvidence: seatingDecision,
+        },
+        {
+          title: 'Post the cash decision in the team channel',
+          context: 'Announce the till and float rule.',
+          suggestedAssignee: 'producer',
+          actionKind: 'mattermost_post',
+          evidence: cashAssignment,
+          decisionEvidence: cashDecision,
+        },
+      ],
+    });
+  }
+
+  function feedFirstPass(notetaker: ReturnType<typeof setup>['notetaker']): void {
+    notetaker.addChunk({ speaker: 'Feifei Li', text: seatingDecision });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: cashDecision });
+    notetaker.addChunk({ speaker: 'Mei', text: seatingAssignment });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: cashAssignment });
+  }
+
+  it('retires only the card linked to the decision that was actually reversed', async () => {
+    const { tasks, notetaker } = setup((_messages, call) => {
+      if (call === 0) return firstPassReply();
+      const seatingTask = tasks.list().find((task) => task.title.startsWith('Post the seating'));
+      return reply({
+        revisions: [
+          {
+            oldDecisionEvidence: seatingDecision,
+            changeEvidence: seatingCorrection,
+            taskIds: [seatingTask!.id],
+          },
+        ],
+      });
+    });
+
+    feedFirstPass(notetaker);
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Feifei Li', text: seatingCorrection });
+    await notetaker.run();
+
+    const byTitle = new Map(tasks.list().map((task) => [task.title, task.status]));
+    expect(byTitle.get('Post the seating decision in the team channel')).toBe('SUPERSEDED');
+    expect(byTitle.get('Post the cash decision in the team channel')).toBe('SUGGESTED');
+    expect(notetaker.state().reviewIssues).toEqual([]);
+  });
+
+  it('does not dismiss cards for ordinary "instead of" discussion', async () => {
+    const { tasks, notetaker } = setup((_messages, call) =>
+      call === 0
+        ? firstPassReply()
+        : reply({}),
+    );
+
+    feedFirstPass(notetaker);
+    await notetaker.run();
+    notetaker.addChunk({
+      speaker: 'Wei Ling',
+      text: 'Instead of posting the cash decision, let us post the seating decision first.',
+    });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.status)).toEqual(['SUGGESTED', 'SUGGESTED']);
+    expect(notetaker.state().reviewIssues).toEqual([]);
+  });
+
+  it('leaves every card alone when the revision names an invented task id', async () => {
+    const { tasks, notetaker } = setup((_messages, call) =>
+      call === 0
+        ? firstPassReply()
+        : reply({
+            revisions: [
+              {
+                oldDecisionEvidence: seatingDecision,
+                changeEvidence: seatingCorrection,
+                taskIds: ['task-does-not-exist'],
+              },
+            ],
+          }),
+    );
+
+    feedFirstPass(notetaker);
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Feifei Li', text: seatingCorrection });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.status)).toEqual(['SUGGESTED', 'SUGGESTED']);
+    expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('does not exist'))).toBe(true);
+  });
+
+  it('leaves a card alone when the revision names one that is no longer suggested', async () => {
+    const { tasks, notetaker } = setup((_messages, call) => {
+      if (call === 0) return firstPassReply();
+      const seatingTask = tasks.list().find((task) => task.title.startsWith('Post the seating'));
+      return reply({
+        revisions: [
+          {
+            oldDecisionEvidence: seatingDecision,
+            changeEvidence: seatingCorrection,
+            taskIds: [seatingTask!.id],
+          },
+        ],
+      });
+    });
+
+    feedFirstPass(notetaker);
+    await notetaker.run();
+    const seatingTask = tasks.list().find((task) => task.title.startsWith('Post the seating'))!;
+    tasks.transition(seatingTask.id, 'DISPATCHED', { assignee: 'game_designer' });
+    notetaker.addChunk({ speaker: 'Feifei Li', text: seatingCorrection });
+    await notetaker.run();
+
+    expect(tasks.get(seatingTask.id)?.status).toBe('DISPATCHED');
+    expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('not a suggested card'))).toBe(true);
+  });
+
+  it('keeps cards unchanged and still lets the agenda move when the revision list cannot be read twice', async () => {
+    const { tasks, llm, notetaker, onAgendaIndex, setAgendaIndex } = setup((_messages, call) =>
+      call === 0
+        ? firstPassReply()
+        : JSON.stringify({ agendaIndex: 1, newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [] }),
+    );
+    setAgendaIndex(0);
+
+    feedFirstPass(notetaker);
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Feifei Li', text: 'Let us move on to delivery.' });
+    await notetaker.run();
+
+    // One good pass, then the malformed reply and its one retry.
+    expect(llm.calls).toHaveLength(3);
+    expect(tasks.list().map((task) => task.status)).toEqual(['SUGGESTED', 'SUGGESTED']);
+    expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('withdrawn or replaced'))).toBe(true);
+    expect(onAgendaIndex).toHaveBeenCalledWith(1);
+  });
+
+  it('does not invent a revision when the guest never withdraws a decision', async () => {
+    const { tasks, notetaker } = setup((_messages, call) =>
+      call === 0
+        ? firstPassReply()
+        : reply({ newTasks: [] }),
+    );
+
+    feedFirstPass(notetaker);
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Wei Ling', text: 'The cash decision still stands.' });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.status)).toEqual(['SUGGESTED', 'SUGGESTED']);
+    expect(notetaker.state().reviewIssues).toEqual([]);
+  });
+});
+
+describe('semantic verifier for tasks', () => {
+  const line = "I'll post the final plan in the team channel once we settle the pickup code.";
+  const task = {
+    title: 'Post the final plan in the team channel',
+    context: 'Post the agreed plan once the pickup code is settled.',
+    suggestedAssignee: 'producer',
+    actionKind: 'mattermost_post',
+    evidence: line,
+  };
+
+  it('creates no card when the verifier says the line is about different work', async () => {
+    const verifier = createFakeLlm(() =>
+      JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'no', assigneeRole: null }] }),
+    );
+    const { tasks, notetaker } = setup(() => reply({ newTasks: [task] }), 0, lexicalVerify, verifier);
+
+    notetaker.addChunk({ speaker: 'Wei Ling', text: line });
+    await notetaker.run();
+
+    expect(tasks.list()).toEqual([]);
+    expect(verifier.calls).toHaveLength(1);
+    expect(notetaker.state().reviewIssues).toEqual([]);
+  });
+
+  it('uses the verifier\'s owner even when the lexical address check sees another role', async () => {
+    const assignment = 'Mei, can you post the seating decision in the team channel today?';
+    const verifier = createFakeLlm(() =>
+      JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'yes', assigneeRole: 'producer' }] }),
+    );
+    const { tasks, notetaker } = setup(
+      () =>
+        reply({
+          newTasks: [
+            {
+              title: 'Post the seating decision in the team channel',
+              context: 'Announce the seating rule.',
+              suggestedAssignee: 'game_designer',
+              actionKind: 'mattermost_post',
+              evidence: assignment,
+            },
+          ],
+        }),
+      0,
+      lexicalVerify,
+      verifier,
+    );
+
+    notetaker.addChunk({ speaker: 'Mei', text: assignment });
+    await notetaker.run();
+
+    expect(tasks.list()[0]?.suggestedAssignee).toBe('producer');
+  });
+
+  it('leaves a card uncreated with a visible issue when the verifier reply is unreadable twice', async () => {
+    const verifier = createFakeLlm(() => 'not json');
+    const { tasks, notetaker } = setup(() => reply({ newTasks: [task] }), 0, lexicalVerify, verifier);
+
+    notetaker.addChunk({ speaker: 'Wei Ling', text: line });
+    await notetaker.run();
+
+    expect(tasks.list()).toEqual([]);
+    expect(verifier.calls).toHaveLength(2);
+    expect(
+      notetaker.state().reviewIssues.some((issue) =>
+        issue.text.includes('Could not confirm whether "Post the final plan in the team channel" was agreed or assigned.'),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -1282,6 +1590,8 @@ describe('notetaker reply parsing', () => {
           agendaIndex: 9,
           newQuestions: [{ text: 'Who owns QA?', forRole: 'qa_lead' }, { text: '' }, 'nope'],
           answeredQuestionIds: ['q-1', 3],
+          answeredQuestions: [],
+          revisions: [],
           newTasks: [
             {
               title: 'Book tablets',
@@ -1306,12 +1616,17 @@ describe('notetaker reply parsing', () => {
       newTasks: [
         { title: 'Book tablets', context: 'For the booth.', suggestedAssignee: 'producer', evidence: 'we save about four hundred' },
       ],
+      revisions: [],
     });
   });
 
   it('rejects a reply that is not a JSON object', () => {
     expect(() => parseNotetakerReply('[]', scenario)).toThrow(/object/);
     expect(() => parseNotetakerReply('nope', scenario)).toThrow(/JSON/);
+  });
+
+  it('treats a missing list as a failed pass, not an empty success', () => {
+    expect(() => parseNotetakerReply('{"newQuestions":[]}', scenario)).toThrow(/missing its .* list/);
   });
 });
 
@@ -1490,6 +1805,7 @@ describe('task agenda origin', () => {
           ],
         }),
       ),
+      verify: lexicalVerify,
       agendaIndex: () => 0,
       meetingElapsedSeconds: () => meetingSeconds,
     });

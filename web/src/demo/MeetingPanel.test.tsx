@@ -300,6 +300,63 @@ describe('MeetingPanel', () => {
     ).toBeTruthy();
   });
 
+  it('shows an undecided card as unresolved, with the reason and host controls', () => {
+    const task: Task = {
+      id: 'task-undecided',
+      title: 'Post the cash box decision',
+      context: 'Announce the cash box move.',
+      suggestedAssignee: 'producer',
+      error: 'AI colleague could not decide',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map([[task.id, task]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Joshua', seatName: 'Wei Ling' }}
+        role={scenario.roles[0]}
+        isHost
+      />,
+    );
+
+    expect(screen.getByText('Decision unresolved')).toBeTruthy();
+    expect(screen.getByText('AI colleague could not decide')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dispatch' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy();
+  });
+
+  it('shows a review issue on the shared record', () => {
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [{
+        type: 'MEETING_RECORD_UPDATED',
+        audience: { kind: 'screen' },
+        payload: {
+          agendaIndex: 0,
+          openQuestions: [],
+          elapsedSeconds: 5,
+          speakerTalkSeconds: {},
+          reviewIssues: [{ id: 'review-1', text: 'Could not confirm whether the cash question was answered.', agendaIndex: 0 }],
+        },
+      }],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} />);
+
+    expect(screen.getByText(/Needs a person's eye/)).toBeTruthy();
+    expect(screen.getByText('Could not confirm whether the cash question was answered.')).toBeTruthy();
+  });
+
   it('shows a catch only after the room has actually raised it, and never spoils an unraised one', () => {
     const scenarioWithTradeOffs: Scenario = {
       ...scenario,

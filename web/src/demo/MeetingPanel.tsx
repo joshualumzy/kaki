@@ -389,7 +389,7 @@ export function MeetingPanel({
                     {artifactLinkText(task)}
                   </a>
                 )}
-                {task.status === 'FAILED' && task.error !== undefined && <small role="alert">{task.error}</small>}
+                {task.error !== undefined && <small role="alert">{task.error}</small>}
                 {isHost && task.status === 'SUGGESTED' && (
                   <TaskControls
                     task={task}
@@ -442,6 +442,8 @@ export function MeetingPanel({
 
 function taskStatusText(task: Task): string {
   switch (task.status) {
+    case 'SUGGESTED':
+      return task.error === undefined ? 'suggested' : 'Decision unresolved';
     case 'CLAIMED':
       return task.mode === 'ACTION_AGENT' ? 'drafting…' : 'accepted';
     case 'DRAFT_READY':

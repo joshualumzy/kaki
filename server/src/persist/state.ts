@@ -10,6 +10,7 @@ import {
   type MeetingSetup,
   type NotetakerStatus,
   type Question,
+  type ReviewIssue,
   type Role,
   type Scenario,
   type Task,
@@ -61,6 +62,9 @@ export interface SavedNotetakerState {
   agendaContext: SavedTranscriptLine[];
   openQuestions: Question[];
   questionCount: number;
+  /** Judgements the notetaker could not make; optional so an older saved meeting still loads. */
+  reviewIssues?: ReviewIssue[];
+  reviewIssueCount?: number;
   status: NotetakerStatus;
   lastError?: string;
   talkByItem: Array<[number, Partial<Record<Role, number>>]>;
@@ -163,6 +167,15 @@ function isTranscriptLine(value: unknown, scenario: Scenario): value is SavedTra
   );
 }
 
+function isReviewIssue(value: unknown): value is ReviewIssue {
+  return (
+    isObject(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.text) &&
+    isNonNegativeInteger(value.agendaIndex)
+  );
+}
+
 function isQuestion(value: unknown, scenario: Scenario): value is Question {
   return (
     isObject(value) &&
@@ -222,6 +235,14 @@ function notetakerProblem(value: unknown, scenario: Scenario): string | undefine
     return 'its notetaker questions are not valid';
   }
   if (!isNonNegativeInteger(value.questionCount)) return 'its notetaker question count is not valid';
+  if (value.reviewIssues !== undefined) {
+    if (!Array.isArray(value.reviewIssues) || !value.reviewIssues.every((issue) => isReviewIssue(issue))) {
+      return 'its notetaker review issues are not valid';
+    }
+  }
+  if (value.reviewIssueCount !== undefined && !isNonNegativeInteger(value.reviewIssueCount)) {
+    return 'its notetaker review issue count is not valid';
+  }
   if (typeof value.status !== 'string' || !(NOTETAKER_STATUSES as readonly string[]).includes(value.status)) {
     return 'its notetaker status is not valid';
   }

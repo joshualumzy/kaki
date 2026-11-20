@@ -19,6 +19,8 @@ const TALK_STEP_SECONDS = 10;
 /** How the meeting module runs; `hostModules` builds this from the environment. */
 export interface MeetingModuleOptions {
   llm?: LlmClient;
+  /** The model that judges meaning for answers and assignments; defaults to `llm`. */
+  verifier?: LlmClient;
   /** Replay a scripted transcript: a scenario folder to load it from, or the lines themselves. */
   replay?: string | ReplayLine[];
   /** Meeting time per real second while replaying (2 = twice as fast). */
@@ -36,6 +38,7 @@ export interface MeetingModuleOptions {
  */
 export function createMeetingModule({
   llm,
+  verifier,
   replay,
   speed = 1,
   notetakerIntervalMs = DEFAULT_NOTETAKER_INTERVAL_MS,
@@ -62,6 +65,7 @@ export function createMeetingModule({
         scenario: activeScenario,
         tasks,
         llm,
+        ...(verifier === undefined ? {} : { verifier }),
         agendaIndex: () => clock.snapshot().agendaIndex,
         meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
         // Who is in the room: an AI seat is always there, a person seat only while someone holds it.
@@ -150,7 +154,7 @@ export function createMeetingModule({
       function publishRecord(): void {
         const now = clock.snapshot();
         if (!now.started) return;
-        const { openQuestions, talkSecondsFor, status, quietRoles } = notetaker.state();
+        const { openQuestions, reviewIssues, talkSecondsFor, status, quietRoles } = notetaker.state();
         const talk = talkSecondsFor(now.agendaIndex);
         const signature = JSON.stringify([
           now.agendaIndex,
@@ -158,6 +162,7 @@ export function createMeetingModule({
           Boolean(now.paused),
           now.paused ? now.pauseKind ?? null : null,
           openQuestions,
+          reviewIssues,
           status,
           quietRoles,
           Object.entries(talk).map(([role, seconds]) => [role, Math.floor((seconds ?? 0) / TALK_STEP_SECONDS)]),
@@ -176,6 +181,7 @@ export function createMeetingModule({
           payload: {
             agendaIndex: now.agendaIndex,
             openQuestions,
+            ...(reviewIssues.length === 0 ? {} : { reviewIssues }),
             elapsedSeconds: Math.floor(now.itemElapsedSeconds),
             speakerTalkSeconds: Object.fromEntries(
               Object.entries(talk).map(([role, seconds]) => [role, Math.round(seconds ?? 0)]),

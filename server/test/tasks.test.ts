@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, TaskStatus } from '@kaki/shared';
 import { CommandError, roleAudience } from '../src/hub';
+import { TASK_UNDECIDED_ERROR } from '../src/tasks';
 import { createTestApp } from './helpers';
 
 describe('task store change handlers', () => {
@@ -267,5 +268,41 @@ describe('declining a dispatched task', () => {
     expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, { kind: 'screen' })).toThrow(CommandError);
     app.tasks.handleCommand({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' }, roleAudience('chef'));
     expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, roleAudience('chef'))).toThrow(CommandError);
+  });
+});
+
+
+describe('returning a dispatched task undecided', () => {
+  let app: Awaited<ReturnType<typeof createTestApp>>;
+  beforeEach(async () => {
+    app = await createTestApp();
+  });
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('puts it back on the shared screen without counting as a decline, with a visible reason', () => {
+    const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    app.tasks.handleCommand({ type: 'RETURN_TASK_UNDECIDED', taskId: task.id }, roleAudience('chef'));
+
+    const returned = app.tasks.get(task.id)!;
+    expect(returned.status).toBe('SUGGESTED');
+    expect(returned.assignee).toBeUndefined();
+    expect(returned.declinedBy).toBeUndefined();
+    expect(returned.error).toBe(TASK_UNDECIDED_ERROR);
+    // A host can redispatch it, and that clears the unresolved reason.
+    app.tasks.handleCommand({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'cashier' }, { kind: 'screen' });
+    expect(app.tasks.get(task.id)?.assignee).toBe('cashier');
+    expect(app.tasks.get(task.id)?.error).toBeUndefined();
+  });
+
+  it('is only for the assigned role, and only while the task is dispatched', () => {
+    const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });
+    expect(() => app.tasks.handleCommand({ type: 'RETURN_TASK_UNDECIDED', taskId: task.id }, roleAudience('chef'))).toThrow(CommandError);
+    app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+    expect(() => app.tasks.handleCommand({ type: 'RETURN_TASK_UNDECIDED', taskId: task.id }, roleAudience('cashier'))).toThrow(CommandError);
+    expect(() => app.tasks.handleCommand({ type: 'RETURN_TASK_UNDECIDED', taskId: task.id }, { kind: 'screen' })).toThrow(CommandError);
   });
 });

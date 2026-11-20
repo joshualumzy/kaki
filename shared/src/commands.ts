@@ -7,6 +7,11 @@ export type KakiCommand =
   | { type: 'DISPATCH_TASK'; taskId: string; assignee: Role }
   | { type: 'DISMISS_TASK'; taskId: string }
   | { type: 'DECLINE_TASK'; taskId: string }
+  /**
+   * The assignee could not understand the task well enough to accept or decline it. The card goes back to the
+   * shared screen unresolved, without counting as a decline, so a host can re-dispatch or dismiss it.
+   */
+  | { type: 'RETURN_TASK_UNDECIDED'; taskId: string }
   | { type: 'CLAIM_TASK'; taskId: string; mode: 'ACTION_AGENT' | 'MANUAL' }
   | { type: 'APPROVE_ACTION'; taskId: string; draft: ActionDraft }
   | { type: 'RETRY_ACTION'; taskId: string; draft?: ActionDraft }
@@ -45,6 +50,7 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'DISPATCH_TASK',
   'DISMISS_TASK',
   'DECLINE_TASK',
+  'RETURN_TASK_UNDECIDED',
   'CLAIM_TASK',
   'APPROVE_ACTION',
   'RETRY_ACTION',
@@ -99,6 +105,7 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
       return isRoleIn(scenario, value.assignee);
     case 'DISMISS_TASK':
     case 'DECLINE_TASK':
+    case 'RETURN_TASK_UNDECIDED':
     case 'MARK_DONE':
     case 'SYNC_TASK':
       return true;

@@ -2,31 +2,54 @@ import { parseJsonReply, type LlmClient } from '../llm';
 import { isAssignmentEvidence, type ActionDraft, type KakiCommand, type KakiEvent, type NpcProfile, type Role, type Scenario, type Task } from '@kaki/shared';
 import { isHypotheticalProposal, isSelfVolunteerCommitment } from '../host/notetaker';
 
+/** One completed, actually heard transcript line on the topic the task came from. */
+export interface DecisionLine {
+  speaker: string;
+  text: string;
+  /** The agenda item it was heard on; a line without one cannot ground a prior commitment. */
+  agendaItemTitle?: string;
+}
+
 /** What the responder needs from the rest of the NPC process; each is replaced in tests. */
 export interface TaskResponderPorts {
   scenario: Scenario;
   llm: Pick<LlmClient, 'complete'>;
   /** True when this attendee is voiced by the AI right now (a person may have taken the seat). */
   plays(attendee: string): boolean;
-  /** True when this attendee said aloud they would take on a task at any point on the current topic. */
-  volunteeredOnTopic(attendee: string): boolean;
-  /** The attendee says the line aloud; `onDone` runs once they have finished (or the line was dropped). */
-  say(attendee: string, text: string, onDone: () => void): void;
+  /**
+   * The old topic-wide regex flag. It is only logged now: a line on the topic is never proof that this exact task
+   * was promised, so the model judges the task against the numbered transcript lines instead.
+   */
+  volunteeredOnTopic?(attendee: string): boolean;
+  /** Completed, actually heard lines on the current topic, oldest first. A cut or queued line is not included. */
+  completedLinesOnTopic?(): DecisionLine[];
+  /** The attendee says the line aloud; `onDone` runs once it has finished, with whether the room heard it. */
+  say(attendee: string, text: string, onDone: (spoken: boolean) => void): void;
   /** Send a command as the phone of `role` would. */
   send(role: Role, command: KakiCommand): void;
   log?(message: string): void;
   /** How long they "read" a draft before approving it; a person would not approve in the same instant. */
   approveDelayMs?: number;
+  /** The deadline for one decision attempt; a retry gets its own. */
+  decisionDeadlineMs?: number;
   /** When true, still claim and draft tasks, but never auto-approve or retry so nothing is sent. */
   draftOnly?: boolean;
 }
 
 /** Default pause before an AI attendee approves a draft. */
 export const DEFAULT_APPROVE_DELAY_MS = 6000;
+/** Default deadline for one decision call, so two failed attempts cannot leave the card waiting forever. */
+export const DEFAULT_DECISION_DEADLINE_MS = 12_000;
+/** How many times the decision is asked for: once, then one retry. */
+const DECISION_ATTEMPTS = 2;
+/** The most transcript lines put in front of the decision, so a long topic cannot grow the prompt without bound. */
+const MAX_DECISION_LINES = 40;
 
 interface Decision {
   accept: boolean;
-  line: string;
+  line: string | null;
+  priorCommitment: boolean;
+  evidenceIndex: number | null;
 }
 
 function profileFor(scenario: Scenario, role: Role): { npc: NpcProfile; attendee: string } | undefined {
@@ -54,8 +77,12 @@ function isTrustedCommitment(task: Task, attendee: string, scenario: Scenario): 
   return scope.title === task.title && scope.context === task.context && scope.actionKind === task.actionKind;
 }
 
-/** The model's accept-or-decline answer, or undefined when it is not usable. */
-export function parseDecision(text: string): Decision | undefined {
+/**
+ * The model's answer, or undefined when it is not usable. The ordinary decision needs a boolean and a nonempty
+ * spoken line. An extended decision also says whether the attendee already promised this exact task; `true` needs
+ * a line index and permits a silent claim, while `false` needs the ordinary line.
+ */
+export function parseDecision(text: string, requirePriorCommitment = false): Decision | undefined {
   let json: unknown;
   try {
     json = parseJsonReply(text);
@@ -63,9 +90,20 @@ export function parseDecision(text: string): Decision | undefined {
     return undefined;
   }
   if (typeof json !== 'object' || json === null) return undefined;
-  const { accept, line } = json as { accept?: unknown; line?: unknown };
+  const { accept, line, priorCommitment, evidenceIndex } = json as {
+    accept?: unknown;
+    line?: unknown;
+    priorCommitment?: unknown;
+    evidenceIndex?: unknown;
+  };
+  if (requirePriorCommitment && typeof priorCommitment !== 'boolean') return undefined;
+  if (priorCommitment === true) {
+    if (!Number.isInteger(evidenceIndex) || (evidenceIndex as number) < 0) return undefined;
+    return { accept: true, line: null, priorCommitment: true, evidenceIndex: evidenceIndex as number };
+  }
+  if (priorCommitment !== undefined && typeof priorCommitment !== 'boolean') return undefined;
   if (typeof accept !== 'boolean' || typeof line !== 'string' || line.trim() === '') return undefined;
-  return { accept, line: line.trim() };
+  return { accept, line: line.trim(), priorCommitment: false, evidenceIndex: null };
 }
 
 /**
@@ -79,8 +117,47 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
   const approved = new Set<string>();
   const retried = new Set<string>();
 
-  async function decide(task: Task, npc: NpcProfile, role: Role): Promise<Decision> {
+  /**
+   * Check a prior-commitment answer against the exact line it points at: the line must exist on this topic, be
+   * the attendee's own, and still describe this same task. Anything else is unreadable, never an acceptance.
+   */
+  function priorCommitmentLine(
+    decision: Decision,
+    task: Task,
+    attendee: string,
+    lines: DecisionLine[],
+  ): DecisionLine | undefined {
+    if (decision.evidenceIndex === null) return undefined;
+    const line = lines[decision.evidenceIndex];
+    if (line === undefined) return undefined;
+    if (baseSpeakerName(line.speaker) !== baseSpeakerName(attendee)) return undefined;
+    if (line.agendaItemTitle === undefined) return undefined;
+    if (task.agendaItemTitle !== undefined && line.agendaItemTitle !== task.agendaItemTitle) return undefined;
+    const evidence = task.assignmentEvidence;
+    if (evidence !== undefined) {
+      if (baseSpeakerName(evidence.speaker) !== baseSpeakerName(attendee)) return undefined;
+      const { scope } = evidence;
+      if (scope.title !== task.title || scope.context !== task.context || scope.actionKind !== task.actionKind) {
+        return undefined;
+      }
+      if (evidence.quote.trim() !== line.text.trim()) return undefined;
+    }
+    // The old lexical check is a backstop for the log only; the model's meaning-based answer is what counts.
+    if (!isSelfVolunteerCommitment(line.text, scenario, line.speaker)) {
+      log?.(`the model saw a prior commitment in a line the lexical check would not: "${line.text}"`);
+    }
+    return line;
+  }
+
+  async function decide(
+    task: Task,
+    npc: NpcProfile,
+    role: Role,
+    lines: DecisionLine[],
+  ): Promise<Decision | undefined> {
     const fact = scenario.agenda.find((item) => item.title === task.agendaItemTitle)?.seatFacts?.[role];
+    const recent = lines.slice(-MAX_DECISION_LINES);
+    const numbered = recent.map((line, index) => `${index + 1}. ${line.speaker}: ${line.text}`);
     const system = [
       `You are ${npc.attendee} in a work meeting. ${npc.personality}`,
       `What you want: ${npc.agenda}`,
@@ -88,55 +165,101 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
       fact === undefined ? '' : `Things you know: ${fact}`,
       'The meeting host has just handed you a task. Decide, as this character, whether to take it.',
       'Accept it (`"accept": true`) if it is a follow-up ticket, post, email or note for your role or something your role talked about. Only decline (`"accept": false`) if the task clearly belongs to a completely different role.',
-      'Reply with one JSON object: {"accept": true or false, "line": what you say aloud, in your own voice}.',
+      'Also judge whether you already promised this exact task. `priorCommitment` is true only for this attendee\'s direct, unconditional, unretracted promise to do this exact title, details, and action kind; requests, hypotheticals, and other work are false. `evidenceIndex` is that line\'s number, or null.',
+      'Reply with one JSON object: {"priorCommitment": true or false, "evidenceIndex": number or null, "accept": true or false, "line": what you say aloud or null}.',
+      'When priorCommitment is true you may set accept to true and line to null. Otherwise give a nonempty spoken line.',
       `When accepting ("accept": true), clearly say you will take the task${fact === undefined ? '' : ', with one brief concrete detail from the things you know above'}. Never invent numbers, facts, drafts or prerequisites. Make a statement, never ask a question. Use plain everyday words, without office-speak.`,
     ]
       .filter((part) => part !== '')
       .join('\n');
-    const user = `Task: ${task.title}\nDetails: ${task.context}`;
-    try {
-      const reply = await llm.complete(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        { json: true, temperature: 0.7 },
-      );
-      const decision = parseDecision(reply);
-      if (decision !== undefined) return decision;
-      log?.(`could not read ${npc.attendee}'s answer to "${task.title}"; accepting`);
-    } catch (error) {
-      log?.(`${npc.attendee}'s answer to "${task.title}" failed (${error instanceof Error ? error.message : String(error)}); accepting`);
+    const user = [
+      `Task: ${task.title}`,
+      `Details: ${task.context}`,
+      ...(task.actionKind === undefined ? [] : [`Action: ${task.actionKind}`]),
+      'Completed lines on this topic, oldest first (numbered from 1):',
+      ...(recent.length === 0 ? ['(none)'] : numbered),
+    ].join('\n');
+    const requirePriorCommitment = recent.length > 0;
+    const deadlineMs = ports.decisionDeadlineMs ?? DEFAULT_DECISION_DEADLINE_MS;
+
+    for (let attempt = 0; attempt < DECISION_ATTEMPTS; attempt += 1) {
+      try {
+        const reply = await llm.complete(
+          [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          { json: true, temperature: 0.7, signal: AbortSignal.timeout(deadlineMs) },
+        );
+        const decision = parseDecision(reply, requirePriorCommitment);
+        if (decision === undefined) {
+          log?.(`could not read ${npc.attendee}'s answer to "${task.title}" (attempt ${attempt + 1})`);
+          continue;
+        }
+        if (decision.priorCommitment) {
+          const line = priorCommitmentLine(decision, task, npc.attendee, recent);
+          if (line === undefined) {
+            log?.(
+              `${npc.attendee}'s prior commitment for "${task.title}" does not match a heard line (attempt ${attempt + 1})`,
+            );
+            continue;
+          }
+          log?.(`${npc.attendee} already promised "${task.title}" in: "${line.text}"`);
+        }
+        return decision;
+      } catch (error) {
+        log?.(
+          `${npc.attendee}'s answer to "${task.title}" failed (attempt ${attempt + 1}): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
-    const fallbackLines = [
-      "Sure, I'll take that one.",
-      "On it, I'll sort that out.",
-      "No problem, leave that with me.",
-      "Steady, I can handle that.",
-    ];
-    const line = fallbackLines[Math.abs(task.title.length) % fallbackLines.length]!;
-    return { accept: true, line };
+    return undefined;
   }
 
   function claimCommand(task: Task): KakiCommand {
     return { type: 'CLAIM_TASK', taskId: task.id, mode: task.actionKind === undefined ? 'MANUAL' : 'ACTION_AGENT' };
   }
 
+  function undecidedCommand(task: Task): KakiCommand {
+    return { type: 'RETURN_TASK_UNDECIDED', taskId: task.id };
+  }
+
   async function respond(task: Task, role: Role, who: { npc: NpcProfile; attendee: string }): Promise<void> {
-    // The assignee already volunteered for this exact task in the transcript, so hold them to their own words
-    // instead of letting the model talk them out of it. Any change to the work, or any doubt about the evidence,
-    // falls back to the ordinary in-character decision.
-    // They already said aloud they would do it, so nobody asks again and they say nothing more: the card just
-    // becomes theirs.
-    if (isTrustedCommitment(task, who.attendee, scenario) || ports.volunteeredOnTopic(who.attendee)) {
+    const lines = ports.completedLinesOnTopic?.() ?? [];
+    // The old topic-wide flag never decides anything now; it is kept only so a disagreement is visible in the log.
+    if (ports.volunteeredOnTopic?.(who.attendee) === true) {
+      log?.(`the old topic-wide volunteer flag saw ${who.attendee}; the exact task is still judged by the model`);
+    }
+    // The assignee's own grounded commitment to this exact task still holds them to their words without another model call.
+    if (isTrustedCommitment(task, who.attendee, scenario)) {
       log?.(`${who.attendee} keeps their own commitment to "${task.title}" without another word`);
       ports.send(role, claimCommand(task));
       return;
     }
-    const decision = await decide(task, who.npc, role);
-    log?.(`${who.attendee} ${decision.accept ? 'accepts' : 'declines'} "${task.title}": "${decision.line}"`);
+    const decision = await decide(task, who.npc, role, lines);
+    if (decision === undefined) {
+      log?.(`${who.attendee} could not decide "${task.title}" after ${DECISION_ATTEMPTS} attempts; returning it unresolved`);
+      ports.send(role, undecidedCommand(task));
+      return;
+    }
+    if (decision.priorCommitment) {
+      log?.(`${who.attendee} claims "${task.title}" silently from their own earlier promise`);
+      ports.send(role, claimCommand(task));
+      return;
+    }
+    // A prior commitment is the only silent path, so an ordinary decision always has a spoken line.
+    const line = decision.line as string;
+    log?.(`${who.attendee} ${decision.accept ? 'accepts' : 'declines'} "${task.title}": "${line}"`);
     const command: KakiCommand = decision.accept ? claimCommand(task) : { type: 'DECLINE_TASK', taskId: task.id };
-    ports.say(who.attendee, decision.line, () => ports.send(role, command));
+    ports.say(who.attendee, line, (spoken) => {
+      if (spoken) {
+        ports.send(role, command);
+        return;
+      }
+      // The room did not hear the answer, so the screen must not record an accept or decline nobody heard.
+      log?.(`${who.attendee}'s answer to "${task.title}" was not heard; returning it unresolved`);
+      ports.send(role, undecidedCommand(task));
+    });
   }
 
   return {

@@ -203,6 +203,8 @@ export interface NpcRunner {
   plays(attendee: string): boolean;
   /** True when `attendee` volunteered for the follow-up in their own line at any point on this topic. */
   volunteeredOnTopic(attendee: string): boolean;
+  /** Completed, actually heard lines on the current topic, with the agenda item they were heard on. */
+  completedLinesOnTopic(): Array<{ speaker: string; text: string; agendaItemTitle?: string }>;
   /** True when the visitor already gave `attendee` a follow-up at any point on this topic. */
   askedByGuestOnTopic(attendee: string): boolean;
   /** True while a person sits in the host's seat: the AI host stays silent and the host's cues are only suggestions. */
@@ -211,8 +213,8 @@ export interface NpcRunner {
   hostName(): string | undefined;
   /** The TTS voice for an attendee in the current cast, when known. */
   voiceFor(attendee: string): string | undefined;
-  /** `attendee` says `text` aloud once it is quiet; `onDone` runs when they finish or the line is dropped. */
-  say(attendee: string, text: string, onDone?: () => void): void;
+  /** `attendee` says `text` aloud once it is quiet; `onDone(true)` only when the room actually heard it. */
+  say(attendee: string, text: string, onDone?: (spoken: boolean) => void): void;
   /**
    * Sam asks an AI colleague to take on a task from `note`, through the model, once it is quiet.
    * `onDone(true)` means the room heard the ask; `false` means it was skipped and no template is read.
@@ -1464,6 +1466,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     volunteeredOnTopic(attendee) {
       return conversation?.volunteeredOnTopic(attendee) ?? false;
     },
+    completedLinesOnTopic() {
+      return conversation?.completedLinesOnTopic() ?? [];
+    },
     askedByGuestOnTopic(attendee) {
       return conversation?.askedByGuestOnTopic(attendee) ?? false;
     },
@@ -1490,10 +1495,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     say(attendee, text, onDone) {
       if (endedTerminal || conversation === undefined) {
-        onDone?.();
+        onDone?.(false);
         return;
       }
-      conversation.announce(attendee, text, undefined, () => onDone?.());
+      conversation.announce(attendee, text, undefined, (spoken) => onDone?.(spoken));
     },
     askColleague(target, note, options) {
       if (endedTerminal || conversation === undefined) {
