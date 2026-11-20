@@ -1551,15 +1551,12 @@ export async function createApp({
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
   // Its version moves only when a field a runner can see changes, so a reconnect can fence old reads.
-  // The version is a saved monotonic revision, not the clock: a restored meeting continues it, while a
-  // fresh server has a new meetingId and the runner treats that new id (learned through the fenced
-  // reconnect/prepare paths) as a new sequence whose revision starts again.
-  let runnerStateVersion = savedMeeting?.runnerRevision ?? 0;
+  // The version is a server-incarnation fence: `epoch` is made once for this process and `seq` only
+  // increases across every meeting. A restarted server therefore starts a new epoch instead of
+  // having to continue a persisted revision it may never have managed to save.
+  const runnerEpoch = randomUUID();
+  let runnerStateSeq = 0;
   let runnerStateSignature: string | undefined;
-  function nextRunnerStateVersion(): number {
-    runnerStateVersion += 1;
-    return runnerStateVersion;
-  }
   function publishRunnerState(): RunnerMeetingSnapshot {
     const state = buildRunnerMeetingSnapshot({
       meetingId: meeting.id,
@@ -1568,17 +1565,18 @@ export async function createApp({
       agendaIndex: meetingAgendaIndex?.(),
       paused: meetingPaused?.(),
     });
-    const { version: _unversioned, ...fields } = state;
-    const signature = JSON.stringify(fields);
+    const signature = JSON.stringify(state);
+    let version = { epoch: runnerEpoch, seq: runnerStateSeq };
     if (signature !== runnerStateSignature) {
       runnerStateSignature = signature;
-      state.version = nextRunnerStateVersion();
+      runnerStateSeq += 1;
+      version = { epoch: runnerEpoch, seq: runnerStateSeq };
       hub.publish(
-        { type: 'RUNNER_STATE', audience: { kind: 'service' }, payload: state },
+        { type: 'RUNNER_STATE', audience: { kind: 'service' }, payload: { ...state, version } },
         { retainKey: 'runner:state' },
       );
     }
-    return { ...state, version: runnerStateVersion };
+    return { ...state, version };
   }
   // Start, agenda moves and pause/resume all surface as these events; a seat change is published
   // by whoever changes the roster, because it has no event of its own.
@@ -2093,7 +2091,6 @@ export async function createApp({
         session,
         packFree,
         meetingDetails: () => session.snapshot(),
-        runnerRevision: () => runnerStateVersion,
       });
       if (typeof stop === 'function') cleanups.push(stop);
     } catch (error) {

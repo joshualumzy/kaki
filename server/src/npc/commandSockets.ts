@@ -10,21 +10,12 @@ interface QueuedCommand {
   meetingId: string | undefined;
 }
 
-/** The latest value of a stateful screen cue, tagged with the meeting that set it. */
-interface CachedState<T> {
-  value: T;
-  meetingId: string | undefined;
-}
-
 interface Entry {
   socket: WebSocket | undefined;
   queue: QueuedCommand[];
   attempts: number;
   timer: ReturnType<typeof setTimeout> | undefined;
-  opened: boolean;
   closing: boolean;
-  lastHostMode: CachedState<boolean> | undefined;
-  lastPaused: CachedState<boolean> | undefined;
 }
 
 export interface CommandSocketsOptions {
@@ -69,8 +60,8 @@ function commandType(message: string): string {
 /**
  * Command sockets for the runner's own writes (task Accept/Approve, agenda, pause, host mode).
  * A socket that goes down is reopened with bounded, backed-off attempts and its queue is flushed in
- * order; the queue is capped so a long outage cannot grow without limit. The screen also gets the
- * latest host-mode and paused state after every reconnect, because those are state, not one-off cues.
+ * order; the queue is capped so a long outage cannot grow without limit. State is never replayed on
+ * reconnect: host mode and pause belong to the server, and a stale pause would freeze the meeting.
  */
 export function createCommandSockets(options: CommandSocketsOptions): CommandSockets {
   const { baseUrl, token, log, logError } = options;
@@ -95,10 +86,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
         queue: [],
         attempts: 0,
         timer: undefined,
-        opened: false,
         closing: false,
-        lastHostMode: undefined,
-        lastPaused: undefined,
       };
       entries.set(role, entry);
     }
@@ -204,18 +192,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     socket.on('open', () => {
       if (entry.socket !== socket || entry.closing) return;
       entry.attempts = 0;
-      const reconnected = entry.opened;
-      entry.opened = true;
       flush(entry, role);
-      if (role === 'screen' && reconnected) {
-        const current = currentMeetingId();
-        if (entry.lastHostMode !== undefined && entry.lastHostMode.meetingId === current) {
-          sendMessage(entry, role, JSON.stringify({ type: 'SET_HOST_MODE', human: entry.lastHostMode.value }), current);
-        }
-        if (entry.lastPaused !== undefined && entry.lastPaused.meetingId === current) {
-          sendMessage(entry, role, JSON.stringify({ type: 'SET_PAUSED', paused: entry.lastPaused.value }), current);
-        }
-      }
     });
     socket.on('error', (error) => {
       if (entry.socket !== socket) return;
@@ -232,10 +209,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     sendAs(role, command) {
       const entry = entryFor(role);
       const meetingId = currentMeetingId();
-      if (role === 'screen') {
-        if (command.type === 'SET_HOST_MODE') entry.lastHostMode = { value: command.human, meetingId };
-        if (command.type === 'SET_PAUSED') entry.lastPaused = { value: command.paused, meetingId };
-      }
       const message = JSON.stringify(command);
       if (entry.closing) {
         logError(`not sending ${command.type} as ${role}: the command sockets are closed`);
@@ -255,9 +228,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     },
     dropQueued() {
       for (const [role, entry] of entries) {
-        // A reset ends the meeting the cached screen state belonged to.
-        entry.lastHostMode = undefined;
-        entry.lastPaused = undefined;
         if (entry.queue.length === 0) continue;
         const types = [...new Set(entry.queue.map((queued) => commandType(queued.message)))];
         logError(`the meeting was reset: dropped ${entry.queue.length} unsent ${role} command(s) (${types.join(', ')})`);

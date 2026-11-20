@@ -46,9 +46,10 @@ function runnerScenario({ session, fullScenario }: RunnerStateInput): Scenario {
 
 /**
  * Build the AI runner's meeting snapshot from the meeting session. One function feeds both the
- * service-only endpoint and the RUNNER_STATE events, so a runner never sees two shapes.
+ * service-only endpoint and the RUNNER_STATE events, so a runner never sees two shapes. The caller
+ * adds the server-incarnation version, because only the process that publishes knows its sequence.
  */
-export function buildRunnerMeetingSnapshot(input: RunnerStateInput): RunnerMeetingSnapshot {
+export function buildRunnerMeetingSnapshot(input: RunnerStateInput): Omit<RunnerMeetingSnapshot, 'version'> {
   const scenario = runnerScenario(input);
   const host = hostIdentityOf(scenario);
   const agenda = scenario.agenda;
@@ -67,6 +68,5 @@ export function buildRunnerMeetingSnapshot(input: RunnerStateInput): RunnerMeeti
     ...(host.seat === undefined ? {} : { hostSeat: host.seat }),
     hostIsHuman: host.seat !== undefined && input.session.holders().some((holder) => holder.seat === host.seat),
     paused: input.paused === true,
-    version: 0,
   };
 }

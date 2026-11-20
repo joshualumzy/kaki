@@ -51,7 +51,6 @@ export function createMeetingModule({
       resetMeeting: resetMeetingSession,
       onReset,
       meetingDetails,
-      runnerRevision,
       session,
     }: KakiContext) {
       const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
@@ -100,7 +99,6 @@ export function createMeetingModule({
         return {
           ...details,
           ...(meetingStartedAt === undefined ? {} : { startedAt: meetingStartedAt }),
-          ...(runnerRevision === undefined ? {} : { runnerRevision: runnerRevision() }),
           state: {
             clock: {
               started: now.started,

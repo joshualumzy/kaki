@@ -21,6 +21,7 @@ import {
   type NpcProfile,
   type NpcStateMessage,
   type RunnerMeetingSnapshot,
+  type RunnerSnapshotVersion,
   type Scenario,
   type SuggestInput,
   type MeetingMemoryEntry,
@@ -47,6 +48,11 @@ export const SAMPLE_RATE = 16000;
  * or the tail of the echo would be taken for the person talking.
  */
 const GUARD_TAIL_MS = 1400;
+
+/** True when two snapshots came from the same server incarnation at the same sequence. */
+function sameVersion(a: RunnerSnapshotVersion, b: RunnerSnapshotVersion): boolean {
+  return a.epoch === b.epoch && a.seq === b.seq;
+}
 
 export interface RunnerOptions {
   scenario: Scenario;
@@ -198,8 +204,9 @@ export interface NpcRunner {
   /**
    * Align with the server's state after a reconnect: a different meeting id clears the local start,
    * topic and welcome; a running meeting resumes at its item without opening again.
+   * `currentConnection` proves a new server epoch arrived on the live service connection.
    */
-  reconcileMeeting(state: RunnerMeetingSnapshot): void;
+  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): void;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -227,7 +234,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   const log = options.log ?? (() => undefined);
   // Everything that can change during the meeting is read from this one snapshot. The boot pack
   // only supplies what a snapshot does not carry (organisation, attendees, knowledge).
-  const meeting = createRunnerMeeting(bootScenario, options.initialMeeting);
+  const meeting = createRunnerMeeting(bootScenario, options.initialMeeting, log);
   const memory = new MeetingMemory(meeting.scenario(), (entries) => options.onMemoryChange?.(entries), log);
   const bootCast = meeting.cast();
   if (bootCast.length === 0) {
@@ -412,6 +419,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let openedLocally = false;
   /** The conversation's local playback pause; it follows the snapshot but also holds a visitor stop or an empty room. */
   let pausedLocally = false;
+  /** The meeting ended: only a new meeting's snapshot or prepare can open the conversation again. */
+  let endedTerminal = false;
   /** The Start attempt that prepared the cast, if the server has not opened the meeting yet. */
   let prepared: { meetingId: string; attempt: string } | undefined;
   /** Bumped whenever the local meeting is cleared, so a prepare that was overtaken cannot report ready. */
@@ -449,7 +458,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     return startWait?.promise ?? Promise.resolve();
   }
-  const meetingOpen = (): boolean => (openedLocally || hostIsHuman()) && !pausedLocally;
+  const meetingOpen = (): boolean => (openedLocally || hostIsHuman()) && !pausedLocally && !endedTerminal;
 
   /** Make the room match the people in it and have a conversation ready, without opening the meeting. */
   async function ensureCast(): Promise<void> {
@@ -546,7 +555,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             conversation?.agendaMoved(title);
           }
         }
-        if (rejoinPending) {
+        if (rejoinPending && !endedTerminal) {
           rejoinPending = false;
           resumeFromEmptyRoom();
         }
@@ -585,6 +594,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     pausedLocally = false;
     emptyPaused = false;
     rejoinPending = false;
+    endedTerminal = false;
     memory.reset();
     lastConversationState = { kind: 'idle' };
     publishState(lastConversationState);
@@ -601,7 +611,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function adoptSnapshot(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
     const changed = held !== undefined && held !== state.meetingId;
-    if (!meeting.apply(state, { newSequence: true })) return;
+    const current = meeting.current();
+    const identical =
+      current !== undefined && current.meetingId === state.meetingId && sameVersion(current.version, state.version);
+    // A prepare is fetched on the live service connection, so it may prove a new server epoch.
+    if (!meeting.apply(state, { currentConnection: true }) && !identical) return;
+    if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
@@ -642,6 +657,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       meeting.clear(request.meetingId);
     }
     prepared = undefined;
+    endedTerminal = false;
     const generation = runnerGeneration;
     const work = castQueue.then(async () => {
       if (closing) throw new Error('the AI runner is stopping');
@@ -654,19 +670,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     return work;
   }
 
-  function reconcileMeeting(state: RunnerMeetingSnapshot): void {
+  function reconcileMeeting(
+    state: RunnerMeetingSnapshot,
+    options?: { currentConnection?: boolean },
+  ): void {
     const held = meeting.meetingId();
     const changed = held !== undefined && held !== state.meetingId;
-    const accepted = meeting.apply(state, { newSequence: true });
     const current = meeting.current();
     // The same snapshot arriving again (for example on reconnect) is still reconciled locally: a
     // process that booted from it has not yet opened the meeting or caught up its topic.
-    if (
-      !accepted &&
-      (current === undefined || current.meetingId !== state.meetingId || current.version !== state.version)
-    ) {
-      return;
-    }
+    const identical =
+      current !== undefined && current.meetingId === state.meetingId && sameVersion(current.version, state.version);
+    const accepted = meeting.apply(state, options);
+    if (!accepted && !identical) return;
+    if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
@@ -680,6 +697,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       openingAgendaIndex = 0;
       startResumed = false;
       pausedLocally = true;
+      endedTerminal = true;
+      emptyPaused = false;
+      rejoinPending = false;
       prepared = undefined;
       talking.clear();
       for (const vad of vads.values()) vad.close();
@@ -724,6 +744,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   /** Nobody is in the room: hold the conversation exactly where it is, like pressing Pause. */
   function pauseForEmptyRoom(): void {
+    if (endedTerminal) return;
     if (!openedLocally && !hostIsHuman()) return;
     if (pausedLocally) return;
     pausedLocally = true;
@@ -738,6 +759,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** The person is back inside the grace window: carry on, and let Sam say one welcome-back line. */
   function resumeFromEmptyRoom(): void {
     if (!emptyPaused) return;
+    if (endedTerminal) {
+      emptyPaused = false;
+      rejoinPending = false;
+      pausedLocally = true;
+      return;
+    }
     emptyPaused = false;
     pausedLocally = false;
     options.onPauseChange?.(false);
@@ -761,7 +788,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const seat = humanAttendeeForRole(meeting.scenario(), role)?.name;
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
-    if (humans.size === 0 && emptyPaused) rejoinPending = true;
+    if (humans.size === 0 && emptyPaused && !endedTerminal) rejoinPending = true;
     humans.set(participant.identity, { name, role, seat });
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
@@ -894,6 +921,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       }
       if (message === undefined) {
         log('ignored a malformed control message');
+      } else if (endedTerminal) {
+        log(`ignored ${message.kind} from ${participant.identity}: the meeting has ended`);
       } else if (message.kind === 'typing') {
         typingUntil = Date.now() + TYPING_QUIET_MS;
         conversation?.humanTyping();
@@ -953,6 +982,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
 
   function announce(text: string, onDone?: (spoken: boolean) => void, shouldStillSpeak?: () => boolean): void {
+    if (endedTerminal) return;
     const hostName = meeting.hostName();
     if (hostName === undefined || conversation === undefined) return;
     const isWelcome = text.startsWith(OPENING_PREFIX);
@@ -1096,21 +1126,21 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       return meeting.roles().find((role) => role.id === wanted || role.label === wanted)?.id;
     },
     say(attendee, text, onDone) {
-      if (conversation === undefined) {
+      if (endedTerminal || conversation === undefined) {
         onDone?.();
         return;
       }
       conversation.announce(attendee, text, undefined, () => onDone?.());
     },
     askColleague(target, note, options) {
-      if (conversation === undefined) {
+      if (endedTerminal || conversation === undefined) {
         options?.onDone?.(false);
         return;
       }
       conversation.askColleague(target, note, options);
     },
     pointAtCard(note, options) {
-      if (conversation === undefined) {
+      if (endedTerminal || conversation === undefined) {
         options?.onDone?.(false);
         return;
       }

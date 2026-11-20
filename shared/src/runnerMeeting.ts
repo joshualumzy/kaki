@@ -1,6 +1,16 @@
 import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenario';
 import type { Role } from './roles';
 
+/**
+ * The fence on a runner snapshot. `epoch` names one server process; `seq` counts the snapshots
+ * that process has published. A restarted server has a new epoch but restarts its sequence, so the
+ * epoch is what lets a surviving runner adopt it without mistaking an old read for a new one.
+ */
+export interface RunnerSnapshotVersion {
+  epoch: string;
+  seq: number;
+}
+
 /** The one meeting snapshot the AI runner reads; the server replaces it wholesale on every change. */
 export interface RunnerMeetingSnapshot {
   meetingId: string;
@@ -18,8 +28,8 @@ export interface RunnerMeetingSnapshot {
   hostSeat?: string;
   hostIsHuman: boolean;
   paused: boolean;
-  /** Monotonic across the server: an older snapshot never replaces a newer one. */
-  version: number;
+  /** Fences stale reads: a snapshot is only newer within the same epoch when its seq is higher. */
+  version: RunnerSnapshotVersion;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -92,7 +102,9 @@ export function isRunnerMeetingSnapshot(value: unknown): value is RunnerMeetingS
     (value.hostSeat === undefined || typeof value.hostSeat === 'string') &&
     typeof value.hostIsHuman === 'boolean' &&
     typeof value.paused === 'boolean' &&
-    isAgendaIndex(value.version)
+    isObject(value.version) &&
+    isNonEmptyString(value.version.epoch) &&
+    isAgendaIndex(value.version.seq)
   );
 }
 

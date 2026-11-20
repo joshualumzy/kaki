@@ -69,7 +69,7 @@ export type PrepareOutcome =
 export interface MeetingSyncRunner {
   meetingId(): string | undefined;
   wasPreparedFor(meetingId: string): boolean;
-  reconcileMeeting(state: RunnerMeetingSnapshot): void;
+  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): void;
   prepareMeeting(request: {
     meetingId: string;
     attempt: string;
@@ -117,7 +117,10 @@ export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }:
 
   function apply(state: RunnerMeetingSnapshot): void {
     const previous = runner.meetingId();
-    runner.reconcileMeeting(state);
+    // Everything this module applies came from the live service connection: a fetch tied to the
+    // current generation, or an event on the current socket. That authority is what lets the runner
+    // adopt a restarted server's new epoch even when its sequence starts again.
+    runner.reconcileMeeting(state, { currentConnection: true });
     if (previous !== undefined && previous !== state.meetingId) {
       onMeetingChanged?.(state.meetingId);
     }
@@ -226,7 +229,14 @@ export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }:
       });
     },
     snapshot(state) {
+      const previous = runner.meetingId();
       apply(state);
+      const moved = runner.meetingId();
+      if (previous !== undefined && moved !== undefined && previous !== moved) {
+        // Reads and prepares asked for before this meeting moved cannot speak for the new one.
+        generation += 1;
+        log(`discarded reads started before the runner moved from ${previous} to ${moved}`);
+      }
     },
     reset(meetingId) {
       generation += 1;

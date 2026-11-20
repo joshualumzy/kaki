@@ -111,7 +111,9 @@ describe('meeting sync', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(runner.reconcileMeeting).toHaveBeenCalledTimes(1);
-    expect(runner.reconcileMeeting).toHaveBeenCalledWith(stateOf('meeting-2', false));
+    expect(runner.reconcileMeeting).toHaveBeenCalledWith(stateOf('meeting-2', false), {
+      currentConnection: true,
+    });
   });
 
   it('reports a meeting change learned on reconnect so the old meeting queue can be dropped', async () => {

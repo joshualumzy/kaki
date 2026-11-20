@@ -106,7 +106,7 @@ describe('the runner command sockets', () => {
     expect(loud).toContain('NEXT_AGENDA_ITEM');
   });
 
-  it('re-sends the latest host mode and paused state after a screen reconnect', async () => {
+  it('does not replay host-mode or pause state after a screen reconnect', async () => {
     const { socketsApi, sockets } = setup();
 
     socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: false });
@@ -117,18 +117,26 @@ describe('the runner command sockets', () => {
       JSON.stringify({ type: 'SET_PAUSED', paused: true }),
     ]);
 
-    socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: true });
-    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: false });
-    expect(sockets[0]!.sent).toHaveLength(4);
-
     sockets[0]!.fail();
     await tick();
     expect(sockets).toHaveLength(2);
     sockets[1]!.open();
-    expect(sockets[1]!.sent).toEqual([
-      JSON.stringify({ type: 'SET_HOST_MODE', human: true }),
-      JSON.stringify({ type: 'SET_PAUSED', paused: false }),
-    ]);
+    expect(sockets[1]!.sent).toEqual([]);
+  });
+
+  it('does not replay an earlier pause after the server has resumed the meeting', async () => {
+    const { socketsApi, sockets } = setup();
+
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    sockets[0]!.open();
+    expect(sockets[0]!.sent).toEqual([JSON.stringify({ type: 'SET_PAUSED', paused: true })]);
+
+    // The screen command resumed the meeting; the runner's snapshot already resumed local playback.
+    sockets[0]!.fail();
+    await tick();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
   });
 
   it('drops the oldest command with a loud log when the queue is full', () => {

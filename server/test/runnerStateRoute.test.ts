@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { KakiEvent, RunnerMeetingSnapshot } from '@kaki/shared';
+import type { KakiEvent, RunnerMeetingSnapshot, RunnerSnapshotVersion } from '@kaki/shared';
 import { createApp, type KakiApp } from '../src/app';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
@@ -69,6 +69,11 @@ function runnerStates(messages: KakiEvent[]): RunnerMeetingSnapshot[] {
   return messages.flatMap((event) => (event.type === 'RUNNER_STATE' ? [event.payload] : []));
 }
 
+function expectNewerThan(after: RunnerSnapshotVersion, before: RunnerSnapshotVersion): void {
+  expect(after.epoch).toBe(before.epoch);
+  expect(after.seq).toBeGreaterThan(before.seq);
+}
+
 describe('the service-only runner meeting endpoint', () => {
   it('refuses browsers without the service token and serves the snapshot with it', async () => {
     app = await createApp({ scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
@@ -100,7 +105,7 @@ describe('server-owned host mode', () => {
     expect(first.hostSeat).toBe('studio_manager');
     expect(first.hostIsHuman).toBe(true);
     expect(afterRestart.hostIsHuman).toBe(true);
-    expect(afterRestart.version).toBe(first.version);
+    expect(afterRestart.version).toEqual(first.version);
   });
 });
 
@@ -138,7 +143,7 @@ describe('RUNNER_STATE over the service channel', () => {
       'a running RUNNER_STATE',
     );
     expect(running.started).toBe(true);
-    expect(running.version).toBeGreaterThan(before);
+    expectNewerThan(running.version, before);
 
     screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
     const moved = await waitFor(
@@ -152,7 +157,7 @@ describe('RUNNER_STATE over the service channel', () => {
       () => runnerStates(service.messages).find((state) => state.paused === true),
       'a paused RUNNER_STATE',
     );
-    expect(paused.version).toBeGreaterThan(moved.version);
+    expectNewerThan(paused.version, moved.version);
 
     const pausedMeetingId = paused.meetingId;
     screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
@@ -163,7 +168,7 @@ describe('RUNNER_STATE over the service channel', () => {
         ),
       'a reset RUNNER_STATE',
     );
-    expect(reset.version).toBeGreaterThan(paused.version);
+    expectNewerThan(reset.version, paused.version);
     screen.close();
   });
 
