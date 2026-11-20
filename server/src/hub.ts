@@ -41,7 +41,8 @@ export class CommandError extends Error {}
 
 /** Mutation prepared by an asynchronous command handler, committed only while its caller is authorized. */
 export interface CommandEffect {
-  commit(): void;
+  /** The mutation itself; awaited so a queued lifecycle change finishes before the next command. */
+  commit(): void | Promise<void>;
   cancel?(): void;
 }
 
@@ -384,7 +385,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
         effect?.cancel?.();
         return;
       }
-      effect?.commit();
+      await effect?.commit();
     }
   }
 

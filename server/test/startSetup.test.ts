@@ -14,6 +14,7 @@ import {
   type Scenario,
 } from '@kaki/shared';
 import type { CalendarSettings } from '../src/action/calendar';
+import { createWikiModule } from '../src/action/wiki';
 import { createApp, type CreateAppOptions, type KakiApp } from '../src/app';
 import { createAgendaClock } from '../src/host/clock';
 import { createMeetingModule } from '../src/host/meeting';
@@ -1191,6 +1192,105 @@ describe('Start applies the validated setup', () => {
     const active = await getScenario(app);
     expect(active.npcs ?? []).toEqual([]);
     expect(active.roles.map((role) => role.id)).toContain('chair');
+  });
+
+  it('ends a blank-plan meeting with minutes for the chair and only present people quiet', async () => {
+    const pack = await loadScenario('kopitiam');
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const query = JSON.parse(String(init?.body)).query as string;
+      const data = query.includes('Login')
+        ? { authentication: { login: { jwt: 'jwt', responseResult: { succeeded: true } } } }
+        : { pages: { create: { responseResult: { succeeded: true } } } };
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const app = await startApp(pack, {
+      modules: [
+        createMeetingModule({ notetakerIntervalMs: 20 }),
+        createWikiModule({
+          wiki: { url: 'http://wiki.test', email: 'a@b.test', password: 'pw' },
+          fetchImpl,
+          minutesDelayMs: 10,
+          today: () => '2026-11-20',
+        }),
+      ],
+    });
+    const blank = ((await (await startBlankSetup(app)).json()) as { setup: MeetingSetup }).setup;
+    const filled: MeetingSetup = {
+      ...blank,
+      title: 'Floor planning',
+      roles: [
+        { id: 'chair', label: 'Chair', facilitator: true },
+        { id: 'scribe', label: 'Scribe', facilitator: false },
+        { id: 'ops', label: 'Ops', facilitator: false },
+      ],
+      agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'chair' }],
+      seats: [
+        { displayName: 'Alice', roleId: 'chair', kind: 'person' },
+        { displayName: 'Ben', roleId: 'scribe', kind: 'person' },
+        { displayName: 'Cara', roleId: 'ops', kind: 'person' },
+      ],
+    };
+    expect((await putSetup(app, filled)).status).toBe(200);
+
+    const alice = await join(app, 'Alice', 'chair');
+    expect(alice.status).toBe(200);
+    const { meetingCode } = (await alice.json()) as { meetingCode: string };
+    expect((await joinWithCode(app, 'Ben', 'scribe', meetingCode)).status).toBe(200);
+    // Cara never joins: her seat must not be offered work or counted as quiet.
+    expect((await startMeeting(app)).status).toBe(200);
+
+    const screen = await connectClient(portOf(app), 'screen');
+    // The chair talks for over a minute, so the notetaker has enough to judge who was quiet.
+    app.hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'screen' },
+      payload: {
+        speaker: 'Alice',
+        text: Array.from({ length: 160 }, () => 'word').join(' '),
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const record = await waitForEvent(
+      screen,
+      (event) =>
+        event.type === 'MEETING_RECORD_UPDATED' && (event.payload.quietRoles?.length ?? 0) > 0,
+      'a record that names who was quiet',
+    );
+    if (record.type !== 'MEETING_RECORD_UPDATED') throw new Error('expected a meeting record');
+    const quietRoles = record.payload.quietRoles ?? [];
+    expect(quietRoles).toContain('scribe');
+    expect(quietRoles).not.toContain('ops');
+    expect(quietRoles).not.toEqual(expect.arrayContaining(['chef', 'cashier', 'barista']));
+
+    screen.ws.send(JSON.stringify({ type: 'END_MEETING' }));
+    await waitForEvent(
+      screen,
+      (event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING',
+      'the meeting to end',
+    );
+    const minutes = await waitFor(
+      () => app.tasks.list().find((task) => task.purpose === 'meeting_minutes'),
+      'the minutes card',
+    );
+    expect(minutes.assignee).toBe('chair');
+    expect(minutes.suggestedAssignee).toBe('chair');
+    expect(minutes.status).toBe('DRAFT_READY');
+
+    // The chair is the one role that can approve the card, and does.
+    const chair = await connectClient(portOf(app), 'chair');
+    chair.ws.send(
+      JSON.stringify({ type: 'APPROVE_ACTION', taskId: minutes.id, draft: minutes.draft }),
+    );
+    const done = await waitFor(
+      () => (app.tasks.get(minutes.id)?.status === 'COMPLETED' ? app.tasks.get(minutes.id) : undefined),
+      'the chair to approve the minutes',
+    );
+    expect(done?.artifactUrl).toBe('http://wiki.test/en/meetings/2026-11-20-floor-planning-meeting-minutes');
+    screen.close();
+    chair.close();
   });
 
   it('imports the Kopitiam template with person seats for a team meeting', async () => {

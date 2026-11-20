@@ -4,6 +4,7 @@ import {
   RESERVED_ROLE_ID,
   ROLE_ID_PATTERN,
   type AgendaItem,
+  type Attendee,
   type NpcProfile,
   type Scenario,
   type ScenarioRole,
@@ -657,6 +658,74 @@ export function setupPersonSeatRoles(setup: MeetingSetup): string[] {
   return roles;
 }
 
+/**
+ * The people actually at a sealed meeting: one attendee per seat. A person seat takes the name the
+ * owner typed; an AI seat is the demo-pack profile it plays. Pack attendees the setup does not seat
+ * are never carried over, so an absent character can never be offered work or counted as quiet.
+ */
+export function setupAttendees(scenario: Scenario, setup: MeetingSetup): Attendee[] {
+  const packByName = new Map(
+    scenario.attendees.map((attendee) => [attendee.name.trim().toLowerCase(), attendee]),
+  );
+  const seen = new Set<string>();
+  const attendees: Attendee[] = [];
+  for (const seat of setup.seats) {
+    const name = (seat.kind === 'ai' ? seat.npcProfileId ?? seat.displayName : seat.displayName).trim();
+    const key = name.toLowerCase();
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    const pack = packByName.get(key);
+    attendees.push({
+      name,
+      role: seat.roleId,
+      zoomDisplayName: pack?.zoomDisplayName ?? name,
+      ...(pack?.spokenJob === undefined ? {} : { spokenJob: pack.spokenJob }),
+    });
+  }
+  return attendees;
+}
+
+/**
+ * Drop pack content that names someone the setup does not seat: a briefing fact or discussion
+ * angle from an absent colleague is not something the room can use. Items keep their other data.
+ */
+function fitPackContentToAttendees(meeting: Scenario): void {
+  const names = new Set(meeting.attendees.map((attendee) => attendee.name));
+  meeting.agenda = meeting.agenda.map((item) => {
+    const next = { ...item };
+    if (item.briefing !== undefined) {
+      const briefing = item.briefing
+        .map((fact) => ({ ...fact, knownBy: fact.knownBy.filter((knower) => names.has(knower.attendee)) }))
+        .filter((fact) => fact.knownBy.length > 0);
+      if (briefing.length > 0) next.briefing = briefing;
+      else delete next.briefing;
+    }
+    if (item.discussion !== undefined) {
+      const openingViews = item.discussion.openingViews.filter((view) => names.has(view.attendee));
+      const tradeOffs = item.discussion.tradeOffs.filter((tradeOff) => names.has(tradeOff.attendee));
+      if (openingViews.length > 0 && tradeOffs.length > 0) {
+        next.discussion = { ...item.discussion, openingViews, tradeOffs };
+      } else {
+        delete next.discussion;
+      }
+    }
+    return next;
+  });
+  if (meeting.npcs !== undefined) {
+    meeting.npcs = meeting.npcs.map((npc) => {
+      const next = { ...npc };
+      if (npc.tensions !== undefined) {
+        const tensions = npc.tensions.filter(
+          (tension) => names.has(tension.with) && tension.with !== npc.attendee,
+        );
+        if (tensions.length > 0) next.tensions = tensions;
+        else delete next.tensions;
+      }
+      return next;
+    });
+  }
+}
+
 export interface MeetingScenarioFromSetupOptions {
   /** The agenda order to run; defaults to the setup's own order. */
   agendaOrder?: readonly string[];
@@ -679,11 +748,12 @@ export function meetingScenarioFromSetup(
     npcs: setupAiCast(scenario, setup).map((npc) => ({ ...npc, playable: false })),
     joinSeats: setupPersonSeatRoles(setup),
     agenda: [...scenario.agenda],
-    attendees: [...scenario.attendees],
+    attendees: setupAttendees(scenario, setup),
   };
   setMeetingAgenda(meeting, scenario, meetingAgendaFromSetup(setup, scenario, options.agendaOrder), {
     allowPlain: true,
   });
+  fitPackContentToAttendees(meeting);
   return meeting;
 }
 

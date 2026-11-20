@@ -87,18 +87,18 @@ export function buildMeetingMinutes(
 
 /**
  * Who reviews and approves the end-of-meeting minutes: a person in the room, never an AI seat.
- * The owner's (facilitator's) chair wins when a person holds it, then any present human seat, then
- * the first human seat in the scenario. `presentSeats` is the app's own seat-holder record.
+ * The owner's (facilitator's) chair wins when a person holds it, then the first person seat a
+ * holder is actually in. `presentSeats` is the app's own seat-holder record, so a seat nobody
+ * holds is never assigned: its assignee could not approve the card.
  */
 export function minutesAssignee(
   scenario: Scenario,
   presentSeats: ReadonlyArray<{ seat: string }>,
 ): Role | undefined {
-  const humans = humanSeatRoles(scenario);
   const present = new Set(presentSeats.map((entry) => entry.seat.trim().toLowerCase()));
-  const humanPresent = humans.filter((role) => present.has(role.id.toLowerCase()));
+  const humanPresent = humanSeatRoles(scenario).filter((role) => present.has(role.id.toLowerCase()));
   const ownerSeat = humanPresent.find((role) => role.facilitator === true);
-  return (ownerSeat ?? humanPresent[0] ?? humans[0])?.id;
+  return (ownerSeat ?? humanPresent[0])?.id;
 }
 
 interface PageDraft {

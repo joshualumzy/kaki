@@ -779,23 +779,46 @@ async function handleRequest(
           } else if (context.session.kind() !== 'practice') {
             context.session.setKind('real');
           }
-          // The identity this join enters is now final: the room, its token, the runner and the
-          // roster poll all name this meeting and no earlier one.
-          const roomName = demoRoomName(context.session.active(), context.meeting.id);
+          // The identity this join enters is now final: pin it and re-check after every await below.
+          // A lifecycle change that still slipped past the queue must refuse this join, never let it
+          // hand out a token for the old room or claim a seat in the replacement meeting.
+          const committedMeetingId = context.meeting.id;
+          const committedGeneration = context.session.generation();
+          const committedPhase = context.session.phase();
+          const identityMoved = (): boolean =>
+            context.meeting.id !== committedMeetingId ||
+            context.session.generation() !== committedGeneration ||
+            context.session.phase() !== committedPhase;
+          const refuseMovedMeeting = (): void => {
+            sendJson(response, 409, {
+              error: 'The meeting changed while you were joining; try again in a moment.',
+              retryable: true,
+            });
+          };
+          const roomName = demoRoomName(context.session.active(), committedMeetingId);
           const token = await createRoomToken(
             { roomName, participantName, participantRole: seatId },
             npcNames,
           );
+          if (identityMoved()) {
+            refuseMovedMeeting();
+            return;
+          }
           if (roomEmpty && decision !== 'reset') context.rejoin.beginGrace();
           // Sign-in on: taking the seat and creating its session is one atomic claim shared with
           // /api/join, so a code holder can never take a seat another live holder owns. A practice
           // visitor never gets a sign-in session; their cookie carries only the Start capability.
           if (context.auth !== undefined && principal.kind !== 'service' && !wantsPractice) {
-            if (!(await context.auth.enterSeat(request, response, seatId, context.meeting.id))) {
+            if (!(await context.auth.enterSeat(request, response, seatId, committedMeetingId))) {
               console.error(
                 `kaki join: ${participantName} could not take seat ${seatId} after the meeting reset; the seat is already held`,
               );
               sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
+              return;
+            }
+            // The claim itself is an await: if the meeting moved, this seat belongs to its old identity.
+            if (identityMoved()) {
+              refuseMovedMeeting();
               return;
             }
           }
@@ -1721,13 +1744,19 @@ export async function createApp({
     if (sealed === undefined) {
       return meetingScenario({ agenda: savedLobbyAgenda ?? fullScenario.agenda });
     }
-    // A started meeting keeps the sealed setup it ran with, in the order it was actually using.
-    return meetingScenario({
-      meetingTitle: sealed.title,
-      roles: restoredRoles ?? fullScenario.roles,
-      npcs: setupAiCast(fullScenario, sealed),
-      agenda: meetingAgendaFromSetup(sealed, fullScenario, sealed.agenda.map((item) => item.title)),
-      allowPlain: true,
+    // An ended meeting is history: its cast is gone, so the next arrival sees the pack's open seats.
+    if (savedMeeting?.phase === 'ended') {
+      return meetingScenario({
+        meetingTitle: sealed.title,
+        roles: restoredRoles ?? fullScenario.roles,
+        npcs: setupAiCast(fullScenario, sealed),
+        agenda: meetingAgendaFromSetup(sealed, fullScenario, sealed.agenda.map((item) => item.title)),
+        allowPlain: true,
+      });
+    }
+    // A running meeting keeps exactly the people its sealed seats put in the room.
+    return meetingScenarioFromSetup(fullScenario, sealed, {
+      agendaOrder: sealed.agenda.map((item) => item.title),
     });
   }
   const initialScenario = bootScenario();
@@ -2753,7 +2782,8 @@ export async function createApp({
         draftOnly,
         persistence,
         meetingId: () => meeting.id,
-        resetMeeting: (options) => session.reset(options),
+        resetMeeting: (options) => admit(async () => session.reset(options)),
+        serializeChange: (task) => admit(async () => task()),
         onReset: session.onReset,
         session,
         packFree,

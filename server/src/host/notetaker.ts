@@ -98,6 +98,11 @@ export interface NotetakerOptions {
    * own owner stays. Defaults to on, which keeps the single-human demo exactly as it was.
    */
   visitorOwnerShortcut?: () => boolean;
+  /**
+   * The roles actually in the room: every AI seat plus each person seat someone currently holds.
+   * Omit to use the scenario's attendees, which is right for a standalone notetaker or the demo.
+   */
+  attendingRoles?: () => ReadonlySet<Role> | undefined;
 }
 
 /** A task the LLM proposes, with the words it heard it in. */
@@ -978,6 +983,7 @@ export function createNotetaker({
   meetingElapsedSeconds,
   onAgendaIndex,
   visitorOwnerShortcut = () => true,
+  attendingRoles,
 }: NotetakerOptions): Notetaker {
   let pending: TranscriptLine[] = [];
   // The batch being analysed right now; saved with the notetaker so a restart does not lose it.
@@ -997,7 +1003,8 @@ export function createNotetaker({
   const talkByItem = new Map<number, Partial<Record<Role, number>>>();
   const talkTotals = new Map<Role, number>();
   let talkTotal = 0;
-  const attending = () => new Set(scenario().attendees.map((attendee) => attendee.role));
+  const attending = () =>
+    attendingRoles?.() ?? new Set(scenario().attendees.map((attendee) => attendee.role));
   const facilitatorName = () =>
     (scenario().npcs ?? []).find((npc) => npc.role === 'host')?.attendee ??
     scenario().attendees.find((attendee) =>

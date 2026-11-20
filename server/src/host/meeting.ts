@@ -49,18 +49,32 @@ export function createMeetingModule({
       activeScenario,
       persistence,
       resetMeeting: resetMeetingSession,
+      serializeChange,
       onReset,
       meetingDetails,
       session,
     }: KakiContext) {
       const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
       clock.setAgenda(activeScenario().agenda);
+      const runSerialized = async <T>(task: () => Promise<T> | T): Promise<T> =>
+        serializeChange === undefined ? await task() : await serializeChange(task);
       const notetaker = createNotetaker({
         scenario: activeScenario,
         tasks,
         llm,
         agendaIndex: () => clock.snapshot().agendaIndex,
         meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
+        // Who is in the room: an AI seat is always there, a person seat only while someone holds it.
+        attendingRoles: () => {
+          const setup = session?.sealed();
+          if (setup === undefined) return undefined;
+          const held = new Set((session?.holders() ?? []).map((holder) => holder.seat.trim().toLowerCase()));
+          return new Set(
+            setup.seats
+              .filter((seat) => seat.kind === 'ai' || held.has(seat.roleId.trim().toLowerCase()))
+              .map((seat) => seat.roleId),
+          );
+        },
         // The "can you..." -> the one visitor shortcut only makes sense with a single person in the room.
         visitorOwnerShortcut: () => (meetingDetails?.().holders.length ?? 0) < 2,
       });
@@ -275,12 +289,14 @@ export function createMeetingModule({
 
       // The next line said after the meeting ended belongs to a new meeting: nothing carries over.
       // `savedCleared` is set by the host's New meeting, which has already waited for the clear itself.
-      function resetMeeting({ savedCleared = false }: { savedCleared?: boolean } = {}): void {
+      async function resetMeeting({ savedCleared = false }: { savedCleared?: boolean } = {}): Promise<void> {
         if (resetMeetingSession === undefined) {
           console.error('kaki host: no meeting session is available to reset the meeting');
           return;
         }
-        resetMeetingSession({ savedAlreadyCleared: savedCleared });
+        // The context routes this through the one admission queue: a reset can never land between a
+        // join's roster check and the room token or seat claim it was granted against.
+        await resetMeetingSession({ savedAlreadyCleared: savedCleared });
         console.log('kaki host: a new meeting starts; the old record, questions and tasks are cleared');
       }
 
@@ -300,6 +316,23 @@ export function createMeetingModule({
         }
       }
 
+      // Lines that arrive after the meeting ended each wait for the one reset to finish before they
+      // join the new meeting. Chaining keeps their order and stops a second line resetting it again.
+      let nextMeetingQueue: Promise<void> = Promise.resolve();
+      function speakIntoNextMeeting(chunk: Parameters<typeof notetaker.addChunk>[0]): void {
+        nextMeetingQueue = nextMeetingQueue
+          .then(async () => {
+            if (clock.snapshot().ended) await resetMeeting();
+            if (!clock.snapshot().started) beginMeeting();
+            notetaker.addChunk(chunk);
+            if (replay === undefined && hasTaskAssignment(chunk.text)) {
+              setTimeout(() => void runNotetaker(), 250).unref();
+            }
+            announceAgendaItem();
+          })
+          .catch((error: unknown) => console.error('kaki host: could not start the next meeting', error));
+      }
+
       const unsubscribe = hub.subscribe((event) => {
         if (event.type === 'MEETING_STARTED') {
           clock.setAgenda(activeScenario().agenda);
@@ -309,11 +342,14 @@ export function createMeetingModule({
         if (event.type !== 'TRANSCRIPT_CHUNK') return;
 
         const afterEnding = clock.snapshot().ended;
-        if (afterEnding) resetMeeting();
+        if (afterEnding) {
+          speakIntoNextMeeting(event.payload);
+          return;
+        }
         if (!clock.snapshot().started) {
-          // The scripted replay and the first line of a meeting that just ended have no browser
-          // pressing Start; any other live speech waits for the server's Start.
-          if (replay === undefined && !afterEnding) return;
+          // The scripted replay has no browser pressing Start; any other live speech waits for the
+          // server's Start.
+          if (replay === undefined) return;
           beginMeeting();
         }
 
@@ -327,16 +363,21 @@ export function createMeetingModule({
       const notetakerTimer = setInterval(() => void runNotetaker(), notetakerIntervalMs);
 
       /** Freeze the clock and stop the heartbeat, and clear old events so the next visitor starts clean. */
-      function endMeeting({ silent = false }: { silent?: boolean } = {}): void {
-        const now = clock.snapshot();
-        if (!now.started || now.ended) return;
-        clock.end();
-        // A replay can run a clock without a server Start; only a running session has a phase to end.
-        if (session !== undefined && session.phase() === 'running') session.end();
-        stopTicker();
+      async function endMeeting({ silent = false }: { silent?: boolean } = {}): Promise<void> {
+        // Ending is a lifecycle change too: it waits for any join that is still signing or claiming.
+        const ended = await runSerialized(() => {
+          const now = clock.snapshot();
+          if (!now.started || now.ended) return false;
+          clock.end();
+          // A replay can run a clock without a server Start; only a running session has a phase to end.
+          if (session !== undefined && session.phase() === 'running') session.end();
+          stopTicker();
+          return true;
+        });
+        if (!ended) return;
         console.log('kaki host: the meeting is over');
         if (silent) {
-          resetMeeting();
+          await resetMeeting();
           return;
         }
         // One last record so screens show the frozen clock, then a final notetaker pass for the last lines.
@@ -392,8 +433,8 @@ export function createMeetingModule({
             }
             // The hub commits this only if the sending socket still holds authority after the await.
             return {
-              commit() {
-                try { resetMeeting({ savedCleared: true }); }
+              async commit() {
+                try { await resetMeeting({ savedCleared: true }); }
                 finally {
                   // The clear removed the old meeting. A draft the reset kept (an unconsumed edit) is
                   // part of the new lobby, so save it now that the pre-reset snapshot is allowed again.
@@ -407,10 +448,14 @@ export function createMeetingModule({
                 persistence.scheduleSave();
               },
             };
-          } else {
-            resetMeeting({ savedCleared: true });
           }
-          return;
+          // No saved meeting to clear, but the reset still waits for the admission queue and still
+          // happens only while the sending socket holds authority.
+          return {
+            async commit() {
+              await resetMeeting({ savedCleared: true });
+            },
+          };
         }
         if (command.type === 'SET_HOST_MODE') {
           // The server derives host mode from the seat holders in the roster; this report is
@@ -418,7 +463,7 @@ export function createMeetingModule({
           return;
         }
         if (command.type === 'END_MEETING') {
-          endMeeting({ silent: command.silent === true });
+          await endMeeting({ silent: command.silent === true });
           return;
         }
         const now = clock.snapshot();
@@ -445,7 +490,7 @@ export function createMeetingModule({
               hub,
               speed,
               onAgenda: (index) => clock.advanceTo(index),
-              onEnd: () => endMeeting(),
+              onEnd: () => void endMeeting(),
             });
           },
           (error: unknown) => console.error('kaki host: could not start the replay', error),

@@ -270,6 +270,44 @@ describe('Start lifecycle', () => {
     expect(after).toMatchObject({ meetingId: atStart.meetingId, started: true });
   });
 
+  it('keeps a New meeting reset waiting for the join admission already signing', async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const reachedRoster = new Promise<void>((resolve) => { entered = resolve; });
+    const rosterGate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const app = await startApp(structuredClone(testScenario), {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => {
+        calls += 1;
+        if (calls === 1) {
+          entered();
+          await rosterGate;
+        }
+        return [];
+      },
+    });
+    const state = async (): Promise<{ meetingId: string }> =>
+      (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as { meetingId: string };
+    const before = await state();
+
+    const joining = join(app, 'Guest', 'chef');
+    await reachedRoster;
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await settle(80);
+
+    // The join still owns admission: the reset must not slip in while its room token is being signed.
+    expect((await state()).meetingId).toBe(before.meetingId);
+    expect(screen.messages.some((event) => event.type === 'MEETING_RESET')).toBe(false);
+
+    release();
+    expect((await joining).status).toBe(200);
+    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the queued reset');
+    expect((await state()).meetingId).not.toBe(before.meetingId);
+    screen.close();
+  });
+
   it('refuses a Start that waited through a reset instead of starting the replacement meeting', async () => {
     let calls = 0;
     let releaseRoster: (() => void) | undefined;
@@ -294,20 +332,22 @@ describe('Start lifecycle', () => {
       body: JSON.stringify({ roomName: 'test-room', participantName: 'Late', participantRole: 'cashier', meetingCode }),
     });
     await waitFor(() => (calls === 2 ? true : undefined), 'the late join to reach the roster');
+    // Queue the reset before Start, so it runs first once the in-flight admission finishes.
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await settle(20);
     const starting = startMeeting(app);
     await settle(20);
     expect(app.session.phase()).toBe('lobby');
 
-    const screen = await connectClient(portOf(app), 'screen');
-    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    releaseRoster?.();
+    // The admission in flight completes under the meeting it was admitted to; the reset follows it.
+    expect((await lateJoin).status).toBe(200);
     await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'the reset');
     screen.close();
     const replacement = (await (await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/state`)).json()) as {
       meetingId: string;
     };
-
-    releaseRoster?.();
-    expect([403, 409]).toContain((await lateJoin).status);
 
     const response = await starting;
     expect(response.status).toBe(409);

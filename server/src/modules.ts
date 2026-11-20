@@ -18,8 +18,13 @@ export interface KakiContext {
   persistence?: MeetingPersistence;
   /** The server-owned identity of the current meeting, saved with it so a restart resumes the same one. */
   meetingId?(): string;
-  /** Reset the meeting through the one meeting session; returns the new meeting id. */
-  resetMeeting?(options?: MeetingSessionResetOptions): string;
+  /** Reset the meeting through the one meeting session and admission queue; resolves with the new meeting id. */
+  resetMeeting?(options?: MeetingSessionResetOptions): Promise<string>;
+  /**
+   * Run a meeting lifecycle change on the one admission queue, so it can never interleave with a join
+   * that is still signing a room token or claiming a seat. Absent in standalone module use.
+   */
+  serializeChange?<T>(task: () => Promise<T> | T): Promise<T>;
   /** Register per-module work to run during a meeting reset, instead of reacting to MEETING_RESET. */
   onReset?(hook: () => void): () => void;
   /** The session that owns meeting state, for modules that need more than reset and onReset. */

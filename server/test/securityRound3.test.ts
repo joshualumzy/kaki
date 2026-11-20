@@ -491,6 +491,63 @@ describe('security round 3', () => {
     screen.ws.terminate();
   });
 
+  it('refuses a join whose meeting changed after its seat was claimed', async () => {
+    const store = createMemoryAuthStore();
+    await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
+    const meetingCode = createMeetingCodeSource(MEETING_CODE);
+    const baseAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
+    let claimedSeat!: () => void;
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => { claimedSeat = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const auth = {
+      ...baseAuth,
+      async enterSeat(
+        request: Parameters<typeof baseAuth.enterSeat>[0],
+        response: Parameters<typeof baseAuth.enterSeat>[1],
+        role: string,
+        expectedMeetingId?: string,
+      ): Promise<boolean> {
+        const ok = await baseAuth.enterSeat(request, response, role, expectedMeetingId);
+        if (ok) {
+          claimedSeat();
+          await gate;
+        }
+        return ok;
+      },
+    };
+    const app = track(
+      await createApp({
+        speechRecognition: 'browser',
+        scenario: testScenario,
+        auth,
+        meetingCode,
+        roomRoster: async () => [],
+      }),
+    );
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+
+    const joining = post(app, '/api/livekit/token', {
+      participantName: 'Guest',
+      participantRole: 'chef',
+      meetingCode: MEETING_CODE,
+    });
+    await claimed;
+    // A lifecycle change lands after the claim but before this join finishes. It is not serialized
+    // here on purpose: the join must itself notice that the identity it claimed no longer exists.
+    app.session.reset();
+    release();
+
+    const response = await joining;
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'The meeting changed while you were joining; try again in a moment.',
+      retryable: true,
+    });
+    expect(app.session.holders()).toEqual([]);
+  });
+
   it('rejects an upgrade whose session was revoked while it was authorizing', async () => {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });

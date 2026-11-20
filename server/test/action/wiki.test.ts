@@ -374,12 +374,13 @@ describe('wiki action module', () => {
     expect(minutesTask.draft?.subject).toBe('Owner sync — Meeting Minutes');
   });
 
-  it('falls back to the first human seat when nobody is present', async () => {
+  it('creates no minutes when no person holds a seat to approve them', async () => {
     const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10 });
     publishClosing(tasks.hub);
 
-    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
-    expect(minutesTask.assignee).toBe('chef');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Never assign the card to a role nobody holds: that assignee could not approve it.
+    expect(minutesTaskIn(tasks)).toBeUndefined();
   });
 
   it('creates nothing when the meeting resets before the delay', async () => {
