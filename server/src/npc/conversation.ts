@@ -34,14 +34,16 @@ export interface NpcPorts<Clip> {
   clipDurationMs?(clip: Clip): number;
   /**
    * A line said in the meeting, for Kaki's transcript; `textOnly` marks a line shown as text because its voice failed,
-   * `catchId` marks the last sentence of the line that raises a catch, and `human` marks the person's own line, which
-   * the app server writes so it is recorded even with no AI runner.
+   * `catchId` marks the last sentence of the line that raises a catch, `lineId` lets a later update replace the same
+   * line, and `human` marks the person's own line, which the app server writes so it is recorded even with no AI runner.
    */
   emitTranscript(
     speaker: string,
     text: string,
-    options?: { textOnly?: boolean; catchId?: string; human?: boolean },
+    options?: { textOnly?: boolean; catchId?: string; lineId?: string; human?: boolean },
   ): void;
+  /** Replace the words shown for a spoken line, display only: it is never recorded as another line. */
+  emitTranscriptUpdate(speaker: string, text: string, options: { lineId: string; cut: boolean }): void;
   /** What the AI attendees are doing, for the screen. */
   emitState(state: NpcUiState): void;
   log?(message: string): void;
@@ -200,6 +202,21 @@ function unspokenRemainder(text: string, elapsedMs: number, durationMs?: number)
   const remainingWords = words.slice(Math.max(0, spokenWordCount - 1));
   const rest = remainingWords.join(' ').replace(/^[,;:.!?\s—–-]+/, '').trim();
   return rest[0]!.toUpperCase() + rest.slice(1);
+}
+
+/** The words of `text` the room heard after `elapsedMs` of playback; the faultless prefix, not a rephrase. */
+function heardPrefix(text: string, elapsedMs: number, durationMs?: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || elapsedMs <= 0) return '';
+  const words = trimmed.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length === 0) return '';
+  const totalMs =
+    durationMs !== undefined && durationMs > 0
+      ? durationMs
+      : Math.max(words.length * 320, trimmed.length * 55);
+  if (elapsedMs >= totalMs * 0.98) return trimmed;
+  const spokenWordCount = Math.floor((elapsedMs / totalMs) * words.length);
+  return words.slice(0, spokenWordCount).join(' ');
 }
 
 /** True when a sentence ends as a question to the visitor rather than a handover to another colleague. */
@@ -469,7 +486,19 @@ interface Turn {
   abort: AbortController;
   /** Stops sound, gaps and text waits without cancelling the model stream; replaced when a held turn carries on. */
   soundAbort: AbortController;
-  spoken: Array<{ utterance: Utterance; complete: boolean; startedAt: number; durationMs?: number; shadowLineId?: string }>;
+  spoken: Array<{
+    utterance: Utterance;
+    complete: boolean;
+    startedAt: number;
+    durationMs?: number;
+    shadowLineId?: string;
+    /** The transcript line this sentence was emitted as, so a cut can replace it and a resume can restore it. */
+    transcriptLineId?: string;
+    /** This sentence's transcript line is currently shown as cut. */
+    transcriptCut?: boolean;
+    /** True when the sentence was shown as text instead of played as audio. */
+    textOnly?: boolean;
+  }>;
   enqueued: Utterance[];
   streamFinished: boolean;
   streamFailed?: boolean;
@@ -741,7 +770,7 @@ export class NpcConversation<Clip> {
   private pausedUtterances: Utterance[] | undefined;
   private pausedScripted: { utterance: Utterance; onDone?: (spoken: boolean) => void } | undefined;
   /** A one-speaker opening that Stop interrupted; Resume continues it from the last line the room heard. */
-  private pausedOpening: { title: string } | undefined;
+  private pausedOpening: { title: string; restore?: { lineId: string; key: string } } | undefined;
   /** A one-speaker reply that Stop interrupted; Resume replans from the last line the room heard. */
   private pausedReply: {
     title: string | undefined;
@@ -849,7 +878,26 @@ export class NpcConversation<Clip> {
   /** The last sentence the room said, if it was a question: then it is the person's turn, and the screen says so. */
   private lastSpoken = '';
   private lastTranscriptEmit = '';
+  /** One stable transcript id per spoken sentence, so replaying the same object updates its line. */
+  private readonly transcriptLineIds = new WeakMap<Utterance, string>();
+  /** Sentences already recorded as a chunk, so a replay only restores what is shown instead of recording them again. */
+  private readonly transcriptEmitted = new WeakSet<Utterance>();
+  /**
+   * The cut opening sentence a resumed opening may re-say. Only that same sentence (same speaker and words) restores
+   * the cut line; any other first sentence is new speech and is recorded as a new line. Cleared by the first sentence.
+   */
+  private pendingTranscriptRestore: { lineId: string; key: string } | undefined;
+  private transcriptLineSeq = 0;
   private wingmanHintActive = false;
+
+  private transcriptLineId(utterance: Utterance): string {
+    const existing = this.transcriptLineIds.get(utterance);
+    if (existing !== undefined) return existing;
+    this.transcriptLineSeq += 1;
+    const id = `line-${this.transcriptLineSeq}`;
+    this.transcriptLineIds.set(utterance, id);
+    return id;
+  }
 
   private idleState(): NpcUiState {
     const line = this.lastSpoken.trim();
@@ -883,6 +931,7 @@ export class NpcConversation<Clip> {
     this.askedGuestInRound = false;
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
+    if (this.turn !== undefined) this.emitCutTranscript(this.turn);
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', typed, { human: true });
     this.pending.push(typed);
     this.noteHumanLine(typed);
@@ -948,12 +997,16 @@ export class NpcConversation<Clip> {
     this.clearRespondTimer();
     this.clearSilenceTimer();
     this.clearBriefTimer();
+    const openingLine = this.turn?.spoken.at(-1);
+    const restore = openingLine !== undefined && !openingLine.complete && openingLine.transcriptLineId !== undefined
+      ? { lineId: openingLine.transcriptLineId, key: `${openingLine.utterance.speaker}:${openingLine.utterance.text}` }
+      : undefined;
     this.cancelOpening('the person pressed stop');
     this.cancelReplyRun('the person pressed stop');
     const pausedFrom = replyFrom ?? viewNow.lastHeard;
     const pausedTitle = plannedTitle ?? this.currentItem()?.title;
     this.pausedOpening = !hasUnansweredGuestLine && plannedKind === 'opening' && plannedTitle !== undefined
-      ? { title: plannedTitle }
+      ? { title: plannedTitle, ...(restore === undefined ? {} : { restore }) }
       : undefined;
     this.pausedReply = plannedKind === 'reply' || hasUnansweredGuestLine
       ? {
@@ -1022,6 +1075,7 @@ export class NpcConversation<Clip> {
       this.cutOff = false;
       this.unanswered = false;
       this.ports.log?.(`[opening] resuming "${opening.title}" from the last line the room heard`);
+      this.pendingTranscriptRestore = opening.restore;
       this.startOpening(opening.title);
       return;
     }
@@ -1199,6 +1253,7 @@ export class NpcConversation<Clip> {
     }
     this.lastSpoken = '';
     this.lastTranscriptEmit = '';
+    if (!heldOverAiLine && this.turn !== undefined) this.emitCutTranscript(this.turn);
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted, { human: true });
     this.clearPrefetchedBrief('the person spoke first');
     this.chain = 0;
@@ -4786,6 +4841,7 @@ export class NpcConversation<Clip> {
     }
     turn.aborted = true;
     turn.held = false;
+    this.emitCutTranscript(turn);
     const wake = turn.heldWake;
     turn.heldWake = undefined;
     wake?.();
@@ -5628,6 +5684,7 @@ export class NpcConversation<Clip> {
           complete: false,
           startedAt: Date.now(),
           durationMs: textOnly ? undefined : this.ports.clipDurationMs?.(audio),
+          textOnly,
         };
         if (turn.spoken.length === 0) {
           this.ports.log?.(`speaking ${Date.now() - turn.startedAt} ms after the model was asked`);
@@ -5655,9 +5712,28 @@ export class NpcConversation<Clip> {
         this.noteCardPoint(utterance);
         this.ports.emitState({ kind: 'speaking', speaker: utterance.speaker, canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem });
         const transcriptKey = `${utterance.speaker}:${utterance.text}`;
-        if (transcribe && transcriptKey !== this.lastTranscriptEmit) {
-          this.lastTranscriptEmit = transcriptKey;
-          this.ports.emitTranscript(utterance.speaker, utterance.text, this.transcriptOptions(turn, utterance, textOnly));
+        if (transcribe) {
+          const alreadyRecorded = this.transcriptEmitted.has(utterance);
+          const pendingRestore = this.pendingTranscriptRestore;
+          this.pendingTranscriptRestore = undefined;
+          const restoreLineId = pendingRestore?.key === transcriptKey ? pendingRestore.lineId : undefined;
+          if (alreadyRecorded || restoreLineId !== undefined) {
+            // The line was already recorded when it was first spoken: replaying or resuming only restores
+            // what is shown, so the minutes, note taker and talk time still see it once.
+            const lineId = alreadyRecorded ? this.transcriptLineId(utterance) : restoreLineId;
+            if (lineId !== undefined) {
+              entry.transcriptLineId = lineId;
+              this.transcriptLineIds.set(utterance, lineId);
+              this.transcriptEmitted.add(utterance);
+              this.lastTranscriptEmit = transcriptKey;
+              this.ports.emitTranscriptUpdate(utterance.speaker, utterance.text, { lineId, cut: false });
+            }
+          } else if (transcriptKey !== this.lastTranscriptEmit) {
+            entry.transcriptLineId = this.transcriptLineId(utterance);
+            this.lastTranscriptEmit = transcriptKey;
+            this.transcriptEmitted.add(utterance);
+            this.ports.emitTranscript(utterance.speaker, utterance.text, this.transcriptOptions(turn, utterance, textOnly));
+          }
         }
         const played = await this.playUtterance(turn, utterance, audio, textOnly);
         let heard = played;
@@ -5684,9 +5760,18 @@ export class NpcConversation<Clip> {
         continue;
       }
 
-      // Restarting the cut sentence: it was already transcribed, accepted and counted; only replay its sound.
+      // Restarting the cut sentence: it was transcribed, accepted and counted; replay its sound and
+      // put the full line back in the transcript so the cut part is replaced, not read again.
       last.startedAt = Date.now();
       last.durationMs = textOnly ? undefined : this.ports.clipDurationMs?.(audio);
+      if (transcribe && last.transcriptLineId !== undefined && last.transcriptCut === true) {
+        this.lastTranscriptEmit = `${utterance.speaker}:${utterance.text}`;
+        last.transcriptCut = false;
+        this.ports.emitTranscriptUpdate(utterance.speaker, utterance.text, {
+          lineId: last.transcriptLineId,
+          cut: false,
+        });
+      }
       if (!textOnly) {
         this.gate.setAiAudible(true);
         this.gate.aiSaid(utterance.text);
@@ -5718,20 +5803,36 @@ export class NpcConversation<Clip> {
     }
   }
 
-  /** The transcript markers for one sentence: text-only, and the catch id once the planned line reaches its last sentence. */
+  /** The transcript markers for one sentence: its stable line id, text-only, and the catch id once the planned line reaches its last sentence. */
   private transcriptOptions(
     turn: Turn,
     utterance: Utterance,
     textOnly: boolean,
-  ): { textOnly?: boolean; catchId?: string } | undefined {
+  ): { textOnly?: boolean; catchId?: string; lineId?: string } {
     const catchId = turn.planned?.catchId !== undefined && turn.planned.lastUtterance === utterance
       ? turn.planned.catchId
       : undefined;
-    if (!textOnly && catchId === undefined) return undefined;
     return {
+      lineId: this.transcriptLineId(utterance),
       ...(textOnly ? { textOnly: true } : {}),
       ...(catchId === undefined ? {} : { catchId }),
     };
+  }
+
+  /**
+   * Replace the open transcript line with the words the room actually heard before an interruption.
+   * The heard boundary comes from the same playback entry and `complete` flag the model's transcript uses.
+   */
+  private emitCutTranscript(turn: Turn): void {
+    const entry = turn.spoken.at(-1);
+    if (entry === undefined || entry.complete || entry.transcriptLineId === undefined || entry.transcriptCut === true) return;
+    const heard = heardPrefix(entry.utterance.text, Date.now() - entry.startedAt, entry.durationMs);
+    entry.transcriptCut = true;
+    this.lastTranscriptEmit = '';
+    this.ports.emitTranscriptUpdate(entry.utterance.speaker, heard, {
+      lineId: entry.transcriptLineId,
+      cut: true,
+    });
   }
 
   /** Play one sentence (or hold a text-only line up long enough to read), stopping early when the turn is cut. */

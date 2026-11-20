@@ -51,6 +51,7 @@ function meeting(
       captions.push(text);
       if (options?.textOnly === true) textOnly.push(text);
     },
+    emitTranscriptUpdate() {},
     emitState(state) { states.push(state); },
     log(message) { logs.push(message); },
     settleTopic(input) { tasks.push(input); },
@@ -883,7 +884,7 @@ describe('never-stuck visitor path', () => {
     const settleTopic = vi.fn().mockRejectedValue(new Error('HTTP 503'));
     const conversation = new NpcConversation({
       async *stream() {}, async synthesize(utterance) { return utterance; }, async play() {},
-      emitTranscript() {}, emitState(state) { states.push(state); }, log(message) { logs.push(message); },
+      emitTranscript() {}, emitTranscriptUpdate() {}, emitState(state) { states.push(state); }, log(message) { logs.push(message); },
       settleTopic,
     }, { scenario, responseDelayMs: 60_000, replies: 'legacy' });
     conversation.setHuman({ name: 'Visitor', role });

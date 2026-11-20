@@ -1,12 +1,51 @@
+import type { Role } from '@kaki/shared';
 import { humanAttendeeForRole, type KakiEvent, type Scenario } from '@kaki/shared';
 
-/** One line of the meeting transcript. */
-export type TranscriptChunk = Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }>;
+/** One line of the meeting transcript, after any display-only cut or restore update has been applied. */
+export interface TranscriptChunk {
+  speaker: string;
+  text: string;
+  timestamp: string;
+  textOnly?: boolean;
+  speakerRole?: Role;
+  lineId?: string;
+  /** True when the room only heard part of the line before it was interrupted. */
+  cut?: boolean;
+}
 
-/** The most recent transcript lines; older ones are never shown, so there is no point keeping them. */
+/**
+ * The most recent transcript lines; older ones are never shown, so there is no point keeping them.
+ * A `TRANSCRIPT_LINE_UPDATED` replaces the line it names, so a cut or restored line is never listed twice.
+ */
 export function transcriptChunks(events: readonly KakiEvent[], limit = 40): TranscriptChunk[] {
-  const chunks = events.filter((event): event is TranscriptChunk => event.type === 'TRANSCRIPT_CHUNK');
-  return chunks.slice(-limit);
+  const lines: TranscriptChunk[] = [];
+  const indexByLineId = new Map<string, number>();
+  for (const event of events) {
+    if (event.type === 'TRANSCRIPT_CHUNK') {
+      const { speaker, text, timestamp, textOnly, speakerRole, lineId } = event.payload;
+      if (lineId !== undefined) indexByLineId.set(lineId, lines.length);
+      lines.push({
+        speaker,
+        text,
+        timestamp,
+        ...(textOnly === true ? { textOnly: true } : {}),
+        ...(speakerRole === undefined ? {} : { speakerRole }),
+        ...(lineId === undefined ? {} : { lineId }),
+      });
+    } else if (event.type === 'TRANSCRIPT_LINE_UPDATED') {
+      const index = indexByLineId.get(event.payload.lineId);
+      if (index === undefined) continue;
+      const line = lines[index]!;
+      lines[index] = {
+        ...line,
+        speaker: event.payload.speaker,
+        text: event.payload.text,
+        timestamp: event.payload.timestamp,
+        cut: event.payload.cut,
+      };
+    }
+  }
+  return lines.slice(-limit);
 }
 
 /**
@@ -79,10 +118,21 @@ export function textOnlyNote(
   windowMs = 10_000,
 ): string | null {
   const latest = chunks.at(-1);
-  if (latest === undefined || latest.payload.textOnly !== true) return null;
-  const latestAt = Date.parse(latest.payload.timestamp);
+  if (latest === undefined || latest.textOnly !== true) return null;
+  const latestAt = Date.parse(latest.timestamp);
   if (!Number.isFinite(latestAt) || now - latestAt > windowMs) return null;
   return TEXT_ONLY_NOTE;
+}
+
+/**
+ * How a line the room only partly heard is shown: the heard words followed by an ellipsis. An empty
+ * heard part still shows the ellipsis, so a line cut off before its first word never looks finished.
+ */
+export const CUT_MARK = '…';
+
+export function cutLineText(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length === 0 ? CUT_MARK : `${trimmed} ${CUT_MARK}`;
 }
 
 /**
@@ -114,17 +164,18 @@ export function captionFor(
   // Lines without a role (AI speech and old events) keep the name match.
   const wantedRole = role?.trim().toLowerCase();
   const mine = chunks.filter((chunk) =>
-    chunk.payload.speakerRole !== undefined
-      ? wantedRole !== undefined && chunk.payload.speakerRole.trim().toLowerCase() === wantedRole
-      : matchesSpeaker(chunk.payload.speaker),
+    chunk.speakerRole !== undefined
+      ? wantedRole !== undefined && chunk.speakerRole.trim().toLowerCase() === wantedRole
+      : matchesSpeaker(chunk.speaker),
   );
   const latest = mine.at(-1);
   if (latest === undefined) return null;
 
-  const latestAt = Date.parse(latest.payload.timestamp);
+  const latestAt = Date.parse(latest.timestamp);
   if (!Number.isFinite(latestAt) || (!stillSpeaking && now - latestAt > windowMs)) return null;
 
-  const caption = latest.payload.text.trim();
+  const caption = latest.text.trim();
+  if (latest.cut === true) return cutLineText(caption);
   return caption.length > 0 ? caption : null;
 }
 

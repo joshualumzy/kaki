@@ -92,6 +92,43 @@ describe('captionFor', () => {
     expect(captionFor(transcriptChunks([broken]), 'A', NOW)).toBeNull();
   });
 
+  it('shows only the words heard, clearly marked, when the line was cut short', () => {
+    const full = chunk('A', 'The build is red and the crash only happens on Android.', 1);
+    if (full.type === 'TRANSCRIPT_CHUNK') full.payload.lineId = 'line-1';
+    const cut: KakiEvent = {
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: { lineId: 'line-1', speaker: 'A', text: 'The build is red', timestamp: new Date(NOW - 1000).toISOString(), cut: true },
+    };
+    expect(captionFor(transcriptChunks([full, cut]), 'A', NOW, 8_000, true)).toBe('The build is red …');
+
+    const restored: KakiEvent = {
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: {
+        lineId: 'line-1',
+        speaker: 'A',
+        text: 'The build is red and the crash only happens on Android.',
+        timestamp: new Date(NOW - 1000).toISOString(),
+        cut: false,
+      },
+    };
+    expect(captionFor(transcriptChunks([full, cut, restored]), 'A', NOW, 8_000, true)).toBe(
+      'The build is red and the crash only happens on Android.',
+    );
+  });
+
+  it('still marks a line cut off before its first word instead of showing it as finished', () => {
+    const full = chunk('A', 'Hello there.', 1);
+    if (full.type === 'TRANSCRIPT_CHUNK') full.payload.lineId = 'line-1';
+    const cut: KakiEvent = {
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: { lineId: 'line-1', speaker: 'A', text: '', timestamp: new Date(NOW - 1000).toISOString(), cut: true },
+    };
+    expect(captionFor(transcriptChunks([full, cut]), 'A', NOW, 8_000, true)).toBe('…');
+  });
+
   it('shows the exact spoken sentence currently playing so captions stay synced with audio', () => {
     const longSentence =
       'Hey Foo, I am Arjun, Tech and POS Lead, and our Raffles Place kiosks only take PayNow and cards right now.';
@@ -130,7 +167,7 @@ describe('transcriptChunks', () => {
       chunk('A', '2', 4),
       chunk('A', '3', 3),
     ];
-    expect(transcriptChunks(events, 2).map((c) => c.payload.text)).toEqual(['2', '3']);
+    expect(transcriptChunks(events, 2).map((c) => c.text)).toEqual(['2', '3']);
   });
 });
 

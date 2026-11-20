@@ -1,5 +1,5 @@
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
-import { speakerLabel, type TranscriptViewer } from './captions';
+import { cutLineText, speakerLabel, type TranscriptViewer } from './captions';
 
 /** One line of the meeting timeline: something said, a host cue, a nudge, a fact or a change to a task. */
 export interface TimelineEntry {
@@ -26,12 +26,22 @@ export function entryForEvent(
 ): TimelineEntry | undefined {
   switch (event.type) {
     case 'TRANSCRIPT_CHUNK': {
-      const { speaker, text, timestamp } = event.payload;
+      const { speaker, text, timestamp, lineId } = event.payload;
       return {
-        key: `said|${timestamp}|${speaker}|${text}`,
+        // A later cut or restore carries the same line id, so it replaces the line instead of listing it twice.
+        key: lineId === undefined ? `said|${timestamp}|${speaker}|${text}` : `said|${lineId}`,
         kind: 'said',
         who: speakerLabel(speaker, viewer, scenario),
         text,
+      };
+    }
+    case 'TRANSCRIPT_LINE_UPDATED': {
+      const { speaker, lineId, text, cut } = event.payload;
+      return {
+        key: `said|${lineId}`,
+        kind: 'said',
+        who: speakerLabel(speaker, viewer, scenario),
+        text: cut ? cutLineText(text) : text,
       };
     }
     case 'HOST_SPEECH_TRIGGERED': {

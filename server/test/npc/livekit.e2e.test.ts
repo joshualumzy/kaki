@@ -130,6 +130,7 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
       // The voice: every sentence is a 1.5 s tone, loud enough to be heard.
       synthesize: async () => tone(1500, 6000, 330),
       postTranscript: (speaker, text) => void transcript.push([speaker, text]),
+      postTranscriptUpdate: () => undefined,
       log: (message) => void logs.push(message),
       traceVad: process.env.E2E_DEBUG === '1',
     });

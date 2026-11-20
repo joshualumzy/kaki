@@ -83,6 +83,7 @@ describe('startNpcRunner visitor pointer count', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -122,6 +123,7 @@ describe('startNpcRunner topic transition', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -162,6 +164,7 @@ describe('startNpcRunner visitor transcript identity', () => {
       stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (speaker, text) => transcript.push([speaker, text]),
+      postTranscriptUpdate: () => undefined,
       postHumanLine,
       responseDelayMs: 0,
     });
@@ -196,6 +199,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -235,6 +239,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -281,6 +286,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -314,6 +320,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -353,6 +360,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       responseDelayMs: 0,
     });
@@ -389,6 +397,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -426,6 +435,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       responseDelayMs: 0,
     });
@@ -460,6 +470,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -515,6 +526,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -548,6 +560,7 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -594,6 +607,7 @@ describe('startNpcRunner serialized start', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -633,6 +647,7 @@ describe('startNpcRunner serialized start', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       initialMeeting: runnerSnapshot(scenario, { agenda: restoredOrder }),
       responseDelayMs: 0,
       speakerGapMs: 0,
@@ -670,6 +685,7 @@ describe('boot from a server snapshot', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       initialMeeting: state,
       responseDelayMs: 0,
     });
@@ -696,6 +712,7 @@ describe('reconnect catch-up', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -739,6 +756,7 @@ describe('setup edits before Start', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -775,6 +793,7 @@ describe('an ended meeting on reconnect', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       responseDelayMs: 0,
       speakerGapMs: 0,
@@ -817,6 +836,7 @@ describe('an ended meeting on reconnect', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -866,6 +886,7 @@ describe('an ended meeting on reconnect', () => {
       stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       initialMeeting: runnerSnapshot(scenario, {
         meetingId: 'meeting-1',
         phase: 'running',
@@ -921,6 +942,7 @@ describe('an ended meeting on reconnect', () => {
         return new Int16Array();
       },
       postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -970,6 +992,7 @@ describe('a facilitator moved before Start', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (speaker, text) => transcript.push([speaker, text]),
+      postTranscriptUpdate: () => undefined,
       initialMeeting: state,
       responseDelayMs: 0,
       speakerGapMs: 0,
@@ -1001,6 +1024,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -1121,6 +1145,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       stopGateTimeoutMs: 60,
       responseDelayMs: 0,
@@ -1175,6 +1200,7 @@ describe('meeting sync with the real runner', () => {
       stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       responseDelayMs: 0,
       speakerGapMs: 0,
@@ -1242,6 +1268,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       heldTypedLineTimeoutMs: 40,
       responseDelayMs: 0,
@@ -1290,6 +1317,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       responseDelayMs: 0,
       speakerGapMs: 0,
@@ -1335,6 +1363,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       logError: (line) => errors.push(line),
       recheckMeetingState: recheck,
@@ -1388,6 +1417,7 @@ describe('meeting sync with the real runner', () => {
       stream,
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       recheckMeetingState: recheck,
       resumeBackstopIntervalMs: 20,
@@ -1444,6 +1474,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       log: (line) => log.push(line),
       stopGateTimeoutMs: 40,
       responseDelayMs: 0,
@@ -1486,6 +1517,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {
@@ -1525,6 +1557,7 @@ describe('meeting sync with the real runner', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
       responseDelayMs: 0,
     });
     try {

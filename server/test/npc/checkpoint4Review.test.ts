@@ -132,6 +132,7 @@ function harness(options: {
       });
     },
     emitTranscript(speaker, text) { spoken.push([speaker, text]); },
+    emitTranscriptUpdate() {},
     emitState(state) { states.push(state.kind); },
     log(message) { logs.push(message); },
     settleTopic: settle,

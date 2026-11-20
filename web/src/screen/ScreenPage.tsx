@@ -60,7 +60,7 @@ function ScreenFeed() {
     .at(-1)?.payload.recording;
   // After an end the closing line is the last host cue; a new meeting clears the feed.
   const meetingEnded = events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING');
-  const activity = events.filter((event) => !isRecord(event)).slice(-40).reverse();
+  const activity = feedItems(events);
 
   return (
     <main className="sc">
@@ -140,10 +140,10 @@ function ScreenFeed() {
             <p className="empty-state">Nothing yet.</p>
           ) : (
             <ul className="sc-feed">
-              {activity.map((event, index) => (
-                <li key={`${event.type}-${index}`} data-kind={event.type}>
+              {activity.map(({ key, event, text }) => (
+                <li key={key} data-kind={event.type}>
                   <span className="sc-feed-kind">{feedLabel(event)}</span>
-                  <span>{summarizeEvent(event)}</span>
+                  <span>{text}</span>
                 </li>
               ))}
             </ul>
@@ -177,11 +177,40 @@ function ScreenFeed() {
   );
 }
 
+interface FeedItem {
+  key: string;
+  event: KakiEvent;
+  text: string;
+}
+
+/**
+ * The live feed, oldest last. A transcript update replaces the line it names instead of adding a row,
+ * so a cut or restored line is shown once, as it was heard.
+ */
+function feedItems(events: readonly KakiEvent[]): FeedItem[] {
+  const items: FeedItem[] = [];
+  const indexByLineId = new Map<string, number>();
+  for (const event of events) {
+    if (isRecord(event)) continue;
+    if (event.type === 'TRANSCRIPT_LINE_UPDATED') {
+      const index = indexByLineId.get(event.payload.lineId);
+      if (index !== undefined) items[index] = { ...items[index]!, text: summarizeEvent(event) };
+      continue;
+    }
+    if (event.type === 'TRANSCRIPT_CHUNK' && event.payload.lineId !== undefined) {
+      indexByLineId.set(event.payload.lineId, items.length);
+    }
+    items.push({ key: `${event.type}-${items.length}`, event, text: summarizeEvent(event) });
+  }
+  return items.slice(-40).reverse();
+}
+
 function feedLabel(event: KakiEvent): string {
   switch (event.type) {
     case 'HOST_SPEECH_TRIGGERED':
       return 'Host';
     case 'TRANSCRIPT_CHUNK':
+    case 'TRANSCRIPT_LINE_UPDATED':
       return 'Said';
     case 'NUDGE':
       return 'Nudge';

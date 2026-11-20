@@ -107,6 +107,51 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('MeetingPanel', () => {
+  it('replaces a cut transcript line in place instead of listing the whole line and then the cut line', () => {
+    const full: KakiEvent = {
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: {
+        speaker: 'Arjun',
+        text: 'The build is red and the crash only happens on Android.',
+        timestamp: '2026-11-07T10:00:00Z',
+        lineId: 'line-1',
+      },
+    };
+    const cut: KakiEvent = {
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: {
+        speaker: 'Arjun',
+        text: 'The build is red',
+        timestamp: '2026-11-07T10:00:01Z',
+        lineId: 'line-1',
+        cut: true,
+      },
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [full],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    const view = render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+    expect(screen.getByText('The build is red and the crash only happens on Android.')).toBeTruthy();
+
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [full, cut],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    view.rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+
+    expect(screen.queryByText('The build is red and the crash only happens on Android.')).toBeNull();
+    expect(screen.getByText('The build is red …')).toBeTruthy();
+  });
+
   it('uses the active item seat fact instead of a role-card fact from another topic', () => {
     scenario.agenda[0]!.seatFacts = { producer: 'Current topic fact' };
     mocks.useKaki.mockReturnValue(withSpeech({ events: events.filter((event) => event.type !== 'FACT_FOUND'),

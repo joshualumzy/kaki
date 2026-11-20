@@ -22,6 +22,11 @@ describe('/dev/emit retention', () => {
       payload: { speaker: 'Ada (Chef)', text: 'Good morning everyone', timestamp: new Date().toISOString() },
     });
     await emit({
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: { lineId: 'line-1', speaker: 'Ada (Chef)', text: 'Good morning', timestamp: new Date().toISOString(), cut: true },
+    });
+    await emit({
       type: 'HOST_SPEECH_TRIGGERED',
       audience: { kind: 'screen' },
       payload: { kind: 'OPENING', text: 'Welcome.' },
@@ -34,5 +39,6 @@ describe('/dev/emit retention', () => {
 
     expect(types).toContain('HOST_SPEECH_TRIGGERED');
     expect(types).not.toContain('TRANSCRIPT_CHUNK');
+    expect(types).not.toContain('TRANSCRIPT_LINE_UPDATED');
   });
 });

@@ -1,10 +1,13 @@
 import type { KakiEvent } from '@kaki/shared';
+import { cutLineText } from '../demo/captions';
 
 /** One short line describing an event, used by both page shells. */
 export function summarizeEvent(event: KakiEvent): string {
   switch (event.type) {
     case 'TRANSCRIPT_CHUNK':
       return `${event.payload.speaker}: ${event.payload.text}`;
+    case 'TRANSCRIPT_LINE_UPDATED':
+      return `${event.payload.speaker}: ${event.payload.cut ? cutLineText(event.payload.text) : event.payload.text}`;
     case 'MEETING_RECORD_UPDATED': {
       const { agendaIndex, openQuestions, elapsedSeconds } = event.payload;
       const minutes = Math.floor(elapsedSeconds / 60);

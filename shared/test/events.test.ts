@@ -99,6 +99,26 @@ describe('isKakiEvent', () => {
     ).toBe(false);
     expect(
       isKakiEvent(
+        {
+          type: 'TRANSCRIPT_LINE_UPDATED',
+          audience: { kind: 'all' },
+          payload: { lineId: 'line-1', speaker: 'Ada', text: 'Double pay', timestamp: '2026-01-01T10:00:00Z', cut: true },
+        },
+        testScenario,
+      ),
+    ).toBe(true);
+    expect(
+      isKakiEvent(
+        {
+          type: 'TRANSCRIPT_LINE_UPDATED',
+          audience: { kind: 'all' },
+          payload: { lineId: '', speaker: 'Ada', text: 'Double pay', timestamp: '2026-01-01T10:00:00Z', cut: true },
+        },
+        testScenario,
+      ),
+    ).toBe(false);
+    expect(
+      isKakiEvent(
         { type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' }, payload: { kind: 'OPENING', text: 'Welcome' } },
         testScenario,
       ),

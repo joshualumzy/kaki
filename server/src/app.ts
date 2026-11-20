@@ -1080,10 +1080,13 @@ async function handleRequest(
         return;
       }
 
-      // Transcript lines and reactions are live-only: replaying them to a page that opens later shows ghost speech
-      // or a stale reaction badge. Everything else a demo emits (nudges, facts, tasks) stays available to phones
-      // that join later.
-      const liveOnly = body.value.type === 'TRANSCRIPT_CHUNK' || body.value.type === 'COLLEAGUE_REACTION';
+      // Transcript lines, their display updates and reactions are live-only: replaying them to a page that opens
+      // later shows ghost speech or a stale reaction badge. Everything else a demo emits (nudges, facts, tasks)
+      // stays available to phones that join later.
+      const liveOnly =
+        body.value.type === 'TRANSCRIPT_CHUNK' ||
+        body.value.type === 'TRANSCRIPT_LINE_UPDATED' ||
+        body.value.type === 'COLLEAGUE_REACTION';
       context.hub.publish(
         body.value,
         liveOnly ? undefined : { retainKey: `dev:${JSON.stringify(body.value)}` },

@@ -53,6 +53,7 @@ export function MeetingPanel({
       taskStatus.current.clear();
     }
     const added: TimelineEntry[] = [];
+    const updated = new Map<string, TimelineEntry>();
     for (const event of events) {
       if (seenEvents.current.has(event)) continue;
       seenEvents.current.add(event);
@@ -61,12 +62,25 @@ export function MeetingPanel({
         continue;
       }
       const entry = entryForEvent(event, viewer, isHost, scenario);
-      if (entry !== undefined && !seenKeys.current.has(entry.key)) {
-        seenKeys.current.add(entry.key);
-        added.push(entry);
+      if (entry === undefined) continue;
+      if (seenKeys.current.has(entry.key)) {
+        updated.set(entry.key, entry);
+        continue;
       }
+      seenKeys.current.add(entry.key);
+      added.push(entry);
     }
-    if (added.length > 0) setEntries((previous) => [...previous, ...added]);
+    if (added.length > 0 || updated.size > 0) {
+      setEntries((previous) => {
+        const next = updated.size === 0
+          ? previous
+          : previous.map((entry) => {
+              const replacement = updated.get(entry.key);
+              return replacement === undefined || replacement.text === entry.text ? entry : replacement;
+            });
+        return added.length === 0 ? next : [...next, ...added];
+      });
+    }
   }, [events, viewer, isHost, scenario]);
 
   const facilitatorName = useMemo(() => {

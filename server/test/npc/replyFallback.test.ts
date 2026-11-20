@@ -59,6 +59,7 @@ function harness(fallback?: (messages: ChatMessage[], signal: AbortSignal) => As
       });
     },
     emitTranscript: (speaker, text) => transcript.push([speaker, text]),
+    emitTranscriptUpdate: () => undefined,
     emitState: () => undefined,
     log: (message) => logs.push(message),
   };

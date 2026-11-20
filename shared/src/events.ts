@@ -32,6 +32,7 @@ export const NOTETAKER_STATUSES: readonly NotetakerStatus[] = ['waiting', 'ok', 
 /** The event types the meeting protocol knows about. */
 export type KakiEventType =
   | 'TRANSCRIPT_CHUNK'
+  | 'TRANSCRIPT_LINE_UPDATED'
   | 'MEETING_RECORD_UPDATED'
   | 'HOST_SPEECH_TRIGGERED'
   | 'NUDGE'
@@ -61,6 +62,24 @@ export type KakiEvent =
         catchId?: string;
         /** The seat that spoke, so a renamed display name still counts as that role. */
         speakerRole?: Role;
+        /** Stable id for one spoken line, so a later update replaces that line instead of adding another. */
+        lineId?: string;
+      }
+    >
+  /**
+   * A display-only change to a line already spoken: the words the room heard before an interruption, or
+   * the full line once it resumes. Record keepers ignore it, so a cut and resumed line is recorded once.
+   */
+  | KakiEventOf<
+      'TRANSCRIPT_LINE_UPDATED',
+      {
+        /** The `lineId` of the TRANSCRIPT_CHUNK this replaces. */
+        lineId: string;
+        speaker: string;
+        text: string;
+        timestamp: string;
+        /** True when the room only heard part of the line before it was interrupted. */
+        cut: boolean;
       }
     >
   | KakiEventOf<
@@ -116,6 +135,7 @@ export type KakiEvent =
 
 const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'TRANSCRIPT_CHUNK',
+  'TRANSCRIPT_LINE_UPDATED',
   'MEETING_RECORD_UPDATED',
   'HOST_SPEECH_TRIGGERED',
   'NUDGE',
@@ -198,7 +218,15 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isString(payload.timestamp) &&
     (payload.textOnly === undefined || typeof payload.textOnly === 'boolean') &&
     (payload.catchId === undefined || isString(payload.catchId)) &&
-    (payload.speakerRole === undefined || isRoleIn(scenario, payload.speakerRole)),
+    (payload.speakerRole === undefined || isRoleIn(scenario, payload.speakerRole)) &&
+    (payload.lineId === undefined || isString(payload.lineId)),
+  TRANSCRIPT_LINE_UPDATED: (payload) =>
+    isNonEmptyString(payload.lineId) &&
+    isString(payload.speaker) &&
+    isString(payload.text) &&
+    isString(payload.timestamp) &&
+    Number.isFinite(Date.parse(payload.timestamp)) &&
+    typeof payload.cut === 'boolean',
   MEETING_RECORD_UPDATED: (payload, scenario) =>
     Number.isInteger(payload.agendaIndex) &&
     Array.isArray(payload.openQuestions) &&

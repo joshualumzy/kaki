@@ -37,6 +37,34 @@ describe('timeline entries', () => {
     expect(entryForEvent(said('Arjun'), viewer)?.key).toBe(entryForEvent(said('Arjun'), viewer)?.key);
   });
 
+  it('replaces a cut transcript line under the same id instead of listing it twice', () => {
+    const full: KakiEvent = {
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: {
+        speaker: 'Arjun',
+        text: 'The build is red and the crash only happens on Android.',
+        timestamp: '2026-11-05T10:00:00Z',
+        lineId: 'line-1',
+      },
+    };
+    const cut: KakiEvent = {
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: {
+        speaker: 'Arjun',
+        text: 'The build is red',
+        timestamp: '2026-11-05T10:00:01Z',
+        lineId: 'line-1',
+        cut: true,
+      },
+    };
+    const first = entryForEvent(full, viewer);
+    const replacement = entryForEvent(cut, viewer);
+    expect(replacement?.key).toBe(first?.key);
+    expect(replacement?.text).toBe('The build is red …');
+  });
+
   it('leaves the agenda record out; it has its own card', () => {
     const record = { type: 'MEETING_RECORD_UPDATED', audience: { kind: 'screen' }, payload: {} } as unknown as KakiEvent;
     expect(entryForEvent(record, viewer)).toBeUndefined();

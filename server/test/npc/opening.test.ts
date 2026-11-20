@@ -37,6 +37,8 @@ function harness(scenarioUsed: Scenario, role: string, options: {
   const calls: LlmCall[] = [];
   const playing: Playing[] = [];
   const transcript: Array<[string, string]> = [];
+  const transcriptOptions: Array<[string, string, { lineId?: string } | undefined]> = [];
+  const transcriptUpdates: Array<[string, string, { lineId: string; cut: boolean }]> = [];
   const logs: string[] = [];
 
   const ports: NpcPorts<Utterance> = {
@@ -82,7 +84,13 @@ function harness(scenarioUsed: Scenario, role: string, options: {
         signal.addEventListener('abort', () => resolve());
       });
     },
-    emitTranscript: (speaker, text) => transcript.push([speaker, text]),
+    emitTranscript: (speaker, text, options) => {
+      transcript.push([speaker, text]);
+      transcriptOptions.push([speaker, text, options]);
+    },
+    emitTranscriptUpdate: (speaker, text, options) => {
+      transcriptUpdates.push([speaker, text, options]);
+    },
     emitState: () => undefined,
     log: (message) => logs.push(message),
     settleTopic: () => undefined,
@@ -117,7 +125,7 @@ function harness(scenarioUsed: Scenario, role: string, options: {
     })(),
   });
   conversation.setHuman({ name: 'Josh', role });
-  return { conversation, ports, calls, playing, transcript, logs };
+  return { conversation, ports, calls, playing, transcript, transcriptOptions, transcriptUpdates, logs };
 }
 
 const flush = async (): Promise<void> => {
@@ -767,7 +775,7 @@ describe('one-speaker topic opening', () => {
     h.conversation.close();
   });
 
-  it('keeps one transcript entry for a cut sentence and adds no dash marker', async () => {
+  it('marks a cut sentence and shows the full line again once it is re-said', async () => {
     const roleId = 'producer';
     const seat = 'Wei Ling';
     const title = TOPICS[0]!;
@@ -786,18 +794,21 @@ describe('one-speaker topic opening', () => {
     await playOut(h.playing);
 
     const line = `${steps[1]!.speaker}: ${steps[1]!.facts.join(' ')}`;
+    const full = steps[1]!.facts.join(' ');
     const second = await waitCall(h.calls, 1);
     second.push(line);
     second.end();
     await flush();
     expect(h.playing.some((entry) => !entry.finished)).toBe(true);
-    const before = h.transcript.filter(([, text]) => text === steps[1]!.facts.join(' ')).length;
-    expect(before).toBe(1);
+    const initialLineId = h.transcriptOptions.find(([, text]) => text === full)?.[2]?.lineId;
+    expect(initialLineId).toBeDefined();
 
     h.conversation.stop();
     await flush();
+    const cut = h.transcriptUpdates.filter(([, , options]) => options.cut === true).at(-1);
+    expect(cut?.[2]?.lineId).toBe(initialLineId);
+    expect(cut?.[1]).not.toBe(full);
     expect(h.transcript.some(([, text]) => text === '—')).toBe(false);
-    expect(h.transcript.filter(([, text]) => text === steps[1]!.facts.join(' '))).toHaveLength(1);
 
     const resumeAt = h.calls.length;
     h.conversation.resumeFromPause();
@@ -809,7 +820,57 @@ describe('one-speaker topic opening', () => {
     await playOut(h.playing);
 
     expect(h.transcript.some(([, text]) => text === '—')).toBe(false);
-    expect(h.transcript.filter(([, text]) => text === steps[1]!.facts.join(' '))).toHaveLength(1);
+    expect(h.transcriptOptions.filter(([, text]) => text === full)).toHaveLength(1);
+    const restored = h.transcriptUpdates.filter(([, text, options]) => text === full && options.cut === false);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]?.[2]?.lineId).toBe(initialLineId);
+    h.conversation.close();
+  });
+
+  it('records a resumed opening that says something new as a new line and leaves the cut line cut', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const steps = expectedSteps(scenario, title, seat);
+    const h = harness(scenario, roleId);
+    h.conversation.agendaMoved(title);
+    h.conversation.announce('Sam', handoverLine(scenario, title, seat));
+    await flush();
+    await playOut(h.playing);
+
+    const first = await waitCall(h.calls, 0);
+    first.push(`${steps[0]!.speaker}: ${steps[0]!.facts.join(' ')}`);
+    first.end();
+    await flush();
+    await playOut(h.playing);
+
+    const full = steps[1]!.facts.join(' ');
+    const second = await waitCall(h.calls, 1);
+    second.push(`${steps[1]!.speaker}: ${full}`);
+    second.end();
+    await flush();
+    const initialLineId = h.transcriptOptions.find(([, text]) => text === full)?.[2]?.lineId;
+    expect(initialLineId).toBeDefined();
+
+    h.conversation.stop();
+    await flush();
+
+    const reworded = `To put it simply, ${full.charAt(0).toLowerCase()}${full.slice(1)}`;
+    const resumeAt = h.calls.length;
+    h.conversation.resumeFromPause();
+    await flush();
+    const resumed = await waitCall(h.calls, resumeAt);
+    resumed.push(`${steps[1]!.speaker}: ${reworded}`);
+    resumed.end();
+    await flush();
+    await playOut(h.playing);
+
+    // The new sentence is recorded once as its own line; the cut line is never restored to words the room did not hear.
+    const newLine = h.transcriptOptions.filter(([, text]) => text === reworded);
+    expect(newLine).toHaveLength(1);
+    expect(newLine[0]?.[2]?.lineId).not.toBe(initialLineId);
+    expect(h.transcriptUpdates.some(([, , options]) => options.lineId === initialLineId && options.cut === false)).toBe(false);
     h.conversation.close();
   });
 

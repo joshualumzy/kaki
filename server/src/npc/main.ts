@@ -161,13 +161,19 @@ const sendAs = (role: Role | 'screen', command: KakiCommand): void => commandSoc
 let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
+/** Say (at most every ten seconds) that Kaki did not take a transcript message. */
+function complainTranscript(message: string): void {
+  if (Date.now() - lastTranscriptError < 10_000) return;
+  lastTranscriptError = Date.now();
+  log(message);
+}
+
 /** Send one transcript line to Kaki, and say so (at most every ten seconds) if that does not work. */
-function postTranscript(speaker: string, text: string, options?: { textOnly?: boolean; catchId?: string }): void {
-  const complain = (message: string): void => {
-    if (Date.now() - lastTranscriptError < 10_000) return;
-    lastTranscriptError = Date.now();
-    log(message);
-  };
+function postTranscript(
+  speaker: string,
+  text: string,
+  options?: { textOnly?: boolean; catchId?: string; lineId?: string },
+): void {
   runnerClient
     .emit({
       type: 'TRANSCRIPT_CHUNK',
@@ -178,14 +184,41 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
         timestamp: new Date().toISOString(),
         ...(options?.textOnly === true ? { textOnly: true } : {}),
         ...(options?.catchId === undefined ? {} : { catchId: options.catchId }),
+        ...(options?.lineId === undefined ? {} : { lineId: options.lineId }),
       },
     })
     .then(async (response) => {
       if (!response.ok) {
-        complain(`Kaki rejected a transcript line (HTTP ${response.status}); check the server and runner token. ${await response.text()}`);
+        complainTranscript(
+          `Kaki rejected a transcript line (HTTP ${response.status}); check the server and runner token. ${await response.text()}`,
+        );
       }
     })
-    .catch((error: unknown) => complain(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
+    .catch((error: unknown) => complainTranscript(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
+}
+
+/** Cut or restore a line on screen only; the line itself was already recorded when it was spoken. */
+function postTranscriptUpdate(speaker: string, text: string, options: { lineId: string; cut: boolean }): void {
+  runnerClient
+    .emit({
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: {
+        lineId: options.lineId,
+        speaker,
+        text,
+        timestamp: new Date().toISOString(),
+        cut: options.cut,
+      },
+    })
+    .then(async (response) => {
+      if (!response.ok) {
+        complainTranscript(
+          `Kaki rejected a transcript update (HTTP ${response.status}); check the server and runner token. ${await response.text()}`,
+        );
+      }
+    })
+    .catch((error: unknown) => complainTranscript(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
 }
 
 /**
@@ -249,6 +282,7 @@ const runner = await startNpcRunner({
   ...(readerFallbackStreamWithFault === undefined ? {} : { readerFallbackStream: readerFallbackStreamWithFault }),
   synthesize,
   postTranscript,
+  postTranscriptUpdate,
   postHumanLine,
   responseDelayMs: numberEnv('NPC_RESPONSE_DELAY_MS', 950),
   recognizer,

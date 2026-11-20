@@ -97,13 +97,16 @@ export interface RunnerOptions {
   synthesize(utterance: Utterance, signal: AbortSignal): Promise<Int16Array>;
   /**
    * A line said in the meeting, under the name Kaki's transcript uses; `textOnly` marks a line shown as text because
-   * its voice failed, and `catchId` marks the last sentence of the line that raises a catch.
+   * its voice failed, `catchId` marks the last sentence of the line that raises a catch, and `lineId` lets a later
+   * display update replace the same line.
    */
   postTranscript(
     speaker: string,
     text: string,
-    options?: { textOnly?: boolean; catchId?: string },
+    options?: { textOnly?: boolean; catchId?: string; lineId?: string },
   ): void;
+  /** A display-only cut or restore of a line already posted, never recorded as another spoken line. */
+  postTranscriptUpdate(speaker: string, text: string, options: { lineId: string; cut: boolean }): void;
   /**
    * Forward speech that only the server-side recogniser heard to Kaki's one transcript writer.
    * The app server resolves the speaker from the seat, so no client-chosen name is trusted.
@@ -415,6 +418,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           if (transcriptOptions?.human === true) return;
           const attendee = meeting.scenario().attendees.find((candidate) => candidate.name === speaker);
           options.postTranscript(attendee?.zoomDisplayName ?? speaker, text, transcriptOptions);
+        },
+        emitTranscriptUpdate: (speaker, text, updateOptions) => {
+          const attendee = meeting.scenario().attendees.find((candidate) => candidate.name === speaker);
+          options.postTranscriptUpdate(attendee?.zoomDisplayName ?? speaker, text, updateOptions);
         },
         emitState: (state) => {
           lastConversationState = state;

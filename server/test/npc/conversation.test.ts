@@ -85,7 +85,8 @@ function harness(
   const playing: Playing[] = [];
   const states: NpcUiState[] = [];
   const transcript: Array<[string, string]> = [];
-  const transcriptOptions: Array<[string, string, { textOnly?: boolean; catchId?: string } | undefined]> = [];
+  const transcriptOptions: Array<[string, string, { textOnly?: boolean; catchId?: string; lineId?: string } | undefined]> = [];
+  const transcriptUpdates: Array<[string, string, { lineId: string; cut: boolean }]> = [];
   const logs: string[] = [];
 
   const ports: NpcPorts<Utterance> = {
@@ -142,6 +143,9 @@ function harness(
         transcript.push([speaker, text]);
         transcriptOptions.push([speaker, text, options]);
       },
+      emitTranscriptUpdate: (speaker, text, options) => {
+        transcriptUpdates.push([speaker, text, options]);
+      },
       emitState: (state) => states.push(state),
       log: (message) => logs.push(message),
   };
@@ -166,7 +170,7 @@ function harness(
     conversation.humanSpeech(false);
     await vi.advanceTimersByTimeAsync(900);
   }
-  return { conversation, ports, calls, assessments, playing, states, transcript, transcriptOptions, logs, flush, say };
+  return { conversation, ports, calls, assessments, playing, states, transcript, transcriptOptions, transcriptUpdates, logs, flush, say };
 }
 
 describe('NpcConversation', () => {
@@ -2010,7 +2014,7 @@ describe('NpcConversation', () => {
     expect(
       () =>
         new NpcConversation(
-          { stream: async function* () {}, synthesize: async () => 0, play: async () => {}, emitTranscript() {}, emitState() {} },
+          { stream: async function* () {}, synthesize: async () => 0, play: async () => {}, emitTranscript() {}, emitTranscriptUpdate() {}, emitState() {} },
           { scenario: testScenario },
         ),
     ).toThrow(/no npcs/);
@@ -2345,6 +2349,38 @@ describe('NpcConversation', () => {
     // And it still answers the next thing said.
     await h.say('Thanks.');
     expect(h.calls).toHaveLength(2);
+  });
+
+  it('replaces a line with only the words heard when Stop cuts it, then restores it on Resume', async () => {
+    const h = harness();
+    await h.say('Status?');
+    const line = 'The build is red and the crash only happens on Android devices.';
+    h.calls[0]?.push(`Ada: ${line}`);
+    h.calls[0]?.end();
+    await h.flush();
+    const initial = h.transcriptOptions.find(([, text, options]) => text === line && options?.lineId !== undefined);
+    expect(initial).toBeDefined();
+    expect(h.transcriptOptions.filter(([, text]) => text === line)).toHaveLength(1);
+
+    // Stop after only part of the sentence has played: a display-only update, never another recorded line.
+    await vi.advanceTimersByTimeAsync(1000);
+    h.conversation.stop();
+    const cut = h.transcriptUpdates.at(-1);
+    expect(cut?.[0]).toBe('Ada');
+    expect(cut?.[1]).not.toBe(line);
+    expect(cut?.[1]?.startsWith('The build')).toBe(true);
+    expect(cut?.[1]).not.toContain('Android');
+    expect(cut?.[2]).toEqual({ lineId: initial?.[2]?.lineId, cut: true });
+
+    // Resume replays the whole sentence and puts the full line back on screen.
+    h.conversation.resumeFromPause();
+    await h.flush();
+    const resumed = h.transcriptUpdates.at(-1);
+    expect(resumed?.[1]).toBe(line);
+    expect(resumed?.[2]).toEqual({ lineId: initial?.[2]?.lineId, cut: false });
+    expect(h.transcriptOptions.filter(([, text]) => text === line)).toHaveLength(1);
+    h.playing.at(-1)?.finish();
+    await h.conversation.settled();
   });
 
   it('carries on held lines when bargeInMs cuts off a speaker and recognition hears no words, without letting an announcement jump in first', async () => {
@@ -2698,7 +2734,7 @@ describe('one-speaker replies to the guest', () => {
     expect(h.transcriptOptions).toContainEqual([
       'Bao',
       'Calling her in means double pay for her rest day.',
-      { catchId: '0:catch:0' },
+      expect.objectContaining({ catchId: '0:catch:0' }),
     ]);
     h.conversation.close();
   });

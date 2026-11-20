@@ -247,6 +247,43 @@ describe('wiki action module', () => {
     expect(llm.calls).toHaveLength(0);
   });
 
+  it('records a cut then resumed line once in the minutes', async () => {
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
+    );
+    const line = 'We decided to cap the oven at 200C.';
+    const timestamp = '2026-11-03T10:00:00Z';
+    tasks.hub.publish({
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Mei (Chef)', text: line, timestamp, lineId: 'line-1' },
+    });
+    // A cut and a restore are display-only; the minutes must not read them as new spoken lines.
+    tasks.hub.publish({
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: { lineId: 'line-1', speaker: 'Mei (Chef)', text: 'We decided to cap', timestamp, cut: true },
+    });
+    tasks.hub.publish({
+      type: 'TRANSCRIPT_LINE_UPDATED',
+      audience: { kind: 'all' },
+      payload: { lineId: 'line-1', speaker: 'Mei (Chef)', text: line, timestamp, cut: false },
+    });
+    tasks.hub.publish({
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    });
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.draft?.body).toEqual(
+      buildMeetingMinutes(testScenario, '2026-11-03', [{ speaker: 'Mei (Chef)', text: line }], [], []),
+    );
+    expect(minutesTask.draft?.body.match(/We decided to cap the oven/g)).toHaveLength(1);
+  });
+
   it('publishes the approved minutes once and completes the task with the URL', async () => {
     const fetchImpl = wikiFetch();
     const tasks = setup(

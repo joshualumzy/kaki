@@ -60,6 +60,7 @@ function meeting(scenario: Scenario, role: string, cast: ReturnType<typeof aiCas
       spoken.push(clip.text);
     },
     emitTranscript() {},
+    emitTranscriptUpdate() {},
     emitState() {},
     log(message) {
       logs.push(message);

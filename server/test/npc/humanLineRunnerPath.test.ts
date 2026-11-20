@@ -168,6 +168,7 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
       postHumanLine: (line) => {
         void client
           .postHumanLine(line)

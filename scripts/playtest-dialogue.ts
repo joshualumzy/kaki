@@ -178,6 +178,7 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
       emitTranscript: (speaker, text) => {
         transcript.push({ speaker, text });
       },
+      emitTranscriptUpdate: () => undefined,
       emitState: () => {},
       log: (msg) => {
         if (msg.startsWith('proposal')) console.log(`    [assessment] ${msg}`);
