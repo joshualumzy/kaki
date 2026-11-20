@@ -35,6 +35,13 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
       const ended = new Promise<void>((resolve) => (stopped = resolve));
       let failure: string | undefined;
       let closed = false;
+      let streamClosed = false;
+
+      const closeStream = (): void => {
+        if (streamClosed) return;
+        streamClosed = true;
+        stream.close();
+      };
 
       recognizer.recognized = (_sender, event) => {
         if (event.result.reason === sdk.ResultReason.RecognizedSpeech && event.result.text.length > 0) {
@@ -62,10 +69,16 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
         );
       });
 
-      const dispose = async (): Promise<void> => {
+      const dispose = async (timeoutMs: number): Promise<void> => {
         if (closed) return;
         closed = true;
-        await new Promise<void>((resolve) => recognizer.stopContinuousRecognitionAsync(() => resolve(), () => resolve()));
+        const stopping = new Promise<void>((resolve) =>
+          recognizer.stopContinuousRecognitionAsync(() => resolve(), () => resolve()),
+        );
+        if (timeoutMs > 0) {
+          const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+          await Promise.race([stopping, timeout]);
+        }
         recognizer.close();
       };
 
@@ -75,17 +88,43 @@ export function createAzureStt(key: string, region: string, options: AzureSttOpt
           stream.write(samples.buffer.slice(samples.byteOffset, samples.byteOffset + samples.byteLength) as ArrayBuffer);
         },
         async finish() {
-          await started;
-          stream.close();
-          const timeout = new Promise<void>((resolve) => setTimeout(resolve, finishTimeoutMs));
-          await Promise.race([ended, timeout]);
-          await dispose();
-          if (failure !== undefined && parts.length === 0) throw new Error(failure);
-          return parts.join(' ');
+          // One deadline covers the whole start, recognition and stop lifecycle. A recogniser whose
+          // callback never arrives must fail loudly and be closed, not hang the utterance queue.
+          const deadline = Date.now() + finishTimeoutMs;
+          const remaining = (): number => Math.max(0, deadline - Date.now());
+          const withinDeadline = <T>(promise: Promise<T>, message: string): Promise<T> => {
+            const timeoutMs = remaining();
+            if (timeoutMs === 0) return Promise.reject(new Error(message));
+            return new Promise<T>((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+              promise.then(
+                (value) => {
+                  clearTimeout(timer);
+                  resolve(value);
+                },
+                (error: unknown) => {
+                  clearTimeout(timer);
+                  reject(error instanceof Error ? error : new Error(String(error)));
+                },
+              );
+            });
+          };
+
+          try {
+            await withinDeadline(started, 'Speech recognition did not start in time.');
+            if (failure !== undefined) throw new Error(failure);
+            closeStream();
+            await withinDeadline(ended, 'Speech recognition did not finish in time.');
+            if (failure !== undefined) throw new Error(failure);
+            return parts.join(' ');
+          } finally {
+            closeStream();
+            await dispose(remaining());
+          }
         },
         cancel() {
-          stream.close();
-          void dispose();
+          closeStream();
+          void dispose(finishTimeoutMs);
         },
       };
     },

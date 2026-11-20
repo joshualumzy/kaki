@@ -2,25 +2,25 @@ import { useEffect, useState } from 'react';
 import { toString as qrCodeSvg } from 'qrcode';
 import { humanSeatRoles } from '@kaki/shared';
 import { useScenario } from '../kaki';
-import { Card } from '../ui';
+import { fetchWithTimeout } from '../net/withTimeout';
+import { Button, Card } from '../ui';
 import './join-phones.css';
 
 type JoinState =
   | { kind: 'loading' }
-  | { kind: 'ready'; baseUrl: string; code?: string }
+  | { kind: 'ready'; baseUrl: string; code: string }
   | { kind: 'error'; message: string };
 
-function phoneUrl(baseUrl: string, roleId: string, code?: string): string {
+function phoneUrl(baseUrl: string, roleId: string, code: string): string {
   const query = `role=${encodeURIComponent(roleId)}`;
-  return code === undefined
-    ? `${baseUrl}/phone?${query}`
-    : `${baseUrl}/phone?${query}&code=${encodeURIComponent(code)}`;
+  return `${baseUrl}/phone?${query}&code=${encodeURIComponent(code)}`;
 }
 
 /** Shared-screen card with one QR code per human seat so phones can join. */
 export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
   const scenario = useScenario();
   const [state, setState] = useState<JoinState>({ kind: 'loading' });
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -28,8 +28,8 @@ export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
     async function load(): Promise<void> {
       try {
         const [response, codeResponse] = await Promise.all([
-          fetch('/api/join-info', { signal: controller.signal }),
-          fetch('/api/meeting-code', { signal: controller.signal }).catch(() => null),
+          fetchWithTimeout('/api/join-info', { signal: controller.signal }),
+          fetchWithTimeout('/api/meeting-code', { signal: controller.signal }),
         ]);
         const body = (await response.json().catch(() => null)) as
           | { baseUrl?: unknown; error?: unknown }
@@ -49,21 +49,23 @@ export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
           return;
         }
 
-        let code: string | undefined;
-        if (codeResponse?.ok === true) {
-          const codeBody = (await codeResponse.json().catch(() => null)) as
-            | { code?: unknown }
-            | null;
-          if (typeof codeBody?.code === 'string' && codeBody.code.trim() !== '') {
-            code = codeBody.code.trim();
-          }
+        const codeBody = (await codeResponse.json().catch(() => null)) as
+          | { code?: unknown; error?: unknown }
+          | null;
+        if (!codeResponse.ok) {
+          const message =
+            typeof codeBody?.error === 'string'
+              ? codeBody.error
+              : `Server returned ${codeResponse.status} for the meeting code`;
+          setState({ kind: 'error', message });
+          return;
+        }
+        if (typeof codeBody?.code !== 'string' || codeBody.code.trim() === '') {
+          setState({ kind: 'error', message: 'The server returned no meeting code.' });
+          return;
         }
 
-        setState(
-          code === undefined
-            ? { kind: 'ready', baseUrl: body.baseUrl }
-            : { kind: 'ready', baseUrl: body.baseUrl, code },
-        );
+        setState({ kind: 'ready', baseUrl: body.baseUrl, code: codeBody.code.trim() });
       } catch (error) {
         if (controller.signal.aborted) return;
         setState({
@@ -75,7 +77,7 @@ export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
 
     void load();
     return () => controller.abort();
-  }, [meetingId]);
+  }, [meetingId, retryCount]);
 
   if (state.kind === 'error') {
     return (
@@ -86,6 +88,14 @@ export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
         <p className="join-hint">
           Set <code>KAKI_PUBLIC_URL</code> on the server if phones cannot reach this machine.
         </p>
+        <Button
+          onClick={() => {
+            setState({ kind: 'loading' });
+            setRetryCount((count) => count + 1);
+          }}
+        >
+          Try again
+        </Button>
       </Card>
     );
   }
@@ -96,11 +106,9 @@ export function JoinPhones({ meetingId }: { meetingId: string | undefined }) {
         <p className="empty-state">Finding this screen&apos;s address…</p>
       ) : (
         <>
-          {state.code === undefined ? null : (
-            <p className="join-code">
-              Meeting code: <strong>{state.code}</strong>
-            </p>
-          )}
+          <p className="join-code">
+            Meeting code: <strong>{state.code}</strong>
+          </p>
           <ul className="join-phones">
             {humanSeatRoles(scenario).map((role) => {
               const url = phoneUrl(state.baseUrl, role.id, state.code);

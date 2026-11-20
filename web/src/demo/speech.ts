@@ -52,13 +52,21 @@ export interface RecognizerHandlers {
   onListening?(listening: boolean): void;
   /** Recognition cannot work (no permission, no microphone); it will not be retried. */
   onFatal?(message: string): void;
+  /** Recognition kept failing and has stopped; the person can start it again. */
+  onExhausted?(message: string): void;
 }
 
 export interface RecognizerOptions {
   lang?: string;
   restartDelayMs?: number;
   maxRestartDelayMs?: number;
+  /** Consecutive failed sessions before recognition stops and offers a manual retry. */
+  maxFailures?: number;
 }
+
+/** Shown when repeated network or start errors use up the retry budget. */
+export const RECOGNITION_EXHAUSTED_MESSAGE =
+  'Speech recognition kept failing and has stopped. Check your connection, then try again.';
 
 const FATAL: Record<string, string> = {
   'not-allowed': 'Microphone access was blocked for speech recognition.',
@@ -70,18 +78,34 @@ const FATAL: Record<string, string> = {
 /**
  * Run continuous speech recognition and keep it running. Browsers end a session every minute or
  * so, or after silence; this restarts it, backs off if it keeps failing, and never delivers a
- * finished piece of speech twice. Returns a function that stops it for good.
+ * finished piece of speech twice. After a bounded run of failures it stops and asks the caller to
+ * offer a manual retry. Returns a function that stops it for good.
  */
 export function startRecognizer(
   Recognition: SpeechRecognitionCtor,
   handlers: RecognizerHandlers,
   options: RecognizerOptions = {},
 ): () => void {
-  const { lang = 'en-US', restartDelayMs = 250, maxRestartDelayMs = 5000 } = options;
+  const {
+    lang = 'en-US',
+    restartDelayMs = 250,
+    maxRestartDelayMs = 5000,
+    maxFailures = 8,
+  } = options;
   let stopped = false;
   let current: SpeechRecognitionLike | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let failures = 0;
+
+  function recordFailure(): void {
+    if (stopped) return;
+    failures += 1;
+    if (failures < maxFailures) return;
+    stopped = true;
+    handlers.onListening?.(false);
+    handlers.onInterim?.('');
+    (handlers.onExhausted ?? handlers.onFatal)?.(RECOGNITION_EXHAUSTED_MESSAGE);
+  }
 
   function scheduleRestart(): void {
     if (stopped) return;
@@ -130,22 +154,22 @@ export function startRecognizer(
         stopped = true;
         handlers.onFatal?.(fatal);
       } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        failures += 1; // for example "network": back off before trying again
+        recordFailure(); // for example "network": back off before trying again
       }
     };
     recognition.onend = () => {
       if (current === recognition) current = undefined;
       handlers.onListening?.(false);
       handlers.onInterim?.('');
-      if (Date.now() - startedAt < 1000) failures += 1; // ended at once: something is wrong
+      if (Date.now() - startedAt < 1000) recordFailure(); // ended at once: something is wrong
       scheduleRestart();
     };
 
     try {
       recognition.start();
     } catch {
-      failures += 1;
       current = undefined;
+      recordFailure();
       scheduleRestart();
     }
   }

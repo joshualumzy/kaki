@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TypeBar } from './TypeBar';
 
@@ -204,6 +204,66 @@ describe('TypeBar', () => {
     fireEvent.submit(input.closest('form')!);
     expect(onPauseChange).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith({ kind: 'text', text: 'Carry on' });
+  });
+
+  it('keeps the line and says so when delivery fails', async () => {
+    const send = vi.fn(async () => false);
+    const onTextSent = vi.fn();
+    render(<TypeBar send={send} onTextSent={onTextSent} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'The stock count is in.' } });
+    fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe("Couldn't send your line, try again"),
+    );
+    expect(input.value).toBe('The stock count is in.');
+    expect(onTextSent).not.toHaveBeenCalled();
+  });
+
+  it('keeps the line when delivery throws', async () => {
+    const send = vi.fn(() => Promise.reject(new Error('offline')));
+    const onTextSent = vi.fn();
+    render(<TypeBar send={send} onTextSent={onTextSent} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'The stock count is in.' } });
+    fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe("Couldn't send your line, try again"),
+    );
+    expect(input.value).toBe('The stock count is in.');
+    expect(onTextSent).not.toHaveBeenCalled();
+  });
+
+  it('clears the line only once delivery is confirmed', async () => {
+    let confirm: (delivered: boolean) => void = () => undefined;
+    const send = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          confirm = resolve;
+        }),
+    );
+    const onTextSent = vi.fn();
+    render(<TypeBar send={send} onTextSent={onTextSent} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'The stock count is in.' } });
+    fireEvent.submit(input.closest('form')!);
+
+    expect(send).toHaveBeenCalledWith({ kind: 'text', text: 'The stock count is in.' });
+    expect(input.value).toBe('The stock count is in.');
+    expect(onTextSent).not.toHaveBeenCalled();
+
+    await act(async () => {
+      confirm(true);
+      await Promise.resolve();
+    });
+
+    expect(input.value).toBe('');
+    expect(onTextSent).toHaveBeenCalledWith('The stock count is in.');
   });
 
   it('reports the finalized typed line to the server path', () => {

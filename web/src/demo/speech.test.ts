@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   browserRecognitionWanted,
+  RECOGNITION_EXHAUSTED_MESSAGE,
   speechRecognitionCtor,
   startRecognizer,
   type SpeechEventLike,
@@ -41,12 +42,14 @@ describe('startRecognizer', () => {
   let interims: string[];
   let listening: boolean[];
   let fatal: string[];
+  let exhausted: string[];
 
   const handlers = () => ({
     onFinal: (text: string) => finals.push(text),
     onInterim: (text: string) => interims.push(text),
     onListening: (on: boolean) => listening.push(on),
     onFatal: (message: string) => fatal.push(message),
+    onExhausted: (message: string) => exhausted.push(message),
   });
 
   beforeEach(() => {
@@ -56,6 +59,7 @@ describe('startRecognizer', () => {
     interims = [];
     listening = [];
     fatal = [];
+    exhausted = [];
   });
   afterEach(() => vi.useRealTimers());
 
@@ -103,6 +107,49 @@ describe('startRecognizer', () => {
       delays.push(waited);
     }
     expect(delays).toEqual([200, 400, 800, 800, 800]);
+  });
+
+  it('stops after a bounded run of failed sessions and offers a manual retry', () => {
+    startRecognizer(FakeRecognition, handlers(), {
+      restartDelayMs: 50,
+      maxRestartDelayMs: 100,
+      maxFailures: 3,
+    });
+
+    for (let round = 0; round < 3; round += 1) {
+      latest().onend?.();
+      vi.advanceTimersByTime(100);
+    }
+
+    expect(FakeRecognition.instances).toHaveLength(3);
+    expect(exhausted).toEqual([RECOGNITION_EXHAUSTED_MESSAGE]);
+    expect(listening.at(-1)).toBe(false);
+
+    vi.advanceTimersByTime(60_000);
+    expect(FakeRecognition.instances).toHaveLength(3);
+  });
+
+  it('stops retrying a start that keeps throwing', () => {
+    let attempts = 0;
+    class Broken extends FakeRecognition {
+      override start(): void {
+        attempts += 1;
+        throw new Error('already started');
+      }
+    }
+
+    startRecognizer(Broken, handlers(), {
+      restartDelayMs: 10,
+      maxRestartDelayMs: 10,
+      maxFailures: 2,
+    });
+
+    vi.advanceTimersByTime(10);
+    expect(attempts).toBe(2);
+    expect(exhausted).toEqual([RECOGNITION_EXHAUSTED_MESSAGE]);
+
+    vi.advanceTimersByTime(60_000);
+    expect(attempts).toBe(2);
   });
 
   it('treats silence as normal and does not back off for it', () => {

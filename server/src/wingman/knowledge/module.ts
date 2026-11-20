@@ -1,4 +1,11 @@
-import { humanRoles, type KakiEvent, type Scenario, type SearchCompanyData } from '@kaki/shared';
+import {
+  humanRoles,
+  type Fact,
+  type KakiEvent,
+  type Role,
+  type Scenario,
+  type SearchCompanyData,
+} from '@kaki/shared';
 import { Pool } from 'pg';
 import type { KakiContext, KakiModule } from '../../modules';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
@@ -22,13 +29,13 @@ const MAX_SEARCH_ATTEMPTS = 3;
 const RETRY_INTERVAL_MS = 15_000;
 
 interface QuestionLog {
-  /** Questions already answered, skipped, or out of attempts. */
+  /** Questions and agenda searches already answered, skipped, or out of attempts. */
   settled: Set<string>;
   running: Set<string>;
   attempts: Map<string, number>;
   lastAttemptAt: Map<string, number>;
-  /** The agenda item whose company records were last searched for every Wingman role. */
-  lastAgendaIndex?: number;
+  /** Agenda searches whose exhaustion has already been shown, so the room hears it once. */
+  exhausted: Set<string>;
   /** Whether this meeting's pack-free reason has already been logged. */
   packFreeLogged?: boolean;
   stopped?: boolean;
@@ -42,16 +49,36 @@ function agendaQuery(item: Scenario['agenda'][number]): string {
     .join('. ');
 }
 
-/** Give every role with a Wingman the company fact for a newly reached agenda item, once per item. */
+/** Tell one role that its search kept failing, so a missing card is never silent. */
+function publishExhausted(
+  ctx: KakiContext,
+  log: QuestionLog,
+  key: string,
+  role: Role,
+  agendaIndex: number,
+  subject: string,
+): void {
+  log.settled.add(key);
+  if (log.exhausted.has(key)) return;
+  log.exhausted.add(key);
+  ctx.hub.publish(
+    {
+      type: 'NUDGE',
+      audience: { kind: 'role', role },
+      payload: { text: `Kaki's company search isn't working right now, so there is no record check for ${subject}.`, agendaIndex },
+    },
+    { retainKey: `fact-missing:${key}` },
+  );
+}
+
+/** Search the agenda item for every Wingman role; keep trying after a failure until it succeeds or runs out. */
 function searchAgendaTopic(
   ctx: KakiContext,
   search: SearchCompanyData,
   log: QuestionLog,
+  now: () => number,
   agendaIndex: number,
 ): void {
-  if (log.lastAgendaIndex === agendaIndex) return;
-  log.lastAgendaIndex = agendaIndex;
-
   const item = ctx.activeScenario().agenda[agendaIndex];
   if (item === undefined) {
     console.error(`kaki wingman: no agenda item ${agendaIndex} to search company records for`);
@@ -59,16 +86,33 @@ function searchAgendaTopic(
   }
   const query = agendaQuery(item);
   for (const role of humanRoles(ctx.activeScenario())) {
+    const key = `agenda:${agendaIndex}:${role.id}`;
+    if (log.settled.has(key) || log.running.has(key)) continue;
+
+    const previousAttempts = log.attempts.get(key) ?? 0;
+    if (previousAttempts > 0) {
+      const lastAttemptAt = log.lastAttemptAt.get(key) ?? 0;
+      if (now() - lastAttemptAt < RETRY_INTERVAL_MS) continue;
+    }
+
+    const attempt = previousAttempts + 1;
+    log.attempts.set(key, attempt);
+    log.lastAttemptAt.set(key, now());
+    log.running.add(key);
+
     void (async () => {
+      let facts: Fact[] | undefined;
+      let failure: unknown;
       try {
-        const facts = await search(query, role.id);
-        if (log.stopped) return;
-        if (facts.length === 0) {
-          console.error(
-            `kaki wingman: no company facts found for agenda item ${agendaIndex} "${item.title}" (${role.id})`,
-          );
-          return;
-        }
+        facts = await search(query, role.id);
+      } catch (error) {
+        failure = error;
+      } finally {
+        log.running.delete(key);
+      }
+      if (log.stopped) return;
+
+      if (facts !== undefined && facts.length > 0) {
         ctx.hub.publish(
           {
             type: 'FACT_FOUND',
@@ -77,12 +121,23 @@ function searchAgendaTopic(
           },
           { retainKey: `fact:agenda:${agendaIndex}:${role.id}` },
         );
-      } catch (error) {
-        if (log.stopped) return;
+        log.settled.add(key);
+        return;
+      }
+
+      if (failure !== undefined) {
         console.error(
-          `kaki wingman: company search failed for agenda item ${agendaIndex} "${item.title}" (${role.id}):`,
-          error,
+          `kaki wingman: company search failed for agenda item ${agendaIndex} "${item.title}" (${role.id}), attempt ${attempt}:`,
+          failure,
         );
+      } else {
+        // An empty result is an answer, not a failure: the records hold nothing for this item. No retry, no notice.
+        console.warn(`kaki wingman: no company facts found for agenda item ${agendaIndex} "${item.title}" (${role.id})`);
+        log.settled.add(key);
+        return;
+      }
+      if (attempt >= MAX_SEARCH_ATTEMPTS) {
+        publishExhausted(ctx, log, key, role.id, agendaIndex, `“${item.title}”`);
       }
     })();
   }
@@ -101,7 +156,7 @@ function handleEvent(
     log.running.clear();
     log.attempts.clear();
     log.lastAttemptAt.clear();
-    log.lastAgendaIndex = undefined;
+    log.exhausted.clear();
     log.packFreeLogged = false;
     return;
   }
@@ -119,7 +174,7 @@ function handleEvent(
   }
 
   const { agendaIndex } = event.payload;
-  searchAgendaTopic(ctx, search, log, agendaIndex);
+  searchAgendaTopic(ctx, search, log, now, agendaIndex);
 
   for (const question of event.payload.openQuestions) {
     if (log.settled.has(question.id) || log.running.has(question.id)) continue;
@@ -149,19 +204,21 @@ function handleEvent(
     const attempt = previousAttempts + 1;
     log.attempts.set(question.id, attempt);
     log.lastAttemptAt.set(question.id, now());
-    if (attempt >= MAX_SEARCH_ATTEMPTS) log.settled.add(question.id);
     log.running.add(question.id);
 
     void (async () => {
+      let facts: Fact[] | undefined;
+      let failure: unknown;
       try {
-        const facts = await search(question.text, role);
-        if (log.stopped) return;
-        if (facts.length === 0) {
-          console.error(
-            `kaki wingman: no company facts found for question ${question.id} (${role}), attempt ${attempt}`,
-          );
-          return;
-        }
+        facts = await search(question.text, role);
+      } catch (error) {
+        failure = error;
+      } finally {
+        log.running.delete(question.id);
+      }
+      if (log.stopped) return;
+
+      if (facts !== undefined && facts.length > 0) {
         ctx.hub.publish(
           {
             type: 'FACT_FOUND',
@@ -171,14 +228,21 @@ function handleEvent(
           { retainKey: `fact:${question.id}` },
         );
         log.settled.add(question.id);
-      } catch (error) {
-        if (log.stopped) return;
+        return;
+      }
+
+      if (failure !== undefined) {
         console.error(
           `kaki wingman: company search failed for question ${question.id} (${role}), attempt ${attempt}:`,
-          error,
+          failure,
         );
-      } finally {
-        log.running.delete(question.id);
+      } else {
+        console.warn(`kaki wingman: no company facts found for question ${question.id} (${role})`);
+        log.settled.add(question.id);
+        return;
+      }
+      if (attempt >= MAX_SEARCH_ATTEMPTS) {
+        publishExhausted(ctx, log, question.id, role, agendaIndex, 'this question');
       }
     })();
   }
@@ -213,6 +277,7 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
         running: new Set(),
         attempts: new Map(),
         lastAttemptAt: new Map(),
+        exhausted: new Set(),
       };
       const unsubscribe = ctx.hub.subscribe((event) => handleEvent(ctx, search, log, now, event));
       return () => {

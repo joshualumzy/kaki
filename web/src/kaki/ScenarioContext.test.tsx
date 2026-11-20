@@ -99,7 +99,7 @@ describe('ScenarioProvider', () => {
     );
     await flush();
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/scenario?kind=practice');
+    expect(fetchMock).toHaveBeenCalledWith('/api/scenario?kind=practice', expect.anything());
     expect(screen.getByText('Meeting ready')).toBeTruthy();
   });
 
@@ -145,6 +145,29 @@ describe('ScenarioProvider', () => {
     expect(screen.getByText('Could not load the scenario')).toBeTruthy();
     expect(screen.queryByText('Raffles Place Flagship Opening Day')).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('excludedPairs');
+  });
+
+  it('aborts a request that never answers so the 90 s limit is enforced', async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          );
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderProvider();
+    await flush();
+
+    await advance(89_000);
+    expect(screen.queryByText('Could not load the scenario')).toBeNull();
+
+    await advance(1_000);
+    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('did not answer in time');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
   it('gives up after 90 s of 502s, and Try again can succeed', async () => {

@@ -12,7 +12,8 @@ const PENDING_PAUSE_TIMEOUT_MS = 5_000;
 const PAUSE_NOTICE_MS = 5_000;
 
 export interface TypeBarProps {
-  send(message: ControlMessage): void;
+  /** Deliver a command. Return false, or a promise resolving false, when it could not be sent. */
+  send(message: ControlMessage): boolean | void | Promise<boolean | void>;
   /** Called once a typed line actually leaves the browser, so the server can record it too. */
   onTextSent?(text: string): void;
   /** The server record's paused flag; the button never keeps its own copy. */
@@ -46,6 +47,7 @@ export function TypeBar({
   const [text, setText] = useState('');
   const [pendingPaused, setPendingPaused] = useState<boolean | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [sending, setSending] = useState(false);
   const lastSignal = useRef(0);
   /** The rejection already showing when this request started must not be blamed on it. */
   const rejectionBeforeRequest = useRef<Pick<KakiRejection, 'commandType' | 'reason'> | null>(null);
@@ -57,6 +59,44 @@ export function TypeBar({
   const resumeKeptMessage = useRef(false);
   /** The last line this box submitted, so a refusal can put the words back for another try. */
   const lastLine = useRef<string | null>(null);
+
+  /** Send a typed line, clearing the box and recording it only once delivery is confirmed. */
+  const deliverText = useCallback(
+    (typed: string): void => {
+      setNotice(undefined);
+      const confirm = (delivered: boolean): void => {
+        if (!delivered) {
+          setNotice("Couldn't send your line, try again");
+          return;
+        }
+        onTextSent?.(typed);
+        setText((current) => (current.trim() === typed ? '' : current));
+      };
+      let outcome: boolean | void | Promise<boolean | void>;
+      try {
+        outcome = send({ kind: 'text', text: typed });
+      } catch {
+        confirm(false);
+        return;
+      }
+      if (outcome instanceof Promise) {
+        setSending(true);
+        outcome.then(
+          (delivered) => {
+            setSending(false);
+            confirm(delivered !== false);
+          },
+          () => {
+            setSending(false);
+            confirm(false);
+          },
+        );
+        return;
+      }
+      confirm(outcome !== false);
+    },
+    [onTextSent, send],
+  );
 
   const failRequest = useCallback((direction: boolean) => {
     setPendingPaused(undefined);
@@ -126,11 +166,9 @@ export function TypeBar({
     if (pendingPaused === false && awaitingSendText.current !== null) {
       const queued = awaitingSendText.current;
       awaitingSendText.current = null;
-      send({ kind: 'text', text: queued });
-      onTextSent?.(queued);
-      setText((current) => (current.trim() === queued ? '' : current));
+      deliverText(queued);
     }
-  }, [paused, pendingPaused, send, onTextSent]);
+  }, [paused, pendingPaused, deliverText]);
 
   // A command the server refuses reverts to the current record and explains itself.
   useEffect(() => {
@@ -217,6 +255,7 @@ export function TypeBar({
   }, [pendingPaused, paused, requestServerResume, togglePause]);
 
   function submit(): void {
+    if (sending) return;
     const typed = text.trim();
     if (typed.length === 0) return;
     lastLine.current = typed;
@@ -229,9 +268,7 @@ export function TypeBar({
       awaitingSendText.current = typed;
       return;
     }
-    send({ kind: 'text', text: typed });
-    onTextSent?.(typed);
-    setText('');
+    deliverText(typed);
   }
 
   const pending = pendingPaused !== undefined;
@@ -261,7 +298,7 @@ export function TypeBar({
           }
         }}
       />
-      <button type="submit" className="kd-send" disabled={text.trim().length === 0}>
+      <button type="submit" className="kd-send" disabled={sending || text.trim().length === 0}>
         Send
       </button>
       <button type="button" disabled={!canLock} onClick={() => send({ kind: 'lock' })}>
@@ -319,10 +356,16 @@ export function ConnectedTypeBar({
     return () => { room.off(RoomEvent.DataReceived, onData); };
   }, [room]);
   const send = useCallback(
-    (message: ControlMessage) => {
-      room.localParticipant
-        .publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: CONTROL_TOPIC })
-        .catch(() => undefined);
+    async (message: ControlMessage): Promise<boolean> => {
+      try {
+        await room.localParticipant.publishData(
+          new TextEncoder().encode(JSON.stringify(message)),
+          { reliable: true, topic: CONTROL_TOPIC },
+        );
+        return true;
+      } catch {
+        return false;
+      }
     },
     [room],
   );

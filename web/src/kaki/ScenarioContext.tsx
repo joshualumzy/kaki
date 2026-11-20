@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { parseScenario, type Scenario } from '@kaki/shared';
+import { fetchWithTimeout } from '../net/withTimeout';
 import { Button, Card } from '../ui';
 import { scenarioRevision, subscribeScenarioRevision } from './scenarioRevision';
 
@@ -37,6 +38,8 @@ function scenarioUrl(view: ScenarioView): string {
 /** How long to keep retrying while the API server is starting behind the reverse proxy. */
 const SERVER_START_TIMEOUT_MS = 90_000;
 const SERVER_START_RETRY_DELAY_MS = 1_000;
+/** A single request must answer well inside the overall start-up limit. */
+const SERVER_START_ATTEMPT_TIMEOUT_MS = 10_000;
 
 /** Statuses meaning the reverse proxy is up but the API server behind it is not yet. */
 const SERVER_STARTING_STATUSES = new Set([502, 503, 504]);
@@ -49,10 +52,10 @@ type Attempt =
   | { status: 'ready'; scenario: Scenario }
   | { status: 'starting'; error: unknown };
 
-async function attemptScenario(view: ScenarioView): Promise<Attempt> {
+async function attemptScenario(view: ScenarioView, timeoutMs: number): Promise<Attempt> {
   let response: Response;
   try {
-    response = await fetch(scenarioUrl(view));
+    response = await fetchWithTimeout(scenarioUrl(view), {}, timeoutMs);
   } catch (error) {
     return { status: 'starting', error };
   }
@@ -69,12 +72,17 @@ async function fetchScenario(
   { onRetry }: { onRetry?: () => void } = {},
 ): Promise<Scenario> {
   const startedAt = Date.now();
+  const deadline = startedAt + SERVER_START_TIMEOUT_MS;
   for (;;) {
-    const attempt = await attemptScenario(view);
+    const remaining = Math.max(0, deadline - Date.now());
+    const attempt = await attemptScenario(
+      view,
+      Math.max(1, Math.min(SERVER_START_ATTEMPT_TIMEOUT_MS, remaining)),
+    );
     if (attempt.status === 'ready') return attempt.scenario;
-    if (Date.now() - startedAt >= SERVER_START_TIMEOUT_MS) throw attempt.error;
+    if (Date.now() >= deadline) throw attempt.error;
     onRetry?.();
-    await wait(SERVER_START_RETRY_DELAY_MS);
+    await wait(Math.min(SERVER_START_RETRY_DELAY_MS, Math.max(0, deadline - Date.now())));
   }
 }
 

@@ -41,29 +41,39 @@ export function LocalSpeechSTT({ onSpeechLine }: { onSpeechLine?(text: string): 
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [problem, setProblem] = useState<string | undefined>();
+  const [recoverable, setRecoverable] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (Recognition === undefined || !isMicrophoneEnabled) return;
     setProblem(undefined);
+    setRecoverable(false);
     const encoder = new TextEncoder();
     return startRecognizer(
       Recognition,
       {
-      onFinal: (text) => {
-        // The server records the line from this socket, so it survives with no AI runner connected.
-        onSpeechLine?.(text);
-        const message: SttMessage = { text };
-        room.localParticipant
-          .publishData(encoder.encode(JSON.stringify(message)), { reliable: true, topic: STT_TOPIC })
-          .catch(() => setProblem('Could not send your words to the meeting.'));
+        onFinal: (text) => {
+          // The server records the line from this socket, so it survives with no AI runner connected.
+          onSpeechLine?.(text);
+          const message: SttMessage = { text };
+          room.localParticipant
+            .publishData(encoder.encode(JSON.stringify(message)), { reliable: true, topic: STT_TOPIC })
+            .catch(() => setProblem('Could not send your words to the meeting.'));
+        },
+        onInterim: setInterim,
+        onListening: setListening,
+        onFatal: (message) => {
+          setRecoverable(false);
+          setProblem(message);
+        },
+        onExhausted: (message) => {
+          setRecoverable(true);
+          setProblem(message);
+        },
       },
-      onInterim: setInterim,
-      onListening: setListening,
-      onFatal: setProblem,
-    },
       { lang: recognitionLanguage() },
     );
-  }, [Recognition, isMicrophoneEnabled, room, onSpeechLine]);
+  }, [Recognition, isMicrophoneEnabled, room, onSpeechLine, retryKey]);
 
   if (!wanted) {
     return null;
@@ -71,7 +81,22 @@ export function LocalSpeechSTT({ onSpeechLine }: { onSpeechLine?(text: string): 
   if (Recognition === undefined) {
     return <div style={chip}>Speech recognition needs Chrome or Edge: the AI cannot hear you in this browser.</div>;
   }
-  if (problem !== undefined) return <div style={{ ...chip, background: 'rgba(153,27,27,0.85)' }}>{problem}</div>;
+  if (problem !== undefined) {
+    return (
+      <div style={{ ...chip, background: 'rgba(153,27,27,0.85)', pointerEvents: 'auto' }}>
+        {problem}
+        {recoverable ? (
+          <button
+            type="button"
+            onClick={() => setRetryKey((key) => key + 1)}
+            style={{ marginLeft: '8px', pointerEvents: 'auto' }}
+          >
+            Try again
+          </button>
+        ) : null}
+      </div>
+    );
+  }
   if (!isMicrophoneEnabled) return null;
 
   return (

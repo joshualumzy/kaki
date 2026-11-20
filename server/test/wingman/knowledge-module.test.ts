@@ -263,7 +263,13 @@ describe('knowledge module', () => {
       fake.emit(recordUpdate());
       await settle();
       expect(calls).toBe(3);
-      expect(fake.published).toEqual([]);
+      expect(fake.published).toEqual([
+        {
+          type: 'NUDGE',
+          audience: { kind: 'role', role: 'game_designer' },
+          payload: { text: "Kaki's company search isn't working right now, so there is no record check for this question.", agendaIndex: 0 },
+        },
+      ]);
     } finally {
       stop();
       error.mockRestore();
@@ -297,19 +303,25 @@ describe('knowledge module', () => {
     }
   });
 
-  it('logs loudly and sends no card when the search finds no facts', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('logs and sends no card or notice when the search finds no facts, and does not search again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let nowMs = 0;
+    let calls = 0;
     const fake = fakeHub();
-    const stop = start(async () => [], fake.hub);
+    const stop = start(async () => { calls += 1; return []; }, fake.hub, scenario, () => nowMs);
 
     try {
       fake.emit(recordUpdate());
-      await waitFor(() => error.mock.calls.length > 0, 'the empty-result error');
+      await waitFor(() => warn.mock.calls.length > 0, 'the empty-result warning');
+      expect(warn.mock.calls[0]?.[0]).toContain('no company facts');
+      nowMs += 15_000;
+      fake.emit(recordUpdate());
+      await settle();
+      expect(calls).toBe(1);
       expect(fake.published).toEqual([]);
-      expect(error.mock.calls[0]?.[0]).toContain('no company facts');
     } finally {
       stop();
-      error.mockRestore();
+      warn.mockRestore();
     }
   });
 
@@ -438,19 +450,96 @@ describe('knowledge module', () => {
     }
   });
 
-  it('logs loudly when the agenda search finds no facts', async () => {
+  it('does not retry or notify when an agenda search found no facts', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let nowMs = 0;
+    let calls = 0;
+    const search: SearchCompanyData = async () => {
+      calls += 1;
+      return [];
+    };
+    const fake = fakeHub();
+    const stop = start(search, fake.hub, wingmanScenario, () => nowMs);
+
+    try {
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+      expect(calls).toBe(2);
+
+      nowMs += 15_000;
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+      expect(calls).toBe(2);
+      expect(fake.published).toEqual([]);
+    } finally {
+      stop();
+      warn.mockRestore();
+    }
+  });
+
+  it('tells each role when a failed agenda search is out of attempts', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let nowMs = 0;
+    let calls = 0;
+    const search: SearchCompanyData = async () => {
+      calls += 1;
+      throw new Error('gateway down');
+    };
+    const fake = fakeHub();
+    const stop = start(search, fake.hub, wingmanScenario, () => nowMs);
+
+    try {
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+      expect(calls).toBe(2);
+
+      nowMs += 15_000;
+      fake.emit(recordUpdateWithNoQuestions());
+      await settle();
+      expect(calls).toBe(4);
+
+      nowMs += 15_000;
+      fake.emit(recordUpdateWithNoQuestions());
+      await waitFor(
+        () => fake.published.filter((event) => event.type === 'NUDGE').length === 2,
+        'the agenda exhaustion notices',
+      );
+
+      expect(fake.published).toEqual([
+        {
+          type: 'NUDGE',
+          audience: { kind: 'role', role: 'chef' },
+          payload: { text: "Kaki's company search isn't working right now, so there is no record check for “Prep”.", agendaIndex: 0 },
+        },
+        {
+          type: 'NUDGE',
+          audience: { kind: 'role', role: 'cashier' },
+          payload: { text: "Kaki's company search isn't working right now, so there is no record check for “Prep”.", agendaIndex: 0 },
+        },
+      ]);
+      expect(fake.retainKeys).toEqual([
+        'fact-missing:agenda:0:chef',
+        'fact-missing:agenda:0:cashier',
+      ]);
+    } finally {
+      stop();
+      error.mockRestore();
+    }
+  });
+
+  it('logs when the agenda search finds no facts', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const fake = fakeHub();
     const stop = start(async () => [], fake.hub, wingmanScenario);
 
     try {
       fake.emit(recordUpdateWithNoQuestions());
-      await waitFor(() => error.mock.calls.length === 2, 'the agenda empty-result errors');
+      await waitFor(() => warn.mock.calls.length === 2, 'the agenda empty-result warnings');
       expect(fake.published).toEqual([]);
-      expect(error.mock.calls[0]?.[0]).toContain('agenda item 0');
+      expect(warn.mock.calls[0]?.[0]).toContain('agenda item 0');
     } finally {
       stop();
-      error.mockRestore();
+      warn.mockRestore();
     }
   });
 
