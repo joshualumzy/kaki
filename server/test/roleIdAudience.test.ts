@@ -85,7 +85,8 @@ describe('a role id that spells a projection audience', () => {
   });
 
   it('delivers that role its own events when a person takes the seat', async () => {
-    const app = await createApp({ speechRecognition: 'browser', scenario: personParticipantScenario });
+    // Nobody is in the room yet; the test must not depend on a running LiveKit server.
+    const app = await createApp({ speechRecognition: 'browser', scenario: personParticipantScenario, roomRoster: async () => [] });
     apps.push(app);
     const port = portOf(app);
 
