@@ -15,6 +15,8 @@ export interface RunnerStateInput {
   agendaIndex?: number | undefined;
   /** The server-owned pause flag (the agenda clock's). */
   paused?: boolean | undefined;
+  /** Why the meeting is paused, when it is (the agenda clock's). */
+  pauseKind?: RunnerMeetingSnapshot['pauseKind'];
 }
 
 /** True when a real person holds the host's seat right now. The roster, not the runner, decides. */
@@ -68,5 +70,6 @@ export function buildRunnerMeetingSnapshot(input: RunnerStateInput): Omit<Runner
     ...(host.seat === undefined ? {} : { hostSeat: host.seat }),
     hostIsHuman: host.seat !== undefined && input.session.holders().some((holder) => holder.seat === host.seat),
     paused: input.paused === true,
+    ...(input.pauseKind === undefined ? {} : { pauseKind: input.pauseKind }),
   };
 }

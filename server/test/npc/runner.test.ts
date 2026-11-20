@@ -476,6 +476,7 @@ describe('server-owned start preparation', () => {
           phase: 'running',
           started: true,
           paused: true,
+          pauseKind: 'empty-room',
           version: 2,
         }),
       );
@@ -498,6 +499,83 @@ describe('server-owned start preparation', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(1);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('does not say welcome back when a person reloads the lobby before Start', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+    });
+    try {
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', first);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      rooms[0]!.emit('participantDisconnected', first);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', back);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      // The meeting had not started, so the server never paused it: there is no return to greet.
+      expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('does not say welcome back after a room blip the server never paused for', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+    });
+    try {
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', first);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      // The person vanished and came back between two roster polls: the server never paused.
+      rooms[0]!.emit('participantDisconnected', first);
+      const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', back);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+
+      // The next snapshot is an ordinary agenda move, still running and never paused.
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1',
+          phase: 'running',
+          started: true,
+          agendaIndex: 1,
+          version: 2,
+        }),
+      );
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[1]!.title)).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
     } finally {
       await runner.stop();
     }

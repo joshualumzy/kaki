@@ -33,7 +33,7 @@ import {
   type MeetingCodeSource,
 } from './meetingCode';
 import type { MeetingPauseControl } from './host';
-import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type Admission, type RejoinGuard } from './rejoin';
+import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS, type Admission, type RejoinGuard } from './rejoin';
 import { buildRunnerMeetingSnapshot } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
@@ -1383,7 +1383,10 @@ export async function createApp({
     roster: roomRoster,
     roomName: () => watchedRoom,
     isHuman: (name) => !packNpcNames.includes(name.toLowerCase()),
-    intervalMs: rejoinPollMs,
+    // Quick while a meeting runs so an empty room pauses and a returning person resumes promptly;
+    // the slower interval is only for the grace window around a meeting that has not started.
+    intervalMs: () =>
+      roomPollIntervalMs(session.phase() === 'running', rejoinPollMs ?? REJOIN_POLL_MS),
     onEmpty: autoPauseForEmptyRoom,
     onOccupied: autoResumeForReturn,
   });
@@ -1593,6 +1596,7 @@ export async function createApp({
       fullScenario,
       agendaIndex: meetingAgendaIndex?.(),
       paused: meetingPaused?.(),
+      pauseKind: meetingPause?.kind(),
     });
     const signature = JSON.stringify(state);
     let version = { epoch: runnerEpoch, seq: runnerStateSeq };

@@ -70,7 +70,7 @@ export interface MeetingSyncRunner {
   meetingId(): string | undefined;
   wasPreparedFor(meetingId: string): boolean;
   /** Replace the meeting from a server snapshot; true when a newer version was adopted. */
-  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): boolean;
+  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean; authoritative?: boolean }): boolean;
   prepareMeeting(request: {
     meetingId: string;
     attempt: string;
@@ -127,12 +127,16 @@ export function createMeetingSync({
 }: MeetingSyncOptions): MeetingSync {
   let generation = 0;
 
-  function apply(state: RunnerMeetingSnapshot): void {
+  function apply(state: RunnerMeetingSnapshot, options?: { authoritative?: boolean }): void {
     const previous = runner.meetingId();
     // Everything this module applies came from the live service connection: a fetch tied to the
     // current generation, or an event on the current socket. That authority is what lets the runner
-    // adopt a restarted server's new epoch even when its sequence starts again.
-    const adopted = runner.reconcileMeeting(state, { currentConnection: true });
+    // adopt a restarted server's new epoch even when its sequence starts again. Only the reconnect
+    // read is authoritative enough to accept a server whose clock moved backwards.
+    const adopted = runner.reconcileMeeting(state, {
+      currentConnection: true,
+      ...(options?.authoritative === true ? { authoritative: true } : {}),
+    });
     if (adopted) onSnapshotAdopted?.(state);
     // Only a snapshot the runner actually adopted can have moved the meeting; a stale read that was
     // refused must not throw away the current meeting's queued commands.
@@ -161,7 +165,9 @@ export function createMeetingSync({
   return {
     connected() {
       generation += 1;
-      readState(apply);
+      // The reconnect read speaks for the server on the other end of the new connection. Unlike an
+      // event or prepare, it may adopt an epoch with an older start time (a clock that moved back).
+      readState((state) => apply(state, { authoritative: true }));
     },
     async prepare(request) {
       // One generation fence covers the whole continuation: fetch, snapshot adoption and the

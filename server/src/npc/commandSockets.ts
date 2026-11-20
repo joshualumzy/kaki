@@ -1,4 +1,4 @@
-import type { KakiCommand, Role } from '@kaki/shared';
+import { sameRunnerEpoch, type KakiCommand, type Role, type RunnerSnapshotVersion } from '@kaki/shared';
 import { WebSocket } from 'ws';
 
 /** The screen and each AI role each get their own command socket, exactly as a phone would. */
@@ -15,6 +15,8 @@ interface StateIntent {
   message: string;
   meetingId: string | undefined;
   type: string;
+  /** The server snapshot the person acted against, so a restart cannot replay it into a new epoch. */
+  version: RunnerSnapshotVersion | undefined;
 }
 
 interface Entry {
@@ -47,6 +49,8 @@ export interface CommandSocketsOptions {
   reconnectDelayMs?(attempt: number): number;
   /** The meeting the runner is in now, used to fence queued commands from older meetings. */
   currentMeetingId?(): string | undefined;
+  /** The snapshot version the runner holds, so a state intent from another epoch is never replayed. */
+  currentVersion?(): RunnerSnapshotVersion | undefined;
 }
 
 export interface CommandSockets {
@@ -89,6 +93,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   const maxAttempts = options.maxReconnectAttempts ?? 5;
   const reconnectDelay = options.reconnectDelayMs ?? defaultReconnectDelayMs;
   const currentMeetingId = options.currentMeetingId ?? (() => undefined);
+  const currentVersion = options.currentVersion ?? (() => undefined);
   const createSocket =
     options.createSocket ?? ((url, init) => new WebSocket(url, init));
   const socketOptions =
@@ -151,15 +156,32 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     entry.queue.push({ message, meetingId });
   }
 
-  /** Drop queued commands and an intent that belong to a meeting other than the runner's current one. */
+  /** Drop queued commands and an intent that belong to another meeting or server epoch. */
   function dropStaleFor(entry: Entry, role: CommandAudience): void {
     const current = currentMeetingId();
-    if (entry.intent !== undefined && entry.intent.meetingId !== current) {
-      logError(
-        `dropped the unsent ${entry.intent.type} ${role} intent from another meeting; ` +
-          `the runner is now in ${current ?? 'no meeting'}`,
-      );
-      entry.intent = undefined;
+    if (entry.intent !== undefined) {
+      if (entry.intent.meetingId !== current) {
+        logError(
+          `dropped the unsent ${entry.intent.type} ${role} intent from another meeting; ` +
+            `the runner is now in ${current ?? 'no meeting'}`,
+        );
+        entry.intent = undefined;
+      } else {
+        const held = currentVersion();
+        if (
+          entry.intent.version !== undefined &&
+          held !== undefined &&
+          !sameRunnerEpoch(entry.intent.version.epoch, held.epoch)
+        ) {
+          // The server restarted while this intent waited. Replaying it would write a Stop made
+          // against the old incarnation into the new one before its snapshot is even read.
+          logError(
+            `dropped the unsent ${entry.intent.type} ${role} intent from an older server epoch; ` +
+              `the runner now holds ${held.epoch.id}`,
+          );
+          entry.intent = undefined;
+        }
+      }
     }
     const stale = entry.queue.filter((queued) => queued.meetingId !== current);
     if (stale.length === 0) return;
@@ -276,7 +298,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
         if (entry.intent !== undefined && entry.intent.message !== message) {
           log(`replaced the unsent ${entry.intent.type} ${role} intent with a newer one`);
         }
-        entry.intent = { message, meetingId, type: command.type };
+        entry.intent = { message, meetingId, type: command.type, version: currentVersion() };
         if (entry.socket === undefined && entry.timer === undefined) connect(entry, role);
         return;
       }

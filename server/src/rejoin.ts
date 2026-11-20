@@ -72,6 +72,17 @@ export interface RejoinGuardOptions {
 export const REJOIN_POLL_MS = 5_000;
 
 /**
+ * How often to look while a meeting is running. The empty-room pause and resume both wait for this
+ * poll, so this one is quick: the roster read is a cheap call to the local LiveKit server.
+ */
+export const RUNNING_ROOM_POLL_MS = 1_000;
+
+/** The roster poll's interval: quick while a meeting runs, the slower grace-window interval otherwise. */
+export function roomPollIntervalMs(running: boolean, configured = REJOIN_POLL_MS): number {
+  return running ? Math.min(configured, RUNNING_ROOM_POLL_MS) : configured;
+}
+
+/**
  * The one place that owns "the room has been empty since T". The session owns the phase and the
  * seat holders; this guard only owns the empty-room grace window and tells the app when it ends so
  * the holders who did not come back can be pruned.
@@ -193,8 +204,8 @@ export interface RoomPollOptions {
   roomName: () => string | undefined;
   /** True for a person (not an AI attendee), matching how the join route counts who is present. */
   isHuman: (name: string) => boolean;
-  /** How often to look; defaults to `REJOIN_POLL_MS`. */
-  intervalMs?: number;
+  /** How often to look; a function is asked again after every poll so it can follow the phase. */
+  intervalMs?: number | (() => number);
   /** A successful read found nobody in the room: the server may pause a running meeting. */
   onEmpty?(): void;
   /** A successful read found someone in the room: the server may resume an empty-room pause. */
@@ -221,9 +232,10 @@ export function createRoomPoll({
   onEmpty,
   onOccupied,
 }: RoomPollOptions): RoomPoll {
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let polling = false;
   let closed = false;
+  const nextDelay = (): number => (typeof intervalMs === 'function' ? intervalMs() : intervalMs);
 
   async function poll(): Promise<void> {
     if (polling || closed || !hasMeeting()) return;
@@ -248,19 +260,27 @@ export function createRoomPoll({
     }
   }
 
+  function schedule(): void {
+    if (timer !== undefined || closed) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void poll()
+        .catch((error: unknown) => {
+          console.error('kaki server: could not check who is in the room', error);
+        })
+        .finally(() => schedule());
+    }, nextDelay());
+    timer.unref?.();
+  }
+
   return {
     start() {
       if (timer !== undefined || closed) return;
-      timer = setInterval(() => {
-        void poll().catch((error: unknown) => {
-          console.error('kaki server: could not check who is in the room', error);
-        });
-      }, intervalMs);
-      timer.unref?.();
+      schedule();
     },
     close() {
       closed = true;
-      if (timer !== undefined) clearInterval(timer);
+      if (timer !== undefined) clearTimeout(timer);
       timer = undefined;
     },
   };

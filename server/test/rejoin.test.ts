@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { admission, createRejoinGuard, createRoomPoll, type AdmissionInput, type SeatHolder } from '../src/rejoin';
+import {
+  admission,
+  createRejoinGuard,
+  createRoomPoll,
+  roomPollIntervalMs,
+  REJOIN_POLL_MS,
+  RUNNING_ROOM_POLL_MS,
+  type AdmissionInput,
+  type SeatHolder,
+} from '../src/rejoin';
 
 const ada: SeatHolder = { name: 'ada', seat: 'chef' };
 
@@ -229,5 +238,53 @@ describe('room poll', () => {
     expect(logs).not.toContain('[rejoin] grace started');
     poll.close();
     guard.close();
+  });
+});
+
+describe('room poll interval', () => {
+  it('uses the quick interval while a meeting is running', () => {
+    expect(roomPollIntervalMs(false, REJOIN_POLL_MS)).toBe(REJOIN_POLL_MS);
+    expect(roomPollIntervalMs(true, REJOIN_POLL_MS)).toBe(RUNNING_ROOM_POLL_MS);
+    expect(RUNNING_ROOM_POLL_MS).toBeLessThan(REJOIN_POLL_MS);
+  });
+
+  it('asks for the interval again after every poll, so it can follow the phase', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const guard = createRejoinGuard({ graceMs: 120_000, log: () => undefined });
+      let running = false;
+      let reads = 0;
+      const poll = createRoomPoll({
+        guard,
+        hasMeeting: () => true,
+        roster: async () => {
+          reads += 1;
+          return [];
+        },
+        roomName: () => 'kopitiam',
+        isHuman: () => true,
+        intervalMs: () => (running ? RUNNING_ROOM_POLL_MS : REJOIN_POLL_MS),
+      });
+      poll.start();
+
+      await vi.advanceTimersByTimeAsync(REJOIN_POLL_MS - 1);
+      expect(reads).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reads).toBe(1);
+
+      // The pending 5 s wait still runs; once a poll happens while the meeting is running, the
+      // next wait is the quick one.
+      running = true;
+      await vi.advanceTimersByTimeAsync(REJOIN_POLL_MS);
+      expect(reads).toBe(2);
+      await vi.advanceTimersByTimeAsync(RUNNING_ROOM_POLL_MS);
+      expect(reads).toBe(3);
+
+      poll.close();
+      guard.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

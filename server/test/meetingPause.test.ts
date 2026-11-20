@@ -178,4 +178,103 @@ describe('the server owns the empty-room pause', () => {
     await waitFor(() => (clock.snapshot().paused === false ? true : undefined), 'the person resume');
     screen.close();
   });
+
+  it('keeps a person\'s Stop that lands during an empty-room pause', async () => {
+    const pack = await loadScenario('kopitiam');
+    const store = new MemoryStore();
+    let people: Array<{ name: string }> = [];
+    const clock = createAgendaClock({ agenda: pack.agenda });
+    const persistence = createMeetingPersistence({ store, log: () => undefined });
+    const app = await createApp({
+      scenario: pack,
+      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+      persistence,
+      roomRoster: async () => people,
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 10,
+      meetingPaused: () => pausedOf(clock),
+      meetingPause: pauseControl(clock),
+    });
+    apps.push(app);
+    await connectService(app);
+    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
+
+    people = [];
+    await waitFor(
+      () => (clock.snapshot().pauseKind === 'empty-room' ? true : undefined),
+      'the empty-room pause',
+    );
+    const screen = await connectClient(portOf(app), 'screen');
+
+    // The person returns and presses Stop before the poll sees them. That must turn the holding
+    // pause into a person's pause, not leave it resumable.
+    screen.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: true }));
+    await waitFor(
+      () => (clock.snapshot().pauseKind === 'person' ? true : undefined),
+      'the Stop to take ownership of the pause',
+    );
+
+    people = [{ name: 'Guest' }];
+    await settle(80);
+    expect(clock.snapshot()).toMatchObject({ paused: true, pauseKind: 'person' });
+    await persistence.flush();
+    expect(store.saved?.state.clock.pauseKind).toBe('person');
+    screen.close();
+  });
+
+  it('publishes the paused record to the screen on auto-pause and auto-resume', async () => {
+    const pack = await loadScenario('kopitiam');
+    let people: Array<{ name: string }> = [];
+    const clock = createAgendaClock({ agenda: pack.agenda });
+    const app = await createApp({
+      scenario: pack,
+      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => people,
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 10,
+      meetingPaused: () => pausedOf(clock),
+      meetingPause: pauseControl(clock),
+    });
+    apps.push(app);
+    await connectService(app);
+    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    // The roster sees the guest as soon as they have joined, before Start, so the meeting does not
+    // auto-pause between Start and the screen connecting.
+    people = [{ name: 'Guest' }];
+    expect((await startMeeting(app)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
+
+    const screen = await connectClient(portOf(app), 'screen');
+    const beforePause = screen.messages.length;
+    people = [];
+    await waitFor(
+      () => (clock.snapshot().pauseKind === 'empty-room' ? true : undefined),
+      'the empty-room pause',
+    );
+    await waitFor(
+      () =>
+        screen.messages
+          .slice(beforePause)
+          .some((event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.paused === true)
+          ? true
+          : undefined,
+      'the paused record',
+    );
+
+    const beforeResume = screen.messages.length;
+    people = [{ name: 'Guest' }];
+    await waitFor(() => (clock.snapshot().paused === false ? true : undefined), 'the auto resume');
+    await waitFor(
+      () =>
+        screen.messages
+          .slice(beforeResume)
+          .some((event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.paused !== true)
+          ? true
+          : undefined,
+      'the resumed record',
+    );
+    screen.close();
+  });
 });

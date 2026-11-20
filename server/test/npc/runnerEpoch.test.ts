@@ -182,4 +182,61 @@ describe('the server-incarnation fence', () => {
     expect(meetingWithLog.version()).toEqual({ epoch: { startedAt: 1_000, id: 'server-a' }, seq: 10 });
     expect(logs.join('\n')).toMatch(/discarded|stale|older/);
   });
+
+  it('keeps refusing an older start time from an event or prepare path', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const meeting = createRunnerMeeting(
+      scenario,
+      runnerSnapshot(scenario, { meetingId: 'meeting-1', version: { epoch: epochB.epoch, seq: 5 } }),
+    );
+
+    // Events and prepares are not authoritative for an epoch whose clock moved back.
+    expect(
+      meeting.apply(
+        runnerSnapshot(scenario, { meetingId: 'meeting-2', version: { epoch: epochA.epoch, seq: 1 } }),
+        { currentConnection: true },
+      ),
+    ).toBe(false);
+    expect(meeting.meetingId()).toBe('meeting-1');
+    expect(meeting.version()).toEqual({ epoch: epochB.epoch, seq: 5 });
+  });
+
+  it('still refuses a prepare that carries an older start time', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const meeting = createRunnerMeeting(
+      scenario,
+      runnerSnapshot(scenario, { meetingId: 'meeting-1', version: { epoch: epochB.epoch, seq: 5 } }),
+    );
+    const sync = syncFor(meeting, async () =>
+      runnerSnapshot(scenario, { meetingId: 'meeting-2', version: { epoch: epochA.epoch, seq: 1 } }),
+    );
+
+    await sync.prepare({ requestId: 'r', attempt: 'a', meetingId: 'meeting-2' });
+
+    expect(meeting.meetingId()).toBe('meeting-1');
+    expect(meeting.version()).toEqual({ epoch: epochB.epoch, seq: 5 });
+  });
+
+  it('accepts an older start time from the reconnect read, with a loud log', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const logs: string[] = [];
+    const meeting = createRunnerMeeting(
+      scenario,
+      runnerSnapshot(scenario, { meetingId: 'meeting-1', version: { epoch: epochB.epoch, seq: 5 } }),
+      (line) => logs.push(line),
+    );
+    const sync = syncFor(
+      meeting,
+      async () =>
+        runnerSnapshot(scenario, { meetingId: 'meeting-2', version: { epoch: epochA.epoch, seq: 1 } }),
+      logs,
+    );
+
+    sync.connected();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(meeting.meetingId()).toBe('meeting-2');
+    expect(meeting.version()).toEqual({ epoch: epochA.epoch, seq: 1 });
+    expect(logs).toContain('[runner] adopted server epoch with older start time (clock moved back?)');
+  });
 });

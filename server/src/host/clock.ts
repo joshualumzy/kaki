@@ -43,6 +43,8 @@ export interface AgendaClock {
   /** The agenda the clock is timing right now. */
   agenda(): readonly AgendaItem[];
   onOverrun(handler: (agendaIndex: number, item: AgendaItem) => void): () => void;
+  /** Run `handler` whenever the paused state (or why it is paused) changes. */
+  onPauseChange(handler: () => void): () => void;
 }
 
 /** Options for the agenda clock; `speed` runs meeting time faster than real time for replays. */
@@ -66,6 +68,17 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
   let itemStartSeconds = 0;
   const overrunFired = new Set<number>();
   const overrunHandlers = new Set<(agendaIndex: number, item: AgendaItem) => void>();
+  const pauseHandlers = new Set<() => void>();
+
+  function notifyPauseChange(): void {
+    for (const handler of pauseHandlers) {
+      try {
+        handler();
+      } catch (error) {
+        console.error('kaki host: a pause-change handler failed', error);
+      }
+    }
+  }
 
   function meetingSeconds(): number {
     if (endedAtSeconds !== undefined) return endedAtSeconds;
@@ -95,15 +108,26 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
       startedAt ??= now();
     },
     pause(kind = 'person') {
-      if (startedAt === undefined || endedAtSeconds !== undefined || pausedAt !== undefined) return;
+      if (startedAt === undefined || endedAtSeconds !== undefined) return;
+      if (pausedAt !== undefined) {
+        // An empty-room pause is only a holding state. A person pressing Stop while it holds
+        // upgrades it, so the returning person's arrival must not auto-resume it.
+        if (kind === 'person' && pauseKind === 'empty-room') {
+          pauseKind = kind;
+          notifyPauseChange();
+        }
+        return;
+      }
       pausedAt = now();
       pauseKind = kind;
+      notifyPauseChange();
     },
     resume() {
       if (pausedAt === undefined) return;
       totalPausedMs += Math.max(0, now() - pausedAt);
       pausedAt = undefined;
       pauseKind = undefined;
+      notifyPauseChange();
     },
     reset() {
       startedAt = undefined;
@@ -167,6 +191,12 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
       overrunHandlers.add(handler);
       return () => {
         overrunHandlers.delete(handler);
+      };
+    },
+    onPauseChange(handler) {
+      pauseHandlers.add(handler);
+      return () => {
+        pauseHandlers.delete(handler);
       };
     },
   };

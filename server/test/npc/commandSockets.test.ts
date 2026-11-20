@@ -153,6 +153,31 @@ describe('the runner command sockets', () => {
     expect(sockets[1]!.sent).toEqual([JSON.stringify({ type: 'SET_PAUSED', paused: false })]);
   });
 
+  it('drops a Stop queued before a server restart, even when the screen reconnects first', async () => {
+    let version = { epoch: { startedAt: 1_000, id: 'old-server' }, seq: 4 };
+    const { socketsApi, sockets, errors } = setup({
+      currentMeetingId: () => 'meeting-1',
+      currentVersion: () => version,
+    });
+
+    // The person pressed Stop while the screen was down, against the old server incarnation.
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    sockets[0]!.fail();
+    await tick();
+
+    // The server restarted (new epoch, same meeting). The screen socket reconnects before the
+    // service channel has adopted the new snapshot; the old Stop must still be dropped.
+    version = { epoch: { startedAt: 2_000, id: 'new-server' }, seq: 1 };
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
+    expect(
+      errors.some(
+        (message) => message.includes('older server epoch') && message.includes('SET_PAUSED'),
+      ),
+    ).toBe(true);
+  });
+
   it('drops an unsent pause when a newer server snapshot owns the state (crash restore)', async () => {
     const { socketsApi, sockets, errors } = setup();
 

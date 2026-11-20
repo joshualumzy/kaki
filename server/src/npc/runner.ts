@@ -200,6 +200,8 @@ export interface NpcRunner {
   markStarted(state?: RunnerStartState & { meetingId?: string }): Promise<void>;
   /** The server meeting this runner currently belongs to, or undefined before it has heard one. */
   meetingId(): string | undefined;
+  /** The snapshot version the runner holds, for fencing commands made against it. */
+  snapshotVersion(): RunnerSnapshotVersion | undefined;
   /** True when this runner prepared exactly this meeting and the server has not opened it yet. */
   wasPreparedFor(meetingId: string): boolean;
   /**
@@ -213,7 +215,7 @@ export interface NpcRunner {
    * `currentConnection` proves a new server epoch arrived on the live service connection.
    * Returns true when a newer version was adopted.
    */
-  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): boolean;
+  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean; authoritative?: boolean }): boolean;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -428,9 +430,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   let pausedLocally = false;
   /** The person's pause/resume request, kept until the server snapshot shows it or the grace runs out. */
   let pendingPause: { paused: boolean; timer: ReturnType<typeof setTimeout> } | undefined;
-  /** The room emptied while a meeting was open; the next person to arrive gets one welcome back. */
-  let roomWasEmpty = false;
-  /** A person came back and still needs their one welcome-back line once playback allows it. */
+  /**
+   * A server snapshot showed the empty-room pause ending after a person returned; their one
+   * welcome-back line waits here until the cast and playback are ready for it.
+   */
   let greetReturnPending = false;
   /** The meeting ended: only a new meeting's snapshot or prepare can open the conversation again. */
   let endedTerminal = false;
@@ -603,7 +606,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     startResumed = false;
     pausedLocally = false;
     clearPauseIntent();
-    roomWasEmpty = false;
     greetReturnPending = false;
     endedTerminal = false;
     memory.reset();
@@ -623,9 +625,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const held = meeting.meetingId();
     const heldEpoch = meeting.version()?.epoch;
     const changed = held !== undefined && held !== state.meetingId;
-    const current = meeting.current();
+    const previous = meeting.current();
     const identical =
-      current !== undefined && current.meetingId === state.meetingId && sameVersion(current.version, state.version);
+      previous !== undefined && previous.meetingId === state.meetingId && sameVersion(previous.version, state.version);
     // A prepare is fetched on the live service connection, so it may prove a new server epoch.
     const accepted = meeting.apply(state, { currentConnection: true });
     if (!accepted && !identical) return;
@@ -636,12 +638,28 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
       clearPauseIntent();
     }
+    if (accepted && !changed) notePauseTransition(previous, state);
   }
 
   /** Forget a pause/resume request that no snapshot is expected to confirm any more. */
   function clearPauseIntent(): void {
     if (pendingPause !== undefined) clearTimeout(pendingPause.timer);
     pendingPause = undefined;
+  }
+
+  /**
+   * The one thing that earns a "Welcome back": a newer snapshot ends an empty-room pause while the
+   * meeting is running, with a person in the room and an AI host. A briefly empty room the server
+   * never paused, or a reload in the lobby, is not a return.
+   */
+  function notePauseTransition(
+    previous: RunnerMeetingSnapshot | undefined,
+    next: RunnerMeetingSnapshot,
+  ): void {
+    if (previous === undefined || previous.paused !== true || previous.pauseKind !== 'empty-room') return;
+    if (next.paused !== false || next.started !== true || next.phase !== 'running') return;
+    if (endedTerminal || humans.size === 0 || meeting.hostIsHuman()) return;
+    greetReturnPending = true;
   }
 
   /** Apply a pause locally, without asking the server. */
@@ -695,6 +713,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   /** The snapshot is the truth, except while a person's pause/resume intent is still settling. */
   function adoptPaused(next: boolean): void {
+    // A pause that arrives before the welcome-back line is spoken means the return no longer holds.
+    if (next) greetReturnPending = false;
     if (pendingPause !== undefined) {
       if (pendingPause.paused !== next) {
         log(
@@ -753,6 +773,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       if (generation !== runnerGeneration) throw new Error('the meeting changed before the cast was ready');
       await ensureCast();
       if (generation !== runnerGeneration) throw new Error('the meeting changed before the cast was ready');
+      greetReturn();
       prepared = { meetingId: request.meetingId, attempt: request.attempt };
     });
     castQueue = work.catch(() => undefined);
@@ -761,16 +782,16 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   function reconcileMeeting(
     state: RunnerMeetingSnapshot,
-    options?: { currentConnection?: boolean },
+    options?: { currentConnection?: boolean; authoritative?: boolean },
   ): boolean {
     const held = meeting.meetingId();
     const heldEpoch = meeting.version()?.epoch;
     const changed = held !== undefined && held !== state.meetingId;
-    const current = meeting.current();
+    const previous = meeting.current();
     // The same snapshot arriving again (for example on reconnect) is still reconciled locally: a
     // process that booted from it has not yet opened the meeting or caught up its topic.
     const identical =
-      current !== undefined && current.meetingId === state.meetingId && sameVersion(current.version, state.version);
+      previous !== undefined && previous.meetingId === state.meetingId && sameVersion(previous.version, state.version);
     const accepted = meeting.apply(state, options);
     if (!accepted && !identical) return false;
     if (state.phase !== 'ended') endedTerminal = false;
@@ -792,7 +813,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       pausedLocally = true;
       endedTerminal = true;
       clearPauseIntent();
-      roomWasEmpty = false;
       greetReturnPending = false;
       prepared = undefined;
       talking.clear();
@@ -827,6 +847,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         log(`caught up to agenda item ${state.agendaIndex + 1} (${title}) without repeating the cue`);
       }
     }
+    if (accepted && !changed && !lostStart) notePauseTransition(previous, state);
     if (state.started) adoptPaused(state.paused);
     if ((changed || lostStart) && humans.size > 0) syncCast();
     return accepted;
@@ -839,8 +860,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const seat = humanAttendeeForRole(meeting.scenario(), role)?.name;
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
-    if (humans.size === 0 && roomWasEmpty && !endedTerminal) greetReturnPending = true;
-    roomWasEmpty = false;
     humans.set(participant.identity, { name, role, seat });
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
@@ -951,9 +970,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     log(`${participant.identity} left`);
     if (humans.size === 0) {
-      // The server watches the room and pauses the meeting itself; the runner only remembers that
-      // the next person to arrive gets one welcome-back line.
-      roomWasEmpty = true;
+      // The server watches the room and pauses the meeting itself; the runner just reports it.
       options.onRoomEmpty?.();
       return;
     }
@@ -1110,6 +1127,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     announce,
     meetingId() {
       return meeting.meetingId();
+    },
+    snapshotVersion() {
+      return meeting.version();
     },
     hostName() {
       return meeting.hostName();

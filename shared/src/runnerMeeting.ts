@@ -54,6 +54,8 @@ export interface RunnerMeetingSnapshot {
   hostSeat?: string;
   hostIsHuman: boolean;
   paused: boolean;
+  /** Why the meeting is paused, so a returning person only resumes an empty-room pause. */
+  pauseKind?: 'empty-room' | 'person';
   /** Fences stale reads: a snapshot is only newer within the same epoch when its seq is higher. */
   version: RunnerSnapshotVersion;
 }
@@ -138,6 +140,7 @@ export function isRunnerMeetingSnapshot(value: unknown): value is RunnerMeetingS
     (value.hostSeat === undefined || typeof value.hostSeat === 'string') &&
     typeof value.hostIsHuman === 'boolean' &&
     typeof value.paused === 'boolean' &&
+    (value.pauseKind === undefined || value.pauseKind === 'empty-room' || value.pauseKind === 'person') &&
     isObject(value.version) &&
     isRunnerEpoch(value.version.epoch) &&
     isAgendaIndex(value.version.seq)

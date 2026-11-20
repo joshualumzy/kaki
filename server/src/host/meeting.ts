@@ -168,6 +168,13 @@ export function createMeetingModule({
         hub.publish(event, { retainKey: 'record' });
       }
 
+      // Pause and resume come from the person's command or the app's room poll; both change the
+      // clock's state, and both must refresh the screen record the same way.
+      const stopPauseWatch = clock.onPauseChange(() => {
+        lastSignature = undefined;
+        guarded('publishing the record', publishRecord);
+      });
+
       /** Begin the one opening: the clock runs from the server's Start, never from the first speech. */
       function beginMeeting(startedAt?: string): void {
         const now = clock.snapshot();
@@ -386,8 +393,8 @@ export function createMeetingModule({
           // person's local pause/resume here and adopts the snapshot back after a reconnect.
           if (command.paused) clock.pause();
           else clock.resume();
-          lastSignature = undefined;
-          publishRecord();
+          // The clock's pause listener republishes the record; save the kind with the meeting.
+          persistence?.scheduleSave();
           return;
         }
         if (command.type === 'END_MEETING') {
@@ -431,6 +438,7 @@ export function createMeetingModule({
         unsubscribe();
         stopAutoDispatch?.();
         stopResetHook?.();
+        stopPauseWatch();
         stopTicker();
         clearInterval(notetakerTimer);
       };

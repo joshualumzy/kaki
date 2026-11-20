@@ -38,8 +38,14 @@ export interface RunnerMeeting {
    * Replace the snapshot when it is newer; returns false when it is stale or identical.
    * `currentConnection` authorises a new server epoch: only a fetch or event on the current
    * service connection may prove the server restarted, and its sequence started again.
+   * `authoritative` marks the reconnect read made by `meetingSync.connected()`: the server on the
+   * other end of that new connection is the truth even if its clock moved back, so it may replace
+   * an epoch that would otherwise look older.
    */
-  apply(snapshot: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): boolean;
+  apply(
+    snapshot: RunnerMeetingSnapshot,
+    options?: { currentConnection?: boolean; authoritative?: boolean },
+  ): boolean;
   /** Forget the snapshot, remembering which meeting (if known) must be fenced next. */
   clear(nextMeetingId?: string): void;
 }
@@ -131,12 +137,17 @@ export function createRunnerMeeting(
             return false;
           }
           if (!runnerEpochNewer(next.version.epoch, knownVersion.epoch)) {
-            log?.(
-              `ignored a runner snapshot from an older server epoch (${next.version.epoch.id}, ` +
-                `booted ${next.version.epoch.startedAt}) while holding ${knownVersion.epoch.id} ` +
-                `(booted ${knownVersion.epoch.startedAt})`,
-            );
-            return false;
+            if (options?.authoritative !== true) {
+              log?.(
+                `ignored a runner snapshot from an older server epoch (${next.version.epoch.id}, ` +
+                  `booted ${next.version.epoch.startedAt}) while holding ${knownVersion.epoch.id} ` +
+                  `(booted ${knownVersion.epoch.startedAt})`,
+              );
+              return false;
+            }
+            // The connection this read came down is the current one; a clock that moved back must
+            // not lock the runner out of the server that is actually serving it.
+            log?.('[runner] adopted server epoch with older start time (clock moved back?)');
           }
         }
       }

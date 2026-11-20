@@ -113,6 +113,7 @@ describe('meeting sync', () => {
     expect(runner.reconcileMeeting).toHaveBeenCalledTimes(1);
     expect(runner.reconcileMeeting).toHaveBeenCalledWith(stateOf('meeting-2', false), {
       currentConnection: true,
+      authoritative: true,
     });
   });
 
