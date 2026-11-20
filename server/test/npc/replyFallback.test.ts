@@ -70,7 +70,6 @@ function harness(fallback?: (messages: ChatMessage[], signal: AbortSignal) => As
     sentenceGapMs: 0,
     bargeInMs: 0,
     briefFirstChunkMs: 40,
-    replies: 'one-speaker',
     readGuestLine: async () => ({
       kind: 'question',
       addressee: 'Ada',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressedCharacter, buildSystemPrompt, cleanSpoken, findHandover, pushingColleague, replyShapeForTurn, replyShapeInstruction, TurnParser, type Utterance } from '../../src/npc/director';
+import { buildSystemPrompt, cleanSpoken, findHandover, pushingColleague, TurnParser, type Utterance } from '../../src/npc/director';
 import { testScenario } from '../fixtures/scenario';
 
 const npcScenario = {
@@ -9,21 +9,6 @@ const npcScenario = {
     { attendee: 'Bao', voice: 'v2', personality: 'Chatty cashier', agenda: 'Fix queues', concerns: ['Long lines'] },
   ],
 };
-
-describe('reply shape rotation', () => {
-  it('cycles through solo, reaction, backing and exchange turns', () => {
-    expect(Array.from({ length: 5 }, (_, index) => replyShapeForTurn(index, false))).toEqual([
-      'solo', 'reaction', 'backing', 'solo', 'exchange',
-    ]);
-    expect(replyShapeInstruction('backing')).toContain('second colleague only agrees');
-  });
-
-  it('keeps the first-idea catch while preventing three identical shapes in a row', () => {
-    expect(replyShapeForTurn(0, true)).toBe('exchange');
-    expect(replyShapeForTurn(1, true, ['exchange', 'exchange'])).toBe('solo');
-    expect(replyShapeForTurn(0, false, ['solo', 'solo'])).toBe('reaction');
-  });
-});
 
 /** Feed a reply in the given pieces, as a model would stream it, and collect every utterance. */
 function parse(pieces: string[], names = ['Ada', 'Bao']): Utterance[] {
@@ -262,28 +247,6 @@ describe('pushingColleague', () => {
     }, { name: 'Visitor', role: 'chef' });
     expect(prompt).toContain('Visitor decides this item regardless of seat.');
     expect(prompt).not.toContain('presses the issue hardest');
-  });
-});
-
-describe('addressedCharacter', () => {
-  const cast = [
-    { attendee: 'Sam', voice: 'v', personality: 'p', agenda: 'a', concerns: [], soundsLike: ['Some'] },
-    { attendee: 'Arjun', voice: 'v', personality: 'p', agenda: 'a', concerns: [], soundsLike: ['Archer'] },
-  ];
-
-  it('finds the one character addressed by name at the start, or explicitly', () => {
-    expect(addressedCharacter('Sam. Sam, I have a question.', cast)).toBe('Sam');
-    expect(addressedCharacter('Hey Arjun, how is the build?', cast)).toBe('Arjun');
-    expect(addressedCharacter("I'm addressing this to Sam.", cast)).toBe('Sam');
-    expect(addressedCharacter('I have a question for Arjun', cast)).toBe('Arjun');
-    expect(addressedCharacter('Archer, can you hear me', cast)).toBe('Arjun');
-  });
-
-  it('leaves it to the model when nobody, or several, are addressed, or a name is just mentioned', () => {
-    expect(addressedCharacter('Hello everyone.', cast)).toBeUndefined();
-    expect(addressedCharacter('Sam and Arjun, what do you think?', cast)).toBeUndefined();
-    expect(addressedCharacter('I told Sam about the crash yesterday', cast)).toBeUndefined();
-    expect(addressedCharacter('Samantha went home', cast)).toBeUndefined();
   });
 });
 

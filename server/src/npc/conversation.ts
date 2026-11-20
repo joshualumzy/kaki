@@ -1,8 +1,8 @@
-import { itemMode, type ActionKind, type AgendaItem, type BriefingFact, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
+import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../llm';
 import { cleanSpokenTopic, liveNextItemLine, liveWrapUpLine, spokenAgendaName } from '../host/opening';
 import { CardPointer, visitorCardPointerLine } from './cardPointer';
-import { addressedCharacter, buildSystemPrompt, findHandover, HandoverGuard, pushingColleague, replyShapeForTurn, replyShapeInstruction, responsibilityFor, TurnParser, type HumanInfo, type ReplyShape, type Utterance } from './director';
+import { buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { silenceCheckInLine, silenceCheckInNote, silenceColleagueNote } from './silence';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
 import { SpeechGate } from './speechGate';
@@ -329,22 +329,6 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
 const CARD_POINT_RE =
   /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel|on your screen)\b/i;
 
-/** A whole line that is only a greeting, filler or acknowledgement, so it is not an idea for the topic. */
-const GUEST_GREETING_OR_FILLER =
-  /^(?:(?:hi|hey|hello|good\s+(?:morning|afternoon|evening)|yo|testing|test|wait|hold on|one sec|hang on|can you hear me|you guys hear me|is my mic working|idk|i don't know|not sure|hmm+|uh+|um+|ok|okay|sure|yes|no|yeah|yep|nope|right|fine|thanks|thank you|got it)(?:[ ,]+(?:team|all|everyone|folks))?[,.!?]*\s*)+$/i;
-
-/** An idea put as a question ("What if we move the till?", "Shall we cut the menu?"), not a question for facts. */
-const GUEST_PROPOSAL_QUESTION = /^(?:what if|why not|why don'?t we|how about|shall we|let'?s)\b/i;
-
-/** True when a visitor's line is an idea for the topic, not a greeting, filler or a question for facts. */
-function isGuestProposal(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  if (GUEST_GREETING_OR_FILLER.test(trimmed)) return false;
-  if (trimmed.endsWith('?')) return GUEST_PROPOSAL_QUESTION.test(trimmed);
-  return true;
-}
-
 /** Merge the readings of the lines gathered into one guest turn, so the planner sees one meaning. */
 function mergeReadings(readings: readonly GuestReading[]): GuestReading | undefined {
   if (readings.length === 0) return undefined;
@@ -444,18 +428,6 @@ export interface ConversationOptions {
   resumeMs?: number;
   /** How many past messages the Director sees. */
   maxHistory?: number;
-  /** False turns off the first-idea catch guard for tests of other paths; the live meeting keeps it on. */
-  firstIdeaCatch?: boolean;
-  /**
-   * `one-speaker` (the default, or from KAKI_OPENING) writes one opening speaker per model call.
-   * `legacy` keeps the old single multi-speaker brief cue.
-   */
-  opening?: 'one-speaker' | 'legacy';
-  /**
-   * `one-speaker` (the default, or from KAKI_REPLIES) answers a guest line with one model call per speaker.
-   * `legacy` keeps the old multi-speaker reply with its shape and line cuts.
-   */
-  replies?: 'one-speaker' | 'legacy';
   /** How long the guest-line reader may take before it retries on the backup model. */
   readerTimeoutMs?: number;
   /** Tests supply a fake reading; the live meeting uses the real reader. */
@@ -537,10 +509,6 @@ interface Turn {
   cueDone?: boolean;
   /** This turn is the single retry after the model failed before saying anything. */
   recoveryRetry?: boolean;
-  shape?: ReplyShape;
-  briefSpeaker?: string;
-  /** Everyone the brief gives a fact to, so only they may state one. */
-  briefSpeakers?: string[];
   /** A one-speaker planned step: one ledger line for the whole call, complete only when every sentence is heard. */
   planned?: {
     kind: 'opening' | 'reply';
@@ -552,25 +520,9 @@ interface Turn {
     lastUtterance?: Utterance;
     eventId?: string;
   };
-  /** The Director marked this reply as settling the topic; it takes effect once the visitor has heard some of it. */
-  settle?: { followUp?: { kind: ActionKind; title: string } };
   control?: ReplyControl;
   /** This reply's reactions have been sent; they go out with the first line, not when the reply ends. */
   reactionsSent?: boolean;
-  prefetchedStream?: AsyncIterable<string>;
-}
-
-interface PrefetchedReply {
-  title: string;
-  cue: string;
-  speakers: string[];
-  controller: AbortController;
-  chunks: string[];
-  done: boolean;
-  failure?: unknown;
-  startedAt: number;
-  wake?: () => void;
-  firstChunkTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** One opening or reply speaker's request, fetched while the previous line is still playing. */
@@ -667,8 +619,6 @@ export class NpcConversation<Clip> {
   private humanLines = 0;
   /** Visitor words on this topic, retained for the task context and the lock safety net. */
   private decisionLines: string[] = [];
-  /** The visitor's ideas on this topic, oldest first, so the first one is never accepted outright. */
-  private readonly proposalsByTopic = new Map<string | undefined, string[]>();
   private humanSettledOnCurrentItem = false;
   /** That question, captured just before the visitor's latest line, so settling can fold it into the follow-up. */
   private questionBeforeGuestLine: string | undefined;
@@ -677,9 +627,6 @@ export class NpcConversation<Clip> {
   private budgetRecoveryPending = false;
   private budgetOfferAtLine = 0;
   private lastLockAskAt = -Infinity;
-  private replyShapeIndex = 0;
-  private lastReplyShape: ReplyShape | undefined;
-  private readonly replyShapeHistory: ReplyShape[] = [];
   private budgetTimer: ReturnType<typeof setTimeout> | undefined;
   private topicBudgetTimer: ReturnType<typeof setTimeout> | undefined;
   private reviewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -716,14 +663,8 @@ export class NpcConversation<Clip> {
   private readonly introduced = new Set<string>();
   /** Items where the AI colleagues have already briefed the room before asking the human for a decision. */
   private readonly briefed = new Set<string>();
-  /** The fact speakers of the last brief, kept for a retry of the same cue. */
-  private lastBriefSpeakers: string[] | undefined;
   /** The item waiting for the room to be free so its colleague briefing can start. */
   private pendingBrief: string | undefined;
-  private prefetchedBrief: PrefetchedReply | undefined;
-  private readonly openingMode: 'one-speaker' | 'legacy';
-  /** `one-speaker` (the default) answers a guest line one speaker per model call; `legacy` keeps the old multi-speaker reply. */
-  private readonly replyMode: 'one-speaker' | 'legacy';
   /** The opening currently being written one speaker at a time; undefined when no one-speaker opening is running. */
   private openingRun: OpeningRun | undefined;
   /** The reply to the guest currently being written one speaker at a time. */
@@ -803,8 +744,6 @@ export class NpcConversation<Clip> {
   ) {
     this.gate = options.gate ?? new SpeechGate();
     this.names = (options.scenario.npcs ?? []).map((npc) => npc.attendee);
-    this.openingMode = options.opening ?? (process.env.KAKI_OPENING === 'legacy' ? 'legacy' : 'one-speaker');
-    this.replyMode = options.replies ?? (process.env.KAKI_REPLIES === 'legacy' ? 'legacy' : 'one-speaker');
     this.meetingState = new MeetingState({
       topics: options.scenario.agenda.map((item, index) => {
         const topic = meetingTopic(item, index);
@@ -862,11 +801,7 @@ export class NpcConversation<Clip> {
     this.shadowLineSeq = 0;
     this.cardWaitLoggedFor = undefined;
     this.lastLockAskAt = -Infinity;
-    this.replyShapeIndex = 0;
-    this.lastReplyShape = undefined;
-    this.replyShapeHistory.length = 0;
     this.guestLinesByTopic.clear();
-    this.proposalsByTopic.clear();
     this.volunteersByTopic.clear();
     this.cardNudgedTopics.clear();
     this.cardPointer.clear();
@@ -1257,7 +1192,6 @@ export class NpcConversation<Clip> {
     this.lastTranscriptEmit = '';
     if (!heldOverAiLine && this.turn !== undefined) this.emitCutTranscript(this.turn);
     this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted, { human: true });
-    this.clearPrefetchedBrief('the person spoke first');
     this.chain = 0;
     this.bridgedStatementOnTurn = false;
     this.recoveryCueSpoken = false;
@@ -1360,7 +1294,7 @@ export class NpcConversation<Clip> {
       () => {
         this.forcedSpeaker = { target: host, from: host };
         this.pending.push(note);
-        this.startTurn(false, false, undefined, undefined, undefined, {
+        this.startTurn(false, false, undefined, {
           what,
           forbiddenText: options.forbiddenText,
           shouldStillSpeak: options.shouldStillSpeak,
@@ -1389,23 +1323,21 @@ export class NpcConversation<Clip> {
     } = {},
   ): void {
     const topic = this.currentItem()?.title;
-    if (this.replyMode === 'one-speaker') {
-      const view = this.meetingState.view(Date.now());
-      if (!this.humanSettledOnCurrentItem) {
-        this.ports.log?.('[card] refused to point at the card before the decision was committed');
-        options.onDone?.(false);
-        return;
-      }
-      if (view.openQuestion?.to === this.human?.name) {
-        this.ports.log?.('[card] refused to point at the card while a question to the guest is open');
-        options.onDone?.(false);
-        return;
-      }
-      if (!this.hasVisitorCardOnTopic(topic)) {
-        this.ports.log?.('[card] refused to point at the card before a TASK_UPDATED card exists');
-        options.onDone?.(false);
-        return;
-      }
+    const view = this.meetingState.view(Date.now());
+    if (!this.humanSettledOnCurrentItem) {
+      this.ports.log?.('[card] refused to point at the card before the decision was committed');
+      options.onDone?.(false);
+      return;
+    }
+    if (view.openQuestion?.to === this.human?.name) {
+      this.ports.log?.('[card] refused to point at the card while a question to the guest is open');
+      options.onDone?.(false);
+      return;
+    }
+    if (!this.hasVisitorCardOnTopic(topic)) {
+      this.ports.log?.('[card] refused to point at the card before a TASK_UPDATED card exists');
+      options.onDone?.(false);
+      return;
     }
     const attempt = (): void => {
       if (this.closed || this.concluded || this.currentItem()?.title !== topic) return;
@@ -1438,7 +1370,7 @@ export class NpcConversation<Clip> {
         () => {
           this.forcedSpeaker = { target: host, from: host };
           this.pending.push(note);
-          this.startTurn(false, false, undefined, undefined, undefined, {
+          this.startTurn(false, false, undefined, {
             what,
             cardPointer: true,
             forbiddenText: options.forbiddenText,
@@ -1577,9 +1509,9 @@ export class NpcConversation<Clip> {
   }
 
   /** True when the current topic has, or is about to have, a follow-up card for the visitor. */
-  private currentTopicHasVisitorFollowUp(turn: Turn): boolean {
+  private currentTopicHasVisitorFollowUp(): boolean {
     const title = this.currentItem()?.title;
-    return title !== undefined && (this.reviewActionKind.has(title) || turn.settle !== undefined);
+    return title !== undefined && this.reviewActionKind.has(title);
   }
 
   /** The title of the agenda item the meeting is on now, for a welcome-back line. */
@@ -1612,7 +1544,6 @@ export class NpcConversation<Clip> {
   announceClosing(speaker: string, text: string): void {
     const line = text.trim();
     if (this.closed || this.concluded || line.length === 0 || !this.names.includes(speaker)) return;
-    this.clearPrefetchedBrief('the meeting is closing');
     this.stop();
     this.concluded = true;
     this.paused = false;
@@ -1765,36 +1696,29 @@ export class NpcConversation<Clip> {
     const guest = this.human?.name;
     if (guest === undefined) return undefined;
     const eventId = this.nextShadowLineId();
-    // The one-speaker path waits for the reader to say what kind of line this is; it never guesses from words.
-    const legacy = this.replyMode === 'legacy';
-    const addressed = legacy ? addressedCharacter(text, this.options.scenario.npcs ?? []) : undefined;
+    // The reader says what kind of line this is; it is never guessed from words.
     // Capture the question as it stood before this line: recording the guest line clears it from the view
     // until the reader says whether the line answers, so afterwards the reader would be told there was none.
-    const openQuestion = legacy ? undefined : this.meetingState.view(Date.now()).openQuestion;
+    const openQuestion = this.meetingState.view(Date.now()).openQuestion;
     this.meetingState.lineStarted({
       id: eventId,
       speaker: guest,
       text,
       at: Date.now(),
-      proposal: legacy ? isGuestProposal(text) : false,
-      ...(addressed === undefined || !this.names.includes(addressed)
-        ? {}
-        : { question: { to: addressed, text } }),
+      proposal: false,
     });
     this.shadowLineEnded(eventId, true);
-    if (this.replyMode === 'one-speaker') {
-      const turn = this.turn;
-      const saidWhileSpeaking = turn === undefined
-        ? undefined
-        : turn.spoken.at(-1)?.utterance.speaker ?? turn.planned?.lastUtterance?.speaker ?? turn.scriptedUtterance?.speaker;
-      this.guestLineContext.set(eventId, {
-        ...(saidWhileSpeaking === undefined ? {} : { saidWhileSpeaking }),
-        ...(openQuestion === undefined
-          ? {}
-          : { openQuestion: { from: openQuestion.from, to: openQuestion.to, text: openQuestion.text } }),
-      });
-      void this.readingJob(eventId);
-    }
+    const turn = this.turn;
+    const saidWhileSpeaking = turn === undefined
+      ? undefined
+      : turn.spoken.at(-1)?.utterance.speaker ?? turn.planned?.lastUtterance?.speaker ?? turn.scriptedUtterance?.speaker;
+    this.guestLineContext.set(eventId, {
+      ...(saidWhileSpeaking === undefined ? {} : { saidWhileSpeaking }),
+      ...(openQuestion === undefined
+        ? {}
+        : { openQuestion: { from: openQuestion.from, to: openQuestion.to, text: openQuestion.text } }),
+    });
+    void this.readingJob(eventId);
     return eventId;
   }
 
@@ -1917,20 +1841,18 @@ export class NpcConversation<Clip> {
   /** Remember when the host points the visitor at their follow-up card, so the review nudge does not repeat it. */
   private noteCardPoint(utterance: Utterance): void {
     if (utterance.speaker !== this.facilitatorOrCoHost() || !CARD_POINT_RE.test(utterance.text)) return;
-    if (this.replyMode === 'one-speaker') {
-      const view = this.meetingState.view(Date.now());
-      if (!this.humanSettledOnCurrentItem) {
-        this.ports.log?.('[card] ignored a card pointer before the decision was committed');
-        return;
-      }
-      if (view.openQuestion?.to === this.human?.name) {
-        this.ports.log?.('[card] ignored a card pointer while a question to the guest is open');
-        return;
-      }
-      if (!this.hasVisitorCardOnTopic()) {
-        this.ports.log?.('[card] ignored a card pointer before a TASK_UPDATED card exists');
-        return;
-      }
+    const view = this.meetingState.view(Date.now());
+    if (!this.humanSettledOnCurrentItem) {
+      this.ports.log?.('[card] ignored a card pointer before the decision was committed');
+      return;
+    }
+    if (view.openQuestion?.to === this.human?.name) {
+      this.ports.log?.('[card] ignored a card pointer while a question to the guest is open');
+      return;
+    }
+    if (!this.hasVisitorCardOnTopic()) {
+      this.ports.log?.('[card] ignored a card pointer before a TASK_UPDATED card exists');
+      return;
     }
     this.cardPointer.claim(this.currentItem()?.title);
   }
@@ -1947,7 +1869,6 @@ export class NpcConversation<Clip> {
     this.clearBargeTimer();
     this.clearSilenceTimer();
     this.clearBriefTimer();
-    this.clearPrefetchedBrief('the meeting ended');
     this.cancelOpening('the meeting ended');
     this.cancelReplyRun('the meeting ended');
     this.pausedOpening = undefined;
@@ -2049,8 +1970,7 @@ export class NpcConversation<Clip> {
 
   /** True when the pending words are a guest line that the one-speaker reply path should answer. */
   private shouldStartReplyRun(): boolean {
-    if (this.replyMode !== 'one-speaker' || this.human === undefined ||
-        this.openingRun !== undefined || this.replyRun !== undefined) return false;
+    if (this.human === undefined || this.openingRun !== undefined || this.replyRun !== undefined) return false;
     const guestText = this.pending.filter((text) => !text.startsWith('[')).join(' ').trim();
     // Every finished guest line goes to the reader, including a bare "yes": it may be the answer to Sam's question.
     return guestText.length > 0;
@@ -2135,9 +2055,9 @@ export class NpcConversation<Clip> {
     }
   }
 
-  /** True when the new one-speaker path decides from the guest's checked reading. */
+  /** True when the one-speaker path decides from the guest's checked reading. */
   private readinessApplies(): boolean {
-    return this.replyMode === 'one-speaker' && this.currentItem() !== undefined;
+    return this.currentItem() !== undefined;
   }
 
   /**
@@ -2294,20 +2214,6 @@ export class NpcConversation<Clip> {
     return true;
   }
 
-  /**
-   * A legacy model settle tag may only lock the topic on the legacy reply path. In one-speaker mode the guest's
-   * checked reading is the one owner of the decision, so the tag is ignored rather than racing the planner.
-   */
-  private applyTurnSettle(turn: Turn, requireSpoken = true): void {
-    if (turn.settle === undefined) return;
-    if (requireSpoken && turn.spoken.length === 0) return;
-    if (this.readinessApplies()) {
-      this.ports.log?.('[settle] ignored the model settle tag; readiness decides in one-speaker mode');
-      return;
-    }
-    this.lockDecision(turn.settle.followUp);
-  }
-
   /** Task lifecycle is the only normal reason to leave a settled topic. */
   taskStatus(id: string, origin: string | undefined, status: string, isVisitorTask: boolean, declined = false): void {
     const title = this.currentItem()?.title;
@@ -2444,24 +2350,22 @@ export class NpcConversation<Clip> {
     if (this.currentItem()?.title !== title || this.reviewWarned) return;
     const host = this.facilitatorOrCoHost();
     if (host === undefined) return;
-    if (this.replyMode === 'one-speaker') {
-      const view = this.meetingState.view(Date.now());
-      if (!this.humanSettledOnCurrentItem) {
-        this.ports.log?.('[card] skipped the review nudge before the decision was committed');
-        return;
-      }
-      if (view.openQuestion?.to === this.human?.name) {
-        this.ports.log?.('[card] skipped the review nudge while a question to the guest is open');
+    const view = this.meetingState.view(Date.now());
+    if (!this.humanSettledOnCurrentItem) {
+      this.ports.log?.('[card] skipped the review nudge before the decision was committed');
+      return;
+    }
+    if (view.openQuestion?.to === this.human?.name) {
+      this.ports.log?.('[card] skipped the review nudge while a question to the guest is open');
+      this.startReviewWindow();
+      return;
+    }
+    if (!this.hasVisitorCardOnTopic(title)) {
+      if (!this.reviewNudged) {
+        this.ports.log?.('[card] skipped the review nudge: no follow-up card exists yet');
+        this.reviewNudged = true;
         this.startReviewWindow();
         return;
-      }
-      if (!this.hasVisitorCardOnTopic(title)) {
-        if (!this.reviewNudged) {
-          this.ports.log?.('[card] skipped the review nudge: no follow-up card exists yet');
-          this.reviewNudged = true;
-          this.startReviewWindow();
-          return;
-        }
       }
     }
     const total = this.options.reviewWindowMs ?? DEFAULT_REVIEW_WINDOW_MS;
@@ -2509,7 +2413,7 @@ export class NpcConversation<Clip> {
       return;
     }
     const wrapUp = liveWrapUpLine(this.options.scenario, title);
-    if (this.replyMode === 'one-speaker' && !this.hasVisitorCardOnTopic(title)) {
+    if (!this.hasVisitorCardOnTopic(title)) {
       this.reviewWarned = true;
       this.ports.log?.('[card] moving on without a pointer: no follow-up card arrived');
       this.announce(host, wrapUp, DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
@@ -2596,16 +2500,6 @@ export class NpcConversation<Clip> {
     this.decisionLines.push(text);
   }
 
-  /**
-   * True only on the turn that answers the visitor's first idea on this topic. Later turns are free to settle even
-   * when the visitor's reply is not a new idea ("Yes." to "shall we lock it in?"), so the guard can never hold a topic.
-   */
-  private firstProposalOnTopic(turn: Turn, freshHumanLine: string | undefined): boolean {
-    if (this.options.firstIdeaCatch === false || this.reopenedTitle !== undefined || turn.topic === undefined) return false;
-    const ideas = this.proposalsByTopic.get(turn.topic) ?? [];
-    return freshHumanLine !== undefined && ideas.length === 1 && freshHumanLine.includes(ideas[0]!);
-  }
-
   /** The agenda item the meeting is on, and how this person takes part in it. */
   private currentItem() {
     const title = this.reopenedTitle ?? this.agendaItem ?? this.options.scenario.agenda[0]?.title;
@@ -2648,7 +2542,6 @@ export class NpcConversation<Clip> {
     this.pausedReply = undefined;
     this.pendingBrief = undefined;
     if (title === undefined) {
-      this.clearPrefetchedBrief('the agenda moved');
       this.clearUpcomingOpeningPrefetch('the agenda moved');
     } else {
       const previousTitle = this.currentItem()?.title;
@@ -2658,7 +2551,6 @@ export class NpcConversation<Clip> {
       );
       const incomingTitle = matched?.title ?? title;
       // Keep a request already fetched for this incoming topic while the previous item wound down.
-      if (this.prefetchedBrief?.title !== incomingTitle) this.clearPrefetchedBrief('the agenda moved');
       if (this.upcomingOpeningPrefetch?.title !== incomingTitle) {
         this.clearUpcomingOpeningPrefetch('the agenda moved');
       }
@@ -2685,7 +2577,6 @@ export class NpcConversation<Clip> {
     this.cardWaitLoggedFor = undefined;
     this.wingmanHintActive = false;
     this.decisionLines = [];
-    this.proposalsByTopic.clear();
     this.topicOpenedAt = Date.now();
     this.budgetOffered = false;
     this.budgetRecoveryPending = false;
@@ -2733,7 +2624,6 @@ export class NpcConversation<Clip> {
     if (title === undefined || this.closed || this.paused) return false;
     if (this.briefed.has(title) || this.currentItem()?.title !== title || this.humanLines > this.linesAtMove) {
       this.pendingBrief = undefined;
-      this.clearPrefetchedBrief('the brief is no longer due');
       return false;
     }
     if (
@@ -2747,142 +2637,24 @@ export class NpcConversation<Clip> {
       return false;
     }
     this.pendingBrief = undefined;
-    if (this.openingMode === 'one-speaker') {
-      if (this.openingRun !== undefined) return true;
-      this.briefed.add(title);
-      this.ports.log?.(`[opening] starting "${title}" one speaker at a time`);
-      this.startOpening(title);
-      return true;
-    }
-    const plan = this.briefPlan(title);
-    if (plan === undefined) {
-      this.clearPrefetchedBrief('no colleague could brief');
-      this.ports.log?.(`could not brief "${title}": no colleague cue; asking the visitor instead`);
-      this.askDue = true;
-      this.ask();
-      return false;
-    }
-    const prefetched = this.takePrefetchedBrief(title);
+    if (this.openingRun !== undefined) return true;
     this.briefed.add(title);
-    this.asked.add(this.human?.name ?? '');
-    this.pending.push(prefetched?.cue ?? plan.cue);
-    this.startTurn(false, false, prefetched, undefined, prefetched?.speakers ?? plan.speakers);
+    this.ports.log?.(`[opening] starting "${title}" one speaker at a time`);
+    this.startOpening(title);
     return true;
-  }
-
-  /** The old choice of first speaker, used only when a scenario gives the item no briefing facts. */
-  private fallbackBriefSpeaker(item: AgendaItem, seat: string | undefined, host: string | undefined): string | undefined {
-    const candidates = [...new Set(
-      (item.discussion?.openingViews ?? []).map((view) => view.attendee),
-    )].filter((name) => name !== seat && name !== host && this.names.includes(name));
-    const pushing = pushingColleague(this.options.scenario, item, this.human?.role, this.names, host);
-    return [...new Set([
-      ...(pushing === undefined ? [] : [pushing]),
-      ...candidates,
-      ...this.names.filter((name) => name !== seat && name !== host),
-    ])][0];
-  }
-
-  /**
-   * A briefing fact's speaker: the first knower present who is not the guest's seat or the host.
-   * Facts with no such speaker are dropped with a loud log, never given to someone who would not know them.
-   */
-  private factSpeaker(
-    fact: BriefingFact,
-    seat: string | undefined,
-    host: string | undefined,
-  ): { attendee: string; why: string } | undefined {
-    return fact.knownBy.find((knower) =>
-      knower.attendee !== seat &&
-      knower.attendee !== host &&
-      this.names.includes(knower.attendee));
-  }
-
-  /**
-   * A brief is a short exchange: each fact is told only by someone who knows it, consecutive facts by the
-   * same speaker are one turn, a new speaker reacts to the line before, then up to two opening views and
-   * the host's single closing question to the guest.
-   */
-  private briefPlan(title: string): { cue: string; speakers: string[] } | undefined {
-    const item = this.options.scenario.agenda.find((candidate) => candidate.title === title);
-    const human = this.human;
-    if (item === undefined || human === undefined) return undefined;
-    const host = this.facilitatorOrCoHost();
-    const seat = this.options.scenario.attendees.find((attendee) =>
-      attendee.role === this.options.scenario.roles.find((role) => role.id === human.role)?.id)?.name;
-
-    const planned: Array<{ speaker: string; texts: string[] }> = [];
-    for (const fact of item.briefing ?? []) {
-      const knower = this.factSpeaker(fact, seat, host);
-      if (knower === undefined) {
-        this.ports.log?.(`[brief] no one present knows "${fact.text}"`);
-        continue;
-      }
-      const last = planned.at(-1);
-      if (last?.speaker === knower.attendee) last.texts.push(fact.text);
-      else planned.push({ speaker: knower.attendee, texts: [fact.text] });
-    }
-    if (planned.length === 0 && (item.briefing ?? []).length > 0) return undefined;
-
-    const views = item.discussion?.openingViews ?? [];
-    const first = planned[0]?.speaker ?? this.fallbackBriefSpeaker(item, seat, host);
-    if (first === undefined) return undefined;
-    const speakerNames = new Set(planned.map((group) => group.speaker));
-    const problem = planned.length > 0
-      ? undefined
-      : views.find((view) => view.attendee === first)?.angle ?? item.decision ?? title;
-
-    const factText = planned.length === 0
-      ? `${first} tells what happened as they saw it, from "${problem}", in two or three short spoken sentences like telling a colleague, with at most one number. Do not introduce yourself or your job; the host already did.`
-      : planned.map((group, groupIndex) => groupIndex === 0
-        ? `${group.speaker} tells what happened as they saw it, from "${group.texts.join(' ')}", in two or three short spoken sentences like telling a colleague, with at most one number. Do not introduce yourself or your job; the host already did.`
-        : `${group.speaker} answers ${planned[groupIndex - 1]!.speaker} in one or two short spoken sentences, reacting to what ${planned[groupIndex - 1]!.speaker} just said, and adds only this from their own knowledge: "${group.texts.join(' ')}". No other facts.`
-      ).join(' ');
-
-    const reactors = views.filter((view) =>
-      view.attendee !== seat &&
-      view.attendee !== host &&
-      !speakerNames.has(view.attendee) &&
-      this.names.includes(view.attendee));
-    const index = this.options.scenario.agenda.findIndex((candidate) => candidate.title === item.title);
-    const reactionCount = Math.min(reactors.length, Math.max(0, index) % 3);
-    const chosen = reactors.slice(0, reactionCount);
-    const hostName = host ?? first;
-    const reactionText = chosen.length === 0
-      ? planned.length <= 1 ? `Only ${first} speaks before ${hostName}.` : ''
-      : chosen.map((view, reactionIndex) => {
-          const before = reactionIndex === 0
-            ? planned.at(-1)?.speaker ?? first
-            : chosen[reactionIndex - 1]!.attendee;
-          return `${view.attendee} answers ${before} in one short sentence, reacting to what ${before} just said, from what they care about: "${view.angle}". No new figure.`;
-        }).join(' ');
-    const decision = item.decision ?? title;
-    const speakers = planned.length > 0 ? planned.map((group) => group.speaker) : [first];
-
-    return {
-      cue: `[We just started "${title}". Begin with "${first}:". This is the brief, written as one short exchange between colleagues. ${factText} ${reactionText} Last, ${hostName} asks ${human.name} one question from this decision: "${decision}". Ask it by name, ask only one question, and let ${hostName} close the turn. Everyone else stays quiet after that. Every line reacts to the line before it. Hold back at least one catch for ${human.name}'s first idea. Leave the decision open. No report phrases, no semicolons, no lists, no stock invitation, and no other facts.]`.replace(/\s+/g, ' ').trim(),
-      speakers,
-    };
   }
 
   briefsOnTopic(title: string): boolean {
     if (this.closed || !this.onCurrentAgenda(title)) return false;
     const current = this.currentItem()?.title;
     if (current === undefined || this.briefed.has(current) || this.pendingBrief !== current) return false;
-    if (this.openingMode === 'one-speaker') return true;
-    return this.briefPlan(current) !== undefined;
+    return true;
   }
 
   private prefetchBrief(title: string): void {
     if (this.human === undefined || this.pendingBrief !== title || this.currentItem()?.title !== title) return;
     // The first speaker's line is written while the host welcomes and hands over, so it is ready when they finish.
-    if (this.openingMode !== 'legacy') {
-      this.startUpcomingOpeningPrefetch(title);
-      return;
-    }
-    const alreadyAsked = this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
-    const includeKnows = this.humanLines > this.linesAtMove;
-    this.startBriefPrefetch(title, { alreadyAsked, includeKnows });
+    this.startUpcomingOpeningPrefetch(title);
   }
 
   /**
@@ -2893,11 +2665,7 @@ export class NpcConversation<Clip> {
     if (this.closed || this.paused || this.human === undefined || this.names.length <= 2) return;
     const next = this.nextAgendaItem();
     if (next === undefined || this.briefed.has(next.title) || this.currentItem()?.title === next.title) return;
-    if (this.openingMode === 'one-speaker') {
-      this.startUpcomingOpeningPrefetch(next.title);
-      return;
-    }
-    this.startBriefPrefetch(next.title, { alreadyAsked: false, includeKnows: false });
+    this.startUpcomingOpeningPrefetch(next.title);
   }
 
   private nextAgendaItem() {
@@ -2908,119 +2676,6 @@ export class NpcConversation<Clip> {
     const index = agenda.findIndex((item) =>
       item.title === anchor || cleanSpokenTopic(item.title).toLowerCase() === wanted);
     return index < 0 ? undefined : agenda[index + 1];
-  }
-
-  private startBriefPrefetch(
-    title: string,
-    state: { alreadyAsked: boolean; includeKnows: boolean },
-  ): void {
-    if (this.closed || this.paused || this.human === undefined || this.briefed.has(title)) return;
-    const existing = this.prefetchedBrief;
-    if (existing !== undefined && existing.title === title && !existing.controller.signal.aborted) return;
-    this.clearPrefetchedBrief('the topic or cue changed');
-    const plan = this.briefPlan(title);
-    if (plan === undefined) return;
-    const prefetched: PrefetchedReply = {
-      title, cue: plan.cue, speakers: plan.speakers, controller: new AbortController(), chunks: [], done: false, startedAt: Date.now(),
-    };
-    const upcoming = this.currentItem()?.title !== title;
-    const messages: ChatMessage[] = [
-      { role: 'system', content: this.systemPrompt(
-        state.alreadyAsked, state.includeKnows, title, upcoming ? { earlier: [], recent: [] } : undefined) },
-      ...this.history.slice(-this.maxHistory),
-      { role: 'user', content: plan.cue },
-    ];
-    this.prefetchedBrief = prefetched;
-    this.ports.log?.(`[brief] asking for the briefing early, while the host speaks`);
-    void this.pumpPrefetched(prefetched, messages);
-  }
-
-  private async pumpPrefetched(prefetched: PrefetchedReply, messages: ChatMessage[]): Promise<void> {
-    const firstChunkMs = this.options.briefFirstChunkMs ?? DEFAULT_BRIEF_FIRST_CHUNK_MS;
-    const clearFirstChunkTimer = (): void => {
-      if (prefetched.firstChunkTimer !== undefined) {
-        clearTimeout(prefetched.firstChunkTimer);
-        prefetched.firstChunkTimer = undefined;
-      }
-    };
-    if (firstChunkMs > 0) {
-      prefetched.firstChunkTimer = setTimeout(() => {
-        prefetched.firstChunkTimer = undefined;
-        if (prefetched.done || prefetched.controller.signal.aborted) return;
-        const timeoutError = new Error(`the first spoken sentence did not arrive within ${firstChunkMs} ms`);
-        prefetched.failure = timeoutError;
-        this.ports.log?.(`[brief] the early request timed out after ${firstChunkMs} ms`);
-        prefetched.controller.abort();
-        prefetched.done = true;
-        prefetched.wake?.();
-        prefetched.wake = undefined;
-      }, firstChunkMs);
-      prefetched.firstChunkTimer.unref?.();
-    }
-    const iterator = this.ports.stream(messages, prefetched.controller.signal)[Symbol.asyncIterator]();
-    try {
-      for (;;) {
-        const next = await iterator.next();
-        if (next.done === true) break;
-        prefetched.chunks.push(next.value);
-        const speech = prefetched.chunks.join('').replace(/^\s*KAKI_CONTROL[^\n]*\n?/i, '');
-        if (/[.!?]["')\]]*(?:\s|$)/.test(speech)) clearFirstChunkTimer();
-        prefetched.wake?.();
-        prefetched.wake = undefined;
-      }
-    } catch (error) {
-      if (!prefetched.controller.signal.aborted && prefetched.failure === undefined) {
-        prefetched.failure = error;
-        this.ports.log?.(`[brief] the early request failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    } finally {
-      clearFirstChunkTimer();
-      prefetched.done = true;
-      prefetched.wake?.();
-      prefetched.wake = undefined;
-    }
-  }
-
-  private prefetchedStream(prefetched: PrefetchedReply): AsyncIterable<string> {
-    return {
-      async *[Symbol.asyncIterator]() {
-        let index = 0;
-        for (;;) {
-          if (index < prefetched.chunks.length) {
-            yield prefetched.chunks[index++]!;
-            continue;
-          }
-          if (prefetched.failure !== undefined) throw prefetched.failure;
-          if (prefetched.done) return;
-          await new Promise<void>((resolve) => (prefetched.wake = resolve));
-        }
-      },
-    };
-  }
-
-  private takePrefetchedBrief(title: string): PrefetchedReply | undefined {
-    const prefetched = this.prefetchedBrief;
-    if (prefetched === undefined) return undefined;
-    if (prefetched.title !== title || (prefetched.controller.signal.aborted && prefetched.failure === undefined)) {
-      this.clearPrefetchedBrief('the pending brief changed');
-      return undefined;
-    }
-    this.prefetchedBrief = undefined;
-    return prefetched;
-  }
-
-  private clearPrefetchedBrief(reason?: string): void {
-    const prefetched = this.prefetchedBrief;
-    if (prefetched === undefined) return;
-    this.prefetchedBrief = undefined;
-    if (prefetched.firstChunkTimer !== undefined) {
-      clearTimeout(prefetched.firstChunkTimer);
-      prefetched.firstChunkTimer = undefined;
-    }
-    if (!prefetched.done) {
-      this.ports.log?.(`[brief] dropped the early request${reason === undefined ? '' : `: ${reason}`}`);
-      prefetched.controller.abort();
-    }
   }
 
   /** Start the one-speaker opening for `title`; it runs one planned speaker at a time. */
@@ -3366,11 +3021,9 @@ export class NpcConversation<Clip> {
     if (run.kind === 'reply') {
       const control = this.controlFromReply(reply);
       if (control !== undefined) {
-        const firstIdea = previous !== undefined && previous.speaker === this.human?.name &&
-          view.guestFirstIdea?.eventId === previous.eventId;
         let moveBack: Utterance | undefined;
         const applied = this.applyReplyControl(turn, control,
-          previous !== undefined && previous.speaker === this.human?.name ? previous.text : undefined, firstIdea,
+          previous !== undefined && previous.speaker === this.human?.name ? previous.text : undefined,
           (line) => {
             moveBack = line;
           });
@@ -3412,7 +3065,6 @@ export class NpcConversation<Clip> {
     this.startPlannedPrefetch(run, decision, parsed.text, factIds);
     queue.close();
     await player;
-    this.applyTurnSettle(turn);
     if (turn.control !== undefined && turn.topic !== undefined && turn.spoken.length > 0) {
       this.memory.invented(this.reopenedTitle ?? turn.topic, turn.control.newFacts ?? []);
     }
@@ -3514,8 +3166,6 @@ export class NpcConversation<Clip> {
   /** While line N plays, write line N+1 from N's text and a projected view; the real ledger decides later. */
   private startPlannedPrefetch(run: OpeningRun, decision: SpeakDecision, text: string, factIds: readonly string[]): void {
     if (this.closed || this.paused || run.cancelled) return;
-    if (run.kind === 'opening' && this.openingMode !== 'one-speaker') return;
-    if (run.kind === 'reply' && this.replyMode !== 'one-speaker') return;
     if (run.kind === 'opening' && decision.purpose !== 'brief') return;
     if (run.kind === 'reply' &&
         decision.purpose !== 'answer' && decision.purpose !== 'catch' && decision.purpose !== 'clarify') return;
@@ -3789,7 +3439,7 @@ export class NpcConversation<Clip> {
   /** Answer the guest's latest line with one planned speaker per model call, replanning after each heard line. */
   private startReplyRun(guestTurn?: OpeningRun['guestTurn'], from?: HeardLine, heldText?: string): void {
     if (this.closed || this.paused || this.human === undefined) return;
-    if (this.replyMode !== 'one-speaker' || this.replyRun !== undefined) return;
+    if (this.replyRun !== undefined) return;
     const pendingText = this.pending.some((text) => !text.startsWith('['))
       ? this.pending.filter((text) => !text.startsWith('[')).join(' ').trim()
       : heldText;
@@ -4519,7 +4169,7 @@ export class NpcConversation<Clip> {
           this.pending.push(
             `[${this.human.name} just heard the team's answer on "${spokenTitle}", and the colleague finished on a statement without passing the floor. Begin your reply with "${host}:". ${host} steps in as the meeting chair in ONE short, natural spoken sentence connecting what was just said back to the decision and asking ${this.human.name} by name (ending with a question mark "?") how they want to play this or if they want to lock a direction in — never prescribe an answer, use only facts and names already heard, add no new open item, task, person or number, never mention a card or screen, never volunteer to do the work yourself, and never mention this note.]`,
           );
-          this.startTurn(false, false, undefined, undefined, undefined, undefined, true);
+          this.startTurn(false, false, undefined, undefined, true);
           return;
         }
       }
@@ -4534,7 +4184,7 @@ export class NpcConversation<Clip> {
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: host, from: host };
           this.pending.push(silenceCheckInNote(host, this.human.name, spokenTitle, this.humanSettledOnCurrentItem));
-          this.startTurn(false, false, undefined, scheduledAt + baseMs, undefined, undefined, true);
+          this.startTurn(false, false, scheduledAt + baseMs, undefined, true);
         } else {
           this.announce(
             host,
@@ -4553,7 +4203,7 @@ export class NpcConversation<Clip> {
         if (owner !== undefined && npcs.length > 1) {
           this.forcedSpeaker = { target: owner, from: host };
           this.pending.push(silenceColleagueNote(owner, this.human.name, title, item?.decision));
-          this.startTurn(false, false, undefined, undefined, undefined, undefined, true);
+          this.startTurn(false, false, undefined, undefined, true);
         }
       }
     }, delayMs).unref();
@@ -4577,9 +4227,7 @@ export class NpcConversation<Clip> {
   private startTurn(
     retry = false,
     recoveryRetry = false,
-    prefetched?: PrefetchedReply,
     notBefore?: number,
-    briefSpeakers?: string[],
     dispatchCue?: DispatchCue,
     nudge = false,
   ): void {
@@ -4588,10 +4236,6 @@ export class NpcConversation<Clip> {
     this.pending = [];
     this.pendingGuestLineIds = [];
     if (text.length === 0) return;
-    if (!retry && this.human !== undefined && !text.startsWith('[') && isGuestProposal(text)) {
-      const topic = this.currentItem()?.title;
-      this.proposalsByTopic.set(topic, [...(this.proposalsByTopic.get(topic) ?? []), text]);
-    }
     this.ports.log?.(`[respond] asking the model${retry ? ' (retry)' : ''}`);
     this.interrupt('a new turn started');
     const forced = this.forcedSpeaker;
@@ -4613,21 +4257,7 @@ export class NpcConversation<Clip> {
       this.history.push(note);
     }
 
-    const shape = retry ? this.lastReplyShape :
-      this.human !== undefined && !text.startsWith('[') && this.names.length > 2
-        ? replyShapeForTurn(this.replyShapeIndex++,
-          (this.proposalsByTopic.get(this.currentItem()?.title)?.length ?? 0) === 1 && isGuestProposal(text),
-          this.replyShapeHistory)
-        : undefined;
-    if (!retry) {
-      this.lastReplyShape = shape;
-      if (shape !== undefined) this.replyShapeHistory.push(shape);
-    }
-    const reuse = prefetched !== undefined && !retry && !prefetched.controller.signal.aborted;
-    const abort = reuse ? prefetched!.controller : new AbortController();
-    const briefSpeakersForTurn = briefSpeakers ??
-      (text.startsWith('[We just started') ? this.lastBriefSpeakers : undefined);
-    if (briefSpeakers !== undefined) this.lastBriefSpeakers = briefSpeakers;
+    const abort = new AbortController();
     const turn: Turn = {
       topic: this.currentItem()?.title,
       abort,
@@ -4638,17 +4268,13 @@ export class NpcConversation<Clip> {
       aborted: false,
       finalized: false,
       done: Promise.resolve(),
-      startedAt: reuse ? prefetched!.startedAt : Date.now(),
+      startedAt: Date.now(),
       ...(notBefore === undefined ? {} : { notBefore }),
       ...(nudge ? { nudge: true } : {}),
       ...(nudge && note !== undefined ? { nudgeNote: note } : {}),
       forced,
       dispatchCue,
       recoveryRetry,
-      shape,
-      briefSpeaker: text.startsWith('[We just started') ? /Begin with "([^:]+):"/.exec(text)?.[1] : undefined,
-      briefSpeakers: briefSpeakersForTurn,
-      prefetchedStream: reuse ? this.prefetchedStream(prefetched!) : undefined,
     };
     this.turn = turn;
     turn.done = this.runTurn(turn).catch((error: unknown) => {
@@ -4870,7 +4496,6 @@ export class NpcConversation<Clip> {
     turn.soundAbort.abort();
     this.gate.setAiAudible(false);
     // The visitor heard the room accept their decision before the reply was cut short: it still counts.
-    if (reason !== 'agenda moved') this.applyTurnSettle(turn);
     this.ports.emitState(this.idleState());
   }
 
@@ -4915,7 +4540,6 @@ export class NpcConversation<Clip> {
     turn.abort.abort();
     turn.soundAbort.abort();
     this.gate.setAiAudible(false);
-    this.applyTurnSettle(turn);
     this.finishDispatchCue(turn);
     this.ports.emitState(this.idleState());
   }
@@ -5088,15 +4712,11 @@ export class NpcConversation<Clip> {
     return true;
   }
 
-  /**
-   * Apply one model control line to the topic: settle, park, wingman, reactions, reopen. Shared by the old
-   * multi-speaker reply and the one-speaker reply, so both reach the same settlement code.
-   */
+  /** Apply one model control line to the topic: settle, park, wingman, reactions, reopen. */
   private applyReplyControl(
     turn: Turn,
     control: ReplyControl,
     freshHumanLine: string | undefined,
-    firstIdea: boolean,
     enqueueHostLine?: (utterance: Utterance) => void,
   ): { control: ReplyControl; refuseSpeech: boolean } {
     // A dispatch cue only asks or points; it must never settle or move the meeting.
@@ -5104,13 +4724,9 @@ export class NpcConversation<Clip> {
       this.ports.log?.('[dispatch] ignored a control line in a task cue');
       return { control, refuseSpeech: false };
     }
-    // The new reply path decides settlement from the guest's checked reading, never from the writer's label.
-    if (this.replyMode === 'one-speaker' && control.state !== 'open') {
+    // The reply path decides settlement from the guest's checked reading, never from the writer's label.
+    if (control.state !== 'open') {
       this.ports.log?.('[control] ignored model settle; readiness decides');
-      control = { ...control, state: 'open' };
-    }
-    if (control.state === 'settled' && firstIdea) {
-      this.ports.log?.(`[settle] ignored settled on ${this.human?.name ?? 'the person'}'s first idea on "${turn.topic}"`);
       control = { ...control, state: 'open' };
     }
     if (control.reopen !== undefined) {
@@ -5156,9 +4772,6 @@ export class NpcConversation<Clip> {
         const agendaIndex = this.options.scenario.agenda.indexOf(item);
         this.ports.onWingmanTip?.(control.wingmanTip, item.title, agendaIndex);
       }
-    }
-    if (control.state !== 'open' && freshHumanLine !== undefined && this.decisionLines.length > 0) {
-      turn.settle = { followUp: control.followUp };
     }
     return { control, refuseSpeech: false };
   }
@@ -5285,53 +4898,12 @@ export class NpcConversation<Clip> {
       if (isQuestionToVisitor(trimmed, utterance.speaker, this.names, this.human?.name) &&
           (this.askedGuestInRound || turn.enqueued.some((line) =>
             isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name)))) {
-        this.ports.log?.(`${turn.briefSpeaker !== undefined ? '[brief]' : '[question]'} ${utterance.speaker}: dropped a second question to the visitor this round: "${trimmed}"`);
+        this.ports.log?.(`[question] ${utterance.speaker}: dropped a second question to the visitor this round: "${trimmed}"`);
         return;
-      }
-      // A brief is one short exchange: the fact speakers, at most two reacting colleagues, then the host's
-      // single question to the visitor. The host closes it; nobody speaks after that.
-      if (turn.briefSpeaker !== undefined) {
-        const briefHost = aiHost ?? this.facilitatorOrCoHost();
-        const briefSpeakers = new Set(turn.briefSpeakers ?? [turn.briefSpeaker]);
-        const isFactSpeaker = briefSpeakers.has(utterance.speaker);
-        const isHost = briefHost !== undefined && utterance.speaker === briefHost;
-        const hostHasAsked = briefHost !== undefined && turn.enqueued.some((line) =>
-          line.speaker === briefHost && isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name));
-        if (turn.enqueued.length === 0 && !isFactSpeaker) {
-          this.ports.log?.(`[brief] first speaker was ${utterance.speaker}, expected speaker ${turn.briefSpeaker}`);
-        }
-        if (hostHasAsked && !isHost) {
-          this.ports.log?.(`[brief] dropped a line from ${utterance.speaker} after ${briefHost} closed the turn`);
-          return;
-        }
-        if (!isFactSpeaker && !isHost) {
-          const reactors = new Set(turn.enqueued
-            .map((line) => line.speaker)
-            .filter((speaker) => !briefSpeakers.has(speaker) && speaker !== briefHost));
-          if (!reactors.has(utterance.speaker) && reactors.size >= 2) {
-            this.ports.log?.(`[brief] dropped extra line from ${utterance.speaker}`);
-            return;
-          }
-        }
       }
       if (aiHost !== undefined && utterance.speaker === aiHost && LOCK_ASK_RE.test(trimmed) &&
           Date.now() - this.lastLockAskAt < DEFAULT_REPEAT_WINDOW_MS) {
         this.ports.log?.(`[repeat] ${aiHost}: skipped a repeated lock-in ask`);
-        return;
-      }
-      if (turn.shape !== undefined) {
-        const maxSpeakers = turn.shape === 'solo' || turn.shape === 'reaction' ? 1 : 2;
-        const speakers = new Set(turn.enqueued.map((line) => line.speaker));
-        const maxSentences = turn.shape === 'reaction' ? 1 :
-          turn.shape === 'solo' ? 2 : 1;
-        if ((!speakers.has(utterance.speaker) && speakers.size >= maxSpeakers) ||
-            turn.enqueued.filter((line) => line.speaker === utterance.speaker).length >= maxSentences) {
-          this.ports.log?.(`[shape] dropped extra line from ${utterance.speaker}`);
-          return;
-        }
-      }
-      if (turn.settle !== undefined && /\?["')\]]*$/.test(trimmed)) {
-        this.ports.log?.(`[settle] ${utterance.speaker}: dropped a new question after the visitor's call: "${trimmed}"`);
         return;
       }
       if (turn.dispatchCue?.cardPointer !== true && MODEL_CARD_MENTION_RE.test(trimmed)) {
@@ -5339,7 +4911,7 @@ export class NpcConversation<Clip> {
         return;
       }
       if (turn.dispatchCue?.cardPointer !== true && aiHost !== undefined && utterance.speaker === aiHost &&
-          this.currentTopicHasVisitorFollowUp(turn) &&
+          this.currentTopicHasVisitorFollowUp() &&
           !namesColleague(trimmed, this.names) &&
           (HOST_SEND_PLACE_RE.test(trimmed) || (HOST_SEND_INSTRUCTION_RE.test(trimmed) &&
             (HOST_IMPERATIVE_START_RE.test(trimmed) || addressesVisitor(trimmed, this.human?.name))))) {
@@ -5374,10 +4946,9 @@ export class NpcConversation<Clip> {
 
     try {
       const cast = this.options.scenario.npcs ?? [];
-      const addressed = turn.forced?.target ?? addressedCharacter(this.lastText, cast);
       const host = cast.find((npc) => npc.role === 'host')?.attendee;
       const seatNames = this.options.scenario.attendees.map((attendee) => attendee.name);
-      const parser = new TurnParser(this.names, turn.briefSpeaker ?? addressed ?? host, this.human?.name, seatNames,
+      const parser = new TurnParser(this.names, turn.forced?.target ?? host, this.human?.name, seatNames,
         (line) => this.ports.log?.(line));
       const alreadyAsked =
         this.human !== undefined && this.asked.has(this.human.name) && this.humanLines > this.linesAtMove;
@@ -5392,39 +4963,12 @@ export class NpcConversation<Clip> {
       ];
       const last = messages[messages.length - 1]!;
       const freshHumanLine = last.role === 'user' && !last.content.startsWith('[') ? last.content : undefined;
-      // The visitor's first idea on a topic is never accepted outright: the room names what works, then
-      // the colleague whose cost is still open raises it from their facts and asks how to adapt.
-      if (this.firstProposalOnTopic(turn, freshHumanLine)) {
-        const currentLast = messages[messages.length - 1]!;
-        const who = this.human?.name ?? 'The person';
-        messages[messages.length - 1] = {
-          ...currentLast,
-          content: `${currentLast.content}\n[This is ${who}'s first idea on "${turn.topic}". Acknowledge what works in it, then have the colleague whose constraint is still open raise that catch from their own facts and ask ${who} how to adapt. Do not settle the item on this first idea.]`,
-        };
-      }
-      // The Director itself decides whether this visitor line settles the topic.
-      if (addressed !== undefined && last?.role === 'user' && turn.forced === undefined) {
-        const currentLast = messages[messages.length - 1]!;
-        const who = this.human?.name ?? 'The person';
-        messages[messages.length - 1] = {
-          ...currentLast,
-          content: `${currentLast.content}\n[${who} is speaking directly to ${addressed}. Begin your reply with "${addressed}:". ${addressed} answers first, and nobody else speaks unless ${addressed} hands over by name. If ${who} only said ${addressed}'s name, ${addressed} just acknowledges and invites them to go on.]`,
-        };
-      }
-      if (turn.shape !== undefined && addressed === undefined) {
-        const currentLast = messages[messages.length - 1]!;
-        messages[messages.length - 1] = {
-          ...currentLast,
-          content: `${currentLast.content}\n[Reply shape for this turn: ${replyShapeInstruction(turn.shape)} Do not hand over to another colleague unless this shape calls for one. Do not mention this note.]`,
-        };
-      }
       let firstLine = '';
       let firstResolved = false;
       // Only a reply to something the visitor just said on this topic may settle it.
       let refuseReopen = false;
       const applyControl = (control: ReplyControl): void => {
-        const applied = this.applyReplyControl(turn, control, freshHumanLine,
-          this.firstProposalOnTopic(turn, freshHumanLine), (line) => enqueue(line));
+        const applied = this.applyReplyControl(turn, control, freshHumanLine, (line) => enqueue(line));
         if (applied.refuseSpeech) refuseReopen = true;
       };
       let speechBuffer = '';
@@ -5445,7 +4989,7 @@ export class NpcConversation<Clip> {
           speechBuffer = '';
         }
       };
-      const stream = turn.prefetchedStream ?? this.ports.stream(messages, signal);
+      const stream = this.ports.stream(messages, signal);
       for await (const chunk of stream) {
         if (signal.aborted) break;
         if (received.length < 160) received += chunk;
@@ -5474,15 +5018,6 @@ export class NpcConversation<Clip> {
           for (const utterance of parser.push(speechBuffer)) enqueue(utterance);
         }
         for (const utterance of parser.flush()) enqueue(utterance);
-        if (turn.briefSpeaker !== undefined && turn.enqueued.length >= 1 &&
-            !turn.enqueued.some((line) => isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name))) {
-          const who = this.human?.name ?? 'Everyone';
-          const item = this.options.scenario.agenda.find((candidate) => candidate.title === turn.topic);
-          const text = item?.decision === undefined
-            ? this.nextGuestInvite(who, turn.topic)
-            : `${who}, ${item.decision}`;
-          enqueue({ speaker: this.facilitatorOrCoHost() ?? turn.briefSpeaker, text });
-        }
         choseSilence = parser.saidNone;
         if (heldRefusal !== undefined) {
           this.ports.log?.('the model replied only with a refusal; asking the visitor to repeat the request');
@@ -5517,7 +5052,6 @@ export class NpcConversation<Clip> {
     }
 
     this.finalize(turn);
-    this.applyTurnSettle(turn, false);
     this.turn = undefined;
     // A task cue is not an answer: no brief, hand-over, silence prompt or recovery cue follows it.
     if (turn.dispatchCue !== undefined) {
@@ -5564,7 +5098,7 @@ export class NpcConversation<Clip> {
       const message = failure instanceof Error ? failure.message : String(failure);
       this.ports.log?.(`the model failed: ${message}`);
       if (!this.recoverFromEmptyTurn(turn)) this.ports.emitState({ kind: 'error', message });
-    } else if (!briefing && !choseSilence && turn.spoken.length === 0 && turn.settle === undefined) {
+    } else if (!briefing && !choseSilence && turn.spoken.length === 0) {
       // The reply finished but nothing in it could be said (empty, only the control line, or every line dropped):
       // treat it like a failed reply, or the meeting goes quiet with nobody due to speak.
       this.ports.log?.(`the model said nothing speakable (it sent ${JSON.stringify(received.slice(0, 160))})`);
@@ -5682,7 +5216,7 @@ export class NpcConversation<Clip> {
           continue;
         }
         if (isQuestionToVisitor(utterance.text, utterance.speaker, this.names, this.human?.name) && this.askedGuestInRound) {
-          this.ports.log?.(`${turn.briefSpeaker !== undefined ? '[brief]' : '[question]'} ${utterance.speaker}: dropped a queued second question to the visitor this round: "${utterance.text}"`);
+          this.ports.log?.(`[question] ${utterance.speaker}: dropped a queued second question to the visitor this round: "${utterance.text}"`);
           pending = undefined;
           continue;
         }

@@ -418,25 +418,6 @@ describe('one-speaker topic opening', () => {
     h.conversation.close();
   });
 
-  it('keeps the old multi-speaker opening selectable with KAKI_OPENING=legacy', async () => {
-    vi.stubEnv('KAKI_OPENING', 'legacy');
-    try {
-      const seat = 'Wei Ling';
-      const title = TOPICS[0]!;
-      const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
-      const h = harness(scenario, 'producer');
-      h.conversation.agendaMoved(title);
-      h.conversation.announce('Sam', handoverLine(scenario, title, seat));
-      await flush();
-      await playOut(h.playing);
-      const first = await waitCall(h.calls, 0);
-      expect(requestText(first)).toContain(`[We just started "${title}"`);
-      h.conversation.close();
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
   it('fetches only the next topic\'s first one-speaker call while the host winds down', async () => {
     const roleId = 'producer';
     const seat = 'Wei Ling';

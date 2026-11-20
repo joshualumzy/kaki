@@ -73,8 +73,6 @@ function meeting(scenario: Scenario, role: string, cast: ReturnType<typeof aiCas
     sentenceGapMs: 0,
     observeDelayMs: 60_000,
     silencePromptMs: 60_000,
-    firstIdeaCatch: false,
-    replies: 'legacy',
   });
   conversation.setHuman({ name: 'Josh', role });
   return { conversation, spoken, logs };
@@ -156,40 +154,4 @@ describe('the visitor card pointer', () => {
     }
   });
 
-  it('is spoken once per topic and never carries a task title', async () => {
-    vi.useFakeTimers();
-    const scenario = await loadScenario('kopitiam');
-    const role = humanRoles(scenario)[0]!.id;
-    const { cast, host } = castFor(scenario, role);
-    const h = meeting(scenario, role, cast, [
-      `${host}: Josh, the follow-up's on your screen whenever you're ready.`,
-      `${host}: Josh, the follow-up's still on your screen.`,
-    ]);
-    h.conversation.agendaMoved(scenario.agenda[0]!.title);
-    h.conversation.pointAtCard(guestCardNote(host, 'Josh'));
-    h.conversation.pointAtCard(guestCardNote(host, 'Josh'));
-    await h.conversation.settled();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(h.spoken).toEqual(["Josh, the follow-up's on your screen whenever you're ready."]);
-    expect(h.logs.some((line) => line.includes('already pointed'))).toBe(true);
-    h.conversation.close();
-  });
-
-  it('gives the pointer back when the model says nothing, so a later cue can point', async () => {
-    vi.useFakeTimers();
-    const scenario = await loadScenario('kopitiam');
-    const role = humanRoles(scenario)[0]!.id;
-    const { cast, host } = castFor(scenario, role);
-    const h = meeting(scenario, role, cast, [
-      '',
-      `${host}: Josh, the follow-up's on your screen whenever you want to send it.`,
-    ]);
-    h.conversation.agendaMoved(scenario.agenda[0]!.title);
-    h.conversation.pointAtCard(guestCardNote(host, 'Josh'));
-    await h.conversation.settled();
-    h.conversation.pointAtCard(guestCardNote(host, 'Josh'));
-    await h.conversation.settled();
-    expect(h.spoken).toEqual(["Josh, the follow-up's on your screen whenever you want to send it."]);
-    h.conversation.close();
-  });
 });

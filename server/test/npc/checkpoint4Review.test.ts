@@ -141,7 +141,6 @@ function harness(options: {
 
   const conversation = new NpcConversation<Utterance>(ports, {
     scenario,
-    replies: 'one-speaker',
     responseDelayMs: options.responseDelayMs ?? 0,
     speakerGapMs: 0,
     sentenceGapMs: 0,
