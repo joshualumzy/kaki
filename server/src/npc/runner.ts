@@ -103,7 +103,7 @@ export interface RunnerOptions {
   postTranscript(
     speaker: string,
     text: string,
-    options?: { textOnly?: boolean; catchId?: string; lineId?: string },
+    options?: { textOnly?: boolean; catchId?: string; lineId?: string; gate?: 'lock-offer' },
   ): void;
   /** A display-only cut or restore of a line already posted, never recorded as another spoken line. */
   postTranscriptUpdate(speaker: string, text: string, options: { lineId: string; cut: boolean }): void;

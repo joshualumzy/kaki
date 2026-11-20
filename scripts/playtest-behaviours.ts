@@ -1,4 +1,5 @@
 /** Behaviour switches and browser-free checks for the AI-guest live playtest personas. */
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/llm';
 
 export const BEHAVIOURS = ['silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
 export type Behaviour = (typeof BEHAVIOURS)[number];
@@ -26,25 +27,6 @@ function isVisitorLine(line: TranscriptLine): boolean {
 
 function normalize(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-const STOPWORDS = new Set([
-  'actually', 'about', 'after', 'again', 'also', 'because', 'been', 'before', 'could', 'from',
-  'have', 'into', 'just', 'make', 'more', 'only', 'rather', 'really', 'scrap', 'should', 'still',
-  'that', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'want', 'what',
-  'when', 'where', 'which', 'while', 'with', 'would', 'your',
-]);
-
-/** Words long enough to identify an option, with filler words such as "actually, scrap that" removed. */
-export function significantWords(text: string): string[] {
-  return [...new Set(
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9$%.]+/g, ' ')
-      .split(/\s+/)
-      .map((word) => word.replace(/^[^a-z0-9$]+|[^a-z0-9%]+$/g, ''))
-      .filter((word) => word.length >= 4 && !STOPWORDS.has(word)),
-  )];
 }
 
 /** True when a spoken line names the visitor, by full name or by one of its distinctive words. */
@@ -102,22 +84,69 @@ export function duplicatedAiLines(lines: readonly TranscriptLine[], fromIndex = 
   return [...duplicates];
 }
 
-/**
- * The follow-up card follows the visitor's final call when its context or decisionSource contains
- * a word introduced by the final line that the first line did not use.
- */
-export function cardFollowsFinalCall(
+export type CardFollowVerdict = { follows: boolean; reason: string };
+export type CardFollowModel = Pick<LlmClient, 'complete'>;
+
+/** The messages for judging whether a follow-up card carries the final call and not the replaced one. */
+export function cardFollowPrompt(
   card: { context?: string; decisionSource?: string },
   firstLine: string,
   finalLine: string,
-): boolean {
-  const finalWords = significantWords(finalLine);
-  if (finalWords.length === 0) return false;
-  const firstWords = new Set(significantWords(firstLine));
-  const changedWords = finalWords.filter((word) => !firstWords.has(word));
-  const required = changedWords.length > 0 ? changedWords : finalWords;
-  const haystack = normalize(`${card.decisionSource ?? ''} ${card.context ?? ''}`);
-  return required.some((word) => haystack.includes(word));
+): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: [
+        'Judge one follow-up card from a live meeting against the guest\'s two spoken calls.',
+        'The guest first called the topic one way, then said "actually, scrap that" and made a different final call.',
+        'The card must reflect the whole final decision, and it must not contain the superseded call or part of it.',
+        'A card that keeps both calls, or keeps the old call, fails. A short paraphrase of the final call passes.',
+        'Return only JSON: {"follows":true|false,"reason":"<one short sentence>"}',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: [
+        `First (superseded) call: ${firstLine}`,
+        `Final call: ${finalLine}`,
+        `Card decision source: ${card.decisionSource ?? '(empty)'}`,
+        `Card context: ${card.context ?? '(empty)'}`,
+      ].join('\n'),
+    },
+  ];
+}
+
+/** Parse the judge's one-line verdict; anything unusable throws so the caller can fail loudly. */
+export function parseCardFollowVerdict(text: string): CardFollowVerdict {
+  let value: unknown;
+  try {
+    value = parseJsonReply(text);
+  } catch {
+    throw new Error('the card judge reply was not valid JSON');
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('the card judge reply was not a JSON object');
+  }
+  const data = value as Record<string, unknown>;
+  if (typeof data.follows !== 'boolean') throw new Error('the card judge reply had no usable verdict');
+  if (typeof data.reason !== 'string' || data.reason.trim() === '' || /[\r\n]/.test(data.reason)) {
+    throw new Error('the card judge reply had no usable reason');
+  }
+  return { follows: data.follows, reason: data.reason.trim() };
+}
+
+/** A model judges the card as a whole; word matching cannot tell a paraphrase from a leftover old call. */
+export async function judgeCardFollowsFinalCall(
+  card: { context?: string; decisionSource?: string },
+  firstLine: string,
+  finalLine: string,
+  model: CardFollowModel,
+): Promise<CardFollowVerdict> {
+  if (finalLine.trim() === '') throw new Error('the final call is empty, so there is nothing for the card to follow');
+  const raw = await model.complete(cardFollowPrompt(card, firstLine, finalLine), {
+    json: true, temperature: 0, maxTokens: 200, reasoningEffort: 'none',
+  });
+  return parseCardFollowVerdict(raw);
 }
 
 /** Add the persona's reversal phrase when the model omitted it, so the change of mind is readable. */

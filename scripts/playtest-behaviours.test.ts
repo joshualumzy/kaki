@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   BEHAVIOURS,
   behaviourForPersona,
-  cardFollowsFinalCall,
+  cardFollowPrompt,
   duplicatedAiLines,
   isVisitorAddress,
+  judgeCardFollowsFinalCall,
+  parseCardFollowVerdict,
   rejoinResumes,
   rejoinWelcome,
   reversalLine,
-  significantWords,
   silencePromptWithin,
   type TranscriptLine,
 } from './playtest-behaviours';
@@ -71,17 +72,39 @@ describe('interrupter', () => {
 });
 
 describe('flip-flop', () => {
-  it('identifies option words and ignores the reversal filler', () => {
-    expect(significantWords('Actually, scrap that — use the agency temp instead.')).toEqual(['agency', 'temp', 'instead']);
+  const first = 'Ask Auntie Mary to come in on double pay.';
+  const final = 'Actually, scrap that — use an agency temp for the rush.';
+
+  it('asks the model to judge the whole card against both calls', () => {
+    const prompt = cardFollowPrompt({ decisionSource: `${first} ${final}` }, first, final)
+      .map((message) => message.content).join('\n');
+    expect(prompt).toContain(`First (superseded) call: ${first}`);
+    expect(prompt).toContain(`Final call: ${final}`);
+    expect(prompt).toContain('must not contain the superseded call');
+    expect(prompt).toContain('Card decision source:');
   });
 
-  it('passes only when the card contains words introduced by the final call', () => {
-    const first = 'Ask Auntie Mary to come in on double pay.';
-    const final = 'Actually, scrap that — use an agency temp for the rush.';
-    expect(cardFollowsFinalCall({ decisionSource: `${first} ${final}` }, first, final)).toBe(true);
-    expect(cardFollowsFinalCall({ context: `Visitor decision: ${final}` }, first, final)).toBe(true);
-    expect(cardFollowsFinalCall({ decisionSource: first, context: 'Agenda: counter staffing' }, first, final)).toBe(false);
-    expect(cardFollowsFinalCall({ decisionSource: '' }, first, '')).toBe(false);
+  it('accepts only a clear verdict with a one-line reason', () => {
+    expect(parseCardFollowVerdict('{"follows":false,"reason":"It keeps both calls."}'))
+      .toEqual({ follows: false, reason: 'It keeps both calls.' });
+    expect(() => parseCardFollowVerdict('{oops')).toThrow(/not valid JSON/);
+    expect(() => parseCardFollowVerdict('{"follows":"yes","reason":"ok"}')).toThrow(/no usable verdict/);
+    expect(() => parseCardFollowVerdict('{"follows":true,"reason":""}')).toThrow(/no usable reason/);
+  });
+
+  it('uses the model verdict for a combined old-and-new card', async () => {
+    const model = { complete: vi.fn(async (_messages: unknown, _options?: unknown) => '{"follows":false,"reason":"It still contains the old double-pay call."}') };
+    await expect(judgeCardFollowsFinalCall({ decisionSource: `${first} ${final}` }, first, final, model))
+      .resolves.toEqual({ follows: false, reason: 'It still contains the old double-pay call.' });
+    expect(model.complete).toHaveBeenCalledTimes(1);
+    expect(model.complete.mock.calls[0]![1]).toMatchObject({ json: true, temperature: 0 });
+  });
+
+  it('fails loudly when there is no final call to judge', async () => {
+    const model = { complete: vi.fn(async () => '{"follows":true,"reason":"ok"}') };
+    await expect(judgeCardFollowsFinalCall({ decisionSource: '' }, first, '', model))
+      .rejects.toThrow(/final call is empty/);
+    expect(model.complete).not.toHaveBeenCalled();
   });
 
   it('adds the reversal phrase only once', () => {

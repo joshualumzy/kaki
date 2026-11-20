@@ -172,7 +172,7 @@ function complainTranscript(message: string): void {
 function postTranscript(
   speaker: string,
   text: string,
-  options?: { textOnly?: boolean; catchId?: string; lineId?: string },
+  options?: { textOnly?: boolean; catchId?: string; lineId?: string; gate?: 'lock-offer' },
 ): void {
   runnerClient
     .emit({
@@ -185,6 +185,7 @@ function postTranscript(
         ...(options?.textOnly === true ? { textOnly: true } : {}),
         ...(options?.catchId === undefined ? {} : { catchId: options.catchId }),
         ...(options?.lineId === undefined ? {} : { lineId: options.lineId }),
+        ...(options?.gate === undefined ? {} : { gate: options.gate }),
       },
     })
     .then(async (response) => {
@@ -233,21 +234,16 @@ function postHumanLine(line: {
   source: 'speech' | 'typed';
   clientLineId: string;
 }): void {
-  const complain = (message: string): void => {
-    if (Date.now() - lastTranscriptError < 10_000) return;
-    lastTranscriptError = Date.now();
-    log(message);
-  };
   runnerClient
     .postHumanLine(line)
     .then(async (response) => {
       if (!response.ok) {
-        complain(
+        complainTranscript(
           `Kaki rejected a recognised human line (HTTP ${response.status}); check the server and runner token. ${await response.text()}`,
         );
       }
     })
-    .catch((error: unknown) => complain(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
+    .catch((error: unknown) => complainTranscript(`Could not reach Kaki at ${kakiUrl}: ${String(error)}`));
 }
 
 // NPC_DEBUG_AUDIO_DIR=some/folder saves every stretch of your speech that was sent to Azure as a WAV file,

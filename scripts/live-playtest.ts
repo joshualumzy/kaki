@@ -10,7 +10,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
 import { joinSeatRoles, type KakiEvent, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
-import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
+import {
+  duplicatedAiLines, judgeCardFollowsFinalCall, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour,
+} from './playtest-behaviours';
 import {
   draftOnlyRefusal, isRobotSpeakerName, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction,
   wingmanFactVerdicts,
@@ -18,13 +20,19 @@ import {
 import {
   decideRoomReply, roomReplyModelFromEnv, type RoomReplyModel, type RoomReplyOutcome,
 } from './room-reply';
+import { decideRobotCall } from './robot-decision';
+import { reportResultLine, statusFor, type PlaytestCheck } from './playtest-report';
 
 /** The demo to test; set KAKI_PLAYTEST_URL (e.g. the cloud URL) to test a deployed copy instead of the local stack. */
 const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
 const BASE_ORIGIN = new URL(BASE).host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const LOG_DIR = '.live-logs';
-type Check = { at: string; name: string; status: 'PASS' | 'WARN' | 'FAIL'; detail: string; shot?: string };
-export type Line = { at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string };
+type Check = PlaytestCheck;
+export type Line = {
+  at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string;
+  /** A server-marked host gate, so a lock-in offer does not need phrase matching. */
+  gate?: 'lock-offer';
+};
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
 export type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean; act?: boolean };
@@ -55,17 +63,6 @@ function options(): PlaytestOptions {
   }
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
   return { role, maxMinutes, phone, shots, act };
-}
-
-function decisionFor(title: string): string {
-  const name = title.toLowerCase();
-  // Each line uses only what the producer seat can know (its role-card fact + the spoken briefing), in plain speech.
-  if (name.includes('counter staff')) return "Let's ring Auntie Mary and offer her the double pay. If she says no, I'll take the counter myself till ten.";
-  if (name.includes('regulars')) return "We can't go back to a dollar thirty, we lose money on every cup. Let's keep the price and have someone at the counter explain it to the regulars this morning.";
-  if (name.includes('laptop')) return "Let's put signs on the tables saying they're for breakfast from eight to ten. Staff don't ask anyone to move, they just point at the sign.";
-  if (name.includes('food safety')) return "We open at eight, but nothing from that fridge goes out. I'll give the officer both logs, and someone calls the customer back this morning.";
-  if (name.includes('delivery')) return "Let's push the fifty-dollar platter to the offices instead of single sets, since that one actually makes money.";
-  throw new Error(`No scenario decision prepared for: ${title}`);
 }
 
 const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
@@ -117,6 +114,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   let extraReportLines: string[] = [];
   let summaryLines: string[] = [];
   let roomReplyFallbacks = 0;
+  let guestCallFallbacks = 0;
   let scenario: Scenario | undefined;
   let page: Page | undefined;
   let browser: Browser | undefined;
@@ -175,7 +173,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
 
   // severity 'warn': a miss is listed for human review but does not fail the run.
   async function check(name: string, ok: boolean, detail: string, severity: 'fail' | 'warn' = 'fail'): Promise<void> {
-    const item: Check = { at: stamp(), name, status: ok ? 'PASS' : severity === 'warn' ? 'WARN' : 'FAIL', detail };
+    const item: Check = { at: stamp(), name, status: statusFor(ok, severity), detail };
     if (item.status === 'FAIL' && page !== undefined && !page.isClosed()) {
       try {
         await mkdir(shotDir, { recursive: true });
@@ -211,10 +209,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       pausedByApi = event.payload.paused === true;
     } else if (event.type === 'TRANSCRIPT_CHUNK') {
       const { speaker, text, timestamp } = event.payload;
+      // Read the gate defensively: a deployed server may not send it, and an older shared build may not type it.
+      const gate = (event.payload as { gate?: unknown }).gate === 'lock-offer' ? 'lock-offer' as const : undefined;
       const key = `${timestamp}|${speaker}|${text}`;
       if (seenLines.has(key)) return;
       seenLines.add(key);
-      transcript.push({ at: stamp(), agendaIndex, speaker, text, sourceTime: timestamp });
+      transcript.push({ at: stamp(), agendaIndex, speaker, text, sourceTime: timestamp, ...(gate === undefined ? {} : { gate }) });
       lastProgressAt = now;
       if (!isRobotSpeaker(speaker)) lastAiLineAt = now;
     } else if (event.type === 'TASK_UPDATED') {
@@ -450,17 +450,31 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     return typed.ok;
   }
 
+  const LOCK_OFFER_PHRASE = /shall (?:we|i) lock in what you/i;
+
+  /** The structured server gate when present; the old phrase match only as a logged backstop. */
+  function lockOfferLine(index: number, from = 0): { line: Line; via: 'signal' | 'phrase' } | undefined {
+    const lines = transcript.slice(from).filter((line) => line.agendaIndex === index);
+    const signaled = lines.find((line) => line.gate === 'lock-offer');
+    if (signaled !== undefined) return { line: signaled, via: 'signal' };
+    const phrased = lines.find((line) => LOCK_OFFER_PHRASE.test(line.text));
+    return phrased === undefined ? undefined : { line: phrased, via: 'phrase' };
+  }
+
   async function handleOffer(index: number): Promise<void> {
     if (offerHandled.has(index)) return;
-    const offer = transcript.find((line) => line.agendaIndex === index && /shall (?:we|i) lock in what you/i.test(line.text));
+    const offer = lockOfferLine(index);
     if (offer === undefined) return;
     offerHandled.add(index);
     const before = transcript.length;
-    await check(`Topic ${index + 1} lock offer`, true, offer.text);
+    if (offer.via === 'phrase') {
+      notes.push(`${stamp()} Topic ${index + 1}: lock offer detected by exact phrase; the server emitted no structured offer signal`);
+    }
+    await check(`Topic ${index + 1} lock offer`, true, `${offer.via === 'signal' ? 'Structured lock-offer signal' : 'Phrase backstop'}: ${offer.line.text}`);
     await speak('Before we lock that in, who will own the practical check tomorrow morning?', 'Ask who owns the practical check before locking the decision.');
     const recovered = await waitFor(`Topic ${index + 1} offer recovery`, () =>
       settled.has(scenario?.agenda[index]?.title ?? '') ||
-      transcript.slice(before).some((line) => line.agendaIndex === index && /shall (?:we|i) lock in what you/i.test(line.text)), 35_000, false);
+      lockOfferLine(index, before) !== undefined, 35_000, false);
     let lockWorked = false;
     if (!recovered && page !== undefined) {
       const lock = page.getByRole('button', { name: 'Lock in my decision' });
@@ -837,7 +851,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         await waitFor(`Topic ${i + 1} first colleague line`, () => firstColleagueLine(i, hostName) !== undefined, 120_000, false);
         await keepShot(`topic ${i + 1} brief`);
       }
-      const decision = decisionFor(title);
+      let decision: string | undefined;
       if (i === 0) {
         const pause = page.locator('.kd-typebar .kd-stop');
         await waitFor('First colleague line on topic 1', () => firstColleagueLine(0, hostName) !== undefined, 120_000);
@@ -882,6 +896,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         }
       } else {
         if (!await waitForOpeningTurn(i)) continue;
+        const decided = await decideRobotCall({
+          scenario, role: visitorRole, topicTitle: title, transcript: [...transcript],
+        }, roomReply);
+        if (decided.warning !== undefined) {
+          guestCallFallbacks += 1;
+          await check(`Topic ${i + 1} guest call model`, false, decided.warning, 'warn');
+        }
+        decision = decided.call;
         const latest = latestAiLine(i);
         const recap = latest !== undefined && /\brecap\b/i.test(latest.text) && !reacted.has(lineKey(latest));
         if (recap) reacted.add(lineKey(latest));
@@ -949,16 +971,20 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         const card = [...tasks.values()]
           .filter((task) => task.agendaItemTitle === title)
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-        const follows = card !== undefined && first !== undefined && final !== undefined &&
-          cardFollowsFinalCall(card, first, final);
-        await check('Topic 1 card follows final call', follows,
-          follows
-            ? `Card decisionSource/context contains the final call${final === undefined ? '' : `: ${final}`}`
-            : card === undefined
-              ? 'No follow-up card was created for topic 1'
-              : first === undefined || final === undefined
-                ? 'The flip-flop did not record both the first and the final call'
-                : `Card did not reflect the final call. First: ${first} Final: ${final} Card: ${card.decisionSource ?? card.context ?? '(empty)'}`);
+        if (card === undefined) {
+          await check('Topic 1 card follows final call', false, 'No follow-up card was created for topic 1');
+        } else if (first === undefined || final === undefined) {
+          await check('Topic 1 card follows final call', false, 'The flip-flop did not record both the first and the final call');
+        } else {
+          try {
+            const verdict = await judgeCardFollowsFinalCall(card, first, final, roomReply);
+            await check('Topic 1 card follows final call', verdict.follows,
+              `${verdict.reason} Card: ${card.decisionSource ?? card.context ?? '(empty)'}`);
+          } catch (error) {
+            await check('Topic 1 card follows final call', false,
+              `Card judge failed, so the card could not be verified: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
       }
 
       if (i === 0 && hooks?.behaviour === 'rejoin' && !rejoined) {
@@ -1064,9 +1090,15 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     await check('No prior-topic captions after move', staleCaptions.length === 0,
       staleCaptions.length ? `Review each: shared resources may carry over legitimately. ${staleCaptions.map((line) => `${line.topicTitle}: ${line.text}`).join(' / ')}` : 'No prior-topic marker in later captions', 'warn');
     await check('Browser console and localhost requests', errors.length === 0, errors.length ? `${errors.length} error(s)` : 'No console errors, page errors, rejected commands, socket errors, or failed localhost requests');
-    if (offerHandled.size === 0) checks.push({ at: stamp(), name: 'Lock offer after clarification', status: 'PASS', detail: 'Conditional check: no time/turn-budget offer appeared during this run' });
-    else await check('Lock offer after clarification', checks.some((item) => item.name.includes('offer recovery') && item.status === 'FAIL') === false,
-      `Handled offers on topic(s) ${[...offerHandled].map((i) => i + 1).join(', ')}`);
+    if (offerHandled.size === 0) {
+      checks.push({
+        at: stamp(), name: 'Lock offer after clarification', status: 'NOT EXERCISED',
+        detail: 'No time/turn-budget lock offer appeared during this run, so the offer and recovery path was not tested',
+      });
+    } else {
+      await check('Lock offer after clarification', checks.some((item) => item.name.includes('offer recovery') && item.status === 'FAIL') === false,
+        `Handled offers on topic(s) ${[...offerHandled].map((i) => i + 1).join(', ')}`);
+    }
   } catch (error) {
     await check('Playtest setup or flow', false, error instanceof Error ? error.stack ?? error.message : String(error));
   } finally {
@@ -1092,11 +1124,12 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       extraReportLines.push(...hooks.reportLines());
     }
     summaryLines.push(`Room reply fallbacks: ${roomReplyFallbacks}`);
+    summaryLines.push(`Guest call fallbacks: ${guestCallFallbacks}`);
     const lines = [
       `# Kopitiam live playtest — ${startedAt.toISOString()}`,
       '',
       `Role: ${visitorRole || '(not joined)'} · Name: Robot Visitor · Device: ${phoneMode ? 'Pixel 7 emulation' : 'desktop'} · Duration: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}s`,
-      `Result: **${checks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS'}**${checks.some((item) => item.status === 'WARN') ? ` · ${checks.filter((item) => item.status === 'WARN').length} warning(s) to review` : ''}`,
+      reportResultLine(checks),
       '',
       '| Time (UTC) | Check | Result | Detail | Screenshot |',
       '| --- | --- | --- | --- | --- |',
