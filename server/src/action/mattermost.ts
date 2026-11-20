@@ -207,21 +207,25 @@ export function createMattermostModule({
       const roleId = task.assignee ?? task.suggestedAssignee;
       const attendee = roleId === undefined ? undefined : scenario.attendees.find((candidate) => candidate.role === roleId);
       const mattermostPassword = process.env.MATTERMOST_PASSWORD;
-      if (
-        attendee !== undefined &&
-        scenario.roles.some((r) => r.id === roleId && r.card !== undefined) &&
-        mattermostPassword !== undefined &&
-        mattermostPassword !== ''
-      ) {
+      if (attendee !== undefined && mattermostPassword !== undefined && mattermostPassword !== '') {
         const speakerRaw = visitorName ?? task.assignmentEvidence?.speaker;
         const cleanSpeaker = speakerRaw?.replace(/\s*\([^)]*\)\s*$/, '').trim();
         const isVisitor =
           cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase();
-        const loginIds = isVisitor
-          ? ['demo@nanyangkopitiam.example', 'demo']
-          : [attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '')];
+        const loginIdFor = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+        // The person's own account first: their name comes from the meeting's setup, never from the demo pack.
+        const loginIds = [
+          ...(isVisitor && cleanSpeaker !== undefined ? [loginIdFor(cleanSpeaker)] : []),
+          loginIdFor(attendee.name),
+          // The demo pack's own accounts are the demo's, not an owner meeting's. Only a role carrying
+          // the pack's card falls back to them, so a pack-free meeting never posts as the demo visitor.
+          ...(scenario.roles.some((role) => role.id === roleId && role.card !== undefined)
+            ? ['demo@nanyangkopitiam.example', 'demo']
+            : []),
+        ].filter((candidate, index, all) => candidate !== '' && all.indexOf(candidate) === index);
         try {
           let loginResp: Response | undefined;
+          let usedDemoAccount = false;
           for (const candidateLoginId of loginIds) {
             const resp = await request(
               settings,
@@ -232,6 +236,7 @@ export function createMattermostModule({
             );
             if (resp.ok) {
               loginResp = resp;
+              usedDemoAccount = candidateLoginId === 'demo' || candidateLoginId === 'demo@nanyangkopitiam.example';
               break;
             }
           }
@@ -247,9 +252,8 @@ export function createMattermostModule({
                     `/api/v4/users/${userObj.id}/patch`,
                     'PUT',
                     JSON.stringify({
-                      username: 'demo',
+                      ...(usedDemoAccount ? { username: 'demo', last_name: '' } : {}),
                       first_name: cleanSpeaker,
-                      last_name: '',
                       nickname: cleanSpeaker,
                     }),
                     signal,

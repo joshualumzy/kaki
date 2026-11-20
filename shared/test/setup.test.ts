@@ -7,7 +7,9 @@ import {
   demoPackNpcProfileForSeat,
   isBlankMeetingDraft,
   isPackFreeMeeting,
+  meetingScenarioFromSetup,
   parseMeetingSetup,
+  setupScenarioRoles,
   type MeetingSetup,
   type SetupFieldError,
 } from '../src/setup';
@@ -228,6 +230,54 @@ describe('isPackFreeMeeting', () => {
     setup.agenda = [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }];
     setup.seats[1] = { displayName: 'Bao', roleId: 'cashier', kind: 'ai', npcProfileId: 'Bao' };
     expect(isPackFreeMeeting(setup, packScenario)).toBe(false);
+  });
+});
+
+describe('owner-written meetings take no pack story', () => {
+  const storyPack: Scenario = {
+    ...packScenario,
+    organisation: 'Nanyang Kopi & Toast',
+    meetingTitle: 'Raffles Place Flagship Opening Day',
+    situation: 'The refurbished Raffles Place flagship opens this morning.',
+    background: ['The flagship is at Raffles Place.'],
+    vocabulary: ['kopitiam'],
+    glossary: { kopitiam: 'coffee shop' },
+    roles: packScenario.roles.map((role) => role.id === 'chef'
+      ? { ...role, card: { youAre: 'You run the kopitiam kitchen.', facts: ['The oven is old.'], responsibility: 'Keep service moving.' } }
+      : role),
+  };
+
+  it('derives organisation from the owner title and drops the pack situation and background', () => {
+    const setup: MeetingSetup = {
+      ...validSetup(),
+      title: 'Weekly planning',
+      agenda: [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }],
+    };
+    const derived = meetingScenarioFromSetup(storyPack, setup);
+    expect(derived.organisation).toBe('Weekly planning');
+    expect(derived.meetingTitle).toBe('Weekly planning');
+    expect(derived.situation).toBeUndefined();
+    expect(derived.background).toBeUndefined();
+    expect(derived.vocabulary).toBeUndefined();
+    expect(derived.glossary).toBeUndefined();
+  });
+
+  it('does not give a reused role id the pack role card', () => {
+    const setup: MeetingSetup = {
+      ...validSetup(),
+      title: 'Weekly planning',
+      agenda: [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }],
+    };
+    const roles = setupScenarioRoles(storyPack, setup);
+    expect(roles.find((role) => role.id === 'chef')?.card).toBeUndefined();
+    expect(roles.find((role) => role.id === 'chef')?.label).toBe('Chef');
+  });
+
+  it('keeps the pack story when a topic still comes from the pack', () => {
+    const derived = meetingScenarioFromSetup(storyPack, validSetup());
+    expect(derived.organisation).toBe('Nanyang Kopi & Toast');
+    expect(derived.situation).toBe(storyPack.situation);
+    expect(derived.roles.find((role) => role.id === 'chef')?.card).toBeDefined();
   });
 });
 

@@ -383,11 +383,17 @@ function derive(
   let explicitCatch = false;
 
   lines.forEach((line, index) => {
+    // The guest counts as answering only when the reader says the line answers the open question. A
+    // colleague answers only with a whole line that does not put its own question back: a cut-off line
+    // or a clarification is not an answer, so the gate stays open until the real answer is heard.
+    const answersOpenQuestion = (heardSomething: boolean): boolean => {
+      if (line.speaker === guest) {
+        return (line.reading === undefined || line.reading.answersOpenQuestion) && heardSomething;
+      }
+      return line.complete && line.question === undefined;
+    };
     if (!line.complete) {
-      // A colleague the question was put to has started answering it, even if the line was cut off.
-      // The guest counts as answering only when the reader says the line answers the open question.
-      const guestAnswered = line.speaker !== guest || line.reading === undefined || line.reading.answersOpenQuestion;
-      if (openQuestion !== undefined && line.speaker === openQuestion.to && guestAnswered && (line.sentencesHeard ?? 0) > 0) {
+      if (openQuestion !== undefined && line.speaker === openQuestion.to && answersOpenQuestion((line.sentencesHeard ?? 0) > 0)) {
         openQuestion = undefined;
         if (lastQuestion !== undefined) lastQuestion = { ...lastQuestion, answered: true };
       }
@@ -407,8 +413,7 @@ function derive(
       return;
     }
 
-    const guestAnswered = line.speaker !== guest || line.reading === undefined || line.reading.answersOpenQuestion;
-    if (openQuestion !== undefined && line.speaker === openQuestion.to && guestAnswered) {
+    if (openQuestion !== undefined && line.speaker === openQuestion.to && answersOpenQuestion(true)) {
       openQuestion = undefined;
       if (lastQuestion !== undefined) lastQuestion = { ...lastQuestion, answered: true };
     }

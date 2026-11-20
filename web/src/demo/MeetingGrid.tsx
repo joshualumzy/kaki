@@ -41,22 +41,26 @@ export function newClientLineId(): string {
   return `line-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-const COLLEAGUE_STANCE: Record<string, string> = {
-  producer: 'Guards staff, hygiene & margins',
-  lead_programmer: 'Keeps POS & kiosks simple',
-  engineer: 'Keeps POS & kiosks simple',
-  game_designer: 'Protects Kopi & Toast craft',
-  designer: 'Protects Kopi & Toast craft',
-  marketing_lead: 'Watches TikTok & PR buzz',
-  comms: 'Watches TikTok & PR buzz',
-  studio_manager: 'Chairs the meeting',
-  host: 'Chairs the meeting',
-};
+/** What a colleague stands for on a topic, from the scenario's own angle for them, never a role-id lookup. */
+export function colleagueStance(
+  scenario: Scenario,
+  attendeeName: string,
+  item: AgendaItem | undefined,
+): string | undefined {
+  const angle = item?.discussion?.openingViews.find((view) => view.attendee === attendeeName)?.angle.trim();
+  if (angle !== undefined && angle !== '') return angle;
+  const roleId = scenario.attendees.find((attendee) => attendee.name === attendeeName)?.role;
+  const responsibility = roleId === undefined
+    ? undefined
+    : scenario.roles.find((role) => role.id === roleId)?.card?.responsibility;
+  return responsibility === undefined || responsibility.trim() === '' ? undefined : responsibility.trim();
+}
 
-function starterChipsFromAgendaItem(
+export function starterChipsFromAgendaItem(
   item: Scenario['agenda'][number] | undefined,
   viewerSeatName: string | undefined,
   openQuestions: ReadonlyArray<{ text: string; forRole?: string }>,
+  hostName?: string,
 ): readonly string[] {
   const chips: string[] = [];
   for (const q of openQuestions) {
@@ -73,9 +77,11 @@ function starterChipsFromAgendaItem(
       : `${to.attendee}, ${question[0]!.toLowerCase()}${question.slice(1)}`;
     if (!chips.includes(addressed)) chips.push(addressed);
   }
+  const host = hostName?.trim();
+  const addressed = (text: string): string => (host === undefined || host === '' ? text : `${host}, ${text}`);
   const fallback = [
-    "Sam, could you summarize the two main options we're choosing between right now?",
-    "Sam, what's still open on this one?",
+    addressed("could you summarize the two main options we're choosing between right now?"),
+    addressed("what's still open on this one?"),
   ];
   for (const fb of fallback) {
     if (!chips.includes(fb)) chips.push(fb);
@@ -122,6 +128,7 @@ interface Stage {
   speechStatus: SpeechStatusMessage;
   waitingForHuman: boolean;
   activeItemOwnerRole?: string;
+  activeAgendaIndex: number;
 }
 
 const StageContext = createContext<Stage | null>(null);
@@ -133,7 +140,7 @@ function useStage(): Stage {
 }
 
 function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState, speechStatus } = useStage();
+  const { scenario, chunks, events, now, npcState, speechStatus, activeAgendaIndex } = useStage();
   const participant = useTrackRefContext().participant;
   const localParticipant = useLocalParticipant().localParticipant;
   const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
@@ -176,7 +183,9 @@ function CaptionedTile() {
   const displayName = participant.name || participant.identity;
   // Never repeat a role whose label is already the person's display name.
   const shownRoleTitle = roleTitle === displayName ? undefined : roleTitle;
-  const stance = isAi && attendee?.role !== undefined ? COLLEAGUE_STANCE[attendee.role] : undefined;
+  const stance = isAi && attendee !== undefined
+    ? colleagueStance(scenario, attendee.name, scenario.agenda[activeAgendaIndex])
+    : undefined;
   const reaction = isAi
     ? reactionForColleague(participant.identity, events, now)
     : undefined;
@@ -451,8 +460,11 @@ export function MeetingGrid({
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
-    () => ({ scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeItemOwnerRole: activeOwnerRole }),
-    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole],
+    () => ({
+      scenario, chunks, events, now, npcState, speechStatus, waitingForHuman,
+      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex,
+    }),
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex],
   );
 
   const wingmanFactPreview = useMemo(() => {
@@ -478,8 +490,9 @@ export function MeetingGrid({
     const openQs = latestRecord?.payload.openQuestions.filter(
       (question) => question.agendaIndex === activeAgendaIndex,
     ) ?? [];
-    return starterChipsFromAgendaItem(activeItem, viewerSeatName, openQs);
-  }, [activeItem, role, scenario.attendees, latestRecord, activeAgendaIndex]);
+    const hostName = facilitatorRole === undefined ? undefined : facilitatorName;
+    return starterChipsFromAgendaItem(activeItem, viewerSeatName, openQs, hostName);
+  }, [activeItem, role, scenario.attendees, latestRecord, activeAgendaIndex, facilitatorName, facilitatorRole]);
 
   const sendQuickLine = useCallback(
     (text: string) => {

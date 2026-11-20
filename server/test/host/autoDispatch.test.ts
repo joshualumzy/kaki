@@ -117,6 +117,53 @@ describe('auto-dispatch', () => {
     screen.close();
   });
 
+  it('keeps a held suggestion for a later topic when the meeting moves off an earlier one', async () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [
+        { title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' as const },
+        { title: 'Stock', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'cashier' as const },
+      ],
+    };
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => scenario, holdUntilSettled: true });
+    const later = app.tasks.suggest({ title: 'Order napkins', context: 'x', suggestedAssignee: 'cashier',
+      actionKind: 'email', agendaItemTitle: 'Stock' });
+    expect(app.tasks.get(later.id)?.status).toBe('SUGGESTED');
+
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    await settle();
+    expect(app.tasks.get(later.id)?.status).toBe('SUGGESTED');
+    screen.close();
+  });
+
+  it('dismisses a held suggestion when its own topic moves on, learned from the shared record', async () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [
+        { title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' as const },
+        { title: 'Stock', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'cashier' as const },
+      ],
+    };
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => scenario, holdUntilSettled: true });
+    const stock = app.tasks.suggest({ title: 'Order napkins', context: 'x', suggestedAssignee: 'cashier',
+      actionKind: 'email', agendaItemTitle: 'Stock' });
+    expect(app.tasks.get(stock.id)?.status).toBe('SUGGESTED');
+
+    app.hub.publish({
+      type: 'MEETING_RECORD_UPDATED', audience: { kind: 'screen' },
+      payload: { agendaIndex: 1, openQuestions: [], elapsedSeconds: 300, speakerTalkSeconds: {},
+        notetakerStatus: 'ok', quietRoles: [] },
+    });
+    expect(app.tasks.get(stock.id)?.status).toBe('SUGGESTED');
+
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    await settle();
+    expect(app.tasks.get(stock.id)?.status).toBe('DISMISSED');
+    screen.close();
+  });
+
   it('leaves the task for a person when the role is the facilitator', () => {
     const scenario = {
       ...testScenario,

@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Task } from '@kaki/shared';
+import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeStageTaskFor, cardFactForItem, MeetingGrid, reactionForColleague, tracksWithSpeakerFirst, visibleStageTracks } from './MeetingGrid';
+import { activeStageTaskFor, cardFactForItem, colleagueStance, MeetingGrid, reactionForColleague, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './MeetingGrid';
 
 const mocks = vi.hoisted(() => ({
   screenEvents: [] as KakiEvent[],
@@ -116,6 +116,31 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe('scenario-owned copy', () => {
+  const stanceScenario: Scenario = {
+    id: 'owner', organisation: 'Northwind Labs', meetingTitle: 'Supplier huddle',
+    roles: [{ id: 'lead', label: 'Supplier lead', card: { youAre: 'You lead suppliers.', facts: [], responsibility: 'Keep trays right.' } }],
+    attendees: [{ name: 'Mei', role: 'lead', zoomDisplayName: 'Mei' }],
+    agenda: [{ title: 'Trays', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'lead' }],
+  };
+
+  it('takes a colleague stance from the scenario angle, never a pack role id', () => {
+    const item = {
+      title: 'Trays', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'lead',
+      discussion: { openingViews: [{ attendee: 'Mei', angle: 'Protects the morning delivery' }], tradeOffs: [] },
+    };
+    expect(colleagueStance(stanceScenario, 'Mei', item)).toBe('Protects the morning delivery');
+    expect(colleagueStance(stanceScenario, 'Mei', undefined)).toBe('Keep trays right.');
+    expect(colleagueStance(stanceScenario, 'Someone else', item)).toBeUndefined();
+  });
+
+  it('addresses the fallback starter chips to the meeting host named by the scenario', () => {
+    const chips = starterChipsFromAgendaItem(undefined, undefined, [], 'Mei');
+    expect(chips[0]).toMatch(/^Mei, could you summarize/);
+    expect(chips.join(' ')).not.toContain('Sam');
+  });
+});
 
 describe('MeetingGrid starter ideas', () => {
   it('offers tabling the topic without a fixed-time follow-up after the visitor has spoken', () => {

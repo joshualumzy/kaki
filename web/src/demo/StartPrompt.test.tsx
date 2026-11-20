@@ -67,6 +67,21 @@ describe('StartPrompt', () => {
     expect(screen.getByText(/10 minutes/)).toBeTruthy();
   });
 
+  it('shows the meeting\'s own organisation and situation, not the Kopitiam briefing', () => {
+    mocks.useScenario.mockReturnValue({
+      ...scenario,
+      organisation: 'Northwind Labs',
+      meetingTitle: 'Weekly planning',
+      situation: 'The team meets to choose next week’s priorities.',
+    });
+    render(<StartPrompt onStart={vi.fn()} />);
+    expect(screen.getByText('Northwind Labs')).toBeTruthy();
+    expect(screen.getByText('Weekly planning')).toBeTruthy();
+    expect(screen.getByText(/next week’s priorities/)).toBeTruthy();
+    expect(screen.queryByText(/Nanyang Kopi/)).toBeNull();
+    expect(screen.queryByText(/Opening day/)).toBeNull();
+  });
+
   it('keeps Start off the first screen so the role is read before the meeting begins', () => {
     const onStart = vi.fn();
     render(<StartPrompt onStart={onStart} />);

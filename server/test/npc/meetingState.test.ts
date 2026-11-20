@@ -138,6 +138,35 @@ describe('meeting state', () => {
     expect(state.view(3).openQuestion).toBeUndefined();
   });
 
+  it('does not count a cut-off colleague line as the answer to its question', () => {
+    const state = make();
+    state.openTopic('Prep', 0);
+    state.heard({
+      id: 'josh-1',
+      speaker: 'Josh',
+      text: 'Ada, who covers the counter?',
+      at: 1,
+      question: { to: 'Ada', text: 'Ada, who covers the counter?' },
+    });
+
+    state.lineStarted({ id: 'ada-partial', speaker: 'Ada', text: 'Well, I could', at: 2 });
+    state.lineEnded('ada-partial', false, 3, { sentencesHeard: 1 });
+    expect(state.view(3).openQuestion?.eventId).toBe('josh-1');
+
+    state.heard({
+      id: 'ada-1',
+      speaker: 'Ada',
+      text: 'Do you mean the morning shift or the afternoon?',
+      at: 4,
+      question: { to: 'Josh', text: 'Do you mean the morning shift or the afternoon?' },
+    });
+    // A clarification is a new open question to the person who asked; it is not an answer.
+    expect(state.view(4).openQuestion?.eventId).toBe('ada-1');
+
+    state.heard({ id: 'josh-2', speaker: 'Josh', text: 'The morning shift.', at: 5 });
+    expect(state.view(5).openQuestion).toBeUndefined();
+  });
+
   it('records the guest first idea and whether a real catch has been raised on it', () => {
     const state = make();
     state.openTopic('Prep', 0);

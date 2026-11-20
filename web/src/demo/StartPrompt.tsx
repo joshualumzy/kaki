@@ -72,6 +72,10 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
     ? agendaItems.reduce((sum, item) => sum + (Number.isFinite(item.minutes) ? item.minutes : 0), 0)
     : topicCount * 5;
   const stepLabels = ['1. Your role', '2. How to play'] as const;
+  const heroArt = agendaItems.find((item) => item.art !== undefined)?.art ?? HERO_ART;
+  const organisation = scenario?.organisation?.trim();
+  const meetingTitle = scenario?.meetingTitle?.trim();
+  const situation = scenario?.situation?.trim();
 
   return (
     <div className="kd-start" role="region" aria-label="Before the meeting starts">
@@ -94,18 +98,20 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
         {stepIndex === 0 ? (
           <div className="kd-story-step">
             <div className="kd-story-hero">
-              <img src={HERO_ART} alt="Nanyang Kopi & Toast Raffles Place Flagship" className="kd-story-hero-img" />
+              <img src={heroArt} alt={meetingTitle ?? 'Meeting'} className="kd-story-hero-img" />
               <div className="kd-story-hero-overlay">
-                <span className="kd-story-badge">
-                  {scenario?.organisation ?? 'Nanyang Kopi & Toast'} · Opening day
-                </span>
-                <h2>{scenario?.meetingTitle ?? 'Raffles Place Flagship Opening Day'}</h2>
+                {organisation !== undefined && organisation !== '' && (
+                  <span className="kd-story-badge">{organisation}</span>
+                )}
+                <h2>{meetingTitle ?? 'This meeting'}</h2>
               </div>
             </div>
 
             <div className="kd-story-role-box">
               <p className="kd-story-shop-intro">
-                Our renovated <strong>Nanyang Kopi &amp; Toast</strong> flagship at <strong>Raffles Place</strong> opens this morning. You’re opening-day lead: the team has {totalMinutes} minutes, and the calls are yours.
+                {situation !== undefined && situation !== ''
+                  ? situation
+                  : `You are leading this meeting: the team has ${totalMinutes} minutes, and the calls are yours.`}
               </p>
               {role !== undefined && card !== undefined && (
                 <p className="kd-story-role-headline">

@@ -114,6 +114,8 @@ export function installAutoDispatch({
     typeof holdUntilSettled === 'function' ? holdUntilSettled() : holdUntilSettled;
   const settledTopics = new Set<string>();
   const held = new Map<string, Task>();
+  /** The agenda item the meeting is on, learned from the shared record; 0 until the first record. */
+  let currentAgendaIndex = 0;
   const dispatch = (task: Task): void => {
     if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return;
     const scenario = activeScenario();
@@ -154,19 +156,39 @@ export function installAutoDispatch({
       released.push(current);
     }
   };
+  const titleAt = (index: number): string | undefined => activeScenario().agenda[index]?.title;
+  /** Move past the topics between two agenda indexes, releasing each one's own held cards only. */
+  const leaveTopics = (fromIndex: number, toIndex: number): void => {
+    for (let index = fromIndex; index < toIndex; index += 1) {
+      const title = titleAt(index);
+      if (title !== undefined) release(title);
+    }
+  };
   const unsubscribeReset = hub.subscribe((event) => {
     if (event.type === 'MEETING_RESET') {
       sent = 0;
+      currentAgendaIndex = 0;
       settledTopics.clear();
       held.clear();
     } else if (event.type === 'TOPIC_SETTLED') {
       settledTopics.add(event.payload.title);
       release(event.payload.title, event.payload.taskId);
+    } else if (event.type === 'MEETING_RECORD_UPDATED') {
+      const next = event.payload.agendaIndex;
+      if (next > currentAgendaIndex) leaveTopics(currentAgendaIndex, next);
+      currentAgendaIndex = next;
     }
   });
   hub.onCommand((command, sender) => {
     if (!active || sender.kind !== 'screen') return;
-    if (command.type === 'NEXT_AGENDA_ITEM' || command.type === 'END_MEETING') release();
+    if (command.type === 'NEXT_AGENDA_ITEM') {
+      // Only the topic being left has moved on; a held card for a later topic has not had its turn yet.
+      const title = titleAt(currentAgendaIndex);
+      if (title === undefined) console.warn(`kaki auto-dispatch: no agenda item at index ${currentAgendaIndex}; held cards wait for the record`);
+      else release(title);
+    } else if (command.type === 'END_MEETING') {
+      release();
+    }
   });
   const unsubscribeTasks = tasks.onChange((task, previous) => {
     if (!active || previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;

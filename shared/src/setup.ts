@@ -629,18 +629,26 @@ export function setupAiCast(scenario: Scenario, setup: MeetingSetup): NpcProfile
  * The scenario roles a sealed setup runs: its ids, labels and facilitator flag. A role the pack
  * already has keeps its pack data (a phone card, for example); a new role is defined by the setup.
  * A pack role the setup omits stays in the registry, so a seat or saved task naming it still parses.
+ * A pack-free meeting keeps no pack role data at all: a reused role id is the owner's role, and its
+ * card must not carry another company's briefing.
  */
 export function setupScenarioRoles(scenario: Scenario, setup: MeetingSetup): ScenarioRole[] {
+  const packFree = isPackFreeMeeting(setup, scenario);
   const packRoles = new Map(scenario.roles.map((role) => [role.id, role]));
   const applied = new Set<string>();
   const roles = setup.roles.map((role) => {
     applied.add(role.id);
     const packRole = packRoles.get(role.id);
-    return packRole === undefined
+    return packRole === undefined || packFree
       ? { id: role.id, label: role.label, facilitator: role.facilitator }
       : { ...packRole, label: role.label, facilitator: role.facilitator };
   });
-  return [...roles, ...scenario.roles.filter((role) => !applied.has(role.id))];
+  return [
+    ...roles,
+    ...scenario.roles
+      .filter((role) => !applied.has(role.id))
+      .map((role) => (packFree ? { id: role.id, label: role.label, facilitator: role.facilitator } : role)),
+  ];
 }
 
 /**
@@ -734,15 +742,18 @@ export interface MeetingScenarioFromSetupOptions {
 /**
  * The meeting scenario a setup describes, built the one way the app builds any meeting scenario:
  * pack title, roles and cast applied over the pack, and the setup agenda normalized so links to
- * omitted topics are dropped.
+ * omitted topics are dropped. A pack-free meeting takes its organisation from the owner's meeting
+ * name and keeps none of the pack's situation, background or wording.
  */
 export function meetingScenarioFromSetup(
   scenario: Scenario,
   setup: MeetingSetup,
   options: MeetingScenarioFromSetupOptions = {},
 ): Scenario {
+  const packFree = isPackFreeMeeting(setup, scenario);
   const meeting: Scenario = {
     ...scenario,
+    organisation: packFree ? (setup.title.trim() === '' ? 'your team' : setup.title) : scenario.organisation,
     meetingTitle: setup.title,
     roles: setupScenarioRoles(scenario, setup),
     npcs: setupAiCast(scenario, setup).map((npc) => ({ ...npc, playable: false })),
@@ -750,6 +761,14 @@ export function meetingScenarioFromSetup(
     agenda: [...scenario.agenda],
     attendees: setupAttendees(scenario, setup),
   };
+  if (packFree) {
+    delete meeting.situation;
+    delete meeting.background;
+    delete meeting.vocabulary;
+    delete meeting.glossary;
+    delete meeting.hostBrief;
+    delete meeting.excludedPairs;
+  }
   setMeetingAgenda(meeting, scenario, meetingAgendaFromSetup(setup, scenario, options.agendaOrder), {
     allowPlain: true,
   });
