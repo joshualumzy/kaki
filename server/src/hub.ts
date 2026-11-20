@@ -17,8 +17,31 @@ import type { Principal } from './access';
  * authenticated service channel, a read-only lifecycle feed any signed-in person may follow, or a
  * participant's projection bound to their own seat. A participant never reads the owner's screen:
  * the projection carries the shared meeting state and redacts other people's private work.
+ *
+ * The kind is a separate namespace from role ids: a setup may name any role, including one whose
+ * id happens to read `participant`, and it is still a role.
  */
-export type ClientAudience = 'screen' | Role | 'service' | 'lifecycle' | 'participant';
+export type ClientAudience =
+  | { kind: 'screen' }
+  | { kind: 'service' }
+  | { kind: 'lifecycle' }
+  | { kind: 'participant' }
+  | { kind: 'role'; role: Role };
+
+/** The audience of one role's phone or AI seat. */
+export function roleAudience(role: Role): ClientAudience {
+  return { kind: 'role', role };
+}
+
+/** The role behind an audience, or undefined for a screen, feed or projection. */
+export function audienceRole(audience: ClientAudience): Role | undefined {
+  return audience.kind === 'role' ? audience.role : undefined;
+}
+
+/** A stable name for logs; a role id can never collide with a special audience. */
+export function audienceLabel(audience: ClientAudience): string {
+  return audience.kind === 'role' ? audience.role : audience.kind;
+}
 
 /** A server-owned request asking the AI runner to prepare the meeting before Start commits. */
 export interface RunnerStartRequest {
@@ -132,24 +155,43 @@ function rawDataToString(data: RawData): string {
   return data.toString('utf8');
 }
 
-function audienceFor(scenario: Scenario, rawRole: string | null): ClientAudience | undefined {
-  if (rawRole === 'screen') return 'screen';
-  if (rawRole === 'service') return 'service';
-  if (rawRole === 'lifecycle') return 'lifecycle';
-  if (rawRole === 'participant') return 'participant';
-  return isRoleIn(scenario, rawRole) ? rawRole : undefined;
+function audienceFor(scenario: Scenario, url: URL): ClientAudience | undefined {
+  const rawAudience = url.searchParams.get('audience');
+  const rawRole = url.searchParams.get('role');
+  // The explicit audience channel is the only way to ask for a projection or a feed. A role id is
+  // never read from it, so every role id stays available to the phone and runner channels.
+  if (rawAudience !== null) {
+    if (rawRole !== null) return undefined;
+    if (rawAudience === 'screen') return { kind: 'screen' };
+    if (rawAudience === 'service') return { kind: 'service' };
+    if (rawAudience === 'lifecycle') return { kind: 'lifecycle' };
+    if (rawAudience === 'participant') return { kind: 'participant' };
+    return undefined;
+  }
+  if (rawRole === null) return undefined;
+  // A defined role always wins over a special name, so `participant`, `service` and `lifecycle`
+  // are ordinary role ids whenever the setup defines them. The fallback keeps older clients that
+  // still ask for a special audience through `role=` working when no such role exists.
+  if (isRoleIn(scenario, rawRole)) return roleAudience(rawRole);
+  if (rawRole === 'screen') return { kind: 'screen' };
+  if (rawRole === 'service') return { kind: 'service' };
+  if (rawRole === 'lifecycle') return { kind: 'lifecycle' };
+  if (rawRole === 'participant') return { kind: 'participant' };
+  return undefined;
 }
 
 function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
   // A lifecycle feed is read-only and only carries the meeting's start/reset/restore state.
-  if (audience === 'lifecycle') {
+  if (audience.kind === 'lifecycle') {
     return event.type === 'MEETING_STARTED' || event.type === 'MEETING_RESET' || event.type === 'MEETING_RESTORED';
   }
   return (
     event.audience.kind === 'all' ||
-    (event.audience.kind === 'service' && audience === 'service') ||
-    (event.audience.kind === 'screen' && (audience === 'screen' || audience === 'service')) ||
-    (event.audience.kind === 'role' && (audience === event.audience.role || (audience === 'screen' && event.type === 'FACT_FOUND')))
+    (event.audience.kind === 'service' && audience.kind === 'service') ||
+    (event.audience.kind === 'screen' && (audience.kind === 'screen' || audience.kind === 'service')) ||
+    (event.audience.kind === 'role' &&
+      (audienceRole(audience) === event.audience.role ||
+        (audience.kind === 'screen' && event.type === 'FACT_FOUND')))
   );
 }
 
@@ -158,12 +200,12 @@ function wantsProjectedEvent(event: KakiEvent, seat: string | undefined): boolea
   if (seat === undefined) {
     // Sign-in off is the trusted demo: a participant projection behaves like the old shared screen.
     if (event.audience.kind === 'role') return event.type === 'FACT_FOUND';
-    return wantsEvent(event, 'screen');
+    return wantsEvent(event, { kind: 'screen' });
   }
   // A participant may read the shared record, transcript and lifecycle, and only their own seat's
   // facts, coaching and tasks. Another seat's private events never reach them.
   if (event.audience.kind === 'role') return event.audience.role === seat;
-  return wantsEvent(event, 'screen');
+  return wantsEvent(event, { kind: 'screen' });
 }
 
 /** True when the minutes task is out of review: it may be shown to the whole room. */
@@ -254,8 +296,8 @@ const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_
 const RUNNER_ROLE_COMMANDS = new Set(['CLAIM_TASK', 'DECLINE_TASK', 'APPROVE_ACTION', 'RETRY_ACTION']);
 
 function runnerMaySend(audience: ClientAudience, commandType: string): boolean {
-  if (audience === 'screen') return RUNNER_SCREEN_COMMANDS.has(commandType);
-  if (audience === 'service' || audience === 'lifecycle') return false;
+  if (audience.kind === 'screen') return RUNNER_SCREEN_COMMANDS.has(commandType);
+  if (audience.kind !== 'role') return false;
   return RUNNER_ROLE_COMMANDS.has(commandType);
 }
 
@@ -268,13 +310,15 @@ function rejectionFor(
   return {
     type: 'COMMAND_REJECTED',
     audience:
-      audience === 'screen'
+      audience.kind === 'screen'
         ? { kind: 'screen' }
-        : audience === 'participant'
+        : audience.kind === 'participant'
           ? seat === undefined
             ? { kind: 'screen' }
             : { kind: 'role', role: seat }
-          : { kind: 'role', role: audience },
+          : audience.kind === 'role'
+            ? audience
+            : { kind: 'screen' },
     payload: { commandType, reason },
   };
 }
@@ -297,9 +341,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
    * that person's outside actions.
    */
   const runnerMayUseAudience = (audience: ClientAudience): boolean => {
-    if (audience === 'screen' || audience === 'service') return true;
-    if (audience === 'lifecycle' || audience === 'participant') return false;
-    return aiVoiceRoles().has(audience) && !isHumanSeat(audience);
+    if (audience.kind === 'screen' || audience.kind === 'service') return true;
+    if (audience.kind !== 'role') return false;
+    return aiVoiceRoles().has(audience.role) && !isHumanSeat(audience.role);
   };
   const verified = authorize === undefined;
   /** Bumped whenever a meeting's code rotates, so upgrades authorized under the old code cannot register. */
@@ -327,7 +371,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
           maxPayload: MAX_PAYLOAD_BYTES,
           verifyClient: (info, done) => {
             const url = new URL(info.req.url ?? '/ws', 'http://localhost');
-            const audience = audienceFor(activeScenario(), url.searchParams.get('role'));
+            const audience = audienceFor(activeScenario(), url);
             if (audience === undefined) {
               if (options.closeUnknownRoleAfterUpgrade === true) { done(true); return; }
               done(false, 401, 'Unknown role');
@@ -440,19 +484,19 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     if (socket.readyState !== WebSocket.OPEN) return;
     try {
       socket.send(message, (error) => {
-        if (error) console.error(`kaki hub: failed to send to ${audience}`, error);
+        if (error) console.error(`kaki hub: failed to send to ${audienceLabel(audience)}`, error);
       });
     } catch (error) {
-      console.error(`kaki hub: failed to send to ${audience}`, error);
+      console.error(`kaki hub: failed to send to ${audienceLabel(audience)}`, error);
     }
   }
 
   function sendRetained(socket: WebSocket, audience: ClientAudience): void {
     const seat = socketSeats.get(socket);
-    const practiceScreen = practiceSockets.has(socket) && audience === 'screen';
+    const practiceScreen = practiceSockets.has(socket) && audience.kind === 'screen';
     for (const event of retained.values()) {
       let visible: KakiEvent | undefined;
-      if (audience === 'participant') {
+      if (audience.kind === 'participant') {
         if (!wantsProjectedEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, false);
       } else if (practiceScreen) {
@@ -478,8 +522,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   async function dispatchCommand(socket: WebSocket, audience: ClientAudience, command: KakiCommand): Promise<void> {
     // A participant projection is read-only as a screen, but the same person may still speak and
     // act on their own tasks: handlers see the seat behind the projection, never the projection.
+    const seat = socketSeats.get(socket);
     const sender: ClientAudience =
-      audience === 'participant' ? socketSeats.get(socket) ?? audience : audience;
+      audience.kind === 'participant' && seat !== undefined ? roleAudience(seat) : audience;
     for (const handler of commandHandlers) {
       if (!callerStillAuthorized(socket, audience)) return;
       const effect = await handler(command, sender);
@@ -504,7 +549,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     try {
       parsed = JSON.parse(rawDataToString(data));
     } catch {
-      if (audience === 'service') {
+      if (audience.kind === 'service') {
         console.error('kaki hub: ignored a malformed message from the AI runner service channel');
         return;
       }
@@ -512,7 +557,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       return;
     }
 
-    if (audience === 'service') {
+    if (audience.kind === 'service') {
       const message = parseServiceMessage(parsed);
       if (message === undefined) {
         console.error('kaki hub: ignored an invalid message from the AI runner service channel', parsed);
@@ -529,14 +574,14 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     }
 
     // A lifecycle feed is read-only: it follows start/reset state and may never drive the meeting.
-    if (audience === 'lifecycle') {
+    if (audience.kind === 'lifecycle') {
       console.warn('kaki hub: ignored a command from the read-only lifecycle feed');
       return;
     }
 
     // A participant may read the shared screen to follow the meeting, but the screen's command
     // authority (dispatch, dismiss, end, reset) belongs to the owner.
-    if (participantSockets.has(socket) && audience === 'screen') {
+    if (participantSockets.has(socket) && audience.kind === 'screen') {
       const rawType =
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
@@ -553,7 +598,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
 
     // A practice visitor may read the shared screen to render their practice meeting, but the
     // screen's command authority (dispatch, dismiss, end, reset) belongs to the owner.
-    if (practiceSockets.has(socket) && audience === 'screen') {
+    if (practiceSockets.has(socket) && audience.kind === 'screen') {
       const rawType =
         typeof parsed === 'object' && parsed !== null && 'type' in parsed && typeof parsed.type === 'string'
           ? parsed.type
@@ -581,13 +626,13 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       // The cast can change when Start seals the setup or a person takes the seat. Re-check the
       // runner's eligibility on every command and revoke the socket the moment it no longer holds.
       if (!runnerMayUseAudience(audience)) {
-        console.warn(`kaki hub: closing the AI runner socket on ${audience}: it is no longer an AI-cast role`);
+        console.warn(`kaki hub: closing the AI runner socket on ${audienceLabel(audience)}: it is no longer an AI-cast role`);
         socket.close(4008, 'The AI runner may not act as this role');
         return;
       }
       if (!runnerMaySend(audience, parsed.type)) {
         const reason = 'The AI runner may not send that command';
-        console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audience}: ${reason}`);
+        console.warn(`kaki hub: refused ${parsed.type} from the AI runner on ${audienceLabel(audience)}: ${reason}`);
         sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, reason, seat)));
         return;
       }
@@ -609,25 +654,23 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
         sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, error.message, seat)));
         return;
       }
-      console.error(`kaki hub: command ${parsed.type} from ${audience} failed`, error);
+      console.error(`kaki hub: command ${parsed.type} from ${audienceLabel(audience)} failed`, error);
       sendTo(socket, audience, JSON.stringify(rejectionFor(audience, parsed.type, 'internal error', seat)));
     }
   }
 
   wss.on('connection', (socket, request) => {
     const url = new URL(request.url ?? '/ws', 'http://localhost');
-    const rawRole = url.searchParams.get('role');
-    const audience = audienceFor(activeScenario(), rawRole);
+    const audience = audienceFor(activeScenario(), url);
 
     if (audience === undefined) {
-      const reason = rawRole === null ? 'Missing role' : 'Unknown role';
-      socket.close(1008, reason);
+      const missing = url.searchParams.get('role') === null && url.searchParams.get('audience') === null;
+      socket.close(1008, missing ? 'Missing role' : 'Unknown role');
       return;
     }
 
     const authorization = pendingAuthorizations.get(request);
-    const seatAudience =
-      audience !== 'screen' && audience !== 'service' && audience !== 'lifecycle';
+    const seatAudience = audience.kind === 'role';
     if (
       authorization !== undefined &&
       authorization.generation !== revocationGeneration &&
@@ -650,22 +693,22 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
 
     clients.set(socket, audience);
     if (authorization?.seat !== undefined) socketSeats.set(socket, authorization.seat);
-    if (audience === 'service') {
+    if (audience.kind === 'service') {
       serviceSockets.add(socket);
       serviceSpeechSides.set(socket, url.searchParams.get('stt') === 'browser' ? 'browser' : 'server');
     } else if (authorization?.runner === true) runnerSockets.add(socket);
     else if (authorization?.practice === true) practiceSockets.add(socket);
-    else if (authorization?.participant === true || audience === 'participant') participantSockets.add(socket);
+    else if (authorization?.participant === true || audience.kind === 'participant') participantSockets.add(socket);
     if (authorization?.sessionTokenHash !== undefined) {
       socketSessions.set(socket, authorization.sessionTokenHash);
     }
     sendRetained(socket, audience);
-    if (audience === 'service') notifyServicePresence();
+    if (audience.kind === 'service') notifyServicePresence();
     socket.on('close', () => {
       forgetSocket(socket);
     });
     socket.on('error', (error) => {
-      console.error(`kaki hub: socket error for ${audience}`, error);
+      console.error(`kaki hub: socket error for ${audienceLabel(audience)}`, error);
       forgetSocket(socket);
     });
     socket.on('message', (data) => {
@@ -682,9 +725,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     const message = JSON.stringify(event);
     for (const [socket, audience] of clients) {
       const seat = socketSeats.get(socket);
-      const practiceScreen = practiceSockets.has(socket) && audience === 'screen';
+      const practiceScreen = practiceSockets.has(socket) && audience.kind === 'screen';
       let visible: KakiEvent | undefined;
-      if (audience === 'participant') {
+      if (audience.kind === 'participant') {
         // The participant projection is the only shared feed a non-owner may use.
         if (!wantsProjectedEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, false);
@@ -746,7 +789,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       let sent = false;
       for (const socket of serviceSockets) {
         if (socket.readyState !== WebSocket.OPEN) continue;
-        sendTo(socket, 'service', message);
+        sendTo(socket, { kind: 'service' }, message);
         sent = true;
       }
       return sent;
@@ -771,12 +814,12 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
           revokeSocket(socket, 4001, reason);
           continue;
         }
-        if (audience === 'service') continue;
+        if (audience.kind === 'service') continue;
         // A host's read-only lifecycle feed and screen survive a handoff; a participant's must not
         // follow the new meeting.
-        if (audience === 'screen' && !participantSockets.has(socket)) continue;
+        if (audience.kind === 'screen' && !participantSockets.has(socket)) continue;
         if (runnerSockets.has(socket)) continue;
-        if (audience === 'lifecycle' && !participantSockets.has(socket)) continue;
+        if (audience.kind === 'lifecycle' && !participantSockets.has(socket)) continue;
         const session = socketSessions.get(socket);
         if (session !== undefined) revokedSessions.add(session);
         revokeSocket(socket, 4001, reason);

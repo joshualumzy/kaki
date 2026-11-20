@@ -20,7 +20,7 @@ import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEven
 import { actionToolStatus, isActionToolKind, probeActionTool, type ActionToolOptions } from './action/tools';
 import type { Auth } from './auth/module';
 import { createAttemptLimiter, type AttemptLimiter } from './attemptLimiter';
-import { CommandError, createHub, type ClientAudience, type Hub } from './hub';
+import { CommandError, createHub, audienceRole, type ClientAudience, type Hub } from './hub';
 import { resolveJoinBaseUrl } from './joinInfo';
 import type { KakiModule } from './modules';
 import type { MeetingPersistence } from './persist/persistence';
@@ -938,9 +938,10 @@ async function handleRequest(
     if (request.method === 'POST' && path === '/api/meeting/close') {
       const outcome = await context.admit(async () => {
         // An ended team meeting can be closed once the owner is done reviewing its minutes. That is
-        // the explicit way to release the server for practice before the empty-room expiry.
-        const endedReview =
-          context.session.phase() === 'ended' && context.session.reviewingEndedTeamMeeting();
+        // the explicit way to release the server for practice before the empty-room expiry. The
+        // review is the authority, not the saved phase: a restart restores both, but a review that
+        // is still open must never depend on which phase a save happened to carry.
+        const endedReview = context.session.reviewingEndedTeamMeeting();
         if (context.session.kind() !== 'real' && !endedReview) {
           return { status: 409, body: { error: 'There is no team meeting room open to close.' } };
         }
@@ -1828,7 +1829,8 @@ export async function createApp({
     guard: rejoin,
     // Someone joined (even before Start), or the meeting is running: keep watching the room.
     hasMeeting: () =>
-      !session.abandoned() && (session.holders().length > 0 || session.phase() === 'running'),
+      session.reviewingEndedTeamMeeting() ||
+      (!session.abandoned() && (session.holders().length > 0 || session.phase() === 'running')),
     roster: roomRoster,
     roomName: () => watchedRoom,
     isHuman: (name) => !packNpcNames.includes(name.toLowerCase()),
@@ -1890,8 +1892,10 @@ export async function createApp({
   };
   const isHumanSeat = (role: string): boolean =>
     session.holders().some((holder) => holder.seat === role);
-  const runnerMayUseAudience = (audience: string): boolean =>
-    aiVoiceRoles().has(audience) && !isHumanSeat(audience);
+  const runnerMayUseAudience = (audience: ClientAudience): boolean => {
+    const role = audienceRole(audience);
+    return role !== undefined && aiVoiceRoles().has(role) && !isHumanSeat(role);
+  };
   /** One WebSocket authorization path: the runner token first, then the same session principal as HTTP. */
   const authorizeUpgrade = async (
     request: IncomingMessage,
@@ -1900,7 +1904,7 @@ export async function createApp({
     const runnerRequest =
       serviceTokenConfigured && tokenMatches(bearerToken(request), serviceToken ?? '');
     // A configured service token always gates the service channel, even when user sign-in is off.
-    if (audience === 'service') {
+    if (audience.kind === 'service') {
       if (serviceTokenConfigured) {
         return runnerRequest
           ? { ok: true, runner: true, principal: { kind: 'service' } }
@@ -1913,10 +1917,10 @@ export async function createApp({
       return auth.authorize(request, audience);
     }
     if (runnerRequest) {
-      if (audience === 'screen') {
+      if (audience.kind === 'screen') {
         return { ok: true, runner: true, principal: { kind: 'service' } };
       }
-      if (audience === 'lifecycle') {
+      if (audience.kind === 'lifecycle') {
         return { ok: false, message: 'The AI runner does not follow the lifecycle feed' };
       }
       if (runnerMayUseAudience(audience)) {
@@ -1943,7 +1947,8 @@ export async function createApp({
     const practice = practicePrincipal(request);
     if (practice !== undefined) {
       const seat = session.practiceSeat();
-      if (audience === 'lifecycle' || audience === 'screen' || (seat !== undefined && audience === seat)) {
+      const role = audienceRole(audience);
+      if (audience.kind === 'lifecycle' || audience.kind === 'screen' || (seat !== undefined && role === seat)) {
         return {
           ok: true,
           principal: practice,
@@ -2235,8 +2240,9 @@ export async function createApp({
 
   /** The seat a socket writes as: its own role, or the host's chair when a person hosts the screen. */
   function seatForSender(sender: ClientAudience): string | undefined {
-    if (sender === 'service' || sender === 'lifecycle') return undefined;
-    if (sender !== 'screen') return sender;
+    const role = audienceRole(sender);
+    if (role !== undefined) return role;
+    if (sender.kind !== 'screen') return undefined;
     if (!hostIsHumanFromSession(session, session.active())) return undefined;
     return hostIdentityOf(session.active()).seat;
   }
@@ -2390,6 +2396,13 @@ export async function createApp({
   // A restored running meeting starts its grace now and watches its own room immediately, so a
   // connected holder is never pruned merely because no new token request arrived.
   if (savedMeeting?.phase === 'running' && !session.abandoned()) {
+    watchedRoom = demoRoomName(session.active(), meeting.id);
+    rejoin.beginGrace();
+    roomPoll.start();
+  }
+  // A restored ended team meeting is still under review: watch its room now so a verified empty
+  // room expires the review and releases the server for practice, exactly as a live END would.
+  if (session.reviewingEndedTeamMeeting()) {
     watchedRoom = demoRoomName(session.active(), meeting.id);
     rejoin.beginGrace();
     roomPoll.start();

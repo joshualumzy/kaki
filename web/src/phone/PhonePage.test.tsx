@@ -65,9 +65,9 @@ function mockTasks(tasks: Task[]): void {
 
 /** The role socket carries tasks; topic changes arrive only on the shared screen socket, as on the server. */
 function mockSockets({ screenEvents, tasks }: { screenEvents: KakiEvent[]; tasks: Map<string, Task> } & Record<string, unknown>): void {
-  mocks.useKaki.mockImplementation((audience: string) => ({
-    events: audience === 'screen' || audience === 'participant' ? screenEvents : [],
-    tasks: audience === 'screen' || audience === 'participant' ? new Map() : tasks,
+  mocks.useKaki.mockImplementation((audience: { kind: string }) => ({
+    events: audience.kind === 'screen' || audience.kind === 'participant' ? screenEvents : [],
+    tasks: audience.kind === 'screen' || audience.kind === 'participant' ? new Map() : tasks,
     connected: true,
     rejections: [],
     rejection: null,
@@ -205,7 +205,7 @@ describe('phone seat access without auth', () => {
   it('opens the Kopitiam human seat feed exactly as before', () => {
     renderPhone('producer');
 
-    expect(mocks.useKaki).toHaveBeenCalledWith('producer');
+    expect(mocks.useKaki).toHaveBeenCalledWith({ kind: 'role', role: 'producer' });
     expect(screen.getByText('Kaki · Operations Director')).toBeTruthy();
   });
 

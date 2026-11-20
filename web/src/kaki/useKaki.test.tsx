@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import type { KakiAudience } from './useKaki';
 import { MEETING_ENDED_MESSAGE } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -124,7 +125,7 @@ describe('useKaki lifecycle state', () => {
   it('keeps an explicit started flag after a reset clears the event list', async () => {
     // Import after the WebSocket stub is in place and the hook's module graph is fresh.
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -148,7 +149,7 @@ describe('useKaki lifecycle state', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('lifecycle'));
+    const { result } = renderHook(() => useKaki({ kind: 'lifecycle' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -166,7 +167,7 @@ describe('useKaki lifecycle state', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('lifecycle'));
+    const { result } = renderHook(() => useKaki({ kind: 'lifecycle' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -203,7 +204,7 @@ describe('useKaki lifecycle state', () => {
     const { scenarioRevision } = await import('./scenarioRevision');
     const { useKaki } = await import('./useKaki');
     const before = scenarioRevision();
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -235,7 +236,7 @@ describe('useKaki lifecycle state', () => {
         }),
     ));
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
     act(() => first.emit('open'));
     act(() => first.emit('message', startEvent('meeting-a')));
@@ -277,7 +278,7 @@ describe('useKaki lifecycle state', () => {
 
   it('drops a held line when the room comes back as a different meeting', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
     act(() => first.emit('open'));
     act(() => first.emit('message', startEvent('meeting-a')));
@@ -302,7 +303,7 @@ describe('useKaki lifecycle state', () => {
   it('drops a held line when the audience changes', async () => {
     const { useKaki } = await import('./useKaki');
     const { result, rerender } = renderHook(({ audience }) => useKaki(audience), {
-      initialProps: { audience: 'chef' as 'chef' | 'producer' },
+      initialProps: { audience: { kind: 'role', role: 'chef' } as KakiAudience },
     });
     const first = sockets[0]!;
     act(() => first.emit('open'));
@@ -317,7 +318,7 @@ describe('useKaki lifecycle state', () => {
       })).toBe(true);
     });
 
-    rerender({ audience: 'producer' });
+    rerender({ audience: { kind: 'role', role: 'producer' } });
     await waitFor(() => expect(sockets.length).toBeGreaterThan(1), { timeout: 2_000 });
     const second = sockets[sockets.length - 1]! as unknown as {
       emit(type: string, event?: unknown): void;
@@ -331,7 +332,7 @@ describe('useKaki lifecycle state', () => {
 
   it('keeps the newest meeting record even after it leaves the event window', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('screen'));
+    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -371,7 +372,7 @@ describe('useKaki lifecycle state', () => {
 
   it('does not replay a pause that could not be sent while the hub socket was down', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
     act(() => first.emit('open'));
     await waitFor(() => expect(result.current.connected).toBe(true));
@@ -397,7 +398,7 @@ describe('useKaki lifecycle state', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -423,7 +424,7 @@ describe('useKaki lifecycle state', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('chef'));
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
     const first = sockets[0]!;
 
     act(() => first.emit('open'));
@@ -444,7 +445,7 @@ describe('useKaki lifecycle state', () => {
 describe('useKaki topic speech', () => {
   it('records a seat that spoke on the topic even after its record leaves the event window', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('screen'));
+    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -465,7 +466,7 @@ describe('useKaki topic speech', () => {
 
   it('does not record a colleague seat as the viewer', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('screen'));
+    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));
@@ -478,7 +479,7 @@ describe('useKaki topic speech', () => {
 
   it('forgets who spoke when the meeting resets', async () => {
     const { useKaki } = await import('./useKaki');
-    const { result } = renderHook(() => useKaki('screen'));
+    const { result } = renderHook(() => useKaki({ kind: 'screen' }));
     const socket = sockets[0]!;
 
     act(() => socket.emit('open'));

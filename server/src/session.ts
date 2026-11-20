@@ -261,12 +261,15 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       return;
     }
 
-    // A Start in flight is saved as lobby, and an ended meeting is consumed: both come back as the
-    // next meeting's lobby. Its holders still let Start validate seats, but admission treats this as
-    // a consumed meeting, so the next arrival starts fresh from the kept draft.
-    phase = 'lobby';
+    // An ended real meeting whose minutes are still under review keeps its real phase, so Close,
+    // the room watch and every ended-meeting rule agree after a restart. A Start in flight, a
+    // consumed ended meeting, and an ended practice meeting all come back as the next meeting's
+    // lobby: their holders still let Start validate seats, but admission treats them as consumed,
+    // so the next arrival starts fresh from the kept draft.
+    const endedReview = ended && endedTeamReview;
+    phase = endedReview ? 'ended' : 'lobby';
     active = checked(deps.restoreActive(saved));
-    started = undefined;
+    started = endedReview ? saved.startedAt : undefined;
     abandonedMeeting = false;
     // An ended real meeting keeps its consumed seal so Start can reopen it and the next arrival can
     // drop a draft that was not edited after END. A draft edited after END is the next meeting's
@@ -280,8 +283,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       draftWasTouched = saved.draftTouched;
       editedSinceSeal = saved.draftEditedSinceSeal ?? false;
     }
-    restoredNoMeeting = true;
-    storedEnded = ended;
+    restoredNoMeeting = !endedReview;
+    storedEnded = !endedReview && ended;
     holders = copyHolders(saved.holders);
   }
 

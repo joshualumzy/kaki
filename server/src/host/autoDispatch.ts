@@ -165,7 +165,7 @@ export function installAutoDispatch({
     }
   });
   hub.onCommand((command, sender) => {
-    if (!active || sender !== 'screen') return;
+    if (!active || sender.kind !== 'screen') return;
     if (command.type === 'NEXT_AGENDA_ITEM' || command.type === 'END_MEETING') release();
   });
   const unsubscribeTasks = tasks.onChange((task, previous) => {

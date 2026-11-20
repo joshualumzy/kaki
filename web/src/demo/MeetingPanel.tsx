@@ -40,7 +40,7 @@ export function MeetingPanel({
   const hasAiColleagues = (scenario.npcs ?? []).length > 0;
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
   // needs auth off or a signed-in host (the page cannot connect otherwise).
-  const { events, tasks, connected, rejection, send, speechByTopic } = useKaki(sharedAudience);
+  const { events, tasks, connected, rejection, send, speechByTopic } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const [transcriptOpen, setTranscriptOpen] = useState(false);

@@ -622,7 +622,7 @@ const serviceChannel = createServiceChannel({
   token: serviceToken,
   createSocket: () =>
     new WebSocket(
-      `${kakiUrl.replace(/^http/, 'ws')}/ws?role=service&stt=${sttMode === 'browser' ? 'browser' : 'server'}`,
+      `${kakiUrl.replace(/^http/, 'ws')}/ws?audience=service&stt=${sttMode === 'browser' ? 'browser' : 'server'}`,
       serviceToken === undefined || serviceToken === ''
         ? undefined
         : { headers: { authorization: `Bearer ${serviceToken}` } },

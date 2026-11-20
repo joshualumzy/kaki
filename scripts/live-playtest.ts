@@ -731,7 +731,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
           errors.push(`${stamp()} WebSocket ${socket.url()}: ${text}`);
         });
       }
-      if (!socket.url().includes('/ws?role=screen')) return;
+      if (!socket.url().includes('/ws?audience=screen')) return;
       screenSocketSeen = true;
       socket.on('framereceived', (frame) => {
         try {
@@ -817,7 +817,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     await check('Event API connection', await waitFor('Screen event stream', async () =>
       screenSocketSeen && await page!.locator('.kd-meeting-panel').count() > 0 &&
       await page!.locator('.kd-meeting-panel .connection-banner').count() === 0, 10_000),
-    '/ws?role=screen connected in the meeting panel');
+    '/ws?audience=screen connected in the meeting panel');
     // Start sits on the briefing's second screen.
     const next = page.getByRole('button', { name: 'Next: How to play →' }).first();
     if (await waitFor('Briefing Next button', () => next.isVisible(), 20_000)) await next.click();

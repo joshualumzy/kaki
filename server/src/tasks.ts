@@ -249,12 +249,14 @@ export function createTaskStore({
   }
 
   function requireScreen(sender: ClientAudience): void {
-    if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
+    if (sender.kind !== 'screen') throw new CommandError('Only the shared screen can do that');
   }
 
   function requireAssignee(task: Task, sender: ClientAudience): void {
     if (task.assignee === undefined) throw new CommandError('Task has no assignee');
-    if (sender !== task.assignee) throw new CommandError('Only the assigned role can do that');
+    if (sender.kind !== 'role' || sender.role !== task.assignee) {
+      throw new CommandError('Only the assigned role can do that');
+    }
   }
 
   function handleCommand(command: KakiCommand, sender: ClientAudience): void {

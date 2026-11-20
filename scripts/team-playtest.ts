@@ -157,7 +157,7 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
 
   function watchScreenEvents(page: Page): void {
     page.on('websocket', (socket) => {
-      if (!socket.url().includes('/ws?role=screen')) return;
+      if (!socket.url().includes('/ws?audience=screen')) return;
       socket.on('framereceived', (frame) => {
         try {
           const raw = typeof frame.payload === 'string' ? frame.payload : frame.payload.toString();

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
+import { roleAudience } from '../../src/hub';
 import { connectClient, createTestApp, portOf, settle } from '../helpers';
 import { testScenario } from '../fixtures/scenario';
 
@@ -62,7 +63,7 @@ describe('auto-dispatch', () => {
   it('leaves a declined task for a person; it is not sent out again', () => {
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });
-    app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'chef');
+    app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, roleAudience('chef'));
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
   });
 

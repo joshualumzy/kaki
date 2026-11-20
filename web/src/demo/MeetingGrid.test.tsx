@@ -30,8 +30,8 @@ vi.mock('../kaki', async () => {
       ],
       npcs: [{ attendee: 'Sam', role: 'host' }],
     }),
-    useKaki: (audience: string) => {
-      if (audience !== 'screen') {
+    useKaki: (audience: { kind: string }) => {
+      if (audience.kind !== 'screen') {
         return { tasks: [], events: mocks.roleEvents, latestRecord: undefined, speechByTopic: new Map() };
       }
       const latestRecord = mocks.latestRecord

@@ -1,5 +1,5 @@
 import type { KakiEvent } from '@kaki/shared';
-import { CommandError } from '../hub';
+import { CommandError, audienceRole } from '../hub';
 import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock, type AgendaClock } from './clock';
@@ -407,9 +407,14 @@ export function createMeetingModule({
         if (command.type === 'SET_PAUSED') {
           // The agenda clock is the one owner of the meeting's paused flag. The shared screen
           // (the host) and a person seated in this meeting drive it; nobody else may freeze the room.
-          if (sender !== 'screen') {
+          const senderRole = audienceRole(sender);
+          if (senderRole === undefined) {
+            if (sender.kind !== 'screen') {
+              throw new CommandError('Only a person seated in this meeting can pause it');
+            }
+          } else {
             const seated = session?.holders().some(
-              (holder) => holder.seat.trim().toLowerCase() === sender.trim().toLowerCase(),
+              (holder) => holder.seat.trim().toLowerCase() === senderRole.trim().toLowerCase(),
             ) === true;
             if (!seated) throw new CommandError('Only a person seated in this meeting can pause it');
           }
@@ -420,7 +425,7 @@ export function createMeetingModule({
           persistence?.scheduleSave();
           return;
         }
-        if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
+        if (sender.kind !== 'screen') throw new CommandError('Only the shared screen can do that');
         if (command.type === 'NEW_MEETING') {
           // Only say the meeting started once the old one is really gone; otherwise the host must know.
           if (persistence !== undefined) {

@@ -576,7 +576,7 @@ describe('meeting session snapshot and restore', () => {
     expect(restored.snapshot().lobbyAgenda).toEqual(snap.lobbyAgenda);
   });
 
-  it('consumes an ended meeting but keeps a draft edited after the seal', () => {
+  it('restores an ended meeting under review with a draft edited after the seal', () => {
     const h = harness({ phase: 'running', sealed: true, draftTouched: true });
     const nextDraft: MeetingSetup = {
       ...h.setup,
@@ -595,8 +595,9 @@ describe('meeting session snapshot and restore', () => {
       ...basicDeps(h),
       saved: { ...snap, schemaVersion: MEETING_STATE_SCHEMA_VERSION, savedAt: '2026-01-01T00:00:00.000Z', state: emptyState() },
     });
-    expect(restored.phase()).toBe('lobby');
-    expect(restored.restoredWithoutMeeting()).toBe(true);
+    expect(restored.phase()).toBe('ended');
+    expect(restored.reviewingEndedTeamMeeting()).toBe(true);
+    expect(restored.restoredWithoutMeeting()).toBe(false);
     expect(restored.sealed()).toEqual(h.setup);
     expect(restored.draft()).toEqual(nextDraft);
     expect(restored.draftTouched()).toBe(true);
@@ -606,7 +607,7 @@ describe('meeting session snapshot and restore', () => {
     expect(restored.draft()).toEqual(nextDraft);
   });
 
-  it('consumes an ended meeting untouched draft back to the pack default', () => {
+  it('restores an ended meeting under review with an untouched draft back to the pack default', () => {
     const h = harness({ phase: 'lobby', draftTouched: true });
     const editedBeforeStart: MeetingSetup = { ...h.setup, title: 'Edited before Start' };
     h.session.setDraft(editedBeforeStart);
@@ -622,7 +623,8 @@ describe('meeting session snapshot and restore', () => {
       ...basicDeps(h),
       saved: { ...snap, schemaVersion: MEETING_STATE_SCHEMA_VERSION, savedAt: '2026-01-01T00:00:00.000Z', state: emptyState() },
     });
-    expect(restored.phase()).toBe('lobby');
+    expect(restored.phase()).toBe('ended');
+    expect(restored.reviewingEndedTeamMeeting()).toBe(true);
     expect(restored.draft()).toEqual(h.setup);
     expect(restored.draftTouched()).toBe(false);
     restored.reset();
@@ -658,7 +660,7 @@ describe('meeting session snapshot and restore', () => {
           state: emptyState(),
         },
       });
-      expect(restored.phase()).toBe(phase === 'starting' || phase === 'ended' ? 'lobby' : phase);
+      expect(restored.phase()).toBe(phase === 'starting' ? 'lobby' : phase);
       expect(restored.snapshot().phase).toBe(phase === 'starting' ? 'lobby' : phase);
       expect(restored.snapshot().draft).toEqual(snap.draft);
       if (phase === 'running') {

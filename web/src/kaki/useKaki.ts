@@ -53,9 +53,18 @@ export interface UseKakiResult {
   send(command: KakiCommand): boolean;
 }
 
+/** Which feed to follow: a role's own seat, or one of the read-only shared feeds. */
+export type KakiAudience =
+  | { kind: 'role'; role: Role }
+  | { kind: 'screen' }
+  | { kind: 'lifecycle' }
+  | { kind: 'participant' };
+
 /** Subscribe to the server for one audience and keep the task list up to date. */
-export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant'): UseKakiResult {
+export function useKaki(audience: KakiAudience): UseKakiResult {
   const scenario = useScenario();
+  const audienceKind = audience.kind;
+  const audienceRole = audience.kind === 'role' ? audience.role : undefined;
   const [events, setEvents] = useState<KakiEvent[]>([]);
   const [latestRecord, setLatestRecord] = useState<MeetingRecordEvent | undefined>(undefined);
   const [speechByTopic, setSpeechByTopic] = useState<ReadonlyMap<number, TopicSpeech>>(() => new Map());
@@ -80,14 +89,15 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
   /** Typed lines written while the socket is reconnecting; they go out once catch-up confirms the meeting. */
   const pendingLines = useRef<PendingLine[]>([]);
   /** The audience the queued lines were typed for; a changed seat/audience drops them. */
-  const queuedAudience = useRef(audience);
+  const queuedAudience = useRef(`${audienceKind}:${audienceRole ?? ''}`);
 
   useEffect(() => {
-    if (queuedAudience.current !== audience) {
+    const currentAudience = `${audienceKind}:${audienceRole ?? ''}`;
+    if (queuedAudience.current !== currentAudience) {
       // The same browser tab changed seat (or left the screen): a held line belonged to the old
       // speaker, so it must never go out as this one.
       pendingLines.current = [];
-      queuedAudience.current = audience;
+      queuedAudience.current = currentAudience;
       meetingId.current = undefined;
     }
     setEvents([]);
@@ -124,7 +134,13 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
       if (closed || endedForGood) return;
       opened = false;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.host}/ws?role=${encodeURIComponent(audience)}`;
+      // Roles and shared feeds travel on separate channels: a role id may be any word, including
+      // `participant`, so it can never be mistaken for the projection by its spelling.
+      const channel =
+        audienceRole === undefined
+          ? `audience=${encodeURIComponent(audienceKind)}`
+          : `role=${encodeURIComponent(audienceRole)}`;
+      const url = `${protocol}//${window.location.host}/ws?${channel}`;
       const current = new WebSocket(url);
       socket = current;
       socketRef.current = current;
@@ -148,7 +164,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
         const askedOn = current;
         const askedAtRevision = lifecycleRevision.current;
         const knownBefore = meetingId.current;
-        if (audience === 'lifecycle') meetingId.current = undefined;
+        if (audienceKind === 'lifecycle') meetingId.current = undefined;
         void fetch('/api/meeting/state')
           .then(async (response) => {
             const body = (await response.json().catch(() => ({}))) as {
@@ -164,7 +180,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
             // A start/reset event that arrived while this answer was in flight is newer.
             if (lifecycleRevision.current !== askedAtRevision) return;
             if (
-              audience === 'lifecycle' &&
+              audienceKind === 'lifecycle' &&
               meetingId.current !== undefined &&
               meetingId.current !== body.meetingId
             ) {
@@ -173,7 +189,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
             // The room came back as a different meeting: the old queue can never go into it.
             if (knownBefore !== undefined && knownBefore !== body.meetingId) pendingLines.current = [];
             meetingId.current = body.meetingId;
-            if (audience === 'lifecycle') {
+            if (audienceKind === 'lifecycle') {
               noteMeetingIdentity({
                 meetingId: body.meetingId,
                 ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
@@ -343,7 +359,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
       socket?.close();
       socketRef.current = undefined;
     };
-  }, [audience, scenario]);
+  }, [audienceKind, audienceRole, scenario]);
 
   const send = useCallback((command: KakiCommand): boolean => {
     const socket = socketRef.current;
@@ -354,9 +370,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
         ? {
             ...command,
             ...(meetingId.current === undefined ? {} : { meetingId: meetingId.current }),
-            ...(audience === 'screen' || audience === 'lifecycle' || audience === 'participant'
-              ? {}
-              : { seat: audience }),
+            ...(audienceRole === undefined ? {} : { seat: audienceRole }),
           }
         : command;
     if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
@@ -376,7 +390,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle' | 'participant')
     }
     socket.send(JSON.stringify(line));
     return true;
-  }, [audience]);
+  }, [audienceRole]);
 
   return {
     events,

@@ -743,7 +743,7 @@ describe('Start applies the validated setup', () => {
     expect((await getSetup(app)).title).toBe('A different meeting');
   });
 
-  it('restores a custom agenda after the meeting ended and really reopens it', async () => {
+  it('restores a custom agenda after the meeting ended and holds it for review', async () => {
     const store = new MemoryStore();
     const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
     const first = await startApp(freshTopicScenario(), {
@@ -779,20 +779,23 @@ describe('Start applies the validated setup', () => {
     const reopened = await meetingState(restored);
     expect(reopened.meetingId).toBe(firstState.meetingId);
     expect(reopened.started).toBe(false);
-    expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual([
+    // The restart restores the ended meeting as it really is: still under review, with the plan
+    // it ran. Start cannot open the next meeting until the owner releases this one.
+    expect(restored.session.phase()).toBe('ended');
+    expect(restored.session.reviewingEndedTeamMeeting()).toBe(true);
+    expect(restored.session.active().agenda.map((item) => item.title)).toEqual([
       'Prep',
       'Close',
       'A custom close',
     ]);
-    expect((await startMeeting(restored)).status).toBe(200);
-    const running = await meetingState(restored);
-    expect(running.started).toBe(true);
-    expect(running.meetingId).toBe(firstState.meetingId);
-    expect((await getScenario(restored)).agenda.map((item) => item.title)).toEqual([
-      'Prep',
-      'Close',
-      'A custom close',
-    ]);
+    expect((await startMeeting(restored)).status).toBe(409);
+
+    const closed = await fetch(`http://127.0.0.1:${portOf(restored)}/api/meeting/close`, {
+      method: 'POST',
+    });
+    expect(closed.status).toBe(200);
+    expect(restored.session.phase()).toBe('lobby');
+    expect(restored.session.reviewingEndedTeamMeeting()).toBe(false);
   });
 
   it('restores the pack agenda, roles, cast and default draft on reset after a custom agenda', async () => {

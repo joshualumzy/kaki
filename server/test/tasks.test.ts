@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, TaskStatus } from '@kaki/shared';
-import { CommandError } from '../src/hub';
+import { CommandError, roleAudience } from '../src/hub';
 import { createTestApp } from './helpers';
 
 describe('task store change handlers', () => {
@@ -110,7 +110,7 @@ describe('task store change handlers', () => {
     it('claims again to re-draft when there is no draft', () => {
       const task = failedTask();
 
-      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, 'chef');
+      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, roleAudience('chef'));
 
       const retried = app.tasks.get(task.id);
       expect(retried?.status).toBe('CLAIMED');
@@ -122,7 +122,7 @@ describe('task store change handlers', () => {
       const task = failedTask();
       const draft = { target: 'kopitiam/kopitiam-pos', subject: 'Fix the oven', body: 'The fuse trips.' };
 
-      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id, draft }, 'chef');
+      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id, draft }, roleAudience('chef'));
 
       const retried = app.tasks.get(task.id);
       expect(retried?.status).toBe('RUNNING');
@@ -137,7 +137,7 @@ describe('task store change handlers', () => {
       app.tasks.transition(task.id, 'RUNNING');
       app.tasks.transition(task.id, 'FAILED', { error: 'boom' });
 
-      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, 'chef');
+      app.tasks.handleCommand({ type: 'RETRY_ACTION', taskId: task.id }, roleAudience('chef'));
 
       expect(app.tasks.get(task.id)?.status).toBe('RUNNING');
     });
@@ -244,7 +244,7 @@ describe('declining a dispatched task', () => {
     const published: KakiEvent[] = [];
     app.hub.subscribe((event) => published.push(event));
 
-    app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'chef');
+    app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, roleAudience('chef'));
 
     const declined = app.tasks.get(task.id)!;
     expect(declined.status).toBe('SUGGESTED');
@@ -254,18 +254,18 @@ describe('declining a dispatched task', () => {
     const audiences = published.filter((event) => event.type === 'TASK_UPDATED').map((event) => JSON.stringify(event.audience));
     expect(audiences).toEqual([JSON.stringify({ kind: 'screen' }), JSON.stringify({ kind: 'role', role: 'chef' })]);
     // It can be offered to someone else.
-    app.tasks.handleCommand({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'cashier' }, 'screen');
+    app.tasks.handleCommand({ type: 'DISPATCH_TASK', taskId: task.id, assignee: 'cashier' }, { kind: 'screen' });
     expect(app.tasks.get(task.id)?.assignee).toBe('cashier');
     expect(app.tasks.get(task.id)?.declinedBy).toEqual(['chef']);
   });
 
   it('is only for the assigned role, and only while the task is dispatched', () => {
     const task = app.tasks.suggest({ title: 'Fix the oven', context: 'Trips the fuse.', suggestedAssignee: 'chef' });
-    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'chef')).toThrow(CommandError);
+    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, roleAudience('chef'))).toThrow(CommandError);
     app.tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
-    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'cashier')).toThrow(CommandError);
-    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'screen')).toThrow(CommandError);
-    app.tasks.handleCommand({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' }, 'chef');
-    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, 'chef')).toThrow(CommandError);
+    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, roleAudience('cashier'))).toThrow(CommandError);
+    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, { kind: 'screen' })).toThrow(CommandError);
+    app.tasks.handleCommand({ type: 'CLAIM_TASK', taskId: task.id, mode: 'MANUAL' }, roleAudience('chef'));
+    expect(() => app.tasks.handleCommand({ type: 'DECLINE_TASK', taskId: task.id }, roleAudience('chef'))).toThrow(CommandError);
   });
 });

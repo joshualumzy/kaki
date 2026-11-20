@@ -247,8 +247,8 @@ export function MeetingGrid({
   const scenario = useScenario();
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
-  const { events, send: sendToServer, rejection: commandRejection } = useKaki(role);
-  const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience);
+  const { events, send: sendToServer, rejection: commandRejection } = useKaki({ kind: 'role', role });
+  const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   // One path for every line the person produces: the server writes it whether or not an AI runner is up.
   const sendHumanLine = useCallback(
     (text: string, source: 'speech' | 'typed') => {

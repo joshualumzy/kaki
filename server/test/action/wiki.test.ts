@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Scenario, Task } from '@kaki/shared';
 import { buildMeetingMinutes, createWikiModule, pagePath, type WikiModuleOptions, type WikiSettings } from '../../src/action/wiki';
-import type { Hub } from '../../src/hub';
+import { roleAudience, type Hub } from '../../src/hub';
 import type { SavedMeetingDetails } from '../../src/persist/state';
 import { createFakeLlm } from '../../src/llm';
 import { createTaskStore, type TaskStore } from '../../src/tasks';
@@ -300,7 +300,7 @@ describe('wiki action module', () => {
       },
       'end-of-meeting minutes task to be DRAFT_READY',
     );
-    tasks.handleCommand({ type: 'APPROVE_ACTION', taskId: ready.id, draft: ready.draft! }, 'cashier');
+    tasks.handleCommand({ type: 'APPROVE_ACTION', taskId: ready.id, draft: ready.draft! }, roleAudience('cashier'));
     const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
 
     expect(done.artifactUrl).toMatch(/^http:\/\/wiki\.test\/en\/meetings\/2026-11-03-/);

@@ -62,7 +62,7 @@ function MeetingLifecycleWatcher({
   onStarted(): void;
   onReset(): void;
 }) {
-  const { started } = useKaki('lifecycle');
+  const { started } = useKaki({ kind: 'lifecycle' });
   useEffect(() => {
     if (started === true) onStarted();
     else if (started === false) onReset();

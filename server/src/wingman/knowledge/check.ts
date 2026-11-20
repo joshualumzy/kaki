@@ -4,7 +4,7 @@ import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/s
 import { Pool } from 'pg';
 import { loadEnv } from '../../../../docker/seed/env';
 import type { TaskStore } from '../../tasks';
-import type { ClientAudience, Hub } from '../../hub';
+import { audienceLabel, roleAudience, type ClientAudience, type Hub } from '../../hub';
 import { chatComplete, embedText, gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
 import { createKnowledgeModule } from './module';
 import {
@@ -65,8 +65,10 @@ function tracedSearch(pool: Pool, gateway: NonNullable<ReturnType<typeof gateway
 function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
   return (
     event.audience.kind === 'all' ||
-    (event.audience.kind === 'screen' && audience === 'screen') ||
-    (event.audience.kind === 'role' && audience === event.audience.role)
+    (event.audience.kind === 'screen' && audience.kind === 'screen') ||
+    (event.audience.kind === 'role' &&
+      audience.kind === 'role' &&
+      audience.role === event.audience.role)
   );
 }
 
@@ -77,13 +79,14 @@ interface InMemoryHub {
 
 function inMemoryHub(audiences: ClientAudience[]): InMemoryHub {
   const handlers = new Set<(event: KakiEvent) => void>();
-  const delivered = new Map<ClientAudience, KakiEvent[]>(
-    audiences.map((audience) => [audience, []]),
+  const delivered = new Map<string, KakiEvent[]>(
+    audiences.map((audience) => [audienceLabel(audience), []]),
   );
   const hub: Hub = {
     publish(event) {
-      for (const [audience, events] of delivered) {
-        if (wantsEvent(event, audience)) events.push(event);
+      for (const [label, events] of delivered) {
+        const audience = audiences.find((candidate) => audienceLabel(candidate) === label);
+        if (audience !== undefined && wantsEvent(event, audience)) events.push(event);
       }
       for (const handler of handlers) handler(event);
     },
@@ -104,7 +107,7 @@ function inMemoryHub(audiences: ClientAudience[]): InMemoryHub {
   };
   return {
     hub,
-    received: (audience) => delivered.get(audience) ?? [],
+    received: (audience) => delivered.get(audienceLabel(audience)) ?? [],
   };
 }
 
@@ -118,7 +121,13 @@ async function waitFor(check: () => boolean, label: string, timeoutMs = 4_000): 
 }
 
 async function checkAudience(): Promise<void> {
-  const fake = inMemoryHub(['screen', 'producer', 'lead_programmer', 'game_designer', 'marketing_lead']);
+  const fake = inMemoryHub([
+    { kind: 'screen' },
+    roleAudience('producer'),
+    roleAudience('lead_programmer'),
+    roleAudience('game_designer'),
+    roleAudience('marketing_lead'),
+  ]);
   const module = createKnowledgeModule({
     env: {},
     search: async (): Promise<Fact[]> => [
@@ -144,11 +153,11 @@ async function checkAudience(): Promise<void> {
         (event): event is Extract<KakiEvent, { type: 'FACT_FOUND' }> =>
           event.type === 'FACT_FOUND' && event.payload.questionId === 'q-quit',
       );
-    await waitFor(() => questionCards('game_designer').length > 0, 'the game designer card');
-    assert(questionCards('producer').length === 0, 'the producer received the question card');
-    assert(questionCards('lead_programmer').length === 0, 'the lead programmer received the question card');
-    assert(questionCards('marketing_lead').length === 0, 'the marketing lead received the question card');
-    const card = questionCards('game_designer')[0];
+    await waitFor(() => questionCards(roleAudience('game_designer')).length > 0, 'the game designer card');
+    assert(questionCards(roleAudience('producer')).length === 0, 'the producer received the question card');
+    assert(questionCards(roleAudience('lead_programmer')).length === 0, 'the lead programmer received the question card');
+    assert(questionCards(roleAudience('marketing_lead')).length === 0, 'the marketing lead received the question card');
+    const card = questionCards(roleAudience('game_designer'))[0];
     assert(card !== undefined, 'the game designer did not receive the question card');
     assert(card.audience.kind === 'role' && card.audience.role === 'game_designer', 'the card audience is wrong');
     console.log('PASS hub check: the question FACT_FOUND went only to game_designer');

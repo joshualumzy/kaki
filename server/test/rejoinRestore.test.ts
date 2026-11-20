@@ -75,6 +75,16 @@ function savedRunning({
   };
 }
 
+function savedEnded(): StoredMeeting {
+  const running = savedRunning();
+  return {
+    ...running,
+    phase: 'ended',
+    sealedKind: 'real',
+    state: { ...running.state, clock: { ...running.state.clock, ended: true } },
+  };
+}
+
 const apps: KakiApp[] = [];
 
 afterEach(async () => {
@@ -332,5 +342,55 @@ describe('an abandoned meeting never resumes after a restart', () => {
     expect(body.resumed).toBe(true);
     expect(await meetingId(app)).toBe(before);
     expect(app.session.abandoned()).toBe(false);
+  });
+});
+
+describe('a restored ended team meeting still under review', () => {
+  it('keeps practice out and lets the owner close the room', async () => {
+    const { app } = await startApp({
+      saved: savedEnded(),
+      roster: () => [{ name: 'Ada' }],
+      graceMs: 60_000,
+      pollMs: 60_000,
+    });
+
+    expect(app.session.phase()).toBe('ended');
+    expect(app.session.reviewingEndedTeamMeeting()).toBe(true);
+
+    const practice = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ participantName: 'Ben', participantRole: 'chef', kind: 'practice' }),
+    });
+    expect(practice.status).toBe(409);
+    expect(await practice.json()).toMatchObject({ realInProgress: true });
+
+    const close = await fetch(`http://127.0.0.1:${portOf(app)}/api/meeting/close`, { method: 'POST' });
+    expect(close.status).toBe(200);
+    expect(app.session.phase()).toBe('lobby');
+    expect(app.session.reviewingEndedTeamMeeting()).toBe(false);
+  });
+
+  it('releases the review when the room is verified empty', async () => {
+    const { app } = await startApp({
+      saved: savedEnded(),
+      roster: () => [],
+      graceMs: 40,
+      pollMs: 5,
+      reservationMs: 1,
+    });
+
+    await waitFor(
+      () => (app.session.reviewingEndedTeamMeeting() === false ? true : undefined),
+      'the empty-room expiry to finish the review',
+    );
+
+    const practice = await fetch(`http://127.0.0.1:${portOf(app)}/api/livekit/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ participantName: 'Ben', participantRole: 'chef', kind: 'practice' }),
+    });
+    expect(practice.status).toBe(200);
+    expect(app.session.kind()).toBe('practice');
   });
 });

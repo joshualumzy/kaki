@@ -52,7 +52,7 @@ const COLUMNS: { id: string; title: string; hint: string; statuses: Task['status
 /** The meeting screen itself, only mounted once the host is allowed in. */
 function ScreenFeed() {
   const scenario = useScenario();
-  const { events, tasks, rejection, connected, restoredAt, meetingId, send } = useKaki('screen');
+  const { events, tasks, rejection, connected, restoredAt, meetingId, send } = useKaki({ kind: 'screen' });
   const [showJoin, setShowJoin] = useState(false);
   const taskList = [...tasks.values()];
   const minutesTask = taskList.find(

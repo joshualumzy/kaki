@@ -36,7 +36,7 @@ export type AuthDecision =
 export interface Auth {
   /** Handle an auth or join request; false means the path belongs to another route. */
   handleHttp(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
-  /** Allow or reject a `/ws?role=` upgrade for the requested audience. */
+  /** Allow or reject a `/ws?role=` or `/ws?audience=` upgrade for the requested audience. */
   authorize(request: IncomingMessage, audience: ClientAudience): Promise<AuthDecision>;
   /** The resolved host or seat principal behind a request; undefined otherwise. */
   resolvePrincipal(request: IncomingMessage): Promise<Principal | undefined>;
@@ -609,10 +609,10 @@ export function createAuth({
       const participant = session.kind === 'participant';
       const sessionTokenHash = session.tokenHash;
       // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
-      if (audience === 'lifecycle') {
+      if (audience.kind === 'lifecycle') {
         return { ok: true, participant, principal, sessionTokenHash };
       }
-      if (audience === 'screen') {
+      if (audience.kind === 'screen') {
         // The shared screen is the owner's: it carries every seat's private facts and unfinished
         // drafts. A participant follows the meeting through their own projection instead.
         if (session.kind !== 'host') {
@@ -620,7 +620,7 @@ export function createAuth({
         }
         return { ok: true, participant, principal, sessionTokenHash };
       }
-      if (audience === 'participant') {
+      if (audience.kind === 'participant') {
         // A participant projection is bound to one seat; the hub redacts every other seat's work.
         if (principal.kind === 'seat') {
           return { ok: true, participant, principal, sessionTokenHash, seat: principal.role };
@@ -631,10 +631,12 @@ export function createAuth({
         return { ok: false, message: 'Join this meeting with a role first' };
       }
       // A participant holds their seat; a host may also hold the seat they took, without losing host powers.
+      const role = audience.kind === 'role' ? audience.role : undefined;
       const holdsSeat =
-        seatIsOffered(audience) &&
-        ((principal.kind === 'seat' && principal.role === audience) ||
-          (principal.kind === 'host' && principal.seat === audience));
+        role !== undefined &&
+        seatIsOffered(role) &&
+        ((principal.kind === 'seat' && principal.role === role) ||
+          (principal.kind === 'host' && principal.seat === role));
       if (!holdsSeat) {
         return { ok: false, message: 'Join this meeting with that role first' };
       }

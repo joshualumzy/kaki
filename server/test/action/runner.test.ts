@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionDraft, KakiEvent, Task } from '@kaki/shared';
 import { createActionModule } from '../../src/action/runner';
-import type { Hub } from '../../src/hub';
+import { roleAudience, type Hub } from '../../src/hub';
 import { createTaskStore, type TaskStore } from '../../src/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { waitFor } from '../helpers';
@@ -95,7 +95,7 @@ describe('action runner draft-only guard', () => {
     const task = startTask(tasks);
     const ready = await waitForStatus(tasks, task.id, 'DRAFT_READY');
 
-    tasks.handleCommand({ type: 'APPROVE_ACTION', taskId: ready.id, draft: ready.draft! }, 'chef');
+    tasks.handleCommand({ type: 'APPROVE_ACTION', taskId: ready.id, draft: ready.draft! }, roleAudience('chef'));
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
 
     expect(failed.error).toContain('KAKI_DRAFT_ONLY');
@@ -109,7 +109,7 @@ describe('action runner draft-only guard', () => {
 
     tasks.transition(ready.id, 'RUNNING');
     await waitForStatus(tasks, ready.id, 'FAILED');
-    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: ready.id, draft: ready.draft! }, 'chef');
+    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: ready.id, draft: ready.draft! }, roleAudience('chef'));
     await waitForStatus(tasks, ready.id, 'FAILED');
 
     expect(runSpy).not.toHaveBeenCalled();

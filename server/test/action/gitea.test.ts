@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
 import { createGiteaModule, type GiteaModuleOptions, type GiteaSettings } from '../../src/action/gitea';
-import type { Hub } from '../../src/hub';
+import { roleAudience, type Hub } from '../../src/hub';
 import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
 import { createTaskStore, type TaskStore } from '../../src/tasks';
 import { testScenario } from '../fixtures/scenario';
@@ -168,7 +168,7 @@ describe('gitea action module', () => {
     const failed = await waitForStatus(tasks, task.id, 'FAILED');
     expect(failed.draft).toBeUndefined();
 
-    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: failed.id }, 'chef');
+    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: failed.id }, roleAudience('chef'));
     const ready = await waitForStatus(tasks, failed.id, 'DRAFT_READY');
     expect(ready.draft?.subject).toBe('Fix the oven');
 

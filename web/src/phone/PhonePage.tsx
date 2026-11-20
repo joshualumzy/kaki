@@ -348,7 +348,7 @@ const FACTS_SHOWN = 2;
 
 export function PhoneFeed({ role }: { role: string }) {
   const scenario = useScenario();
-  const { events, tasks, rejection, connected, ended, send } = useKaki(role);
+  const { events, tasks, rejection, connected, ended, send } = useKaki({ kind: 'role', role });
   const stamped = useStampedEvents(events);
 
   if (ended !== undefined) {
@@ -520,14 +520,14 @@ export function ActiveRoleCards({
   sharedAudience?: 'screen' | 'participant';
 }) {
   const scenario = useScenario();
-  const { tasks, rejection, send } = useKaki(role);
+  const { tasks, rejection, send } = useKaki({ kind: 'role', role });
   const activeRef = useRef<HTMLDivElement>(null);
   const expandedRef = useRef<HTMLDivElement>(null);
   const lastScrolledKey = useRef<string>('');
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   // Topic changes and the closing line go to the shared projection, never to a role's private feed.
-  const { events: screenEvents } = useKaki(sharedAudience);
+  const { events: screenEvents } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   let currentAgendaTitle: string | undefined;
   let meetingEnded = false;
   for (const event of screenEvents) {
