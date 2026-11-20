@@ -566,10 +566,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** The safety timeout that releases a Stop the server never confirmed. */
   let stopGateTimer: ReturnType<typeof setTimeout> | undefined;
   /**
-   * A typed line that arrived before the server's resume snapshot: it is answered once the meeting
-   * is running again, and dropped if that never comes or the meeting moves on first.
+   * Typed lines that arrived before the server's resume snapshot: they are answered in the order they
+   * arrived once the meeting is running again, and dropped if that never comes or the meeting moves
+   * on first.
    */
-  let heldTypedLine: { text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> } | undefined;
+  let heldTypedLines: Array<{ text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> }> = [];
   /** The timer that re-reads the server state while a local pause waits for a resume. */
   let resumeBackstop: ReturnType<typeof setInterval> | undefined;
   /**
@@ -852,42 +853,39 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     resumeBackstop = timer;
   }
 
-  /** Forget a held typed line, saying why when it was dropped rather than answered. */
+  /** Forget held typed lines, saying why when they were dropped rather than answered. */
   function dropHeldTypedLine(reason?: string): void {
-    if (heldTypedLine === undefined) return;
-    clearTimeout(heldTypedLine.timer);
-    heldTypedLine = undefined;
+    if (heldTypedLines.length === 0) return;
+    for (const held of heldTypedLines) clearTimeout(held.timer);
+    heldTypedLines = [];
     if (reason !== undefined) log(reason);
   }
 
-  /** Keep the line until the server's next snapshot says the meeting is running again. */
+  /** Keep the lines until the server's next snapshot says the meeting is running again. */
   function holdTypedLine(text: string): void {
-    dropHeldTypedLine('replaced a typed line that was still waiting for the meeting to resume');
     const timeoutMs = options.heldTypedLineTimeoutMs ?? HELD_TYPED_LINE_TIMEOUT_MS;
     const timer = setTimeout(() => {
-      if (heldTypedLine === undefined) return;
-      heldTypedLine = undefined;
+      heldTypedLines = heldTypedLines.filter((held) => held.timer !== timer);
       log(`dropped a typed line: the meeting did not resume within ${timeoutMs} ms`);
     }, timeoutMs);
     timer.unref?.();
-    heldTypedLine = { text, meetingId: meeting.meetingId(), timer };
+    heldTypedLines.push({ text, meetingId: meeting.meetingId(), timer });
     log('holding a typed line until the server says the meeting is running again');
     expectResume('a typed line is waiting for the meeting to resume');
   }
 
-  /** Answer a held line once the meeting is open again, never before. */
+  /** Answer the held lines, in the order they arrived, once the meeting is open again — never before. */
   function flushHeldTypedLine(): void {
-    if (heldTypedLine === undefined || !meetingOpen()) return;
-    const held = heldTypedLine;
-    if (held.meetingId !== meeting.meetingId()) {
+    if (heldTypedLines.length === 0 || !meetingOpen()) return;
+    if (heldTypedLines.some((held) => held.meetingId !== meeting.meetingId())) {
       dropHeldTypedLine('dropped a held typed line: the meeting changed before it resumed');
       return;
     }
-    clearTimeout(held.timer);
-    heldTypedLine = undefined;
+    const held = [...heldTypedLines];
+    dropHeldTypedLine();
     typingUntil = Date.now() + TYPING_QUIET_MS;
-    conversation?.humanTyped(held.text);
-    log('answered the typed line held during the pause');
+    for (const line of held) conversation?.humanTyped(line.text);
+    log(`answered ${held.length} typed line${held.length === 1 ? '' : 's'} held during the pause`);
   }
 
   /** Apply a pause locally, without asking the server. */

@@ -172,8 +172,26 @@ function contentWords(text: string): Set<string> {
   );
 }
 
+/**
+ * What makes a sentence the opposite of another: a negation in one that the other lacks flips its meaning,
+ * so "we meet Tuesday" and "no, not Tuesday" are never the same point.
+ */
+const NEGATION_RE =
+  /\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|won't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't|hasn't|haven't|cancel(?:led|ling)?|instead)\b/i;
+
+function negates(text: string): boolean {
+  return NEGATION_RE.test(text.replace(/[’]/g, "'"));
+}
+
 /** True when `next` restates most of `previous` and adds only a little of its own. */
-function closelyRepeats(next: Set<string>, previous: Set<string>): boolean {
+function closelyRepeats(
+  next: Set<string>,
+  previous: Set<string>,
+  negatedNext: boolean,
+  negatedPrevious: boolean,
+): boolean {
+  // A correction is not a restatement: opposite polarity means the point changed.
+  if (negatedNext !== negatedPrevious) return false;
   if (next.size < 4 || previous.size < 4) return false;
   let common = 0;
   for (const word of next) if (previous.has(word)) common += 1;
@@ -1028,7 +1046,7 @@ export class NpcConversation<Clip> {
       return;
     }
     const item = this.currentItem();
-    if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
+    if (item !== undefined && !this.briefed.has(item.title)) {
       this.pendingBrief = item.title;
       this.prefetchBrief(item.title);
     }
@@ -1625,7 +1643,7 @@ export class NpcConversation<Clip> {
     return this.recentSpoken.find((entry) =>
       ((entry.topic === topic && now - entry.at <= DEFAULT_REPEAT_WINDOW_MS) ||
         (sinceAt !== undefined && entry.at >= sinceAt)) &&
-      closelyRepeats(words, contentWords(entry.text)));
+      closelyRepeats(words, contentWords(entry.text), negates(text), negates(entry.text)));
   }
 
   /** Mirror a topic change into the shadow state without changing what the existing path says. */
@@ -2009,7 +2027,15 @@ export class NpcConversation<Clip> {
 
   /** True when the visitor gave `name` a follow-up in any of their lines on the current topic. */
   askedByGuestOnTopic(name: string): boolean {
-    return (this.guestLinesByTopic.get(this.currentItem()?.title) ?? []).some((text) => assignedByGuest(text, name));
+    const lines = this.guestLinesByTopic.get(this.currentItem()?.title) ?? [];
+    if (lines.some((text) => assignedByGuest(text, name))) return true;
+    // The reader's own judgement also counts: a guest line it read as addressed to `name` AND carrying a
+    // concrete call gave them the follow-up, even when the words match no pattern ("Can Ada share the
+    // decision with the team?"). Merely being addressed is not enough.
+    const view = this.meetingState.view(Date.now());
+    return view.readings.some(({ eventId, reading }) =>
+      reading.addressee === name && reading.readiness.action.covered === true &&
+      view.lines.some((line) => line.eventId === eventId && line.speaker === this.human?.name));
   }
 
   /** Forget a silence nudge that was written but never heard: the visitor's own line is what the room answers now. */
@@ -2591,9 +2617,9 @@ export class NpcConversation<Clip> {
     this.ports.emitState(this.idleState());
     this.decisionWrappedUpOnItem = false;
     const item = this.currentItem();
-    // In a full kopitiam/multi-colleague demo (more than 2 NPCs), let two AI colleagues briefly explain the background
-    // and trade-offs of the item first before asking the visitor for their decision, so the visitor isn't asked cold!
-    if (item !== undefined && this.names.length > 2 && !this.briefed.has(item.title)) {
+    // Let the AI colleagues briefly explain the background and trade-offs of the item first before asking the
+    // visitor for their decision, so the visitor isn't asked cold — in any meeting that has AI colleagues.
+    if (item !== undefined && !this.briefed.has(item.title)) {
       this.askDue = false;
       this.briefLater(item.title);
       return;
@@ -2662,7 +2688,7 @@ export class NpcConversation<Clip> {
    * time the host finishes moving on. This is the same head start topic 1 gets from the long welcome.
    */
   private prefetchUpcomingBrief(): void {
-    if (this.closed || this.paused || this.human === undefined || this.names.length <= 2) return;
+    if (this.closed || this.paused || this.human === undefined) return;
     const next = this.nextAgendaItem();
     if (next === undefined || this.briefed.has(next.title) || this.currentItem()?.title === next.title) return;
     this.startUpcomingOpeningPrefetch(next.title);
@@ -4937,8 +4963,9 @@ export class NpcConversation<Clip> {
       if (isQuestionToVisitor(trimmed, utterance.speaker, this.names, this.human?.name) &&
           (this.askedGuestInRound || turn.enqueued.some((line) =>
             isQuestionToVisitor(line.text, line.speaker, this.names, this.human?.name)))) {
-        this.ports.log?.(`[question] ${utterance.speaker}: dropped a second question to the visitor this round: "${trimmed}"`);
-        return;
+        // The prompt already asks for a question only when it is really needed, so this is a backstop:
+        // warn rather than drop the colleague's question and leave their line half-said.
+        this.ports.log?.(`[question] ${utterance.speaker}: a second question to the visitor this round: "${trimmed}"`);
       }
       if (aiHost !== undefined && utterance.speaker === aiHost && LOCK_ASK_RE.test(trimmed) &&
           Date.now() - this.lastLockAskAt < DEFAULT_REPEAT_WINDOW_MS) {
@@ -5255,9 +5282,9 @@ export class NpcConversation<Clip> {
           continue;
         }
         if (isQuestionToVisitor(utterance.text, utterance.speaker, this.names, this.human?.name) && this.askedGuestInRound) {
-          this.ports.log?.(`[question] ${utterance.speaker}: dropped a queued second question to the visitor this round: "${utterance.text}"`);
-          pending = undefined;
-          continue;
+          // The prompt already asks for a question only when it is really needed, so this is a backstop:
+          // warn rather than drop the colleague's question and leave their line half-said.
+          this.ports.log?.(`[question] ${utterance.speaker}: a second question to the visitor this round: "${utterance.text}"`);
         }
       }
       const textOnly = audio === undefined;

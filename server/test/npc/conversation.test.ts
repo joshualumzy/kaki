@@ -1474,3 +1474,161 @@ describe('one-speaker replies to the guest', () => {
   });
 
 });
+
+describe('robustness with real people', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  type H = ReturnType<typeof harness>;
+
+  async function waitForCall(h: H, index: number): Promise<LlmCall> {
+    for (let i = 0; i < 80 && h.calls.length <= index; i += 1) await h.flush();
+    if (h.calls.length <= index) throw new Error(`expected call ${index}, got ${h.calls.length}`);
+    return h.calls[index]!;
+  }
+
+  async function finishPlaying(h: H): Promise<void> {
+    for (let i = 0; i < 80; i += 1) {
+      await h.flush();
+      const next = h.playing.find((entry) => !entry.finished);
+      if (next === undefined) return;
+      next.finish();
+      await h.flush();
+    }
+    throw new Error('playback did not finish');
+  }
+
+  it('lets a colleague accept a share the visitor gave them in plain words', async () => {
+    const assigned = {
+      kind: 'idea' as const,
+      addressee: 'Bao',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: {
+        action: { covered: true, evidence: 'Bao shares the decision with the team' },
+        catchAddressed: { covered: false },
+        practical: { covered: false },
+      },
+    };
+    const h = harness(scenario, 0, () => assigned);
+    await h.say('I want Bao to share the decision with the team.');
+    const call = await waitForCall(h, 0);
+    call.push('Bao: Of course, I will share the decision with the team.');
+    call.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Bao', 'Of course, I will share the decision with the team.']);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('dropped a sentence that gives the visitor\'s follow-up'));
+    h.conversation.close();
+  });
+
+  it('keeps a second AI question to the visitor who has gone quiet, and says so loudly', async () => {
+    const h = harness(scenario, 0, undefined, { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    await h.say('We should close the counter early on Monday.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: Closing early saves the overtime budget. Josh, can you cover the late deliveries?');
+    first.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, can you cover the late deliveries?']);
+
+    // The visitor goes quiet: the check-in asks again, then a colleague asks their own question.
+    for (let i = 0; i < 200 && h.calls.length < 2; i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    const checkIn = await waitForCall(h, 1);
+    checkIn.push('Ada: Josh, are you still with me? What should we do about the counter?');
+    checkIn.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Ada', 'Josh, are you still with me?']);
+    expect(h.transcript).toContainEqual(['Ada', 'What should we do about the counter?']);
+
+    for (let i = 0; i < 200 && h.calls.length < 3; i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    const colleague = await waitForCall(h, 2);
+    colleague.push('Bao: The supplier arrives at nine. Josh, can you manage the queue?');
+    colleague.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Bao', 'Josh, can you manage the queue?']);
+    expect(h.logs).toContainEqual(expect.stringContaining('a second question to the visitor this round'));
+    h.conversation.close();
+  });
+
+  it('lets a colleague correct the plan although it overlaps the earlier line', async () => {
+    const h = harness(scenario, 0, undefined, { silencePromptMs: 5, silenceNudgeLeadMs: 0, topicTimeBudgetMs: 600_000 });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    await h.say('We are closing the counter early on Monday.');
+    const first = await waitForCall(h, 0);
+    first.push('Ada: That works for me. Josh, can you cover the deliveries?');
+    first.end();
+    await h.flush();
+    await finishPlaying(h);
+
+    for (let i = 0; i < 200 && h.calls.length < 2; i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    const checkIn = await waitForCall(h, 1);
+    checkIn.push('Ada: Josh, are you still with me? We are closing the counter early on Monday then.');
+    checkIn.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Ada', 'We are closing the counter early on Monday then.']);
+
+    for (let i = 0; i < 200 && h.calls.length < 3; i += 1) {
+      await vi.advanceTimersByTimeAsync(5);
+      await finishPlaying(h);
+    }
+    // Bao's correction shares the check-in's words but flips their meaning, so it is not a repeat.
+    const colleague = await waitForCall(h, 2);
+    colleague.push('Bao: We are not closing the counter early on Monday without more staff, Josh.');
+    colleague.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Bao', 'We are not closing the counter early on Monday without more staff, Josh.']);
+    h.conversation.close();
+  });
+
+  it('briefs the item before asking the guest even with only two AI attendees', async () => {
+    const twoAis = {
+      ...scenario,
+      roles: [...scenario.roles, { id: 'host', label: 'Host' }],
+      attendees: [...scenario.attendees, { name: 'Sam', role: 'host', zoomDisplayName: 'Sam (Host)' }],
+      npcs: [
+        { attendee: 'Sam', voice: 'v0', role: 'host' as const, personality: 'Calm', agenda: 'Keep time', concerns: [] },
+        { attendee: 'Bao', voice: 'v2', personality: 'Chatty cashier', agenda: 'Fix queues', concerns: ['Lines'] },
+      ],
+      agenda: [{
+        title: 'Prep',
+        minutes: 5,
+        canWait: false,
+        deadline: 'before service',
+        ownerRole: 'chef',
+        decision: 'how do we cover prep?',
+        briefing: [
+          { text: 'The till needs a new login before opening.', knownBy: [{ attendee: 'Bao', why: 'you run the tills' }] },
+        ],
+      }],
+    };
+    const h = harness(twoAis, 0);
+    h.conversation.agendaMoved('Prep');
+    await vi.advanceTimersByTimeAsync(2000);
+    const first = await waitForCall(h, 0);
+    const request = String(first.messages.map((message) => message.content).join('\n'));
+    expect(request).toContain('You are Bao');
+    expect(request).toContain('Tell only this');
+    first.push('Bao: The till needs a new login before opening.');
+    first.end();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript).toContainEqual(['Bao', 'The till needs a new login before opening.']);
+    h.conversation.close();
+  });
+});

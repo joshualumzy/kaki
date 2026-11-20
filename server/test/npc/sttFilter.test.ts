@@ -16,6 +16,19 @@ describe('keepRecognised', () => {
     expect(keepRecognised('can you fix the crash before friday please', 0.3)).toBe(true);
     expect(keepRecognised('Dislocation.', undefined)).toBe(true);
   });
+  it('keeps a short commitment that scored moderately instead of dropping it', () => {
+    expect(keepRecognised("I'll do it.", 0.4)).toBe(true);
+    expect(keepRecognised('Will do.', 0.45)).toBe(true);
+    expect(keepRecognised('Got it.', 0.42)).toBe(true);
+    expect(keepRecognised('On it.', 0.45)).toBe(true);
+    expect(keepRecognised('Count me in.', 0.4)).toBe(true);
+    expect(keepRecognised('Leave it with me.', 0.42)).toBe(true);
+  });
+  it('still drops short noise that is not a commitment', () => {
+    expect(keepRecognised('Dislocation.', 0.31)).toBe(false);
+    expect(keepRecognised('You know.', 0.42)).toBe(false);
+    expect(keepRecognised('Will do.', 0.2)).toBe(false);
+  });
 });
 
 describe('confidenceFrom', () => {

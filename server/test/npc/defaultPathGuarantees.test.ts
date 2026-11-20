@@ -846,6 +846,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.announce('Sam', 'Morning. Ready when you are.');
       await h.flushTimes(5);
       expect(h.playing).toHaveLength(1);
+      const callsBefore = h.calls.length;
 
       h.conversation.humanSpeech(true);
       await vi.advanceTimersByTimeAsync(500);
@@ -853,7 +854,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.humanNothing();
       await vi.advanceTimersByTimeAsync(3_000);
       expect(h.playing[0]?.signal.aborted).toBe(false);
-      expect(h.calls).toHaveLength(0);
+      expect(h.calls).toHaveLength(callsBefore);
 
       h.conversation.humanSpeech(true);
       await vi.advanceTimersByTimeAsync(1_000);
@@ -888,10 +889,11 @@ describe('default-path guarantees ported from the legacy tests', () => {
       const h = harness({ scenarioUsed: twoNpcScenario, optionOverrides: { askDelayMs: 600_000 } });
       h.conversation.announce('Sam', 'The build is red and we have a crash on Android.');
       await h.flushTimes(5);
+      const callsBefore = h.calls.length;
       h.conversation.humanText('the build is red and we have a crash on Android');
       await vi.advanceTimersByTimeAsync(2_000);
       expect(h.playing[0]?.signal.aborted).toBe(false);
-      expect(h.calls).toHaveLength(0);
+      expect(h.calls).toHaveLength(callsBefore);
       expect(h.logs.some((line) => line.includes('echo'))).toBe(true);
       h.conversation.close();
     });

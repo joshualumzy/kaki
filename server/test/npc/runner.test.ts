@@ -1506,8 +1506,74 @@ describe('meeting sync with the real runner', () => {
     }
   });
 
-  it('drops a typed line the server never resumes in time', async () => {
+  it('holds every typed line during a pause and answers them in order after the resume', async () => {
     rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const stream = vi.fn(async function* () {});
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream,
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+          }),
+        ),
+      ).toBe(true);
+      for (const text of ['First please', 'Second please']) {
+        rooms[0]!.emit(
+          'dataReceived',
+          new TextEncoder().encode(JSON.stringify({ kind: 'text', text })),
+          participant,
+          undefined,
+          CONTROL_TOPIC,
+        );
+      }
+      await vi.waitFor(() => expect(log.filter((line) => line.includes('holding a typed line'))).toHaveLength(2));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(transcript).not.toContain('First please');
+      expect(transcript).not.toContain('Second please');
+
+      const callsBefore = stream.mock.calls.length;
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
+          }),
+        ),
+      ).toBe(true);
+      await vi.waitFor(() => expect(log.some((line) => line.includes('answered 2 typed lines held during the pause'))).toBe(true));
+      await vi.waitFor(() => expect(stream.mock.calls.length).toBeGreaterThan(callsBefore));
+      const contents = stream.mock.calls
+        .slice(callsBefore)
+        .map((call) => ((call as unknown as [Array<{ content: string }>])[0] ?? [])
+          .map((message) => message.content).join('\n'))
+        .join('\n');
+      expect(contents).toContain('First please');
+      expect(contents.indexOf('First please')).toBeLessThan(contents.indexOf('Second please'));
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('drops a typed line the server never resumes in time', async () => {    rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
     const log: string[] = [];

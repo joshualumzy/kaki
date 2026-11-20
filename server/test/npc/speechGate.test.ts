@@ -13,12 +13,34 @@ describe('SpeechGate', () => {
     expect(gate.check('hello there')).toEqual({ ok: true });
   });
 
-  it('rejects the AI echoing back, even when the voice check would pass', () => {
-    const { gate } = setup();
+  it('rejects the AI echoing back while it talks and the person\'s microphone is quiet', () => {
+    const { gate, advance } = setup();
     gate.aiSaid('The game crashes after ten customers in a row.');
-    gate.setHumanTalking(true);
+    gate.setAiAudible(true);
+    advance(500);
     expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: false, reason: 'echo' });
     expect(gate.check('Game crashes after ten customers')).toEqual({ ok: false, reason: 'echo' });
+  });
+
+  it('lets a person repeat the AI\'s wording when their own voice is behind it', () => {
+    const { gate, advance } = setup();
+    gate.aiSaid('The game crashes after ten customers in a row.');
+    gate.setAiAudible(true);
+    advance(500);
+    gate.setHumanTalking(true);
+    expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: true });
+    gate.setHumanTalking(false);
+    advance(1000);
+    expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: true });
+  });
+
+  it('lets a person repeat the AI\'s wording once the AI has been quiet past the tail', () => {
+    const { gate, advance } = setup();
+    gate.aiSaid('So we are meeting Tuesday morning then.');
+    gate.setAiAudible(true);
+    gate.setAiAudible(false);
+    advance(3000);
+    expect(gate.check('so we are meeting Tuesday morning then')).toEqual({ ok: true });
   });
 
   it('does not mistake a short reply for echo', () => {
@@ -96,9 +118,12 @@ describe('SpeechGate', () => {
       });
     });
 
-    it('also keeps words the person said first', () => {
-      const { gate } = setup();
+    it('also keeps words the person said first, talking over the AI', () => {
+      const { gate, advance } = setup();
       gate.aiSaid(said);
+      gate.setAiAudible(true);
+      advance(500);
+      gate.setHumanTalking(true);
       expect(gate.check('wait stop they are quitting because they cannot afford stall upgrades')).toMatchObject({
         ok: true,
         text: 'wait stop',
@@ -116,8 +141,10 @@ describe('SpeechGate', () => {
     });
 
     it('does not take one or two stray mis-heard words in the middle of the echo for the person', () => {
-      const { gate } = setup();
+      const { gate, advance } = setup();
       gate.aiSaid(said);
+      gate.setAiAudible(true);
+      advance(500);
       expect(gate.check('they are quitting because they cannot afford stall up grades and it feels unfair')).toEqual({
         ok: false,
         reason: 'echo',
