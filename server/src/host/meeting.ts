@@ -4,6 +4,7 @@ import type { LlmClient } from '../llm';
 import type { KakiContext, KakiModule } from '../modules';
 import { createAgendaClock, type AgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
+import { hostIsHumanFromSession } from '../runnerState';
 import { createNotetaker, hasTaskAssignment } from './notetaker';
 import { cleanSpokenTopic, openingLine, spokenAgendaName } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
@@ -116,7 +117,10 @@ export function createMeetingModule({
       // On by default: Sam dispatches and the recipient accepts or declines. KAKI_AUTO_DISPATCH=0 leaves it to a person on /screen.
       const stopAutoDispatch =
         process.env.KAKI_AUTO_DISPATCH === '0' ? undefined : installAutoDispatch({ hub, tasks, scenario: activeScenario,
-          hostIsHuman: () => humanHost, holdUntilSettled: replay === undefined && (activeScenario().npcs?.length ?? 0) > 0 });
+          hostIsHuman: session === undefined
+            ? () => humanHost
+            : () => hostIsHumanFromSession(session, activeScenario()),
+          holdUntilSettled: replay === undefined && (activeScenario().npcs?.length ?? 0) > 0 });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;
@@ -372,10 +376,13 @@ export function createMeetingModule({
           return;
         }
         if (command.type === 'SET_HOST_MODE') {
-          humanHost = command.human;
+          // The server derives host mode from the seat holders in the roster; this report is
+          // accepted for older runners but never overrides that value.
           return;
         }
         if (command.type === 'SET_PAUSED') {
+          // The agenda clock is the one owner of the meeting's paused flag. The runner reports the
+          // person's local pause/resume here and adopts the snapshot back after a reconnect.
           if (command.paused) clock.pause();
           else clock.resume();
           lastSignature = undefined;

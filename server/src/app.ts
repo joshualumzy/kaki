@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -33,6 +33,7 @@ import {
   type MeetingCodeSource,
 } from './meetingCode';
 import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type Admission, type RejoinGuard } from './rejoin';
+import { buildRunnerMeetingSnapshot } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
 import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, createSeatReservations, JoinError, livekitPublicUrl, livekitRoster, type RoomRoster, type SeatReservations } from './livekit';
@@ -65,6 +66,8 @@ export interface CreateAppOptions {
   meetingElapsedSeconds?: () => number | undefined;
   /** The live agenda item, for a reconnecting runner; omit when unknown. */
   meetingAgendaIndex?: () => number | undefined;
+  /** Whether the server-owned agenda clock is paused, for the runner snapshot. */
+  meetingPaused?: () => boolean | undefined;
   /** Keeps the meeting, notetaker and tasks across a restart; absent means memory only. */
   persistence?: MeetingPersistence;
   /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
@@ -138,6 +141,10 @@ interface RequestContext {
   meetingElapsedSeconds?: () => number | undefined;
   /** The live agenda item, for a reconnecting runner. */
   meetingAgendaIndex?: () => number | undefined;
+  /** Whether the server-owned agenda clock is paused, for the runner snapshot. */
+  meetingPaused?: () => boolean | undefined;
+  /** Rebuild and publish the runner snapshot after a change no hub event announces (a seat holder). */
+  runnerStateChanged(): RunnerMeetingSnapshot;
   /**
    * The scenario people see, plus the one admission resolves seats against. A returning seat holder
    * inside the grace of a running meeting is judged against its sealed setup; every other arrival
@@ -611,6 +618,7 @@ async function handleRequest(
           }
           context.reservations.add({ participantName, seatId });
           context.session.addHolder({ name: participantName, seat: seatId });
+          context.runnerStateChanged();
           if (roomEmpty) context.rejoin.joined();
           else context.rejoin.occupied();
           // Seat holders are part of the meeting: save them so a restart recognises the same people.
@@ -640,15 +648,15 @@ async function handleRequest(
       return;
     }
 
-    // Browsers only need the lifecycle marker; the runner also needs timing and agenda detail.
+    // Browsers only need the lifecycle marker; the runner gets the one full meeting snapshot.
     if (request.method === 'GET' && (path === '/api/meeting/state' || path === '/api/runner/meeting-state')) {
-      const serviceView = path === '/api/runner/meeting-state';
-      const agendaIndex = context.meetingAgendaIndex?.();
+      if (path === '/api/runner/meeting-state') {
+        sendJson(response, 200, context.runnerStateChanged());
+        return;
+      }
       sendJson(response, 200, {
         meetingId: context.meeting.id,
         started: context.session.phase() === 'running',
-        ...(serviceView && context.session.startedAt() !== undefined ? { startedAt: context.session.startedAt() } : {}),
-        ...(serviceView && agendaIndex !== undefined ? { agendaIndex } : {}),
       });
       return;
     }
@@ -881,6 +889,7 @@ async function handleRequest(
       }
       // An ended meeting keeps its seal for saving; this edit is the next meeting's draft.
       context.session.setDraft(parsed.value);
+      context.runnerStateChanged();
       context.scheduleSave();
       sendJson(response, 200, { setup: parsed.value, started: false });
       return;
@@ -1181,6 +1190,7 @@ export async function createApp({
   draftOnly = false,
   meetingElapsedSeconds,
   meetingAgendaIndex,
+  meetingPaused,
   persistence,
   rejoinGraceMs,
   rejoinPollMs,
@@ -1358,7 +1368,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, seating, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -1538,6 +1548,47 @@ export async function createApp({
   // The task store belongs to the meeting, so a reset forgets its cards too. The session clears
   // every retained key (including 'task:') after these hooks run.
   session.onReset(() => tasks.reset());
+
+  // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
+  // Its version moves only when a field a runner can see changes, so a reconnect can fence old reads.
+  // Seeded from the wall clock so a restarted server still publishes a version a runner considers newer.
+  let runnerStateVersion = 0;
+  let runnerStateSignature: string | undefined;
+  function nextRunnerStateVersion(): number {
+    runnerStateVersion = Math.max(Date.now(), runnerStateVersion + 1);
+    return runnerStateVersion;
+  }
+  function publishRunnerState(): RunnerMeetingSnapshot {
+    const state = buildRunnerMeetingSnapshot({
+      meetingId: meeting.id,
+      session,
+      fullScenario,
+      agendaIndex: meetingAgendaIndex?.(),
+      paused: meetingPaused?.(),
+    });
+    const { version: _unversioned, ...fields } = state;
+    const signature = JSON.stringify(fields);
+    if (signature !== runnerStateSignature) {
+      runnerStateSignature = signature;
+      state.version = nextRunnerStateVersion();
+      hub.publish(
+        { type: 'RUNNER_STATE', audience: { kind: 'service' }, payload: state },
+        { retainKey: 'runner:state' },
+      );
+    }
+    return { ...state, version: runnerStateVersion };
+  }
+  // Start, agenda moves and pause/resume all surface as these events; a seat change is published
+  // by whoever changes the roster, because it has no event of its own.
+  hub.subscribe((event) => {
+    if (
+      event.type === 'MEETING_STARTED' ||
+      event.type === 'MEETING_RESET' ||
+      event.type === 'MEETING_RECORD_UPDATED'
+    ) {
+      publishRunnerState();
+    }
+  });
   // The grace ending is not proof the room is empty: a still-connected holder must survive. Only a
   // roster read that succeeds, shows no person and no live reservation may prune and abandon.
   let rosterOutageLogged = false;
@@ -1564,6 +1615,7 @@ export async function createApp({
         // A token was just issued but LiveKit has not shown the person yet: keep their seat.
         if (reservations.active(roster.map((person) => person.name)).length > 0) return;
         session.pruneHolders();
+        publishRunnerState();
         if (session.phase() === 'running') session.abandon();
         persistence?.scheduleSave();
       })
@@ -2065,6 +2117,8 @@ export async function createApp({
       { retainKey: 'meeting:started' },
     );
   }
+  // Keep the runner snapshot available to a runner that starts after the server (and before Start).
+  publishRunnerState();
 
   let closed = false;
 

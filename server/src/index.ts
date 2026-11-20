@@ -44,6 +44,7 @@ try {
     draftOnly: process.env.KAKI_DRAFT_ONLY === '1',
     meetingElapsedSeconds: host.meetingElapsedSeconds,
     meetingAgendaIndex: host.meetingAgendaIndex,
+    meetingPaused: host.meetingPaused,
     persistence,
     meetingCode,
   });

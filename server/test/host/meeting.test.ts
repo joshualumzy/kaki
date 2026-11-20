@@ -307,20 +307,31 @@ describe('host meeting module', () => {
       expect(fresh.payload.agendaIndex).toBe(0);
     });
 
-    it('stops dispatching tasks by itself while the screen says a person hosts, and refuses a phone saying so', async () => {
-      app = await createTestApp({ modules: [createMeetingModule()] });
+    it('stops dispatching tasks by itself while a person holds the host seat, and refuses a phone saying so', async () => {
+      const hosted = {
+        ...testScenario,
+        roles: [...testScenario.roles, { id: 'host', label: 'Host', facilitator: true }],
+        attendees: [
+          ...testScenario.attendees,
+          { name: 'Mia', role: 'host', zoomDisplayName: 'Mia (Host)' },
+        ],
+      };
+      app = await createApp({ scenario: hosted, modules: [createMeetingModule()] });
       const screen = await connect('screen');
       const phone = await connect(testScenario.roles[0]!.id);
 
+      // The command is still accepted from the screen but no longer owns host mode.
       phone.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
       await waitFor(() => phone.messages.find((e) => e.type === 'COMMAND_REJECTED'), 'a rejection for the phone');
-
       screen.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: true }));
+      await settle(30);
+
+      app.session.addHolder({ name: 'Mia', seat: 'host' });
       await settle(100);
       const held = app.tasks.suggest({ title: 'Fix the oven', context: 'x', suggestedAssignee: 'chef' });
       expect(app.tasks.get(held.id)?.status).toBe('SUGGESTED');
 
-      screen.ws.send(JSON.stringify({ type: 'SET_HOST_MODE', human: false }));
+      app.session.pruneHolders();
       await settle(100);
       const sent = app.tasks.suggest({ title: 'Clean the grill', context: 'x', suggestedAssignee: 'chef' });
       expect(app.tasks.get(sent.id)?.status).toBe('DISPATCHED');

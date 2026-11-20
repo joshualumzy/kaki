@@ -5,6 +5,7 @@ import { WebSocket } from 'ws';
 import {
   createServiceChannel,
   createServiceDispatch,
+  isReplayedCue,
   reconnectDelayMs,
 } from '../../src/npc/serviceChannel';
 
@@ -52,6 +53,35 @@ class FakeServiceSocket {
     for (const listener of this.listeners.get(event) ?? []) listener(...args);
   }
 }
+
+describe('replayed retained cues', () => {
+  it('drops a retained host cue but dispatches a real one right after it', () => {
+    const seen: string[] = [];
+    const handle = createServiceDispatch({
+      dispatch: (event) => seen.push((event as { payload: { text: string } }).payload.text),
+      logError: () => undefined,
+      ignore: isReplayedCue,
+    });
+
+    handle(
+      JSON.stringify({
+        type: 'HOST_SPEECH_TRIGGERED',
+        audience: { kind: 'screen' },
+        payload: { kind: 'OPENING', text: 'An old welcome' },
+        replayed: true,
+      }),
+    );
+    handle(
+      JSON.stringify({
+        type: 'HOST_SPEECH_TRIGGERED',
+        audience: { kind: 'screen' },
+        payload: { kind: 'OPENING', text: 'A live welcome' },
+      }),
+    );
+
+    expect(seen).toEqual(['A live welcome']);
+  });
+});
 
 describe('the service-channel dispatch', () => {
   it('logs a throwing handler with the event type and keeps dispatching later messages', () => {

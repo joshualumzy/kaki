@@ -1,10 +1,11 @@
-import { CONTROL_TOPIC, parseScenario, roleForZoomName, setMeetingAgenda, STT_TOPIC, type Scenario } from '@kaki/shared';
+import { CONTROL_TOPIC, roleForZoomName, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
 import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
-import { startNpcRunner, visitorDispatchLine, type RunnerMeetingState } from '../../src/npc/runner';
+import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
+import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void; connected?: boolean }>);
 const published = vi.hoisted(() => [] as Array<{ topic?: string; message: unknown }>);
@@ -176,60 +177,6 @@ describe('startNpcRunner visitor transcript identity', () => {
   });
 });
 
-describe('scenario refresh failure', () => {
-  it.each([
-    ['fetch', async () => { throw new Error('offline'); }, 'offline'],
-    ['parse', async () => parseScenario({ agenda: [] }), 'Invalid scenario'],
-    ['empty result', async () => undefined, 'no usable scenario returned'],
-  ])('logs the %s reason and keeps the current agenda', async (_kind, fetchScenario, reason) => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const original = scenario.agenda.map((item) => item.title);
-    const lines: string[] = [];
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: () => undefined,
-      fetchScenario,
-      log: (line) => lines.push(line),
-      responseDelayMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Visitor', metadata: 'producer' });
-      await vi.waitFor(() => expect(lines.some((line) => line.includes(reason))).toBe(true));
-      expect(lines.some((line) => line.includes('keeping current agenda as last resort'))).toBe(true);
-      expect(scenario.agenda.map((item) => item.title)).toEqual(original);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('updates the shared agenda and references after a successful refresh', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const latest = { ...scenario, agenda: [...scenario.agenda] };
-    setMeetingAgenda(latest, scenario, scenario.agenda.slice(0, 2));
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: () => undefined,
-      fetchScenario: async () => latest,
-      responseDelayMs: 0,
-    });
-    try {
-      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Visitor', metadata: 'producer' });
-      await vi.waitFor(() => expect(scenario.agenda).toHaveLength(2));
-      expect(parseScenario(JSON.parse(JSON.stringify(scenario)) as unknown).agenda).toHaveLength(2);
-    } finally {
-      await runner.stop();
-    }
-  });
-});
-
 describe('server-owned start preparation', () => {
   it('initializes the cast for a Start without speaking, so a timed-out Start never opens', async () => {
     rooms.length = 0;
@@ -272,30 +219,43 @@ describe('server-owned start preparation', () => {
     }
   });
 
-  it('fetches the authoritative cast before computing who to connect during prepare', async () => {
+  it('takes the cast from the snapshot it is prepared with, before deciding who to connect', async () => {
     rooms.length = 0;
     tokens.length = 0;
     const scenario = await loadScenario('kopitiam');
-    const pack = structuredClone(scenario);
-    let latest: Scenario = { ...pack, npcs: (pack.npcs ?? []).filter((npc) => npc.role === 'host') };
+    const hostOnly = (scenario.npcs ?? []).filter((npc) => npc.role === 'host');
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: () => undefined,
-      fetchScenario: async () => latest,
       responseDelayMs: 0,
     });
     try {
       const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', participant);
-      await vi.waitFor(() => expect(tokens).toContain('Sam'));
-      expect(tokens).not.toContain('Arjun');
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      tokens.length = 0;
 
-      // The cast changes only now; preparation must fetch it before deciding who joins.
-      latest = { ...pack, agenda: pack.agenda.slice(0, 2) };
-      await runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' });
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-1',
+        snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', cast: hostOnly, agenda: scenario.agenda.slice(0, 2) }),
+      });
+      expect(tokens).not.toContain('Arjun');
+      expect(runner.plays('Arjun')).toBe(false);
+
+      // A newer snapshot with the full cast is adopted before the next preparation connects anyone.
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-2',
+        snapshot: runnerSnapshot(scenario, {
+          meetingId: 'meeting-1',
+          agenda: scenario.agenda.slice(0, 2),
+          version: 2,
+        }),
+      });
       expect(tokens).toContain('Arjun');
       expect(tokens).toContain('Mei');
       expect(runner.plays('Arjun')).toBe(true);
@@ -304,35 +264,11 @@ describe('server-owned start preparation', () => {
     }
   });
 
-  it('rejects preparation when the scenario cannot be fetched', async () => {
-    rooms.length = 0;
-    const scenario = await loadScenario('kopitiam');
-    const runner = await startNpcRunner({
-      scenario,
-      livekitUrl: 'ws://offline.invalid',
-      stream: async function* () {},
-      synthesize: async () => new Int16Array(),
-      postTranscript: () => undefined,
-      fetchScenario: async () => {
-        throw new Error('offline');
-      },
-      responseDelayMs: 0,
-    });
-    try {
-      await expect(
-        runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' }),
-      ).rejects.toThrow(/scenario could not be fetched: offline/);
-    } finally {
-      await runner.stop();
-    }
-  });
-
-  it('never hands the opening to a character outside the active cast', async () => {
+  it('never hands the opening to a character outside the snapshot cast', async () => {
     rooms.length = 0;
     published.length = 0;
     const scenario = await loadScenario('kopitiam');
-    const pack = structuredClone(scenario);
-    const latest = { ...pack, npcs: (pack.npcs ?? []).filter((npc) => npc.attendee !== 'Mei') };
+    const withoutMei = (scenario.npcs ?? []).filter((npc) => npc.attendee !== 'Mei');
     const transcript: string[] = [];
     const runner = await startNpcRunner({
       scenario,
@@ -340,12 +276,16 @@ describe('server-owned start preparation', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      fetchScenario: async () => latest,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
     });
     try {
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-1',
+        snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', cast: withoutMei }),
+      });
       rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted({ meetingId: 'meeting-1' });
@@ -363,14 +303,12 @@ describe('server-owned start preparation', () => {
     tokens.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
-    let latest: Scenario = scenario;
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      fetchScenario: async () => latest,
       responseDelayMs: 0,
     });
     try {
@@ -381,9 +319,12 @@ describe('server-owned start preparation', () => {
       expect(voices.length).toBeGreaterThan(0);
       expect(voices.every((room) => room.connected === true)).toBe(true);
 
-      latest = { ...scenario, npcs: [] };
       await expect(
-        runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' }),
+        runner.prepareMeeting({
+          meetingId: 'meeting-1',
+          attempt: 'attempt-1',
+          snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', cast: [], version: 2 }),
+        }),
       ).resolves.toBeUndefined();
       expect(runner.plays('Arjun')).toBe(false);
       await vi.waitFor(() => expect(voices.every((room) => room.connected === false)).toBe(true));
@@ -455,7 +396,7 @@ describe('server-owned start preparation', () => {
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
 
       // The service socket was down for the reset; its reconnect fetch shows a different meeting.
-      runner.reconcileMeeting({ meetingId: 'meeting-2', started: false });
+      runner.reconcileMeeting(runnerSnapshot(scenario, { meetingId: 'meeting-2' }));
       expect(runner.meetingId()).toBe('meeting-2');
       await expect(runner.markStarted({ meetingId: 'meeting-1' })).rejects.toThrow(/this runner is on meeting-2/);
 
@@ -597,7 +538,7 @@ describe('startNpcRunner serialized start', () => {
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      fetchScenario: async () => ({ ...scenario, agenda: restoredOrder }),
+      initialMeeting: runnerSnapshot(scenario, { agenda: restoredOrder }),
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -611,6 +552,81 @@ describe('startNpcRunner serialized start', () => {
       await vi.waitFor(() => expect(runner.onCurrentAgenda(restoredOrder[1]!.title)).toBe(true));
       expect(runner.onCurrentAgenda(restoredOrder[0]!.title)).toBe(false);
       expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('boot from a server snapshot', () => {
+  it('opens a meeting it booted from even when the same snapshot arrives on reconnect', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const state = runnerSnapshot(scenario, {
+      meetingId: 'meeting-1',
+      phase: 'running',
+      started: true,
+      version: 5,
+    });
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      initialMeeting: state,
+      responseDelayMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      runner.reconcileMeeting(state);
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
+      expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(false);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('reconnect catch-up', () => {
+  it('adopts a higher agenda index once, without announcing an old cue', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Daniel', metadata: 'producer' });
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
+      const before = transcript.length;
+
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1',
+          phase: 'running',
+          started: true,
+          agendaIndex: 1,
+          version: 2,
+        }),
+      );
+
+      expect(runner.onCurrentAgenda(scenario.agenda[1]!.title)).toBe(true);
+      expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(transcript.length).toBe(before);
+      expect(transcript.some((line) => line.startsWith('Next up'))).toBe(false);
     } finally {
       await runner.stop();
     }
@@ -647,7 +663,7 @@ describe('meeting sync with the real runner', () => {
       try {
         // The retained MEETING_STARTED was lost with the socket; HTTP hydration arrives first and
         // must still open this prepared meeting as a fresh start, welcome included.
-        const state: RunnerMeetingState = { meetingId: 'meeting-1', started: true, agendaIndex: 0 };
+        const state = runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true });
         const sync = createMeetingSync({ runner, fetchState: async () => state, log: () => undefined });
 
         sync.connected();
@@ -675,7 +691,7 @@ describe('meeting sync with the real runner', () => {
     const { runner, scenario } = await openRunner(transcript);
     try {
       await runner.prepareMeeting({ meetingId: 'meeting-1', attempt: 'attempt-1' });
-      const state: RunnerMeetingState = { meetingId: 'meeting-1', started: true, agendaIndex: 0 };
+      const state = runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true });
       const sync = createMeetingSync({ runner, fetchState: async () => state, log: () => undefined });
 
       sync.started({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false });

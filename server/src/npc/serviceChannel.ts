@@ -18,10 +18,19 @@ function statusFromMessage(message: string): number | undefined {
   return match === null ? undefined : Number(match[1]);
 }
 
+/** A retained event carries `replayed: true`; an old host cue must never be spoken again. */
+export function isReplayedCue(event: unknown): boolean {
+  if (typeof event !== 'object' || event === null) return false;
+  const candidate = event as { type?: unknown; replayed?: unknown };
+  return candidate.replayed === true && candidate.type === 'HOST_SPEECH_TRIGGERED';
+}
+
 export interface ServiceDispatchOptions {
   dispatch(event: unknown): void;
   logError(message: string): void;
   describe?(event: unknown): string;
+  /** Drop an event before dispatch (for example a retained cue that is history, not news). */
+  ignore?(event: unknown): boolean;
 }
 
 /**
@@ -33,6 +42,7 @@ export function createServiceDispatch({
   dispatch,
   logError,
   describe = describeEvent,
+  ignore,
 }: ServiceDispatchOptions): (raw: unknown) => void {
   return (raw) => {
     const text = typeof raw === 'string' ? raw : String(raw);
@@ -44,6 +54,7 @@ export function createServiceDispatch({
       logError(`ignored a service message that was not JSON: ${preview === '' ? '(empty)' : preview}`);
       return;
     }
+    if (ignore?.(event) === true) return;
     try {
       dispatch(event);
     } catch (error) {

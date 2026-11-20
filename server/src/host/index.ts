@@ -20,6 +20,8 @@ export interface HostModules {
   meetingElapsedSeconds: () => number | undefined;
   /** The agenda item the meeting is on, or undefined before it starts. */
   meetingAgendaIndex: () => number | undefined;
+  /** Whether the agenda clock is paused, or undefined before the meeting starts. */
+  meetingPaused: () => boolean | undefined;
 }
 
 /** Build the modules the Host team plugs into the meeting server for one scenario. */
@@ -45,6 +47,10 @@ export function createHostModules(scenario: Scenario): HostModules {
     meetingAgendaIndex: () => {
       const snapshot = clock.snapshot();
       return snapshot.started ? snapshot.agendaIndex : undefined;
+    },
+    meetingPaused: () => {
+      const snapshot = clock.snapshot();
+      return snapshot.started ? snapshot.paused === true : undefined;
     },
   };
 }

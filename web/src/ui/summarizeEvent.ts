@@ -33,6 +33,8 @@ export function summarizeEvent(event: KakiEvent): string {
       return 'A new meeting started';
     case 'MEETING_RESTORED':
       return `Meeting restored from ${new Date(event.payload.startedAt).toLocaleString()}`;
+    case 'RUNNER_STATE':
+      return `Runner state v${event.payload.version} (${event.payload.phase})`;
     case 'COMMAND_REJECTED':
       return `Command ${event.payload.commandType} rejected: ${event.payload.reason}`;
   }

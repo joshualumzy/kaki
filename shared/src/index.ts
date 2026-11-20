@@ -4,6 +4,7 @@ export * from './setup';
 export * from './setupInvite';
 export * from './task';
 export * from './events';
+export * from './runnerMeeting';
 export * from './meetingMemory';
 export * from './commands';
 export * from './services';

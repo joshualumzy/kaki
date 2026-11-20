@@ -125,6 +125,7 @@ function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
   }
   return (
     event.audience.kind === 'all' ||
+    (event.audience.kind === 'service' && audience === 'service') ||
     (event.audience.kind === 'screen' && (audience === 'screen' || audience === 'service')) ||
     (event.audience.kind === 'role' && (audience === event.audience.role || (audience === 'screen' && event.type === 'FACT_FOUND')))
   );
@@ -302,7 +303,8 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
 
   function sendRetained(socket: WebSocket, audience: ClientAudience): void {
     for (const event of retained.values()) {
-      if (wantsEvent(event, audience)) sendTo(socket, audience, JSON.stringify(event));
+      // Retained events are history: mark them so a runner can tell an old cue from a live one.
+      if (wantsEvent(event, audience)) sendTo(socket, audience, JSON.stringify({ ...event, replayed: true }));
     }
   }
 

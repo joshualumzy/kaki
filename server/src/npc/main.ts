@@ -1,7 +1,7 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
 import { llmFromEnv } from '../llm';
-import { aiCast, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
+import { aiCast, isRunnerMeetingSnapshot, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
 import { loadScenario } from '../loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -10,14 +10,15 @@ import { encodeWav } from './wav';
 import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
-import { startNpcRunner } from './runner';
+import { startNpcRunner, type NpcRunner } from './runner';
+import { waitForRunnerCast } from './bootMeeting';
 import { createMeetingSync, parsePrepareRequest, parseStartedEvent, type PrepareRequest } from './meetingSync';
 import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { createRunnerClient } from './runnerClient';
 import { createCommandSockets } from './commandSockets';
-import { createServiceChannel, createServiceDispatch } from './serviceChannel';
+import { createServiceChannel, createServiceDispatch, isReplayedCue } from './serviceChannel';
 import { DEFAULT_VAD_OPTIONS, type VadOptions } from './vad';
 import { faultFromEnv, faultyStream, faultySynthesize } from './fault';
 
@@ -51,19 +52,26 @@ const logError = (message: string): void => console.error(`[npc ${new Date().toI
 const fault = faultFromEnv(process.env.KAKI_FAULT);
 if (fault !== undefined) log(`[fault] ${fault} active`);
 
-const scenario = await loadScenario();
+const packScenario = await loadScenario();
+const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
+const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
+const runnerClient = createRunnerClient({
+  baseUrl: kakiUrl,
+  serviceToken,
+  log: logError,
+});
+// A pack can have no AI seat at all. The runner waits for the server's snapshot to name one,
+// instead of exiting and leaving a meeting that later gains an AI colleague unserved.
+const boot =
+  (packScenario.npcs ?? []).length > 0
+    ? { scenario: packScenario, snapshot: undefined }
+    : await waitForRunnerCast({
+        base: packScenario,
+        fetchState: () => runnerClient.fetchMeetingState(),
+        log,
+      });
+const scenario = boot.scenario;
 const npcs = scenario.npcs ?? [];
-// A human-only meeting has no AI attendees to run. Started anyway, this process has nothing to do,
-// so say so and stop cleanly instead of crashing or joining an empty cast.
-if (npcs.length === 0) {
-  log('this scenario has no AI attendees, so the AI runner has nothing to do. Leave it stopped; the meeting is all people.');
-  process.exit(0);
-}
-/** The AI host's name, chosen the same way the conversation chooses who chairs; the host never speaks these cues when a person is in that seat. */
-const hostName =
-  npcs.find((npc) => npc.role === 'host')?.attendee ??
-  npcs.find((npc) => npc.role === 'participant')?.attendee ??
-  npcs[0]?.attendee;
 
 const llm = llmFromEnv();
 if (llm?.stream === undefined) {
@@ -106,11 +114,13 @@ const readerFallbackStreamWithFault = fallback === undefined
   );
 
 const azureHint = 'Add your Azure Speech key and region to .env (see .env.example).';
+// The voice belongs to the meeting snapshot's cast, which can change after the process boots.
+let runnerForVoice: NpcRunner | undefined;
 const synthesize = faultySynthesize(
   createAzureTts(
     requireEnv('AZURE_SPEECH_KEY', azureHint),
     requireEnv('AZURE_SPEECH_REGION', azureHint),
-    (speaker) => npcs.find((npc) => npc.attendee === speaker)?.voice,
+    (speaker) => runnerForVoice?.voiceFor(speaker) ?? npcs.find((npc) => npc.attendee === speaker)?.voice,
   ),
   fault,
 );
@@ -135,13 +145,6 @@ const recognizer =
         ],
       });
 
-const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
-const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
-const runnerClient = createRunnerClient({
-  baseUrl: kakiUrl,
-  serviceToken,
-  log: logError,
-});
 // The runner writes as the screen and as each AI role over command sockets, exactly as a phone would.
 // The runner is created below, so its meeting id is read through this holder until then.
 let runnerMeetingId: (() => string | undefined) | undefined;
@@ -228,7 +231,7 @@ const runner = await startNpcRunner({
   onRoomEmpty: () => {
     log('the room is empty; holding the meeting for a rejoin');
   },
-  onHostChange: (human) => sendAs('screen', { type: 'SET_HOST_MODE', human }),
+  // Host mode belongs to the server roster; the runner reads it from the snapshot instead.
   onPauseChange: (paused) => sendAs('screen', { type: 'SET_PAUSED', paused }),
   onAdvanceAgenda: () => {
     if (!runner.hostIsHuman()) sendAs('screen', { type: 'NEXT_AGENDA_ITEM' });
@@ -284,8 +287,9 @@ const runner = await startNpcRunner({
     log('exiting so it can be restarted');
     process.exit(1);
   },
-  fetchScenario: () => runnerClient.fetchScenario(),
+  ...(boot.snapshot === undefined ? {} : { initialMeeting: boot.snapshot }),
 });
+runnerForVoice = runner;
 runnerMeetingId = () => runner.meetingId();
 
 // Sam asks an AI colleague aloud, then the colleague answers: the answer waits for the question (see cueOrder.ts).
@@ -308,23 +312,32 @@ const taskResponder = createTaskResponder({
 
 // The Host's spoken cues (opening, time-out, closing) arrive as events for the shared screen; the host character voices them.
 // This is the runner's authenticated service channel: it can read those cues with auth on, prepares the cast for a
-// server Start, and opens the meeting only when MEETING_STARTED names the meeting it prepared. What the hub replays on
-// connecting (the retained opening) is old news: only cues after the first second are spoken.
+// server Start, and opens the meeting only when MEETING_STARTED names the meeting it prepared. The hub marks every
+// retained event `replayed: true`; an old host cue is history and is never spoken again.
 const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
+const resetTaskMaps = (): void => {
+  taskStatusByTitle.clear();
+  syncedTaskIds.clear();
+  declinedTaskIds.clear();
+};
 
 const meetingSync = createMeetingSync({
   runner,
   fetchState: () => runnerClient.fetchMeetingState(),
   log,
-  // A service reconnect can reveal that the meeting changed while the command socket was down.
-  onMeetingChanged: () => commandSockets.dropStale(),
+  // A service reconnect or RUNNER_STATE can reveal a different meeting: old queues and task maps are stale.
+  onMeetingChanged: () => {
+    commandSockets.dropStale();
+    resetTaskMaps();
+  },
 });
 
 interface ServiceEvent {
   kind?: string;
   type?: string;
+  replayed?: boolean;
   request?: {
     requestId?: unknown;
     attempt?: unknown;
@@ -343,8 +356,6 @@ interface ServiceEvent {
 
 // Every socket that opens gets its own message wiring; the channel above it handles reconnects and backoff.
 function wireServiceSocket(socket: WebSocket): void {
-  const openedAt = Date.now();
-
   const acknowledge = (
     requestId: string,
     attempt: string,
@@ -368,12 +379,21 @@ function wireServiceSocket(socket: WebSocket): void {
   const prepareMeeting = (request: PrepareRequest): void => {
     // Anything the runner learned from a state read before this attempt is already out of date.
     meetingSync.prepareStarted();
-    void runner
-      .prepareMeeting({
-        meetingId: request.meetingId,
-        attempt: request.attempt,
-        ...(request.agendaIndex === undefined ? {} : { agendaIndex: request.agendaIndex }),
-        ...(request.resumed === undefined ? {} : { resumed: request.resumed }),
+    // The cast and agenda come from the server's one snapshot, fetched for this exact attempt.
+    void runnerClient
+      .fetchMeetingState()
+      .then((snapshot) => {
+        if (snapshot.meetingId !== request.meetingId) {
+          throw new Error(`the server state names meeting ${snapshot.meetingId}, not ${request.meetingId}`);
+        }
+        // The sync module is the only writer of the runner's meeting snapshot.
+        meetingSync.snapshot(snapshot);
+        return runner.prepareMeeting({
+          meetingId: request.meetingId,
+          attempt: request.attempt,
+          ...(request.agendaIndex === undefined ? {} : { agendaIndex: request.agendaIndex }),
+          ...(request.resumed === undefined ? {} : { resumed: request.resumed }),
+        });
       })
       .then(() => {
         if (runner.meetingId() !== request.meetingId) {
@@ -415,9 +435,7 @@ function wireServiceSocket(socket: WebSocket): void {
     meetingSync.reset(typeof meetingId === 'string' && meetingId !== '' ? meetingId : undefined);
     // A command queued for the old meeting (e.g. NEXT_AGENDA_ITEM) must not land in the new one.
     commandSockets.dropQueued();
-    taskStatusByTitle.clear();
-    syncedTaskIds.clear();
-    declinedTaskIds.clear();
+    resetTaskMaps();
   };
 
   const onTaskUpdated = (event: ServiceEvent): void => {
@@ -472,7 +490,7 @@ function wireServiceSocket(socket: WebSocket): void {
       if (colleague) {
         const name = payload.assignee!;
         const title = payload.title!;
-        const cue = colleagueCue(hostName ?? 'Sam', name, title, {
+        const cue = colleagueCue(runner.hostName() ?? 'Sam', name, title, {
           volunteered: runner.volunteeredOnTopic(name),
           assignedByGuest: runner.askedByGuestOnTopic(name),
         });
@@ -497,7 +515,7 @@ function wireServiceSocket(socket: WebSocket): void {
       } else if (payload.kind === 'DISPATCH') {
         const titleKey = (payload.title ?? '').trim().toLowerCase();
         const guest = runner.visitorName() ?? payload.assignee ?? 'there';
-        runner.pointAtCard(guestCardNote(hostName ?? 'Sam', guest), {
+        runner.pointAtCard(guestCardNote(runner.hostName() ?? 'Sam', guest), {
           forbiddenText: payload.title,
           shouldStillSpeak: stillDispatched(titleKey),
         });
@@ -512,11 +530,18 @@ function wireServiceSocket(socket: WebSocket): void {
       onPrepare(event);
       return;
     }
+    if (event.type === 'RUNNER_STATE') {
+      if (!isRunnerMeetingSnapshot(event.payload)) {
+        logError('ignored a RUNNER_STATE event that is not a meeting snapshot');
+        return;
+      }
+      meetingSync.snapshot(event.payload);
+      return;
+    }
     if (event.type === 'MEETING_STARTED') {
       onStarted(event);
       return;
     }
-    if (event.type === 'HOST_SPEECH_TRIGGERED' && Date.now() - openedAt < 1000) return;
     if (event.type === 'MEETING_RESET') {
       onReset(event);
       return;
@@ -531,6 +556,7 @@ function wireServiceSocket(socket: WebSocket): void {
   const handle = createServiceDispatch({
     dispatch: (event) => dispatchEvent(event as ServiceEvent),
     logError,
+    ignore: isReplayedCue,
   });
   socket.on('message', (data) => handle(data.toString()));
 }

@@ -15,6 +15,7 @@ export const MEETING_RETAINED_KEYS = [
   'fact:',
   'nudge:',
   'meeting:restored',
+  'runner:state',
   'task:',
 ] as const;
 

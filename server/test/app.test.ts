@@ -210,7 +210,7 @@ describe('app', () => {
 
     const screen = await connect('screen');
     await settle();
-    expect(screen.messages).toEqual([opening]);
+    expect(screen.messages).toEqual([{ ...opening, replayed: true }]);
   });
 
   it('suggests a task through the dev endpoint', async () => {

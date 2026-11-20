@@ -1,5 +1,12 @@
-import { parseScenario, type KakiEvent, type MeetingMemoryEntry, type Scenario, type SuggestInput } from '@kaki/shared';
-import type { RunnerMeetingState } from './runner';
+import {
+  isRunnerMeetingSnapshot,
+  parseScenario,
+  type KakiEvent,
+  type MeetingMemoryEntry,
+  type RunnerMeetingSnapshot,
+  type Scenario,
+  type SuggestInput,
+} from '@kaki/shared';
 import { postMeetingMemory, postSettledTopic } from './settlement';
 
 /**
@@ -11,7 +18,7 @@ export interface RunnerClient {
   suggestTask(input: SuggestInput): Promise<Response>;
   postMeetingMemory(entries: readonly MeetingMemoryEntry[]): Promise<void>;
   postSettledTopic(followUp: SuggestInput, reopened?: boolean): Promise<void>;
-  fetchMeetingState(): Promise<RunnerMeetingState>;
+  fetchMeetingState(): Promise<RunnerMeetingSnapshot>;
   fetchScenario(): Promise<Scenario>;
 }
 
@@ -57,24 +64,12 @@ export function createRunnerClient({
       postSettledTopic(request, `${base}/api/runner/settle-topic`, followUp, log, reopened),
     async fetchMeetingState() {
       const response = await request(`${base}/api/runner/meeting-state`);
-      const state = (await response.json().catch(() => ({}))) as {
-        meetingId?: unknown;
-        started?: unknown;
-        agendaIndex?: unknown;
-      };
       if (!response.ok) throw new Error(`meeting state fetch returned HTTP ${response.status}`);
-      if (
-        typeof state.meetingId !== 'string' ||
-        state.meetingId === '' ||
-        typeof state.started !== 'boolean'
-      ) {
-        throw new Error('meeting state has no meetingId and started flag');
+      const state: unknown = await response.json().catch(() => undefined);
+      if (!isRunnerMeetingSnapshot(state)) {
+        throw new Error('meeting state is not a runner meeting snapshot');
       }
-      return {
-        meetingId: state.meetingId,
-        started: state.started,
-        ...(typeof state.agendaIndex === 'number' ? { agendaIndex: state.agendaIndex } : {}),
-      };
+      return state;
     },
     async fetchScenario() {
       const response = await request(`${base}/api/scenario/full`);

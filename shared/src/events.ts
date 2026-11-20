@@ -1,10 +1,15 @@
 import type { Role } from './roles';
 import { isRoleIn, type Scenario } from './scenario';
+import { isRunnerMeetingSnapshot, type RunnerMeetingSnapshot } from './runnerMeeting';
 import type { Fact } from './services';
 import { isTask, type Task } from './task';
 
-/** Who should receive an event: the shared screen, one role's phone, or everyone. */
-export type Audience = { kind: 'screen' } | { kind: 'role'; role: Role } | { kind: 'all' };
+/** Who should receive an event: the shared screen, one role's phone, everyone, or the AI runner only. */
+export type Audience =
+  | { kind: 'screen' }
+  | { kind: 'role'; role: Role }
+  | { kind: 'all' }
+  | { kind: 'service' };
 
 /** An open question in the meeting record, optionally owned by one role. */
 export interface Question {
@@ -35,6 +40,7 @@ export type KakiEventType =
   | 'MEETING_STARTED'
   | 'MEETING_RESET'
   | 'MEETING_RESTORED'
+  | 'RUNNER_STATE'
   | 'TOPIC_SETTLED'
   | 'COLLEAGUE_REACTION'
   | 'COMMAND_REJECTED';
@@ -94,6 +100,8 @@ export type KakiEvent =
   | KakiEventOf<'MEETING_RESET', { meetingId: string }>
   /** The server kept this meeting across a restart; the screen says so and offers a fresh start. */
   | KakiEventOf<'MEETING_RESTORED', { startedAt: string }>
+  /** The one meeting snapshot the AI runner reads; service-only and retained for reconnects. */
+  | KakiEventOf<'RUNNER_STATE', RunnerMeetingSnapshot>
   /** Live demo: the visitor's decision on an agenda item is locked; tasks held for that item may go out, `taskId` first. */
   | KakiEventOf<'TOPIC_SETTLED', { title: string; taskId?: string }>
   | KakiEventOf<'COLLEAGUE_REACTION', { who: string; emoji: '👍' | '😬' | '🤔' | '😅' | '🙌' | '💸' | '🤨' | '⏰'; timestamp: string }>
@@ -109,6 +117,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'MEETING_STARTED',
   'MEETING_RESET',
   'MEETING_RESTORED',
+  'RUNNER_STATE',
   'TOPIC_SETTLED',
   'COLLEAGUE_REACTION',
   'COMMAND_REJECTED',
@@ -164,7 +173,7 @@ function isQuestion(value: unknown, scenario: Scenario): value is Question {
 
 function isAudience(value: unknown, scenario: Scenario): value is Audience {
   if (!isObject(value)) return false;
-  if (value.kind === 'screen' || value.kind === 'all') return true;
+  if (value.kind === 'screen' || value.kind === 'all' || value.kind === 'service') return true;
   return value.kind === 'role' && isRoleIn(scenario, value.role);
 }
 
@@ -213,6 +222,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     (payload.resumed === undefined || typeof payload.resumed === 'boolean'),
   MEETING_RESET: (payload) => isNonEmptyString(payload.meetingId),
   MEETING_RESTORED: (payload) => isString(payload.startedAt) && Number.isFinite(Date.parse(payload.startedAt)),
+  RUNNER_STATE: (payload) => isRunnerMeetingSnapshot(payload),
   TOPIC_SETTLED: (payload) => isString(payload.title) && (payload.taskId === undefined || isString(payload.taskId)),
   COLLEAGUE_REACTION: (payload, scenario) =>
     isString(payload.who) && scenario.npcs?.some((npc) => npc.attendee === payload.who) === true &&
@@ -229,5 +239,6 @@ export function isKakiEvent(value: unknown, scenario: Scenario): value is KakiEv
   if (!PAYLOAD_CHECKS[type](payload, scenario)) return false;
   if ((type === 'NUDGE' || type === 'FACT_FOUND') && audience.kind !== 'role') return false;
   if (type === 'COLLEAGUE_REACTION' && audience.kind !== 'all') return false;
+  if (type === 'RUNNER_STATE' && audience.kind !== 'service') return false;
   return true;
 }

@@ -1,4 +1,4 @@
-import type { RunnerMeetingState, RunnerStartState } from './runner';
+import type { RunnerMeetingSnapshot } from '@kaki/shared';
 
 /** What one MEETING_STARTED event tells the runner about the meeting the server opened. */
 export interface StartedEvent {
@@ -63,27 +63,29 @@ export function parseStartedEvent(value: unknown): StartedEvent | undefined {
 export interface MeetingSyncRunner {
   meetingId(): string | undefined;
   wasPreparedFor(meetingId: string): boolean;
-  reconcileMeeting(state: RunnerMeetingState): void;
-  markStarted(state: RunnerStartState & { meetingId?: string }): Promise<void>;
+  reconcileMeeting(state: RunnerMeetingSnapshot): void;
+  markStarted(state: { meetingId?: string; agendaIndex?: number; resumed?: boolean }): Promise<void>;
   resetMeeting(meetingId?: string): void;
 }
 
 export interface MeetingSyncOptions {
   runner: MeetingSyncRunner;
-  /** Read the server's authoritative state; injected so tests need no HTTP server. */
-  fetchState(): Promise<RunnerMeetingState>;
+  /** Read the server's authoritative snapshot; injected so tests need no HTTP server. */
+  fetchState(): Promise<RunnerMeetingSnapshot>;
   log(message: string): void;
   /** The runner moved from one meeting to another: anything tagged for the old one is stale. */
   onMeetingChanged?(meetingId: string): void;
 }
 
 export interface MeetingSync {
-  /** A service socket (re)connected: discard anything older, then adopt the server's state. */
+  /** A service socket (re)connected: discard anything older, then adopt the server's snapshot. */
   connected(): void;
   /** A Start attempt is beginning: a state read asked for before it belongs to the old meeting. */
   prepareStarted(): void;
   /** MEETING_STARTED arrived: open immediately for this attempt, otherwise hydrate from the server. */
   started(event: StartedEvent): void;
+  /** A RUNNER_STATE event arrived: adopt it unless it is older than the snapshot already held. */
+  snapshot(state: RunnerMeetingSnapshot): void;
   /** MEETING_RESET arrived: clear the local meeting and refuse every older state fetch. */
   reset(meetingId?: string): void;
 }
@@ -92,11 +94,20 @@ export interface MeetingSync {
  * Keeps the AI runner's local meeting state aligned with the server across reconnects and resets.
  * Every asynchronous fetch is fenced by a generation, so a response asked for before a reset (or
  * before a socket was replaced) can never reopen a meeting the server has already cleared.
+ * Snapshots are additionally fenced by meeting id and version inside the runner's RunnerMeeting.
  */
 export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }: MeetingSyncOptions): MeetingSync {
   let generation = 0;
 
-  function readState(accept: (state: RunnerMeetingState) => void): void {
+  function apply(state: RunnerMeetingSnapshot): void {
+    const previous = runner.meetingId();
+    runner.reconcileMeeting(state);
+    if (previous !== undefined && previous !== state.meetingId) {
+      onMeetingChanged?.(state.meetingId);
+    }
+  }
+
+  function readState(accept: (state: RunnerMeetingSnapshot) => void): void {
     const asked = generation;
     void fetchState()
       .then((state) => {
@@ -115,13 +126,7 @@ export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }:
   return {
     connected() {
       generation += 1;
-      readState((state) => {
-        const previous = runner.meetingId();
-        runner.reconcileMeeting(state);
-        if (previous !== undefined && previous !== state.meetingId) {
-          onMeetingChanged?.(state.meetingId);
-        }
-      });
+      readState(apply);
     },
     prepareStarted() {
       generation += 1;
@@ -149,20 +154,11 @@ export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }:
           );
           return;
         }
-        // Hydration is always a resume: this runner never welcomed the meeting the server is running.
-        const previous = runner.meetingId();
-        if (previous !== state.meetingId) runner.resetMeeting(state.meetingId);
-        if (previous !== undefined && previous !== state.meetingId) {
-          onMeetingChanged?.(state.meetingId);
-        }
-        void runner
-          .markStarted({
-            meetingId: state.meetingId,
-            ...(state.agendaIndex === undefined ? {} : { agendaIndex: state.agendaIndex }),
-            resumed: true,
-          })
-          .catch((error: unknown) => log(`could not resume the running meeting: ${String(error)}`));
+        apply(state);
       });
+    },
+    snapshot(state) {
+      apply(state);
     },
     reset(meetingId) {
       generation += 1;

@@ -1,12 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { RunnerMeetingSnapshot } from '@kaki/shared';
 import { createMeetingSync, parsePrepareRequest, parseStartedEvent } from '../../src/npc/meetingSync';
-import type { RunnerMeetingState, RunnerStartState } from '../../src/npc/runner';
+import { testScenario } from '../fixtures/scenario';
+import { runnerSnapshot } from '../fixtures/runnerSnapshot';
+
+function stateOf(meetingId: string, started: boolean, agendaIndex = 0): RunnerMeetingSnapshot {
+  return runnerSnapshot(testScenario, {
+    meetingId,
+    ...(started ? { phase: 'running' as const, started: true } : {}),
+    agendaIndex,
+  });
+}
+
+type RunnerStartState = { agendaIndex?: number; resumed?: boolean };
 
 function fakeRunner(meetingId: string | undefined) {
   return {
     meetingId: () => meetingId,
     wasPreparedFor: (_id: string) => false,
-    reconcileMeeting: vi.fn((_state: RunnerMeetingState) => undefined),
+    reconcileMeeting: vi.fn((_state: RunnerMeetingSnapshot) => undefined),
     markStarted: vi.fn(async (_state: RunnerStartState & { meetingId?: string }) => undefined),
     resetMeeting: vi.fn((next?: string) => {
       meetingId = next;
@@ -54,13 +66,13 @@ describe('meeting sync', () => {
   it('discards a state answer asked for before the meeting started', async () => {
     const runner = fakeRunner('meeting-1');
     runner.wasPreparedFor = () => true;
-    const state = deferred<RunnerMeetingState>();
+    const state = deferred<RunnerMeetingSnapshot>();
     const fetchState = vi.fn(() => state.promise);
     const sync = createMeetingSync({ runner, fetchState, log: () => undefined });
 
     sync.connected();
     sync.started({ meetingId: 'meeting-1', resumed: false });
-    state.resolve({ meetingId: 'meeting-1', started: false });
+    state.resolve(stateOf('meeting-1', false));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(runner.markStarted).toHaveBeenCalledTimes(1);
@@ -69,13 +81,13 @@ describe('meeting sync', () => {
 
   it('discards a delayed hydration answer after a reset', async () => {
     const runner = fakeRunner('meeting-1');
-    const state = deferred<RunnerMeetingState>();
+    const state = deferred<RunnerMeetingSnapshot>();
     const fetchState = vi.fn(() => state.promise);
     const sync = createMeetingSync({ runner, fetchState, log: () => undefined });
 
     sync.started({ meetingId: 'meeting-1' });
     sync.reset('meeting-2');
-    state.resolve({ meetingId: 'meeting-1', started: true, agendaIndex: 1 });
+    state.resolve(stateOf('meeting-1', true, 1));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     // The old meeting's hydration must never reopen the runner after the reset.
@@ -85,31 +97,31 @@ describe('meeting sync', () => {
 
   it('reconciles on reconnect and discards an answer a newer connection superseded', async () => {
     const runner = fakeRunner('meeting-1');
-    const first = deferred<RunnerMeetingState>();
-    const second = deferred<RunnerMeetingState>();
+    const first = deferred<RunnerMeetingSnapshot>();
+    const second = deferred<RunnerMeetingSnapshot>();
     const fetchState = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const sync = createMeetingSync({ runner, fetchState, log: () => undefined });
 
     sync.connected();
     sync.connected();
-    second.resolve({ meetingId: 'meeting-2', started: false });
+    second.resolve(stateOf('meeting-2', false));
     await new Promise((resolve) => setTimeout(resolve, 20));
-    first.resolve({ meetingId: 'meeting-1', started: true, agendaIndex: 0 });
+    first.resolve(stateOf('meeting-1', true));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(runner.reconcileMeeting).toHaveBeenCalledTimes(1);
-    expect(runner.reconcileMeeting).toHaveBeenCalledWith({ meetingId: 'meeting-2', started: false });
+    expect(runner.reconcileMeeting).toHaveBeenCalledWith(stateOf('meeting-2', false));
   });
 
   it('reports a meeting change learned on reconnect so the old meeting queue can be dropped', async () => {
     const runner = fakeRunner('meeting-1');
-    runner.reconcileMeeting = vi.fn((state: RunnerMeetingState) => {
+    runner.reconcileMeeting = vi.fn((state: RunnerMeetingSnapshot) => {
       runner.meetingId = () => state.meetingId;
     });
     const changed: string[] = [];
     const sync = createMeetingSync({
       runner,
-      fetchState: async () => ({ meetingId: 'meeting-2', started: false }),
+      fetchState: async () => stateOf('meeting-2', false),
       log: () => undefined,
       onMeetingChanged: (meetingId) => changed.push(meetingId),
     });
