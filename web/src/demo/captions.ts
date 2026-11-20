@@ -11,6 +11,10 @@ export interface TranscriptChunk {
   lineId?: string;
   /** True when the room only heard part of the line before it was interrupted. */
   cut?: boolean;
+  /** When the speech began and ended (ISO), and whether it overlapped the previous line. */
+  speechStartedAt?: string;
+  speechEndedAt?: string;
+  overlap?: boolean;
 }
 
 /**
@@ -22,7 +26,7 @@ export function transcriptChunks(events: readonly KakiEvent[], limit = 40): Tran
   const indexByLineId = new Map<string, number>();
   for (const event of events) {
     if (event.type === 'TRANSCRIPT_CHUNK') {
-      const { speaker, text, timestamp, textOnly, speakerRole, lineId } = event.payload;
+      const { speaker, text, timestamp, textOnly, speakerRole, lineId, speechStartedAt, speechEndedAt, overlap } = event.payload;
       if (lineId !== undefined) indexByLineId.set(lineId, lines.length);
       lines.push({
         speaker,
@@ -31,6 +35,9 @@ export function transcriptChunks(events: readonly KakiEvent[], limit = 40): Tran
         ...(textOnly === true ? { textOnly: true } : {}),
         ...(speakerRole === undefined ? {} : { speakerRole }),
         ...(lineId === undefined ? {} : { lineId }),
+        ...(speechStartedAt === undefined ? {} : { speechStartedAt }),
+        ...(speechEndedAt === undefined ? {} : { speechEndedAt }),
+        ...(overlap === true ? { overlap: true } : {}),
       });
     } else if (event.type === 'TRANSCRIPT_LINE_UPDATED') {
       const index = indexByLineId.get(event.payload.lineId);

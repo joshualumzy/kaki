@@ -68,7 +68,7 @@ export interface NotetakerState {
 
 /** Turns new transcript into the Meeting Record and suggests tasks through the task store. */
 export interface Notetaker {
-  addChunk(chunk: { speaker: string; text: string; speakerRole?: Role }): void;
+  addChunk(chunk: { speaker: string; text: string; speakerRole?: Role; overlap?: boolean }): void;
   /** Send transcript added since the last pass to the LLM; does nothing if a pass is running. */
   run(): Promise<void>;
   state(): NotetakerState;
@@ -967,11 +967,17 @@ function userPrompt(
     '',
     'Earlier lines on this agenda item, oldest first. They are context only: do not list them as new questions or',
     'tasks. The new lines may refer back to a decision made here.',
-    ...(earlier.length === 0 ? ['(none)'] : earlier.map((line) => `[${speakerLabel(line, scenario)}] ${line.text}`)),
+    ...(earlier.length === 0 ? ['(none)'] : earlier.map((line) => transcriptLineText(line, scenario))),
     '',
     'New transcript lines:',
-    ...lines.map((line) => `[${speakerLabel(line, scenario)}] ${line.text}`),
+    ...lines.map((line) => transcriptLineText(line, scenario)),
   ].join('\n');
+}
+
+/** One prompt line; an overlap marker tells the model the two people spoke at the same time. */
+function transcriptLineText(line: TranscriptLine, scenario: Scenario): string {
+  const overlap = line.overlap === true ? ', overlapping speech' : '';
+  return `[${speakerLabel(line, scenario)}${overlap}] ${line.text}`;
 }
 
 /** Create the notetaker; call `run` every 5–10 s while the meeting is on. */
@@ -1243,7 +1249,7 @@ export function createNotetaker({
   }
 
   return {
-    addChunk({ speaker, text, speakerRole }) {
+    addChunk({ speaker, text, speakerRole, overlap }) {
       const role =
         speakerRole !== undefined
           ? isRoleIn(scenario(), speakerRole)
@@ -1274,6 +1280,7 @@ export function createNotetaker({
           text,
           ...(agendaItemTitle === undefined ? {} : { agendaItemTitle }),
           ...(atSeconds === undefined ? {} : { atSeconds }),
+          ...(overlap === true ? { overlap: true } : {}),
         },
       ]);
     },

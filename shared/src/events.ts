@@ -66,6 +66,12 @@ export type KakiEvent =
         speakerRole?: Role;
         /** Stable id for one spoken line, so a later update replaces that line instead of adding another. */
         lineId?: string;
+        /** When the speech itself began (ISO), so lines can be ordered by when they were said. */
+        speechStartedAt?: string;
+        /** When the speech itself ended (ISO). */
+        speechEndedAt?: string;
+        /** True when this person started speaking before the previous human line had finished. */
+        overlap?: boolean;
       }
     >
   /**
@@ -222,7 +228,12 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     (payload.catchId === undefined || isString(payload.catchId)) &&
     (payload.gate === undefined || payload.gate === 'lock-offer') &&
     (payload.speakerRole === undefined || isRoleIn(scenario, payload.speakerRole)) &&
-    (payload.lineId === undefined || isString(payload.lineId)),
+    (payload.lineId === undefined || isString(payload.lineId)) &&
+    (payload.speechStartedAt === undefined ||
+      (isString(payload.speechStartedAt) && Number.isFinite(Date.parse(payload.speechStartedAt)))) &&
+    (payload.speechEndedAt === undefined ||
+      (isString(payload.speechEndedAt) && Number.isFinite(Date.parse(payload.speechEndedAt)))) &&
+    (payload.overlap === undefined || typeof payload.overlap === 'boolean'),
   TRANSCRIPT_LINE_UPDATED: (payload) =>
     isNonEmptyString(payload.lineId) &&
     isString(payload.speaker) &&

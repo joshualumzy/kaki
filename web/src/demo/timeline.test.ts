@@ -33,6 +33,15 @@ describe('timeline entries', () => {
     expect(hostName({ ...scenario, npcs: [] } as Scenario)).toBe('Host');
   });
 
+  it('marks a line that began while the previous person was still speaking', () => {
+    const overlapping: KakiEvent = {
+      type: 'TRANSCRIPT_CHUNK',
+      audience: { kind: 'all' },
+      payload: { speaker: 'Arjun', text: 'I agree.', timestamp: '2026-11-05T10:00:01Z', overlap: true },
+    };
+    expect(entryForEvent(overlapping, viewer)?.text).toBe('I agree. (overlapping speech)');
+  });
+
   it('gives the same line the same key, so a replay after reconnecting is not listed twice', () => {
     expect(entryForEvent(said('Arjun'), viewer)?.key).toBe(entryForEvent(said('Arjun'), viewer)?.key);
   });

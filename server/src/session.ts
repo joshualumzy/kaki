@@ -203,7 +203,11 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   }
 
   function copyHolders(saved: readonly SeatHolder[]): SeatHolder[] {
-    return saved.map((holder) => ({ name: holder.name, seat: holder.seat }));
+    return saved.map((holder) => ({
+      name: holder.name,
+      seat: holder.seat,
+      ...(holder.displayName === undefined ? {} : { displayName: holder.displayName }),
+    }));
   }
 
   /** A handoff: every credential granted in the old generation must stop working. */
@@ -399,7 +403,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
         (existing) =>
           existing.name.trim().toLowerCase() !== name && existing.seat.trim().toLowerCase() !== seat,
       );
-      holders.push({ name, seat: holder.seat });
+      const displayName = holder.displayName?.trim() || holder.name.trim();
+      holders.push({
+        name,
+        seat: holder.seat,
+        ...(displayName === name ? {} : { displayName }),
+      });
     },
     pruneHolders() {
       holders = [];

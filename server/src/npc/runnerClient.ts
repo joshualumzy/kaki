@@ -22,6 +22,9 @@ export interface RunnerClient {
     text: string;
     source: 'speech' | 'typed';
     clientLineId: string;
+    speechStartedAt?: string;
+    speechEndedAt?: string;
+    overlap?: boolean;
   }): Promise<Response>;
   suggestTask(input: SuggestInput): Promise<Response>;
   postMeetingMemory(entries: readonly MeetingMemoryEntry[]): Promise<void>;

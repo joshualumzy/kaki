@@ -625,8 +625,8 @@ describe('meeting persistence across a restart', () => {
     const frozen = store.saved!;
     const firstMeeting = await meetingState(app1);
     expect(frozen.holders).toEqual([
-      { name: 'ada', seat: 'chef' },
-      { name: 'bao', seat: 'cashier' },
+      { name: 'ada', seat: 'chef', displayName: 'Ada' },
+      { name: 'bao', seat: 'cashier', displayName: 'Bao' },
     ]);
     expect(frozen.sealed).toEqual(edited);
 

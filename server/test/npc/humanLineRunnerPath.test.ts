@@ -205,7 +205,13 @@ describe('the runner\'s real recognised-speech path reaches the server writer', 
       'the runner-recognised line at the server writer',
     );
     expect(line).toMatchObject({
-      payload: { speaker: 'Wei Ling', speakerRole: 'producer', text: 'The queue is out the door.' },
+      payload: {
+        speaker: 'Alice',
+        speakerRole: 'producer',
+        text: 'The queue is out the door.',
+        speechStartedAt: expect.any(String),
+        speechEndedAt: expect.any(String),
+      },
     });
     expect(failures).toEqual([]);
   });

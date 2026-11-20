@@ -9,6 +9,7 @@ import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void; connected?: boolean }>);
 const published = vi.hoisted(() => [] as Array<{ topic?: string; message: unknown }>);
+const audio = vi.hoisted(() => ({ frames: [] as Int16Array[] }));
 const tokens = vi.hoisted(() => [] as string[]);
 const startup = vi.hoisted(() => ({ hold: false, release: undefined as undefined | (() => void) }));
 
@@ -48,7 +49,13 @@ vi.mock('@livekit/rtc-node', () => {
     Room,
     RoomEvent: { ParticipantConnected: 'participantConnected', ParticipantDisconnected: 'participantDisconnected', TrackSubscribed: 'trackSubscribed', DataReceived: 'dataReceived', Disconnected: 'disconnected' },
     AudioSource: class {},
-    AudioStream: class {},
+    AudioStream: class {
+      async *[Symbol.asyncIterator]() {
+        while (audio.frames.length > 0) {
+          yield { data: audio.frames.shift()!, sampleRate: 16_000 };
+        }
+      }
+    },
     LocalAudioTrack: { createAudioTrack: () => ({}) },
     TrackPublishOptions: class {},
     TrackSource: { SOURCE_MICROPHONE: 1 },
@@ -1658,6 +1665,112 @@ describe('meeting sync with the real runner', () => {
       sync.connected();
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('per-person speech status', () => {
+  const frames = (count: number, value: number): Int16Array[] =>
+    Array.from({ length: count }, () => new Int16Array(640).fill(value));
+
+  function statusMessages(): Array<{ participants: Record<string, { state: string; message?: string }>; outage?: { message: string } }> {
+    return published
+      .filter((entry) => entry.topic === 'kaki.speech-status')
+      .map((entry) => entry.message as { participants: Record<string, { state: string; message?: string }>; outage?: { message: string } });
+  }
+
+  it('shows transcribing only for the person whose finished speech is still being recognised', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    audio.frames.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const sessions: Array<{ finish: () => Promise<string> }> = [];
+    const runner = await startNpcRunner({
+      scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine: () => undefined,
+      recognizer: {
+        start: () => {
+          const session = { finish: () => new Promise<string>(() => undefined) };
+          sessions.push(session);
+          return { push: () => undefined, finish: session.finish, cancel: () => undefined };
+        },
+      },
+      vad: { minLevel: 0.01, startMs: 40, hangoverMs: 40 },
+      responseDelayMs: 0,
+    });
+    try {
+      const visitor = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', visitor);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+
+      audio.frames.push(...frames(30, 20_000), ...frames(10, 0));
+      rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(statusMessages().some((message) => message.participants['visitor-1']?.state === 'transcribing')).toBe(true),
+      );
+      const latest = statusMessages().at(-1)!;
+      expect(Object.keys(latest.participants)).toEqual(['visitor-1']);
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('fails the speaker loudly, then raises a room-wide outage after recognition keeps failing', async () => {
+    rooms.length = 0;
+    published.length = 0;
+    audio.frames.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const runner = await startNpcRunner({
+      scenario,
+      initialMeeting: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 0 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine: () => undefined,
+      recognizer: {
+        start: () => ({
+          push: () => undefined,
+          finish: async () => { throw new Error('Azure quota exceeded'); },
+          cancel: () => undefined,
+        }),
+      },
+      vad: { minLevel: 0.01, startMs: 40, hangoverMs: 40 },
+      responseDelayMs: 0,
+    });
+    try {
+      const visitor = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', visitor);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+
+      audio.frames.push(...frames(10, 20_000), ...frames(10, 0));
+      rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);
+      await vi.waitFor(() => {
+        const latest = statusMessages().at(-1);
+        expect(latest?.participants['visitor-1']?.state).toBe('failed');
+      });
+      expect(statusMessages().at(-1)?.outage).toBeUndefined();
+      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/repeat it, or type it/i);
+
+      audio.frames.push(...frames(10, 20_000), ...frames(10, 0));
+      rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);
+      await vi.waitFor(() => {
+        const latest = statusMessages().at(-1);
+        expect(latest?.participants['visitor-1']?.state).toBe('failed');
+        expect(latest?.outage?.message).toMatch(/Speech recognition is not working.*Azure quota exceeded/i);
+      });
     } finally {
       await runner.stop();
     }

@@ -6,6 +6,9 @@ export const STT_TOPIC = 'kaki.stt';
 /** LiveKit data topic on which the AI attendees say what they are doing (thinking, speaking, ...). */
 export const NPC_STATE_TOPIC = 'kaki.npc-state';
 
+/** LiveKit data topic on which the runner reports each person's microphone and recognition state. */
+export const SPEECH_STATUS_TOPIC = 'kaki.speech-status';
+
 /** LiveKit data topic on which the browser sends what the person types, and "typing" and "stop" signals. */
 export const CONTROL_TOPIC = 'kaki.control';
 
@@ -60,12 +63,52 @@ export interface SttMessage {
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
   /** `yourTurn`: the last thing the room said was a question for the person; it is the question. `wingmanHint`: true when the semantic layer detects the visitor is unsure or asking for figures that Kaki Wingman has. */
-  | { kind: 'idle'; yourTurn?: string; wingmanHint?: boolean; canLock?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
-  | { kind: 'thinking'; wingmanHint?: boolean; canLock?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
-  | { kind: 'speaking'; speaker: string; wingmanHint?: boolean; canLock?: boolean; humanSpeaking?: boolean; transcribing?: boolean }
+  | { kind: 'idle'; yourTurn?: string; wingmanHint?: boolean; canLock?: boolean }
+  | { kind: 'thinking'; wingmanHint?: boolean; canLock?: boolean }
+  | { kind: 'speaking'; speaker: string; wingmanHint?: boolean; canLock?: boolean }
   | { kind: 'error'; message: string }
   /** The NPC accepted a Start request: the browser can stop retrying and let the meeting open. */
   | { kind: 'started'; requestId: string; session: string };
+
+/** One person's microphone state as the server-side recogniser sees it. */
+export type SpeechState = 'listening' | 'transcribing' | 'failed';
+
+/** What the runner knows about one person's speech right now. */
+export interface SpeechStatusEntry {
+  state: SpeechState;
+  /** For `failed`, what the person should do next; shown only on their own screen. */
+  message?: string;
+}
+
+/** What the runner reports on {@link SPEECH_STATUS_TOPIC}. */
+export interface SpeechStatusMessage {
+  /** Keyed by LiveKit participant identity, so each tile only shows its own person's state. */
+  participants: Record<string, SpeechStatusEntry>;
+  /** Present when recognition keeps failing: the whole room should hear and type instead. */
+  outage?: { message: string };
+}
+
+/** True when `raw` is a complete speech-status message; malformed data is ignored. */
+export function parseSpeechStatusMessage(raw: unknown): SpeechStatusMessage | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const participants = (raw as { participants?: unknown }).participants;
+  if (typeof participants !== 'object' || participants === null || Array.isArray(participants)) return undefined;
+  const parsed: Record<string, SpeechStatusEntry> = {};
+  for (const [identity, value] of Object.entries(participants)) {
+    if (identity.trim() === '' || typeof value !== 'object' || value === null) return undefined;
+    const state = (value as { state?: unknown }).state;
+    if (state !== 'listening' && state !== 'transcribing' && state !== 'failed') return undefined;
+    const message = (value as { message?: unknown }).message;
+    if (message !== undefined && typeof message !== 'string') return undefined;
+    parsed[identity] = { state, ...(message === undefined ? {} : { message }) };
+  }
+  const outage = (raw as { outage?: unknown }).outage;
+  if (outage === undefined) return { participants: parsed };
+  if (typeof outage !== 'object' || outage === null || typeof (outage as { message?: unknown }).message !== 'string') {
+    return undefined;
+  }
+  return { participants: parsed, outage: { message: (outage as { message: string }).message } };
+}
 
 /**
  * The LiveKit room one meeting of a scenario happens in. The meeting identity is part of the room

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { UtteranceRecorder, type Recognizer, type SttSession } from '../../src/npc/utterance';
+import { UtteranceRecorder, type Recognizer, type SpeechStart, type SpeechTiming, type SttSession } from '../../src/npc/utterance';
 
 const RATE = 1000; // 1 sample = 1 ms, to keep the arithmetic readable
 const block = (ms: number, value = 1): Int16Array => new Int16Array(ms).fill(value);
@@ -132,5 +132,83 @@ describe('UtteranceRecorder nothing heard', () => {
     recorder.speaking(false);
     await vi.waitFor(() => expect(nothing).toBe(1));
     expect(texts).toEqual([]);
+  });
+});
+
+describe('UtteranceRecorder speech timing', () => {
+  it('reports when the speech began and ended, pre-roll included', async () => {
+    const starts: SpeechStart[] = [];
+    const results: Array<{ text: string; timing: SpeechTiming }> = [];
+    let finishCalled = false;
+    let resolve: (text: string) => void = () => undefined;
+    const recorder = new UtteranceRecorder(
+      {
+        start: () => ({
+          push: () => undefined,
+          finish: () => {
+            finishCalled = true;
+            return new Promise<string>((done) => (resolve = done));
+          },
+          cancel: () => undefined,
+        }),
+      },
+      {
+        sampleRate: RATE,
+        prerollMs: 300,
+        minMs: 200,
+        onSpeechStart: (start) => starts.push(start),
+        onText: (text, timing) => results.push({ text, timing }),
+      },
+    );
+    recorder.push(block(300));
+    recorder.speaking(true);
+    recorder.push(block(700));
+    const beforeEnd = Date.now();
+    recorder.speaking(false);
+    const afterEnd = Date.now();
+    await vi.waitFor(() => expect(finishCalled).toBe(true));
+    resolve('hello');
+    await vi.waitFor(() => expect(results).toHaveLength(1));
+
+    expect(starts).toHaveLength(1);
+    expect(results[0]?.text).toBe('hello');
+    expect(results[0]?.timing.id).toBe(starts[0]?.id);
+    // The start reaches back over the audio kept before the detector fired; the end is when speech stopped.
+    expect(results[0]!.timing.startedAt).toBeLessThanOrEqual(starts[0]!.startedAt);
+    expect(results[0]!.timing.endedAt).toBeGreaterThanOrEqual(beforeEnd);
+    expect(results[0]!.timing.endedAt).toBeLessThanOrEqual(afterEnd + 1000);
+  });
+
+  it('reports a recognition failure with its timing instead of only logging it', async () => {
+    const failures: Array<{ error: unknown; timing: SpeechTiming }> = [];
+    const recorder = new UtteranceRecorder(
+      { start: () => ({ push: () => undefined, finish: async () => { throw new Error('quota exceeded'); }, cancel: () => undefined }) },
+      {
+        sampleRate: RATE,
+        prerollMs: 300,
+        minMs: 200,
+        onText: () => undefined,
+        onFailure: (error, timing) => failures.push({ error, timing }),
+      },
+    );
+    recorder.push(block(300));
+    recorder.speaking(true);
+    recorder.push(block(700));
+    recorder.speaking(false);
+    await vi.waitFor(() => expect(failures).toHaveLength(1));
+    expect(String(failures[0]!.error)).toMatch(/quota exceeded/);
+    expect(failures[0]!.timing.endedAt).toBeGreaterThanOrEqual(failures[0]!.timing.startedAt);
+  });
+
+  it('settles a stretch that is too short to recognise', () => {
+    const discarded: SpeechTiming[] = [];
+    const recorder = new UtteranceRecorder(
+      { start: () => ({ push: () => undefined, finish: async () => '', cancel: () => undefined }) },
+      { sampleRate: RATE, prerollMs: 300, minMs: 200, onText: () => undefined, onSpeechDiscarded: (timing) => discarded.push(timing) },
+    );
+    recorder.push(block(100));
+    recorder.speaking(true);
+    recorder.speaking(false);
+    expect(discarded).toHaveLength(1);
   });
 });

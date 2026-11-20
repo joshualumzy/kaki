@@ -146,7 +146,7 @@ function humanLine(text: string, clientLineId: string, extra: Record<string, unk
 }
 
 describe('human-only meetings record people\'s lines', () => {
-  it('writes speech and typed lines with the setup seat names, feeds the notetaker, and dedupes', async () => {
+  it('writes speech and typed lines with the admitted person\'s name, sets the seat as role metadata, feeds the notetaker, and dedupes', async () => {
     const { port, llm } = await humanOnlyMeeting();
     const screen = await connect(port, 'screen');
     const producer = await connect(port, 'producer');
@@ -179,11 +179,11 @@ describe('human-only meetings record people\'s lines', () => {
         event.type === 'TRANSCRIPT_CHUNK',
     );
     expect(lines).toHaveLength(3);
-    expect(lines.map((line) => [line.payload.speaker, line.payload.text])).toEqual(
+    expect(lines.map((line) => [line.payload.speaker, line.payload.speakerRole, line.payload.text])).toEqual(
       expect.arrayContaining([
-        ['Wei Ling', 'I checked the front counter this morning.'],
-        ['Arjun', 'The laptop campers bought one kopi each.'],
-        ['Wei Ling', 'The queue was out the door.'],
+        ['Alice', 'producer', 'I checked the front counter this morning.'],
+        ['Ben', 'lead_programmer', 'The laptop campers bought one kopi each.'],
+        ['Alice', 'producer', 'The queue was out the door.'],
       ]),
     );
 
@@ -266,7 +266,7 @@ describe('human-only meetings record people\'s lines', () => {
 });
 
 describe('a renamed person seat keeps its role', () => {
-  it('writes the setup name with the seat role, so talk time and the notetaker still know who spoke', async () => {
+  it('writes the admitted name with the seat role, so talk time and the notetaker still know who spoke', async () => {
     const pack = await loadScenario('kopitiam');
     const setup = twoPersonSetup(pack);
     setup.seats = setup.seats.map((seat) =>
@@ -284,7 +284,7 @@ describe('a renamed person seat keeps its role', () => {
       'the renamed seat transcript line',
     );
     expect(line).toMatchObject({
-      payload: { speaker: 'Alice Tan', speakerRole: 'producer', text: 'I checked the front counter this morning.' },
+      payload: { speaker: 'Alice', speakerRole: 'producer', text: 'I checked the front counter this morning.' },
     });
 
     const record = await waitFor(
@@ -303,7 +303,7 @@ describe('a renamed person seat keeps its role', () => {
     await waitFor(
       () =>
         llm.calls.some((messages) =>
-          messages.some((message) => message.content.includes(`Alice Tan (${producerLabel})`)),
+          messages.some((message) => message.content.includes(`Alice (${producerLabel})`)),
         )
           ? true
           : undefined,

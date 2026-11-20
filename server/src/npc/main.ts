@@ -233,6 +233,9 @@ function postHumanLine(line: {
   text: string;
   source: 'speech' | 'typed';
   clientLineId: string;
+  speechStartedAt?: string;
+  speechEndedAt?: string;
+  overlap?: boolean;
 }): void {
   runnerClient
     .postHumanLine(line)

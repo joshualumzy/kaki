@@ -19,12 +19,16 @@ import {
   NPC_STATE_TOPIC,
   parseControlMessage,
   sameRunnerEpoch,
+  SPEECH_STATUS_TOPIC,
   STT_TOPIC,
   type NpcProfile,
   type NpcStateMessage,
   type RunnerMeetingSnapshot,
   type RunnerSnapshotVersion,
   type Scenario,
+  type SpeechState,
+  type SpeechStatusEntry,
+  type SpeechStatusMessage,
   type SuggestInput,
   type MeetingMemoryEntry,
 } from '@kaki/shared';
@@ -39,7 +43,8 @@ import type { Utterance } from './director';
 import { playPcm } from './playback';
 import { PlaybackReference } from './reference';
 import { reconnectDelayMs } from './serviceChannel';
-import { UtteranceRecorder, type Recognizer } from './utterance';
+import { createSpeechLineOrder } from './speechOrder';
+import { UtteranceRecorder, type Recognizer, type SpeechStart, type SpeechTiming } from './utterance';
 import { EnergyVad, type VadOptions } from './vad';
 
 /** Sample rate of everything published to and read from LiveKit. */
@@ -119,6 +124,11 @@ export interface RunnerOptions {
     text: string;
     source: 'speech' | 'typed';
     clientLineId: string;
+    /** When the speech itself began and ended (ISO), so Kaki can order it by what was said when. */
+    speechStartedAt?: string;
+    speechEndedAt?: string;
+    /** True when this person started speaking before the previous human line had finished. */
+    overlap?: boolean;
   }): void;
   responseDelayMs?: number;
   /** Called when the last person has left the room (not when the room was empty to begin with). */
@@ -346,46 +356,80 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   // --- What the AI attendees send out: state to the browser, transcript lines to Kaki. ---
   let lastConversationState: NpcStateMessage = { kind: 'idle' };
-  let sustainedHumanSpeaking = false;
-  let humanTranscribing = false;
-  let humanSpeakingTimer: ReturnType<typeof setTimeout> | undefined;
-  const HUMAN_SPEAKING_BADGE_MS = 350;
+
+  function publishData(topic: string, message: unknown): void {
+    const data = new TextEncoder().encode(JSON.stringify(message));
+    listenerCharacter()?.room.localParticipant?.publishData(data, { reliable: true, topic }).catch(() => undefined);
+  }
 
   function publishState(state: NpcStateMessage): void {
-    const decorated: NpcStateMessage =
-      state.kind === 'idle' || state.kind === 'thinking' || state.kind === 'speaking'
-        ? {
-            ...state,
-            ...(sustainedHumanSpeaking ? { humanSpeaking: true } : {}),
-            ...(humanTranscribing ? { transcribing: true } : {}),
-          }
-        : state;
-    const data = new TextEncoder().encode(JSON.stringify(decorated));
-    listenerCharacter()?.room.localParticipant?.publishData(data, { reliable: true, topic: NPC_STATE_TOPIC }).catch(() => undefined);
+    publishData(NPC_STATE_TOPIC, state);
   }
 
-  function syncHumanMicState(anyTalking: boolean): void {
-    if (anyTalking) {
-      if (!sustainedHumanSpeaking && humanSpeakingTimer === undefined) {
-        humanSpeakingTimer = setTimeout(() => {
-          humanSpeakingTimer = undefined;
-          if (talking.size > 0 && !sustainedHumanSpeaking) {
-            sustainedHumanSpeaking = true;
-            publishState(lastConversationState);
-          }
-        }, HUMAN_SPEAKING_BADGE_MS);
-      }
-    } else {
-      if (humanSpeakingTimer !== undefined) {
-        clearTimeout(humanSpeakingTimer);
-        humanSpeakingTimer = undefined;
-      }
-      if (sustainedHumanSpeaking) {
-        sustainedHumanSpeaking = false;
-        publishState(lastConversationState);
-      }
-    }
+  // Speech health belongs to the person, not the room: one recorder finishing must not clear another
+  // person's transcribing badge, and a failure must be shown on the speaker's own tile.
+  const speechStates = new Map<string, SpeechStatusEntry>();
+  let consecutiveSpeechFailures = 0;
+  let speechOutage: string | undefined;
+
+  function publishSpeechStatus(): void {
+    const message: SpeechStatusMessage = {
+      participants: Object.fromEntries([...speechStates].map(([identity, entry]) => [identity, { ...entry }])),
+      ...(speechOutage === undefined ? {} : { outage: { message: speechOutage } }),
+    };
+    publishData(SPEECH_STATUS_TOPIC, message);
   }
+
+  function setSpeechState(identity: string, state: SpeechState, message?: string): void {
+    const previous = speechStates.get(identity);
+    if (previous !== undefined && previous.state === state && previous.message === message) return;
+    speechStates.set(identity, { state, ...(message === undefined ? {} : { message }) });
+    publishSpeechStatus();
+  }
+
+  function noteSpeechSuccess(identity: string): void {
+    consecutiveSpeechFailures = 0;
+    const hadOutage = speechOutage !== undefined;
+    speechOutage = undefined;
+    const previous = speechStates.get(identity);
+    if (!hadOutage && previous?.state === 'listening' && previous.message === undefined) return;
+    speechStates.set(identity, { state: 'listening' });
+    publishSpeechStatus();
+  }
+
+  function reportSpeechFailure(identity: string, error: unknown, timing?: SpeechTiming): void {
+    const reason = error instanceof Error ? error.message : String(error);
+    consecutiveSpeechFailures += 1;
+    if (consecutiveSpeechFailures >= 2) {
+      speechOutage = `Speech recognition is not working (${reason}). Type your lines instead.`;
+    }
+    speechStates.set(identity, {
+      state: 'failed',
+      message: 'Kaki could not hear that. Please repeat it, or type it instead.',
+    });
+    publishSpeechStatus();
+    // A failed stretch still settles its place in speech order, so nobody after it is held forever.
+    if (timing !== undefined) speechLines.settle(timing);
+  }
+
+  interface HumanSpeechLine {
+    meetingId: string;
+    participantIdentity: string;
+    seat: string;
+    text: string;
+    source: 'speech';
+    clientLineId: string;
+  }
+
+  // Recognition finishes in any order per person; the transcript must still read in speech order.
+  const speechLines = createSpeechLineOrder<HumanSpeechLine>(({ value, startedAt, endedAt, overlap }) => {
+    options.postHumanLine?.({
+      ...value,
+      speechStartedAt: new Date(startedAt).toISOString(),
+      speechEndedAt: new Date(endedAt).toISOString(),
+      ...(overlap ? { overlap: true } : {}),
+    });
+  });
 
   // What the AI plays, so the voice detectors can tell how much of it their microphone hears.
   const reference = new PlaybackReference();
@@ -1084,6 +1128,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
     humans.set(participant.identity, { name, role, seat });
+    setSpeechState(participant.identity, 'listening');
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
   }
@@ -1096,28 +1141,48 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             sampleRate: SAMPLE_RATE,
             log,
             onAudio: options.debugAudio,
+            onSpeechStart: (start: SpeechStart) => {
+              speechLines.begin(start);
+            },
             onRecognizing: (active) => {
               conversation?.humanRecognizing(active);
-              if (humanTranscribing !== active) {
-                humanTranscribing = active;
-                publishState(lastConversationState);
-              }
+              setSpeechState(identity, active ? 'transcribing' : 'listening');
             },
-            onNothing: () => conversation?.humanNothing(),
-            onText: (text) => {
+            onNothing: (timing) => {
+              conversation?.humanNothing();
+              noteSpeechSuccess(identity);
+              speechLines.settle(timing);
+            },
+            onFailure: (error, timing) => {
+              reportSpeechFailure(identity, error, timing);
+            },
+            onSpeechDiscarded: (timing) => {
+              speechLines.settle(timing);
+            },
+            onText: (text, timing) => {
               if (!meetingOpen()) {
                 log(`ignored "${text}": the meeting has not started`);
+                speechLines.settle(timing);
                 return;
               }
               log(`recognised "${text}"`);
               // With the server-side recogniser the browser has no final line to send, so the
               // accepted words are forwarded through the app server's one human-line writer.
               const accepted = conversation === undefined ? text : conversation.humanText(text);
-              if (accepted === undefined) return;
+              if (accepted === undefined) {
+                speechLines.settle(timing);
+                noteSpeechSuccess(identity);
+                return;
+              }
               const seat = humans.get(identity)?.role;
               const meetingId = meeting.meetingId();
-              if (seat === undefined || meetingId === undefined) return;
-              options.postHumanLine?.({
+              if (seat === undefined || meetingId === undefined) {
+                speechLines.settle(timing);
+                noteSpeechSuccess(identity);
+                return;
+              }
+              noteSpeechSuccess(identity);
+              speechLines.settle(timing, {
                 meetingId,
                 participantIdentity: identity,
                 seat,
@@ -1145,12 +1210,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             : `${identity} stopped talking`,
         );
         conversation?.humanSpeech(talking.size > 0);
-        syncHumanMicState(talking.size > 0);
+        if (speaking) setSpeechState(identity, 'listening');
         // Last, and guarded: a failure in speech recognition must never stop the conversation hearing the person.
         try {
           recorder?.speaking(speaking);
         } catch (error) {
           log(`speech recognition could not ${speaking ? 'start' : 'finish'}: ${String(error)}`);
+          if (speaking) reportSpeechFailure(identity, error);
         }
       },
       options.vad,
@@ -1167,11 +1233,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           talking.add(identity);
           log(`${identity} kept speaking past keystroke window; unsuppressing mic`);
           conversation?.humanSpeech(talking.size > 0);
-          syncHumanMicState(talking.size > 0);
+          setSpeechState(identity, 'listening');
           try {
             recorder?.speaking(true);
           } catch (error) {
             log(`speech recognition could not start: ${String(error)}`);
+            reportSpeechFailure(identity, error);
           }
         }
         try {
@@ -1203,11 +1270,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   room.on(RoomEvent.ParticipantDisconnected, (participant) => {
     if (!humans.delete(participant.identity)) return;
     talking.delete(participant.identity);
-    syncHumanMicState(talking.size > 0);
-    if (humans.size === 0 && humanTranscribing) {
-      humanTranscribing = false;
-      publishState(lastConversationState);
-    }
+    if (speechStates.delete(participant.identity)) publishSpeechStatus();
     log(`${participant.identity} left`);
     if (humans.size === 0) {
       // The server watches the room and pauses the meeting itself; the runner just reports it.
@@ -1524,7 +1587,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       closing = true;
       stopResumeBackstop();
       if (guardTimer !== undefined) clearTimeout(guardTimer);
-      if (humanSpeakingTimer !== undefined) clearTimeout(humanSpeakingTimer);
       await castQueue;
       conversation?.close();
       for (const vad of vads.values()) vad.close();

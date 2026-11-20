@@ -13,6 +13,18 @@ export interface Recognizer {
   start(): SttSession;
 }
 
+/** One stretch of speech, identified so its result can be matched to its start. */
+export interface SpeechStart {
+  id: string;
+  /** Wall-clock milliseconds when the speech began, including the audio kept from just before the detector fired. */
+  startedAt: number;
+}
+
+/** A stretch of speech with the moment it ended. */
+export interface SpeechTiming extends SpeechStart {
+  endedAt: number;
+}
+
 export interface UtteranceRecorderOptions {
   sampleRate: number;
   /** Audio kept from just before the voice detector fired, so the first syllable is not lost. */
@@ -21,15 +33,28 @@ export interface UtteranceRecorderOptions {
   maxMs?: number;
   /** Shorter than this (in audio sent) is not worth recognising. */
   minMs?: number;
-  /** Recognised text, in the order the speech happened. */
-  onText(text: string): void;
+  /** A stretch of speech began; every start ends with `onText`, `onNothing`, `onFailure` or `onSpeechDiscarded`. */
+  onSpeechStart?(start: SpeechStart): void;
+  /** Recognised text, in the order the speech happened, with the time it was actually said. */
+  onText(text: string, timing: SpeechTiming): void;
   log?(message: string): void;
   /** Every stretch of audio sent for recognition, for diagnosing what the server heard. */
   onAudio?(samples: Int16Array): void;
   /** A stretch of speech was recognised as containing nothing. */
-  onNothing?(): void;
+  onNothing?(timing: SpeechTiming): void;
+  /** Recognition failed for a stretch; the service's reason must reach the person who spoke. */
+  onFailure?(error: unknown, timing: SpeechTiming): void;
+  /** A stretch was discarded without recognition (too short, or the track went away). */
+  onSpeechDiscarded?(timing: SpeechTiming): void;
   /** True while finished speech audio is waiting on the speech-to-text service to return words. */
   onRecognizing?(active: boolean): void;
+}
+
+let nextSpeechId = 0;
+
+function newSpeechStart(startedAt: number): SpeechStart {
+  nextSpeechId += 1;
+  return { id: `speech-${nextSpeechId}`, startedAt };
 }
 
 /**
@@ -50,6 +75,7 @@ export class UtteranceRecorder {
   private sent: Int16Array[] = [];
   private chain: Promise<void> = Promise.resolve();
   private pendingRecognitions = 0;
+  private speech: SpeechStart | undefined;
 
   constructor(
     private readonly recognizer: Recognizer,
@@ -86,6 +112,9 @@ export class UtteranceRecorder {
       this.session = this.recognizer.start();
       this.sentSamples = 0;
       this.sent = [];
+      const keptMs = (this.prerollSamples / this.options.sampleRate) * 1000;
+      this.speech = newSpeechStart(Date.now() - Math.round(keptMs));
+      this.options.onSpeechStart?.(this.speech);
       for (const block of this.preroll) this.send(block);
       this.preroll = [];
       this.prerollSamples = 0;
@@ -96,8 +125,13 @@ export class UtteranceRecorder {
 
   /** The person's track went away. */
   close(): void {
-    this.session?.cancel();
+    const session = this.session;
     this.session = undefined;
+    if (session === undefined) return;
+    session.cancel();
+    const speech = this.speech;
+    this.speech = undefined;
+    if (speech !== undefined) this.options.onSpeechDiscarded?.({ ...speech, endedAt: Date.now() });
   }
 
   private send(samples: Int16Array): void {
@@ -110,6 +144,8 @@ export class UtteranceRecorder {
     const session = this.session;
     if (session === undefined) return;
     this.session = undefined;
+    const timing: SpeechTiming = { ...(this.speech ?? newSpeechStart(Date.now())), endedAt: Date.now() };
+    this.speech = undefined;
     const sentMs = (this.sentSamples / this.options.sampleRate) * 1000;
     if (this.options.onAudio !== undefined && this.sent.length > 0) {
       const all = new Int16Array(this.sentSamples);
@@ -120,6 +156,7 @@ export class UtteranceRecorder {
     this.sent = [];
     if (sentMs < this.minMs) {
       session.cancel();
+      this.options.onSpeechDiscarded?.(timing);
       return;
     }
     // Only report active recognition for stretches at least 500 ms long so short coughs or noise blips do not flash a transcribing badge.
@@ -129,26 +166,26 @@ export class UtteranceRecorder {
       this.pendingRecognitions += 1;
       if (this.pendingRecognitions === 1) this.options.onRecognizing?.(true);
     }
+    const settled = (): void => {
+      if (!reportRecognizing) return;
+      this.pendingRecognitions = Math.max(0, this.pendingRecognitions - 1);
+      if (this.pendingRecognitions === 0) this.options.onRecognizing?.(false);
+    };
     this.chain = this.chain
       .then(() => session.finish())
       .then((text) => {
-        if (reportRecognizing) {
-          this.pendingRecognitions = Math.max(0, this.pendingRecognitions - 1);
-          if (this.pendingRecognitions === 0) this.options.onRecognizing?.(false);
-        }
+        settled();
         const heard = text.trim();
-        if (heard.length > 0) this.options.onText(heard);
+        if (heard.length > 0) this.options.onText(heard, timing);
         else {
           this.options.log?.(`speech recognition heard nothing in ${Math.round(sentMs / 100) / 10} s of audio`);
-          this.options.onNothing?.();
+          this.options.onNothing?.(timing);
         }
       })
       .catch((error: unknown) => {
-        if (reportRecognizing) {
-          this.pendingRecognitions = Math.max(0, this.pendingRecognitions - 1);
-          if (this.pendingRecognitions === 0) this.options.onRecognizing?.(false);
-        }
+        settled();
         this.options.log?.(`speech recognition failed: ${String(error)}`);
+        this.options.onFailure?.(error, timing);
       });
   }
 }

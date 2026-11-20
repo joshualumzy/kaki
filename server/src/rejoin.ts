@@ -6,8 +6,11 @@ export type Admission = 'resume' | 'reset' | 'join';
 
 /** Which person holds which seat, owned by the meeting session. */
 export interface SeatHolder {
+  /** Canonical lowercase identity, used to match the same person across joins. */
   name: string;
   seat: string;
+  /** The name exactly as the person joined with, for anything a human reads. */
+  displayName?: string;
 }
 
 export interface AdmissionInput {

@@ -26,13 +26,13 @@ export function entryForEvent(
 ): TimelineEntry | undefined {
   switch (event.type) {
     case 'TRANSCRIPT_CHUNK': {
-      const { speaker, text, timestamp, lineId } = event.payload;
+      const { speaker, text, timestamp, lineId, overlap } = event.payload;
       return {
         // A later cut or restore carries the same line id, so it replaces the line instead of listing it twice.
         key: lineId === undefined ? `said|${timestamp}|${speaker}|${text}` : `said|${lineId}`,
         kind: 'said',
         who: speakerLabel(speaker, viewer, scenario),
-        text,
+        text: overlap === true ? `${text} (overlapping speech)` : text,
       };
     }
     case 'TRANSCRIPT_LINE_UPDATED': {

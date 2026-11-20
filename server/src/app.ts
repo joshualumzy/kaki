@@ -189,6 +189,9 @@ interface RequestContext {
     clientLineId: string;
     meetingId?: string;
     participantIdentity?: string;
+    speechStartedAt?: string;
+    speechEndedAt?: string;
+    overlap?: boolean;
   }): void;
 }
 
@@ -1464,6 +1467,9 @@ async function handleRequest(
         clientLineId?: unknown;
         meetingId?: unknown;
         participantIdentity?: unknown;
+        speechStartedAt?: unknown;
+        speechEndedAt?: unknown;
+        overlap?: unknown;
       };
       if (
         typeof value !== 'object' ||
@@ -1479,7 +1485,14 @@ async function handleRequest(
         typeof value.meetingId !== 'string' ||
         value.meetingId.trim() === '' ||
         typeof value.participantIdentity !== 'string' ||
-        value.participantIdentity.trim() === ''
+        value.participantIdentity.trim() === '' ||
+        (value.speechStartedAt !== undefined &&
+          (typeof value.speechStartedAt !== 'string' ||
+            !Number.isFinite(Date.parse(value.speechStartedAt)))) ||
+        (value.speechEndedAt !== undefined &&
+          (typeof value.speechEndedAt !== 'string' ||
+            !Number.isFinite(Date.parse(value.speechEndedAt)))) ||
+        (value.overlap !== undefined && typeof value.overlap !== 'boolean')
       ) {
         sendJson(response, 400, {
           error:
@@ -1495,6 +1508,9 @@ async function handleRequest(
           clientLineId: value.clientLineId,
           meetingId: value.meetingId,
           participantIdentity: value.participantIdentity,
+          ...(value.speechStartedAt === undefined ? {} : { speechStartedAt: value.speechStartedAt }),
+          ...(value.speechEndedAt === undefined ? {} : { speechEndedAt: value.speechEndedAt }),
+          ...(value.overlap === undefined ? {} : { overlap: value.overlap }),
         });
       } catch (error) {
         if (error instanceof CommandError) {
@@ -2151,17 +2167,6 @@ export async function createApp({
     return seat.trim().toLowerCase();
   }
 
-  function speakerForSeat(seat: string): string | undefined {
-    const wanted = seatKey(seat);
-    const setup = session.sealed() ?? session.draft();
-    const named = setup.seats.find((candidate) => seatKey(candidate.roleId) === wanted);
-    if (named !== undefined && named.displayName.trim() !== '') return named.displayName;
-    const attendee = session.active().attendees.find(
-      (candidate) => candidate.role.trim().toLowerCase() === wanted,
-    );
-    return attendee?.zoomDisplayName?.trim() || attendee?.name;
-  }
-
   function writeHumanLine({
     seat,
     text,
@@ -2169,6 +2174,9 @@ export async function createApp({
     clientLineId,
     meetingId,
     participantIdentity,
+    speechStartedAt,
+    speechEndedAt,
+    overlap,
   }: {
     seat: string;
     text: string;
@@ -2176,6 +2184,9 @@ export async function createApp({
     clientLineId: string;
     meetingId?: string;
     participantIdentity?: string;
+    speechStartedAt?: string;
+    speechEndedAt?: string;
+    overlap?: boolean;
   }): void {
     if (meetingId !== undefined && meetingId !== meeting.id) {
       throw new CommandError('That line belongs to a different meeting');
@@ -2216,9 +2227,10 @@ export async function createApp({
     if (times.length >= HUMAN_LINE_RATE_LIMIT) {
       throw new CommandError('Too many lines at once; wait a moment and try again');
     }
-    const speaker = speakerForSeat(holder.seat);
-    if (speaker === undefined || speaker.trim() === '') {
-      throw new CommandError('That seat has no name in this meeting');
+    // The admitted person is the speaker; the setup seat is only the role they took.
+    const speaker = holder.displayName?.trim() || holder.name;
+    if (speaker.trim() === '') {
+      throw new CommandError('That person has no name in this meeting');
     }
     times.push(now);
     humanLineTimes.set(key, times);
@@ -2236,8 +2248,11 @@ export async function createApp({
       payload: {
         speaker,
         text: cleaned,
-        timestamp: new Date().toISOString(),
+        timestamp: speechStartedAt ?? new Date().toISOString(),
         speakerRole: holder.seat,
+        ...(speechStartedAt === undefined ? {} : { speechStartedAt }),
+        ...(speechEndedAt === undefined ? {} : { speechEndedAt }),
+        ...(overlap === true ? { overlap: true } : {}),
       },
     });
   }

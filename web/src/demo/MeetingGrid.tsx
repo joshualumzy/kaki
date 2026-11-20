@@ -13,7 +13,20 @@ import {
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
-import { CONTROL_TOPIC, NPC_STATE_TOPIC, roleLabel, type AgendaItem, type ControlMessage, type KakiEvent, type NpcStateMessage, type Scenario, type Task } from '@kaki/shared';
+import {
+  CONTROL_TOPIC,
+  NPC_STATE_TOPIC,
+  parseSpeechStatusMessage,
+  roleLabel,
+  SPEECH_STATUS_TOPIC,
+  type AgendaItem,
+  type ControlMessage,
+  type KakiEvent,
+  type NpcStateMessage,
+  type Scenario,
+  type SpeechStatusMessage,
+  type Task,
+} from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { LocalSpeechSTT } from './LocalSpeechSTT';
@@ -105,6 +118,7 @@ interface Stage {
   events: KakiEvent[];
   now: number;
   npcState: NpcStateMessage;
+  speechStatus: SpeechStatusMessage;
   waitingForHuman: boolean;
   activeItemOwnerRole?: string;
 }
@@ -118,18 +132,17 @@ function useStage(): Stage {
 }
 
 function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState } = useStage();
+  const { scenario, chunks, events, now, npcState, speechStatus } = useStage();
   const participant = useTrackRefContext().participant;
   const localParticipant = useLocalParticipant().localParticipant;
   const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
   const humanSpeaking = useIsSpeaking(participant);
-  const serverHumanSpeaking = !isAi && 'humanSpeaking' in npcState && npcState.humanSpeaking === true;
-  const serverTranscribing = !isAi && 'transcribing' in npcState && npcState.transcribing === true;
+  const speechState = isAi ? undefined : speechStatus.participants[participant.identity]?.state;
   const speaking = isAi
     ? npcState.kind === 'speaking' && npcState.speaker === participant.identity
-    : humanSpeaking || serverHumanSpeaking;
+    : humanSpeaking;
   const speakerAliases = isAi
     ? []
     : [participant.name ?? '', participant.identity, 'Guest'].filter((s) => s.trim().length > 0);
@@ -145,11 +158,13 @@ function CaptionedTile() {
     participantRole,
   );
   const caption =
-    !isAi && (humanSpeaking || serverHumanSpeaking)
+    !isAi && humanSpeaking
       ? '🎙️ Speaking…'
-      : !isAi && serverTranscribing
+      : !isAi && speechState === 'transcribing'
         ? '⏳ Transcribing…'
-        : recognizedCaption;
+        : !isAi && speechState === 'failed'
+          ? '⚠️ Kaki could not hear that — please repeat or type it'
+          : recognizedCaption;
   const thinking = isAi && npcState.kind === 'thinking';
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
   const roleTitle = isAi
@@ -246,7 +261,7 @@ export function MeetingGrid({
 }) {
   const scenario = useScenario();
   const room = useRoomContext();
-  const { isMicrophoneEnabled } = useLocalParticipant();
+  const { isMicrophoneEnabled, localParticipant } = useLocalParticipant();
   const { events, send: sendToServer, rejection: commandRejection } = useKaki({ kind: 'role', role });
   const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   // One path for every line the person produces: the server writes it whether or not an AI runner is up.
@@ -305,6 +320,16 @@ export function MeetingGrid({
     }
   });
 
+  const [speechStatus, setSpeechStatus] = useState<SpeechStatusMessage>({ participants: {} });
+  useDataChannel(SPEECH_STATUS_TOPIC, (message) => {
+    try {
+      const parsed = parseSpeechStatusMessage(JSON.parse(new TextDecoder().decode(message.payload)));
+      if (parsed !== undefined) setSpeechStatus(parsed);
+    } catch {
+      // not a speech-status message
+    }
+  });
+
   const aiNames = useMemo(() => new Set((scenario.npcs ?? []).map((npc) => npc.attendee)), [scenario]);
   const aiPresent = participants.some((participant) => aiNames.has(participant.identity));
   const speechRecording = useMemo(() => {
@@ -314,6 +339,29 @@ export function MeetingGrid({
     }
     return undefined;
   }, [screenEvents]);
+  const ownIdentity = localParticipant?.identity;
+  const ownSpeechFailure =
+    ownIdentity === undefined ? undefined : speechStatus.participants[ownIdentity]?.state === 'failed'
+      ? speechStatus.participants[ownIdentity]
+      : undefined;
+  const speechNotice = useMemo(() => {
+    if (speechStatus.outage !== undefined) {
+      return {
+        key: `outage:${speechStatus.outage.message}`,
+        text:
+          ownSpeechFailure === undefined
+            ? speechStatus.outage.message
+            : `${speechStatus.outage.message} Your last line was not heard: repeat it or type it.`,
+      };
+    }
+    if (ownSpeechFailure !== undefined) {
+      return {
+        key: `failed:${ownSpeechFailure.message ?? 'failed'}`,
+        text: ownSpeechFailure.message ?? 'Kaki could not hear that. Please repeat it, or type it instead.',
+      };
+    }
+    return undefined;
+  }, [speechStatus.outage, ownSpeechFailure]);
   const chunks = useMemo(() => transcriptChunks(events), [events]);
   const voiceNote = textOnlyNote(chunks, now);
   const facilitatorName = useMemo(() => {
@@ -391,8 +439,8 @@ export function MeetingGrid({
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
-    () => ({ scenario, chunks, events, now, npcState, waitingForHuman, activeItemOwnerRole: activeOwnerRole }),
-    [scenario, chunks, events, now, npcState, waitingForHuman, activeOwnerRole],
+    () => ({ scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeItemOwnerRole: activeOwnerRole }),
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole],
   );
 
   const wingmanFactPreview = useMemo(() => {
@@ -577,6 +625,17 @@ export function MeetingGrid({
           <div role="alert" className="kd-banner" data-tone="error">
             Speech is not being recorded: the AI service is not connected. Start it with{' '}
             <code>npm run npc</code>.
+          </div>
+        )}
+        {speechNotice !== undefined && (
+          <div role="alert" className="kd-banner" data-tone="error">
+            {speechNotice.text}{' '}
+            <button
+              type="button"
+              onClick={() => document.querySelector<HTMLInputElement>('.kd-typebar input')?.focus()}
+            >
+              Type it instead
+            </button>
           </div>
         )}
         {(scenario.npcs ?? []).length > 0 && !aiPresent && (

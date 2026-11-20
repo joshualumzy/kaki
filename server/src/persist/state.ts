@@ -49,6 +49,8 @@ export interface SavedTranscriptLine {
   agendaItemTitle?: string;
   /** Seconds since the meeting started when the line was heard, stamped on arrival so a queued line keeps its moment. */
   atSeconds?: number;
+  /** True when this person started speaking before the previous line had finished. */
+  overlap?: boolean;
 }
 
 /** The notetaker's progress: what it has not analysed yet, and what it has made of the meeting so far. */
@@ -82,6 +84,7 @@ export interface SavedMeetingState {
 export interface SavedSeatAssignment {
   name: string;
   seat: string;
+  displayName?: string;
 }
 
 /**
@@ -159,7 +162,8 @@ function isTranscriptLine(value: unknown, scenario: Scenario): value is SavedTra
     typeof value.text === 'string' &&
     (value.role === undefined || isRoleIn(scenario, value.role)) &&
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle)) &&
-    (value.atSeconds === undefined || isNonNegativeFinite(value.atSeconds))
+    (value.atSeconds === undefined || isNonNegativeFinite(value.atSeconds)) &&
+    (value.overlap === undefined || typeof value.overlap === 'boolean')
   );
 }
 
