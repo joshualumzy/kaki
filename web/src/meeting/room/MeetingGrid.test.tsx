@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeStageTaskFor, cardFactForItem, colleagueStance, MeetingGrid, reactionForColleague, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './MeetingGrid';
+import { MeetingGrid } from './MeetingGrid';
+import { activeStageTaskFor, cardFactForItem, colleagueStance, reactionForColleague, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 
 const mocks = vi.hoisted(() => ({
   screenEvents: [] as KakiEvent[],

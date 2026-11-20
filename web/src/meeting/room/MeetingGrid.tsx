@@ -1,15 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ControlBar,
   GridLayout,
-  ParticipantTile,
   RoomAudioRenderer,
   useDataChannel,
-  useIsSpeaking,
   useLocalParticipant,
   useParticipants,
   useRoomContext,
-  useTrackRefContext,
   useTracks,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
@@ -20,252 +17,15 @@ import {
   parseSpeechStatusMessage,
   roleLabel,
   SPEECH_STATUS_TOPIC,
-  type AgendaItem,
   type ControlMessage,
-  type KakiEvent,
   type NpcStateMessage,
-  type Scenario,
   type SpeechStatusMessage,
-  type Task,
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
 import { ConnectedTypeBar } from './TypeBar';
-import { Orb, orbPalette } from './Orb';
-import { captionFor, textOnlyNote, transcriptChunks, transcriptNameFor, type TranscriptChunk } from './captions';
-
-/** A retry of the same browser line carries the same id, so the server writes it once. */
-function newClientLineId(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi !== undefined && typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
-  return `line-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-/**
- * What a colleague stands for, from the scenario's own short stance for their seat. A scenario
- * without one shows nothing: an owner-written meeting never inherits a pack's role copy.
- */
-export function colleagueStance(scenario: Scenario, attendeeName: string): string | undefined {
-  const roleId = scenario.attendees.find((attendee) => attendee.name === attendeeName)?.role;
-  const stance = roleId === undefined ? undefined : scenario.roles.find((role) => role.id === roleId)?.stance?.trim();
-  return stance === undefined || stance === '' ? undefined : stance;
-}
-
-export function starterChipsFromAgendaItem(
-  item: Scenario['agenda'][number] | undefined,
-  viewerSeatName: string | undefined,
-  openQuestions: ReadonlyArray<{ text: string; forRole?: string }>,
-  hostName?: string,
-): readonly string[] {
-  const chips: string[] = [];
-  for (const q of openQuestions) {
-    if (q.text.trim().length > 0 && !chips.includes(q.text.trim())) {
-      chips.push(q.text.trim());
-    }
-  }
-  const tradeOffs = item?.discussion?.tradeOffs ?? [];
-  for (const to of tradeOffs) {
-    if (viewerSeatName !== undefined && to.attendee.toLowerCase() === viewerSeatName.toLowerCase()) continue;
-    const question = to.question.trim();
-    const addressed = question.toLowerCase().startsWith(to.attendee.toLowerCase())
-      ? question
-      : `${to.attendee}, ${question[0]!.toLowerCase()}${question.slice(1)}`;
-    if (!chips.includes(addressed)) chips.push(addressed);
-  }
-  const host = hostName?.trim();
-  const addressed = (text: string): string => (host === undefined || host === '' ? text : `${host}, ${text}`);
-  const fallback = [
-    addressed("could you summarize the two main options we're choosing between right now?"),
-    addressed("what's still open on this one?"),
-  ];
-  for (const fb of fallback) {
-    if (!chips.includes(fb)) chips.push(fb);
-  }
-  return chips.slice(0, 2);
-}
-
-export function reactionForColleague(
-  attendeeName: string,
-  events: readonly (KakiEvent & { receivedAt?: number })[],
-  now: number,
-): { emoji: string; label: string; tone: 'catch' | 'lock' | 'agree' } | undefined {
-  const latest = [...events].reverse().find((event) => event.type === 'COLLEAGUE_REACTION' &&
-    event.payload.who === attendeeName && event.receivedAt !== undefined &&
-    now - event.receivedAt < 4000);
-  if (latest?.type !== 'COLLEAGUE_REACTION') return undefined;
-  const tone = latest.payload.emoji === '🙌' ? 'lock' : latest.payload.emoji === '👍' ? 'agree' : 'catch';
-  return { emoji: latest.payload.emoji, label: 'Reacted', tone };
-}
-
-/**
- * Put a speaking participant's track first so a paginated phone stage shows whoever is talking.
- * The order is unchanged when the speaker is already on the visible page.
- */
-export function tracksWithSpeakerFirst<T extends { participant: { identity: string } }>(
-  tracks: readonly T[],
-  speaker: string | undefined,
-): T[] {
-  if (speaker === undefined) return [...tracks];
-  const index = tracks.findIndex((track) => track.participant.identity === speaker);
-  if (index <= 0) return [...tracks];
-  const reordered = [...tracks];
-  const [speaking] = reordered.splice(index, 1);
-  if (speaking !== undefined) reordered.unshift(speaking);
-  return reordered;
-}
-
-interface Stage {
-  scenario: Scenario;
-  chunks: TranscriptChunk[];
-  events: KakiEvent[];
-  now: number;
-  npcState: NpcStateMessage;
-  speechStatus: SpeechStatusMessage;
-  waitingForHuman: boolean;
-  activeItemOwnerRole?: string;
-  activeAgendaIndex: number;
-}
-
-const StageContext = createContext<Stage | null>(null);
-
-function useStage(): Stage {
-  const stage = useContext(StageContext);
-  if (stage === null) throw new Error('useStage must be used inside MeetingGrid');
-  return stage;
-}
-
-function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState, speechStatus } = useStage();
-  const participant = useTrackRefContext().participant;
-  const localParticipant = useLocalParticipant().localParticipant;
-  const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
-  const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
-  const isAi = aiIndex >= 0;
-  const humanSpeaking = useIsSpeaking(participant);
-  const speechState = isAi ? undefined : speechStatus.participants[participant.identity]?.state;
-  const speaking = isAi
-    ? npcState.kind === 'speaking' && npcState.speaker === participant.identity
-    : humanSpeaking;
-  const speakerAliases = isAi
-    ? []
-    : [participant.name ?? '', participant.identity, 'Guest'].filter((s) => s.trim().length > 0);
-  const attendee = isAi ? scenario.attendees.find((candidate) => candidate.name === participant.identity) : undefined;
-  const participantRole = isAi ? attendee?.role : participant.metadata?.trim() || undefined;
-  const recognizedCaption = captionFor(
-    chunks,
-    transcriptNameFor(scenario, participant),
-    now,
-    isAi ? 8000 : 10000,
-    speaking,
-    speakerAliases,
-    participantRole,
-  );
-  const caption =
-    !isAi && humanSpeaking
-      ? '🎙️ Speaking…'
-      : !isAi && speechState === 'transcribing'
-        ? '⏳ Transcribing…'
-        : !isAi && speechState === 'failed'
-          ? '⚠️ Kaki could not hear that — please repeat or type it'
-          : recognizedCaption;
-  const thinking = isAi && npcState.kind === 'thinking';
-  const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
-  const roleTitle = isAi
-    ? scenario.roles.find((role) => role.id === attendee?.role)?.label
-    : participantRole === undefined
-      ? undefined
-      : scenario.roles.find((role) => role.id === participantRole)?.label ?? participantRole;
-  const displayName = participant.name || participant.identity;
-  // Never repeat a role whose label is already the person's display name.
-  const shownRoleTitle = roleTitle === displayName ? undefined : roleTitle;
-  const stance = isAi && attendee !== undefined
-    ? colleagueStance(scenario, attendee.name)
-    : undefined;
-  const reaction = isAi
-    ? reactionForColleague(participant.identity, events, now)
-    : undefined;
-
-  return (
-    <div className="kd-tile" data-state={state} data-ai={isAi} data-speech={speechState ?? 'none'} data-identity={participant.identity} style={{ ['--c' as string]: `var(${orbPalette(isAi ? aiIndex : 1)[0]})` }}>
-      {isAi ? <Orb state={state} palette={orbPalette(aiIndex)} /> : <ParticipantTile style={{ width: '100%', height: '100%' }} />}
-      <div className="kd-who">
-        <i />
-        <div className="kd-who-text">
-          <div className="kd-who-line">
-            <span>{isAi ? participant.identity : `${displayName}${isYou ? ' (You)' : ''}`}</span>
-            {shownRoleTitle !== undefined && <small className="kd-who-role">· {shownRoleTitle}</small>}
-          </div>
-          {stance !== undefined && <small className="kd-who-stance">{stance}</small>}
-        </div>
-      </div>
-      {reaction !== undefined && (
-        <div
-          className="kd-reaction-badge"
-          data-tone={reaction.tone}
-          style={{ ['--reaction-delay' as string]: `${(Math.max(0, aiIndex) % 3) * 240}ms` }}
-          aria-label={`${participant.identity}: ${reaction.label}`}
-        >
-          <span className="kd-reaction-emoji">{reaction.emoji}</span>
-        </div>
-      )}
-      {isAi && <div className="kd-state">{state}</div>}
-      {caption !== null && (
-        <div key={caption} className="kd-caption">
-          {caption}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The fact this seat holds for this topic, when the scenario gives each seat one. This is the
- * source of truth for the Wingman card.
- */
-export function cardFactForItem(item: AgendaItem | undefined, role: string): string | undefined {
-  return item?.seatFacts?.[role];
-}
-
-/**
- * The visitor's open task the stage banner should announce: their task on the current topic when there is
- * one, otherwise the most recently updated open task. Map order alone would keep announcing topic 1's draft
- * after the meeting has moved on.
- */
-export function activeStageTaskFor(
-  tasks: Iterable<Task>,
-  role: string,
-  currentAgendaTitle: string | undefined,
-): Task | undefined {
-  const openTasks = [...tasks].filter(
-    (t) =>
-      (t.assignee ?? t.suggestedAssignee) === role &&
-      (t.status === 'DISPATCHED' || t.status === 'DRAFT_READY'),
-  );
-  if (currentAgendaTitle !== undefined) {
-    const onCurrentTopic = openTasks.find((t) => t.agendaItemTitle === currentAgendaTitle);
-    if (onCurrentTopic !== undefined) return onCurrentTopic;
-  }
-  return openTasks.reduce<Task | undefined>(
-    (latest, task) => (latest === undefined || task.updatedAt >= latest.updatedAt ? task : latest),
-    undefined,
-  );
-}
-
-/**
- * The tracks the stage shows: never the runner's technical listener, and only AI attendees in this
- * meeting's cast. People are never filtered by metadata: a camera-off placeholder must still show
- * its human tile.
- */
-export function visibleStageTracks<T extends { participant: { identity: string; metadata?: string } }>(
-  tracks: readonly T[],
-  scenario: Pick<Scenario, 'npcs'>,
-): T[] {
-  const aiNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
-  return tracks.filter((track) => {
-    const person = track.participant;
-    if (isKakiListener(person.identity)) return false;
-    return person.metadata?.trim() !== 'AI attendee' || aiNames.has(person.identity);
-  });
-}
+import { CaptionedTile, StageContext } from './CaptionedTile';
+import { activeStageTaskFor, cardFactForItem, newClientLineId, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
+import { textOnlyNote, transcriptChunks } from './captions';
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
 export function MeetingGrid({
