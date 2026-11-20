@@ -389,7 +389,9 @@ export function createWikiModule({
     name: 'action-wiki',
     start(context) {
       const stopBase = baseModule.start(context);
-      if (wiki === undefined) return stopBase;
+      // The end-of-meeting minutes are drafted locally (no LLM, no wiki call), so they are created
+      // even when the wiki is unconfigured: publishing them later fails loudly on the card instead
+      // of leaving the panel stuck on "syncing".
 
       let stopped = false;
       let transcriptLines: Array<{ speaker: string; text: string }> = [];
@@ -422,7 +424,7 @@ export function createWikiModule({
           const snapshotLines = [...transcriptLines];
           minutesTimer = setTimeout(() => {
             minutesTimer = undefined;
-            if (stopped || snapshotLines.length === 0) return;
+            if (stopped) return;
             const date = today();
             // The meeting that just closed, with its own seats and agenda, not the startup scenario.
             const scenario = context.activeScenario();
@@ -439,8 +441,9 @@ export function createWikiModule({
               console.warn('kaki action-wiki: no human seat to review the end-of-meeting minutes; nothing was drafted');
               return;
             }
+            let minutesTask: ReturnType<typeof context.tasks.suggestWithPurpose> | undefined;
             try {
-              const minutesTask = context.tasks.suggestWithPurpose(
+              minutesTask = context.tasks.suggestWithPurpose(
                 {
                   title: 'Publish meeting minutes to the team wiki',
                   context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
@@ -457,6 +460,16 @@ export function createWikiModule({
               context.tasks.transition(minutesTask.id, 'DRAFT_READY');
             } catch (error) {
               console.warn(`kaki action-wiki: could not draft the end-of-meeting minutes: ${messageOf(error)}`);
+              // The end-of-meeting card waits on this task: leave the failure visible on it, never
+              // a panel stuck on "syncing".
+              try {
+                const id = minutesTask?.id;
+                if (id !== undefined && context.tasks.get(id)?.status === 'CLAIMED') {
+                  context.tasks.transition(id, 'FAILED', { error: messageOf(error) });
+                }
+              } catch (failure) {
+                console.error('kaki action-wiki: could not mark the minutes task failed', failure);
+              }
             }
           }, minutesDelayMs);
         }

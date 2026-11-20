@@ -191,6 +191,7 @@ export function createMeetingModule({
             ...(now.paused
               ? { paused: true, ...(now.pauseKind === undefined ? {} : { pauseKind: now.pauseKind }) }
               : {}),
+            ...(now.ended ? { ended: true } : {}),
           },
         };
         hub.publish(event, { retainKey: 'record' });
@@ -276,6 +277,11 @@ export function createMeetingModule({
           },
           { retainKey: 'meeting:restored' },
         );
+        lastSignature = undefined;
+        publishRecord();
+      } else if (saved !== undefined && saved.phase === 'ended') {
+        // An ended meeting under review: republish its frozen record, marked ended, so a screen
+        // that opens after the restart sees the meeting as over, never a running clock.
         lastSignature = undefined;
         publishRecord();
       }

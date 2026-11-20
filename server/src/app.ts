@@ -177,6 +177,11 @@ interface RequestContext {
   publicScenario(): Scenario;
   /** Freeze the plan the owner just opened as the public lobby view. */
   captureLobbySnapshot(): void;
+  /**
+   * The first person into an opened lobby picks the agenda for their seat (what the reset they
+   * replaced used to shape): install it without resetting the meeting. A no-op for an edited draft.
+   */
+  shapeLobbyFor(seat: string): void;
   /** Why setup cannot change right now, if it cannot. */
   setupLocked(): 'starting' | 'started' | undefined;
   /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
@@ -439,15 +444,16 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
 }
 
 /**
- * Hand a scenario to a browser only if it parses. An invalid one is a server bug, never a dead
- * end: log it loudly and serve the fallback, which is always valid and lets the owner reach setup.
+ * Hand a scenario to a client only if it parses. An invalid one is a server bug: log it loudly
+ * and return undefined, so the caller decides what to refuse or fall back to — never silently
+ * substituting another pack for the meeting people are actually in.
  */
-function servableScenario(scenario: Scenario, fallback: Scenario, label: string): Scenario {
+function servableScenario(scenario: Scenario, label: string): Scenario | undefined {
   try {
     return parseScenario(scenario);
   } catch (error) {
-    console.error(`kaki scenario: ${label} is invalid; serving the demo pack instead`, error);
-    return fallback;
+    console.error(`kaki scenario: ${label} is invalid; refusing to serve it`, error);
+    return undefined;
   }
 }
 
@@ -694,6 +700,14 @@ async function handleRequest(
               return;
             }
           }
+          // The owner just opened this lobby and nobody is seated yet: the first friend with the
+          // code joins it — a reset here would wipe the meeting under the owner's feet.
+          const openedLobbyJoin =
+            roomEmpty &&
+            !wantsPractice &&
+            decisionPhase === 'lobby' &&
+            holders.length === 0 &&
+            context.session.kind() === 'real';
           const decision: Admission = roomEmpty
             ? practiceStrict
               ? decisionPhase === 'ended' || abandoned || !wouldHold
@@ -701,15 +715,17 @@ async function handleRequest(
                 : hasPracticeCapability
                   ? 'resume'
                   : 'reset'
-              : admission({
-                  phase: decisionPhase,
-                  holders,
-                  present,
-                  name: participantName,
-                  seat: seatId,
-                  graceActive: wouldHold,
-                  abandoned,
-                })
+              : openedLobbyJoin
+                ? 'join'
+                : admission({
+                    phase: decisionPhase,
+                    holders,
+                    present,
+                    name: participantName,
+                    seat: seatId,
+                    graceActive: wouldHold,
+                    abandoned,
+                  })
             : 'join';
           const requestedMax = Number(process.env.NPC_MAX_HUMANS);
           const envMax = Number.isFinite(requestedMax) && requestedMax > 0 ? requestedMax : undefined;
@@ -802,6 +818,10 @@ async function handleRequest(
               rotateIdentity: meetingExisted,
               rotateCode: true,
             });
+          } else if (openedLobbyJoin) {
+            // The first person into the opened lobby picks the agenda for their seat, exactly as
+            // the reset they replaced used to shape it — without resetting the meeting itself.
+            context.shapeLobbyFor(seatId);
           }
           // Record which journey opened this meeting. A practice visitor gets the Start capability
           // for this meeting only; a real meeting is the owner's, with no practice power at all.
@@ -1153,7 +1173,13 @@ async function handleRequest(
           : phase === 'running'
             ? context.session.active()
             : context.seating().scenario;
-      sendJson(response, 200, servableScenario(active, context.fullScenario, 'the runner scenario'));
+      // The runner keeps the room alive on the pack if the live scenario broke; it is a service
+      // caller and the pack carries nothing it must not see.
+      sendJson(
+        response,
+        200,
+        servableScenario(active, 'the runner scenario') ?? context.fullScenario,
+      );
       return;
     }
 
@@ -1199,7 +1225,14 @@ async function handleRequest(
         context.auth === undefined || principal.kind === 'service'
           ? active
           : projectScenario(active, seat);
-      sendJson(response, 200, servableScenario(visible, context.fullScenario, 'the meeting scenario'));
+      // A broken scenario is a server bug: refuse it (the browser shows its error card with a way
+      // to setup) rather than serving an unprojected pack whose private fields would leak.
+      const served = servableScenario(visible, 'the meeting scenario');
+      if (served === undefined) {
+        sendJson(response, 500, { error: 'The meeting scenario is broken; the owner must fix the setup.' });
+        return;
+      }
+      sendJson(response, 200, served);
       return;
     }
 
@@ -1913,7 +1946,7 @@ export async function createApp({
     });
   }
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, publicScenario, captureLobbySnapshot, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused,     runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, publicScenario, captureLobbySnapshot, shapeLobbyFor, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -2552,6 +2585,16 @@ export async function createApp({
   /** The owner opened the room: freeze exactly the plan they opened as the public lobby view. */
   function captureLobbySnapshot(): void {
     lobbySnapshot = seating().scenario;
+  }
+
+  /**
+   * The first person into an opened lobby picks the agenda for their seat, what the reset they
+   * replaced used to shape. An owner-edited draft is never overwritten: the pick is for the
+   * untouched pack plan only.
+   */
+  function shapeLobbyFor(seat: string): void {
+    if (session.draftTouched()) return;
+    session.shapeLobby(resetScenario({ seat, draftTouched: false }));
   }
 
   /** True when the sealed meeting carries no demo-pack content, so its facts must stay out of it. */

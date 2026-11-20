@@ -629,6 +629,114 @@ describe('MeetingPanel', () => {
     expect(screen.getByText('Current decision')).toBeTruthy();
   });
 
+  it('offers task dispatch to the person with meeting control even in a non-facilitator seat', () => {
+    const suggested: Task = {
+      id: 'task-suggested',
+      title: 'Order the cash box',
+      context: 'Kaki heard a decision.',
+      suggestedAssignee: 'producer',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map([[suggested.id, suggested]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    // The owner on /meeting holds a non-facilitator seat, but the screen's authority is theirs.
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Owner', seatName: 'Owner' }}
+        role={scenario.roles[0]}
+        sharedAudience="screen"
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Dispatch' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy();
+  });
+
+  it('never shows task dispatch to a phone participant, even in the facilitator seat', () => {
+    const suggested: Task = {
+      id: 'task-suggested-2',
+      title: 'Order the cash box',
+      context: 'Kaki heard a decision.',
+      suggestedAssignee: 'producer',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map([[suggested.id, suggested]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    // A friend on /join took the facilitator seat: the server refuses their dispatch, so no buttons.
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Ana', seatName: 'Ana' }}
+        role={{ id: 'producer', label: 'Operations Director', facilitator: true }}
+        isHost
+        sharedAudience="participant"
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Dispatch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+  });
+
+  it('never shows task dispatch to a practice visitor, whose socket may not dispatch', () => {
+    const suggested: Task = {
+      id: 'task-suggested-3',
+      title: 'Order the cash box',
+      context: 'Kaki heard a decision.',
+      suggestedAssignee: 'producer',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map([[suggested.id, suggested]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Visitor', seatName: 'Visitor' }}
+        role={scenario.roles[0]}
+        sharedAudience="screen"
+        practice
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Dispatch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+  });
+
+  it('does not point a participant at host controls they do not have', () => {
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [events[0]!],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(
+      <MeetingPanel
+        viewer={{ name: 'Ana', seatName: 'Ana' }}
+        role={{ id: 'producer', label: 'Operations Director', facilitator: true }}
+        isHost
+        sharedAudience="participant"
+      />,
+    );
+    expect(screen.queryByText(/Next agenda item/)).toBeNull();
+  });
+
   it('gives the shared-screen person one pair of meeting controls and nobody else any', () => {
     const recordOnly: KakiEvent[] = [{
       type: 'MEETING_RECORD_UPDATED',

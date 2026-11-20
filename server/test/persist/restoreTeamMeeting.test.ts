@@ -214,6 +214,36 @@ describe('restoring a real team meeting from its own setup', () => {
     expect(app2.session.phase()).toBe('ended');
   });
 
+  it('shows a screen after the restart that the ended meeting is over, not a running clock', async () => {
+    const store = new MemoryStore();
+    const first = createMeetingPersistence({ store, log: () => undefined });
+    const app1 = await startApp(first);
+    await createMeeting(app1, teamSetup());
+    await endMeeting(app1);
+    await first.flush();
+    expect(store.saved?.phase).toBe('ended');
+
+    await app1.close();
+    apps.splice(apps.indexOf(app1), 1);
+
+    const second = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
+    const app2 = await startApp(second);
+    expect(app2.session.phase()).toBe('ended');
+
+    // A screen that connects after the restart sees the frozen record marked ended, so the page
+    // shows the meeting as over instead of a running clock with an "End meeting" button.
+    const screen = await connectClient(portOf(app2), 'screen');
+    clients.push(screen);
+    const record = await waitForEvent(
+      screen,
+      (event) => event.type === 'MEETING_RECORD_UPDATED',
+      'the restored meeting record',
+    );
+    expect(
+      (record as Extract<typeof record, { type: 'MEETING_RECORD_UPDATED' }>).payload.ended,
+    ).toBe(true);
+  });
+
   it('serves the same own setup from a restart in the middle of the meeting', async () => {
     const store = new MemoryStore();
     const first = createMeetingPersistence({ store, log: () => undefined });

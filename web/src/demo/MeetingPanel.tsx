@@ -48,6 +48,9 @@ export function MeetingPanel({
   // Only the person the server authorises to drive the shared screen may advance or end the meeting.
   // Everyone else gets no controls at all, rather than controls the server refuses.
   const canControlMeeting = sharedAudience === 'screen';
+  // Task dispatch and dismissal ride the same screen authority, minus practice: the server refuses
+  // a practice visitor's dispatch, so the buttons must never appear for one.
+  const canDecideTasks = canControlMeeting && !practice;
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [record, setRecord] = useState<RecordEvent | undefined>();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -203,8 +206,9 @@ export function MeetingPanel({
   const meetingEnded = useMemo(
     () =>
       minutesTask !== undefined ||
+      record?.payload.ended === true ||
       events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
-    [events, minutesTask],
+    [events, minutesTask, record],
   );
   const currentAgendaTitle = record !== undefined ? scenario.agenda[record.payload.agendaIndex]?.title : undefined;
   const boardTasks = useMemo(
@@ -350,7 +354,7 @@ export function MeetingPanel({
       )}
       {record === undefined ? (
         <>
-          {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} />}
+          {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} canAdvance={canControlMeeting} />}
           <p className="empty-state">
             {started
               ? `🎙️ ${facilitatorName} (Host) is opening the meeting — listen in, Kaki will cue you when it’s your turn.`
@@ -361,7 +365,7 @@ export function MeetingPanel({
         <>
           <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} showOpenQuestions={isHost} />
           {!meetingEnded && isHost && (
-            <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started />
+            <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started canAdvance={canControlMeeting} />
           )}
           {!meetingEnded && hasAiColleagues && !topicBriefingStarted && (
             <p className="empty-state" style={{ margin: '6px 0', fontSize: 12.5 }}>
@@ -393,7 +397,7 @@ export function MeetingPanel({
                 className="kd-task-card"
                 data-status={task.status}
                 data-highlight={
-                  (isHost && task.status === 'SUGGESTED') ||
+                  (canDecideTasks && task.status === 'SUGGESTED') ||
                   ((task.status === 'COMPLETED' || task.status === 'SYNCED') && task.artifactUrl !== undefined)
                     ? 'true'
                     : undefined
@@ -421,7 +425,7 @@ export function MeetingPanel({
                   </a>
                 )}
                 {task.error !== undefined && <small role="alert">{task.error}</small>}
-                {isHost && task.status === 'SUGGESTED' && (
+                {canDecideTasks && task.status === 'SUGGESTED' && (
                   <TaskControls
                     task={task}
                     scenario={scenario}
@@ -711,10 +715,13 @@ function HostCueCard({
   scenario,
   agendaIndex,
   started,
+  canAdvance = false,
 }: {
   scenario: Scenario;
   agendaIndex: number;
   started: boolean;
+  /** Whether this visitor actually has the Next agenda item control the tip below points at. */
+  canAdvance?: boolean;
 }) {
   const item = scenario.agenda[agendaIndex] ?? scenario.agenda[0];
   if (item === undefined) return null;
@@ -737,7 +744,13 @@ function HostCueCard({
       </p>
       {coHostRole === undefined || coHostName === undefined ? null : (
         <small style={{ display: 'block', opacity: 0.85 }}>
-          Tip: {coHostName} ({roleLabel(scenario, coHostRole.id)}) will help co-host if the room goes quiet, or you can click <b>Next agenda item</b> above anytime.
+          Tip: {coHostName} ({roleLabel(scenario, coHostRole.id)}) will help co-host if the room goes quiet
+          {canAdvance ? ', or you can click ' : '.'}
+          {canAdvance && (
+            <>
+              <b>Next agenda item</b> above anytime.
+            </>
+          )}
         </small>
       )}
     </section>

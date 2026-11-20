@@ -701,6 +701,29 @@ describe('meeting kind security regressions', () => {
     expect(app.session.holders()).toHaveLength(1);
   });
 
+  it('joins, never resets, the meeting the owner just opened when a friend is first into the empty lobby', async () => {
+    let people: Array<{ name: string }> = [];
+    const { app, port } = await authModeApp({ roomRoster: async () => people });
+    const host = await loginHost(port);
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    const generation = app.session.generation();
+    const meetingId = app.session.snapshot().meetingId;
+
+    // The owner is still on /setup: nobody is seated yet, so the room reads empty. The first
+    // friend with the code joins that meeting; a reset here would wipe the opened lobby.
+    const friend = await request(port, '/api/livekit/token', 'POST', {
+      participantName: 'Cara',
+      participantRole: 'producer',
+      meetingCode: CODE,
+    });
+    expect(friend.status).toBe(200);
+    expect(app.session.kind()).toBe('real');
+    expect(app.session.phase()).toBe('lobby');
+    expect(app.session.generation()).toBe(generation);
+    expect(app.session.snapshot().meetingId).toBe(meetingId);
+    expect(app.session.holders().map((holder) => holder.name)).toEqual(['cara']);
+  });
+
   it('releases practice when the owner closes a never-started room', async () => {
     const { app, port } = await openModeApp();
     expect((await request(port, '/api/meeting/open', 'POST')).status).toBe(200);

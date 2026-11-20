@@ -148,6 +148,11 @@ export interface MeetingSession {
   end(): void;
   /** The one way a meeting is reset. Returns the meeting id clients must adopt. */
   reset(options?: MeetingSessionResetOptions): string;
+  /**
+   * Install the lobby scenario admission shaped for the first joiner's seat (the agenda pick),
+   * without resetting the meeting the owner just opened. Only a lobby may be shaped.
+   */
+  shapeLobby(scenario: Scenario): void;
   /** Register per-module reset work; hooks run in registration order. */
   onReset(hook: () => void): () => void;
   /** Bumped on every new identity, so a late acknowledgement can be refused. */
@@ -482,6 +487,11 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       bumpGeneration(true, endedKind);
     },
     reset,
+    shapeLobby(scenario) {
+      if (phase !== 'lobby') refuse('shape the lobby scenario');
+      active = checked(scenario);
+      replaceSavedState();
+    },
     onReset(hook) {
       hooks.push(hook);
       return () => {

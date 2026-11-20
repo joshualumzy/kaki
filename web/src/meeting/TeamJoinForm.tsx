@@ -120,7 +120,7 @@ export function TeamJoinForm({
               : owner
                 ? media.microphone
                   ? 'Join the meeting room with mic'
-                  : 'Join the meeting room'
+                  : 'Join the meeting room to type'
                 : media.microphone
                   ? 'Join with mic'
                   : 'Join to type'}

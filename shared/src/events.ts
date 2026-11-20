@@ -118,6 +118,8 @@ export type KakiEvent =
         paused?: boolean;
         /** Why the meeting is paused, so a phone's button reflects an empty-room pause too. */
         pauseKind?: 'empty-room' | 'person';
+        /** True once the meeting clock has ended, so a screen that connects after a restart still shows the meeting as over. */
+        ended?: boolean;
         /** Judgements the notetaker could not make; cards and questions were left unchanged. */
         reviewIssues?: ReviewIssue[];
       }

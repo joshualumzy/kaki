@@ -74,7 +74,7 @@ describe('TeamJoinForm', () => {
   it('gives the owner no code box', () => {
     render(<TeamJoinForm meetingTitle="Launch readiness" roles={roles} owner onJoin={vi.fn()} />);
     expect(screen.queryByLabelText('Meeting code')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Join the meeting room' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Join the meeting room to type' })).toBeTruthy();
   });
 
   it('makes the owner voice join explicit after they tap the microphone', () => {

@@ -62,8 +62,11 @@ function ScreenFeed() {
   const speechRecording = events
     .filter((event): event is Extract<KakiEvent, { type: 'SPEECH_RECORDING' }> => event.type === 'SPEECH_RECORDING')
     .at(-1)?.payload.recording;
-  // After an end the closing line is the last host cue; a new meeting clears the feed.
-  const meetingEnded = events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING');
+  // After an end the closing line is the last host cue, and the frozen record itself is marked
+  // ended, so a screen that connects after a restart still shows the meeting as over.
+  const meetingEnded =
+    record?.payload.ended === true ||
+    events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING');
   const activity = feedItems(events);
 
   return (

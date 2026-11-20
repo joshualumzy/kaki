@@ -280,6 +280,38 @@ describe('wiki action module', () => {
     expect(llm.calls).toHaveLength(0);
   });
 
+  it('drafts the minutes even when the meeting closed with an empty transcript', async () => {
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
+    );
+    // Nobody said a word before the closing: the minutes still exist (agenda, tasks, questions).
+    tasks.hub.publish({
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    });
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.status).toBe('DRAFT_READY');
+    expect(minutesTask.draft?.subject).toBe('Lunch service readiness — Meeting Minutes');
+    expect(minutesTask.draft?.body).not.toContain('Discussion Transcript');
+  });
+
+  it('drafts the minutes for review even when the wiki is not configured', async () => {
+    const tasks = setup(
+      { llm: createFakeLlm(() => reply), minutesDelayMs: 10, today: () => '2026-11-03' },
+      false,
+      { seats: [{ name: 'Bao', seat: 'cashier' }] },
+    );
+    publishClosing(tasks.hub);
+
+    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'end-of-meeting minutes task');
+    expect(minutesTask.status).toBe('DRAFT_READY');
+    expect(minutesTask.assignee).toBe('cashier');
+  });
+
   it('records a cut then resumed line once in the minutes', async () => {
     const tasks = setup(
       { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
