@@ -1,16 +1,26 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import type { Utterance } from './director';
 
-function parseVoiceSpec(spec: string): { voice: string; pitch?: string; rate?: string } {
+/** A voice spec is a voice name with optional `?pitch=..&rate=..&lang=..`; `lang` is the language the text is in. */
+export interface VoiceSpec { voice: string; pitch?: string; rate?: string; lang?: string }
+
+const VOICE_SPEC_PARAMS = new Set(['pitch', 'rate', 'lang']);
+
+export function parseVoiceSpec(spec: string): VoiceSpec {
   const [voice, query] = spec.split('?', 2);
   if (query === undefined) return { voice: spec };
   const params = new URLSearchParams(query.replace(/\+/g, '%2B'));
+  for (const name of params.keys()) {
+    if (!VOICE_SPEC_PARAMS.has(name)) throw new Error(`voice "${spec}": unknown setting "${name}" (allowed: pitch, rate, lang)`);
+  }
   const pitch = params.get('pitch') ?? undefined;
   const rate = params.get('rate') ?? undefined;
+  const lang = params.get('lang') ?? undefined;
   return {
     voice: voice || spec,
     ...(pitch === undefined ? {} : { pitch }),
     ...(rate === undefined ? {} : { rate }),
+    ...(lang === undefined ? {} : { lang }),
   };
 }
 
@@ -23,14 +33,20 @@ function escapeXml(text: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function buildSsml(voice: string, text: string, pitch?: string, rate?: string): string {
-  const locale = voice.split('-').slice(0, 2).join('-') || 'en-SG';
+/**
+ * SSML for one line. A multilingual voice reading another language (`lang`, e.g. a Chinese voice reading English)
+ * is told so explicitly; otherwise it reads with its home language's rhythm and pauses in odd places.
+ */
+export function buildSsml(spec: VoiceSpec, text: string): string {
+  const { voice, pitch, rate, lang } = spec;
+  const locale = lang ?? (voice.split('-').slice(0, 2).join('-') || 'en-SG');
   const attrs = [
     ...(pitch === undefined ? [] : [`pitch='${escapeXml(pitch)}'`]),
     ...(rate === undefined ? [] : [`rate='${escapeXml(rate)}'`]),
   ].join(' ');
   const escapedWithPauses = escapeXml(text).replace(/\s+[-–—]+\s+/g, " <break time='280ms'/> ");
-  const body = attrs.length > 0 ? `<prosody ${attrs}>${escapedWithPauses}</prosody>` : escapedWithPauses;
+  const prosody = attrs.length > 0 ? `<prosody ${attrs}>${escapedWithPauses}</prosody>` : escapedWithPauses;
+  const body = lang === undefined ? prosody : `<lang xml:lang='${escapeXml(lang)}'>${prosody}</lang>`;
   return `<speak version='1.0' xml:lang='${escapeXml(locale)}'><voice name='${escapeXml(voice)}'>${body}</voice></speak>`;
 }
 
@@ -53,8 +69,10 @@ export function createAzureTts(key: string, region: string, voiceFor: (speaker: 
     const rawVoice = voiceFor(utterance.speaker);
     if (rawVoice === undefined) return Promise.reject(new Error(`No voice for ${utterance.speaker}`));
     if (signal.aborted) return Promise.reject(new Error('aborted'));
-    const { voice, pitch, rate } = parseVoiceSpec(rawVoice);
-    const useSsml = pitch !== undefined || rate !== undefined || /\s+[-–—]+\s+/.test(utterance.text);
+    const spec = parseVoiceSpec(rawVoice);
+    const { voice } = spec;
+    const useSsml =
+      spec.pitch !== undefined || spec.rate !== undefined || spec.lang !== undefined || /\s+[-–—]+\s+/.test(utterance.text);
 
     return new Promise<Int16Array>((resolve, reject) => {
       // No audio config: the audio comes back in the result instead of going to a speaker.
@@ -87,7 +105,7 @@ export function createAzureTts(key: string, region: string, voiceFor: (speaker: 
       const onError = (error: string): void => finish(() => reject(new Error(`speech synthesis failed: ${error}`)));
 
       if (useSsml) {
-        synthesizer.speakSsmlAsync(buildSsml(voice, utterance.text, pitch, rate), onResult, onError);
+        synthesizer.speakSsmlAsync(buildSsml(spec, utterance.text), onResult, onError);
       } else {
         synthesizer.speakTextAsync(utterance.text, onResult, onError);
       }

@@ -760,7 +760,7 @@
     },
     {
       "attendee": "Mei",
-      "voice": "zh-CN-XiaoxiaoMultilingualNeural?rate=-8%",
+      "voice": "zh-CN-Xiaochen:DragonHDLatestNeural?rate=-8%",
       "role": "participant",
       "playable": true,
       "personality": "Menu & Store Experience Lead. Warm and quick to feel; gives way if customers are looked after, resists cutting signature items.",
@@ -801,7 +801,7 @@
     },
     {
       "attendee": "Wei Ling",
-      "voice": "en-SG-LunaNeural?rate=-8%",
+      "voice": "th-TH-Premwadee:DragonLatestNeural?lang=en-US",
       "role": "participant",
       "playable": true,
       "personality": "Operations Director. Protective of floor staff, counts every dollar, and holds her ground until she hears a costed plan, then gives way cleanly.",
@@ -840,7 +840,7 @@
     },
     {
       "attendee": "Daniel",
-      "voice": "en-SG-WayneNeural?rate=-6%",
+      "voice": "ko-KR-Junho:MAI-Voice-2.1?lang=en-US",
       "role": "participant",
       "playable": true,
       "personality": "Marketing Lead. Agrees fast, then worries out loud a beat later.",
@@ -878,7 +878,7 @@
     },
     {
       "attendee": "Sam",
-      "voice": "en-HK-SamNeural?rate=-4%",
+      "voice": "zh-CN-Bo:MAI-Voice-2.1?lang=en-US",
       "role": "host",
       "playable": false,
       "personality": "General Manager and meeting host. Calm, brief, keeps time, and sums up each decision in one sentence.",
