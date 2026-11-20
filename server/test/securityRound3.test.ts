@@ -462,8 +462,11 @@ describe('security round 3', () => {
     const opened = await pending;
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
+    // The server opens and then closes with 4001; wait for that close before tearing down our end, or our own
+    // terminate (1006) can win the race under load.
+    const code = await closeWithin(opened.closed, 5_000);
     opened.ws.terminate();
-    expect(await closeWithin(opened.closed)).toBe(4001);
+    expect(code).toBe(4001);
   });
 
   it('retires the old session and transfers its seat when a seated host signs in again', async () => {
