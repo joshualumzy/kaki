@@ -23,6 +23,20 @@ export const MEETING_RETAINED_KEYS = [
 /** The one lifecycle state of the meeting. */
 export type MeetingPhase = 'lobby' | 'starting' | 'running' | 'ended';
 
+/**
+ * Which journey opened the current meeting. A real meeting is the owner's; a practice meeting is
+ * one anonymous visitor with the demo colleagues, and never uses the owner's draft.
+ */
+export type MeetingKind = 'real' | 'practice';
+
+/** The Start capability a practice join grants its one visitor, for that meeting only. */
+export interface PracticeGrant {
+  /** The unguessable value carried by the visitor's cookie; absent when sign-in is off. */
+  token?: string;
+  /** The seat the practice visitor took. */
+  seat: string;
+}
+
 export interface MeetingSessionResetOptions {
   /** Shape an untouched draft's agenda for this seat; omitted uses the deterministic person seat. */
   seat?: string;
@@ -62,6 +76,16 @@ export interface MeetingSessionDeps {
 export interface MeetingSession {
   /** The one lifecycle state: lobby, starting, running or ended. */
   phase(): MeetingPhase;
+  /** The journey that opened this meeting, if one has been opened or joined. */
+  kind(): MeetingKind | undefined;
+  /** Mark the current meeting real; any practice capability ends with this call. */
+  setKind(kind: MeetingKind): void;
+  /** Open a practice meeting and grant its one visitor the Start capability. */
+  beginPractice(grant: PracticeGrant): void;
+  /** The practice visitor's Start token; undefined outside an auth-mode practice meeting. */
+  practiceStartToken(): string | undefined;
+  /** The seat the practice visitor took, so their view is projected to it. */
+  practiceSeat(): string | undefined;
   /** The immutable scenario of the meeting now; read it through this getter every time. */
   active(): Scenario;
   /** The scenario Start sealed and is waiting to commit; only present while phase is starting. */
@@ -123,6 +147,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let editedSinceSeal = false;
   let holders: SeatHolder[] = [];
   let started: string | undefined;
+  let meetingKind: MeetingKind | undefined;
+  let practiceGrant: PracticeGrant | undefined;
   // The grace ended with nobody back: the running meeting is over and must never resume.
   let abandonedMeeting = false;
   // The abandoned meeting came from the saved row, so replacing it is not wiping a live meeting.
@@ -151,6 +177,14 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   }
 
   function restore(saved: StoredMeeting): void {
+    // Older saved meetings predate kinds: a running meeting or a lobby people joined is a real
+    // meeting. An ended one is over, so it does not keep the server "real" and block practice.
+    meetingKind =
+      saved.kind ??
+      (saved.phase === 'running' || saved.phase === 'starting' || saved.holders.length > 0
+        ? 'real'
+        : undefined);
+    practiceGrant = undefined;
     if (saved.phase === 'running') {
       if (saved.sealed === undefined) throw new Error('kaki session: a running meeting has no sealed setup');
       phase = 'running';
@@ -208,6 +242,8 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     abandonedMeeting = false;
     restoredNoMeeting = false;
     storedEnded = false;
+    meetingKind = undefined;
+    practiceGrant = undefined;
     deps.memory.splice(0, deps.memory.length);
 
     const consumed = sealedSetup !== undefined;
@@ -250,6 +286,18 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
 
   const session: MeetingSession = {
     phase: () => phase,
+    kind: () => meetingKind,
+    setKind(kind) {
+      meetingKind = kind;
+      // The practice capability belongs to a practice meeting and nowhere else.
+      if (kind !== 'practice') practiceGrant = undefined;
+    },
+    beginPractice(grant) {
+      meetingKind = 'practice';
+      practiceGrant = { seat: grant.seat, ...(grant.token === undefined ? {} : { token: grant.token }) };
+    },
+    practiceStartToken: () => practiceGrant?.token,
+    practiceSeat: () => practiceGrant?.seat,
     active: () => active,
     candidate: () => pending,
     draft: () => draft,
@@ -316,6 +364,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     end() {
       if (phase !== 'running') refuse('end the meeting');
       abandonedMeeting = false;
+      // A finished meeting is neither real nor practice until the next one is opened.
+      meetingKind = undefined;
+      practiceGrant = undefined;
       phase = 'ended';
     },
     reset,
@@ -333,6 +384,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       return {
         meetingId: deps.meetingId(),
         phase: storedPhase,
+        ...(meetingKind === undefined ? {} : { kind: meetingKind }),
         draft,
         draftTouched: draftWasTouched,
         ...(editedSinceSeal ? { draftEditedSinceSeal: true } : {}),

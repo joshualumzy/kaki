@@ -283,7 +283,11 @@ for (const kind of ['memory', 'postgres'] as const) {
       for (const credentials of [{}, { cookie: guest }, { cookie: phone }, { cookie: newHost }]) {
         const publicState = await request('/api/meeting/state', 'GET', undefined, credentials);
         expect(publicState.status).toBe(200);
-        expect(Object.keys((await publicState.json()) as Record<string, unknown>).sort()).toEqual(['meetingId', 'started']);
+        expect(Object.keys((await publicState.json()) as Record<string, unknown>).sort()).toEqual([
+          'kind',
+          'meetingId',
+          'started',
+        ]);
         expect((await request('/api/runner/meeting-state', 'GET', undefined, credentials)).status).toBe(401);
       }
     });

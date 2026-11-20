@@ -5,9 +5,17 @@ import type { IncomingMessage } from 'node:http';
  * The one access vocabulary shared by HTTP routes and WebSocket audiences. Every route names one
  * of these before any handler runs; nothing else may decide who a request is.
  */
-export type Access = 'public' | 'session' | 'host' | 'seat' | 'service' | 'dev';
+export type Access = 'public' | 'session' | 'host' | 'host-or-practice' | 'seat' | 'service' | 'dev';
 
-export const ACCESS_LEVELS: readonly Access[] = ['public', 'session', 'host', 'seat', 'service', 'dev'];
+export const ACCESS_LEVELS: readonly Access[] = [
+  'public',
+  'session',
+  'host',
+  'host-or-practice',
+  'seat',
+  'service',
+  'dev',
+];
 
 /** Who a request belongs to, once the access layer has resolved it. */
 export type Principal =
@@ -15,6 +23,11 @@ export type Principal =
   /** A host may also hold a seat they took; they keep every host power either way. */
   | { kind: 'host'; seat?: string }
   | { kind: 'seat'; role: string }
+  /**
+   * The one visitor in a practice meeting, holding nothing but the right to start that meeting.
+   * It ends with the practice meeting and never opens setup, tools, owner routes or a real meeting.
+   */
+  | { kind: 'practice' }
   | { kind: 'service' };
 
 /** One HTTP route declaration: the method, path pattern and mandatory access level. */
@@ -125,6 +138,16 @@ export function accessProblem(
       return {
         status: principal.kind === 'anonymous' ? 401 : 403,
         error: 'Only the meeting owner can do that.',
+      };
+
+    case 'host-or-practice':
+      // Start: the owner starts their meeting; a practice visitor starts only theirs. The handler
+      // re-checks that this is still the practice meeting the capability was granted for.
+      if (!context.authEnabled) return undefined;
+      if (principal.kind === 'host' || principal.kind === 'practice') return undefined;
+      return {
+        status: principal.kind === 'anonymous' ? 401 : 403,
+        error: 'Only the meeting owner can start this meeting.',
       };
 
     case 'seat':

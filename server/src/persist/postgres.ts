@@ -38,6 +38,8 @@ export async function ensureMeetingStateSchema(pool: Pool): Promise<void> {
   await pool.query('alter table meeting_state add column if not exists holders jsonb');
   await pool.query('alter table meeting_state add column if not exists lobby_agenda jsonb');
   await pool.query('alter table meeting_state add column if not exists abandoned boolean');
+  // The journey that opened the meeting: real (owner) or practice (one anonymous visitor).
+  await pool.query('alter table meeting_state add column if not exists kind text');
 }
 
 interface MeetingStateRow {
@@ -56,6 +58,7 @@ interface MeetingStateRow {
   seats: SavedSeatAssignment[] | null;
   lobby_agenda: string[] | null;
   abandoned: boolean | null;
+  kind: StoredMeeting['kind'] | null;
 }
 
 /** The Postgres-backed store the running server uses. */
@@ -65,7 +68,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
       const result = await pool.query<MeetingStateRow>(
         `select schema_version, saved_at, started_at, state, meeting_id, phase, draft, sealed,
                 draft_touched, draft_edited_since_seal, meeting_code, holders, seats,
-                lobby_agenda, abandoned
+                lobby_agenda, abandoned, kind
            from meeting_state where id = $1`,
         [MEETING_STATE_ID],
       );
@@ -79,6 +82,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
         // A row from before the schema bump has none of these; the version check refuses it first.
         meetingId: row.meeting_id ?? '',
         phase: row.phase ?? 'lobby',
+        ...(row.kind === 'real' || row.kind === 'practice' ? { kind: row.kind } : {}),
         draft: row.draft ?? ({} as StoredMeeting['draft']),
         ...(row.sealed === null ? {} : { sealed: row.sealed }),
         draftTouched: row.draft_touched === true,
@@ -95,8 +99,8 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
       await pool.query(
         `insert into meeting_state
            (id, schema_version, saved_at, started_at, state, meeting_id, phase, draft, sealed,
-            draft_touched, draft_edited_since_seal, meeting_code, holders, lobby_agenda, abandoned)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            draft_touched, draft_edited_since_seal, meeting_code, holders, lobby_agenda, abandoned, kind)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          on conflict (id) do update set
            schema_version = excluded.schema_version,
            saved_at = excluded.saved_at,
@@ -111,7 +115,8 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
            meeting_code = excluded.meeting_code,
            holders = excluded.holders,
            lobby_agenda = excluded.lobby_agenda,
-           abandoned = excluded.abandoned`,
+           abandoned = excluded.abandoned,
+           kind = excluded.kind`,
         [
           MEETING_STATE_ID,
           meeting.schemaVersion,
@@ -128,6 +133,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
           JSON.stringify(meeting.holders),
           meeting.lobbyAgenda === undefined ? null : JSON.stringify(meeting.lobbyAgenda),
           meeting.abandoned === true,
+          meeting.kind ?? null,
         ],
       );
     },

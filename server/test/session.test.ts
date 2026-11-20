@@ -209,6 +209,28 @@ describe('meeting session phase transitions', () => {
     expect(h.session.sealed()).toBeUndefined();
   });
 
+  it('clears the meeting kind and practice capability when the meeting ends or resets', () => {
+    const h = harness({ phase: 'lobby' });
+    h.session.beginPractice({ seat: 'chef', token: 'grant-1' });
+    expect(h.session.kind()).toBe('practice');
+    expect(h.session.practiceStartToken()).toBe('grant-1');
+    expect(h.session.practiceSeat()).toBe('chef');
+    expect(h.session.snapshot().kind).toBe('practice');
+
+    h.session.beginStart(h.candidate, h.setup);
+    h.session.commitStart();
+    h.session.end();
+
+    expect(h.session.kind()).toBeUndefined();
+    expect(h.session.practiceStartToken()).toBeUndefined();
+    expect(h.session.practiceSeat()).toBeUndefined();
+
+    h.session.beginPractice({ seat: 'chef', token: 'grant-2' });
+    h.session.reset();
+    expect(h.session.kind()).toBeUndefined();
+    expect(h.session.practiceStartToken()).toBeUndefined();
+  });
+
   it('moves a running meeting to ended and keeps its seal and active scenario', () => {
     const h = harness({ phase: 'lobby' });
     h.session.beginStart(h.candidate, h.setup);

@@ -92,6 +92,8 @@ export interface SeatReservations {
   active(rosterNames: readonly string[], at?: number): AdmissionReservation[];
   /** Reserve a seat for a just-admitted participant, replacing an earlier reservation with their name. */
   add(reservation: { participantName: string; seatId: string }, at?: number): void;
+  /** Forget every reservation: a reset has replaced the meeting they belonged to. */
+  clear(): void;
 }
 
 const sameName = (left: string, right: string): boolean => left.trim().toLowerCase() === right.trim().toLowerCase();
@@ -119,6 +121,9 @@ export function createSeatReservations(
     add(reservation, at = now()) {
       reservations = reservations.filter((existing) => !sameName(existing.participantName, reservation.participantName));
       reservations.push({ ...reservation, expiresAt: at + ttlMs });
+    },
+    clear() {
+      reservations = [];
     },
   };
 }

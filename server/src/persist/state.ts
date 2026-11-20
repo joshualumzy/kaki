@@ -91,6 +91,8 @@ export interface SavedSeatAssignment {
 export interface SavedMeetingDetails {
   meetingId: string;
   phase: SavedMeetingPhase;
+  /** The journey that opened the meeting; absent for a meeting saved before kinds existed. */
+  kind?: 'real' | 'practice';
   draft: MeetingSetup;
   draftTouched: boolean;
   /** An owner edit made after the seal: the next meeting must keep this draft. */
@@ -307,6 +309,8 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (!isNonEmptyString(saved.meetingId)) return 'its meeting identity is missing';
   const phase = phaseProblem((saved as { phase?: unknown }).phase);
   if (phase !== undefined) return phase;
+  const kind = (saved as { kind?: unknown }).kind;
+  if (kind !== undefined && kind !== 'real' && kind !== 'practice') return 'its meeting kind is not valid';
   const draft = setupProblem((saved as { draft?: unknown }).draft, scenario);
   if (draft !== undefined) return `its draft ${draft}`;
   if (typeof saved.draftTouched !== 'boolean') return 'its setup edit mark is not valid';

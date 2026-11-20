@@ -144,6 +144,8 @@ interface RequestContext {
   meeting: { id: string };
   /** The one owner of meeting resets, phase and generated bookkeeping. */
   session: MeetingSession;
+  /** The practice visitor's capability for the current practice meeting, if this request carries it. */
+  practicePrincipal(request: IncomingMessage): Principal | undefined;
   /** Run the one Start: wait for the AI runner to open the meeting before declaring it started. */
   startMeeting(): Promise<StartOutcome>;
   /** Seats handed out but not yet visible in LiveKit's roster. */
@@ -210,6 +212,34 @@ function sendSetupLocked(response: ServerResponse, lock: 'starting' | 'started')
   });
 }
 
+/**
+ * The practice visitor's Start capability lives in this one cookie. It is not a sign-in: it names
+ * nothing else, is compared against the current practice meeting's token, and dies with that
+ * meeting because a reset clears the token.
+ */
+const PRACTICE_COOKIE = 'kaki_practice';
+
+/** The one practice refusal while a real meeting is open or running. */
+const REAL_IN_PROGRESS_MESSAGE = 'A team meeting is in progress right now. Try practice again later.';
+
+function cookieValue(request: IncomingMessage, name: string): string | undefined {
+  const header = request.headers.cookie;
+  if (typeof header !== 'string' || header === '') return undefined;
+  for (const pair of header.split(';')) {
+    const index = pair.indexOf('=');
+    if (index < 0) continue;
+    if (pair.slice(0, index).trim() !== name) continue;
+    const value = pair.slice(index + 1).trim();
+    if (value !== '') return value;
+  }
+  return undefined;
+}
+
+function practiceCookie(token: string): string {
+  const secure = publicUrlIsHttps() ? '; Secure' : '';
+  return `${PRACTICE_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}`;
+}
+
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -258,7 +288,9 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'GET', path: '/api/meeting/state', access: 'public' },
     { method: 'GET', path: '/api/runner/meeting-state', access: 'service' },
     { method: 'POST', path: '/api/livekit/token', access: 'public' },
-    { method: 'POST', path: '/api/meeting/start', access: 'host' },
+    { method: 'POST', path: '/api/meeting/start', access: 'host-or-practice' },
+    { method: 'POST', path: '/api/meeting/open', access: 'host' },
+    { method: 'POST', path: '/api/meeting/end-practice', access: 'host' },
     { method: 'GET', path: '/api/mattermost/open', access: 'session' },
     { method: 'GET', path: '/api/calendar/:id', access: 'public' },
     { method: 'GET', path: '/api/scenario', access: 'public' },
@@ -298,7 +330,11 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
 /** Resolve who a request belongs to: a service token first, then this meeting's session. */
 async function resolvePrincipal(
   request: IncomingMessage,
-  context: { auth?: Auth; serviceToken?: string },
+  context: {
+    auth?: Auth;
+    serviceToken?: string;
+    practicePrincipal?(request: IncomingMessage): Principal | undefined;
+  },
 ): Promise<Principal> {
   if (
     context.serviceToken !== undefined &&
@@ -308,8 +344,11 @@ async function resolvePrincipal(
   }
   if (context.auth !== undefined) {
     const principal = await context.auth.resolvePrincipal(request);
+    // A signed-in owner or seat wins over any stale practice cookie.
     if (principal !== undefined) return principal;
   }
+  const practice = context.practicePrincipal?.(request);
+  if (practice !== undefined) return practice;
   return { kind: 'anonymous' };
 }
 
@@ -442,6 +481,14 @@ async function handleRequest(
         sendJson(response, 400, { error: 'participantRole is required: pick the seat you are taking.' });
         return;
       }
+      // A plain join (no kind) keeps the old behaviour; a practice join is one anonymous visitor
+      // with the demo colleagues, and is refused while a real meeting is open or running.
+      const requestedKind = join.kind;
+      if (requestedKind !== undefined && requestedKind !== 'real' && requestedKind !== 'practice') {
+        sendJson(response, 400, { error: "kind must be 'real' or 'practice'." });
+        return;
+      }
+      const wantsPractice = requestedKind === 'practice';
       // A meeting being prepared is sealed already: admitting someone now would leave their seat out.
       if (context.session.phase() === 'starting') {
         sendJson(response, 409, {
@@ -462,6 +509,10 @@ async function handleRequest(
           }
           const admissionPhase = context.session.phase();
           const admissionGeneration = context.session.generation();
+          if (wantsPractice && context.session.kind() === 'real') {
+            sendJson(response, 409, { error: REAL_IN_PROGRESS_MESSAGE, realInProgress: true });
+            return;
+          }
           // Admission reads the pack, not the sealed cast: a seat an AI once had stays a reserved name.
           const npcNames = (context.fullScenario.npcs ?? []).map((npc) => npc.attendee);
           const joiningName = participantName.toLowerCase();
@@ -488,7 +539,7 @@ async function handleRequest(
           // a person needs the code; the signed-in owner may start or carry on a meeting without it.
           const authOn = context.auth !== undefined;
           const isHost = principal.kind === 'host';
-          if (authOn && principal.kind !== 'service' && !isHost) {
+          if (authOn && principal.kind !== 'service' && !isHost && !wantsPractice) {
             const codeError = codeProblem(
               1,
               context.meetingCode.value,
@@ -520,11 +571,18 @@ async function handleRequest(
               graceActive: wouldHold,
               abandoned,
             }) === 'resume';
-          const seating = context.seating(returning, roomEmpty);
+          const seating: {
+            scenario: Scenario;
+            admissionScenario: Scenario;
+            setup?: MeetingSetup;
+            admissionCap?: number;
+          } = wantsPractice
+            ? { scenario: context.fullScenario, admissionScenario: context.fullScenario }
+            : context.seating(returning, roomEmpty);
           // The role id is the seat's one identity. An owner-edited draft admits only the person seats
           // it names; an untouched draft admits every human seat the pack offers.
           let seatId: string;
-          if (seating.setup !== undefined) {
+          if (!wantsPractice && seating.setup !== undefined) {
             const key = wantedRole.toLowerCase();
             const role = seating.setup.roles.find((candidate) => candidate.id.toLowerCase() === key);
             if (role === undefined) {
@@ -574,7 +632,7 @@ async function handleRequest(
             sendJson(response, 409, { error: problem });
             return;
           }
-          if (!authOn) {
+          if (!authOn && !wantsPractice) {
             // The trusted demo keeps its first-arrival rule exactly: the first person is shown the code.
             // `present` is read before any reset, so this stays the count from this room.
             const codeError = codeProblem(
@@ -598,8 +656,10 @@ async function handleRequest(
             : holders.length > 0 || phase === 'running' || phase === 'ended';
           // A code holder may be first into a fresh meeting, but may never wipe one that already ran.
           // That holds for an abandoned meeting too: it never resumes, and only the owner replaces it.
+          // A practice visitor may replace their own finished practice meeting; kind 'real' was
+          // refused above, so this can never wipe the owner's real meeting.
           const wouldReset = decision === 'reset';
-          if (wouldReset && meetingExisted && authOn && !isHost) {
+          if (wouldReset && meetingExisted && authOn && !isHost && !wantsPractice) {
             sendJson(response, 409, {
               error: 'This meeting has ended; the meeting owner must start the next one.',
             });
@@ -642,10 +702,23 @@ async function handleRequest(
               rotateCode: true,
             });
           }
+          // Record which journey opened this meeting. A practice visitor gets the Start capability
+          // for this meeting only; a real meeting is the owner's, with no practice power at all.
+          if (wantsPractice) {
+            const practiceToken = authOn ? randomUUID() : undefined;
+            context.session.beginPractice({
+              seat: seatId,
+              ...(practiceToken === undefined ? {} : { token: practiceToken }),
+            });
+            if (practiceToken !== undefined) response.setHeader('set-cookie', practiceCookie(practiceToken));
+          } else if (context.session.kind() !== 'practice') {
+            context.session.setKind('real');
+          }
           if (roomEmpty && decision !== 'reset') context.rejoin.beginGrace();
           // Sign-in on: taking the seat and creating its session is one atomic claim shared with
-          // /api/join, so a code holder can never take a seat another live holder owns.
-          if (context.auth !== undefined && principal.kind !== 'service') {
+          // /api/join, so a code holder can never take a seat another live holder owns. A practice
+          // visitor never gets a sign-in session; their cookie carries only the Start capability.
+          if (context.auth !== undefined && principal.kind !== 'service' && !wantsPractice) {
             if (!(await context.auth.enterSeat(request, response, seatId))) {
               console.error(
                 `kaki join: ${participantName} could not take seat ${seatId} after the meeting reset; the seat is already held`,
@@ -681,7 +754,68 @@ async function handleRequest(
     // One server-owned start for the whole meeting. A second Start is a no-op: it must never open the
     // meeting twice or restart the agenda clock. Every client learns the change from MEETING_STARTED.
     if (request.method === 'POST' && path === '/api/meeting/start') {
+      // The access layer let a practice visitor through; it must be the practice meeting still.
+      if (principal.kind === 'practice' && context.session.kind() !== 'practice') {
+        sendJson(response, 403, { error: 'Practice access has ended with its practice meeting.' });
+        return;
+      }
       const outcome = await context.startMeeting();
+      sendJson(response, outcome.status, outcome.body);
+      return;
+    }
+
+    // The owner opens the team meeting: the current draft is its plan, and it blocks practice
+    // until it is over. Serialized with joins and Start so a practice admission cannot slip in.
+    if (request.method === 'POST' && path === '/api/meeting/open') {
+      const outcome = await context.admit(async () => {
+        const phase = context.session.phase();
+        const kind = context.session.kind();
+        const practiceInProgress =
+          kind === 'practice' &&
+          (context.session.holders().length > 0 || phase === 'running' || phase === 'starting');
+        if (practiceInProgress) {
+          return {
+            status: 409,
+            body: {
+              error: 'A practice meeting is in progress right now. End it before opening the team meeting.',
+              practiceInProgress: true,
+            },
+          };
+        }
+        if (phase === 'starting') {
+          return { status: 409, body: { error: 'The meeting is starting; try again in a moment.', retryable: true } };
+        }
+        if (phase === 'running' && !context.session.abandoned()) {
+          return {
+            status: 409,
+            body: { error: 'This meeting has already started. It cannot be opened again until it ends.' },
+          };
+        }
+        // An ended or abandoned meeting is consumed: opening the next one starts a clean lobby.
+        if (phase === 'ended' || (phase === 'running' && context.session.abandoned())) {
+          context.session.reset();
+        }
+        context.session.setKind('real');
+        context.runnerStateChanged();
+        context.scheduleSave();
+        return { status: 200, body: { kind: 'real', phase: context.session.phase() } };
+      });
+      sendJson(response, outcome.status, outcome.body);
+      return;
+    }
+
+    // End a practice meeting and free the server for the team meeting. This is the existing
+    // New-meeting reset path: identity, holders, retained events and saved state all move on.
+    if (request.method === 'POST' && path === '/api/meeting/end-practice') {
+      const outcome = await context.admit(async () => {
+        if (context.session.kind() !== 'practice') {
+          return { status: 409, body: { error: 'There is no practice meeting in progress to end.' } };
+        }
+        context.session.reset();
+        context.runnerStateChanged();
+        context.scheduleSave();
+        return { status: 200, body: { ok: true, phase: context.session.phase() } };
+      });
       sendJson(response, outcome.status, outcome.body);
       return;
     }
@@ -695,6 +829,7 @@ async function handleRequest(
       sendJson(response, 200, {
         meetingId: context.meeting.id,
         started: context.session.phase() === 'running',
+        ...(context.session.kind() === undefined ? {} : { kind: context.session.kind() }),
       });
       return;
     }
@@ -847,7 +982,9 @@ async function handleRequest(
           ? principal.role
           : principal.kind === 'host'
             ? principal.seat
-            : undefined;
+            : principal.kind === 'practice'
+              ? context.session.practiceSeat()
+              : undefined;
       // With sign-in off the trusted demo keeps the whole scenario, as it always did.
       const visible =
         context.auth === undefined || principal.kind === 'service'
@@ -864,6 +1001,7 @@ async function handleRequest(
         setup: phase === 'running' ? (context.session.sealed() ?? context.session.draft()) : context.session.draft(),
         started: phase === 'running',
         phase,
+        ...(context.session.kind() === undefined ? {} : { kind: context.session.kind() }),
       });
       return;
     }
@@ -1488,8 +1626,16 @@ export async function createApp({
     roomPoll.close();
     rejoin.close();
   };
+  /** The practice visitor's Start capability, read from the cookie the practice join issued. */
+  function practicePrincipal(request: IncomingMessage): Principal | undefined {
+    if (session.kind() !== 'practice') return undefined;
+    const token = session.practiceStartToken();
+    if (token === undefined) return undefined;
+    const given = cookieValue(request, PRACTICE_COOKIE);
+    return given !== undefined && tokenMatches(given, token) ? { kind: 'practice' } : undefined;
+  }
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -1537,6 +1683,16 @@ export async function createApp({
       return { ok: false, message: 'The AI runner may not act as a human seat' };
     }
     if (auth === undefined) return { ok: true };
+    // A practice visitor follows only their own practice meeting: its lifecycle, its screen and
+    // the seat they took. The capability dies with the meeting, so it can never reach another one.
+    const practice = practicePrincipal(request);
+    if (practice !== undefined) {
+      const seat = session.practiceSeat();
+      if (audience === 'lifecycle' || audience === 'screen' || (seat !== undefined && audience === seat)) {
+        return { ok: true, principal: practice };
+      }
+      return { ok: false, message: 'Practice access belongs to its practice meeting only' };
+    }
     return auth.authorize(request, audience);
   };
   const hub = createHub(server, () => session.active(), {
@@ -1672,6 +1828,7 @@ export async function createApp({
   session.onReset(() => {
     tasks.reset();
     roomPoll.reset();
+    reservations.clear();
   });
 
   /** Speech lines are bounded separately: a long recognised turn is still one line. */
@@ -1970,6 +2127,10 @@ export async function createApp({
     returning = false,
     roomEmpty?: boolean,
   ): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup; admissionCap?: number } {
+    // A practice meeting always follows the demo pack; the owner's draft is not its plan.
+    if (session.kind() === 'practice') {
+      return { scenario: session.active(), admissionScenario: fullScenario };
+    }
     const sealed = session.sealed();
     const active = session.active();
     const phase = session.phase();
@@ -2032,14 +2193,14 @@ export async function createApp({
    * The setup an untouched draft seals: the meeting admission already shaped (its active agenda and
    * the admitted person's seat), not the full pack. The owner's pack title, roles and pace still apply.
    */
-  function untouchedSetup(): MeetingSetup {
+  function untouchedSetup(humanSeatOverride?: string): MeetingSetup {
     const agenda: MeetingSetup['agenda'] = session.active().agenda.map((item, index) => ({
       id: `agenda-${index + 1}`,
       title: item.title,
       minutes: item.minutes,
       ownerRoleId: item.ownerRole,
     }));
-    const humanSeat = holderPersonSeat();
+    const humanSeat = humanSeatOverride ?? holderPersonSeat();
     if (humanSeat === undefined || (fullScenario.npcs ?? []).length === 0) {
       return { ...defaultSetup, agenda };
     }
@@ -2238,25 +2399,34 @@ export async function createApp({
           };
         }
         // Re-validate the whole draft before anything is applied or the runner is asked, so a bad edit
-        // made outside the setup screen fails Start loudly and leaves the meeting untouched.
-        const parsed = parseMeetingSetup(session.draft(), {
-          npcProfileIds: demoPackNpcProfileIds(fullScenario),
-        });
-        if (!parsed.ok) {
-          return {
-            status: 422,
-            body: {
-              error: 'The meeting setup is not valid, so the meeting was not started. Fix the setup and try again.',
-              errors: parsed.errors,
-            },
-          };
+        // made outside the setup screen fails Start loudly and leaves the meeting untouched. A
+        // practice meeting never reads the owner's draft: it always runs the demo pack.
+        let sealed: MeetingSetup | undefined;
+        if (session.kind() !== 'practice') {
+          const parsed = parseMeetingSetup(session.draft(), {
+            npcProfileIds: demoPackNpcProfileIds(fullScenario),
+          });
+          if (!parsed.ok) {
+            return {
+              status: 422,
+              body: {
+                error: 'The meeting setup is not valid, so the meeting was not started. Fix the setup and try again.',
+                errors: parsed.errors,
+              },
+            };
+          }
+          // An untouched draft follows the live meeting; an owner-edited one is applied exactly as written.
+          if (session.draftTouched()) sealed = parsed.value;
         }
         // Start needs someone in the meeting: an owner cannot open an empty room.
         if (session.holders().length === 0) {
           return { status: 409, body: { error: 'Join the meeting before pressing Start.' } };
         }
-        // An untouched draft follows the live meeting; an owner-edited one is applied exactly as written.
-        const sealed = session.draftTouched() ? parsed.value : untouchedSetup();
+        if (sealed === undefined) {
+          sealed = untouchedSetup(
+            session.kind() === 'practice' ? session.holders()[0]?.seat : undefined,
+          );
+        }
         // Everyone already seated must have a person seat in the setup about to become the meeting.
         const personRoles = new Set(personSeatRoles(sealed));
         const stranded = session.holders().find((holder) => !personRoles.has(holder.seat));
