@@ -2,7 +2,7 @@
 
 **Kaki** is a real-time, multi-agent meeting assistant that pairs a live voice/text meeting stage with private participant wingmen, live company-record RAG, and human-in-the-loop post-meeting actions across 5 external tools.
 
-See the [Product Requirements Document](docs/spec/PRD-kaki-meeting-assistant.md), the [Live Demo Architecture](docs/live-demo.md), the [Human Playtest Findings](docs/playtests/feifei-action-plan.md), and the [Domain Glossary](CONTEXT.md).
+See the [Live Demo Architecture](docs/live-demo.md), [How we tested](docs/testing.md), the [Domain Glossary](CONTEXT.md) and the [STePS poster](docs/poster/kaki-a1-poster.pdf).
 
 ---
 
@@ -127,5 +127,5 @@ npm test                  # Run the full Vitest suite
 ├── scenarios/kopitiam/   # Nanyang Kopi & Toast scenario, seeds, and scripted replay fixtures
 ├── docker/               # Docker Compose stack & idempotent multi-service seed scripts
 ├── scripts/              # Local & cloud launchers (live-up.sh, live-down.sh, live-checks.sh, live-preflight.sh, cloud.sh)
-└── docs/                 # PRD specification, live demo guide, and human playtest records
+└── docs/                 # Live demo guide, how we tested, and the STePS poster
 ```

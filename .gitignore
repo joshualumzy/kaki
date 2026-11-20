@@ -16,3 +16,8 @@ npc-audio/
 # Local live-stack logs and local archive backup
 .live-logs/
 .local-backup/
+
+# AI coding-assistant instructions (kept locally, not part of the submission)
+AGENTS.md
+CLAUDE.md
+docs/agents/
