@@ -1,4 +1,4 @@
-import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, SPEECH_STATUS_TOPIC, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
@@ -13,6 +13,15 @@ const published = vi.hoisted(() => [] as Array<{ topic?: string; message: unknow
 const audio = vi.hoisted(() => ({ frames: [] as Int16Array[] }));
 const tokens = vi.hoisted(() => [] as string[]);
 const startup = vi.hoisted(() => ({ hold: false, release: undefined as undefined | (() => void) }));
+const prejoined = vi.hoisted(
+  () =>
+    [] as Array<{
+      identity: string;
+      name: string;
+      metadata?: string;
+      trackPublications: Map<string, { subscribed: boolean; track?: { kind?: number; sid?: string } }>;
+    }>,
+);
 
 vi.mock('../../src/livekit', () => ({
   createRoomToken: async (options: { participantName: string }) => {
@@ -43,7 +52,14 @@ vi.mock('@livekit/rtc-node', () => {
     emit(event: string, ...args: unknown[]) {
       for (const handler of this.handlers.get(event) ?? []) handler(...args);
     }
-    async connect() { this.connected = true; return undefined; }
+    async connect() {
+      this.connected = true;
+      if (prejoined.length > 0) {
+        for (const participant of prejoined) this.remoteParticipants.set(participant.identity, participant);
+        prejoined.length = 0;
+      }
+      return undefined;
+    }
     async disconnect() { this.connected = false; return undefined; }
   }
   return {
@@ -712,6 +728,82 @@ describe('startNpcRunner with no AI cast', () => {
         seat: 'producer',
         text: 'The queue is out the door.',
       });
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('listens to a person who was already in the room when the listener connected', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    published.length = 0;
+    prejoined.length = 0;
+    audio.frames.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const emptyScenario = { ...scenario, npcs: [] };
+    prejoined.push({
+      identity: 'Alice',
+      name: 'Alice',
+      metadata: 'producer',
+      trackPublications: new Map([['mic-1', { subscribed: true, track: { kind: 1, sid: 'mic-1' } }]]),
+    });
+    const runner = await startNpcRunner({
+      scenario: emptyScenario,
+      initialMeeting: runnerSnapshot(emptyScenario, { meetingId: 'meeting-1', cast: [], version: 1 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      responseDelayMs: 0,
+    });
+    try {
+      await vi.waitFor(() =>
+        expect(
+          published.some(
+            (entry) =>
+              entry.topic === SPEECH_STATUS_TOPIC &&
+              (entry.message as { participants?: Record<string, { state?: string }> }).participants?.Alice?.state ===
+                'listening',
+          ),
+        ).toBe(true),
+      );
+      expect(runner.visitorName()).toBe('Alice');
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('reconnects the listener after LiveKit drops it instead of exiting the runner', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    prejoined.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const emptyScenario = { ...scenario, npcs: [] };
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario: emptyScenario,
+      initialMeeting: runnerSnapshot(emptyScenario, { meetingId: 'meeting-1', cast: [], version: 1 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+    });
+    try {
+      const listener = rooms[0]!;
+      expect(tokens).toEqual([KAKI_LISTENER_IDENTITY]);
+
+      listener.emit('disconnected');
+
+      await vi.waitFor(() => expect(tokens).toEqual([KAKI_LISTENER_IDENTITY, KAKI_LISTENER_IDENTITY]));
+      await vi.waitFor(() => expect(rooms.at(-1)?.connected).toBe(true));
+      await vi.waitFor(() => expect(log.some((line) => line.includes('reconnecting'))).toBe(true));
+      await vi.waitFor(() =>
+        expect(log.some((line) => line.includes('is listening') && line.includes('again'))).toBe(true),
+      );
     } finally {
       await runner.stop();
     }

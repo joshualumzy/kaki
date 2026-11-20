@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSpeechLineOrder, type OrderedSpeechLine } from '../../src/npc/speechOrder';
 
 describe('createSpeechLineOrder', () => {
@@ -48,5 +48,42 @@ describe('createSpeechLineOrder', () => {
       ['Two', false],
       ['Three', true],
     ]);
+  });
+
+  it('drops a stretch that never settles so it cannot hold every later speaker forever', () => {
+    vi.useFakeTimers();
+    try {
+      const lines: Array<OrderedSpeechLine<string>> = [];
+      const dropped: string[] = [];
+      const order = createSpeechLineOrder<string>(
+        (line) => lines.push(line),
+        { maxUnsettledMs: 1_000, log: (message) => dropped.push(message) },
+      );
+
+      order.begin({ id: 'lost', startedAt: 1000 });
+      order.begin({ id: 'words', startedAt: 2000 });
+      order.settle({ id: 'words', startedAt: 2000, endedAt: 3000 }, 'The line');
+      expect(lines).toEqual([]);
+
+      vi.advanceTimersByTime(1_000);
+      expect(lines.map((line) => line.value)).toEqual(['The line']);
+      expect(dropped.join(' ')).toContain('dropped an unsettled stretch');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('forgets the old room on reset, so a late result never enters the new room', () => {
+    const lines: Array<OrderedSpeechLine<string>> = [];
+    const order = createSpeechLineOrder<string>((line) => lines.push(line));
+
+    order.begin({ id: 'old', startedAt: 1000 });
+    order.reset();
+    order.begin({ id: 'new', startedAt: 2000 });
+    order.settle({ id: 'new', startedAt: 2000, endedAt: 3000 }, 'New room');
+    order.settle({ id: 'old', startedAt: 1000, endedAt: 4000 }, 'Old room');
+
+    expect(lines.map((line) => line.value)).toEqual(['New room']);
+    expect(lines[0]?.overlap).toBe(false);
   });
 });

@@ -68,6 +68,15 @@ describe('parseDecision', () => {
     expect(parseDecision('{"accept": "yes", "line": "ok"}')).toBeUndefined();
     expect(parseDecision('not json')).toBeUndefined();
   });
+
+  it('numbers prior-commitment evidence from 1, matching the prompt', () => {
+    expect(
+      parseDecision('{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}', true),
+    ).toMatchObject({ priorCommitment: true, evidenceIndex: 1 });
+    expect(
+      parseDecision('{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}', true),
+    ).toBeUndefined();
+  });
 });
 
 describe('task responder for an AI attendee', () => {
@@ -275,7 +284,7 @@ describe('task responder for an AI attendee', () => {
   it('claims silently only when the model points at this attendee\'s own promise for this exact task', async () => {
     const promise = "I'll fix the oven this afternoon.";
     const { responder, sent, said, calls } = setup(
-      '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}',
+      '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}',
       true,
       false,
       false,
@@ -288,11 +297,30 @@ describe('task responder for an AI attendee', () => {
     expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
   });
 
+  it('reads the line the prompt numbered, not the array slot with the same index', async () => {
+    const promise = "I'll fix the oven this afternoon.";
+    const { responder, sent, prompts } = setup(
+      '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}',
+      true,
+      false,
+      false,
+      [
+        { speaker: 'Ada (Chef)', text: promise, agendaItemTitle: 'Prep' },
+        { speaker: 'Bao (Cashier)', text: 'The sign is loose.', agendaItemTitle: 'Prep' },
+      ],
+    );
+    responder.handle(updated(task({ agendaItemTitle: 'Prep' })));
+    await tick();
+    expect(prompts[0]).toContain(`1. Ada (Chef): ${promise}`);
+    expect(prompts[0]).toContain('2. Bao (Cashier): The sign is loose.');
+    expect(sent).toEqual([['chef', { type: 'CLAIM_TASK', taskId: 't-1', mode: 'MANUAL' }]]);
+  });
+
   it('never lets one promise silently claim a different task for the same speaker', async () => {
     const promise = "I'll fix the oven this afternoon.";
     const { responder, sent, said, calls, finish } = setup(
       [
-        '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}',
+        '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}',
         '{"priorCommitment": false, "evidenceIndex": null, "accept": true, "line": "I will replace it."}',
       ],
       true,
@@ -316,7 +344,7 @@ describe('task responder for an AI attendee', () => {
   });
 
   it('rejects a promise on another agenda item or from another speaker, then leaves the card unresolved', async () => {
-    const reply = '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}';
+    const reply = '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}';
     for (const lines of [
       [{ speaker: 'Ada (Chef)', text: "I'll fix the oven this afternoon.", agendaItemTitle: 'Other' }],
       [{ speaker: 'Bao (Cashier)', text: "I'll fix the oven this afternoon.", agendaItemTitle: 'Prep' }],
@@ -330,7 +358,7 @@ describe('task responder for an AI attendee', () => {
   });
 
   it('does not silently claim when the task changed after the promise', async () => {
-    const reply = '{"priorCommitment": true, "evidenceIndex": 0, "accept": true, "line": null}';
+    const reply = '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}';
     const promise = "I'll fix the oven this afternoon.";
     const { responder, sent, said, calls } = setup([reply, reply], true, false, false, [
       { speaker: 'Ada (Chef)', text: promise, agendaItemTitle: 'Prep' },
@@ -355,7 +383,7 @@ describe('task responder for an AI attendee', () => {
   });
 
   it('does not let a cut line the room never heard ground a silent claim', async () => {
-    const reply = '{"priorCommitment": true, "evidenceIndex": 1, "accept": true, "line": null}';
+    const reply = '{"priorCommitment": true, "evidenceIndex": 2, "accept": true, "line": null}';
     const { responder, sent, calls } = setup([reply, reply], true, false, false, [
       { speaker: 'Ada (Chef)', text: 'The sign is loose.', agendaItemTitle: 'Prep' },
     ]);

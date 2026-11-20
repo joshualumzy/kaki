@@ -81,6 +81,12 @@ const RESUME_BACKSTOP_INTERVAL_MS = 2_000;
 /** How long the resume backstop keeps re-reading before it gives up loudly. */
 const RESUME_BACKSTOP_WINDOW_MS = 10_000;
 
+/** How many quick attempts the listener makes to rejoin after LiveKit drops it. */
+const LISTENER_RECONNECT_ATTEMPTS = 5;
+
+/** After those attempts, how often to keep trying slowly, so a longer LiveKit restart can still recover. */
+const LISTENER_RETRY_INTERVAL_MS = 30_000;
+
 /** True when two snapshots came from the same server incarnation at the same sequence. */
 function sameVersion(a: RunnerSnapshotVersion, b: RunnerSnapshotVersion): boolean {
   return sameRunnerEpoch(a.epoch, b.epoch) && a.seq === b.seq;
@@ -166,8 +172,6 @@ export interface RunnerOptions {
   log?(message: string): void;
   /** Log the voice detector's levels twice a second while the AI talks, for tuning. */
   traceVad?: boolean;
-  /** The connection to LiveKit was lost; the runner is no longer usable. */
-  onDisconnected?(): void;
   /** The server's snapshot already known at boot (used when the pack had no AI cast yet). */
   initialMeeting?: RunnerMeetingSnapshot;
   /** Emit a live 1-sentence Wingman coaching brief for the current agenda item when the visitor's turn updates the discussion state. */
@@ -339,10 +343,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     return room;
   }
 
-  async function joinListener(): Promise<void> {
+  async function joinListener(): Promise<Room> {
     const room = await connectToRoom(KAKI_LISTENER_IDENTITY, 'listener');
     listenerRoom = room;
     log(`${KAKI_LISTENER_IDENTITY} is listening in ${roomName}`);
+    return room;
   }
 
   async function joinCharacter(npc: NpcProfile): Promise<void> {
@@ -369,7 +374,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
 
   function publishData(topic: string, message: unknown): void {
     const data = new TextEncoder().encode(JSON.stringify(message));
-    listenerRoom?.localParticipant?.publishData(data, { reliable: true, topic }).catch(() => undefined);
+    // While the listener reconnects, a character's room still carries room-wide status to the screen.
+    const publisher = listenerRoom?.localParticipant ?? [...characters.values()][0]?.room.localParticipant;
+    publisher?.publishData(data, { reliable: true, topic }).catch(() => undefined);
   }
 
   function publishState(state: NpcStateMessage): void {
@@ -432,18 +439,23 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
 
   // Recognition finishes in any order per person; the transcript must still read in speech order.
-  const speechLines = createSpeechLineOrder<HumanSpeechLine>(({ value, startedAt, endedAt, overlap }) => {
-    options.postHumanLine?.({
-      ...value,
-      speechStartedAt: new Date(startedAt).toISOString(),
-      speechEndedAt: new Date(endedAt).toISOString(),
-      ...(overlap ? { overlap: true } : {}),
-    });
-  });
+  const speechLines = createSpeechLineOrder<HumanSpeechLine>(
+    ({ value, startedAt, endedAt, overlap }) => {
+      options.postHumanLine?.({
+        ...value,
+        speechStartedAt: new Date(startedAt).toISOString(),
+        speechEndedAt: new Date(endedAt).toISOString(),
+        ...(overlap ? { overlap: true } : {}),
+      });
+    },
+    { log },
+  );
 
   // What the AI plays, so the voice detectors can tell how much of it their microphone hears.
   const reference = new PlaybackReference();
   const vads = new Map<string, EnergyVad>();
+  // A track can arrive both through TrackSubscribed and through the attach-time scan; listen to it once.
+  const listeningTracks = new Set<string>();
   const talking = new Set<string>();
   let guardTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -733,6 +745,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     clearStopGate();
     stopResumeBackstop();
     dropHeldTypedLine('dropped the typed line held for the old meeting');
+    speechLines.reset();
     greetReturnPending = false;
     endedTerminal = false;
     memory.reset();
@@ -1142,6 +1155,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
 
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
+    const key = track.sid ?? identity;
+    if (listeningTracks.has(key)) return;
+    listeningTracks.add(key);
     // Listening means this person's microphone audio is actually reaching the recogniser, not merely that they joined.
     setSpeechState(identity, 'listening');
     const recorder =
@@ -1268,11 +1284,81 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     } finally {
       recorder?.close();
       vad.close();
-      vads.delete(identity);
+      if (vads.get(identity) === vad) vads.delete(identity);
+      listeningTracks.delete(key);
     }
   }
 
   let attachedRoom: Room | undefined;
+  let listenerReconnect: Promise<void> | undefined;
+  let listenerRetryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function waitBeforeRetry(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      timer.unref?.();
+    });
+  }
+
+  function scheduleListenerRetry(): void {
+    if (listenerRetryTimer !== undefined || closing) return;
+    listenerRetryTimer = setTimeout(() => {
+      listenerRetryTimer = undefined;
+      void reconnectListener();
+    }, LISTENER_RETRY_INTERVAL_MS);
+    listenerRetryTimer.unref?.();
+  }
+
+  /**
+   * LiveKit dropped the listener: rejoin it in the same room instead of exiting, because the characters and the
+   * server's speech recognition must keep running. The room sees a speech outage while it is away, and the
+   * persistent slow retry means a LiveKit restart longer than the quick attempts can still recover.
+   */
+  async function reconnectListener(): Promise<void> {
+    if (closing || movingRoom) return;
+    if (listenerReconnect !== undefined) return listenerReconnect;
+    listenerReconnect = (async () => {
+      listenerRoom = undefined;
+      attachedRoom = undefined;
+      speechOutage = 'Kaki lost its connection to the room. Reconnecting so everyone can be heard again.';
+      publishSpeechStatus();
+      log(`lost the connection to LiveKit; reconnecting ${KAKI_LISTENER_IDENTITY} to ${roomName}`);
+      let lastError: string | undefined;
+      for (let attempt = 1; attempt <= LISTENER_RECONNECT_ATTEMPTS; attempt += 1) {
+        if (closing || movingRoom) return;
+        try {
+          const joined = await joinListener();
+          if (closing) {
+            await joined.disconnect().catch(() => undefined);
+            listenerRoom = undefined;
+            return;
+          }
+          attachRoom(joined);
+          speechOutage = undefined;
+          log(`${KAKI_LISTENER_IDENTITY} is listening in ${roomName} again`);
+          publishSpeechStatus();
+          return;
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : String(error);
+          const retryIn = reconnectDelayMs(attempt);
+          logError(
+            `could not reconnect ${KAKI_LISTENER_IDENTITY} to ${roomName} (attempt ${attempt} of ${LISTENER_RECONNECT_ATTEMPTS}): ${lastError}; retrying in ${retryIn} ms`,
+          );
+          if (attempt < LISTENER_RECONNECT_ATTEMPTS) await waitBeforeRetry(retryIn);
+        }
+      }
+      speechOutage = `Kaki lost its connection to the room and could not reconnect (${lastError ?? 'no reason given'}). The AI colleagues cannot hear anyone; the runner is still trying.`;
+      publishSpeechStatus();
+      logError(
+        `${KAKI_LISTENER_IDENTITY} could not rejoin ${roomName}; will keep trying every ${LISTENER_RETRY_INTERVAL_MS} ms`,
+      );
+      scheduleListenerRetry();
+    })().finally(() => {
+      listenerReconnect = undefined;
+    });
+    return listenerReconnect;
+  }
+
   function attachRoom(room: Room): void {
     if (attachedRoom === room) return;
     attachedRoom = room;
@@ -1353,11 +1439,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
   });
   room.on(RoomEvent.Disconnected, () => {
-    if (closing || movingRoom) return;
-    log('lost the connection to LiveKit');
-    options.onDisconnected?.();
+    if (closing || movingRoom || attachedRoom !== room) return;
+    void reconnectListener();
   });
-  for (const participant of room.remoteParticipants.values()) registerHuman(participant);
+    for (const participant of room.remoteParticipants.values()) {
+      registerHuman(participant);
+      if (isKakiListener(participant.identity) || meeting.castNames().has(participant.identity)) continue;
+      // The person may already be in the room when the listener connects, so their audio subscription
+      // happened before this handler existed. Start listening to every track that is already subscribed.
+      for (const publication of participant.trackPublications.values()) {
+        const track = publication.track;
+        if (!publication.subscribed || track === undefined || track.kind !== TrackKind.KIND_AUDIO) continue;
+        void listenTo(track as RemoteTrack, participant.identity);
+      }
+    }
   }
   if (listenerRoom === undefined) throw new Error('the technical listener did not join LiveKit');
   attachRoom(listenerRoom);
@@ -1378,9 +1473,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         await leaveAll();
         characters.clear();
         listenerRoom = undefined;
-        await joinListener();
+        const joined = await joinListener();
+        // Attach before the characters join, so a person already in the new room (or one arriving during the
+        // join) is heard and a listener drop during the join can still be recovered.
+        attachRoom(joined);
         for (const npc of permanent) await joinCharacter(npc);
-        if (listenerRoom !== undefined) attachRoom(listenerRoom);
         return;
       } catch (error) {
         const delay = reconnectDelayMs(attempt);
@@ -1407,10 +1504,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const previous = roomName;
     roomName = next;
     log(`the meeting moved to a new room; leaving ${previous} for ${next}`);
+    // A slow listener retry belongs to the room being left; syncRoom owns the new room's join.
+    if (listenerRetryTimer !== undefined) {
+      clearTimeout(listenerRetryTimer);
+      listenerRetryTimer = undefined;
+    }
     humans.clear();
     talking.clear();
     for (const vad of vads.values()) vad.close();
     vads.clear();
+    speechLines.reset();
+    speechStates.clear();
+    consecutiveSpeechFailures = 0;
+    speechOutage = undefined;
+    publishSpeechStatus();
     const result = castQueue.then(
       () => syncRoom(next),
       () => syncRoom(next),
@@ -1600,6 +1707,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     async stop() {
       closing = true;
+      if (listenerRetryTimer !== undefined) clearTimeout(listenerRetryTimer);
       stopResumeBackstop();
       if (guardTimer !== undefined) clearTimeout(guardTimer);
       await castQueue;

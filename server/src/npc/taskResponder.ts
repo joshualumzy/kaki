@@ -98,7 +98,7 @@ export function parseDecision(text: string, requirePriorCommitment = false): Dec
   };
   if (requirePriorCommitment && typeof priorCommitment !== 'boolean') return undefined;
   if (priorCommitment === true) {
-    if (!Number.isInteger(evidenceIndex) || (evidenceIndex as number) < 0) return undefined;
+    if (!Number.isInteger(evidenceIndex) || (evidenceIndex as number) < 1) return undefined;
     return { accept: true, line: null, priorCommitment: true, evidenceIndex: evidenceIndex as number };
   }
   if (priorCommitment !== undefined && typeof priorCommitment !== 'boolean') return undefined;
@@ -128,7 +128,8 @@ export function createTaskResponder(ports: TaskResponderPorts): { handle(event: 
     lines: DecisionLine[],
   ): DecisionLine | undefined {
     if (decision.evidenceIndex === null) return undefined;
-    const line = lines[decision.evidenceIndex];
+    // The prompt numbers the lines from 1, so the model's line number is not a zero-based array index.
+    const line = lines[decision.evidenceIndex - 1];
     if (line === undefined) return undefined;
     if (baseSpeakerName(line.speaker) !== baseSpeakerName(attendee)) return undefined;
     if (line.agendaItemTitle === undefined) return undefined;

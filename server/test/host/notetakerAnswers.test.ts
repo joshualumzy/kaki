@@ -227,11 +227,12 @@ describe('semantic verifier for answers', () => {
     expect(state.reviewIssues.some((issue) => issue.text.includes('Could not confirm whether the question'))).toBe(true);
   });
 
-  it('retries once, then leaves the answer undecided when the verifier reply is unreadable', async () => {
+  it('keeps the batch pending when the verifier reply is unreadable, instead of treating it as a verdict', async () => {
     const { state, verifier } = await closeWithVerdict('The delivery is due on Monday morning.', 'not json');
     expect(verifier.calls).toHaveLength(2);
     expect(state.openQuestions.map((item) => item.text)).toEqual(['When is the delivery due?']);
-    expect(state.reviewIssues.some((issue) => issue.text.includes('Could not confirm whether the question'))).toBe(true);
+    expect(state.reviewIssues).toEqual([]);
+    expect(state.status).toBe('stale');
   });
 
   it('never invokes the verifier when the guest supplies no evidence', async () => {

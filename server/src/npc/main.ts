@@ -345,10 +345,6 @@ const runner = await startNpcRunner({
     await memorySync;
     await runnerClient.postSettledTopic(followUp, reopened);
   },
-  onDisconnected: () => {
-    log('exiting so it can be restarted');
-    process.exit(1);
-  },
   ...(initialMeeting === undefined ? {} : { initialMeeting }),
 });
 runnerForVoice = runner;

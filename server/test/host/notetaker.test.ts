@@ -1151,6 +1151,50 @@ describe('decision revisions', () => {
     expect(notetaker.state().reviewIssues).toEqual([]);
   });
 
+  it('applies a reversal when the model quotes one sentence of a longer spoken turn', async () => {
+    const turnedDecision =
+      "Right. Let's scrap the seating change. We'll keep the old booth rule and post an update.";
+    const turnedChange = "Actually, let's keep the seating change and only post the update.";
+    const assignment = 'Mei, can you post the seating decision in the team channel today so everyone has it?';
+    const { tasks, notetaker } = setup((_messages, call) => {
+      if (call === 0) {
+        return reply({
+          newTasks: [
+            {
+              title: 'Post the seating decision in the team channel',
+              context: 'Announce the seating rule.',
+              suggestedAssignee: 'game_designer',
+              actionKind: 'mattermost_post',
+              evidence: assignment,
+              decisionEvidence: turnedDecision,
+            },
+          ],
+        });
+      }
+      const seatingTask = tasks.list().find((task) => task.title.startsWith('Post the seating'));
+      return reply({
+        revisions: [
+          {
+            oldDecisionEvidence: "Let's scrap the seating change.",
+            changeEvidence: "let's keep the seating change",
+            taskIds: [seatingTask!.id],
+          },
+        ],
+      });
+    });
+
+    notetaker.addChunk({ speaker: 'Feifei Li', text: turnedDecision });
+    notetaker.addChunk({ speaker: 'Mei', text: assignment });
+    await notetaker.run();
+    expect(tasks.list()).toHaveLength(1);
+
+    notetaker.addChunk({ speaker: 'Feifei Li', text: turnedChange });
+    await notetaker.run();
+
+    expect(tasks.list()[0]?.status).toBe('SUPERSEDED');
+    expect(notetaker.state().reviewIssues).toEqual([]);
+  });
+
   it('does not dismiss cards for ordinary "instead of" discussion', async () => {
     const { tasks, notetaker } = setup((_messages, call) =>
       call === 0
@@ -1310,8 +1354,12 @@ describe('semantic verifier for tasks', () => {
     expect(tasks.list()[0]?.suggestedAssignee).toBe('producer');
   });
 
-  it('leaves a card uncreated with a visible issue when the verifier reply is unreadable twice', async () => {
-    const verifier = createFakeLlm(() => 'not json');
+  it('keeps the batch pending when the verifier call or reply fails, and retries it on the next tick', async () => {
+    const verifier = createFakeLlm((_messages, call) =>
+      call < 2
+        ? 'not json'
+        : JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'yes', assigneeRole: 'producer' }] }),
+    );
     const { tasks, notetaker } = setup(() => reply({ newTasks: [task] }), 0, lexicalVerify, verifier);
 
     notetaker.addChunk({ speaker: 'Wei Ling', text: line });
@@ -1319,6 +1367,28 @@ describe('semantic verifier for tasks', () => {
 
     expect(tasks.list()).toEqual([]);
     expect(verifier.calls).toHaveLength(2);
+    expect(notetaker.state().status).toBe('stale');
+    expect(notetaker.state().reviewIssues).toEqual([]);
+
+    await notetaker.run();
+
+    expect(verifier.calls).toHaveLength(3);
+    expect(tasks.list()).toHaveLength(1);
+    expect(notetaker.state().status).toBe('ok');
+    expect(notetaker.state().reviewIssues).toEqual([]);
+  });
+
+  it('raises a visible issue only when the verifier itself answers "unclear"', async () => {
+    const verifier = createFakeLlm(() =>
+      JSON.stringify({ answers: [], tasks: [{ index: 0, verdict: 'unclear', assigneeRole: null }] }),
+    );
+    const { tasks, notetaker } = setup(() => reply({ newTasks: [task] }), 0, lexicalVerify, verifier);
+
+    notetaker.addChunk({ speaker: 'Wei Ling', text: line });
+    await notetaker.run();
+
+    expect(tasks.list()).toEqual([]);
+    expect(verifier.calls).toHaveLength(1);
     expect(
       notetaker.state().reviewIssues.some((issue) =>
         issue.text.includes('Could not confirm whether "Post the final plan in the team channel" was agreed or assigned.'),

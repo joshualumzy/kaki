@@ -1075,8 +1075,11 @@ function transcriptLineText(line: TranscriptLine, scenario: Scenario): string {
 
 /**
  * Resolve a model quote to a line only when the words are exactly the line, not merely a fuzzy overlap. A reversal
- * can move cards, so near-matches are not enough here.
+ * can move cards, so near-matches are not enough here. A voice turn can hold several sentences and the model may
+ * quote just the one it means, so an exact contiguous phrase inside a single line is also accepted, provided it is
+ * long enough to identify the line and only one line contains it.
  */
+const MIN_REVISION_QUOTE_WORDS = 4;
 function exactTranscriptLine(evidence: string, lines: TranscriptLine[]): TranscriptLine | undefined {
   const stripped = evidence
     .replace(/^\s*\[[^\]]+\]\s*/, '')
@@ -1087,7 +1090,10 @@ function exactTranscriptLine(evidence: string, lines: TranscriptLine[]): Transcr
   for (const line of lines) {
     if (normalize(line.text) === wanted) match = line;
   }
-  return match;
+  if (match !== undefined) return match;
+  if (words(wanted).length < MIN_REVISION_QUOTE_WORDS) return undefined;
+  const contained = lines.filter((line) => ` ${normalize(line.text)} `.includes(` ${wanted} `));
+  return contained.length === 1 ? contained[0] : undefined;
 }
 
 const VERIFIER_MARKER = '[KAKI_SEMANTIC_VERIFIER]';
@@ -1171,8 +1177,9 @@ function parseVerifierReply(
 }
 
 /**
- * One batched, meaning-based judgement for every grounded candidate in this pass. A failed read is retried once;
- * after that every candidate is left undecided with a visible issue rather than guessed at.
+ * One batched, meaning-based judgement for every grounded candidate in this pass. A failed call or unreadable
+ * reply is retried once; if both fail it throws, so the caller keeps the batch pending for the next tick instead of
+ * treating a transport problem as a model verdict. Only a parsed `unclear` verdict is the model's own judgement.
  */
 async function verifyCandidates(
   verifier: LlmClient,
@@ -1185,28 +1192,22 @@ async function verifyCandidates(
     return { answers: new Map(), tasks: new Map(), issues: [] };
   }
   const messages = verifierMessages(scenario, answers, tasks);
+  let lastFailure: string | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const reply = await verifier.complete(messages, { json: true, temperature: 0 });
       const parsed = parseVerifierReply(reply, answers, tasks, scenario);
       if (parsed !== undefined) return { ...parsed, issues: [] };
+      lastFailure = 'its reply could not be read';
       log(`could not read the semantic verifier reply (attempt ${attempt + 1})`);
     } catch (error) {
-      log(
-        `the semantic verifier failed (attempt ${attempt + 1}): ${error instanceof Error ? error.message : String(error)}`,
-      );
+      lastFailure = error instanceof Error ? error.message : String(error);
+      log(`the semantic verifier failed (attempt ${attempt + 1}): ${lastFailure}`);
     }
   }
-  return {
-    answers: new Map<string, Verdict>(answers.map((answer) => [answer.id, 'unclear'])),
-    tasks: new Map<number, TaskVerdict>(
-      tasks.map((candidate) => [candidate.index, { verdict: 'unclear', assigneeRole: null }]),
-    ),
-    issues: [
-      ...answers.map((answer) => `Could not confirm whether the question "${answer.question.text}" was answered.`),
-      ...tasks.map((candidate) => `Could not confirm whether "${candidate.task.title}" was agreed or assigned.`),
-    ],
-  };
+  throw new Error(
+    `the semantic verifier could not judge this batch after 2 attempts (${lastFailure ?? 'no reason given'})`,
+  );
 }
 
 /** Create the notetaker; call `run` every 5–10 s while the meeting is on. */
@@ -1303,23 +1304,20 @@ export function createNotetaker({
   }
 
   /**
-   * Retire only the cards the model names, and only when every one of them is still suggested and genuinely linked
-   * to the decision being withdrawn. Any doubt leaves every card alone and puts a specific issue on the record.
+   * Resolve the cards the model names, without changing anything yet. The plan is committed only after the semantic
+   * verifier has answered, so a failed verifier call leaves the batch (and every card) exactly as it was for a retry.
    */
-  function applyRevisions(
+  function planRevisions(
     revisions: RevisionRequest[],
     pool: TranscriptLine[],
     itemTitle: string | undefined,
-    atAgendaIndex: number,
-  ): Set<TranscriptLine> {
-    const removed = new Set<TranscriptLine>();
+  ): { removals: Array<{ oldLine: TranscriptLine; targets: Task[] }>; issues: string[] } {
+    const removals: Array<{ oldLine: TranscriptLine; targets: Task[] }> = [];
+    const issues: string[] = [];
     for (const revision of revisions) {
       const resolved = resolveRevision(revision, pool, itemTitle);
       if (typeof resolved === 'string') {
-        raiseReviewIssue(
-          `A decision reversal was not applied: ${resolved}. Every card was left as it was.`,
-          atAgendaIndex,
-        );
+        issues.push(`A decision reversal was not applied: ${resolved}. Every card was left as it was.`);
         continue;
       }
       const oldDecision = normalize(resolved.oldLine.text);
@@ -1348,12 +1346,24 @@ export function createNotetaker({
         targets.push(task);
       }
       if (problem !== undefined) {
-        raiseReviewIssue(
-          `A decision reversal was not applied: ${problem}. Every card was left as it was.`,
-          atAgendaIndex,
-        );
+        issues.push(`A decision reversal was not applied: ${problem}. Every card was left as it was.`);
         continue;
       }
+      removals.push({ oldLine: resolved.oldLine, targets });
+    }
+    return { removals, issues };
+  }
+
+  /**
+   * Apply a revision plan after a successful pass. A card that cannot be retired leaves its decision in the context.
+   */
+  function commitRevisions(
+    plan: { removals: Array<{ oldLine: TranscriptLine; targets: Task[] }>; issues: string[] },
+    atAgendaIndex: number,
+  ): Set<TranscriptLine> {
+    const removed = new Set<TranscriptLine>();
+    for (const issue of plan.issues) raiseReviewIssue(issue, atAgendaIndex);
+    for (const { oldLine, targets } of plan.removals) {
       let failed = false;
       for (const task of targets) {
         try {
@@ -1367,7 +1377,7 @@ export function createNotetaker({
         }
       }
       // The withdrawn decision leaves the context even when no card depended on it, unless a card could not be retired.
-      if (!failed) removed.add(resolved.oldLine);
+      if (!failed) removed.add(oldLine);
     }
     return removed;
   }
@@ -1379,7 +1389,6 @@ export function createNotetaker({
     failedJudgement?: string,
   ): Promise<void> {
     const groundingPool = [...recentGrounded, ...batch];
-    recentGrounded = groundingPool.slice(-MAX_PENDING_LINES);
     const movedTo =
       reply.agendaIndex !== undefined && reply.agendaIndex > agendaIndex()
         ? reply.agendaIndex
@@ -1390,6 +1399,7 @@ export function createNotetaker({
     // A reply whose reversal list could not be read is not applied at all: keep every card and decision, publish a
     // specific issue, and still let the agenda move on.
     if (failedJudgement !== undefined) {
+      recentGrounded = groundingPool.slice(-MAX_PENDING_LINES);
       raiseReviewIssue(failedJudgement, agendaIndex());
       if (movedTo !== undefined) {
         contextAgendaIndex = movedTo;
@@ -1422,11 +1432,14 @@ export function createNotetaker({
     // A withdrawal only retires the cards the model names, and only after both quotes resolve exactly.
     const revisionPool = [...agendaContext, ...batch];
     const itemTitle = scenario().agenda[agendaIndex()]?.title;
-    const removed = applyRevisions(reply.revisions, revisionPool, itemTitle, agendaIndex());
+    // Plan the reversal now so a withdrawn decision cannot ground a new card, but change nothing until the verifier
+    // has answered: a verifier transport failure must leave the batch retryable exactly as it arrived.
+    const revisionPlan = planRevisions(reply.revisions, revisionPool, itemTitle);
+    const plannedRemoved = new Set(revisionPlan.removals.map((entry) => entry.oldLine));
     const decisionPool =
       movedTo !== undefined
-        ? batch.filter((line) => !removed.has(line))
-        : revisionPool.filter((line) => !removed.has(line));
+        ? batch.filter((line) => !plannedRemoved.has(line))
+        : revisionPool.filter((line) => !plannedRemoved.has(line));
 
     // Ground each task's line first. The lexical checks below are now only logged backstops; meaning decides.
     const taskCandidates: ResolvedTaskCandidate[] = [];
@@ -1502,6 +1515,10 @@ export function createNotetaker({
             (message) => console.warn(`kaki notetaker: ${message}`),
           );
     if (startedIn !== generation) return; // the meeting was reset while the verifier was thinking
+
+    // The pass is usable now: commit the planned revisions and keep this batch as context for later grounding.
+    recentGrounded = groundingPool.slice(-MAX_PENDING_LINES);
+    const retired = commitRevisions(revisionPlan, agendaIndex());
 
     // Close a question only when the verifier says the line states the answer.
     const answered = new Set<string>();
@@ -1636,9 +1653,9 @@ export function createNotetaker({
     // Keep the current item's lines for the next pass. A withdrawn decision's own line is dropped, and nothing else.
     if (movedTo !== undefined) {
       contextAgendaIndex = movedTo;
-      agendaContext = batch.filter((line) => !removed.has(line)).slice(-MAX_AGENDA_CONTEXT_LINES);
+      agendaContext = batch.filter((line) => !retired.has(line)).slice(-MAX_AGENDA_CONTEXT_LINES);
     } else {
-      agendaContext = revisionPool.filter((line) => !removed.has(line)).slice(-MAX_AGENDA_CONTEXT_LINES);
+      agendaContext = revisionPool.filter((line) => !retired.has(line)).slice(-MAX_AGENDA_CONTEXT_LINES);
     }
     if (movedTo !== undefined) onAgendaIndex?.(movedTo);
   }
