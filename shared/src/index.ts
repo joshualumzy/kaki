@@ -1,3 +1,4 @@
+export * from './meeting';
 export * from './roles';
 export * from './scenario';
 export * from './setup';

@@ -189,6 +189,7 @@ export function createTaskStore({
       context: input.context,
       suggestedAssignee: input.suggestedAssignee,
       actionKind: input.actionKind,
+      ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
       ...(input.decisionSource === undefined ? {} : { decisionSource: input.decisionSource }),
       ...(input.agendaItemTitle === undefined ? {} : { agendaItemTitle: input.agendaItemTitle }),
       ...(sourceSeconds === undefined ? {} : { sourceSeconds }),

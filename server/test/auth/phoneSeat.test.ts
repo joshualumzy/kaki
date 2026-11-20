@@ -198,7 +198,7 @@ describe('phone and screen seat authority', () => {
 
     const oldSession = await get('/api/auth/me', oldCookie);
     expect(oldSession.status).toBe(403);
-    expect(await oldSession.json()).toEqual({ error: ENDED, authEnabled: true });
+    expect(await oldSession.json()).toEqual({ error: ENDED, authEnabled: true, ended: true });
 
     const oldSocket = await connect(port, 'cashier', oldCookie);
     expect(oldSocket.ok).toBe(false);

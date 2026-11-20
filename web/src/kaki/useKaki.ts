@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isKakiEvent, type KakiCommand, type KakiEvent, type Role, type Task } from '@kaki/shared';
+import { isKakiEvent, MEETING_ENDED_MESSAGE, type KakiCommand, type KakiEvent, type Role, type Task } from '@kaki/shared';
 import { fetchMe } from '../auth/api';
 import { useScenario } from './ScenarioContext';
 import { addTopicSpeech, type TopicSpeech } from './topicSpeech';
 
 export type { TopicSpeech } from './topicSpeech';
-
-/** What the server says when a phone's meeting code has been replaced. */
-const MEETING_ENDED_MESSAGE = 'This meeting has ended; scan the new code.';
 
 /** A command the server refused, with the reason to show the user. */
 export interface KakiRejection {
@@ -244,7 +241,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           void fetchMe()
             .then((me) => {
               if (closed || endedForGood) return;
-              if (me.authEnabled && me.kind === null && me.reason === MEETING_ENDED_MESSAGE) {
+              if (me.authEnabled && me.kind === null && me.ended === true) {
                 endedForGood = true;
                 if (reconnectTimer.current !== undefined) {
                   window.clearTimeout(reconnectTimer.current);

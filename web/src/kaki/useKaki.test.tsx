@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { MEETING_ENDED_MESSAGE } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./ScenarioContext', () => {
@@ -259,11 +260,10 @@ describe('useKaki lifecycle state', () => {
   });
 
   it('stops reconnecting and reports the ended meeting after a failed reconnect', async () => {
-    const ended = 'This meeting has ended; scan the new code.';
     const fetchMock = vi.fn(async () => ({
       ok: false,
       status: 403,
-      json: async () => ({ error: ended, authEnabled: true }),
+      json: async () => ({ error: MEETING_ENDED_MESSAGE, authEnabled: true, ended: true }),
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { useKaki } = await import('./useKaki');
@@ -277,12 +277,36 @@ describe('useKaki lifecycle state', () => {
 
     // The reconnect was refused before it opened: the phone must ask whether its meeting is gone.
     act(() => failed.emit('close', { code: 1006 }));
-    await waitFor(() => expect(result.current.ended).toBe(ended));
+    await waitFor(() => expect(result.current.ended).toBe(MEETING_ENDED_MESSAGE));
 
     const count = sockets.length;
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     expect(sockets.length).toBe(count);
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/me', undefined);
+  });
+
+  it('still ends the feed when the server words its ended answer differently', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'That code is no longer in use.', authEnabled: true, ended: true }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('chef'));
+    const first = sockets[0]!;
+
+    act(() => first.emit('open'));
+    act(() => first.emit('close', { code: 1006 }));
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const failed = sockets[1]!;
+
+    act(() => failed.emit('close', { code: 1006 }));
+    await waitFor(() => expect(result.current.ended).toBe(MEETING_ENDED_MESSAGE));
+
+    const count = sockets.length;
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(sockets.length).toBe(count);
   });
 
 });

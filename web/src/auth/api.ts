@@ -1,8 +1,10 @@
+import type { MeetingEnded } from '@kaki/shared';
+
 /** What GET /api/auth/me says about this browser's cookie. */
 export type Me =
   | { authEnabled: false }
   | { authEnabled: true; kind: 'host' | 'participant'; role?: string }
-  | { authEnabled: true; kind: null; reason?: string };
+  | ({ authEnabled: true; kind: null; reason?: string } & Partial<MeetingEnded>);
 
 type Outcome = { ok: true } | { ok: false; message: string };
 type JoinOutcome = { ok: true; role: string } | { ok: false; message: string };
@@ -31,6 +33,7 @@ export async function fetchMe(signal?: AbortSignal): Promise<Me> {
       authEnabled: true,
       kind: null,
       ...(typeof body.error === 'string' ? { reason: body.error } : {}),
+      ...(body.ended === true ? { ended: true as const } : {}),
     };
   }
 

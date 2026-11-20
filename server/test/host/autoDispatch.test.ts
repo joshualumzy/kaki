@@ -27,20 +27,34 @@ describe('auto-dispatch', () => {
     expect((cue as { payload: { assignee?: string; title?: string } }).payload).toMatchObject({ assignee: 'Ada', title: 'Fix the oven' });
   });
 
-  it('leaves the end-of-meeting minutes card waiting for its person, without a dispatch line', () => {
+  it('leaves a minutes task waiting for its person even when its title is reworded', () => {
     const published: KakiEvent[] = [];
     app.hub.subscribe((event) => published.push(event));
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
 
     const task = app.tasks.suggest({
-      title: 'Publish meeting minutes to the team wiki',
+      title: 'Write up what we agreed for the noticeboard',
       context: 'The minutes, already drafted.',
       suggestedAssignee: 'chef',
       actionKind: 'wiki_page',
+      purpose: 'meeting_minutes',
     });
 
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
     expect(published.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'DISPATCH')).toBe(false);
+  });
+
+  it('dispatches an ordinary wiki task whose title happens to start like the minutes', () => {
+    installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
+
+    const task = app.tasks.suggest({
+      title: 'Publish meeting minutes to the team noticeboard',
+      context: 'A normal follow-up about how we publish notes.',
+      suggestedAssignee: 'chef',
+      actionKind: 'wiki_page',
+    });
+
+    expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
   });
 
   it('leaves a declined task for a person; it is not sent out again', () => {

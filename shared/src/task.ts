@@ -4,6 +4,9 @@ import { isRoleIn, type Scenario } from './scenario';
 /** The kind of background action a task can run for its assignee. */
 export type ActionKind = 'gitea_issue' | 'mattermost_post' | 'email' | 'wiki_page' | 'calendar_event';
 
+/** Why the server created a task itself, when it is a meeting milestone rather than a follow-up. */
+export type TaskPurpose = 'meeting_minutes';
+
 /** A draft action the assignee must approve before anything is written. */
 export interface ActionDraft {
   target: string;
@@ -57,6 +60,8 @@ export interface Task {
   /** Roles that were offered this task and turned it down; the task is back to SUGGESTED. */
   declinedBy?: Role[];
   actionKind?: ActionKind;
+  /** The server-owned milestone this task serves, if it was not created from a person's follow-up. */
+  purpose?: TaskPurpose;
   /**
    * The accepted decision this task announces, copied verbatim from the transcript. The notetaker only keeps a
    * model-selected quote when it matches a line on the current agenda item, so this is grounded, not proof that the
@@ -91,6 +96,8 @@ export interface SuggestInput {
   context: string;
   suggestedAssignee: Role;
   actionKind?: ActionKind;
+  /** The server-owned milestone this task serves, if it is not a person's follow-up. */
+  purpose?: TaskPurpose;
   /** The accepted decision this task announces, verbatim from the transcript. */
   decisionSource?: string;
   /** The agenda item this task came from, stamped by the notetaker; never chosen by the model. */
@@ -160,6 +167,11 @@ export function isActionKind(value: unknown): value is ActionKind {
   return typeof value === 'string' && (ACTION_KINDS as readonly string[]).includes(value);
 }
 
+/** True when a value is a known task purpose. */
+export function isTaskPurpose(value: unknown): value is TaskPurpose {
+  return value === 'meeting_minutes';
+}
+
 /** True when a value is a complete action draft. */
 export function isActionDraft(value: unknown): value is ActionDraft {
   return (
@@ -199,6 +211,7 @@ export function isTask(value: unknown, scenario: Scenario): value is Task {
     (value.declinedBy === undefined ||
       (Array.isArray(value.declinedBy) && value.declinedBy.every((role) => isRoleIn(scenario, role)))) &&
     (value.actionKind === undefined || isActionKind(value.actionKind)) &&
+    (value.purpose === undefined || isTaskPurpose(value.purpose)) &&
     (value.decisionSource === undefined || isNonEmptyString(value.decisionSource)) &&
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle)) &&
     (value.sourceSeconds === undefined ||
@@ -222,6 +235,7 @@ export function isSuggestInput(value: unknown, scenario: Scenario): value is Sug
     isNonEmptyString(value.context) &&
     isRoleIn(scenario, value.suggestedAssignee) &&
     (value.actionKind === undefined || isActionKind(value.actionKind)) &&
+    (value.purpose === undefined || isTaskPurpose(value.purpose)) &&
     (value.decisionSource === undefined || isNonEmptyString(value.decisionSource)) &&
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle))
   );

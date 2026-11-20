@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
+import { MEETING_ENDED_MESSAGE } from '@kaki/shared';
 import type { ClientAudience } from '../hub';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../access';
 import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
@@ -8,7 +9,6 @@ import {
   MEETING_CODE_FAILURE_LIMIT,
   MEETING_CODE_RATE_LIMIT_MESSAGE,
   MEETING_CODE_WINDOW_MS,
-  MEETING_ENDED_MESSAGE,
   type MeetingCodeSource,
 } from '../meetingCode';
 import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } from './cookie';
@@ -369,7 +369,7 @@ export function createAuth({
       (session.meetingCode !== meetingCode.value || session.meetingId !== currentMeetingId())
     ) {
       // The phone's meeting is gone: it must join again with the code on the screen.
-      sendJson(response, 403, { error: MEETING_ENDED_MESSAGE, authEnabled: true });
+      sendJson(response, 403, { error: MEETING_ENDED_MESSAGE, authEnabled: true, ended: true });
       return;
     }
     if (

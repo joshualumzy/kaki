@@ -72,7 +72,7 @@ function publishClosing(hub: Hub): void {
 }
 
 function minutesTaskIn(tasks: TaskStore): Task | undefined {
-  return tasks.list().find((task) => /^Publish meeting minutes/i.test(task.title));
+  return tasks.list().find((task) => task.purpose === 'meeting_minutes');
 }
 
 function startTask(tasks: TaskStore, actionKind: ActionKind = 'wiki_page', sourceSeconds?: number): Task {
@@ -184,6 +184,37 @@ describe('wiki action module', () => {
     expect(pagePath('2026-11-03', '???')).toBe('meetings/2026-11-03-notes');
   });
 
+  it('keeps the minutes out of the summary by purpose, not by title', () => {
+    const minutesTask: Task = {
+      id: 'task-minutes',
+      title: 'Housekeeping notes',
+      context: 'The minutes themselves.',
+      suggestedAssignee: 'chef',
+      status: 'DRAFT_READY',
+      updatedAt: '2026-11-03T10:00:00.000Z',
+      purpose: 'meeting_minutes',
+    };
+    const ordinaryTask: Task = {
+      id: 'task-ordinary',
+      title: 'Publish meeting minutes to the noticeboard',
+      context: 'A normal follow-up about how we publish notes.',
+      suggestedAssignee: 'chef',
+      status: 'SUGGESTED',
+      updatedAt: '2026-11-03T10:01:00.000Z',
+    };
+
+    const minutes = buildMeetingMinutes(
+      testScenario,
+      '2026-11-03',
+      [{ speaker: 'Mei (Chef)', text: 'We decided to cap the oven at 200C.' }],
+      [],
+      [minutesTask, ordinaryTask],
+    );
+
+    expect(minutes).toContain(ordinaryTask.title);
+    expect(minutes).not.toContain(minutesTask.title);
+  });
+
   it('creates the minutes in the review state at closing, assigned to the present person, without calling the wiki', async () => {
     const fetchImpl = wikiFetch();
     const llm = createFakeLlm(() => reply);
@@ -199,6 +230,7 @@ describe('wiki action module', () => {
     expect(minutesTask.assignee).toBe('cashier');
     expect(minutesTask.suggestedAssignee).toBe('cashier');
     expect(minutesTask.actionKind).toBe('wiki_page');
+    expect(minutesTask.purpose).toBe('meeting_minutes');
     expect(minutesTask.mode).toBe('ACTION_AGENT');
     expect(minutesTask.draft).toEqual({
       target: 'Wiki: meeting notes',

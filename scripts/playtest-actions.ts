@@ -10,6 +10,12 @@ export type ActableTask = {
 
 export type RobotTaskAction = { task: ActableTask; step: 'claim' | 'approve' };
 
+/** True when a transcript speaker is exactly the robot's seat name, ignoring case and surrounding space. */
+export function isRobotSpeakerName(speaker: string, robotSpeaker: string): boolean {
+  const wanted = robotSpeaker.trim().toLowerCase();
+  return wanted !== '' && speaker.trim().toLowerCase() === wanted;
+}
+
 /**
  * Why `--act` cannot run, or undefined when the robot's own environment is safe.
  * Any non-empty `KAKI_DRAFT_ONLY` other than `0` makes every approved action fail, so refuse early.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   draftOnlyRefusal,
+  isRobotSpeakerName,
   judgeArtifactReachability,
   judgeCardCompletion,
   nextRobotTaskAction,
@@ -20,6 +21,15 @@ describe('draft-only refusal', () => {
     expect(draftOnlyRefusal({ KAKI_DRAFT_ONLY: ' 0 ' })).toBeUndefined();
     expect(draftOnlyRefusal({ KAKI_DRAFT_ONLY: '1' })).toMatch(/without KAKI_DRAFT_ONLY/);
     expect(draftOnlyRefusal({ KAKI_DRAFT_ONLY: 'true' })).toMatch(/local mock tools only/);
+  });
+});
+
+describe('robot speaker identity', () => {
+  it('matches only the exact seat name, ignoring case and surrounding space', () => {
+    expect(isRobotSpeakerName('  Ada (Chef) ', 'ada (chef)')).toBe(true);
+    expect(isRobotSpeakerName('Ada (Chef) and Sam', 'Ada (Chef)')).toBe(false);
+    expect(isRobotSpeakerName('Ada', 'Ada (Chef)')).toBe(false);
+    expect(isRobotSpeakerName('Ada (Chef)', '')).toBe(false);
   });
 });
 

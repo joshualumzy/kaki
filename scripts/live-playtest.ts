@@ -12,7 +12,8 @@ import { chromium, devices, type Browser, type Page } from 'playwright';
 import { joinSeatRoles, type KakiEvent, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
 import {
-  draftOnlyRefusal, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction, wingmanFactVerdicts,
+  draftOnlyRefusal, isRobotSpeakerName, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction,
+  wingmanFactVerdicts,
 } from './playtest-actions';
 import {
   decideRoomReply, roomReplyModelFromEnv, type RoomReplyModel, type RoomReplyOutcome,
@@ -85,8 +86,7 @@ function lineKey(line: Line): string { return `${line.sourceTime}|${line.speaker
  */
 let robotSpeaker = 'Robot Visitor';
 function isRobotSpeaker(speaker: string): boolean {
-  const wanted = robotSpeaker.trim().toLowerCase();
-  return wanted !== '' && speaker.trim().toLowerCase().includes(wanted);
+  return isRobotSpeakerName(speaker, robotSpeaker);
 }
 
 export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHooks | undefined, roomReply: RoomReplyModel): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
@@ -778,11 +778,25 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
     // The server records this person's lines under the setup seat name, which can differ from the
     // pack attendee's name if the owner renamed the seat.
-    const setupResponse = await page.request.get(`${BASE}/api/setup`, { timeout: 10_000 });
-    if (setupResponse.ok()) {
-      const setupBody = await setupResponse.json() as { setup?: MeetingSetup };
-      const seat = setupBody.setup?.seats.find((candidate) => candidate.roleId === visitorRole);
-      if (seat !== undefined && seat.displayName.trim() !== '') robotSpeaker = seat.displayName;
+    try {
+      const setupResponse = await page.request.get(`${BASE}/api/setup`, { timeout: 10_000 });
+      if (!setupResponse.ok()) {
+        await check('Robot speaker identity', false,
+          `/api/setup returned HTTP ${setupResponse.status()}: cannot tell the robot's lines from other people's`);
+      } else {
+        const setupBody = await setupResponse.json() as { setup?: MeetingSetup };
+        const seat = setupBody.setup?.seats.find((candidate) => candidate.roleId === visitorRole);
+        if (seat === undefined || seat.displayName.trim() === '') {
+          await check('Robot speaker identity', false,
+            `No named seat for role ${visitorRole} in /api/setup: cannot tell the robot's lines from other people's`);
+        } else {
+          robotSpeaker = seat.displayName;
+          await check('Robot speaker identity', true, `Transcript speaker is exactly "${robotSpeaker}"`);
+        }
+      }
+    } catch (error) {
+      await check('Robot speaker identity', false,
+        `/api/setup could not be read: ${String(error)}; cannot tell the robot's lines from other people's`);
     }
     await check('Two agenda topics for the session', scenario.agenda.length === 2,
       `API returned ${scenario.agenda.length}; each meeting draws two of the five topics`);
@@ -1007,7 +1021,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     if (parsed.act === true) {
       // The minutes card is created a moment after the closing cue; approve it like any other guest card.
       const minutesReady = await waitFor('Minutes card for approval', minutesCardReady, 30_000, false);
-      if (!minutesReady) notes.push(`${stamp()} Act: no end-of-meeting minutes card appeared for approval`);
+      await check('Minutes card for approval', minutesReady,
+        minutesReady ? 'Minutes card appeared in DRAFT_READY for approval' : 'No end-of-meeting minutes card appeared within 30 s');
       await actOnRobotTasks();
       await finishActedCards();
     }

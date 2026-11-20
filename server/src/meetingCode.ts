@@ -1,9 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { normalizeMeetingCode } from '@kaki/shared';
 
-/** What a phone shows when its meeting's code has been replaced. */
-export const MEETING_ENDED_MESSAGE = 'This meeting has ended; scan the new code.';
-
 /** What a caller sees after too many wrong codes from one address. */
 export const MEETING_CODE_RATE_LIMIT_MESSAGE =
   'Too many meeting-code attempts. Wait a minute and try again.';

@@ -49,7 +49,7 @@ export function buildMeetingMinutes(
   ];
 
   const activeTasks = allTasks.filter(
-    (task) => task.status !== 'DISMISSED' && !/^Publish meeting minutes/i.test(task.title),
+    (task) => task.status !== 'DISMISSED' && task.purpose !== 'meeting_minutes',
   );
   sections.push('', '## Action Items & Follow-Ups');
   if (activeTasks.length === 0) {
@@ -420,6 +420,7 @@ export function createWikiModule({
                 context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
                 suggestedAssignee: assignee,
                 actionKind: 'wiki_page',
+                purpose: 'meeting_minutes',
               });
               context.tasks.transition(minutesTask.id, 'DISPATCHED', { assignee });
               context.tasks.transition(minutesTask.id, 'CLAIMED', {
