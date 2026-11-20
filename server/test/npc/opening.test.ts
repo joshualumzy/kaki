@@ -32,6 +32,7 @@ function harness(scenarioUsed: Scenario, role: string, options: {
   bargeInMs?: number;
   silencePromptMs?: number;
   silenceNudgeLeadMs?: number;
+  observeDelayMs?: number;
   failPlaybackFor?: string;
 } = {}) {
   const calls: LlmCall[] = [];
@@ -100,7 +101,7 @@ function harness(scenarioUsed: Scenario, role: string, options: {
     responseDelayMs: options.responseDelayMs ?? 0,
     speakerGapMs: 0,
     sentenceGapMs: 0,
-    observeDelayMs: 0,
+    observeDelayMs: options.observeDelayMs ?? 0,
     bargeInMs: options.bargeInMs ?? 0,
     resumeMs: 0,
     briefFirstChunkMs: 5_000,
@@ -286,6 +287,46 @@ describe('one-speaker topic opening', () => {
 
     await playOut(h.playing);
     expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+    h.conversation.close();
+  });
+
+  it('briefs the room after the observe delay when nothing interrupts it', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const h = harness(scenario, roleId, { observeDelayMs: 100 });
+
+    h.conversation.agendaMoved(title);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[opening] starting'));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+    const first = await waitCall(h.calls, 0);
+    expect(requestText(first)).toContain('Tell only this');
+    h.conversation.close();
+  });
+
+  it('briefs once the room frees after being busy past the old retry window', async () => {
+    const roleId = 'producer';
+    const seat = 'Wei Ling';
+    const title = TOPICS[0]!;
+    const scenario = { ...kopitiam, npcs: aiCast(kopitiam, seat) };
+    const h = harness(scenario, roleId, { observeDelayMs: 100 });
+
+    h.conversation.humanSpeech(true);
+    h.conversation.agendaMoved(title);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('[opening] starting'));
+    expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
+
+    h.conversation.humanSpeech(false);
+    h.conversation.humanNothing();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.logs).toContainEqual(expect.stringContaining(`[opening] starting "${title}"`));
+    const first = await waitCall(h.calls, 0);
+    expect(requestText(first)).toContain('Tell only this');
+    expect(h.logs.some((line) => line.includes('could not brief'))).toBe(false);
     h.conversation.close();
   });
 

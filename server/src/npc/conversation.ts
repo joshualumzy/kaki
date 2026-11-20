@@ -2995,12 +2995,29 @@ export class NpcConversation<Clip> {
       this.finishPlannedStep(turn);
       return { reason: parsed.reason };
     }
+    const keptSentences = parsed.sentences.filter((sentence) => {
+      const dropped = run.kind === 'reply'
+        ? this.plannedOwnershipDrop(sentence, decision.speaker, turn)
+        : undefined;
+      if (dropped !== undefined) {
+        this.ports.log?.(dropped);
+        return false;
+      }
+      return true;
+    });
+    const text = keptSentences.join(' ').trim();
+    if (keptSentences.length === 0) {
+      queue.close();
+      await player;
+      this.finishPlannedStep(turn);
+      return { reason: 'every sentence gave the visitor\'s follow-up away' };
+    }
     if (decision.purpose === 'brief' || (run.kind === 'reply' && decision.purpose === 'answer' && factIds.length > 0)) {
       const missing = factIds
         .map((id) => view.facts.find((fact) => fact.id === id))
         .find((fact) => fact !== undefined &&
           !(run.kind === 'reply' && decision.purpose === 'answer' && fact.told) &&
-          !carriesFact(parsed.text, fact.text));
+          !carriesFact(text, fact.text));
       if (missing !== undefined) {
         queue.close();
         await player;
@@ -3010,7 +3027,7 @@ export class NpcConversation<Clip> {
     }
     if (run.kind === 'reply' && decision.purpose === 'catch' && decision.catchId !== undefined) {
       const catchText = view.catches.find((entry) => entry.id === decision.catchId)?.text;
-      if (catchText !== undefined && !carriesCatch(parsed.text, catchText)) {
+      if (catchText !== undefined && !carriesCatch(text, catchText)) {
         queue.close();
         await player;
         this.finishPlannedStep(turn);
@@ -3039,7 +3056,7 @@ export class NpcConversation<Clip> {
       }
     }
 
-    const utterances: Utterance[] = parsed.sentences.map((text) => ({ speaker: decision.speaker, text }));
+    const utterances: Utterance[] = keptSentences.map((sentence) => ({ speaker: decision.speaker, text: sentence }));
     if (utterances.length === 0) {
       queue.close();
       await player;
@@ -3053,7 +3070,7 @@ export class NpcConversation<Clip> {
       kind: run.kind,
       factIds,
       lastUtterance: utterances.at(-1),
-      text: parsed.text,
+      text,
       ...(decision.catchId === undefined ? {} : { catchId: decision.catchId }),
       ...(question === undefined ? {} : { question }),
     };
@@ -3062,7 +3079,7 @@ export class NpcConversation<Clip> {
       queue.push({ utterance, clip: this.synthesizeWithRetry(utterance, abort.signal) });
     }
     // Start the next speaker while this line plays; it is used only if this line is fully heard and the epoch holds.
-    this.startPlannedPrefetch(run, decision, parsed.text, factIds);
+    this.startPlannedPrefetch(run, decision, text, factIds);
     queue.close();
     await player;
     if (turn.control !== undefined && turn.topic !== undefined && turn.spoken.length > 0) {
@@ -3159,6 +3176,28 @@ export class NpcConversation<Clip> {
       if (line.length === 0) continue;
       if (!isReplyControlLine(line)) return undefined;
       return parseReplyControl(line, (message) => this.ports.log?.(message)) ?? OPEN_REPLY_CONTROL;
+    }
+    return undefined;
+  }
+
+  /** The log line for a planned sentence that gives the visitor's follow-up to a colleague or the host. */
+  private plannedOwnershipDrop(sentence: string, speaker: string, turn: Turn): string | undefined {
+    const aiHost = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
+    if (turn.dispatchCue?.cardPointer !== true && aiHost !== undefined && speaker === aiHost &&
+        this.currentTopicHasVisitorFollowUp() && !namesColleague(sentence, this.names) &&
+        (HOST_SEND_PLACE_RE.test(sentence) ||
+          (HOST_SEND_INSTRUCTION_RE.test(sentence) &&
+            (HOST_IMPERATIVE_START_RE.test(sentence) || addressesVisitor(sentence, this.human?.name))))) {
+      return `[card] dropped host send-instruction: ${sentence}`;
+    }
+    if (this.human !== undefined) {
+      const addressed = addressedShareTarget(sentence, this.names);
+      if (addressed !== undefined || MODEL_SHARE_TAKEOVER_RE.test(sentence)) {
+        const owner = addressed ?? speaker;
+        if (!this.askedByGuestOnTopic(owner)) {
+          return `[owner] ${speaker}: dropped a sentence that gives the visitor's follow-up to a colleague: "${sentence}"`;
+        }
+      }
     }
     return undefined;
   }
