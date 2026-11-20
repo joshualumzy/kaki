@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeetingSetup, Scenario } from '@kaki/shared';
@@ -611,6 +611,36 @@ describe('SetupPage', () => {
     expect(screen.getByText('Add at least one role.')).toBeTruthy();
     expect(screen.getByText('Add at least one agenda item.')).toBeTruthy();
     expect(screen.getByText('Add at least one seat for a person.')).toBeTruthy();
+  });
+
+  it('locks the editor while a blank plan is replacing the draft', async () => {
+    let resolveBlank!: (value: unknown) => void;
+    const blankResult = new Promise<unknown>((resolve) => {
+      resolveBlank = resolve;
+    });
+    installFetch(
+      baseRoutes({
+        'POST /api/setup/blank': () => blankResult,
+      }),
+    );
+    renderPage();
+
+    await screen.findByDisplayValue('Morning huddle');
+    fireEvent.click(screen.getByRole('button', { name: 'Start a blank meeting' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace with a blank plan' }));
+
+    // While the server replaces the plan, the old form must not accept edits that would vanish.
+    const title = screen.getByLabelText('Meeting title field') as HTMLInputElement;
+    const lock = title.closest('fieldset') as HTMLFieldSetElement | null;
+    expect(lock).not.toBeNull();
+    expect(lock?.disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Open the meeting room' }) as HTMLButtonElement).disabled).toBe(true);
+
+    resolveBlank(reply({ setup: blankDraft, started: false }));
+
+    await waitFor(() => expect(lock?.disabled).toBe(false));
+    expect(title.value).toBe('');
+    expect(screen.queryByRole('button', { name: 'Replace with a blank plan' })).toBeNull();
   });
 
   it('starts a blank meeting without a confirm when the plan is already blank', async () => {

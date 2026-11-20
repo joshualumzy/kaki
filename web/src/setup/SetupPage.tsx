@@ -86,6 +86,9 @@ export function SetupPage() {
   const [confirmBlank, setConfirmBlank] = useState(false);
   const [blankProblem, setBlankProblem] = useState<string | null>(null);
   const [draftDirty, setDraftDirty] = useState(false);
+  // A blank start or a template import replaces the whole draft; the form must not accept edits
+  // that the arriving plan would silently overwrite.
+  const setupBusy = startingBlank || importing;
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +127,7 @@ export function SetupPage() {
   const notifyDirty = useCallback((dirty: boolean) => setDraftDirty(dirty), []);
 
   async function openRoom(): Promise<void> {
-    if (actionBusy) return;
+    if (actionBusy || setupBusy) return;
     setActionBusy(true);
     setOpenProblem(null);
     setPracticeInProgress(false);
@@ -175,7 +178,7 @@ export function SetupPage() {
   }
 
   async function applyBlank(): Promise<void> {
-    if (startingBlank) return;
+    if (setupBusy) return;
     setStartingBlank(true);
     setBlankProblem(null);
     try {
@@ -193,7 +196,7 @@ export function SetupPage() {
   }
 
   function startBlank(): void {
-    if (startingBlank) return;
+    if (setupBusy) return;
     setBlankProblem(null);
     const hasEdits =
       draftDirty || (state.status === 'ready' && !isBlankMeetingDraft(state.setup));
@@ -205,7 +208,7 @@ export function SetupPage() {
   }
 
   async function loadDemo(): Promise<void> {
-    if (importing) return;
+    if (setupBusy) return;
     setImporting(true);
     setImportProblem(null);
     try {
@@ -265,7 +268,7 @@ export function SetupPage() {
                 Opens the room from this saved plan and gives you an invite link to send your team.
               </p>
             </div>
-            <Button onClick={() => void openRoom()} disabled={!setupValid || actionBusy}>
+            <Button onClick={() => void openRoom()} disabled={!setupValid || actionBusy || setupBusy}>
               {actionBusy ? 'Opening…' : 'Open the meeting room'}
             </Button>
           </div>
@@ -355,7 +358,7 @@ export function SetupPage() {
                 </p>
                 <Button
                   onClick={startBlank}
-                  disabled={startingBlank || state.started}
+                  disabled={setupBusy || state.started}
                 >
                   {startingBlank ? 'Starting blank…' : 'Start a blank meeting'}
                 </Button>
@@ -389,7 +392,7 @@ export function SetupPage() {
                   Reads the practice calendar invite, then fills roles and seats from the demo pack.
                   Every seat starts as a person; you can switch a seat to an AI stand-in.
                 </p>
-                <Button onClick={() => void loadDemo()} disabled={importing || state.started}>
+                <Button onClick={() => void loadDemo()} disabled={setupBusy || state.started}>
                   {importing ? 'Loading template…' : 'Use the Kopitiam template'}
                 </Button>
                 {importProblem === null ? null : (
@@ -403,12 +406,14 @@ export function SetupPage() {
           ) : null}
 
           {canEdit && !state.started ? (
-            <SetupEditor
-              setup={state.setup}
-              scenario={scenario}
-              onSaved={(result) => setState(readyState(result))}
-              onDirtyChange={notifyDirty}
-            />
+            <fieldset className="setup-editor-lock" disabled={setupBusy} aria-busy={setupBusy}>
+              <SetupEditor
+                setup={state.setup}
+                scenario={scenario}
+                onSaved={(result) => setState(readyState(result))}
+                onDirtyChange={notifyDirty}
+              />
+            </fieldset>
           ) : (
             <SetupDraft setup={state.setup} />
           )}

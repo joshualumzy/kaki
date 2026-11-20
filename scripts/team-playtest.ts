@@ -222,6 +222,14 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     if (needsReplace) await replace.click({ timeout: 5_000 });
     const titleField = page.getByLabel('Meeting title field');
     await titleField.waitFor({ state: 'visible', timeout: 20_000 });
+    // The editor is locked while the server replaces the draft; wait for the blank plan itself
+    // before typing, so an arriving plan cannot overwrite the title and fields below.
+    const blankReady = await waitFor('Blank plan is ready to edit', async () => {
+      if (!await titleField.isEditable().catch(() => false)) return false;
+      if (await titleField.inputValue().catch(() => null) !== '') return false;
+      return await replace.count() === 0;
+    }, 20_000, page, false);
+    if (!blankReady) throw new Error('The blank plan was not ready to edit');
     await titleField.fill(title);
 
     const roles = ['Owner', 'Ana', 'Ben'];
@@ -639,10 +647,10 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
         const benPanelLocator = ben.page.locator('.kd-role-active');
         const anaPanelText = await anaPanelLocator.count() > 0 ? await anaPanelLocator.first().innerText().catch(() => '') : '';
         const benPanelText = await benPanelLocator.count() > 0 ? await benPanelLocator.first().innerText().catch(() => '') : '';
-        const anaHasMinutes = anaPanelText.includes(minutesTitle) ||
-          await ana.page.getByRole('button', { name: 'Approve & publish' }).count() > 0;
-        const benHasMinutes = benPanelText.includes(minutesTitle) ||
-          await ben.page.getByRole('button', { name: 'Approve & publish' }).count() > 0;
+        // The minutes card is the one named by its title. An Approve & publish control can belong
+        // to the person's own follow-up card (Ana's email draft), so a bare button proves nothing.
+        const anaHasMinutes = anaPanelText.includes(minutesTitle);
+        const benHasMinutes = benPanelText.includes(minutesTitle);
         await check('Only the owner gets the minutes card for approval', ownerHasCard && !anaHasMinutes && !benHasMinutes,
           `Owner has card: ${ownerHasCard}; Ana: ${anaHasMinutes}; Ben: ${benHasMinutes}`, owner.page);
         if (verdict.ok) {
@@ -720,6 +728,22 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
 
     await check('No uncaught page errors in any window', pageErrors === 0,
       pageErrors === 0 ? 'No pageerror events' : `${pageErrors} page error(s)`, practice.page);
+
+    // Leave the server free for the next run: end the practice meeting the run just opened.
+    const practiceAuthOn = await serverAuthEnabled(practice.page).catch(() => false);
+    if (practiceAuthOn) {
+      const credentials = ownerCredentials(process.env, true);
+      if (credentials.ok) {
+        await practice.page.request.post(`${BASE}/api/auth/login`, {
+          data: { email: credentials.email, password: credentials.password },
+          timeout: 10_000,
+        }).catch(() => undefined);
+      }
+    }
+    const practiceEnded = await practice.page.request.post(`${BASE}/api/meeting/end-practice`, { timeout: 10_000 }).catch(() => undefined);
+    if (practiceEnded === undefined || !practiceEnded.ok()) {
+      notes.push(`${stamp()} Could not end the practice meeting after the run (HTTP ${practiceEnded?.status() ?? 'no response'})`);
+    }
   } catch (error) {
     await check('Team playtest flow', false, error instanceof Error ? error.stack ?? error.message : String(error),
       owner?.page ?? practice?.page ?? ana?.page ?? ben?.page);

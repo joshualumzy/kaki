@@ -321,6 +321,39 @@ describe('meeting kind in open mode', () => {
     expect(app.session.kind()).toBe('real');
   });
 
+  it('starts a fresh practice meeting after a team meeting ends, even while its room still lists people', async () => {
+    let people: Array<{ name: string }> = [];
+    const { app, port } = await authModeApp({
+      roomRoster: async () => people,
+      admissionReservationMs: 0,
+    });
+    await connectService(port, `Bearer ${TOKEN}`);
+    const host = await loginHost(port);
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    const joined = await request(
+      port,
+      '/api/livekit/token',
+      'POST',
+      { participantName: 'Owner', participantRole: 'producer' },
+      host,
+    );
+    expect(joined.status).toBe(200);
+    // Taking a seat replaces the host's session, so Start must use the cookie the join returned.
+    const seatCookie = cookieFrom(joined);
+    people = [{ name: 'Owner' }];
+    expect((await request(port, '/api/meeting/start', 'POST', undefined, seatCookie)).status).toBe(200);
+    app.session.end();
+    expect(app.session.phase()).toBe('ended');
+    expect(app.session.kind()).toBeUndefined();
+
+    // The owner is still in the old room, reviewing the minutes. That seat belongs to the ended
+    // team meeting, not to the practice meeting the next visitor starts.
+    const practice = await practiceJoin(port, 'Ben');
+    expect(practice.status).toBe(200);
+    expect(app.session.kind()).toBe('practice');
+    expect(app.session.holders().map((holder) => holder.name)).toEqual(['ben']);
+  });
+
   it('frees a practice meeting once its visitor leaves, and the next practice visitor gets a fresh one', async () => {
     let people: Array<{ name: string }> = [];
     const { app, port } = await openModeApp({

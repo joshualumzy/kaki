@@ -561,10 +561,16 @@ async function handleRequest(
               (reservation) =>
                 !mayReclaimName || reservation.participantName.toLowerCase() !== joiningName,
             );
-          const present = [
-            ...rosterHumans,
-            ...otherReservations.map((reservation) => ({ name: reservation.participantName, role: reservation.seatId })),
-          ];
+          // A practice meeting is its own room. People still listed in another meeting's room (an
+          // ended team meeting kept open for the minutes) neither take its one seat nor make it the
+          // meeting this visitor joins; only an existing practice meeting competes for its seat.
+          const practiceStartsFresh = wantsPractice && context.session.kind() !== 'practice';
+          const present = practiceStartsFresh
+            ? []
+            : [
+                ...rosterHumans,
+                ...otherReservations.map((reservation) => ({ name: reservation.participantName, role: reservation.seatId })),
+              ];
           // Every refusal happens before anything can reset or mutate the meeting. With sign-in on,
           // a person needs the code; the signed-in owner may start or carry on a meeting without it.
           const authOn = context.auth !== undefined;

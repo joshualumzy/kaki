@@ -1,3 +1,11 @@
+.setup-editor-lock {
+  display: contents;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
 .setup-section-head .card-title,
 .setup-import .card-title {
   margin: 0;
