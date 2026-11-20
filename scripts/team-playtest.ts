@@ -1,21 +1,28 @@
 /// <reference lib="dom" />
 /**
  * A simulated three-person team meeting: the owner plus Ana and Ben in separate Chrome windows.
- * People type their lines with the microphone off, so no real speech or AI voice is needed.
+ * By default people type their lines with the microphone off, so no real speech or AI voice is needed.
+ * With `--voice` each person instead speaks generated macOS `say` clips through a synthetic microphone,
+ * so speech -> server STT -> transcript -> minutes is exercised end to end.
  *
- * The operator starts the stack separately. Run with `npm run playtest:team`; owner credentials come
- * from KAKI_PLAYTEST_OWNER_EMAIL / KAKI_PLAYTEST_OWNER_PASSWORD only when the server has sign-in on.
+ * The operator starts the stack separately. Run with `npm run playtest:team` (add `-- --voice` for
+ * speech); owner credentials come from KAKI_PLAYTEST_OWNER_EMAIL / KAKI_PLAYTEST_OWNER_PASSWORD only
+ * when the server has sign-in on.
  */
+import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { promisify } from 'node:util';
+import { chromium, devices, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
 import type { KakiEvent, MeetingSetup, Task } from '@kaki/shared';
 import { reportResultLine, statusFor, type PlaytestCheck } from './playtest-report';
 import {
   judgeFollowUpTask,
   judgeMinutesRecipient,
+  judgeMinutesSpeakers,
+  judgeOverlapOrder,
   judgeSeatOptions,
   judgeTranscriptPresence,
   inviteCodeFromLink,
@@ -23,36 +30,195 @@ import {
   pageShowsArtifact,
   practiceBusyIsPlain,
   seatRefusalIsPlain,
+  sentenceWordRecall,
+  SENTENCE_MATCH_RECALL,
+  speechFailureNotice,
 } from './team-playtest-helpers';
 
 const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
 const LOG_DIR = '.live-logs';
 const SHOT_DIR = join(LOG_DIR, 'team-playtest-shots');
+const VOICE_CLIP_DIR = join(LOG_DIR, 'voice-clips');
+const VOICE_CLIP_PATH = '/__kaki-voice-clip/';
+const TOPICS: [string, string] = ['Supplier tray sizes', 'Friday delivery plan'];
 type Check = PlaytestCheck;
 
-export type TeamPlaytestOptions = { headless: boolean; maxMinutes: number };
+export type TeamPlaytestOptions = { headless: boolean; maxMinutes: number; voice: boolean };
 
 type Actor = { name: string; context: BrowserContext; page: Page };
+
+const execFileAsync = promisify(execFile);
+
+type VoiceSpeaker = 'Owner' | 'Ana' | 'Ben';
+type VoiceScriptLine = { id: string; speaker: VoiceSpeaker; text: string };
+
+/** A different installed macOS English voice per person, so the server hears three distinct voices. */
+const VOICE_CAST: Readonly<Record<VoiceSpeaker, string>> = {
+  Owner: 'Samantha',
+  Ana: 'Karen',
+  Ben: 'Daniel',
+};
+
+/** Two or three sentences per person across both agenda topics, with one Ana/Ben overlap. */
+const VOICE_SCRIPT = {
+  ownerTopic1: {
+    id: 'owner-topic-1',
+    speaker: 'Owner',
+    text: `For ${TOPICS[0]}, I will confirm the stock count before lunch.`,
+  },
+  anaTopic1: {
+    id: 'ana-topic-1',
+    speaker: 'Ana',
+    text: `On ${TOPICS[0]}, I can check the supplier list this afternoon.`,
+  },
+  benTopic1: {
+    id: 'ben-topic-1',
+    speaker: 'Ben',
+    text: 'The large tray sizes should arrive on Thursday morning.',
+  },
+  anaOverlap: {
+    id: 'ana-overlap',
+    speaker: 'Ana',
+    text: `For the ${TOPICS[1]}, I will call the driver about the morning slot.`,
+  },
+  benOverlap: {
+    id: 'ben-overlap',
+    speaker: 'Ben',
+    text: 'The new crates arrive Thursday night.',
+  },
+  ownerTopic2: {
+    id: 'owner-topic-2',
+    speaker: 'Owner',
+    text: `For the ${TOPICS[1]}, I will book the loading bay for nine.`,
+  },
+  ownerFollowUp: {
+    id: 'owner-follow-up',
+    speaker: 'Owner',
+    text: 'Ben, can you email the supplier the new price list by Friday?',
+  },
+} as const satisfies Record<string, VoiceScriptLine>;
+
+const VOICE_LINES: readonly VoiceScriptLine[] = Object.values(VOICE_SCRIPT);
+
+/** Runs before any page script: a synthetic microphone and a function that plays a clip into it. */
+const VOICE_INIT_SCRIPT = `(() => {
+  if (navigator.mediaDevices === undefined) return;
+  const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  const context = new AudioContext();
+  const sinks = [];
+  const resume = async () => {
+    if (context.state !== 'suspended') return;
+    try { await context.resume(); } catch (_) { /* the next gesture retries */ }
+  };
+  window.addEventListener('pointerdown', () => { void resume(); }, true);
+  window.addEventListener('keydown', () => { void resume(); }, true);
+  const addSink = () => {
+    const sink = context.createMediaStreamDestination();
+    sinks.push(sink);
+    return sink;
+  };
+  window.__kakiVoicePlay = async (url) => {
+    await resume();
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('Voice clip request failed with HTTP ' + response.status);
+    const encoded = await response.arrayBuffer();
+    const buffer = await context.decodeAudioData(encoded.slice(0));
+    const live = sinks.filter((sink) =>
+      sink.stream.getAudioTracks().some((track) => track.readyState === 'live'));
+    const targets = live.length === 0 ? [addSink()] : live;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    for (const sink of targets) source.connect(sink);
+    source.onended = () => { try { source.disconnect(); } catch (_) { /* already gone */ } };
+    source.start();
+    return buffer.duration;
+  };
+  navigator.mediaDevices.getUserMedia = async (constraints = {}) => {
+    const wantsAudio = constraints.audio !== undefined && constraints.audio !== false;
+    const wantsVideo = constraints.video !== undefined && constraints.video !== false;
+    if (!wantsAudio) return wantsVideo ? originalGetUserMedia(constraints) : new MediaStream();
+    const sink = addSink();
+    const stream = new MediaStream(sink.stream.getAudioTracks());
+    if (wantsVideo) {
+      const camera = await originalGetUserMedia({ video: constraints.video, audio: false });
+      for (const track of camera.getVideoTracks()) stream.addTrack(track);
+    }
+    return stream;
+  };
+})();`;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Make one 16 kHz 16-bit mono WAV per scripted sentence, and fail loudly if macOS say cannot. */
+async function prepareVoiceClips(lines: readonly VoiceScriptLine[]): Promise<Map<string, string>> {
+  let voiceList: string;
+  try {
+    const result = await execFileAsync('say', ['-v', '?']);
+    voiceList = result.stdout;
+  } catch (error) {
+    throw new Error(
+      `Voice mode needs the macOS "say" command, but it could not run: ${errorMessage(error)}. Install the macOS command-line tools, or run the typed playtest without --voice.`,
+    );
+  }
+  const installed = new Set(
+    voiceList
+      .split('\n')
+      .map((line) => line.trim().split(/\s{2,}/)[0] ?? '')
+      .filter((name) => name !== ''),
+  );
+  const missing = Object.entries(VOICE_CAST).filter(([, voice]) => !installed.has(voice));
+  if (missing.length > 0) {
+    throw new Error(
+      `Voice mode needs these macOS voices, but they are not installed: ${missing
+        .map(([speaker, voice]) => `${voice} (${speaker})`)
+        .join(', ')}. Install them in System Settings > Accessibility > Spoken Content > System Voice > Manage Voices, or change VOICE_CAST.`,
+    );
+  }
+  await mkdir(VOICE_CLIP_DIR, { recursive: true });
+  const files = new Map<string, string>();
+  for (const [index, line] of lines.entries()) {
+    const file = join(VOICE_CLIP_DIR, `${String(index + 1).padStart(2, '0')}-${line.id}.wav`);
+    try {
+      await execFileAsync('say', [
+        '-v', VOICE_CAST[line.speaker],
+        '-o', file,
+        '--file-format=WAVE',
+        '--data-format=LEI16@16000',
+        line.text,
+      ]);
+    } catch (error) {
+      throw new Error(
+        `Voice mode could not make a speech clip for ${line.speaker} with the voice "${VOICE_CAST[line.speaker]}": ${errorMessage(error)}`,
+      );
+    }
+    files.set(line.id, file);
+  }
+  return files;
+}
 
 function options(): TeamPlaytestOptions {
   let headless = false;
   let maxMinutes = 20;
+  let voice = false;
   for (let i = 2; i < process.argv.length; i += 1) {
     const arg = process.argv[i];
     if (arg === '--headless') headless = true;
+    else if (arg === '--voice') voice = true;
     else if (arg === '--max-minutes' && process.argv[i + 1] !== undefined) maxMinutes = Number(process.argv[++i]);
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
-  return { headless, maxMinutes };
+  return { headless, maxMinutes, voice };
 }
-
 function stamp(): string { return new Date().toISOString(); }
 function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }
 
 export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
-  const stem = `team-playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
+  const voice = parsed.voice;
+  const stem = `${voice ? 'team-playtest-voice' : 'team-playtest'}-${startedAt.toISOString().replace(/[:.]/g, '-')}`;
   const reportPath = join(LOG_DIR, `${stem}.md`);
   const checks: Check[] = [];
   const notes: string[] = [];
@@ -70,6 +236,7 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
   let anaRoleId = '';
   let benRoleId = '';
   let wikiConfigured: boolean | undefined;
+  let voiceClipFiles: Map<string, string> | undefined;
   const muted = new Set<string>();
 
   async function keepShot(page: Page | undefined, name: string): Promise<string | undefined> {
@@ -129,6 +296,28 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     return mutedNow;
   }
 
+  async function microphoneIsOn(page: Page): Promise<boolean> {
+    const microphone = page.getByRole('button', { name: 'Microphone', exact: true });
+    if (await microphone.count() === 0) return false;
+    return await microphone.getAttribute('aria-pressed').catch(() => null) === 'true';
+  }
+
+  function latestAgendaIndex(): number {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type === 'MEETING_RECORD_UPDATED') return event.payload.agendaIndex;
+    }
+    return 0;
+  }
+
+  function latestSpeechRecording(): boolean | undefined {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type === 'SPEECH_RECORDING') return event.payload.recording;
+    }
+    return undefined;
+  }
+
   function transcriptEvents(): string[] {
     return events.flatMap((event) => (event.type === 'TRANSCRIPT_CHUNK' ? [event.payload.text.trim()] : []));
   }
@@ -169,12 +358,58 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     });
   }
 
+  function actorContextOptions(name: string): BrowserContextOptions {
+    if (!voice) {
+      return { viewport: { width: 1280, height: 900 }, permissions: ['microphone', 'camera'] };
+    }
+    if (name === 'Ana') {
+      const pixel = devices['Pixel 7'];
+      if (pixel === undefined) throw new Error('Playwright has no "Pixel 7" device profile');
+      return {
+        viewport: pixel.viewport,
+        userAgent: pixel.userAgent,
+        deviceScaleFactor: pixel.deviceScaleFactor,
+        isMobile: pixel.isMobile,
+        hasTouch: pixel.hasTouch,
+        permissions: ['microphone', 'camera'],
+      };
+    }
+    if (name === 'Ben') {
+      return {
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+        permissions: ['microphone', 'camera'],
+      };
+    }
+    return { viewport: { width: 1280, height: 900 }, permissions: ['microphone', 'camera'] };
+  }
+
+  async function installVoiceContext(context: BrowserContext, clipFiles: ReadonlyMap<string, string>): Promise<void> {
+    await context.addInitScript({ content: VOICE_INIT_SCRIPT });
+    const byName = new Map([...clipFiles.values()].map((file) => [basename(file), file]));
+    await context.route(`**${VOICE_CLIP_PATH}**`, async (route) => {
+      const name = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
+      const file = byName.get(name);
+      if (file === undefined) {
+        await route.fulfill({ status: 404, contentType: 'text/plain', body: `Unknown voice clip ${name}` });
+        return;
+      }
+      await route.fulfill({ path: file, contentType: 'audio/wav' });
+    });
+  }
+
+  function voiceClipUrl(id: string): string {
+    const file = voiceClipFiles?.get(id);
+    if (file === undefined) throw new Error(`No generated voice clip for "${id}"`);
+    return `${BASE}${VOICE_CLIP_PATH}${encodeURIComponent(basename(file))}`;
+  }
+
   async function newActor(name: string): Promise<Actor> {
     if (browser === undefined) throw new Error('Browser is not open');
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 900 },
-      permissions: ['microphone', 'camera'],
-    });
+    const context = await browser.newContext(actorContextOptions(name));
+    if (voice && voiceClipFiles !== undefined) await installVoiceContext(context, voiceClipFiles);
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     page.on('pageerror', (error) => {
@@ -269,8 +504,13 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
 
   async function joinOwner(page: Page): Promise<boolean> {
     await page.getByRole('heading', { name: 'Open your meeting room' }).waitFor({ state: 'visible', timeout: 20_000 });
-    const micOff = await muteMicrophone(page, 'Owner');
-    await check('Owner microphone is off', micOff, micOff ? 'Owner joins to type' : 'The Microphone control was missing or still on', page);
+    if (voice) {
+      const micOn = await microphoneIsOn(page);
+      await check('Owner microphone stays on for voice', micOn, micOn ? 'Owner joins to speak' : 'The Microphone control was missing or off', page);
+    } else {
+      const micOff = await muteMicrophone(page, 'Owner');
+      await check('Owner microphone is off', micOff, micOff ? 'Owner joins to type' : 'The Microphone control was missing or still on', page);
+    }
     await page.getByLabel('Your name').fill('Owner');
     await page.getByLabel('Your seat').selectOption({ label: 'Owner' });
     await page.getByRole('button', { name: 'Join the meeting room' }).click({ timeout: 10_000 });
@@ -291,8 +531,13 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
   }
 
   async function joinParticipant(actor: Actor, seat: string): Promise<boolean> {
-    const micOff = await muteMicrophone(actor.page, actor.name);
-    await check(`${actor.name} microphone is off`, micOff, micOff ? `${actor.name} joins to type` : 'The Microphone control was missing or still on', actor.page);
+    if (voice) {
+      const micOn = await microphoneIsOn(actor.page);
+      await check(`${actor.name} microphone stays on for voice`, micOn, micOn ? `${actor.name} joins to speak` : 'The Microphone control was missing or off', actor.page);
+    } else {
+      const micOff = await muteMicrophone(actor.page, actor.name);
+      await check(`${actor.name} microphone is off`, micOff, micOff ? `${actor.name} joins to type` : 'The Microphone control was missing or still on', actor.page);
+    }
     await actor.page.getByLabel('Your name').fill(actor.name);
     await actor.page.getByLabel('Your seat').selectOption({ label: seat });
     await submitJoin(actor.page);
@@ -312,6 +557,119 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
       notes.push(`${stamp()} ${actor.name} could not type: ${String(error)}`);
       return false;
     }
+  }
+
+  type TranscriptEvent = Extract<KakiEvent, { type: 'TRANSCRIPT_CHUNK' }>;
+  type TranscriptMatch = { index: number; event: TranscriptEvent; recall: number };
+
+  function actorFor(speaker: VoiceSpeaker): Actor {
+    const actor = speaker === 'Owner' ? owner : speaker === 'Ana' ? ana : ben;
+    if (actor === undefined) throw new Error(`${speaker}'s window is not open`);
+    return actor;
+  }
+
+  async function tileShowsVoiceState(page: Page, name: string): Promise<boolean> {
+    const tile = page
+      .locator('.kd-tile')
+      .filter({ has: page.locator('.kd-who-line > span', { hasText: name }) })
+      .first();
+    if (await tile.count() === 0) return false;
+    if (await tile.getAttribute('data-state').catch(() => null) === 'speaking') return true;
+    const text = await tile.innerText().catch(() => '');
+    return /Speaking…|Speaking\.\.\.|Transcribing…|Transcribing\.\.\./i.test(text);
+  }
+
+  async function startVoiceClip(actor: Actor, line: VoiceScriptLine): Promise<{ durationMs: number; startedAt: number }> {
+    const url = voiceClipUrl(line.id);
+    const startedAt = Date.now();
+    const seconds = await actor.page.evaluate(async (clipUrl) => {
+      const holder = window as unknown as { __kakiVoicePlay?: (url: string) => Promise<number> };
+      if (typeof holder.__kakiVoicePlay !== 'function') throw new Error('The voice microphone shim is not installed on this page');
+      return holder.__kakiVoicePlay(clipUrl);
+    }, url);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      throw new Error(`The clip for ${line.speaker} did not report a playable duration`);
+    }
+    return { durationMs: Math.round(seconds * 1000), startedAt };
+  }
+
+  function findTranscriptMatch(line: VoiceScriptLine): TranscriptMatch | undefined {
+    let best: TranscriptMatch | undefined;
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index];
+      if (event?.type !== 'TRANSCRIPT_CHUNK') continue;
+      if (event.payload.speaker.trim().toLowerCase() !== line.speaker.toLowerCase()) continue;
+      const recall = sentenceWordRecall(line.text, event.payload.text);
+      if (best === undefined || recall > best.recall) best = { index, event, recall };
+      if (recall >= SENTENCE_MATCH_RECALL) return { index, event, recall };
+    }
+    return best;
+  }
+
+  async function waitForSpokenLine(line: VoiceScriptLine, page: Page): Promise<boolean> {
+    const ok = await waitFor(`${line.speaker}'s spoken line reaches the shared transcript`, () => {
+      const match = findTranscriptMatch(line);
+      return match !== undefined && match.recall >= SENTENCE_MATCH_RECALL;
+    }, 30_000, page, false);
+    const match = findTranscriptMatch(line);
+    const detail = match === undefined
+      ? `No ${line.speaker} line appeared within 30s for "${line.text}"`
+      : ok
+        ? `${line.speaker}: "${match.event.payload.text}" (${Math.round(match.recall * 100)}% of the spoken words in order)`
+        : `Closest ${line.speaker} line was "${match.event.payload.text}" (${Math.round(match.recall * 100)}% of the spoken words in order, needed ${Math.round(SENTENCE_MATCH_RECALL * 100)}%) for "${line.text}"`;
+    await check(`${line.speaker}'s spoken line reaches the shared transcript`, ok, detail, page);
+    return ok;
+  }
+
+  async function waitForTileClear(name: string, timeoutMs: number): Promise<boolean> {
+    const shared = owner?.page;
+    if (shared === undefined) return false;
+    return waitFor(`${name}'s tile clears its speaking state`, async () =>
+      !(await tileShowsVoiceState(shared, name)), timeoutMs, shared, false);
+  }
+
+  async function speakVoiceLine(
+    line: VoiceScriptLine,
+    options: { watchState?: boolean; state?: { seen: boolean; cleared: boolean } } = {},
+  ): Promise<void> {
+    const actor = actorFor(line.speaker);
+    const playback = await startVoiceClip(actor, line);
+    if (options.watchState === true) {
+      const shared = owner?.page;
+      if (shared === undefined) throw new Error('The shared owner window is not open');
+      const deadline = playback.startedAt + playback.durationMs + 2_000;
+      while (Date.now() < deadline) {
+        if (await tileShowsVoiceState(shared, line.speaker)) {
+          if (options.state !== undefined) options.state.seen = true;
+          break;
+        }
+        await delay(150);
+      }
+    }
+    const landed = await waitForSpokenLine(line, actor.page);
+    if (!landed || options.watchState !== true) return;
+    const cleared = await waitForTileClear(line.speaker, 30_000);
+    if (options.state !== undefined) options.state.cleared = cleared;
+  }
+
+  async function moveToNextTopic(): Promise<void> {
+    if (owner === undefined) throw new Error('The owner window is not open');
+    const button = owner.page.getByRole('button', { name: 'Next agenda item' }).first();
+    const visible = await button.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false);
+    if (!visible) {
+      await check('The voice meeting moves to the second agenda item', false, 'The Next agenda item control did not appear', owner.page);
+      throw new Error('The Next agenda item control did not appear');
+    }
+    const enabled = await waitFor('Next agenda item becomes enabled', () => button.isEnabled(), 20_000, owner.page, false);
+    if (!enabled) {
+      await check('The voice meeting moves to the second agenda item', false, 'The Next agenda item control stayed disabled', owner.page);
+      throw new Error('The Next agenda item control stayed disabled');
+    }
+    await button.click({ timeout: 10_000 });
+    const moved = await waitFor('The meeting moves to the second agenda item', () => latestAgendaIndex() === 1, 20_000, owner.page, false);
+    await check('The voice meeting moves to the second agenda item', moved,
+      moved ? 'The agenda reached item 2' : `The agenda stayed on item ${latestAgendaIndex() + 1}`, owner.page);
+    if (!moved) throw new Error('The meeting did not move to the second agenda item');
   }
 
   async function openTranscript(actor: Actor): Promise<void> {
@@ -344,6 +702,205 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     await check(`${actor.name}'s transcript shows each line once`, verdict.ok, verdict.detail, actor.page);
   }
 
+  function newFollowUpTasks(): Task[] {
+    return [...currentTasks().values()].filter((task) =>
+      task.purpose !== 'meeting_minutes' && task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
+  }
+
+  async function waitForFollowUpCard(roleId: string): Promise<{ seen: boolean; task?: Task; tasks: Task[] }> {
+    const seen = await waitFor('A follow-up card is produced', () => {
+      if (notetakerStatus() === 'off') return true;
+      return newFollowUpTasks().some((task) => task.assignee === roleId || task.suggestedAssignee === roleId);
+    }, 75_000, owner?.page, false);
+    const tasks = newFollowUpTasks();
+    return { seen, task: tasks.find((task) => task.assignee === roleId || task.suggestedAssignee === roleId), tasks };
+  }
+
+  async function runVoiceMeeting(): Promise<void> {
+    if (owner === undefined || ana === undefined || ben === undefined) {
+      throw new Error('The three meeting windows are not open');
+    }
+    // Let the runner finish subscribing to the three microphone tracks before the first sentence.
+    await delay(1_000);
+    const ownerState = { seen: false, cleared: false };
+    await speakVoiceLine(VOICE_SCRIPT.ownerTopic1, { watchState: true, state: ownerState });
+    const anaState = { seen: false, cleared: false };
+    await speakVoiceLine(VOICE_SCRIPT.anaTopic1, { watchState: true, state: anaState });
+    const benState = { seen: false, cleared: false };
+    await speakVoiceLine(VOICE_SCRIPT.benTopic1, { watchState: true, state: benState });
+    const stateParts = [
+      ['Owner', ownerState],
+      ['Ana', anaState],
+      ['Ben', benState],
+    ] as const;
+    await check("Each speaker's tile shows speaking or transcribing, then clears",
+      stateParts.every(([, state]) => state.seen && state.cleared),
+      stateParts.map(([name, state]) =>
+        `${name}: ${state.seen ? 'state seen' : 'no speaking state'}, ${state.cleared ? 'cleared' : 'did not clear'}`).join('; '),
+      owner.page);
+
+    await moveToNextTopic();
+
+    const anaOverlap = VOICE_SCRIPT.anaOverlap;
+    const benOverlap = VOICE_SCRIPT.benOverlap;
+    const anaPlayback = await startVoiceClip(ana, anaOverlap);
+    await delay(Math.max(0, anaPlayback.durationMs - 500));
+    await startVoiceClip(ben, benOverlap);
+    await waitForSpokenLine(anaOverlap, ana.page);
+    await waitForSpokenLine(benOverlap, ben.page);
+    const anaIndex = findTranscriptMatch(anaOverlap)?.index;
+    const benIndex = findTranscriptMatch(benOverlap)?.index;
+    const appearedOrder = anaIndex !== undefined && benIndex !== undefined
+      ? (anaIndex < benIndex ? ['Ana', 'Ben'] : ['Ben', 'Ana'])
+      : anaIndex !== undefined
+        ? ['Ana']
+        : benIndex !== undefined
+          ? ['Ben']
+          : [];
+    const orderVerdict = judgeOverlapOrder('Ana', appearedOrder);
+    await check('The overlapping lines keep the order they were started', orderVerdict.ok, orderVerdict.detail, owner.page);
+
+    await speakVoiceLine(VOICE_SCRIPT.ownerTopic2);
+    await speakVoiceLine(VOICE_SCRIPT.ownerFollowUp);
+
+    const noticeTexts: string[] = [];
+    for (const actor of [owner, ana, ben]) {
+      if (actor === undefined) continue;
+      const alerts = await actor.page.getByRole('alert').allTextContents().catch(() => []);
+      for (const alert of alerts) noticeTexts.push(`${actor.name}: ${alert}`);
+      noticeTexts.push(`${actor.name}: ${await bodyText(actor.page)}`);
+    }
+    const notice = speechFailureNotice(noticeTexts);
+    const recordingOff = latestSpeechRecording() === false;
+    await check('No speech-failure notice appears', notice === undefined && !recordingOff,
+      notice ?? (recordingOff ? 'The server reported that speech recording was off' : 'No speech-failure or recording-off notice on any window'),
+      owner.page);
+
+    const followUp = await waitForFollowUpCard(benRoleId);
+    const followUpOutcome = judgeFollowUpTask(followUp.seen && followUp.task !== undefined, notetakerStatus());
+    const followUpDetail = followUp.task === undefined
+      ? `${followUpOutcome.detail}. Cards seen: ${followUp.tasks.map((task) => `${task.title} (${task.assignee ?? task.suggestedAssignee ?? 'no seat'})`).join(' / ') || '(none)'}`
+      : `${followUp.task.title} assigned to ${followUp.task.assignee ?? followUp.task.suggestedAssignee} (${followUp.task.status})`;
+    if (followUpOutcome.status !== 'PASS' || followUp.task === undefined) {
+      if (followUpOutcome.status === 'NOT EXERCISED') notExercised('Follow-up card for Ben appears', followUpDetail);
+      else await check('Follow-up card for Ben appears', false, followUpDetail, ben.page);
+    } else {
+      const benTask = followUp.task;
+      const shown = await waitFor("Ben's Wingman panel shows the follow-up", async () => {
+        const panel = ben!.page.locator('.kd-role-active');
+        const text = await panel.count() > 0 ? await panel.first().innerText().catch(() => '') : '';
+        return text.includes(benTask.title);
+      }, 20_000, ben.page, false);
+      await check('Follow-up card for Ben appears', shown,
+        shown ? followUpDetail : `${followUpDetail}, but Ben's Wingman panel did not show it`, ben.page);
+    }
+  }
+
+  async function finishMeetingAndCheckMinutes(expectedSpeakerLines?: readonly VoiceScriptLine[]): Promise<void> {
+    if (owner === undefined || ana === undefined || ben === undefined) {
+      throw new Error('The three meeting windows are not open');
+    }
+    const ownerActor = owner;
+    const anaActor = ana;
+    const benActor = ben;
+
+    // 10. Owner ends the meeting; the minutes card must go to the owner for approval.
+    const ownerEnd = ownerActor.page.getByRole('button', { name: 'End meeting' }).first();
+    await ownerEnd.click({ timeout: 10_000 });
+    const closing = await waitFor('Closing cue after End meeting', () =>
+      events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
+    20_000, ownerActor.page);
+    await check('Owner ends the meeting', closing, closing ? 'The closing cue reached the room' : 'No closing cue arrived', ownerActor.page);
+
+    if (wikiConfigured === false) {
+      notExercised('Minutes card goes to the owner', 'Team wiki is not configured (wiki_page tool not connected), so the minutes card is not created');
+      if (expectedSpeakerLines !== undefined) {
+        notExercised('Minutes contain lines from all three people', 'Team wiki is not configured, so no minutes were drafted to check');
+      }
+      notExercised('Participants see the published minutes link', 'Team wiki is not configured, so no minutes can be published');
+    } else {
+      const minutes = await waitFor('Minutes card appears', () => minutesTask() !== undefined, 60_000, ownerActor.page, false);
+      const minutesNow = minutesTask();
+      if (!minutes || minutesNow === undefined) {
+        await check('Minutes card goes to the owner', false,
+          `No minutes card appeared within 60s (wiki configured: ${wikiConfigured === undefined ? 'unknown' : 'yes'}; notetakerStatus ${notetakerStatus() ?? 'unknown'})`,
+          ownerActor.page);
+        if (expectedSpeakerLines !== undefined) {
+          notExercised('Minutes contain lines from all three people', 'No minutes card appeared, so there were no minutes to check');
+        }
+        notExercised('Participants see the published minutes link', 'No minutes card appeared, so there was nothing to publish');
+      } else {
+        const verdict = judgeMinutesRecipient(minutesNow, ownerRoleId, [anaRoleId, benRoleId]);
+        await check('Minutes card goes to the owner', verdict.ok, verdict.detail, ownerActor.page);
+        if (expectedSpeakerLines !== undefined) {
+          const ready = await waitFor('Minutes quote every speaker', () => {
+            const task = minutesTask();
+            return task?.draft?.body !== undefined && judgeMinutesSpeakers(task.draft.body, expectedSpeakerLines).ok;
+          }, 60_000, ownerActor.page, false);
+          const body = minutesTask()?.draft?.body ?? '';
+          const speakers = judgeMinutesSpeakers(body, expectedSpeakerLines);
+          await check('Minutes contain lines from all three people', ready && speakers.ok,
+            body === '' ? 'The minutes card had no draft body to check' : speakers.detail, ownerActor.page);
+        }
+        const minutesTitle = minutesNow.title;
+        const ownerPanel = ownerActor.page.locator('.kd-role-active');
+        const ownerHasCard = await ownerPanel.count() > 0 &&
+          (await ownerPanel.first().innerText().catch(() => '')).includes(minutesTitle);
+        const anaPanelLocator = anaActor.page.locator('.kd-role-active');
+        const benPanelLocator = benActor.page.locator('.kd-role-active');
+        const anaPanelText = await anaPanelLocator.count() > 0 ? await anaPanelLocator.first().innerText().catch(() => '') : '';
+        const benPanelText = await benPanelLocator.count() > 0 ? await benPanelLocator.first().innerText().catch(() => '') : '';
+        // The minutes card is the one named by its title. An Approve & publish control can belong
+        // to the person's own follow-up card (Ana's email draft), so a bare button proves nothing.
+        const anaHasMinutes = anaPanelText.includes(minutesTitle);
+        const benHasMinutes = benPanelText.includes(minutesTitle);
+        await check('Only the owner gets the minutes card for approval', ownerHasCard && !anaHasMinutes && !benHasMinutes,
+          `Owner has card: ${ownerHasCard}; Ana: ${anaHasMinutes}; Ben: ${benHasMinutes}`, ownerActor.page);
+        if (verdict.ok) {
+          const approve = ownerPanel.getByRole('button', { name: 'Approve & publish' }).first();
+          const approveVisible = await approve.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false);
+          if (!approveVisible) {
+            await check('Owner approves the minutes', false, 'The owner had no Approve & publish control for the minutes card', ownerActor.page);
+            notExercised('Participants see the published minutes link', 'The minutes card could not be approved');
+          } else {
+            await approve.click({ timeout: 5_000 });
+            await waitFor('Minutes publish finishes', () => {
+              const task = currentTasks().get(minutesNow.id);
+              return task !== undefined && ['COMPLETED', 'SYNCED', 'FAILED'].includes(task.status);
+            }, 60_000, ownerActor.page, false);
+            const finishedTask = currentTasks().get(minutesNow.id);
+            const published = finishedTask?.status === 'COMPLETED' || finishedTask?.status === 'SYNCED';
+            const publishFailed = finishedTask?.status === 'FAILED';
+            const approveDetail = finishedTask === undefined
+              ? 'The minutes card vanished'
+              : `${finishedTask.status}${finishedTask.error === undefined ? '' : `: ${finishedTask.error}`}`;
+            if (publishFailed) {
+              await check('Owner approves the minutes', false, `The approval was sent but publishing failed: ${approveDetail}`, ownerActor.page, 'warn');
+            } else {
+              await check('Owner approves the minutes', published, approveDetail, ownerActor.page);
+            }
+            const artifact = finishedTask?.artifactUrl;
+            if (artifact === undefined) {
+              notExercised('Participants see the published minutes link',
+                finishedTask?.error ?? 'The minutes were approved but the server returned no published link');
+            } else {
+              const anaText = await bodyText(anaActor.page);
+              const benText = await bodyText(benActor.page);
+              const anaHrefs: string[] = [];
+              const benHrefs: string[] = [];
+              for (const anchor of await anaActor.page.locator('a').all()) anaHrefs.push((await anchor.getAttribute('href')) ?? '');
+              for (const anchor of await benActor.page.locator('a').all()) benHrefs.push((await anchor.getAttribute('href')) ?? '');
+              await check('Ana sees the published minutes link', pageShowsArtifact(anaText, anaHrefs, artifact), `Artifact ${artifact}`, anaActor.page);
+              await check('Ben sees the published minutes link', pageShowsArtifact(benText, benHrefs, artifact), `Artifact ${artifact}`, benActor.page);
+            }
+          }
+        } else {
+          notExercised('Participants see the published minutes link', 'The minutes card did not reach the owner, so it could not be approved');
+        }
+      }
+    }
+  }
+
   async function toolConfigured(kind: string): Promise<boolean | undefined> {
     if (owner === undefined) return undefined;
     const response = await owner.page.request.get(`${BASE}/api/setup/tools`, { timeout: 10_000 }).catch(() => undefined);
@@ -356,6 +913,17 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
   try {
     globalDeadline = Date.now() + parsed.maxMinutes * 60_000;
     await mkdir(LOG_DIR, { recursive: true });
+    if (voice) {
+      try {
+        voiceClipFiles = await prepareVoiceClips(VOICE_LINES);
+        await check('Voice speech clips are ready', true,
+          `${VOICE_LINES.length} WAV clips in ${VOICE_CLIP_DIR} using ${Object.entries(VOICE_CAST)
+            .map(([speaker, voice]) => `${speaker}=${voice}`).join(', ')}`);
+      } catch (error) {
+        await check('Voice speech clips are ready', false, errorMessage(error));
+        throw error;
+      }
+    }
     browser = await chromium.launch({
       channel: 'chrome',
       headless: parsed.headless,
@@ -389,7 +957,7 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
 
     // 2. Owner: landing -> sign-in when on -> setup -> blank plan -> open the room.
     const title = 'Team playtest meeting';
-    const topics: [string, string] = ['Supplier tray sizes', 'Friday delivery plan'];
+    const topics = TOPICS;
     const toSetup = await Promise.all([
       owner.page.waitForURL(/\/(?:login|setup)(?:\?.*)?$/, { timeout: 20_000 }).then(() => true).catch(() => false),
       runLink.click({ timeout: 10_000 }).then(() => true).catch(() => false),
@@ -481,7 +1049,7 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     await check('Ben sees only the meeting person seats', benSeatVerdict.ok, benSeatVerdict.detail, ben.page);
 
     // 5. Ben tries Ana's seat first: a plain refusal, then he picks his own.
-    await muteMicrophone(ben.page, 'Ben');
+    if (!voice) await muteMicrophone(ben.page, 'Ben');
     await ben.page.getByLabel('Your name').fill('Ben');
     await ben.page.getByLabel('Your seat').selectOption({ label: 'Ana' });
     await submitJoin(ben.page);
@@ -541,6 +1109,9 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     await check('Owner Start leaves all three out of the waiting state', ownerStarted && anaStarted && benStarted,
       `Owner: ${ownerStarted}; Ana: ${anaStarted}; Ben: ${benStarted}`, owner.page);
 
+    if (voice) {
+      await runVoiceMeeting();
+    } else {
     // 8. Each person types one line about the first agenda item; every transcript shows all three once.
     const lines = [
       `For ${topics[0]}, I will confirm the stock count before lunch.`,
@@ -561,18 +1132,10 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     const followUp = 'Ana, please email the supplier the new tray sizes by Friday.';
     const followUpLanded = await typeLine(owner, followUp);
     await check('Owner types the follow-up for Ana', followUpLanded, followUp, owner.page);
-    const cardSeen = await waitFor('A follow-up card is produced', () => {
-      if (notetakerStatus() === 'off') return true;
-      return [...currentTasks().values()].some((task) =>
-        task.purpose !== 'meeting_minutes' &&
-        task.status !== 'DISMISSED' &&
-        task.status !== 'SUPERSEDED' &&
-        (task.assignee === anaRoleId || task.suggestedAssignee === anaRoleId));
-    }, 75_000, owner.page, false);
-    const allNewTasks = [...currentTasks().values()].filter((task) =>
-      task.purpose !== 'meeting_minutes' && task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
-    const anaTask = allNewTasks.find((task) => task.assignee === anaRoleId || task.suggestedAssignee === anaRoleId);
-    const taskOutcome = judgeFollowUpTask(cardSeen && anaTask !== undefined, notetakerStatus());
+    const followUpResult = await waitForFollowUpCard(anaRoleId);
+    const allNewTasks = followUpResult.tasks;
+    const anaTask = followUpResult.task;
+    const taskOutcome = judgeFollowUpTask(followUpResult.seen && anaTask !== undefined, notetakerStatus());
     const taskDetail = anaTask === undefined
       ? `${taskOutcome.detail}. Cards seen: ${allNewTasks.map((task) => `${task.title} (${task.assignee ?? task.suggestedAssignee ?? 'no seat'})`).join(' / ') || '(none)'}`
       : `${anaTask.title} assigned to ${anaTask.assignee ?? anaTask.suggestedAssignee} (${anaTask.status})`;
@@ -617,85 +1180,9 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
       notExercised('Ana can accept the follow-up', 'No follow-up card was produced, so there was nothing to accept');
     }
 
-    // 10. Owner ends the meeting; the minutes card must go to the owner for approval.
-    const ownerEnd = owner.page.getByRole('button', { name: 'End meeting' }).first();
-    await ownerEnd.click({ timeout: 10_000 });
-    const closing = await waitFor('Closing cue after End meeting', () =>
-      events.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING'),
-    20_000, owner.page);
-    await check('Owner ends the meeting', closing, closing ? 'The closing cue reached the room' : 'No closing cue arrived', owner.page);
-
-    if (wikiConfigured === false) {
-      notExercised('Minutes card goes to the owner', 'Team wiki is not configured (wiki_page tool not connected), so the minutes card is not created');
-      notExercised('Participants see the published minutes link', 'Team wiki is not configured, so no minutes can be published');
-    } else {
-      const minutes = await waitFor('Minutes card appears', () => minutesTask() !== undefined, 60_000, owner.page, false);
-      const minutesNow = minutesTask();
-      if (!minutes || minutesNow === undefined) {
-        await check('Minutes card goes to the owner', false,
-          `No minutes card appeared within 60s (wiki configured: ${wikiConfigured === undefined ? 'unknown' : 'yes'}; notetakerStatus ${notetakerStatus() ?? 'unknown'})`,
-          owner.page);
-        notExercised('Participants see the published minutes link', 'No minutes card appeared, so there was nothing to publish');
-      } else {
-        const verdict = judgeMinutesRecipient(minutesNow, ownerRoleId, [anaRoleId, benRoleId]);
-        await check('Minutes card goes to the owner', verdict.ok, verdict.detail, owner.page);
-        const minutesTitle = minutesNow.title;
-        const ownerPanel = owner.page.locator('.kd-role-active');
-        const ownerHasCard = await ownerPanel.count() > 0 &&
-          (await ownerPanel.first().innerText().catch(() => '')).includes(minutesTitle);
-        const anaPanelLocator = ana.page.locator('.kd-role-active');
-        const benPanelLocator = ben.page.locator('.kd-role-active');
-        const anaPanelText = await anaPanelLocator.count() > 0 ? await anaPanelLocator.first().innerText().catch(() => '') : '';
-        const benPanelText = await benPanelLocator.count() > 0 ? await benPanelLocator.first().innerText().catch(() => '') : '';
-        // The minutes card is the one named by its title. An Approve & publish control can belong
-        // to the person's own follow-up card (Ana's email draft), so a bare button proves nothing.
-        const anaHasMinutes = anaPanelText.includes(minutesTitle);
-        const benHasMinutes = benPanelText.includes(minutesTitle);
-        await check('Only the owner gets the minutes card for approval', ownerHasCard && !anaHasMinutes && !benHasMinutes,
-          `Owner has card: ${ownerHasCard}; Ana: ${anaHasMinutes}; Ben: ${benHasMinutes}`, owner.page);
-        if (verdict.ok) {
-          const approve = ownerPanel.getByRole('button', { name: 'Approve & publish' }).first();
-          const approveVisible = await approve.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false);
-          if (!approveVisible) {
-            await check('Owner approves the minutes', false, 'The owner had no Approve & publish control for the minutes card', owner.page);
-            notExercised('Participants see the published minutes link', 'The minutes card could not be approved');
-          } else {
-            await approve.click({ timeout: 5_000 });
-            await waitFor('Minutes publish finishes', () => {
-              const task = currentTasks().get(minutesNow.id);
-              return task !== undefined && ['COMPLETED', 'SYNCED', 'FAILED'].includes(task.status);
-            }, 60_000, owner.page, false);
-            const finishedTask = currentTasks().get(minutesNow.id);
-            const published = finishedTask?.status === 'COMPLETED' || finishedTask?.status === 'SYNCED';
-            const publishFailed = finishedTask?.status === 'FAILED';
-            const approveDetail = finishedTask === undefined
-              ? 'The minutes card vanished'
-              : `${finishedTask.status}${finishedTask.error === undefined ? '' : `: ${finishedTask.error}`}`;
-            if (publishFailed) {
-              await check('Owner approves the minutes', false, `The approval was sent but publishing failed: ${approveDetail}`, owner.page, 'warn');
-            } else {
-              await check('Owner approves the minutes', published, approveDetail, owner.page);
-            }
-            const artifact = finishedTask?.artifactUrl;
-            if (artifact === undefined) {
-              notExercised('Participants see the published minutes link',
-                finishedTask?.error ?? 'The minutes were approved but the server returned no published link');
-            } else {
-              const anaText = await bodyText(ana.page);
-              const benText = await bodyText(ben.page);
-              const anaHrefs: string[] = [];
-              const benHrefs: string[] = [];
-              for (const anchor of await ana.page.locator('a').all()) anaHrefs.push((await anchor.getAttribute('href')) ?? '');
-              for (const anchor of await ben.page.locator('a').all()) benHrefs.push((await anchor.getAttribute('href')) ?? '');
-              await check('Ana sees the published minutes link', pageShowsArtifact(anaText, anaHrefs, artifact), `Artifact ${artifact}`, ana.page);
-              await check('Ben sees the published minutes link', pageShowsArtifact(benText, benHrefs, artifact), `Artifact ${artifact}`, ben.page);
-            }
-          }
-        } else {
-          notExercised('Participants see the published minutes link', 'The minutes card did not reach the owner, so it could not be approved');
-        }
-      }
     }
+
+    await finishMeetingAndCheckMinutes(voice ? VOICE_LINES : undefined);
 
     // 11. After the meeting, a new visitor can use practice again.
     for (const actor of [ana, ben, owner]) {
@@ -761,8 +1248,12 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     const lines = [
       `# Kaki team meeting playtest — ${startedAt.toISOString()}`,
       '',
-      `Base: ${BASE} · Owner seat: ${ownerRoleId || '(not set)'} · Ana seat: ${anaRoleId || '(not set)'} · Ben seat: ${benRoleId || '(not set)'} · ${parsed.headless ? 'Headless' : 'Headed'} · Duration: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}s`,
+      `Base: ${BASE}${voice ? ' · Mode: voice' : ''} · Owner seat: ${ownerRoleId || '(not set)'} · Ana seat: ${anaRoleId || '(not set)'} · Ben seat: ${benRoleId || '(not set)'} · ${parsed.headless ? 'Headless' : 'Headed'} · Duration: ${Math.round((Date.now() - startedAt.getTime()) / 1000)}s`,
       `Mic-off people: ${[...muted].join(', ') || '(none)'}`,
+      ...(voice
+        ? [`Voice clips: ${VOICE_LINES.length} sentences in ${VOICE_CLIP_DIR} using ${Object.entries(VOICE_CAST)
+          .map(([speaker, voiceName]) => `${speaker}=${voiceName}`).join(', ')}`]
+        : []),
       reportResultLine(checks),
       '',
       '| Time (UTC) | Check | Result | Detail | Screenshot |',

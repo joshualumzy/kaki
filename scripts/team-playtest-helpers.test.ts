@@ -3,12 +3,18 @@ import {
   inviteCodeFromLink,
   judgeFollowUpTask,
   judgeMinutesRecipient,
+  judgeMinutesSpeakers,
+  judgeOverlapOrder,
   judgeSeatOptions,
   judgeTranscriptPresence,
+  normaliseSentence,
   ownerCredentials,
   pageShowsArtifact,
   practiceBusyIsPlain,
   seatRefusalIsPlain,
+  sentenceMatches,
+  sentenceWordRecall,
+  speechFailureNotice,
 } from './team-playtest-helpers';
 
 describe('owner credentials', () => {
@@ -143,6 +149,95 @@ describe('follow-up task outcome', () => {
     expect(judgeFollowUpTask(false, 'ok').status).toBe('FAIL');
     expect(judgeFollowUpTask(false, 'stale').status).toBe('FAIL');
     expect(judgeFollowUpTask(false, undefined).status).toBe('FAIL');
+  });
+});
+
+describe('spoken sentence similarity', () => {
+  const spoken = 'For supplier tray sizes, I will confirm the stock count before lunch.';
+
+  it('normalises capitals, punctuation and apostrophes', () => {
+    expect(normaliseSentence("  For the supplier's trays, OK!  ")).toEqual([
+      'for', 'the', 'suppliers', 'trays', 'ok',
+    ]);
+  });
+
+  it('scores an exact line as a whole match even with punctuation and case changes', () => {
+    expect(sentenceWordRecall(spoken, 'for SUPPLIER tray sizes i will confirm the stock count before lunch')).toBe(1);
+    expect(sentenceMatches(spoken, 'For supplier tray sizes I will confirm the stock count before lunch')).toBe(true);
+  });
+
+  it('accepts a transcript with a small recognition slip or an inserted word', () => {
+    expect(sentenceWordRecall(spoken, 'For supplier tray size I will confirm a stock count before lunch.')).toBeGreaterThanOrEqual(0.8);
+    expect(sentenceMatches(spoken, 'So for supplier tray sizes I will confirm the stock count before lunch today')).toBe(true);
+  });
+
+  it('does not count one shared word or re-ordered words as the sentence', () => {
+    expect(sentenceMatches(spoken, 'supplier')).toBe(false);
+    expect(sentenceMatches(spoken, 'Lunch before count stock the confirm will I sizes tray supplier for')).toBe(false);
+  });
+
+  it('does not match an unrelated sentence from the same speaker', () => {
+    expect(sentenceMatches(spoken, 'The large tray sizes should arrive on Thursday morning.')).toBe(false);
+  });
+});
+
+describe('overlapping speaker order', () => {
+  it('passes when the person who started first was recorded first', () => {
+    expect(judgeOverlapOrder('Ana', ['Ana', 'Ben'])).toEqual({
+      ok: true,
+      detail: 'Ana started first and was recorded before Ben',
+    });
+  });
+
+  it('fails when the later starter was recorded first', () => {
+    const verdict = judgeOverlapOrder('Ana', ['Ben', 'Ana']);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain('Ben appeared first');
+  });
+
+  it('fails when only one of the two lines is present', () => {
+    expect(judgeOverlapOrder('Ana', ['Ana']).ok).toBe(false);
+    expect(judgeOverlapOrder('Ana', []).ok).toBe(false);
+  });
+});
+
+describe('speech-failure notices', () => {
+  it('finds the recording-off banner and ignores ordinary meeting text', () => {
+    expect(speechFailureNotice(['Owner', 'Speech is not being recorded: the AI service is not connected.']))
+      .toContain('Speech is not being recorded');
+    expect(speechFailureNotice(['The AI cannot hear you in this browser.', 'nothing else']))
+      .toContain('cannot hear you');
+    expect(speechFailureNotice(['Owner', 'Ben, can you email the supplier?'])).toBeUndefined();
+  });
+});
+
+describe('minutes speakers', () => {
+  const spoken = [
+    { speaker: 'Owner', text: 'For supplier tray sizes, I will confirm the stock count before lunch.' },
+    { speaker: 'Ana', text: 'On supplier tray sizes, I can check the supplier list this afternoon.' },
+    { speaker: 'Ben', text: 'The large tray sizes should arrive on Thursday morning.' },
+  ];
+
+  it('passes when each speaker has a quoted transcript line', () => {
+    const body = [
+      '## Discussion Transcript',
+      '- **Owner:** For supplier tray sizes I will confirm the stock count before lunch.',
+      '- **Ana:** On supplier tray sizes I can check the supplier list this afternoon.',
+      '- **Ben:** The large tray sizes should arrive on Thursday morning.',
+    ].join('\n');
+    expect(judgeMinutesSpeakers(body, spoken).ok).toBe(true);
+  });
+
+  it('does not accept a name that only appears in an action item', () => {
+    const body = [
+      '## Action Items & Follow-Ups',
+      '- **Publish minutes** — *Ana* (draft_ready)',
+      '- **Owner:** For supplier tray sizes I will confirm the stock count before lunch.',
+      '- **Ben:** The large tray sizes should arrive on Thursday morning.',
+    ].join('\n');
+    const verdict = judgeMinutesSpeakers(body, spoken);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain('no transcript line from Ana');
   });
 });
 
