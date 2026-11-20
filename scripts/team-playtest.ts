@@ -720,8 +720,20 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     if (owner === undefined || ana === undefined || ben === undefined) {
       throw new Error('The three meeting windows are not open');
     }
-    // Let the runner finish subscribing to the three microphone tracks before the first sentence.
-    await delay(1_000);
+    // Speak only once the server is actually receiving each person's microphone (their tile says "listening").
+    const ownerPage = owner.page;
+    const hearsEveryone = await waitFor('Server hears all three microphones', async () => {
+      for (const speaker of ['Owner', 'Ana', 'Ben'] as const) {
+        const tile = ownerPage
+          .locator('.kd-tile')
+          .filter({ has: ownerPage.locator('.kd-who-line > span', { hasText: speaker }) })
+          .first();
+        const state = await tile.getAttribute('data-speech').catch(() => null);
+        if (state === null || state === 'none') return false;
+      }
+      return true;
+    }, 30_000, ownerPage);
+    if (!hearsEveryone) throw new Error('The server never started listening to all three microphones');
     const ownerState = { seen: false, cleared: false };
     await speakVoiceLine(VOICE_SCRIPT.ownerTopic1, { watchState: true, state: ownerState });
     const anaState = { seen: false, cleared: false };

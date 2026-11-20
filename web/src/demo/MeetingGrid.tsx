@@ -181,7 +181,7 @@ function CaptionedTile() {
     : undefined;
 
   return (
-    <div className="kd-tile" data-state={state} data-ai={isAi} style={{ ['--c' as string]: `var(${orbPalette(isAi ? aiIndex : 1)[0]})` }}>
+    <div className="kd-tile" data-state={state} data-ai={isAi} data-speech={speechState ?? 'none'} data-identity={participant.identity} style={{ ['--c' as string]: `var(${orbPalette(isAi ? aiIndex : 1)[0]})` }}>
       {isAi ? <Orb state={state} palette={orbPalette(aiIndex)} /> : <ParticipantTile style={{ width: '100%', height: '100%' }} />}
       <div className="kd-who">
         <i />

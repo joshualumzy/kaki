@@ -1128,12 +1128,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
     humans.set(participant.identity, { name, role, seat });
-    setSpeechState(participant.identity, 'listening');
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
   }
 
   async function listenTo(track: RemoteTrack, identity: string): Promise<void> {
+    // Listening means this person's microphone audio is actually reaching the recogniser, not merely that they joined.
+    setSpeechState(identity, 'listening');
     const recorder =
       options.recognizer === undefined
         ? undefined
