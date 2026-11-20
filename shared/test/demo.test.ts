@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/demo';
-import type { Scenario } from '../src/scenario';
+import type { Scenario } from '../src/scenarioTypes';
 import { testScenario } from './fixtures';
 
 const withAi: Scenario = {

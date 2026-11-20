@@ -1,18 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Scenario } from '../src/scenario';
+import type { Scenario } from '../src/scenarioTypes';
+import { blankMeetingSetup, isBlankMeetingDraft, parseMeetingSetup } from '../src/setupParse';
 import {
-  blankMeetingSetup,
   defaultMeetingSetup,
   demoPackNpcProfileForRole,
   demoPackNpcProfileForSeat,
-  isBlankMeetingDraft,
   isPackFreeMeeting,
   meetingScenarioFromSetup,
-  parseMeetingSetup,
   setupScenarioRoles,
-  type MeetingSetup,
-  type SetupFieldError,
-} from '../src/setup';
+} from '../src/setupScenario';
+import type { MeetingSetup, SetupFieldError } from '../src/setupTypes';
 import { testScenario } from './fixtures';
 
 const packScenario: Scenario = {

@@ -1,5 +1,5 @@
 import { isNonEmptyString, isObject } from './guards';
-import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenario';
+import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenarioTypes';
 import type { Role } from './roles';
 
 /**

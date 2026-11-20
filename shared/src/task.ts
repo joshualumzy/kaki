@@ -1,6 +1,7 @@
 import { isNonEmptyString, isObject, isString } from './guards';
 import type { Role } from './roles';
-import { isRoleIn, type Scenario } from './scenario';
+import { isRoleIn } from './scenario';
+import type { Scenario } from './scenarioTypes';
 
 /** The kind of background action a task can run for its assignee. */
 export type ActionKind = 'gitea_issue' | 'mattermost_post' | 'email' | 'wiki_page' | 'calendar_event';

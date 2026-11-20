@@ -1,5 +1,5 @@
 import { eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from './ical';
-import { MAX_AGENDA_MINUTES, type SetupFieldError } from './setup';
+import { MAX_AGENDA_MINUTES, type SetupFieldError } from './setupTypes';
 
 /** The stable UID of the seeded Kopitiam meeting invite. */
 export const KOPITIAM_INVITE_UID = 'kopitiam-opening-meeting@kaki.local';

@@ -1,4 +1,4 @@
-import type { Scenario } from '../src/scenario';
+import type { Scenario } from '../src/scenarioTypes';
 
 /** A small scenario with roles that do not come from any shipped scenario. */
 export const testScenario: Scenario = {

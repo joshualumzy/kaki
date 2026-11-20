@@ -1,6 +1,7 @@
 import { isNonEmptyString, isObject, isString } from './guards';
 import type { Role } from './roles';
-import { isRoleIn, type Scenario } from './scenario';
+import { isRoleIn } from './scenario';
+import type { Scenario } from './scenarioTypes';
 import { isActionDraft, type ActionDraft } from './task';
 
 /** Everything a client may send back to the server over the meeting socket. */

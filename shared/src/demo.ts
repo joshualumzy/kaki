@@ -1,4 +1,4 @@
-import type { AgendaItem, Attendee, NpcProfile, Scenario, ScenarioRole } from './scenario';
+import type { AgendaItem, Attendee, NpcProfile, Scenario, ScenarioRole } from './scenarioTypes';
 
 /** LiveKit data topic on which the browser sends the words its speech recognition heard. */
 export const STT_TOPIC = 'kaki.stt';

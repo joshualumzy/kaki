@@ -2,7 +2,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parseScenario, type Scenario } from '../src/scenario';
+import { parseScenario } from '../src/scenario';
+import type { Scenario } from '../src/scenarioTypes';
 import { setMeetingAgenda, shuffleAgendaForRole } from '../src/demo';
 
 const scenarioDir = fileURLToPath(new URL('../../scenarios/kopitiam', import.meta.url));
