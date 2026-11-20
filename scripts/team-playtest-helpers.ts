@@ -157,6 +157,144 @@ export function judgeFollowUpTask(cardSeen: boolean, notetakerStatus: string | u
   };
 }
 
+/**
+ * Lower-case words with punctuation removed, so a sentence a person spoke and the line the server
+ * transcribed can be compared without capitals, commas or a trailing full stop mattering.
+ */
+export function normaliseSentence(text: string): string[] {
+  return text
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((word) => word !== '');
+}
+
+/**
+ * How much of `expected` appears in `actual`, in the same order: the longest common subsequence
+ * length divided by the expected word count. One shared word in a long sentence scores far below
+ * the 80% a whole sentence needs, and re-ordered words do not count.
+ */
+export function sentenceWordRecall(expected: string, actual: string): number {
+  const want = normaliseSentence(expected);
+  const got = normaliseSentence(actual);
+  if (want.length === 0) return got.length === 0 ? 1 : 0;
+  let previous = new Array<number>(got.length + 1).fill(0);
+  for (let i = 1; i <= want.length; i += 1) {
+    const current = new Array<number>(got.length + 1).fill(0);
+    for (let j = 1; j <= got.length; j += 1) {
+      current[j] = want[i - 1] === got[j - 1]
+        ? (previous[j - 1] ?? 0) + 1
+        : Math.max(previous[j] ?? 0, current[j - 1] ?? 0);
+    }
+    previous = current;
+  }
+  return (previous[got.length] ?? 0) / want.length;
+}
+
+/** The share of spoken words that must appear in order for a transcript line to count as the sentence. */
+export const SENTENCE_MATCH_RECALL = 0.8;
+
+/** True when a transcript line is the whole spoken sentence, not just one word they share. */
+export function sentenceMatches(expected: string, actual: string, threshold = SENTENCE_MATCH_RECALL): boolean {
+  return sentenceWordRecall(expected, actual) >= threshold;
+}
+
+export type OverlapOrderVerdict = { ok: boolean; detail: string };
+
+/**
+ * The two overlapping lines must be recorded in the order they started. `appearedOrder` is the
+ * order their transcript lines arrived; both people must be present so a missing line is not a pass.
+ */
+export function judgeOverlapOrder(
+  startedFirst: string,
+  appearedOrder: readonly string[],
+): OverlapOrderVerdict {
+  const first = appearedOrder[0];
+  if (first === undefined) {
+    return { ok: false, detail: 'Neither overlapping line reached the transcript' };
+  }
+  const hasOther = appearedOrder.some((name) => name !== startedFirst);
+  if (!hasOther) {
+    return { ok: false, detail: `Only ${first}'s line reached the transcript, so the overlap order could not be checked` };
+  }
+  const ok = first === startedFirst;
+  return {
+    ok,
+    detail: ok
+      ? `${first} started first and was recorded before ${appearedOrder.find((name) => name !== first) ?? 'the other speaker'}`
+      : `${first} appeared first, but ${startedFirst} started speaking first`,
+  };
+}
+
+const SPEECH_FAILURE_PATTERNS: readonly RegExp[] = [
+  /speech is not being recorded/i,
+  /speech recording isn't ready/i,
+  /ai service is not connected/i,
+  /speech recognition (?:failed|needs|is not|cannot|does not)/i,
+  /could(?: not|n't) hear/i,
+  /cannot hear/i,
+  /can't hear/i,
+  /no microphone was found/i,
+  /microphone access was blocked/i,
+  /the microphone could not be started/i,
+];
+
+/** The first visible speech-failure notice in these page texts, or undefined when there is none. */
+export function speechFailureNotice(texts: readonly string[]): string | undefined {
+  for (const text of texts) {
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (clean === '') continue;
+    if (SPEECH_FAILURE_PATTERNS.some((pattern) => pattern.test(clean))) return clean;
+  }
+  return undefined;
+}
+
+export type MinutesSpeakersVerdict = { ok: boolean; detail: string };
+
+/**
+ * The end-of-meeting minutes quote at least one spoken line from every speaker. The minutes list
+ * transcript lines as `- **Speaker:** words`, so a name alone in an action item does not count.
+ */
+export function judgeMinutesSpeakers(
+  body: string,
+  expected: ReadonlyArray<{ speaker: string; text: string }>,
+  threshold = SENTENCE_MATCH_RECALL,
+): MinutesSpeakersVerdict {
+  const transcript = new Map<string, string[]>();
+  for (const raw of body.split(/\r?\n/)) {
+    const match = /^-\s+\*\*(.+?):\*\*\s*(.*)$/.exec(raw.trim());
+    if (match === null) continue;
+    const speaker = (match[1] ?? '').trim().toLowerCase();
+    const text = (match[2] ?? '').trim();
+    if (speaker === '' || text === '') continue;
+    const lines = transcript.get(speaker) ?? [];
+    lines.push(text);
+    transcript.set(speaker, lines);
+  }
+  const names = [...new Set(expected.map((line) => line.speaker))];
+  const problems: string[] = [];
+  for (const name of names) {
+    const lines = transcript.get(name.toLowerCase()) ?? [];
+    if (lines.length === 0) {
+      problems.push(`no transcript line from ${name}`);
+      continue;
+    }
+    const spoken = expected.filter((line) => line.speaker === name);
+    const matched = spoken.some((line) => lines.some((text) => sentenceMatches(line.text, text, threshold)));
+    if (!matched) problems.push(`no spoken line from ${name} matched in the minutes`);
+  }
+  return {
+    ok: problems.length === 0,
+    detail: problems.length === 0
+      ? `Minutes quote a line from ${names.join(', ')}`
+      : problems.join('; '),
+  };
+}
+
 /** A published artifact link is present in this page's text or links. */
 export function pageShowsArtifact(text: string, hrefs: readonly string[], artifactUrl: string): boolean {
   const wanted = artifactUrl.trim();
