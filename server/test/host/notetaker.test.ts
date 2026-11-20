@@ -10,6 +10,7 @@ import {
   isHypotheticalProposal,
   isLikelyDuplicate,
   isLikelyDuplicateQuestion,
+  isSelfVolunteerCommitment,
   parseNotetakerReply,
   taskMatchesAssignment,
   type AnswerCandidate,
@@ -232,7 +233,7 @@ describe('notetaker on canned Nanyang Kopi & Toast slices', () => {
 });
 
 describe('notetaker record keeping', () => {
-  it('does not repeat a task or question the meeting already has, and drops answered questions', async () => {
+  it('keeps one card when the model names the existing one as its duplicate, and drops answered questions', async () => {
     const task = {
       title: 'Review the trial numbers',
       context: 'c',
@@ -242,7 +243,9 @@ describe('notetaker record keeping', () => {
     const { tasks, notetaker, feed } = setup((_messages, call) =>
       [
         reply({ newTasks: [task], newQuestions: [{ text: 'Who covers the counter?' }] }),
-        reply({ newTasks: [{ ...task, title: 'review the trial numbers' }], newQuestions: [{ text: 'Who covers the counter?' }] }),
+        reply({
+          newTasks: [{ ...task, title: 'review the trial numbers', duplicateOf: tasks.list()[0]?.id }],
+        }),
         reply({
           answeredQuestions: [{ id: 'q-1', evidence: 'Mei covers the counter with two staff and one off.' }],
         }),
@@ -258,6 +261,52 @@ describe('notetaker record keeping', () => {
 
     expect(tasks.list()).toHaveLength(1);
     expect(notetaker.state().openQuestions).toEqual([]);
+  });
+
+  it('keeps a question the model lists without a question mark', async () => {
+    const { notetaker } = setup(() => reply({ newQuestions: [{ text: 'Who owns the till' }] }));
+
+    notetaker.addChunk({ speaker: 'Mei', text: 'Who owns the till?' });
+    await notetaker.run();
+
+    expect(notetaker.state().openQuestions.map((question) => question.text)).toEqual(['Who owns the till']);
+  });
+
+  it.each([
+    'How should we handle the queue before eight?',
+    'What is the root cause of the freeze?',
+  ])('keeps a question the old wording check would have called rhetorical: %s', async (question) => {
+    const { notetaker } = setup(() => reply({ newQuestions: [{ text: question }] }));
+
+    notetaker.addChunk({ speaker: 'Mei', text: question });
+    await notetaker.run();
+
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([question]);
+  });
+
+  it('keeps two distinct questions on one topic even when their keywords overlap', async () => {
+    const first = 'How is the rota costed at close?';
+    const second = 'How is the rota budgeted at close?';
+    const { notetaker } = setup((_messages, call) =>
+      reply({ newQuestions: [{ text: call === 0 ? first : second }] }),
+    );
+
+    notetaker.addChunk({ speaker: 'Mei', text: first });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Wei Ling', text: 'Let us look at the rota.' });
+    await notetaker.run();
+
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([first, second]);
+  });
+
+  it('keeps the prompt examples generic instead of carrying retail story text', async () => {
+    const { llm, notetaker } = setup(() => reply({}));
+
+    notetaker.addChunk({ speaker: 'Mei', text: 'Let us begin.' });
+    await notetaker.run();
+
+    const system = llm.calls[0]?.find((message) => message.role === 'system')?.content ?? '';
+    expect(system).not.toMatch(/GrabFood|Foodpanda|plushies|menu label|opening hours|ordering app|re-taste/i);
   });
 
   it('keeps a re-asked question when the same reply closes the older wording', async () => {
@@ -386,6 +435,30 @@ describe('task precision', () => {
     ...extra,
   });
 
+  it('keeps a manual task when the same pass also has an actionable deliverable', async () => {
+    const manualLine = 'Mei, can you review the trial numbers tonight?';
+    const deliverableLine = "I'll post the final plan in the team channel today.";
+    const { tasks, notetaker } = setup(() =>
+      reply({
+        newTasks: [
+          candidate('Review the trial numbers', 'game_designer', manualLine),
+          candidate('Post the final plan in the team channel', 'producer', deliverableLine, {
+            actionKind: 'mattermost_post',
+          }),
+        ],
+      }),
+    );
+
+    notetaker.addChunk({ speaker: 'Mei', text: manualLine });
+    notetaker.addChunk({ speaker: 'Wei Ling', text: deliverableLine });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.title)).toEqual([
+      'Review the trial numbers',
+      'Post the final plan in the team channel',
+    ]);
+  });
+
   it('drops a task whose evidence nobody said', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { tasks, notetaker } = setup(() =>
@@ -408,7 +481,7 @@ describe('task precision', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Order new office chairs'));
   });
 
-  it('skips tasks the LLM marks as duplicates and reworded duplicates for the same role', async () => {
+  it('skips tasks the model marks as duplicates of an existing card', async () => {
     const trialTask = "Mei, can you review the trial numbers tonight?";
     const butterTask = 'Wei Ling, can you review the butter margin figures tonight?';
     const { tasks, notetaker } = setup((_messages, call) => {
@@ -420,11 +493,14 @@ describe('task precision', () => {
           ],
         });
       }
+      const trialCard = tasks.list().find((card) => card.title === 'Review trial numbers');
       return reply({
         newTasks: [
-          candidate('Review the trial numbers', 'game_designer', trialTask),
+          candidate('Review the trial numbers', 'game_designer', trialTask, {
+            duplicateOf: trialCard?.id ?? 'missing-task',
+          }),
           candidate('Track the seat trial numbers', 'game_designer', trialTask, {
-            duplicateOf: tasks.list()[0]?.id ?? 'missing-task',
+            duplicateOf: trialCard?.id ?? 'missing-task',
           }),
           candidate(
             'Post the butter plan in the team channel',
@@ -684,14 +760,13 @@ describe('task precision', () => {
     ).toBe(false);
   });
 
-  it('says how many lines it had to drop during a long outage', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('logs loudly the moment a line cannot be kept for a later pass', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { notetaker } = setup(() => reply({}));
 
     for (let line = 0; line < 205; line += 1) notetaker.addChunk({ speaker: 'Arjun', text: `line ${line}` });
-    await notetaker.run();
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped the 5 oldest transcript lines'));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('will not be analysed'));
   });
 
   it('keeps the agreed decision in the task context without appending raw speech fragments', async () => {
@@ -923,7 +998,7 @@ describe('decision context across notetaker batches', () => {
     expect(tasks.list()[0]?.decisionSource).toBeUndefined();
   });
 
-  it('keeps one announcement when a different owner is asked for the same decision', async () => {
+  it('keeps both recipients asked for the same decision', async () => {
     const first = 'Mei, can you post the seating decision in the team channel today so everyone has it?';
     const second = 'Daniel, can you also announce the seating decision in the team channel today?';
     const { tasks, notetaker, setAgendaIndex } = setup(
@@ -960,8 +1035,7 @@ describe('decision context across notetaker batches', () => {
     notetaker.addChunk({ speaker: 'Daniel', text: second });
     await notetaker.run();
 
-    expect(tasks.list()).toHaveLength(1);
-    expect(tasks.list()[0]?.suggestedAssignee).toBe('game_designer');
+    expect(tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['game_designer', 'marketing_lead']);
   });
 
   it('keeps separate announcements for two different decisions', async () => {
@@ -1238,7 +1312,7 @@ describe('decision revisions', () => {
     expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('does not exist'))).toBe(true);
   });
 
-  it('leaves a card alone when the revision names one that is no longer suggested', async () => {
+  it('retires a card that was already dispatched when its decision is reversed', async () => {
     const { tasks, notetaker } = setup((_messages, call) => {
       if (call === 0) return firstPassReply();
       const seatingTask = tasks.list().find((task) => task.title.startsWith('Post the seating'));
@@ -1260,8 +1334,8 @@ describe('decision revisions', () => {
     notetaker.addChunk({ speaker: 'Feifei Li', text: seatingCorrection });
     await notetaker.run();
 
-    expect(tasks.get(seatingTask.id)?.status).toBe('DISPATCHED');
-    expect(notetaker.state().reviewIssues.some((issue) => issue.text.includes('not a suggested card'))).toBe(true);
+    expect(tasks.get(seatingTask.id)?.status).toBe('SUPERSEDED');
+    expect(notetaker.state().reviewIssues).toEqual([]);
   });
 
   it('keeps the lines on the first unreadable revision list, then gives up and lets the agenda move on the second', async () => {
@@ -1551,6 +1625,55 @@ describe('duplicate handling across batches', () => {
     ]);
   });
 
+  it('keeps same-owner work with overlapping wording unless the model names it duplicated', async () => {
+    const firstLine = 'Mei, can you review the trial numbers tonight?';
+    const secondLine = 'Mei, can you review the trial numbers and the trial notes tonight?';
+    const { tasks, notetaker } = setup((_messages, call) =>
+      reply({
+        newTasks: [
+          candidate(
+            call === 0 ? 'Review the trial numbers' : 'Review the trial numbers and notes',
+            'game_designer',
+            call === 0 ? firstLine : secondLine,
+          ),
+        ],
+      }),
+    );
+
+    notetaker.addChunk({ speaker: 'Mei', text: firstLine });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Mei', text: secondLine });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.title)).toEqual([
+      'Review the trial numbers',
+      'Review the trial numbers and notes',
+    ]);
+  });
+
+  it('keeps an identical title for a different owner instead of merging their work', async () => {
+    const meiLine = 'Mei, can you post the update in the team channel today?';
+    const danielLine = 'Daniel, can you post the update in the team channel today?';
+    const { tasks, notetaker } = setup(() =>
+      reply({
+        newTasks: [
+          candidate('Post the update in the team channel', 'game_designer', meiLine, {
+            actionKind: 'mattermost_post',
+          }),
+          candidate('Post the update in the team channel', 'marketing_lead', danielLine, {
+            actionKind: 'mattermost_post',
+          }),
+        ],
+      }),
+    );
+
+    notetaker.addChunk({ speaker: 'Mei', text: meiLine });
+    notetaker.addChunk({ speaker: 'Daniel', text: danielLine });
+    await notetaker.run();
+
+    expect(tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['game_designer', 'marketing_lead']);
+  });
+
   it('does not treat a task as a duplicate of one on another agenda item', async () => {
     const firstAssignment = 'Mei, can you post the response plan in the team channel today?';
     const secondAssignment = 'Mei, can you post the delivery response plan in the team channel today?';
@@ -1587,7 +1710,7 @@ describe('duplicate handling across batches', () => {
     ]);
   });
 
-  it('keeps one announcement when the same decision is repeated by a different owner in a later batch', async () => {
+  it('keeps a later recipient asked to announce the same decision', async () => {
     const secondAssignment = 'Daniel, can you also announce the seating decision in the team channel today?';
     const { tasks, notetaker, setAgendaIndex } = setup(
       (_messages, call) => {
@@ -1632,6 +1755,7 @@ describe('duplicate handling across batches', () => {
 
     expect(tasks.list().map((task) => [task.title, task.suggestedAssignee])).toEqual([
       ['Post the seating decision in the team channel', 'game_designer'],
+      ['Announce the seating rule in the team channel', 'marketing_lead'],
     ]);
   });
 
@@ -1682,6 +1806,48 @@ describe('duplicate handling across batches', () => {
       ['Email the seating decision to the supplier', 'email'],
       ['Post the seating decision in the team channel', 'mattermost_post'],
     ]);
+  });
+});
+
+describe('facilitator identity', () => {
+  it('filters the facilitator who actually holds the seat, not the old host profile', async () => {
+    const moved: Scenario = {
+      ...scenario,
+      roles: scenario.roles.map((role) =>
+        role.id === 'lead_programmer'
+          ? { ...role, facilitator: true }
+          : role.id === 'studio_manager'
+            ? { ...role, facilitator: false }
+            : role,
+      ),
+      npcs: scenario.npcs?.map((npc) =>
+        npc.attendee === 'Arjun'
+          ? { ...npc, role: 'host' as const }
+          : npc.role === 'host'
+            ? { ...npc, role: 'participant' as const }
+            : npc,
+      ),
+    };
+    const llm = createFakeLlm(() => reply({}));
+    const notetaker = createNotetaker({
+      scenario: () => moved,
+      tasks: createTaskStore({ hub: quietHub(), scenario: moved }),
+      llm,
+      verify: lexicalVerify,
+      agendaIndex: () => 0,
+    });
+
+    notetaker.addChunk({
+      speaker: 'Arjun (Tech & POS Lead)',
+      speakerRole: 'lead_programmer',
+      text: 'Morning everyone, let us get started.',
+    });
+    notetaker.addChunk({ speaker: 'Mei', speakerRole: 'game_designer', text: 'Who owns the till today?' });
+    await notetaker.run();
+
+    const transcript = newLines(llm.calls[0]!);
+    expect(transcript).not.toContain('Morning everyone');
+    expect(transcript).toContain('Who owns the till today?');
   });
 });
 
@@ -1819,7 +1985,6 @@ describe('hasTaskAssignment', () => {
     'I, Wei Ling, am going to email Zack tonight.',
     'Count on me to email Zack tonight.',
     'Leave it with me to post the update.',
-    'I can handle sending that calendar invite.',
     'Sure, leave it to me.',
   ])('accepts an ordinary explicit assignment: %s', (line) => {
     expect(hasTaskAssignment(line)).toBe(true);
@@ -1833,8 +1998,15 @@ describe('hasTaskAssignment', () => {
     'Sam Booth Playtest will post the agreed plan in the team channel today.',
     'I might post the agreed plan in the team channel today.',
     'I, Booth Playtest, think the agreed plan is good.',
-  ])('rejects a quote or an option: %s', (line) => {
+    'I can handle sending that calendar invite.',
+    'I can file a ticket for the counter cover plan.',
+  ])('rejects a quote, an option or a capability offer: %s', (line) => {
     expect(hasTaskAssignment(line)).toBe(false);
+  });
+
+  it('does not treat "I can ..." as a commitment that authorizes automatic acceptance', () => {
+    expect(isSelfVolunteerCommitment('I can file a ticket for the counter cover plan.', scenario, 'Mei')).toBe(false);
+    expect(isSelfVolunteerCommitment("I'll file a ticket for the counter cover plan.", scenario, 'Mei')).toBe(true);
   });
 });
 

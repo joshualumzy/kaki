@@ -160,7 +160,7 @@ describe('meeting to task to draft', () => {
     expect(app.tasks.get(task.id)?.status).toBe('DRAFT_READY');
   });
 
-  it('keeps one announcement when two different owners are asked to announce the same decision', async () => {
+  it('keeps both announcements when two different owners are asked to announce the same decision', async () => {
     const cashierAssignment = 'Bao, can you also announce the cash box move in the team channel today?';
     const notetakerLlm = createFakeLlm((messages) => {
       const text = messages.map((message) => message.content).join('\n');
@@ -222,8 +222,8 @@ describe('meeting to task to draft', () => {
       'the single dispatched announcement',
     );
     await settle();
-    expect(app.tasks.list()).toHaveLength(1);
-    expect(app.tasks.list()[0]?.decisionSource).toBe(decisionLine);
+    expect(app.tasks.list().map((task) => task.suggestedAssignee).sort()).toEqual(['cashier', 'chef']);
+    expect(app.tasks.list().every((task) => task.decisionSource === decisionLine)).toBe(true);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

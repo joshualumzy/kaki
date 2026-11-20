@@ -1,6 +1,7 @@
 import {
   ACTION_KINDS,
   canTransition,
+  hostIdentityOf,
   isActionKind,
   isRoleIn,
   isSuggestInput,
@@ -33,8 +34,6 @@ const MAX_AGENDA_CONTEXT_LINES = 80;
 const EVIDENCE_MATCH = 0.8;
 /** Share of keywords two tasks for the same role must share to count as the same task. */
 const DUPLICATE_OVERLAP = 0.6;
-/** A model that explicitly names a duplicate may use looser wording than the automatic title check. */
-const EXPLICIT_DUPLICATE_OVERLAP = 0.5;
 /** Extra passes allowed when the model leaves out the required `revisions` list; after this it is given up on. */
 const REVISION_FAILURE_LIMIT = 2;
 
@@ -330,17 +329,9 @@ export function isRhetoricalTopicHandoff(text: string): boolean {
   ) {
     return true;
   }
-  if (
-    /^\W*(?:[a-z][a-z\s]{0,20},\s*)?(?:how (?:do|should|can|could|would|shall) we\b|(?:can|could|should|shall|would) we\b|what (?:do|should|can|could|would|shall) we\b)/i.test(
-      trimmed,
-    )
-  ) {
-    return true;
-  }
-  if (/\bwhat is the root cause of the freeze\b/i.test(trimmed)) {
-    return true;
-  }
-  return false;
+  return /^\W*(?:[a-z][a-z\s]{0,20},\s*)?(?:how (?:do|should|can|could|would|shall) we\b|(?:can|could|should|shall|would) we\b|what (?:do|should|can|could|would|shall) we\b)/i.test(
+    trimmed,
+  );
 }
 
 /** True when a question asks (nearly) the same thing as one already open. */
@@ -444,7 +435,7 @@ function decisionSourceLineFrom(
 const SELF_IDENTIFICATION = String.raw`(?:\s*,\s*[\w'\u2019 -]{1,40}?,\s*|\s+)`;
 // "I'll ...", "I will ...", "I'm going to ...": the speaker is taking the work on themselves. A capability offer
 // ("I can file a ticket") only says the work is possible, so it is not a commitment and cannot create a task.
-const FIRST_PERSON_COMMITMENT_SOURCE = String.raw`\b(?:I(?:'ll|\u2019ll|'m going to|${SELF_IDENTIFICATION}(?:will|am going to))|count on me to|leave it (?:with|to) me to|I(?:'ll| will| can) handle|I(?:'ll| will| can) take care of|I can)\b`;
+const FIRST_PERSON_COMMITMENT_SOURCE = String.raw`\b(?:I(?:'ll|\u2019ll|'m going to|${SELF_IDENTIFICATION}(?:will|am going to))|count on me to|leave it (?:with|to) me to|I(?:'ll| will) handle|I(?:'ll| will) take care of)\b`;
 const FIRST_PERSON_COMMITMENT = new RegExp(FIRST_PERSON_COMMITMENT_SOURCE, 'i');
 // "what if we ...", "if we ...", "should we ...", "we could ...", "I propose we ...": pitching an option or asking for a decision, never a task commitment.
 const HYPOTHETICAL_PROPOSAL =
@@ -505,7 +496,7 @@ const TASK_ASSIGNMENT = new RegExp(
     `\\b(?:can|could|would|will)\\s+you\\s+(?:[\\w'-]+,?\\s+){0,8}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
     `\\bplease\\s+(?:[\\w'-]+,?\\s+){0,5}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
     `\\blet'?s have\\s+[\\w'-]+\\s+(?:[\\w'-]+,?\\s+){0,4}(?:${DELIVERABLE_FORM}|take on|taking on)\\b`,
-    `\\b(?:leave it (?:with|to) me|count on me|consider it done|I'll take care of it|I can handle it)\\b`,
+    `\\b(?:leave it (?:with|to) me|count on me|consider it done|I'll take care of it)\\b`,
   ].join('|'),
   'i',
 );
@@ -742,6 +733,7 @@ export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): bo
   const mine = keywords(candidate.title);
   return active.some((task) => {
     if (task.agendaItemTitle !== candidate.agendaItemTitle) return false;
+    if (task.suggestedAssignee !== candidate.suggestedAssignee) return false;
     if (normalize(task.title) === title) return true;
     if (
       task.actionKind !== undefined &&
@@ -750,7 +742,7 @@ export function isLikelyDuplicate(candidate: SuggestInput, existing: Task[]): bo
     ) {
       return false;
     }
-    if (task.suggestedAssignee !== candidate.suggestedAssignee || mine.size < 2) return false;
+    if (mine.size < 2) return false;
     const theirs = keywords(task.title);
     if (theirs.size < 2) return false;
     const shared = [...mine].filter((word) => theirs.has(word)).length;
@@ -782,19 +774,17 @@ export function isDuplicateAnnouncement(
 }
 
 /**
- * True when a model-supplied duplicateOf target really is the same work. An id alone is never trusted: it may be
- * invented or name a different decision, so the candidate must also match the target's accepted decision and action
- * kind, or, for the same owner, share enough of its title (slightly looser than the automatic check, since the model
- * explicitly pointed at this task).
+ * True when a model-supplied duplicateOf target is the same work. The model makes that call by naming the id; only
+ * clear conflicts refuse it: a card on another agenda item or for a different deliverable, or two grounded sources
+ * that state different decisions. Wording is not compared, because the model may recognise a paraphrase the
+ * keyword check cannot.
  */
 export function isDuplicateTarget(
   candidate: Pick<Task, 'title' | 'suggestedAssignee' | 'decisionSource' | 'actionKind' | 'agendaItemTitle'>,
   target: Task,
 ): boolean {
-  if (target.status === 'DISMISSED') return false;
+  if (target.status === 'DISMISSED' || target.status === 'SUPERSEDED') return false;
   if (target.agendaItemTitle !== candidate.agendaItemTitle) return false;
-  if (normalize(candidate.title) === normalize(target.title)) return true;
-  if (isDuplicateAnnouncement(candidate, [target])) return true;
   if (
     target.actionKind !== undefined &&
     candidate.actionKind !== undefined &&
@@ -802,12 +792,14 @@ export function isDuplicateTarget(
   ) {
     return false;
   }
-  if (target.suggestedAssignee !== candidate.suggestedAssignee) return false;
-  const mine = keywords(candidate.title);
-  const theirs = keywords(target.title);
-  if (mine.size < 2 || theirs.size < 2) return false;
-  const shared = [...mine].filter((word) => theirs.has(word)).length;
-  return shared / Math.min(mine.size, theirs.size) >= EXPLICIT_DUPLICATE_OVERLAP;
+  if (
+    target.decisionSource !== undefined &&
+    candidate.decisionSource !== undefined &&
+    normalize(target.decisionSource) !== normalize(candidate.decisionSource)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Parse the LLM's JSON reply, dropping any item that does not fit the scenario. */
@@ -1025,23 +1017,23 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     'Rules:',
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
     '- newQuestions: factual questions someone asked about data, rules, costs, dates, or specs that nobody answered in the lines. Write each as a full,',
-    '  self-contained question ending in a question mark that explicitly names the current agenda topic (for example "What GrabFood and Foodpanda pricing do we need to confirm?" rather than just "What pricing do you need me to confirm?").',
+    '  self-contained question ending in a question mark that explicitly names the current agenda topic (for example "What supplier lead time do we need to confirm?" rather than just "What lead time do you need me to confirm?").',
     '  forRole is the role best placed to answer (always set forRole to one of the role ids listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of the current agenda item so Kaki can search company records for them; never omit forRole).',
     '  NEVER list a host opening handoff ("What\'s happening there?", "Can you walk us through...?") or the open-ended agenda decision question',
     '  addressed to a colleague ("How do we fix this for our customers...?", "How should we handle...?", "What do you want to do?", "What do you think from your side?") in newQuestions —',
     '  those are discussion prompts, not factual lookups.',
-    '  NEVER invent a question out of a declarative statement: if a speaker is simply stating a fact or explaining a problem during the briefing (for example "raising prices by 30% triggers search suppression"), do NOT turn their statement into a question in newQuestions. A question in newQuestions must come from someone actually asking about an unknown figure, policy, or option.',
+    '  NEVER invent a question out of a declarative statement: if a speaker is simply stating a fact or explaining a problem during the briefing (for example "a thirty percent price rise would cut demand"), do NOT turn their statement into a question in newQuestions. A question in newQuestions must come from someone actually asking about an unknown figure, policy, or option.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up",',
     '  "I haven\'t looked", "not per hour", "that is still open") does not answer the question: it stays a question.',
     '  Neither does an answer its speaker doubts or contradicts.',
     '  Read on before listing a question: if a later line, even the very next one, answers it, do not list it.',
-    '  One topic can hold several separate unknowns: list each as its own question (for example "who runs cash?" and',
-    '  "how is the change float counted and balanced at close?"), even when they share the word cash. Only treat a',
+    '  One topic can hold several separate unknowns: list each as its own question (for example "who signs off the',
+    '  budget?" and "how is the budget reconciled at month end?"), even when they share the word budget. Only treat a',
     '  question as a repeat when it asks the same unknown, not merely because it is about the same topic. Use the',
-    '  transcript\'s own nouns (cash, float, change) so each question names the unknown precisely.',
+    '  transcript\'s own nouns so each question names the unknown precisely.',
     '- answeredQuestions: open questions that a new line answers with the fact asked for, stated without doubt.',
     '  evidence: copy, word for word, the line that states the answer. A line that only mentions the topic, says the data',
-    '  exists somewhere ("the trial sheet has that split"), gives a figure the speaker is unsure of, or promises to look',
+    '  exists somewhere ("the report has that split"), gives a figure the speaker is unsure of, or promises to look',
     '  ("I would have to check", "I haven\'t looked") leaves the question open. Never close a question you cannot quote an',
     '  affirmative answer for, and never close one by id alone.',
     '- newTasks: a short list, usually empty. A task is a follow-up to deliver after the meeting that a person was',
@@ -1052,7 +1044,7 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '    before the decision has been made;',
     '  * the title and context name the same deliverable as that commitment or request. Do not borrow one grounded',
     '    commitment (for example "I\'ll post the final plan in the team channel") for a different, invented deliverable',
-    '    (for example "confirm the partner\'s rate and plushies"): if the line does not ask for it or volunteer it, there',
+    '    (for example "confirm the partner\'s rate and delivery dates"): if the line does not ask for it or volunteer it, there',
     '    is no task;',
     '  * one person owns it and it was decided, not just proposed;',
     '  * it is a discrete deliverable, not routine work already planned for the sprint or backlog;',
@@ -1074,9 +1066,9 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '  role when they volunteered ("I\'ll…"), the role of the person addressed when they were asked ("Alex, can you…").',
     '  The role is shown in brackets before each line. Always use the speaker names as they appear in the transcript lines (never append a scenario default name in parentheses after a speaker\'s name). Always set actionKind when the deliverable is an issue, a team',
     '  chat post, an email, a wiki page or a calendar event; omit it only when none of these fits. Both title and context',
-    '  MUST include the specific topic and decision from the preceding lines (for example, title: "Post menu label',
-    '  decision in team channel", context: "Announce in the team channel today that we decided to add plain-language',
-    '  labels under each menu item before Friday") — never use a generic placeholder like "Update team',
+    '  MUST include the specific topic and decision from the preceding lines (for example, title: "Post the pricing',
+    '  decision in the team channel", context: "Announce in the team channel today that we decided to move to',
+    '  monthly billing before Friday") — never use a generic placeholder like "Update team',
     '  channel" or "Send email" without the subject matter.',
     '  When the new lines refer back to a decision made earlier ("post that decision", "the plan"), take the decision',
     '  from the earlier lines on this agenda item and keep its concrete details in Context: the exact time of day',
@@ -1090,26 +1082,29 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
     '  enforces it, and how it will be measured. Omit decisionEvidence when there is no accepted decision line. The',
     '  server checks the quote against the current agenda item; it is a model-selected quote, not a guarantee, and an',
     '  unmatched quote is ignored rather than trusted.',
-    '  If the same accepted decision is already covered by a task above with the SAME actionKind, do not suggest a second announcement of that same actionKind even',
-    '  when a different person is asked to do it: set duplicateOf to that task id. However, if a speaker asks the assignee for TWO distinct follow-up deliverables across DIFFERENT tools/actionKinds in the same turn (for example, an email AND a wiki_page, or a gitea_issue AND a mattermost_post, or a calendar_event), extract BOTH deliverables as separate entries in newTasks with their respective actionKinds (up to 2 tasks per turn). A different decision is a separate task.',
-    '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id.',
+    '  If it is the same work as a task already suggested, even worded differently, set duplicateOf to that task id. A',
+    '  different person asked to do the work, a different decision, or a different deliverable (tool/actionKind) is a',
+    '  separate task. However, if a speaker asks the assignee for TWO distinct follow-up deliverables across DIFFERENT',
+    '  tools/actionKinds in the same turn (for example, an email AND a wiki_page, or a gitea_issue AND a mattermost_post,',
+    '  or a calendar_event), extract BOTH deliverables as separate entries in newTasks with their respective actionKinds',
+    '  (up to 2 tasks per turn).',
     '- revisions: report only an actual withdrawal or replacement of an accepted decision. Quote the earlier decision',
     '  and the changing line verbatim. Name only existing suggested task IDs that depend on that decision. Ordinary',
     '  "instead of" discussion is not a revision. Use [] when none.',
     '- Never repeat a question that is already open, even in different words. Keep newQuestions to at most two per pass.',
-    '  Sharing topic words is not a repeat: keep distinct unknowns (who owns cash vs how the float is balanced at close)',
+    '  Sharing topic words is not a repeat: keep distinct unknowns (who owns the budget vs how it is reconciled at close)',
     '  as separate questions.',
     '- A date, number or decision that someone asks for and nobody gives (for example "when is the final build?") is a',
     '  question, even if it is asked in passing. Do not ask something the lines already answer.',
     '  Use empty arrays when there is nothing new.',
     '',
     'Examples:',
-    '- "[Priya (Manager)] I\'ll post the new opening hours in the team channel tonight." → task (mattermost_post, Manager: the speaker owns it, not whoever the topic concerns).',
-    '- "Can the payment fix go in before Friday morning?" "Should be fine." → not a task: product work itself.',
-    '- "[Alex (Manager)] Priya, can you walk us through the current state of the ordering app?" → not a task: asking someone to speak in the meeting.',
-    '- "Should the flyers use the new logo?" "Yes, use the new one." → not a task: an answer, nobody asked or volunteered.',
-    '- "He will film a re-taste for $600, or $450 plus 20 plushies." → not a task: a price quote and options, nobody was asked or volunteered for a follow-up.',
-    '- "When is the delivery due?" "The email says Monday, but I think it moved, so don\'t quote me." → question:',
+    '- "[Priya (Manager)] I\'ll post the revised rota in the team channel tonight." → task (mattermost_post, Manager: the speaker owns it, not whoever the topic concerns).',
+    '- "Can the login fix go in before Friday morning?" "Should be fine." → not a task: product work itself.',
+    '- "[Alex (Manager)] Priya, can you walk us through the current state of the project?" → not a task: asking someone to speak in the meeting.',
+    '- "Should the report use the new template?" "Yes, use the new one." → not a task: an answer, nobody asked or volunteered.',
+    '- "He will run the workshop for $600, or $450 plus 20 printed guides." → not a task: a price quote and options, nobody was asked or volunteered for a follow-up.',
+    '- "When is the supplier delivery due?" "The email says Monday, but I think it moved, so don\'t quote me." → question:',
     '  the only answer was doubted. Keep it open until someone states the date without doubt.',
   ].join('\n');
 }
@@ -1310,7 +1305,6 @@ export function createNotetaker({
   // line that assigns the follow-up often arrives on its own and would otherwise lose the decision's details.
   let contextAgendaIndex = agendaIndex();
   let agendaContext: TranscriptLine[] = [];
-  let droppedLines = 0;
   let running = false;
   let generation = 0;
   let openQuestions: Question[] = [];
@@ -1326,11 +1320,8 @@ export function createNotetaker({
   let talkTotal = 0;
   const attending = () =>
     attendingRoles?.() ?? new Set(scenario().attendees.map((attendee) => attendee.role));
-  const facilitatorName = () =>
-    (scenario().npcs ?? []).find((npc) => npc.role === 'host')?.attendee ??
-    scenario().attendees.find((attendee) =>
-      scenario().roles.some((role) => role.id === attendee.role && role.facilitator === true),
-    )?.name;
+  // The effective host follows the facilitator seat, so moving or assigning that seat moves the name too.
+  const facilitatorName = () => hostIdentityOf(scenario()).name;
   const attendeeNamePattern = () =>
     new RegExp(
       `\\s*\\((?:${scenario()
@@ -1356,7 +1347,15 @@ export function createNotetaker({
   }
 
   function keepPending(lines: TranscriptLine[]): void {
-    droppedLines += Math.max(0, lines.length - MAX_PENDING_LINES);
+    const overflow = Math.max(0, lines.length - MAX_PENDING_LINES);
+    if (overflow > 0) {
+      // The queue is full because passes keep failing. Never pretend those lines were analysed: say so at the
+      // moment they are lost, not on some later pass that may never come.
+      console.error(
+        `kaki notetaker: ${overflow} old transcript line(s) cannot be kept for a later pass (limit ${MAX_PENDING_LINES}); ` +
+          'the newest lines are kept, the dropped ones will not be analysed',
+      );
+    }
     pending = lines.slice(-MAX_PENDING_LINES);
   }
 
@@ -1410,8 +1409,10 @@ export function createNotetaker({
           problem = `task ${id} does not exist`;
           break;
         }
-        if (task.status !== 'SUGGESTED' || !canTransition(task.status, 'SUPERSEDED')) {
-          problem = `task ${id} is not a suggested card any more`;
+        // A card the room already dispatched, claimed or started may still be retired: the decision it carried
+        // has been withdrawn, so leaving it would keep sending people to act on the old decision.
+        if (!canTransition(task.status, 'SUPERSEDED')) {
+          problem = `task ${id} cannot be retired from ${task.status}`;
           break;
         }
         if (task.decisionSource !== undefined) {
@@ -1523,13 +1524,8 @@ export function createNotetaker({
 
     // Ground each task's line first. The lexical checks below are now only logged backstops; meaning decides.
     const taskCandidates: ResolvedTaskCandidate[] = [];
-    const batchHasActionableTask = reply.newTasks.some((candidate) => candidate.actionKind !== undefined);
     for (const [index, candidate] of reply.newTasks.entries()) {
       const { evidence, decisionEvidence, duplicateOf, ...task } = candidate;
-      if (batchHasActionableTask && task.actionKind === undefined) {
-        console.warn(`kaki notetaker: dropped manual product task "${task.title}" in favour of actionable deliverable`);
-        continue;
-      }
       // A verified decision source pins the task to its agenda item, so a generic handover line repeated across items
       // resolves to the copy on the decision's item. Queued lines keep their own stamped origin when this is absent.
       const decisionLine = decisionSourceLineFrom(decisionEvidence, decisionPool);
@@ -1631,17 +1627,16 @@ export function createNotetaker({
     openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
     for (const question of reply.newQuestions) {
-      // Something that is not phrased as a question (a note or a fragment) is not worth keeping open.
+      // The model decides what is a real question and whether it repeats one already open. These checks are
+      // backstops that make a disagreement visible; they never throw away something a person asked.
       if (!question.text.includes('?')) {
-        console.warn(`kaki notetaker: dropped question "${question.text}"; it is not phrased as a question`);
-        continue;
+        console.warn(`kaki notetaker: "${question.text}" was listed without a question mark; keeping it open`);
       }
       if (isRhetoricalTopicHandoff(question.text)) {
-        console.warn(`kaki notetaker: dropped rhetorical topic handoff "${question.text}"`);
-        continue;
+        console.warn(`kaki notetaker: "${question.text}" looks like a discussion prompt; keeping it open`);
       }
       if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) {
-        continue;
+        console.warn(`kaki notetaker: "${question.text}" looks like a question already open; keeping it open`);
       }
       questionCount += 1;
       openQuestions.push({ id: `q-${questionCount}`, agendaIndex: questionAgendaIndex, ...question });
@@ -1697,18 +1692,18 @@ export function createNotetaker({
         source.agendaItemTitle === undefined
           ? withDecision
           : { ...withDecision, agendaItemTitle: source.agendaItemTitle };
-      // The engine owns the settled decision's follow-up. Keep a second card only for a distinct deliverable.
-      if (tasks.list().some((existing) =>
-        existing.agendaItemTitle === withOrigin.agendaItemTitle &&
-        existing.suggestedAssignee === withOrigin.suggestedAssignee &&
-        existing.actionKind === withOrigin.actionKind &&
-        existing.title.trim().toLowerCase() === withOrigin.title.trim().toLowerCase())) continue;
-      if (isLikelyDuplicate(withOrigin, tasks.list())) continue;
-      // The same decision may be announced by a different owner in a later batch. Keep one task for it, but never
-      // merge two different decisions (their grounded sources differ).
-      if (isDuplicateAnnouncement(withOrigin, tasks.list())) {
-        console.warn(`kaki notetaker: dropped task "${task.title}"; it announces a decision another task already covers`);
-        continue;
+      // Only the model decides that a new card is the same work as an existing one, by naming it in duplicateOf.
+      // Word overlap and shared decision quotes are backstops; they log a disagreement but never merge people's work.
+      const existingTasks = tasks.list();
+      if (isLikelyDuplicate(withOrigin, existingTasks)) {
+        console.warn(
+          `kaki notetaker: "${task.title}" looks like a reworded card for the same owner; keeping it because the model decides duplicates`,
+        );
+      }
+      if (isDuplicateAnnouncement(withOrigin, existingTasks)) {
+        console.warn(
+          `kaki notetaker: "${task.title}" announces a decision another card covers; keeping it because the model decides duplicates`,
+        );
       }
       if (activeDuplicateOf !== undefined) {
         if (isDuplicateTarget(withOrigin, activeDuplicateOf)) {
@@ -1778,13 +1773,6 @@ export function createNotetaker({
     },
 
     async run() {
-      if (droppedLines > 0) {
-        console.warn(
-          `kaki notetaker: dropped the ${droppedLines} oldest transcript lines while the LLM was unavailable; ` +
-            'they will not be analysed',
-        );
-        droppedLines = 0;
-      }
       if (llm === undefined || running || pending.length === 0) return;
       running = true;
       const batch = pending;
@@ -1875,7 +1863,6 @@ export function createNotetaker({
       recentGrounded = [];
       contextAgendaIndex = agendaIndex();
       agendaContext = [];
-      droppedLines = 0;
       openQuestions = [];
       questionCount = 0;
       reviewIssues = [];
@@ -1930,7 +1917,6 @@ export function createNotetaker({
       talkTotals.clear();
       for (const [role, seconds] of saved.talkTotals) talkTotals.set(role, seconds);
       talkTotal = saved.talkTotal;
-      droppedLines = 0;
       running = false;
     },
 
