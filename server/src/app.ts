@@ -162,6 +162,8 @@ interface RequestContext {
    * starts the next meeting and is judged against the current draft.
    */
   seating(returning?: boolean, roomEmpty?: boolean): { scenario: Scenario; admissionScenario: Scenario; setup?: MeetingSetup; admissionCap?: number };
+  /** The scenario a browser is shown now: the sealed meeting once started, the draft setup in the lobby. */
+  visibleScenario(service?: boolean): Scenario;
   /** Why setup cannot change right now, if it cannot. */
   setupLocked(): 'starting' | 'started' | undefined;
   /** Queue a save of the current meeting, including the setup draft; a no-op without persistence. */
@@ -178,9 +180,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-/** The one message for a role id this meeting does not offer: name it and list the offered ids. */
-function notAHumanSeat(wanted: string, offered: readonly string[]): string {
-  const list = offered.length === 0 ? 'none' : offered.join(', ');
+/** The one message for a role id this meeting does not offer: name it and list the offered seats. */
+function notAHumanSeat(wanted: string, offered: ReadonlyArray<{ id: string; label: string }>): string {
+  const list =
+    offered.length === 0 ? 'none' : offered.map((role) => `${role.id} (${role.label})`).join(', ');
   return `"${wanted}" is not a human seat in this meeting. Pick one of the roles offered when you join: ${list}.`;
 }
 
@@ -512,10 +515,7 @@ async function handleRequest(
             const role = seating.setup.roles.find((candidate) => candidate.id.toLowerCase() === key);
             if (role === undefined) {
               sendJson(response, 400, {
-                error: notAHumanSeat(
-                  wantedRole,
-                  joinSeatRoles(seating.scenario).map((offered) => offered.id),
-                ),
+                error: notAHumanSeat(wantedRole, joinSeatRoles(seating.scenario)),
               });
               return;
             }
@@ -533,10 +533,7 @@ async function handleRequest(
             const seat = humanAttendeeForRole(seating.admissionScenario, wantedRole);
             if (seat === undefined) {
               sendJson(response, 400, {
-                error: notAHumanSeat(
-                  wantedRole,
-                  joinSeatRoles(seating.scenario).map((offered) => offered.id),
-                ),
+                error: notAHumanSeat(wantedRole, joinSeatRoles(seating.scenario)),
               });
               return;
             }
@@ -829,15 +826,7 @@ async function handleRequest(
     }
 
     if (request.method === 'GET' && path === '/api/scenario') {
-      const phase = context.session.phase();
-      const active =
-        phase === 'starting'
-          ? principal.kind === 'service'
-            ? context.session.candidate() ?? context.session.active()
-            : context.session.active()
-          : phase === 'running'
-            ? context.session.active()
-            : context.seating().scenario;
+      const active = context.visibleScenario(principal.kind === 'service');
       // A seat holder sees that seat, whether a participant or the host playing it.
       const seat =
         principal.kind === 'seat'
@@ -1424,7 +1413,7 @@ export async function createApp({
     rejoin.close();
   };
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused, runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, setupLocked, scheduleSave: () => persistence?.scheduleSave() });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -1480,6 +1469,7 @@ export async function createApp({
     isHumanSeat,
   });
   auth?.bindMeetingIdentity(() => meeting.id);
+  auth?.bindOfferedSeats(() => joinSeatRoles(visibleScenario()).map((role) => role.id));
   auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
   const tasks = createTaskStore({ hub, scenario: () => session.active() });
   hub.onCommand(tasks.handleCommand);
@@ -1791,6 +1781,18 @@ export async function createApp({
       setup,
       admissionCap: personSeatCapacity(setup),
     };
+  }
+
+  /**
+   * The scenario the join form is shown right now: the sealed meeting once Start runs, the draft
+   * setup in the lobby. Phone joins offer exactly these seats.
+   */
+  function visibleScenario(service = false): Scenario {
+    const phase = session.phase();
+    if (phase === 'starting') {
+      return service ? session.candidate() ?? session.active() : session.active();
+    }
+    return phase === 'running' ? session.active() : seating().scenario;
   }
 
   /** True when the sealed meeting carries no demo-pack content, so its facts must stay out of it. */

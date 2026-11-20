@@ -35,7 +35,7 @@ if (!llm) {
   process.exit(1);
 }
 
-const human = { name: 'Foo', role: 'Operations Director', transcriptName: 'Foo' };
+const human = { name: 'Foo', role: 'producer', transcriptName: 'Foo' };
 
 // Helpers for quality checks
 const BANNED_PATTERNS = [
@@ -145,7 +145,7 @@ function checkWingmanTradeOffs(item: AgendaItem, _scenario: Scenario): string[] 
     // 1. Visitor seat exclusion check
     // If the attendee is Wei Ling (the Operations Director seat), it must NOT be in tradeOffs
     // or the UI must exclude it
-    if (to.attendee.toLowerCase() === 'wei ling' && human.role === 'Operations Director') {
+    if (to.attendee.toLowerCase() === 'wei ling' && human.role === 'producer') {
       // In scenario.json, Wei Ling may exist, but let's check its format
     }
 

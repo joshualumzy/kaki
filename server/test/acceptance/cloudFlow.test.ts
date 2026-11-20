@@ -117,7 +117,7 @@ for (const kind of ['memory', 'postgres'] as const) {
       }
       await store.createUser({ email: 'demo', passwordHash: await hashPassword(password) });
       const meetingCode = createMeetingCodeSource(code);
-      const auth = createAuth({ store, roles: ['chef', 'cashier', 'manager'], meetingCode, secureCookies: true });
+      const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier', 'manager'], meetingCode, secureCookies: true });
       let roster: Array<{ name: string; role: string }> = [];
       const clock = createAgendaClock({ agenda: scenario.agenda });
       const pause: MeetingPauseControl = {

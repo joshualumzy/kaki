@@ -153,7 +153,7 @@ describe('one access layer', () => {
     store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     meetingCode = createMeetingCodeSource(code);
-    auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     const app = await createApp({
       scenario,
       auth,
@@ -227,7 +227,7 @@ describe('one access layer', () => {
 
     store = createMemoryAuthStore();
     meetingCode = createMeetingCodeSource(MEETING_CODE);
-    auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     await expect(
       createApp({ scenario: testScenario, auth, meetingCode, devRoutes: true }),
     ).rejects.toThrow(/KAKI_DEV_ROUTES/);

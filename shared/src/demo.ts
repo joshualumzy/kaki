@@ -176,14 +176,21 @@ export function seatProblem(
   wantedRole: string | undefined,
   maxHumans?: number,
 ): string | undefined {
-  // When the server names the setup's person seats, those seats alone decide the cap and who is
-  // sitting where, including a role the owner added in setup.
+  // When the server names the setup's person seats, those seats decide the cap and who is sitting
+  // where, including a role the owner added in setup. AI stand-ins still limit the meeting to one.
   const namedSeats = scenario.joinSeats;
   const requested = maxHumans === undefined || !Number.isFinite(maxHumans) ? undefined : Math.floor(maxHumans);
-  const cap =
+  const hasAiStandIns = (scenario.npcs ?? []).length > 0;
+  const seats =
     namedSeats === undefined
+      ? undefined
+      : hasAiStandIns
+        ? Math.min(1, namedSeats.length)
+        : namedSeats.length;
+  const cap =
+    seats === undefined
       ? humanSeatCapacity(scenario, maxHumans)
-      : Math.max(0, Math.min(requested ?? namedSeats.length, namedSeats.length));
+      : Math.max(0, Math.min(requested ?? seats, seats));
   if (cap === 0) return 'No human seats are available in this meeting.';
   if (namedSeats !== undefined) {
     const wanted = wantedRole?.trim().toLowerCase();

@@ -7,6 +7,7 @@ import {
   defaultMeetingSetup,
   humanRoles,
   KOPITIAM_INVITE_UID,
+  meetingScenarioFromSetup,
   parseScenario,
   type MeetingSetup,
   type Scenario,
@@ -1014,6 +1015,29 @@ describe('Start applies the validated setup', () => {
     expect(((await third.json()) as { error: string }).error).toMatch(/seat is taken|full/i);
   });
 
+  it('keeps an AI meeting to one person when its setup names two person seats', async () => {
+    const pack = await loadScenario('kopitiam');
+    const setup = defaultMeetingSetup(pack);
+    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
+    if (arjun === undefined) throw new Error('Expected Arjun’s seat');
+    arjun.kind = 'person';
+    delete arjun.npcProfileId;
+    expect(setup.seats.filter((seat) => seat.kind === 'ai').length).toBeGreaterThan(0);
+    // A legacy or derived setup can name two people while the pack's AI stand-ins are still present.
+    const scenario = meetingScenarioFromSetup(pack, setup);
+    expect(scenario.joinSeats).toEqual(['producer', 'lead_programmer']);
+    const app = await startApp(scenario);
+
+    const first = await join(app, 'Alice', 'producer');
+    expect(first.status).toBe(200);
+    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+    const second = await joinWithCode(app, 'Ben', 'lead_programmer', code);
+    expect(second.status).toBe(409);
+    expect(((await second.json()) as { error: string }).error).toMatch(
+      /Meetings with AI stand-ins take one person/,
+    );
+  });
+
   it('admits a renamed person role by its id and shows the new label', async () => {
     const app = await startApp(await loadScenario('kopitiam'));
     await connectService(portOf(app));
@@ -1093,8 +1117,8 @@ describe('Start applies the validated setup', () => {
     expect(refused.status).toBe(400);
     const body = (await refused.json()) as { error: string };
     expect(body.error).toContain('"astronaut" is not a human seat');
-    expect(body.error).toContain('producer');
-    expect(body.error).toContain('lead_programmer');
+    expect(body.error).toContain('producer (Operations Director)');
+    expect(body.error).toContain('lead_programmer (Tech & POS Lead)');
   });
 
   it('refuses a role label where a role id is required', async () => {
@@ -1103,7 +1127,7 @@ describe('Start applies the validated setup', () => {
     expect(refused.status).toBe(400);
     const body = (await refused.json()) as { error: string };
     expect(body.error).toContain('"Marketing Lead" is not a human seat');
-    expect(body.error).toContain('marketing_lead');
+    expect(body.error).toContain('marketing_lead (Marketing Lead)');
   });
 
   it('starts a pack-free human-only meeting with no AI runner connected', async () => {

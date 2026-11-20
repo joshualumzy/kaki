@@ -306,7 +306,7 @@ describe('setup tool status and probes', () => {
       passwordHash: await hashPassword('correct-horse-battery'),
     });
     const meetingCode = createMeetingCodeSource('K7M2Q9');
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     await start({ auth, meetingCode, actionTools: { env: CONFIGURED_ENV, fetchImpl: healthyFetch() } });
 
     const joined = await fetch(`${base}/api/join`, {

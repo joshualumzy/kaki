@@ -67,7 +67,7 @@ describe('auth', () => {
     store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     app = await createTestApp({ auth, meetingCode, serviceToken: 'runner-secret' });
     port = portOf(app);
     sockets = [];
@@ -317,7 +317,7 @@ describe('auth', () => {
       ],
     };
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const aiAuth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const aiAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     app = await createApp({ scenario, auth: aiAuth, meetingCode, serviceToken: 'runner-secret' });
     port = portOf(app);
 

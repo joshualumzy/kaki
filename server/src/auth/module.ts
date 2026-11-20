@@ -47,6 +47,8 @@ export interface Auth {
   enterSeat(request: IncomingMessage, response: ServerResponse, role: string): Promise<boolean>;
   /** Bind seat grants to the server's current meeting generation. */
   bindMeetingIdentity(meetingId: () => string | undefined): void;
+  /** Point phone joins and seat sockets at the live setup's offered seats. */
+  bindOfferedSeats(offered: () => readonly string[]): void;
   /** Release every seat grant belonging to a meeting that has rotated away. */
   releaseMeeting(meetingId: string): Promise<void>;
   /** Be told when a session is replaced, so its already-open sockets can be closed. */
@@ -59,7 +61,8 @@ export interface Auth {
 /** Everything the auth module needs, injected so tests can use an in-memory store. */
 export interface AuthOptions {
   store: AuthStore;
-  roles: readonly string[];
+  /** The seats offered right now; createApp binds this to the live setup. */
+  offeredRoles?: () => readonly string[];
   meetingCode: MeetingCodeSource;
   secureCookies?: boolean;
   now?: () => number;
@@ -156,7 +159,7 @@ function principalFor(session: SessionRecord, meetingId: string): Principal {
 /** Create the auth feature: endpoints, session cookies and WebSocket gating. */
 export function createAuth({
   store,
-  roles,
+  offeredRoles: readOfferedRoles,
   meetingCode,
   secureCookies = false,
   now = Date.now,
@@ -165,6 +168,7 @@ export function createAuth({
 }: AuthOptions): Auth {
   const sessionEndedHandlers = new Set<(sessionTokenHash: string) => void>();
   let meetingIdentity: (() => string | undefined) | undefined;
+  let offeredRoles: () => readonly string[] = readOfferedRoles ?? (() => []);
   const currentMeetingId = (): string => meetingIdentity?.() ?? meetingCode.value;
   /** A real hash to check against when the email is unknown, so both paths cost the same. */
   let dummyHash: Promise<string> | undefined;
@@ -190,6 +194,11 @@ export function createAuth({
       return undefined;
     }
     return session;
+  }
+
+  /** Whether this meeting currently offers the role as a human seat. */
+  function seatIsOffered(role: string): boolean {
+    return offeredRoles().includes(role);
   }
 
   /** Whether this exact session still holds the role's seat in its meeting generation. */
@@ -413,7 +422,7 @@ export function createAuth({
       sendJson(response, 400, { error: 'Choose your role.' });
       return;
     }
-    if (!roles.includes(role)) {
+    if (!seatIsOffered(role)) {
       sendJson(response, 403, { error: 'That role is not a human seat in this meeting.' });
       return;
     }
@@ -464,6 +473,10 @@ export function createAuth({
 
     bindMeetingIdentity(meetingId) {
       meetingIdentity = meetingId;
+    },
+
+    bindOfferedSeats(offered) {
+      offeredRoles = offered;
     },
 
     async releaseMeeting(meetingId) {
@@ -524,7 +537,7 @@ export function createAuth({
       }
       // A participant holds their seat; a host may also hold the seat they took, without losing host powers.
       const holdsSeat =
-        roles.includes(audience) &&
+        seatIsOffered(audience) &&
         ((principal.kind === 'seat' && principal.role === audience) ||
           (principal.kind === 'host' && principal.seat === audience));
       if (!holdsSeat) {
@@ -579,12 +592,10 @@ export function secureCookiesFromEnv(env: NodeJS.ProcessEnv = process.env): bool
 
 /** Build the Postgres-backed auth feature from environment variables. */
 export async function createAuthFromEnv({
-  roles,
   meetingCode,
   env = process.env,
   now = Date.now,
 }: {
-  roles: readonly string[];
   meetingCode: MeetingCodeSource;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
@@ -611,7 +622,6 @@ export async function createAuthFromEnv({
     await bootstrapHostAccount(store, env);
     return createAuth({
       store,
-      roles,
       meetingCode,
       secureCookies: secureCookiesFromEnv(env),
       now,

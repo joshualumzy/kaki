@@ -119,6 +119,24 @@ describe('demo meeting helpers', () => {
     expect(seatProblem(scenario, [{ role: 'someone else' }], role.id, 3)).toMatch(/full.*AI stand-ins take one person/);
   });
 
+  it('keeps the one-person cap for named seats when the meeting has AI stand-ins', () => {
+    const npc = { voice: 'v', personality: 'p', agenda: 'a', concerns: ['c'] };
+    const withNamedSeats = (npcs: Scenario['npcs']): Scenario => ({
+      ...testScenario,
+      joinSeats: ['chef', 'cashier'],
+      ...(npcs === undefined ? {} : { npcs }),
+    });
+    const aiMeeting = withNamedSeats([{ ...npc, attendee: 'Ada', playable: false }]);
+    expect(seatProblem(aiMeeting, [], 'chef', 2)).toBeUndefined();
+    expect(seatProblem(aiMeeting, [{ role: 'chef' }], 'cashier', 2)).toMatch(
+      /full.*Meetings with AI stand-ins take one person/,
+    );
+
+    const humanOnly = withNamedSeats(undefined);
+    expect(seatProblem(humanOnly, [], 'chef', 2)).toBeUndefined();
+    expect(seatProblem(humanOnly, [{ role: 'chef' }], 'cashier', 2)).toBeUndefined();
+  });
+
   it('never exceeds the human seats of a human-only meeting, whatever the requested cap says', () => {
     expect(seatProblem(testScenario, Array.from({ length: humanSeatCount(testScenario) }, () => ({})), 'chef', 99)).toMatch(/full/);
   });

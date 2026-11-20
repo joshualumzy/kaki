@@ -39,7 +39,7 @@ describe('the AI runner HTTP client', () => {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     app = await createApp({
       scenario: testScenario,
       auth,

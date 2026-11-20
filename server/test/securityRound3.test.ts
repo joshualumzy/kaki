@@ -215,7 +215,7 @@ describe('security round 3', () => {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     const meetingCode = createMeetingCodeSource(code);
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     const app = track(
       await createApp({
         scenario,
@@ -322,7 +322,7 @@ describe('security round 3', () => {
       },
     } as AuthStore;
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     const app = track(
       await createApp({ scenario: testScenario, auth, meetingCode, roomRoster: async () => [] }),
     );
@@ -426,7 +426,7 @@ describe('security round 3', () => {
     const store = createMemoryAuthStore();
     await store.createUser({ email: HOST_EMAIL, passwordHash: await hashPassword(HOST_PASSWORD) });
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const baseAuth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const baseAuth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     let didAuthorize: (() => void) | undefined;
     const authorized = new Promise<void>((resolve) => {
       didAuthorize = resolve;
@@ -562,7 +562,7 @@ describe('security round 3', () => {
     vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example');
     vi.stubEnv('MATTERMOST_URL', 'http://127.0.0.1:8083');
     const makeAuth = (code: MeetingCodeSource) =>
-      createAuth({ store: createMemoryAuthStore(), roles: ['chef', 'cashier'], meetingCode: code });
+      createAuth({ store: createMemoryAuthStore(), offeredRoles: () => ['chef', 'cashier'], meetingCode: code });
 
     const code = createMeetingCodeSource(MEETING_CODE);
     const auth = makeAuth(code);

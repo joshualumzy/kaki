@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { humanSeatRoles, type KakiEvent, type Scenario } from '@kaki/shared';
-import type { KakiApp } from '../../src/app';
+import { defaultMeetingSetup, humanSeatRoles, type KakiEvent, type MeetingSetup, type Scenario } from '@kaki/shared';
+import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
 import { hashPassword } from '../../src/auth/password';
+import { loadScenario } from '../../src/loadScenario';
 import { createMeetingCodeSource, type MeetingCodeSource } from '../../src/meetingCode';
 import { testScenario } from '../fixtures/scenario';
 import { createTestApp, portOf, settle, waitFor } from '../helpers';
@@ -97,10 +98,11 @@ describe('phone and screen seat authority', () => {
   } = { meetingCode: createMeetingCodeSource(FIXED_CODE) }): Promise<void> {
     const auth = createAuth({
       store,
-      roles: humanSeatRoles(scenario).map((role) => role.id),
+      offeredRoles: () => humanSeatRoles(scenario).map((role) => role.id),
       meetingCode,
     });
-    app = await createTestApp({
+    app = await createApp({
+      scenario,
       auth,
       meetingCode,
       roomRoster,
@@ -116,6 +118,16 @@ describe('phone and screen seat authority', () => {
     if (cookie !== undefined) headers.cookie = cookie;
     return fetch(`http://127.0.0.1:${port}${path}`, {
       method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  function put(path: string, body: unknown, cookie?: string): Promise<Response> {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (cookie !== undefined) headers.cookie = cookie;
+    return fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'PUT',
       headers,
       body: JSON.stringify(body),
     });
@@ -245,10 +257,49 @@ describe('phone and screen seat authority', () => {
     if (!wrongSeat.ok) expect(wrongSeat.status).toBe(401);
   });
 
+  it('offers a role added in setup to phone joins, not the roles known at boot', async () => {
+    const pack = await loadScenario('kopitiam');
+    await makeApp({ scenario: pack, meetingCode: createMeetingCodeSource(FIXED_CODE) });
+    const host = await loginHost();
+    const setup: MeetingSetup = defaultMeetingSetup(pack);
+    setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
+    setup.seats = [
+      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+      { displayName: 'Runner One', roleId: 'runner', kind: 'person' },
+    ];
+    expect((await put('/api/setup', setup, host)).status).toBe(200);
+
+    const joined = await post('/api/join', { code: FIXED_CODE, role: 'runner' });
+    expect(joined.status).toBe(200);
+    expect(await joined.json()).toEqual({ kind: 'participant', role: 'runner' });
+  });
+
+  it('refuses a phone join for a pack role the setup turned into an AI seat', async () => {
+    const pack = await loadScenario('kopitiam');
+    await makeApp({ scenario: pack, meetingCode: createMeetingCodeSource(FIXED_CODE) });
+    const host = await loginHost();
+    const setup: MeetingSetup = defaultMeetingSetup(pack);
+    const weiLing = setup.seats.find((seat) => seat.displayName === 'Wei Ling');
+    const arjun = setup.seats.find((seat) => seat.displayName === 'Arjun');
+    if (weiLing === undefined || arjun === undefined) throw new Error('Expected Wei Ling and Arjun seats');
+    weiLing.kind = 'ai';
+    weiLing.npcProfileId = 'Wei Ling';
+    arjun.kind = 'person';
+    delete arjun.npcProfileId;
+    expect((await put('/api/setup', setup, host)).status).toBe(200);
+
+    const refused = await post('/api/join', { code: FIXED_CODE, role: 'producer' });
+    expect([403, 409]).toContain(refused.status);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/human seat|no place/);
+
+    const allowed = await post('/api/join', { code: FIXED_CODE, role: 'lead_programmer' });
+    expect(allowed.status).toBe(200);
+  });
+
   it('refuses an opening socket whose authorization predates a code rotation', async () => {
     const meetingCode = createMeetingCodeSource('');
     const roles = humanSeatRoles(testScenario).map((role) => role.id);
-    const baseAuth = createAuth({ store, roles, meetingCode });
+    const baseAuth = createAuth({ store, offeredRoles: () => roles, meetingCode });
     let authorized: (() => void) | undefined;
     const didAuthorize = new Promise<void>((resolve) => {
       authorized = resolve;

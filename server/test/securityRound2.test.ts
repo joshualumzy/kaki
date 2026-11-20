@@ -188,7 +188,7 @@ describe('security round 2', () => {
     const meetingCode = createMeetingCodeSource(code);
     const auth = createAuth({
       store,
-      roles: ['chef', 'cashier'],
+      offeredRoles: () => ['chef', 'cashier'],
       meetingCode,
       ...(secureCookies === undefined ? {} : { secureCookies }),
       ...(verifyPassword === undefined ? {} : { verifyPassword }),
@@ -558,7 +558,7 @@ describe('security round 2', () => {
 
   it('refuses auth-on startup without an https public URL on a public bind', async () => {
     const makeAuth = (code: MeetingCodeSource) =>
-      createAuth({ store: createMemoryAuthStore(), roles: ['chef', 'cashier'], meetingCode: code });
+      createAuth({ store: createMemoryAuthStore(), offeredRoles: () => ['chef', 'cashier'], meetingCode: code });
 
     const code = createMeetingCodeSource(MEETING_CODE);
     const auth = makeAuth(code);

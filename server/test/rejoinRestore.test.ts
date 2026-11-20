@@ -278,7 +278,7 @@ describe('an abandoned meeting never resumes after a restart', () => {
     const meetingCode = createMeetingCodeSource('K7M2Q9');
     const auth = createAuth({
       store: createMemoryAuthStore(),
-      roles: ['chef', 'cashier'],
+      offeredRoles: () => ['chef', 'cashier'],
       meetingCode,
     });
     const store = new MemoryStore();

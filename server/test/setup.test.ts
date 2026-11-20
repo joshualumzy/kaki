@@ -128,7 +128,7 @@ describe('setup authorization', () => {
       passwordHash: await hashPassword('correct-horse-battery'),
     });
     const meetingCode = createMeetingCodeSource(MEETING_CODE);
-    const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+    const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
     app = await createTestApp({ auth, meetingCode });
     base = `http://127.0.0.1:${portOf(app)}`;
   });

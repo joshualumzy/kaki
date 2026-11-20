@@ -69,7 +69,7 @@ async function authOnApp(
 }> {
   await store.createUser({ email: 'host@example.com', passwordHash: await hashPassword('host-password') });
   const meetingCode = createMeetingCodeSource(CODE);
-  const auth = createAuth({ store, roles: ['chef', 'cashier'], meetingCode });
+  const auth = createAuth({ store, offeredRoles: () => ['chef', 'cashier'], meetingCode });
   const clock = createAgendaClock({ agenda: testScenario.agenda });
   let people: Array<{ name: string }> = [];
   const app = await createApp({
