@@ -1826,8 +1826,11 @@ export async function createApp({
    * A meeting handoff: close every practice authority and remove the people from the room that no
    * longer exists. Room identity alone already refuses an old token; this makes it immediate.
    */
-  function onCredentialChange(): void {
+  function onCredentialChange(ended: boolean): void {
     hub.endPracticeSessions?.(MEETING_ENDED_MESSAGE);
+    // Ending a meeting keeps its room: the owner and participants stay to review and publish the
+    // minutes. Only a handoff that replaces the room (a reset or a new meeting) removes people.
+    if (ended) return;
     const roomName = watchedRoom ?? demoRoomName(session.active(), meeting.id);
     void removeRoomHumans(roomName, packNpcNames).catch((error: unknown) => {
       if (roomCleanupWarned) return;
@@ -2389,6 +2392,11 @@ export async function createApp({
         ...active,
         meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
         roles: setupScenarioRoles(fullScenario, setup),
+        // A kept seal (an ended meeting) still owns the view; only the next meeting's draft
+        // replaces the agenda once that meeting is really gone.
+        agenda: sealed === undefined
+          ? meetingAgendaFromSetup(setup, active, setup.agenda.map((item) => item.title))
+          : active.agenda,
         joinSeats,
       },
       admissionScenario: scenarioFromSetup(setup),

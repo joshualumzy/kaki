@@ -731,9 +731,11 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
-    // The lobby still shows the saved draft (including its renamed role); the failed Start applied
-    // nothing to the running meeting: the agenda and cast are the pack's, untouched.
-    expect(agendaShape(after)).toEqual(agendaShape(before));
+    // The lobby shows the saved draft: its own agenda, renamed roles and seats. The failed Start
+    // applied nothing to the running meeting, so the cast is still the pack's.
+    expect(agendaShape(after)).toEqual(
+      draft.agenda.map(({ title, minutes, ownerRoleId }) => ({ title, minutes, ownerRole: ownerRoleId })),
+    );
     expect(after.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator: facilitator === true }))).toEqual(
       draft.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator })),
     );
@@ -999,7 +1001,11 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
-    expect(agendaShape(after)).toEqual(agendaShape(before));
+    // The failed Start leaves the room in the lobby, so the browser follows the saved plan it
+    // would start next: the excluded pair itself, not the pack placeholder it replaced.
+    expect(agendaShape(after)).toEqual(
+      setup.agenda.map(({ title, minutes, ownerRoleId }) => ({ title, minutes, ownerRole: ownerRoleId })),
+    );
     // The setup named the same roles; the lobby now also shows their facilitator flag.
     expect(after.roles.map(({ id, label }) => ({ id, label }))).toEqual(
       before.roles.map(({ id, label }) => ({ id, label })),

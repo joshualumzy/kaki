@@ -199,6 +199,57 @@ describe('useKaki lifecycle state', () => {
     expect(result.current.started).toBe(false);
   });
 
+  it('reloads the scenario on a real start or reset, but not on a retained start replay', async () => {
+    const { scenarioRevision } = await import('./scenarioRevision');
+    const { useKaki } = await import('./useKaki');
+    const before = scenarioRevision();
+    const { result } = renderHook(() => useKaki('chef'));
+    const first = sockets[0]!;
+
+    act(() => first.emit('open'));
+    act(() => first.emit('message', startEvent('meeting-start')));
+    await waitFor(() => expect(result.current.started).toBe(true));
+    expect(scenarioRevision()).toBeGreaterThan(before);
+    const afterStart = scenarioRevision();
+
+    // A reconnect replays the retained START; the browser already has this meeting's sealed plan.
+    act(() => (first as unknown as { close(): void }).close());
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const second = sockets[1]!;
+    act(() => second.emit('open'));
+    act(() => second.emit('message', startEvent('meeting-start')));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(scenarioRevision()).toBe(afterStart);
+
+    act(() => second.emit('message', resetEvent('meeting-reset')));
+    await waitFor(() => expect(result.current.started).toBe(false));
+    expect(scenarioRevision()).toBeGreaterThan(afterStart);
+  });
+
+  it('holds a typed line across a reconnect instead of dropping it', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('chef'));
+    const first = sockets[0]!;
+    act(() => first.emit('open'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    act(() => (first as unknown as { close(): void }).close());
+    act(() => {
+      expect(result.current.send({
+        type: 'HUMAN_LINE',
+        text: 'I will confirm the stock count before lunch.',
+        source: 'typed',
+        clientLineId: 'held-line',
+      })).toBe(true);
+    });
+    expect(result.current.rejection).toBeNull();
+
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const second = sockets[1]! as unknown as { emit(type: string): void; sent: string[] };
+    act(() => second.emit('open'));
+    await waitFor(() => expect(second.sent.map((message) => JSON.parse(message).type)).toContain('HUMAN_LINE'));
+  });
+
   it('keeps the newest meeting record even after it leaves the event window', async () => {
     const { useKaki } = await import('./useKaki');
     const { result } = renderHook(() => useKaki('screen'));

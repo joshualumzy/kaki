@@ -34,6 +34,8 @@ export function MeetingPanel({
   started?: boolean;
 }) {
   const scenario = useScenario();
+  /** Practice meetings have AI colleagues; a team meeting is people only, so its briefing must stay silent. */
+  const hasAiColleagues = (scenario.npcs ?? []).length > 0;
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
   // needs auth off or a signed-in host (the page cannot connect otherwise).
   const { events, tasks, connected, rejection, send, speechByTopic } = useKaki('screen');
@@ -308,7 +310,7 @@ export function MeetingPanel({
           {!meetingEnded && isHost && (
             <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started />
           )}
-          {!meetingEnded && !topicBriefingStarted && (
+          {!meetingEnded && hasAiColleagues && !topicBriefingStarted && (
             <p className="empty-state" style={{ margin: '6px 0', fontSize: 12.5 }}>
               🎧 Colleagues are sharing their opening stances — your Wingman fact &amp; starter lines will appear in a moment.
             </p>

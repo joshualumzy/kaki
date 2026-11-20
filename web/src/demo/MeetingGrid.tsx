@@ -120,6 +120,8 @@ function useStage(): Stage {
 function CaptionedTile() {
   const { scenario, chunks, events, now, npcState } = useStage();
   const participant = useTrackRefContext().participant;
+  const localParticipant = useLocalParticipant().localParticipant;
+  const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
   const aiIndex = (scenario.npcs ?? []).findIndex((npc) => npc.attendee === participant.identity);
   const isAi = aiIndex >= 0;
   const humanSpeaking = useIsSpeaking(participant);
@@ -152,7 +154,12 @@ function CaptionedTile() {
   const state = speaking ? 'speaking' : thinking ? 'thinking' : 'idle';
   const roleTitle = isAi
     ? scenario.roles.find((role) => role.id === attendee?.role)?.label
-    : participant.metadata?.trim() || undefined;
+    : participantRole === undefined
+      ? undefined
+      : scenario.roles.find((role) => role.id === participantRole)?.label ?? participantRole;
+  const displayName = participant.name || participant.identity;
+  // Never repeat a role whose label is already the person's display name.
+  const shownRoleTitle = roleTitle === displayName ? undefined : roleTitle;
   const stance = isAi && attendee?.role !== undefined ? COLLEAGUE_STANCE[attendee.role] : undefined;
   const reaction = isAi
     ? reactionForColleague(participant.identity, events, now)
@@ -165,8 +172,8 @@ function CaptionedTile() {
         <i />
         <div className="kd-who-text">
           <div className="kd-who-line">
-            <span>{isAi ? participant.identity : `${participant.name || participant.identity} (You)`}</span>
-            {roleTitle !== undefined && <small className="kd-who-role">· {roleTitle}</small>}
+            <span>{isAi ? participant.identity : `${displayName}${isYou ? ' (You)' : ''}`}</span>
+            {shownRoleTitle !== undefined && <small className="kd-who-role">· {shownRoleTitle}</small>}
           </div>
           {stance !== undefined && <small className="kd-who-stance">{stance}</small>}
         </div>
@@ -255,7 +262,16 @@ export function MeetingGrid({
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
     { onlySubscribed: false },
-  );
+  ).filter((track) => {
+    // The AI process keeps a silent listener in every room. A sealed team meeting has no AI cast,
+    // so that listener is not at this meeting and must not get a tile of its own. People are never
+    // filtered by metadata: a camera-off placeholder must still show its human tile.
+    const person = track.participant;
+    return (
+      person.metadata?.trim() !== 'AI attendee' ||
+      (scenario.npcs ?? []).some((npc) => npc.attendee === person.identity)
+    );
+  });
 
   // Captions fade by the clock, so the stage re-renders twice a second.
   const [now, setNow] = useState(Date.now());

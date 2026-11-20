@@ -554,6 +554,35 @@ describe('human-line security with sign-in on', () => {
     expect((await connect(port, 'chef', chef)).ok).toBe(false);
   });
 
+  it('records a signed-in host\'s own line when the host takes a seat', async () => {
+    const { app, port, setPeople } = await authOnApp();
+    const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));
+    expect((await request(port, '/api/meeting/open', 'POST', undefined, host)).status).toBe(200);
+    // The owner joins their own seat: the host session now also carries that seat.
+    const joined = await request(port, '/api/livekit/token', 'POST', {
+      roomName: 'room', participantName: 'Ada', participantRole: 'chef',
+    }, host);
+    expect(joined.status).toBe(200);
+    const hostSeat = cookieFrom(joined);
+    setPeople([{ name: 'Ada' }]);
+    expect((await request(port, '/api/meeting/start', 'POST', {}, hostSeat)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the auth meeting to run');
+
+    const seat = await connect(port, 'chef', hostSeat);
+    const screen = await connect(port, 'screen', hostSeat);
+    if (!seat.ok || !screen.ok) throw new Error('host sockets did not open');
+    sockets.push(seat.ws, screen.ws);
+
+    seat.ws.send(humanLine('I will confirm the stock count before lunch.', 'host-seat-line'));
+    const accepted = await waitFor(
+      () => screen.messages.find(
+        (event) => event.type === 'TRANSCRIPT_CHUNK' && event.payload.text === 'I will confirm the stock count before lunch.',
+      ),
+      'the host seat line',
+    );
+    expect(accepted).toMatchObject({ payload: { speaker: 'Ada', speakerRole: 'chef' } });
+  });
+
   it('accepts a recognised line through the service route and refuses a guest session', async () => {
     const { app, port, setPeople } = await authOnApp();
     const host = cookieFrom(await request(port, '/api/auth/login', 'POST', { email: 'host@example.com', password: 'host-password' }));

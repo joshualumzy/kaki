@@ -75,8 +75,9 @@ export interface MeetingSessionDeps {
   /**
    * A meeting handoff invalidated every credential tied to the previous generation. The app uses
    * this to close practice sockets and remove people from the room they can no longer belong to.
+   * `ended` is true when the meeting itself ended: its room stays for the minutes review.
    */
-  onCredentialChange?(): void;
+  onCredentialChange?(ended: boolean): void;
   persistence?: Pick<MeetingPersistence, 'replaceSaved'>;
 }
 
@@ -195,9 +196,9 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   }
 
   /** A handoff: every credential granted in the old generation must stop working. */
-  function bumpGeneration(): void {
+  function bumpGeneration(ended = false): void {
     generation += 1;
-    deps.onCredentialChange?.();
+    deps.onCredentialChange?.(ended);
   }
 
   function restore(saved: StoredMeeting): void {
@@ -442,7 +443,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       meetingKind = undefined;
       practiceGrant = undefined;
       phase = 'ended';
-      bumpGeneration();
+      bumpGeneration(true);
     },
     reset,
     onReset(hook) {

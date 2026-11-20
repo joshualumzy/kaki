@@ -87,6 +87,7 @@ describe('setup API', () => {
     expect(scenario.meetingTitle).toBe('Friday lunch readiness');
     expect(scenario.joinSeats).toEqual(setup.roles.map((role) => role.id));
     expect(scenario.roles.map((role) => role.label)).toEqual(['Owner', 'Ana']);
+    expect(scenario.agenda.map((item) => item.title)).toEqual(setup.agenda.map((item) => item.title));
   });
 
   it('returns field-specific errors and keeps the previous draft', async () => {

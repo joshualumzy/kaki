@@ -106,6 +106,45 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+describe('MeetingPanel team meetings', () => {
+  const recordOnly: KakiEvent[] = [{
+    type: 'MEETING_RECORD_UPDATED',
+    audience: { kind: 'all' },
+    payload: {
+      agendaIndex: 0,
+      openQuestions: [],
+      elapsedSeconds: 5,
+      speakerTalkSeconds: {},
+      notetakerStatus: 'ok',
+      quietRoles: [],
+    },
+  }];
+
+  function renderWith(events: KakiEvent[], withAi: boolean): void {
+    mocks.useScenario.mockReturnValue(
+      withAi ? { ...scenario, npcs: [{ attendee: 'Sam', role: 'host' }] } : scenario,
+    );
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Owner', seatName: 'Owner' }} role={scenario.roles[0]} />);
+  }
+
+  it('stays silent about AI colleagues in a team meeting with no AI cast', () => {
+    renderWith(recordOnly, false);
+    expect(screen.queryByText(/Colleagues are sharing their opening stances/i)).toBeNull();
+  });
+
+  it('keeps the AI colleagues briefing for a practice meeting', () => {
+    renderWith(recordOnly, true);
+    expect(screen.getByText(/Colleagues are sharing their opening stances/i)).toBeTruthy();
+  });
+});
+
 describe('MeetingPanel', () => {
   it('replaces a cut transcript line in place instead of listing the whole line and then the cut line', () => {
     const full: KakiEvent = {

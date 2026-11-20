@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isKakiEvent, MEETING_ENDED_MESSAGE, type KakiCommand, type KakiEvent, type Role, type Task } from '@kaki/shared';
 import { fetchMe } from '../auth/api';
 import { useScenario } from './ScenarioContext';
-import { noteMeetingIdentity } from './scenarioRevision';
+import { invalidateScenario, noteMeetingIdentity } from './scenarioRevision';
 import { addTopicSpeech, type TopicSpeech } from './topicSpeech';
 
 export type { TopicSpeech } from './topicSpeech';
@@ -56,6 +56,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const [connected, setConnected] = useState(false);
   const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
   const [started, setStarted] = useState<boolean | undefined>(undefined);
+  /** The lifecycle value this socket last saw, so a retained START on reconnect is not a new transition. */
+  const startedRef = useRef<boolean | undefined>(undefined);
   const [meetingIdentity, setMeetingIdentity] = useState<string | undefined>(undefined);
   const [ended, setEnded] = useState<string | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
@@ -67,6 +69,8 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const meetingId = useRef<string | undefined>(undefined);
   /** The newest record read synchronously, so a line is filed under the topic it arrived on. */
   const latestRecordRef = useRef<MeetingRecordEvent | undefined>(undefined);
+  /** Typed lines written while the socket is reconnecting; they go out when it opens, not into the void. */
+  const pendingLines = useRef<KakiCommand[]>([]);
 
   useEffect(() => {
     setEvents([]);
@@ -108,6 +112,16 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         setMeetingIdentity(undefined);
         setEnded(undefined);
         setConnected(true);
+        if (pendingLines.current.length > 0) {
+          const queued = pendingLines.current.splice(0);
+          for (const command of queued) {
+            if (current.readyState !== WebSocket.OPEN) {
+              pendingLines.current.push(command);
+              break;
+            }
+            current.send(JSON.stringify(command));
+          }
+        }
         if (audience === 'lifecycle') {
           // A reset may have happened while this tab was disconnected; ask instead of inferring.
           const askedOn = current;
@@ -133,6 +147,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
                 meetingId: body.meetingId,
                 ...(body.kind === 'real' || body.kind === 'practice' ? { kind: body.kind } : {}),
               });
+              startedRef.current = body.started;
               setStarted(body.started);
             })
             .catch((error: unknown) => {
@@ -171,6 +186,10 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
           meetingId.current = parsed.payload.meetingId;
           setMeetingIdentity(parsed.payload.meetingId);
           noteMeetingIdentity({ meetingId: parsed.payload.meetingId });
+          // Start seals the plan, so the browser's scenario is now a different meeting's. The
+          // transition (not the event) is what reloads it: a reconnect replays this retained event.
+          if (startedRef.current !== true) invalidateScenario();
+          startedRef.current = true;
           setStarted(true);
           if (isNewMeeting) {
             latestRecordRef.current = undefined;
@@ -179,10 +198,14 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         }
 
         if (parsed.type === 'MEETING_RESET') {
+          // A queued line belongs to the meeting that just ended; never write it into the next one.
+          pendingLines.current = [];
           lifecycleRevision.current += 1;
           meetingId.current = parsed.payload.meetingId;
           setMeetingIdentity(parsed.payload.meetingId);
           noteMeetingIdentity({ meetingId: parsed.payload.meetingId });
+          if (startedRef.current === true) invalidateScenario();
+          startedRef.current = false;
           setStarted(false);
           setLatestRecord(undefined);
           latestRecordRef.current = undefined;
@@ -204,6 +227,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         if (parsed.type === 'MEETING_RESTORED') {
           lifecycleRevision.current += 1;
           setRestoredAt(parsed.payload.startedAt);
+          startedRef.current = true;
           setStarted(true);
           return;
         }
@@ -236,6 +260,7 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
         const closeEvent = event as CloseEvent | undefined;
         if (closeEvent?.code === 4001) {
           endedForGood = true;
+          pendingLines.current = [];
           if (reconnectTimer.current !== undefined) {
             window.clearTimeout(reconnectTimer.current);
             reconnectTimer.current = undefined;
@@ -288,6 +313,12 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
   const send = useCallback((command: KakiCommand): boolean => {
     const socket = socketRef.current;
     if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+      // A person's words are not a control command: hold a typed line until the socket reopens, so
+      // a reconnect at Start never swallows it. The server writes the same clientLineId only once.
+      if (command.type === 'HUMAN_LINE') {
+        pendingLines.current = [...pendingLines.current, command].slice(-20);
+        return true;
+      }
       setRejections((previous) =>
         [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
       );
