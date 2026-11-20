@@ -29,11 +29,83 @@ interface MmToken {
   token?: string;
 }
 
-interface MmPost {
+export interface MmPost {
   id: string;
   message: string;
+  user_id: string;
   root_id?: string;
   props?: Record<string, string>;
+}
+
+export interface PostPlanEntry {
+  post: MattermostPostSeed;
+  existing?: MmPost;
+}
+
+export interface PostPlan {
+  entries: PostPlanEntry[];
+  deleteIds: string[];
+}
+
+type Parent = { kind: 'root' } | { kind: 'existing'; id: string } | { kind: 'new' };
+
+export function planPosts(
+  existingByChannel: Map<string, MmPost[]>,
+  posts: MattermostPostSeed[],
+  authorIds: Map<string, string>,
+): PostPlan {
+  const available = new Map<string, MmPost[]>();
+  for (const [channel, existing] of existingByChannel) {
+    available.set(channel, [...existing]);
+  }
+
+  const used = new Set<string>();
+  const resolved = new Map<string, { id?: string }>();
+  const entries: PostPlanEntry[] = [];
+
+  const takeExisting = (channel: string, text: string, userId: string, parent: Parent): MmPost | undefined => {
+    const expectedRoot = parent.kind === 'root' ? '' : parent.kind === 'existing' ? parent.id : undefined;
+    if (expectedRoot === undefined) return undefined;
+    const candidates = available.get(channel);
+    if (!candidates) return undefined;
+    const index = candidates.findIndex(
+      (candidate) =>
+        !used.has(candidate.id) &&
+        candidate.message === text &&
+        candidate.user_id === userId &&
+        (candidate.root_id ?? '') === expectedRoot,
+    );
+    if (index === -1) return undefined;
+    const [claimed] = candidates.splice(index, 1);
+    if (!claimed) return undefined;
+    used.add(claimed.id);
+    return claimed;
+  };
+
+  for (const post of posts) {
+    const userId = authorIds.get(post.author);
+    if (!userId) throw new Error(`Unknown author "${post.author}"`);
+
+    let parent: Parent = { kind: 'root' };
+    if (post.replyToKey) {
+      const root = resolved.get(post.replyToKey);
+      if (!root) throw new Error(`Post reply references "${post.replyToKey}" before the root post was resolved`);
+      parent = root.id ? { kind: 'existing', id: root.id } : { kind: 'new' };
+    }
+
+    const existing = takeExisting(post.channel, post.text, userId, parent);
+    entries.push({ post, existing });
+    if (post.key) resolved.set(post.key, { id: existing?.id });
+  }
+
+  const deleteIds: string[] = [];
+  for (const existing of existingByChannel.values()) {
+    for (const post of existing) {
+      if (!used.has(post.id)) deleteIds.push(post.id);
+    }
+  }
+
+  return { entries, deleteIds };
 }
 
 interface MmPostList {
@@ -226,40 +298,28 @@ async function ensurePosts(
   sessions: Map<string, Session>,
   posts: MattermostPostSeed[],
 ): Promise<void> {
-  const validTextsByChannel = new Map<string, Set<string>>();
+  const authorIds = new Map<string, string>();
   for (const post of posts) {
-    let set = validTextsByChannel.get(post.channel);
-    if (!set) {
-      set = new Set<string>();
-      validTextsByChannel.set(post.channel, set);
-    }
-    set.add(post.text);
-  }
-
-  const existingByChannel = new Map<string, Map<string, MmPost>>();
-  for (const channel of channels.values()) {
-    const postsInChannel = await channelPosts(env, adminToken, channel.id);
-    const validTexts = validTextsByChannel.get(channel.name) ?? new Set<string>();
-    const kept: MmPost[] = [];
-    for (const post of postsInChannel) {
-      if (!validTexts.has(post.message)) {
-        await mmRequest(env, `/posts/${post.id}`, adminToken, { method: 'DELETE' }).catch(() => undefined);
-      } else {
-        kept.push(post);
-      }
-    }
-    existingByChannel.set(channel.name, new Map(kept.map((post) => [post.message, post])));
-  }
-
-  const keyed = new Map<string, MmPost>();
-  for (const post of posts) {
-    const channel = channels.get(post.channel);
-    if (!channel) throw new Error(`Unknown channel "${post.channel}"`);
     const session = sessions.get(post.author);
     if (!session) throw new Error(`Unknown author "${post.author}"`);
-    const existing = existingByChannel.get(post.channel)?.get(post.text);
+    authorIds.set(post.author, session.user.id);
+  }
 
-    if (existing) {
+  const existingByChannel = new Map<string, MmPost[]>();
+  for (const channel of channels.values()) {
+    existingByChannel.set(channel.name, await channelPosts(env, adminToken, channel.id));
+  }
+
+  const plan = planPosts(existingByChannel, posts, authorIds);
+
+  const keyed = new Map<string, MmPost>();
+  for (const entry of plan.entries) {
+    const post = entry.post;
+    const channel = channels.get(post.channel);
+    if (!channel) throw new Error(`Unknown channel "${post.channel}"`);
+
+    if (entry.existing) {
+      const existing = entry.existing;
       if (existing.props?.sent_at !== post.at) {
         await mmJson(
           env,
@@ -280,6 +340,9 @@ async function ensurePosts(
       rootId = root.id;
     }
 
+    const session = sessions.get(post.author);
+    if (!session) throw new Error(`Unknown author "${post.author}"`);
+
     const created = await mmJson<MmPost>(
       env,
       '/posts',
@@ -292,8 +355,14 @@ async function ensurePosts(
       }),
       `Mattermost create post in #${post.channel}`,
     );
-    existingByChannel.get(post.channel)?.set(post.text, created);
     if (post.key) keyed.set(post.key, created);
+  }
+
+  for (const id of plan.deleteIds) {
+    const response = await mmRequest(env, `/posts/${id}`, adminToken, { method: 'DELETE' });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Could not delete the Mattermost post ${id} (HTTP ${response.status})`);
+    }
   }
 }
 

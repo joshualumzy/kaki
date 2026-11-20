@@ -308,7 +308,7 @@ check('Wiki delivery page carries the 32% commission, margins and tray stock', a
   const page = pages.get('kopitiam/delivery-pricing');
   assert(page, 'delivery page is missing');
   assert(/32%/.test(page) && /0\.50/.test(page) && /120/.test(page), 'the delivery commission numbers are missing');
-  assert(/\$5 profit/.test(page) && /30 trays/.test(page), 'the platter margin or tray stock is missing');
+  assert(/\$5 profit/.test(page) && /30 large trays/.test(page), 'the platter margin or tray stock is missing');
   assert(/charge more on the app than at the counter/i.test(page), 'the app price rule is missing');
   return 'delivery page present';
 });
