@@ -11,6 +11,8 @@ See the [Product Requirements Document](docs/spec/PRD-kaki-meeting-assistant.md)
 The project is deployed on Azure (`kaki-vm` in `KAKI-BOT-RG`, Southeast Asia) with automatic Let's Encrypt HTTPS for browser and phone microphone support:
 
 - **Main Meeting App:** **`https://kaki.southeastasia.cloudapp.azure.com`**
+  - **Practice** (AI colleagues fill the seats): open `/practice`, no sign-in needed.
+  - **Real meeting** (you chair, others join with your invite code): sign in as the meeting owner with `demo@kaki.demo` / `demo`.
 - **Cloud Company Systems (Unified Login: `demo` / `demo`):**
   - **Wiki.js:** `http://kaki.southeastasia.cloudapp.azure.com:8081` (`demo` / `demo`)
   - **Gitea:** `http://kaki.southeastasia.cloudapp.azure.com:8082` (`demo` / `demo` — or NPC usernames `wei-ling`, `arjun`, `mei`, `daniel` with password `demo`)
