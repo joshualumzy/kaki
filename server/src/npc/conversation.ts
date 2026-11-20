@@ -40,7 +40,7 @@ export interface NpcPorts<Clip> {
   emitTranscript(
     speaker: string,
     text: string,
-    options?: { textOnly?: boolean; catchId?: string; human?: boolean },
+    options?: { textOnly?: boolean; catchId?: string; human?: boolean; gate?: 'lock-offer' },
   ): void;
   /** What the AI attendees are doing, for the screen. */
   emitState(state: NpcUiState): void;
@@ -479,6 +479,8 @@ interface Turn {
   nudge?: boolean;
   /** This scripted silence line keeps a live confirmation or offer gate open. */
   gateReask?: boolean;
+  /** A scripted lock-in offer, marked on its transcript line so tools need not match the wording. */
+  lockOffer?: boolean;
   /** The history entry the nudge note was written from, removed when the visitor speaks before any of it is heard. */
   nudgeNote?: ChatMessage;
   /** Wakes the playback loop when a held turn carries on or is discarded. */
@@ -1236,7 +1238,7 @@ export class NpcConversation<Clip> {
     giveUpMs = DEFAULT_ANNOUNCE_GIVE_UP_MS,
     onDone?: (spoken: boolean) => void,
     shouldStillSpeak?: () => boolean,
-    options: { endsOnCutoff?: boolean; gateReask?: boolean } = {},
+    options: { endsOnCutoff?: boolean; gateReask?: boolean; lockOffer?: boolean } = {},
   ): void {
     const line = text.trim();
     if (this.closed || line.length === 0 || !this.names.includes(speaker)) return;
@@ -1249,7 +1251,7 @@ export class NpcConversation<Clip> {
     this.cueWhenQuiet(
       `${speaker}'s cue "${line}"`,
       () => this.startScripted(
-        { speaker, text: line }, onDone, options.endsOnCutoff === true, options.gateReask === true),
+        { speaker, text: line }, onDone, options.endsOnCutoff === true, options.gateReask === true, options.lockOffer === true),
       giveUpMs,
       () => onDone?.(false),
       shouldStillSpeak,
@@ -2303,7 +2305,7 @@ export class NpcConversation<Clip> {
           if (this.currentItem()?.title !== title || this.humanSettledOnCurrentItem) return;
           if (this.humanLines === this.budgetOfferAtLine) this.lockDecision(undefined, { timeout: true });
         }, 2 * (this.options.budgetSilenceMs ?? DEFAULT_BUDGET_SILENCE_MS)).unref();
-      });
+      }, undefined, { lockOffer: true });
   }
 
   /** The clock's overtime cue would pile another decision request onto Sam's recent ask. */
@@ -4634,6 +4636,7 @@ export class NpcConversation<Clip> {
     onDone?: (spoken: boolean) => void,
     endsOnCutoff = false,
     gateReask = false,
+    lockOffer = false,
   ): void {
     const abort = new AbortController();
     const turn: Turn = {
@@ -4648,6 +4651,7 @@ export class NpcConversation<Clip> {
       startedAt: Date.now(),
       scripted: true,
       gateReask,
+      ...(lockOffer ? { lockOffer } : {}),
       scriptedUtterance: utterance,
       onScriptedDone: onDone,
       ...(endsOnCutoff ? { endsOnCutoff } : {}),
@@ -5723,14 +5727,16 @@ export class NpcConversation<Clip> {
     turn: Turn,
     utterance: Utterance,
     textOnly: boolean,
-  ): { textOnly?: boolean; catchId?: string } | undefined {
+  ): { textOnly?: boolean; catchId?: string; gate?: 'lock-offer' } | undefined {
     const catchId = turn.planned?.catchId !== undefined && turn.planned.lastUtterance === utterance
       ? turn.planned.catchId
       : undefined;
-    if (!textOnly && catchId === undefined) return undefined;
+    const gate = turn.lockOffer === true ? 'lock-offer' as const : undefined;
+    if (!textOnly && catchId === undefined && gate === undefined) return undefined;
     return {
       ...(textOnly ? { textOnly: true } : {}),
       ...(catchId === undefined ? {} : { catchId }),
+      ...(gate === undefined ? {} : { gate }),
     };
   }
 

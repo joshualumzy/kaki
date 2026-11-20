@@ -89,18 +89,62 @@ start() { # name command...
 start_respawn() { # name command...
   local name="$1"; shift
   local pid
-  pid=$(set -m; nohup bash -c 'while true; do "$@"; code=$?; echo "[supervisor] process exited ($code); restarting in 2s..."; sleep 2; done' _ "$@" >".live-logs/$name.log" 2>&1 </dev/null & echo $!)
+  # A single crash is restarted, but a crash loop is not: after SUPERVISOR_MAX_RESTARTS (default 5)
+  # exits within SUPERVISOR_WINDOW_SECONDS (default 60), the supervisor gives up loudly instead of
+  # restarting forever and pretending the AI is still running.
+  pid=$(set -m; nohup bash -c '
+    max_restarts=${SUPERVISOR_MAX_RESTARTS:-5}
+    window_seconds=${SUPERVISOR_WINDOW_SECONDS:-60}
+    restarts=0
+    window_start=$(date +%s)
+    while true; do
+      "$@"
+      code=$?
+      now=$(date +%s)
+      if [ $((now - window_start)) -gt "$window_seconds" ]; then
+        restarts=0
+        window_start=$now
+      fi
+      restarts=$((restarts + 1))
+      if [ "$restarts" -ge "$max_restarts" ]; then
+        echo "[supervisor] $1 exited ($code) $restarts time(s) within ${window_seconds}s; giving up and NOT restarting" >&2
+        exit 1
+      fi
+      echo "[supervisor] $1 exited ($code); restarting in 2s (restart $restarts of $max_restarts within ${window_seconds}s)..."
+      sleep 2
+    done
+  ' _ "$@" >".live-logs/$name.log" 2>&1 </dev/null & echo $!)
   echo "$pid" >> "$pids"
   echo "Started $name with auto-respawn (pid $pid, log .live-logs/$name.log)"
 }
 
 start dev npm run dev
 echo -n "Waiting for the web app"
-for _ in $(seq 1 60); do curl -fsS -m 2 -o /dev/null http://localhost:5173/ 2>/dev/null && break; echo -n "."; sleep 1; done
+web_ready=0
+for _ in $(seq 1 60); do
+  if curl -fsS -m 2 -o /dev/null http://localhost:5173/ 2>/dev/null; then web_ready=1; break; fi
+  echo -n "."; sleep 1
+done
 echo
+if [ "$web_ready" != 1 ]; then
+  echo "FAIL  The web app did not answer on http://localhost:5173 within 60 s."
+  echo "      See .live-logs/dev.log. Run  npm stop  to stop what was started."
+  exit 1
+fi
+
 start_respawn npc npm run npc
 echo "Giving the AI attendees a few seconds to join..."; sleep 8
+if ! pgrep -f "src/npc/main" >/dev/null 2>&1; then
+  echo "FAIL  The AI attendees are not running; the demo cannot open without them."
+  echo "      See .live-logs/npc.log. Run  npm stop  to stop what was started."
+  exit 1
+fi
 
-bash scripts/live-preflight.sh
+if ! bash scripts/live-preflight.sh; then
+  echo
+  echo "FAIL  The live preflight did not pass, so the demo is not ready. Fix the FAIL lines above."
+  echo "      Logs: .live-logs/dev.log and .live-logs/npc.log. Run  npm stop  to stop what was started."
+  exit 1
+fi
 echo
 echo "Open http://localhost:5173 (or http://localhost:5173/demo). Watch the AI:  tail -f .live-logs/npc.log"

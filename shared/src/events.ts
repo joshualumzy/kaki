@@ -59,6 +59,8 @@ export type KakiEvent =
         textOnly?: boolean;
         /** The real catch this line raises, from the scenario's discussion (`<topicIndex>:catch:<i>`). */
         catchId?: string;
+        /** A host gate the line itself carries, so tools need not guess it from the wording. */
+        gate?: 'lock-offer';
         /** The seat that spoke, so a renamed display name still counts as that role. */
         speakerRole?: Role;
       }
@@ -198,6 +200,7 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     isString(payload.timestamp) &&
     (payload.textOnly === undefined || typeof payload.textOnly === 'boolean') &&
     (payload.catchId === undefined || isString(payload.catchId)) &&
+    (payload.gate === undefined || payload.gate === 'lock-offer') &&
     (payload.speakerRole === undefined || isRoleIn(scenario, payload.speakerRole)),
   MEETING_RECORD_UPDATED: (payload, scenario) =>
     Number.isInteger(payload.agendaIndex) &&

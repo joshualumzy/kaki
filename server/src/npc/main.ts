@@ -162,7 +162,7 @@ let memorySync: Promise<void> = Promise.resolve();
 let lastTranscriptError = 0;
 
 /** Send one transcript line to Kaki, and say so (at most every ten seconds) if that does not work. */
-function postTranscript(speaker: string, text: string, options?: { textOnly?: boolean; catchId?: string }): void {
+function postTranscript(speaker: string, text: string, options?: { textOnly?: boolean; catchId?: string; gate?: 'lock-offer' }): void {
   const complain = (message: string): void => {
     if (Date.now() - lastTranscriptError < 10_000) return;
     lastTranscriptError = Date.now();
@@ -178,6 +178,7 @@ function postTranscript(speaker: string, text: string, options?: { textOnly?: bo
         timestamp: new Date().toISOString(),
         ...(options?.textOnly === true ? { textOnly: true } : {}),
         ...(options?.catchId === undefined ? {} : { catchId: options.catchId }),
+        ...(options?.gate === undefined ? {} : { gate: options.gate }),
       },
     })
     .then(async (response) => {

@@ -102,7 +102,7 @@ export interface RunnerOptions {
   postTranscript(
     speaker: string,
     text: string,
-    options?: { textOnly?: boolean; catchId?: string },
+    options?: { textOnly?: boolean; catchId?: string; gate?: 'lock-offer' },
   ): void;
   /**
    * Forward speech that only the server-side recogniser heard to Kaki's one transcript writer.
