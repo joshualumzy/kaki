@@ -234,6 +234,25 @@ describe('app', () => {
     expect(screen.messages.some((event) => event.type === 'TASK_UPDATED')).toBe(true);
   });
 
+  it('rejects a runner body that tries to set the server-internal task purpose', async () => {
+    const post = (path: string, body: unknown) => fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const suggestion = {
+      title: 'Pretend minutes',
+      context: 'A runner body must not stamp a milestone.',
+      suggestedAssignee: 'chef',
+      agendaItemTitle: 'Prep',
+      purpose: 'meeting_minutes',
+    };
+
+    expect((await post('/api/runner/suggest-task', suggestion)).status).toBe(400);
+    expect((await post('/api/runner/settle-topic', suggestion)).status).toBe(400);
+    expect(app.tasks.list().some((task) => task.purpose === 'meeting_minutes')).toBe(false);
+  });
+
   it('settlement reuses a held follow-up card for the same role, kind and topic', async () => {
     const { installAutoDispatch } = await import('../src/host/autoDispatch');
     const release = installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });

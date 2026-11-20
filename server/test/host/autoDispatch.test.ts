@@ -32,13 +32,15 @@ describe('auto-dispatch', () => {
     app.hub.subscribe((event) => published.push(event));
     installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario });
 
-    const task = app.tasks.suggest({
-      title: 'Write up what we agreed for the noticeboard',
-      context: 'The minutes, already drafted.',
-      suggestedAssignee: 'chef',
-      actionKind: 'wiki_page',
-      purpose: 'meeting_minutes',
-    });
+    const task = app.tasks.suggestWithPurpose(
+      {
+        title: 'Write up what we agreed for the noticeboard',
+        context: 'The minutes, already drafted.',
+        suggestedAssignee: 'chef',
+        actionKind: 'wiki_page',
+      },
+      'meeting_minutes',
+    );
 
     expect(app.tasks.get(task.id)?.status).toBe('SUGGESTED');
     expect(published.some((event) => event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'DISPATCH')).toBe(false);

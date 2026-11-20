@@ -170,10 +170,7 @@ export function MeetingPanel({
   const minutesTask = useMemo(
     () =>
       visibleTasks.find(
-        (task) =>
-          task.actionKind === 'wiki_page' &&
-          /^Publish meeting minutes/i.test(task.title) &&
-          task.artifactUrl !== undefined,
+        (task) => task.purpose === 'meeting_minutes' && task.artifactUrl !== undefined,
       ),
     [visibleTasks],
   );

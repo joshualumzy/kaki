@@ -486,4 +486,59 @@ describe('MeetingPanel', () => {
     expect(screen.queryByText('Old superseded decision')).toBeNull();
     expect(screen.getByText('Current decision')).toBeTruthy();
   });
+
+  it('shows the minutes link for the minutes task even when its title is reworded', () => {
+    const minutes: Task = {
+      id: 'minutes-card',
+      title: 'Write up what we agreed for the noticeboard',
+      context: 'The end-of-meeting minutes.',
+      suggestedAssignee: 'producer',
+      actionKind: 'wiki_page',
+      purpose: 'meeting_minutes',
+      status: 'COMPLETED',
+      artifactUrl: 'https://wiki.test/meeting-minutes',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map([[minutes.id, minutes]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} />);
+
+    expect(screen.getByText('Open meeting minutes in Wiki ↗')).toBeTruthy();
+  });
+
+  it('does not treat an ordinary task whose title starts like the minutes as the minutes', () => {
+    const ordinary: Task = {
+      id: 'ordinary-card',
+      title: 'Publish meeting minutes to the noticeboard',
+      context: 'A normal follow-up about how we publish notes.',
+      suggestedAssignee: 'producer',
+      actionKind: 'wiki_page',
+      status: 'COMPLETED',
+      artifactUrl: 'https://wiki.test/noticeboard',
+      updatedAt: '2026-11-08T10:00:00Z',
+    };
+    const closing: KakiEvent = {
+      type: 'HOST_SPEECH_TRIGGERED',
+      audience: { kind: 'screen' },
+      payload: { kind: 'CLOSING', text: 'That concludes our meeting.' },
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [closing],
+      tasks: new Map([[ordinary.id, ordinary]]),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} />);
+
+    expect(screen.getByLabelText('End-of-meeting minutes')).toBeTruthy();
+    expect(screen.queryByText('Open meeting minutes in Wiki ↗')).toBeNull();
+  });
 });

@@ -211,6 +211,22 @@ describe('task store change handlers', () => {
       }),
     ).toThrow(CommandError);
   });
+
+  it('keeps the server-owned purpose when a suggested card is revised', () => {
+    const task = app.tasks.suggestWithPurpose(
+      { title: 'Publish meeting minutes', context: 'The minutes.', suggestedAssignee: 'chef' },
+      'meeting_minutes',
+    );
+
+    const revised = app.tasks.reviseSuggested(task.id, {
+      title: 'Write up what we agreed',
+      context: 'Reworded minutes.',
+      suggestedAssignee: 'chef',
+    });
+
+    expect(revised.title).toBe('Write up what we agreed');
+    expect(revised.purpose).toBe('meeting_minutes');
+  });
 });
 
 describe('declining a dispatched task', () => {

@@ -6,6 +6,7 @@ import {
   isRoleIn,
   isSuggestInput,
   isTask,
+  isTaskPurpose,
   type ActionDraft,
   type AssignmentEvidence,
   type KakiCommand,
@@ -14,6 +15,7 @@ import {
   type Scenario,
   type SuggestInput,
   type Task,
+  type TaskPurpose,
   type TaskStatus,
 } from '@kaki/shared';
 import { CommandError, type ClientAudience, type Hub } from './hub';
@@ -32,7 +34,12 @@ export interface TaskStore {
    * auto-accept it.
    */
   suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence, sourceSeconds?: number): Task;
-  /** Replace an early suggestion with the visitor's final wording before dispatch. */
+  /**
+   * Create a task for a server-owned milestone. This is not part of any request body: only trusted server code
+   * (the end-of-meeting minutes in the wiki module) may stamp a purpose.
+   */
+  suggestWithPurpose(input: SuggestInput, purpose: TaskPurpose): Task;
+  /** Replace an early suggestion with the visitor's final wording before dispatch; its purpose never changes. */
   reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task;
   supersede(id: string): Task;
   get(id: string): Task | undefined;
@@ -174,8 +181,14 @@ export function createTaskStore({
     return typeof value === 'number' && Number.isFinite(value) && value >= 0;
   }
 
-  function suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence, sourceSeconds?: number): Task {
+  function createTask(
+    input: SuggestInput,
+    purpose: TaskPurpose | undefined,
+    assignmentEvidence: AssignmentEvidence | undefined,
+    sourceSeconds: number | undefined,
+  ): Task {
     if (!isSuggestInput(input, active())) throw new CommandError('Invalid task suggestion');
+    if (purpose !== undefined && !isTaskPurpose(purpose)) throw new CommandError('Invalid task purpose');
     if (assignmentEvidence !== undefined && !isAssignmentEvidence(assignmentEvidence)) {
       throw new CommandError('Invalid assignment evidence');
     }
@@ -189,7 +202,7 @@ export function createTaskStore({
       context: input.context,
       suggestedAssignee: input.suggestedAssignee,
       actionKind: input.actionKind,
-      ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
+      ...(purpose === undefined ? {} : { purpose }),
       ...(input.decisionSource === undefined ? {} : { decisionSource: input.decisionSource }),
       ...(input.agendaItemTitle === undefined ? {} : { agendaItemTitle: input.agendaItemTitle }),
       ...(sourceSeconds === undefined ? {} : { sourceSeconds }),
@@ -203,6 +216,14 @@ export function createTaskStore({
     return task;
   }
 
+  function suggest(input: SuggestInput, assignmentEvidence?: AssignmentEvidence, sourceSeconds?: number): Task {
+    return createTask(input, undefined, assignmentEvidence, sourceSeconds);
+  }
+
+  function suggestWithPurpose(input: SuggestInput, purpose: TaskPurpose): Task {
+    return createTask(input, purpose, undefined, undefined);
+  }
+
   function reviseSuggested(id: string, input: SuggestInput, sourceSeconds?: number): Task {
     if (!isSuggestInput(input, active())) throw new CommandError('Invalid task suggestion');
     if (sourceSeconds !== undefined && !isSourceSeconds(sourceSeconds)) {
@@ -214,6 +235,7 @@ export function createTaskStore({
     const { assignmentEvidence: _oldEvidence, ...base } = current;
     // Where the card came from is fixed once known: a retried settlement must not move it later in the meeting.
     const source = current.sourceSeconds ?? sourceSeconds;
+    // A revision may change the work, never the server-owned purpose.
     const revised: Task = {
       ...base,
       ...input,
@@ -302,6 +324,7 @@ export function createTaskStore({
 
   return {
     suggest,
+    suggestWithPurpose,
     reviseSuggested,
     supersede: (id) => transition(id, 'SUPERSEDED'),
     get: (id) => tasks.get(id),

@@ -96,8 +96,6 @@ export interface SuggestInput {
   context: string;
   suggestedAssignee: Role;
   actionKind?: ActionKind;
-  /** The server-owned milestone this task serves, if it is not a person's follow-up. */
-  purpose?: TaskPurpose;
   /** The accepted decision this task announces, verbatim from the transcript. */
   decisionSource?: string;
   /** The agenda item this task came from, stamped by the notetaker; never chosen by the model. */
@@ -235,7 +233,8 @@ export function isSuggestInput(value: unknown, scenario: Scenario): value is Sug
     isNonEmptyString(value.context) &&
     isRoleIn(scenario, value.suggestedAssignee) &&
     (value.actionKind === undefined || isActionKind(value.actionKind)) &&
-    (value.purpose === undefined || isTaskPurpose(value.purpose)) &&
+    // `purpose` is server-internal: a request body carrying it is rejected, never silently accepted.
+    !('purpose' in value) &&
     (value.decisionSource === undefined || isNonEmptyString(value.decisionSource)) &&
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle))
   );

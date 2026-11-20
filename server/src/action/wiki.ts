@@ -415,13 +415,15 @@ export function createWikiModule({
               return;
             }
             try {
-              const minutesTask = context.tasks.suggest({
-                title: 'Publish meeting minutes to the team wiki',
-                context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
-                suggestedAssignee: assignee,
-                actionKind: 'wiki_page',
-                purpose: 'meeting_minutes',
-              });
+              const minutesTask = context.tasks.suggestWithPurpose(
+                {
+                  title: 'Publish meeting minutes to the team wiki',
+                  context: `Full summary of ${scenario.meetingTitle} (agenda, action items, open questions, and discussion transcript).`,
+                  suggestedAssignee: assignee,
+                  actionKind: 'wiki_page',
+                },
+                'meeting_minutes',
+              );
               context.tasks.transition(minutesTask.id, 'DISPATCHED', { assignee });
               context.tasks.transition(minutesTask.id, 'CLAIMED', {
                 mode: 'ACTION_AGENT',

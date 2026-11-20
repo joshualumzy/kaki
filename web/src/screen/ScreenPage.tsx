@@ -52,10 +52,7 @@ function ScreenFeed() {
   const [showJoin, setShowJoin] = useState(false);
   const taskList = [...tasks.values()];
   const minutesTask = taskList.find(
-    (task) =>
-      task.actionKind === 'wiki_page' &&
-      /^Publish meeting minutes/i.test(task.title) &&
-      task.artifactUrl !== undefined,
+    (task) => task.purpose === 'meeting_minutes' && task.artifactUrl !== undefined,
   );
   const record = events.filter(isRecord).at(-1);
   const speechRecording = events

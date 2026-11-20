@@ -131,12 +131,15 @@ describe('action runner draft-only guard', () => {
 describe('action runner prefilled draft guard', () => {
   it('never re-drafts a task that was claimed with a draft already filled in', async () => {
     const { tasks, draftSpy, runSpy } = setup();
-    const task = tasks.suggest({
-      title: 'Publish meeting minutes to the team wiki',
-      context: 'The end-of-meeting minutes, already written.',
-      suggestedAssignee: 'chef',
-      actionKind: 'wiki_page',
-    });
+    const task = tasks.suggestWithPurpose(
+      {
+        title: 'Publish meeting minutes to the team wiki',
+        context: 'The end-of-meeting minutes, already written.',
+        suggestedAssignee: 'chef',
+        actionKind: 'wiki_page',
+      },
+      'meeting_minutes',
+    );
     tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
     tasks.transition(task.id, 'CLAIMED', {
       mode: 'ACTION_AGENT',

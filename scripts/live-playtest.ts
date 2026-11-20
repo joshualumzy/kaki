@@ -494,7 +494,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   /** True once the end-of-meeting minutes card is waiting for a person to approve it. */
   function minutesCardReady(): boolean {
     return [...tasks.values()].some(
-      (task) => /^Publish meeting minutes/i.test(task.title) && task.status === 'DRAFT_READY',
+      (task) => task.purpose === 'meeting_minutes' && task.status === 'DRAFT_READY',
     );
   }
 

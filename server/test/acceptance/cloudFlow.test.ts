@@ -1,11 +1,9 @@
-import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { parseScenario, type KakiEvent, type Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
-import { hashPassword, hashToken } from '../../src/auth/password';
+import { hashPassword } from '../../src/auth/password';
 import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { ensureAuthSchema } from '../../src/auth/schema';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
@@ -16,6 +14,7 @@ import { createMeetingCodeSource } from '../../src/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { testScenario } from '../fixtures/scenario';
 import { portOf, settle, waitFor } from '../helpers';
+import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const code = 'K7M2Q9';
 const serviceToken = 'local-test-runner-token';
@@ -65,29 +64,15 @@ async function socket(port: number, role: string, credentials: { cookie?: string
 for (const kind of ['memory', 'postgres'] as const) {
   describe.skipIf(kind === 'postgres' && connectionString === undefined)(`auth-on cloud flow (${kind})`, () => {
     let app: KakiApp | undefined;
-    let bootstrap: Pool | undefined;
-    let schema: string | undefined;
-    let pool: Pool | undefined;
-    let meetingId: string | undefined;
-    const sessionHashes: string[] = [];
+    let postgres: PostgresTestSchema | undefined;
     const sockets: WebSocket[] = [];
 
     afterEach(async () => {
       for (const ws of sockets.splice(0)) ws.terminate();
-      if (pool && meetingId) {
-        // App.close closes the auth store's pool; remove only this test's rows first.
-        await pool.query('delete from seat_claims where meeting_id = $1', [meetingId]);
-        await pool.query('delete from sessions where token_hash = any($1)', [sessionHashes]);
-      }
       if (app) await app.close();
-      if (bootstrap && schema) await bootstrap.query(`drop schema "${schema}" cascade`);
-      if (bootstrap) await bootstrap.end();
+      await postgres?.dispose();
       app = undefined;
-      pool = undefined;
-      bootstrap = undefined;
-      schema = undefined;
-      meetingId = undefined;
-      sessionHashes.length = 0;
+      postgres = undefined;
       vi.unstubAllEnvs();
       vi.restoreAllMocks();
     });
@@ -106,12 +91,9 @@ for (const kind of ['memory', 'postgres'] as const) {
       let store: AuthStore;
       if (kind === 'postgres') {
         if (!connectionString) throw new Error('POSTGRES_URL is missing');
-        schema = `cloud_flow_${randomUUID().replaceAll('-', '')}`;
-        bootstrap = new Pool({ connectionString });
-        await bootstrap.query(`create schema "${schema}"`);
-        pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
-        await ensureAuthSchema(pool);
-        store = createPostgresAuthStore(pool);
+        postgres = await createPostgresTestSchema(connectionString);
+        await ensureAuthSchema(postgres.pool);
+        store = createPostgresAuthStore(postgres.pool);
       } else {
         store = createMemoryAuthStore();
       }
@@ -142,12 +124,8 @@ for (const kind of ['memory', 'postgres'] as const) {
         if (credentials.token) headers.authorization = `Bearer ${credentials.token}`;
         return fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
       };
-      const remember = (value: string) => {
-        sessionHashes.push(hashToken(decodeURIComponent(value.slice(value.indexOf('=') + 1))));
-        return value;
-      };
+      const remember = (value: string) => value;
       const state = async () => (await (await request('/api/meeting/state')).json()) as { meetingId: string; started: boolean };
-      meetingId = (await state()).meetingId;
 
       // 1. Anonymous readers get a parser-valid public projection.
       const publicScenario = parseScenario(await (await request('/api/scenario')).json());
@@ -353,10 +331,8 @@ describe('auth-off local demo compatibility', () => {
 describe.skipIf(connectionString === undefined)('existing Postgres auth schema', () => {
   it('removes legacy participant sessions while preserving host sessions on upgrade', async () => {
     if (!connectionString) throw new Error('POSTGRES_URL is missing');
-    const bootstrap = new Pool({ connectionString });
-    const schema = `cloud_migration_${randomUUID().replaceAll('-', '')}`;
-    await bootstrap.query(`create schema "${schema}"`);
-    const pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
+    const postgres = await createPostgresTestSchema(connectionString);
+    const pool = postgres.pool;
     try {
       await pool.query(`create table sessions (
         token_hash text primary key, kind text not null, role text, meeting_code text,
@@ -371,9 +347,7 @@ describe.skipIf(connectionString === undefined)('existing Postgres auth schema',
       expect(rows.rows).toEqual([{ token_hash: 'legacy-host', meeting_id: null }]);
       await ensureAuthSchema(pool);
     } finally {
-      await pool.end();
-      await bootstrap.query(`drop schema "${schema}" cascade`);
-      await bootstrap.end();
+      await postgres.dispose();
     }
   });
 });

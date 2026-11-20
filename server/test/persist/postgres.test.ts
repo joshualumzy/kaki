@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { MeetingSetup } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
@@ -7,23 +5,15 @@ import { createMeetingModule } from '../../src/host/meeting';
 import { createMeetingPersistence } from '../../src/persist/persistence';
 import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from '../../src/persist/postgres';
 import {
-  MEETING_STATE_ID,
   MEETING_STATE_SCHEMA_VERSION,
   type MeetingStateStore,
   type StoredMeeting,
 } from '../../src/persist/state';
 import { testScenario } from '../fixtures/scenario';
 import { portOf } from '../helpers';
+import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
-
-interface RawRow {
-  id: string;
-  schema_version: number;
-  saved_at: Date | string;
-  started_at: Date | string;
-  state: unknown;
-}
 
 const setup = {
   title: 'Lunch service readiness',
@@ -87,34 +77,19 @@ const meeting: StoredMeeting = {
 };
 
 describe.skipIf(connectionString === undefined)('postgres meeting state store', () => {
-  let pool: Pool;
+  let postgres: PostgresTestSchema | undefined;
   let store: MeetingStateStore;
-  let previous: RawRow | undefined;
 
   beforeAll(async () => {
     if (connectionString === undefined) throw new Error('POSTGRES_URL is missing');
-    pool = new Pool({ connectionString });
-    await ensureMeetingStateSchema(pool);
-    await ensureMeetingStateSchema(pool);
-    const existing = await pool.query<RawRow>(
-      'select id, schema_version, saved_at, started_at, state from meeting_state where id = $1',
-      [MEETING_STATE_ID],
-    );
-    previous = existing.rows[0];
-    store = createPostgresMeetingStateStore(pool);
+    postgres = await createPostgresTestSchema(connectionString);
+    await ensureMeetingStateSchema(postgres.pool);
+    await ensureMeetingStateSchema(postgres.pool);
+    store = createPostgresMeetingStateStore(postgres.pool);
   });
 
   afterAll(async () => {
-    if (pool === undefined) return;
-    await pool.query('delete from meeting_state where id = $1', [MEETING_STATE_ID]);
-    if (previous !== undefined) {
-      await pool.query(
-        `insert into meeting_state (id, schema_version, saved_at, started_at, state)
-         values ($1, $2, $3, $4, $5)`,
-        [previous.id, previous.schema_version, previous.saved_at, previous.started_at, previous.state],
-      );
-    }
-    await pool.end();
+    await postgres?.dispose();
   });
 
   it('saves, loads and clears the one saved meeting', async () => {
@@ -134,15 +109,11 @@ describe.skipIf(connectionString === undefined)('postgres meeting state store', 
 describe.skipIf(connectionString === undefined)('postgres meeting persistence through the app', () => {
   it('keeps the draft edited after END and consumes the ended meeting after a restart', async () => {
     if (connectionString === undefined) throw new Error('POSTGRES_URL is missing');
-    const bootstrap = new Pool({ connectionString });
-    const schema = `meeting_persist_${randomUUID().replaceAll('-', '')}`;
-    let pool: Pool | undefined;
+    const postgres = await createPostgresTestSchema(connectionString);
     let app: KakiApp | undefined;
     try {
-      await bootstrap.query(`create schema "${schema}"`);
-      pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
-      await ensureMeetingStateSchema(pool);
-      const store = createPostgresMeetingStateStore(pool);
+      await ensureMeetingStateSchema(postgres.pool);
+      const store = createPostgresMeetingStateStore(postgres.pool);
       const persistence = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
       app = await createApp({
         speechRecognition: 'browser',
@@ -203,9 +174,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting persistence th
       expect(state.started).toBe(false);
     } finally {
       if (app !== undefined) await app.close();
-      if (pool !== undefined) await pool.end();
-      await bootstrap.query(`drop schema "${schema}" cascade`);
-      await bootstrap.end();
+      await postgres.dispose();
     }
   });
 });

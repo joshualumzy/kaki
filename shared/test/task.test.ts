@@ -152,3 +152,23 @@ describe('agenda origin', () => {
     ).toBe(false);
   });
 });
+
+describe('task purpose', () => {
+  it('is accepted on a stored task but rejected on a public suggestion', () => {
+    const base = {
+      id: 'task-1',
+      title: 'Publish meeting minutes',
+      context: 'The minutes.',
+      suggestedAssignee: 'chef' as const,
+      status: 'SUGGESTED' as const,
+      updatedAt: '2026-11-08T00:00:00.000Z',
+    };
+    expect(isTask({ ...base, purpose: 'meeting_minutes' }, testScenario)).toBe(true);
+    expect(
+      isSuggestInput(
+        { title: 'Publish meeting minutes', context: 'The minutes.', suggestedAssignee: 'chef', purpose: 'meeting_minutes' },
+        testScenario,
+      ),
+    ).toBe(false);
+  });
+});

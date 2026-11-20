@@ -1,31 +1,27 @@
 import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { ensureAuthSchema } from '../../src/auth/schema';
 import type { AuthStore } from '../../src/auth/store';
+import { createPostgresTestSchema, type PostgresTestSchema } from '../postgresTestSchema';
 
 const connectionString = process.env.POSTGRES_URL;
 const email = `auth-test-${randomUUID()}@example.test`;
 
 describe.skipIf(connectionString === undefined)('postgres auth store', () => {
-  let pool: Pool;
+  let postgres: PostgresTestSchema | undefined;
   let store: AuthStore;
-  const tokenHashes: string[] = [];
 
   beforeAll(async () => {
     if (connectionString === undefined) throw new Error('POSTGRES_URL is missing');
-    pool = new Pool({ connectionString });
-    await ensureAuthSchema(pool);
-    await ensureAuthSchema(pool);
-    store = createPostgresAuthStore(pool);
+    postgres = await createPostgresTestSchema(connectionString);
+    await ensureAuthSchema(postgres.pool);
+    await ensureAuthSchema(postgres.pool);
+    store = createPostgresAuthStore(postgres.pool);
   });
 
   afterAll(async () => {
-    if (pool === undefined) return;
-    await pool.query('delete from sessions where token_hash = any($1)', [tokenHashes]);
-    await pool.query('delete from users where email = $1', [email]);
-    await pool.end();
+    await postgres?.dispose();
   });
 
   it('stores a host account and a session, and drops expired sessions', async () => {
@@ -38,7 +34,6 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
     expect(found?.createdAt).toBeInstanceOf(Date);
 
     const tokenHash = `auth-test-${randomUUID()}`;
-    tokenHashes.push(tokenHash);
     await store.createSession({
       tokenHash,
       kind: 'participant',
@@ -61,7 +56,6 @@ describe.skipIf(connectionString === undefined)('postgres auth store', () => {
     expect(await store.findSession(tokenHash)).toBeUndefined();
 
     const expiredHash = `auth-test-${randomUUID()}`;
-    tokenHashes.push(expiredHash);
     await store.createSession({
       tokenHash: expiredHash,
       kind: 'host',
