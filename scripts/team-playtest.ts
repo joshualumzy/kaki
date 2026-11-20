@@ -745,13 +745,19 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
       task.purpose !== 'meeting_minutes' && task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
   }
 
+  // Both scripted follow-ups ask the person to email the supplier, so the follow-up is this person's email card.
+  // Other cards the person holds (one they volunteered for, say) are never mistaken for it.
+  function isRequestedFollowUpFor(task: Task, roleId: string): boolean {
+    return (task.assignee === roleId || task.suggestedAssignee === roleId) && task.actionKind === 'email';
+  }
+
   async function waitForFollowUpCard(roleId: string): Promise<{ seen: boolean; task?: Task; tasks: Task[] }> {
     const seen = await waitFor('A follow-up card is produced', () => {
       if (notetakerStatus() === 'off') return true;
-      return newFollowUpTasks().some((task) => task.assignee === roleId || task.suggestedAssignee === roleId);
+      return newFollowUpTasks().some((task) => isRequestedFollowUpFor(task, roleId));
     }, 75_000, owner?.page, false);
     const tasks = newFollowUpTasks();
-    return { seen, task: tasks.find((task) => task.assignee === roleId || task.suggestedAssignee === roleId), tasks };
+    return { seen, task: tasks.find((task) => isRequestedFollowUpFor(task, roleId)), tasks };
   }
 
   async function runVoiceMeeting(): Promise<void> {
@@ -1202,9 +1208,10 @@ export async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ re
     }
     let accepted = false;
     if (anaTask !== undefined) {
-      const anaPanel = ana.page.locator('.kd-role-active');
-      const accept = anaPanel.getByRole('button', { name: /^Accept ·/ }).first();
-      const approve = anaPanel.getByRole('button', { name: 'Approve & publish' }).first();
+      // Act on the follow-up's own card: Ana may hold other cards, such as one she volunteered for.
+      const anaCard = ana.page.locator('.kd-role-active').locator(`[id="task-${anaTask.id}"]`);
+      const accept = anaCard.getByRole('button', { name: /^Accept ·/ }).first();
+      const approve = anaCard.getByRole('button', { name: 'Approve & publish' }).first();
       const acceptVisible = await accept.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false);
       const approveVisible = acceptVisible ? false : await approve.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false);
       const benPanel = ben.page.locator('.kd-role-active');
