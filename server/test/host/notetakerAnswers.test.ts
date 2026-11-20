@@ -1,16 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { Hub } from '../../src/core/hub';
-import {
-  answerMatchesQuestion,
-  createNotetaker,
-  isAffirmativeAnswer,
-  parseNotetakerReply,
-  taskMatchesAssignment,
-  type AnswerCandidate,
-  type ResolvedTaskCandidate,
-  type VerifierResult,
-} from '../../src/host/notetaker';
+import { createNotetaker } from '../../src/host/notetaker';
+import { answerMatchesQuestion, isAffirmativeAnswer, type AnswerCandidate } from '../../src/host/notetakerQuestions';
+import { taskMatchesAssignment, type ResolvedTaskCandidate } from '../../src/host/notetakerTasks';
+import { parseNotetakerReply } from '../../src/host/notetakerPrompt';
+import { type VerifierResult } from '../../src/host/notetakerVerifier';
 import { createFakeLlm } from '../../src/services/llm';
 import { loadScenario } from '../../src/core/loadScenario';
 import { createTaskStore } from '../../src/meeting/tasks';

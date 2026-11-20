@@ -1,6 +1,6 @@
 import { parseJsonReply, type LlmClient } from '../services/llm';
 import { isAssignmentEvidence, speakerName, type ActionDraft, type KakiCommand, type KakiEvent, type NpcProfile, type Role, type Scenario, type Task } from '@kaki/shared';
-import { isHypotheticalProposal, isSelfVolunteerCommitment } from '../host/notetaker';
+import { isHypotheticalProposal, isSelfVolunteerCommitment } from '../host/notetakerTasks';
 
 /** One completed, actually heard transcript line on the topic the task came from. */
 export interface DecisionLine {

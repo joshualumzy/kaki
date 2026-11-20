@@ -1,14 +1,10 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario } from '@kaki/shared';
 import type { Hub } from '../../src/core/hub';
-import {
-  addressedRole,
-  createNotetaker,
-  type AnswerCandidate,
-  type ResolvedTaskCandidate,
-  type VerifierResult,
-  volunteerRole,
-} from '../../src/host/notetaker';
+import { createNotetaker } from '../../src/host/notetaker';
+import { type AnswerCandidate } from '../../src/host/notetakerQuestions';
+import { addressedRole, volunteerRole, type ResolvedTaskCandidate } from '../../src/host/notetakerTasks';
+import { type VerifierResult } from '../../src/host/notetakerVerifier';
 import { createFakeLlm } from '../../src/services/llm';
 import { loadScenario } from '../../src/core/loadScenario';
 import { createTaskStore } from '../../src/meeting/tasks';

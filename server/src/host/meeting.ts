@@ -6,7 +6,8 @@ import type { KakiContext, KakiModule } from '../core/modules';
 import { createAgendaClock, type AgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
 import { hostIsHumanFromSession } from '../meeting/runnerState';
-import { createNotetaker, hasTaskAssignment } from './notetaker';
+import { createNotetaker } from './notetaker';
+import { hasTaskAssignment } from './notetakerTasks';
 import { cleanSpokenTopic, openingLine, spokenAgendaName } from './opening';
 import { loadReplay, startReplay, type ReplayLine } from './replay';
 
