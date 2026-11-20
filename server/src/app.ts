@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, pruneAgendaReferences, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, pruneAgendaReferences, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -554,6 +554,7 @@ async function handleRequest(
             wantsPractice && context.practicePrincipal(request) !== undefined;
           // Admission reads the pack, not the sealed cast: a seat an AI once had stays a reserved name.
           const npcNames = (context.fullScenario.npcs ?? []).map((npc) => npc.attendee);
+          const reservedNames = [...npcNames, KAKI_LISTENER_IDENTITY];
           const joiningName = participantName.toLowerCase();
           // The room the decision is about is the one people are actually in right now.
           const rosterRoom = demoRoomName(context.session.active(), context.meeting.id);
@@ -565,9 +566,8 @@ async function handleRequest(
             });
             return;
           }
-          const rosterHumans = roster.filter(
-            (person) => !npcNames.some((npc) => npc.toLowerCase() === person.name.toLowerCase()),
-          );
+          // The runner's technical listener sits in every room but is never a person in the meeting.
+          const rosterHumans = roster.filter((person) => isHumanParticipant(person.name, npcNames));
           // A reservation made by this same person is a retry, not another seat: let them reclaim it.
           // A practice join without the capability does not get that grace: it competes for the seat.
           const mayReclaimName = !wantsPractice || hasPracticeCapability;
@@ -751,7 +751,10 @@ async function handleRequest(
             return;
           }
           // Refuse a bad display name before anything can reset the meeting.
-          const nameProblem = joinNameProblem(participantName, npcNames);
+          if (isKakiListener(participantName)) {
+            throw new JoinError(`"${participantName}" is reserved for the meeting listener; pick another name`);
+          }
+          const nameProblem = joinNameProblem(participantName, reservedNames);
           if (nameProblem !== undefined) throw new JoinError(nameProblem);
 
           // A Start or reset that landed while this join awaited the roster must not let it
@@ -820,7 +823,7 @@ async function handleRequest(
           const roomName = demoRoomName(context.session.active(), committedMeetingId);
           const token = await createRoomToken(
             { roomName, participantName, participantRole: seatId },
-            npcNames,
+            reservedNames,
           );
           if (identityMoved()) {
             refuseMovedMeeting();
@@ -1818,6 +1821,8 @@ export async function createApp({
   const admit = createAdmissionQueue();
   // The pack owns the reserved names for the whole meeting, whatever cast is active right now.
   const packNpcNames = (fullScenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
+  // The runner's listener is left in the room like the AI attendees when people are removed.
+  const runnerOwnedNames = [...packNpcNames, KAKI_LISTENER_IDENTITY];
   let watchedRoom: string | undefined;
   // The plan the owner opened, frozen for non-owners so later draft edits never leak into it.
   let lobbySnapshot: Scenario | undefined;
@@ -1849,7 +1854,7 @@ export async function createApp({
       (!session.abandoned() && (session.holders().length > 0 || session.phase() === 'running')),
     roster: roomRoster,
     roomName: () => watchedRoom,
-    isHuman: (name) => !packNpcNames.includes(name.toLowerCase()),
+    isHuman: (name) => isHumanParticipant(name, packNpcNames),
     // Quick while a meeting runs so an empty room pauses and a returning person resumes promptly;
     // the slower interval is only for the grace window around a meeting that has not started.
     intervalMs: () =>
@@ -1892,7 +1897,7 @@ export async function createApp({
     // practice authority go with it.
     if (ended && kind === 'real') return;
     const roomName = watchedRoom ?? demoRoomName(session.active(), meeting.id);
-    void removeRoomHumans(roomName, packNpcNames).catch((error: unknown) => {
+    void removeRoomHumans(roomName, runnerOwnedNames).catch((error: unknown) => {
       if (roomCleanupWarned) return;
       roomCleanupWarned = true;
       console.warn(`kaki livekit: could not remove people from the old room ${roomName}`, error);
@@ -2374,7 +2379,7 @@ export async function createApp({
           return;
         }
         rosterOutageLogged = false;
-        const humans = roster.filter((person) => !packNpcNames.includes(person.name.toLowerCase()));
+        const humans = roster.filter((person) => isHumanParticipant(person.name, packNpcNames));
         if (humans.length > 0) {
           // The poll lagged: someone is still there, so keep the meeting open.
           rejoin.occupied();

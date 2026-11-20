@@ -15,6 +15,7 @@ import {
 import { Track } from 'livekit-client';
 import {
   CONTROL_TOPIC,
+  isKakiListener,
   NPC_STATE_TOPIC,
   parseSpeechStatusMessage,
   roleLabel,
@@ -246,6 +247,23 @@ export function activeStageTaskFor(
   );
 }
 
+/**
+ * The tracks the stage shows: never the runner's technical listener, and only AI attendees in this
+ * meeting's cast. People are never filtered by metadata: a camera-off placeholder must still show
+ * its human tile.
+ */
+export function visibleStageTracks<T extends { participant: { identity: string; metadata?: string } }>(
+  tracks: readonly T[],
+  scenario: Pick<Scenario, 'npcs'>,
+): T[] {
+  const aiNames = new Set((scenario.npcs ?? []).map((npc) => npc.attendee));
+  return tracks.filter((track) => {
+    const person = track.participant;
+    if (isKakiListener(person.identity)) return false;
+    return person.metadata?.trim() !== 'AI attendee' || aiNames.has(person.identity);
+  });
+}
+
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
 export function MeetingGrid({
   role,
@@ -273,23 +291,17 @@ export function MeetingGrid({
   );
   const sendTypedLine = useCallback((text: string) => sendHumanLine(text, 'typed'), [sendHumanLine]);
   const sendSpeechLine = useCallback((text: string) => sendHumanLine(text, 'speech'), [sendHumanLine]);
-  const participants = useParticipants();
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false },
-  ).filter((track) => {
-    // The AI process keeps a silent listener in every room. A sealed team meeting has no AI cast,
-    // so that listener is not at this meeting and must not get a tile of its own. People are never
-    // filtered by metadata: a camera-off placeholder must still show its human tile.
-    const person = track.participant;
-    return (
-      person.metadata?.trim() !== 'AI attendee' ||
-      (scenario.npcs ?? []).some((npc) => npc.attendee === person.identity)
-    );
-  });
+  const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
+  const tracks = visibleStageTracks(
+    useTracks(
+      [
+        { source: Track.Source.Camera, withPlaceholder: true },
+        { source: Track.Source.ScreenShare, withPlaceholder: false },
+      ],
+      { onlySubscribed: false },
+    ),
+    scenario,
+  );
 
   // Captions fade by the clock, so the stage re-renders twice a second.
   const [now, setNow] = useState(Date.now());

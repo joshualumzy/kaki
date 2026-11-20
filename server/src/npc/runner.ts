@@ -15,6 +15,8 @@ import {
   aiCast,
   demoRoomName,
   humanAttendeeForRole,
+  isKakiListener,
+  KAKI_LISTENER_IDENTITY,
   CONTROL_TOPIC,
   NPC_STATE_TOPIC,
   parseControlMessage,
@@ -303,44 +305,49 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   // only supplies what a snapshot does not carry (organisation, attendees, knowledge).
   const meeting = createRunnerMeeting(bootScenario, options.initialMeeting, log);
   const memory = new MeetingMemory(meeting.scenario(), (entries) => options.onMemoryChange?.(entries), log);
-  const bootCast = meeting.cast();
-  if (bootCast.length === 0) {
-    throw new Error(
-      `Scenario "${bootScenario.id}" has no AI cast yet, so there is nobody to run. ` +
-        'Wait for the server to publish a meeting with an AI seat, then start the runner.',
-    );
-  }
   // Characters nobody can play stay in the room and listen; the rest join for the person who arrives,
-  // as everyone except the seat that person took. The listener is a fixed technical seat for this
-  // process; a cast change never moves it.
-  const alwaysAi = aiCast(meeting.scenario());
-  const hostProfile = meeting.scenario().npcs?.find((npc) => npc.role === 'host');
-  const listenerProfile = alwaysAi[0] ?? hostProfile ?? bootCast[0]!;
-  const permanent = alwaysAi.length > 0 ? alwaysAi : [listenerProfile];
+  // as everyone except the seat that person took. The listener is a separate fixed technical seat:
+  // it joins every meeting, hears people even with no AI cast, and never speaks.
+  const permanent = aiCast(meeting.scenario());
   // The room follows the server's meeting identity. Until the runner has heard an identity, it
   // waits in a boot room; the first snapshot moves it to the real one.
   let roomName =
     options.roomName ??
     demoRoomName(bootScenario, options.initialMeeting?.meetingId ?? meeting.meetingId() ?? 'boot');
 
-  // --- Characters join the room one by one, each publishing its own microphone track. ---
+  // --- The listener joins every room; characters join one by one, each publishing its own microphone track. ---
   const characters = new Map<string, Character>();
-  const leaveAll = (): Promise<unknown> =>
-    Promise.all([...characters.values()].map(({ room }) => room.disconnect().catch(() => undefined)));
+  let listenerRoom: Room | undefined;
+  const leaveAll = (): Promise<unknown> => {
+    const rooms = [...characters.values()].map(({ room }) => room);
+    if (listenerRoom !== undefined) rooms.push(listenerRoom);
+    return Promise.all(rooms.map((room) => room.disconnect().catch(() => undefined)));
+  };
 
-  async function joinCharacter(npc: NpcProfile): Promise<void> {
-    if (characters.has(npc.attendee)) return;
-    const token = await createRoomToken({ roomName, participantName: npc.attendee, participantRole: 'AI attendee' });
+  async function connectToRoom(participantName: string, participantRole: string): Promise<Room> {
+    const token = await createRoomToken({ roomName, participantName, participantRole });
     const room = new Room();
     try {
       await room.connect(livekitUrl, token);
     } catch (error) {
       throw new Error(
-        `Could not connect ${npc.attendee} to LiveKit at ${livekitUrl} (${String(error) || 'no reason given'}). ` +
+        `Could not connect ${participantName} to LiveKit at ${livekitUrl} (${String(error) || 'no reason given'}). ` +
           'Is it running? Start it with "npm run stack:up", or set LIVEKIT_URL.',
         { cause: error },
       );
     }
+    return room;
+  }
+
+  async function joinListener(): Promise<void> {
+    const room = await connectToRoom(KAKI_LISTENER_IDENTITY, 'listener');
+    listenerRoom = room;
+    log(`${KAKI_LISTENER_IDENTITY} is listening in ${roomName}`);
+  }
+
+  async function joinCharacter(npc: NpcProfile): Promise<void> {
+    if (characters.has(npc.attendee)) return;
+    const room = await connectToRoom(npc.attendee, 'AI attendee');
     const source = new AudioSource(SAMPLE_RATE, 1, 400);
     const track = LocalAudioTrack.createAudioTrack('microphone', source);
     await room.localParticipant?.publishTrack(track, new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }));
@@ -349,19 +356,20 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
 
   try {
+    await joinListener();
     for (const npc of permanent) await joinCharacter(npc);
   } catch (error) {
     await leaveAll();
     throw error;
   }
-  const listenerCharacter = (): Character | undefined => characters.get(listenerProfile.attendee);
+  log(`${characters.size} AI character${characters.size === 1 ? '' : 's'} running in ${roomName}`);
 
   // --- What the AI attendees send out: state to the browser, transcript lines to Kaki. ---
   let lastConversationState: NpcStateMessage = { kind: 'idle' };
 
   function publishData(topic: string, message: unknown): void {
     const data = new TextEncoder().encode(JSON.stringify(message));
-    listenerCharacter()?.room.localParticipant?.publishData(data, { reliable: true, topic }).catch(() => undefined);
+    listenerRoom?.localParticipant?.publishData(data, { reliable: true, topic }).catch(() => undefined);
   }
 
   function publishState(state: NpcStateMessage): void {
@@ -600,7 +608,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     // A zero-AI meeting keeps only the silent room listener; every voiced character leaves.
     if (meeting.cast().length === 0) {
       for (const [name, character] of [...characters]) {
-        if (name === listenerProfile.attendee) continue;
         characters.delete(name);
         await character.room.disconnect().catch(() => undefined);
         log(`${name} left ${roomName}`);
@@ -617,7 +624,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const wanted = meeting.cast().filter((npc) => npc.playable !== true || !seats.has(npc.attendee));
     for (const npc of wanted) await joinCharacter(npc);
     for (const [name, character] of [...characters]) {
-      if (name === listenerProfile.attendee || wanted.some((npc) => npc.attendee === name)) continue;
+      if (wanted.some((npc) => npc.attendee === name)) continue;
       characters.delete(name);
       await character.room.disconnect().catch(() => undefined);
       log(`${name} left ${roomName}`);
@@ -1123,7 +1130,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   }
 
   function registerHuman(participant: RemoteParticipant): void {
-    if (meeting.castNames().has(participant.identity)) return;
+    if (isKakiListener(participant.identity) || meeting.castNames().has(participant.identity)) return;
     const role = participant.metadata?.trim() || 'participant';
     const name = participant.name || participant.identity;
     const seat = humanAttendeeForRole(meeting.scenario(), role)?.name;
@@ -1283,12 +1290,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     syncCast();
   });
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-    if (meeting.castNames().has(participant.identity) || track.kind !== TrackKind.KIND_AUDIO) return;
+    if (isKakiListener(participant.identity) || meeting.castNames().has(participant.identity) || track.kind !== TrackKind.KIND_AUDIO) return;
     registerHuman(participant);
     void listenTo(track, participant.identity);
   });
   room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
-    if (topic === CONTROL_TOPIC && participant !== undefined && !meeting.castNames().has(participant.identity)) {
+    if (topic === CONTROL_TOPIC && participant !== undefined && !isKakiListener(participant.identity) && !meeting.castNames().has(participant.identity)) {
       let message: ReturnType<typeof parseControlMessage>;
       try {
         message = parseControlMessage(JSON.parse(new TextDecoder().decode(payload)));
@@ -1335,7 +1342,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       }
       return;
     }
-    if (topic !== STT_TOPIC || participant === undefined || meeting.castNames().has(participant.identity)) return;
+    if (topic !== STT_TOPIC || participant === undefined || isKakiListener(participant.identity) || meeting.castNames().has(participant.identity)) return;
     // With server-side recognition the browser's text is not used: it hears the speakers, not the echo-cancelled track.
     if (options.recognizer !== undefined) return;
     try {
@@ -1352,7 +1359,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   });
   for (const participant of room.remoteParticipants.values()) registerHuman(participant);
   }
-  attachRoom(listenerCharacter()!.room);
+  if (listenerRoom === undefined) throw new Error('the technical listener did not join LiveKit');
+  attachRoom(listenerRoom);
 
   /** The fixed room for a meeting identity; a test may pin one room for every meeting. */
   function roomForMeeting(meetingId: string): string {
@@ -1369,9 +1377,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       try {
         await leaveAll();
         characters.clear();
+        listenerRoom = undefined;
+        await joinListener();
         for (const npc of permanent) await joinCharacter(npc);
-        const nextListener = listenerCharacter();
-        if (nextListener !== undefined) attachRoom(nextListener.room);
+        if (listenerRoom !== undefined) attachRoom(listenerRoom);
         return;
       } catch (error) {
         const delay = reconnectDelayMs(attempt);

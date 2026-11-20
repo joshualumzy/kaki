@@ -1,3 +1,4 @@
+import { KAKI_LISTENER_IDENTITY } from '@kaki/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createApp, type KakiApp } from '../src/app';
@@ -148,6 +149,29 @@ describe('join admission decides before it resets', () => {
     expect(meeting.app.tasks.get(meeting.taskId)?.title).toBe('Keep this card');
     await settle();
     expect(resetCount(meeting.screen)).toBe(0);
+  });
+
+  it('ignores the runner listener when deciding whether the room is empty', async () => {
+    const meeting = await startedMeeting();
+    await emptyRoom(meeting);
+    // Only the runner's silent listener remains in LiveKit; as far as admission goes, nobody is there.
+    meeting.people.push({ name: KAKI_LISTENER_IDENTITY, role: 'listener' });
+
+    const joined = await join(meeting.app, { participantName: 'Guest', participantRole: 'producer' });
+    expect(joined.status).toBe(200);
+    expect(((await joined.json()) as { started?: boolean }).started).toBe(false);
+  });
+
+  it('refuses the runner listener name for a person', async () => {
+    const meeting = await startedMeeting();
+    await emptyRoom(meeting);
+
+    const refused = await join(meeting.app, {
+      participantName: KAKI_LISTENER_IDENTITY,
+      participantRole: 'producer',
+    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/reserved for the meeting listener/i);
   });
 
   it('refuses an over-long name in a momentarily empty room without wiping the meeting', async () => {

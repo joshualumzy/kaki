@@ -118,6 +118,23 @@ export function demoRoomName(scenario: Scenario, meetingId: string): string {
   return `kaki-demo-${scenario.id}-${meetingId}`;
 }
 
+/**
+ * The fixed LiveKit identity of the runner's silent speech listener. It joins every meeting so the
+ * server can hear people even when the meeting has no AI cast, and is never a person or an AI attendee.
+ */
+export const KAKI_LISTENER_IDENTITY = 'kaki-listener';
+
+/** True when a LiveKit identity belongs to the runner's technical listener rather than a person. */
+export function isKakiListener(identity: string | undefined): boolean {
+  return identity !== undefined && identity.trim().toLowerCase() === KAKI_LISTENER_IDENTITY;
+}
+
+/** True when `name` is a person in the room: neither the runner's listener nor one of `aiNames`. */
+export function isHumanParticipant(name: string, aiNames: readonly string[]): boolean {
+  const wanted = name.trim().toLowerCase();
+  return !isKakiListener(wanted) && !aiNames.some((aiName) => aiName.trim().toLowerCase() === wanted);
+}
+
 /** True when an AI always plays this attendee: it has a profile and a person cannot take its seat. */
 function isPlayedByAi(scenario: Scenario, attendee: Attendee): boolean {
   return (scenario.npcs ?? []).some((npc) => npc.attendee === attendee.name && npc.playable !== true);

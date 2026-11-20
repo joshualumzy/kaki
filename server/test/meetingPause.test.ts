@@ -1,3 +1,4 @@
+import { KAKI_LISTENER_IDENTITY } from '@kaki/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createApp, type KakiApp } from '../src/app';
@@ -268,6 +269,39 @@ describe('the server owns the empty-room pause', () => {
     people = [];
     await waitFor(() => (clock.snapshot().pauseKind === 'empty-room' ? true : undefined), 'the empty-room pause');
     people = [{ name: 'Guest' }];
+    await waitFor(() => (clock.snapshot().paused === false ? true : undefined), 'the return to resume');
+  });
+
+  it('does not let the runner listener keep an empty room alive', async () => {
+    const pack = await loadScenario('kopitiam');
+    let people: Array<{ name: string }> = [];
+    const clock = createAgendaClock({ agenda: pack.agenda });
+    const app = await createApp({
+      speechRecognition: 'browser',
+      scenario: pack,
+      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => people,
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 10,
+      emptyRoomPauseMs: 5,
+      meetingPaused: () => pausedOf(clock),
+      meetingPause: pauseControl(clock),
+    });
+    apps.push(app);
+    await connectService(app);
+    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    people.push({ name: 'Guest' });
+    expect((await startMeeting(app)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
+
+    // The person leaves; only the runner's technical listener stays in LiveKit.
+    people = [{ name: KAKI_LISTENER_IDENTITY }];
+    await waitFor(
+      () => (clock.snapshot().pauseKind === 'empty-room' ? true : undefined),
+      'the empty-room pause',
+    );
+
+    people = [{ name: 'Guest' }, { name: KAKI_LISTENER_IDENTITY }];
     await waitFor(() => (clock.snapshot().paused === false ? true : undefined), 'the return to resume');
   });
 

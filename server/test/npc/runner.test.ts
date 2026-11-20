@@ -1,10 +1,11 @@
-import { CONTROL_TOPIC, defaultMeetingSetup, meetingScenarioFromSetup, STT_TOPIC } from '@kaki/shared';
+import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScenarioFromSetup, STT_TOPIC } from '@kaki/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/loadScenario';
 import { openingLine } from '../../src/host/opening';
 import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
 import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
+import type { Recognizer } from '../../src/npc/utterance';
 import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
 const rooms = vi.hoisted(() => [] as Array<{ emit(event: string, ...args: unknown[]): void; connected?: boolean }>);
@@ -646,6 +647,104 @@ describe('server-owned start preparation', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
+    } finally {
+      await runner.stop();
+    }
+  });
+});
+
+describe('startNpcRunner with no AI cast', () => {
+  it('runs the technical listener with zero characters and transcribes a person', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    audio.frames.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const emptyScenario = { ...scenario, npcs: [] };
+    const log: string[] = [];
+    const postHumanLine = vi.fn();
+    const recognizer: Recognizer = {
+      start: () => ({
+        push: () => undefined,
+        finish: async () => 'The queue is out the door.',
+        cancel: () => undefined,
+      }),
+    };
+    const runner = await startNpcRunner({
+      scenario: emptyScenario,
+      initialMeeting: runnerSnapshot(emptyScenario, { meetingId: 'meeting-1', cast: [], version: 1 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      postHumanLine,
+      recognizer,
+      vad: { minLevel: 0.01, startMs: 40, hangoverMs: 40 },
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      expect(tokens).toEqual([KAKI_LISTENER_IDENTITY]);
+      expect(log.some((line) => line.includes('0 AI characters running'))).toBe(true);
+
+      // The listener is technical: it never becomes the person the runner talks to.
+      rooms[0]!.emit('participantConnected', {
+        identity: KAKI_LISTENER_IDENTITY,
+        name: KAKI_LISTENER_IDENTITY,
+        metadata: 'listener',
+      });
+      expect(runner.visitorName()).toBeUndefined();
+
+      const participant = { identity: 'Alice', name: 'Alice', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', participant);
+      await runner.markStarted({ meetingId: 'meeting-1' });
+
+      for (let index = 0; index < 10; index += 1) audio.frames.push(new Int16Array(640).fill(20_000));
+      for (let index = 0; index < 5; index += 1) audio.frames.push(new Int16Array(640));
+      rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, participant);
+
+      await vi.waitFor(() => expect(postHumanLine).toHaveBeenCalled());
+      expect(postHumanLine.mock.calls[0]![0]).toMatchObject({
+        meetingId: 'meeting-1',
+        participantIdentity: 'Alice',
+        seat: 'producer',
+        text: 'The queue is out the door.',
+      });
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('joins AI characters when the meeting publishes a cast after an empty boot', async () => {
+    rooms.length = 0;
+    tokens.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const emptyScenario = { ...scenario, npcs: [] };
+    const runner = await startNpcRunner({
+      scenario: emptyScenario,
+      initialMeeting: runnerSnapshot(emptyScenario, { meetingId: 'meeting-1', cast: [], version: 1 }),
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: () => undefined,
+      postTranscriptUpdate: () => undefined,
+      responseDelayMs: 0,
+    });
+    try {
+      expect(tokens).toEqual([KAKI_LISTENER_IDENTITY]);
+      rooms[0]!.emit('participantConnected', { identity: 'Alice', name: 'Alice', metadata: 'producer' });
+
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-1',
+        snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', version: 2 }),
+      });
+
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      expect(tokens).toContain('Arjun');
+      expect(tokens).toContain('Sam');
     } finally {
       await runner.stop();
     }

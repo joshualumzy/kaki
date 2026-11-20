@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { KakiEvent, Task } from '@kaki/shared';
+import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Task } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeStageTaskFor, cardFactForItem, MeetingGrid, reactionForColleague, tracksWithSpeakerFirst } from './MeetingGrid';
+import { activeStageTaskFor, cardFactForItem, MeetingGrid, reactionForColleague, tracksWithSpeakerFirst, visibleStageTracks } from './MeetingGrid';
 
 const mocks = vi.hoisted(() => ({
   screenEvents: [] as KakiEvent[],
@@ -211,6 +211,21 @@ describe('MeetingGrid starter ideas', () => {
 
     expect(screen.getByText('The storeroom is inspected every morning.')).toBeTruthy();
     expect(screen.queryByText('Ten stools are in the storeroom.')).toBeNull();
+  });
+});
+
+describe('visibleStageTracks', () => {
+  it('never shows the runner listener as a tile, even with no AI cast', () => {
+    const listener = { participant: { identity: KAKI_LISTENER_IDENTITY, metadata: 'listener' } };
+    const guest = { participant: { identity: 'Guest', metadata: 'producer' } };
+    expect(visibleStageTracks([listener, guest], { npcs: [] })).toEqual([guest]);
+  });
+
+  it('shows only AI attendees in this meeting cast', () => {
+    const castMember = { participant: { identity: 'Sam', metadata: 'AI attendee' } };
+    const absentColleague = { participant: { identity: 'Arjun', metadata: 'AI attendee' } };
+    const scenario = { npcs: [{ attendee: 'Sam', voice: 'v', personality: 'p', agenda: 'a', concerns: [] }] };
+    expect(visibleStageTracks([castMember, absentColleague], scenario)).toEqual([castMember]);
   });
 });
 

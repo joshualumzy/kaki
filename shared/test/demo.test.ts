@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles } from '../src/demo';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles, isHumanParticipant, isKakiListener, KAKI_LISTENER_IDENTITY } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -14,6 +14,15 @@ describe('demo meeting helpers', () => {
   });
   it('names the room after the scenario and the meeting identity', () => {
     expect(demoRoomName(testScenario, 'meeting-1')).toBe('kaki-demo-test-kitchen-meeting-1');
+  });
+
+  it('never counts the runner listener or an AI attendee as a person', () => {
+    expect(isKakiListener(KAKI_LISTENER_IDENTITY)).toBe(true);
+    expect(isKakiListener(' kaki-listener ')).toBe(true);
+    expect(isKakiListener('Ada')).toBe(false);
+    expect(isHumanParticipant(KAKI_LISTENER_IDENTITY, ['Ada'])).toBe(false);
+    expect(isHumanParticipant('Ada', ['Ada'])).toBe(false);
+    expect(isHumanParticipant('Bao', ['Ada'])).toBe(true);
   });
 
   it('offers a person only the roles no AI attendee plays', () => {

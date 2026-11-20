@@ -1,7 +1,7 @@
 // Must stay the first import: later modules read process.env as they load.
 import '../env';
 import { llmFromEnv } from '../llm';
-import { aiCast, isRunnerMeetingSnapshot, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
+import { isRunnerMeetingSnapshot, type KakiCommand, type KakiEvent, type Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
 import { loadScenario } from '../loadScenario';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,6 @@ import { createAzureStt } from './azureStt';
 import { createAzureTts } from './azureTts';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner, type NpcRunner } from './runner';
-import { waitForRunnerCast } from './bootMeeting';
 import { createMeetingSync, parsePrepareRequest, parseStartedEvent, type PrepareRequest } from './meetingSync';
 import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
@@ -52,7 +51,7 @@ const logError = (message: string): void => console.error(`[npc ${new Date().toI
 const fault = faultFromEnv(process.env.KAKI_FAULT);
 if (fault !== undefined) log(`[fault] ${fault} active`);
 
-const packScenario = await loadScenario();
+const scenario = await loadScenario();
 const kakiUrl = process.env.KAKI_URL || `http://localhost:${process.env.PORT ?? '3001'}`;
 const serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim();
 const runnerClient = createRunnerClient({
@@ -60,17 +59,8 @@ const runnerClient = createRunnerClient({
   serviceToken,
   log: logError,
 });
-// A pack can have no AI seat at all. The runner waits for the server's snapshot to name one,
-// instead of exiting and leaving a meeting that later gains an AI colleague unserved.
-const boot =
-  (packScenario.npcs ?? []).length > 0
-    ? { scenario: packScenario, snapshot: undefined }
-    : await waitForRunnerCast({
-        base: packScenario,
-        fetchState: () => runnerClient.fetchMeetingState(),
-        log,
-      });
-const scenario = boot.scenario;
+// A pack can have no AI seat at all: the runner still joins as the technical listener and hears
+// people, and AI characters follow the server's meeting snapshot as its cast changes.
 const npcs = scenario.npcs ?? [];
 
 const llm = llmFromEnv();
@@ -274,12 +264,10 @@ const vad: Partial<VadOptions> = {
 let recheckMeeting: ((reason: string) => void) | undefined;
 // The room is the meeting's, so learn its identity before joining. A server that is not up yet is
 // fine: the service channel moves the runner to the right room once it can read the snapshot.
-const initialMeeting =
-  boot.snapshot ??
-  (await runnerClient.fetchMeetingState().catch((error: unknown) => {
-    log(`could not read the meeting identity yet; the service channel will move the runner: ${String(error)}`);
-    return undefined;
-  }));
+const initialMeeting = await runnerClient.fetchMeetingState().catch((error: unknown) => {
+  log(`could not read the meeting identity yet; the service channel will move the runner: ${String(error)}`);
+  return undefined;
+});
 const runner = await startNpcRunner({
   scenario,
   livekitUrl: process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880',
@@ -644,11 +632,7 @@ const serviceChannel = createServiceChannel({
 serviceChannel.start();
 
 log(`speech recognition: ${sttMode === 'azure' ? `Azure (${process.env.NPC_STT_LOCALE || 'en-SG'})` : "the browser's"}`);
-const fixedNames = aiCast(scenario).map((npc) => npc.attendee);
-const hostFallback = npcs.find((npc) => npc.role === 'host')?.attendee ?? npcs[0]?.attendee ?? 'NPCs';
-log(
-  `ready: ${fixedNames.length > 0 ? fixedNames.join(' and ') : hostFallback} in the room; the other characters join for whoever arrives, as everyone except the role they pick. Open /demo and talk.`,
-);
+log('ready: the listener is in the room; AI characters follow the meeting cast. Open /demo and talk.');
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
