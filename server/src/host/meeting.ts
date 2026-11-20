@@ -137,6 +137,7 @@ export function createMeetingModule({
           now.agendaIndex,
           now.overrun,
           Boolean(now.paused),
+          now.paused ? now.pauseKind ?? null : null,
           openQuestions,
           status,
           quietRoles,
@@ -162,7 +163,9 @@ export function createMeetingModule({
             ),
             notetakerStatus: status,
             quietRoles,
-            ...(now.paused ? { paused: true } : {}),
+            ...(now.paused
+              ? { paused: true, ...(now.pauseKind === undefined ? {} : { pauseKind: now.pauseKind }) }
+              : {}),
           },
         };
         hub.publish(event, { retainKey: 'record' });

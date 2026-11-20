@@ -75,6 +75,8 @@ export type KakiEvent =
         quietRoles?: Role[];
         /** Optional: whether the meeting clock is currently paused by the visitor. */
         paused?: boolean;
+        /** Why the meeting is paused, so a phone's button reflects an empty-room pause too. */
+        pauseKind?: 'empty-room' | 'person';
       }
     >
   | KakiEventOf<
@@ -199,7 +201,8 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     (payload.notetakerStatus === undefined || isNotetakerStatus(payload.notetakerStatus)) &&
     (payload.quietRoles === undefined ||
       (Array.isArray(payload.quietRoles) && payload.quietRoles.every((role) => isRoleIn(scenario, role)))) &&
-    (payload.paused === undefined || typeof payload.paused === 'boolean'),
+    (payload.paused === undefined || typeof payload.paused === 'boolean') &&
+    (payload.pauseKind === undefined || payload.pauseKind === 'empty-room' || payload.pauseKind === 'person'),
   HOST_SPEECH_TRIGGERED: (payload) =>
     (payload.kind === 'OPENING' ||
       payload.kind === 'TIMEOUT' ||

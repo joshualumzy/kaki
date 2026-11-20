@@ -1403,6 +1403,7 @@ export async function createApp({
     roomPoll.start();
   };
   const closeRejoin = (): void => {
+    roomPoll.reset();
     roomPoll.close();
     rejoin.close();
   };
@@ -1586,7 +1587,10 @@ export async function createApp({
   });
   // The task store belongs to the meeting, so a reset forgets its cards too. The session clears
   // every retained key (including 'task:') after these hooks run.
-  session.onReset(() => tasks.reset());
+  session.onReset(() => {
+    tasks.reset();
+    roomPoll.reset();
+  });
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
   // Its version moves only when a field a runner can see changes, so a reconnect can fence old reads.

@@ -228,6 +228,8 @@ export interface RoomPollOptions {
 export interface RoomPoll {
   /** Start watching after the first join; repeated calls are ignored. */
   start(): void;
+  /** Forget a pending empty spell (a meeting reset or end must not leak it into the next one). */
+  reset(): void;
   close(): void;
 }
 
@@ -254,14 +256,26 @@ export function createRoomPoll({
   const nextDelay = (): number => (typeof intervalMs === 'function' ? intervalMs() : intervalMs);
 
   async function poll(): Promise<void> {
-    if (polling || closed || !hasMeeting()) return;
+    if (polling) return;
+    // A missed poll breaks the "consecutive empty reads" chain: a later one must start a fresh
+    // debounce instead of measuring the whole outage as one long empty spell.
+    if (closed || !hasMeeting()) {
+      emptySince = undefined;
+      return;
+    }
     const name = roomName();
-    if (name === undefined) return;
+    if (name === undefined) {
+      emptySince = undefined;
+      return;
+    }
     polling = true;
     try {
       const people = await roster(name);
-      // LiveKit not reachable: change nothing.
-      if (people === undefined || closed) return;
+      // LiveKit not reachable: the empty spell cannot be trusted to have continued through it.
+      if (people === undefined || closed) {
+        emptySince = undefined;
+        return;
+      }
       // The hooks are safe to call on every read: each one re-checks the clock's own state, so a
       // repeated empty or occupied observation is a no-op rather than a second transition.
       if (people.filter((person) => isHuman(person.name)).length === 0) {
@@ -275,6 +289,9 @@ export function createRoomPoll({
         // Someone is back: resume at once, without waiting for the debounce.
         onOccupied?.();
       }
+    } catch (error) {
+      emptySince = undefined;
+      throw error;
     } finally {
       polling = false;
     }
@@ -297,6 +314,9 @@ export function createRoomPoll({
     start() {
       if (timer !== undefined || closed) return;
       schedule();
+    },
+    reset() {
+      emptySince = undefined;
     },
     close() {
       closed = true;

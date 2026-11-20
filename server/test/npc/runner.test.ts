@@ -1158,6 +1158,204 @@ describe('meeting sync with the real runner', () => {
     }
   });
 
+  it('holds a typed line through a paused snapshot and answers it only after the resume snapshot', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+          }),
+        ),
+      ).toBe(true);
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Carry on please' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(transcript).not.toContain('Carry on please');
+
+      // The LiveKit resume only asks; it must not release the gate on its own.
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'resume' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(transcript).not.toContain('Carry on please');
+
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
+          }),
+        ),
+      ).toBe(true);
+      await vi.waitFor(() => expect(transcript.some((line) => line === 'Carry on please')).toBe(true));
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('drops a typed line the server never resumes in time', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      heldTypedLineTimeoutMs: 40,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+        }),
+      );
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'Too late now' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(log.some((line) => line.includes('did not resume within 40 ms'))).toBe(true));
+
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(transcript).not.toContain('Too late now');
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('drops a held typed line when the meeting changes', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+        }),
+      );
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'text', text: 'For the old meeting' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(log.some((line) => line.includes('holding a typed line'))).toBe(true));
+
+      runner.resetMeeting('meeting-2');
+      expect(log.some((line) => line.includes('dropped the typed line held for the old meeting'))).toBe(true);
+      expect(transcript).not.toContain('For the old meeting');
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('gates at once on Stop without a timeout when the snapshot already says paused', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      stopGateTimeoutMs: 40,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 2,
+        }),
+      );
+
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'stop' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(log.some((line) => line.includes('pressed stop'))).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      expect(log.some((line) => line.includes('releasing the local stop'))).toBe(false);
+    } finally {
+      await runner.stop();
+    }
+  });
+
   it('greets once when the resume snapshot arrives before the person is back in LiveKit', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');

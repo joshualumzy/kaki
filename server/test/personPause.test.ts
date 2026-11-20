@@ -147,10 +147,11 @@ describe('a person pauses the meeting over their own hub socket', () => {
       () => (clock.snapshot().paused === true && clock.snapshot().pauseKind === 'person' ? true : undefined),
       'the person pause',
     );
-    await waitFor(
-      () => screen.messages.some((event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.paused === true),
+    const pausedRecord = await waitFor(
+      () => screen.messages.find((event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.paused === true),
       'the paused record',
     );
+    expect(pausedRecord).toMatchObject({ payload: { paused: true, pauseKind: 'person' } });
     expect((await runnerState(port)).pauseKind).toBe('person');
 
     phone.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: false }));

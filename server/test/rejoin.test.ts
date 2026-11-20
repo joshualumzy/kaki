@@ -262,6 +262,137 @@ describe('room poll', () => {
     guard.close();
   });
 
+  it('restarts the empty-room debounce after a roster outage', async () => {
+    let people: Array<{ name: string }> = [{ name: 'Daniel' }];
+    let unavailable = false;
+    const emptyReads: number[] = [];
+    const guard = createRejoinGuard({ graceMs: 120_000, log: () => undefined });
+    const poll = createRoomPoll({
+      guard,
+      hasMeeting: () => true,
+      roster: async () => (unavailable ? undefined : people),
+      roomName: () => 'kopitiam',
+      isHuman: (name) => name !== 'Sam',
+      intervalMs: 1_000,
+      onEmpty: () => emptyReads.push(Date.now()),
+    });
+    poll.start();
+
+    people = [];
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(emptyReads).toEqual([]);
+
+    // LiveKit cannot be asked for an interval: the empty spell must not carry across it.
+    unavailable = true;
+    await vi.advanceTimersByTimeAsync(1_000);
+    unavailable = false;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(emptyReads).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(EMPTY_ROOM_PAUSE_MS);
+    expect(emptyReads.length).toBeGreaterThanOrEqual(1);
+    poll.close();
+    guard.close();
+  });
+
+  it('restarts the empty-room debounce after a rejected roster read', async () => {
+    let people: Array<{ name: string }> = [{ name: 'Daniel' }];
+    let broken = false;
+    const emptyReads: number[] = [];
+    const guard = createRejoinGuard({ graceMs: 120_000, log: () => undefined });
+    const poll = createRoomPoll({
+      guard,
+      hasMeeting: () => true,
+      roster: async () => {
+        if (broken) throw new Error('LiveKit is unreachable');
+        return people;
+      },
+      roomName: () => 'kopitiam',
+      isHuman: (name) => name !== 'Sam',
+      intervalMs: 1_000,
+      onEmpty: () => emptyReads.push(Date.now()),
+    });
+    poll.start();
+
+    people = [];
+    await vi.advanceTimersByTimeAsync(2_000);
+    broken = true;
+    await vi.advanceTimersByTimeAsync(1_000);
+    broken = false;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(emptyReads).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(EMPTY_ROOM_PAUSE_MS);
+    expect(emptyReads.length).toBeGreaterThanOrEqual(1);
+    poll.close();
+    guard.close();
+  });
+
+  it('restarts the empty-room debounce when the meeting or room name is missing', async () => {
+    let people: Array<{ name: string }> = [{ name: 'Daniel' }];
+    let watching = true;
+    let room: string | undefined = 'kopitiam';
+    const emptyReads: number[] = [];
+    const guard = createRejoinGuard({ graceMs: 120_000, log: () => undefined });
+    const poll = createRoomPoll({
+      guard,
+      hasMeeting: () => watching,
+      roster: async () => people,
+      roomName: () => room,
+      isHuman: (name) => name !== 'Sam',
+      intervalMs: 1_000,
+      onEmpty: () => emptyReads.push(Date.now()),
+    });
+    poll.start();
+
+    people = [];
+    await vi.advanceTimersByTimeAsync(2_000);
+    watching = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+    watching = true;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(emptyReads).toEqual([]);
+
+    // The same must hold when the room name disappears for a while.
+    room = undefined;
+    await vi.advanceTimersByTimeAsync(2_000);
+    room = 'kopitiam';
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(emptyReads).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(EMPTY_ROOM_PAUSE_MS);
+    expect(emptyReads.length).toBeGreaterThanOrEqual(1);
+    poll.close();
+    guard.close();
+  });
+
+  it('forgets the empty-room debounce when the poll is reset', async () => {
+    let people: Array<{ name: string }> = [{ name: 'Daniel' }];
+    const emptyReads: number[] = [];
+    const guard = createRejoinGuard({ graceMs: 120_000, log: () => undefined });
+    const poll = createRoomPoll({
+      guard,
+      hasMeeting: () => true,
+      roster: async () => people,
+      roomName: () => 'kopitiam',
+      isHuman: (name) => name !== 'Sam',
+      intervalMs: 1_000,
+      onEmpty: () => emptyReads.push(Date.now()),
+    });
+    poll.start();
+
+    people = [];
+    await vi.advanceTimersByTimeAsync(2_000);
+    poll.reset();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(emptyReads).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(EMPTY_ROOM_PAUSE_MS);
+    expect(emptyReads.length).toBeGreaterThanOrEqual(1);
+    poll.close();
+    guard.close();
+  });
+
   it('does nothing while there is no meeting to watch', async () => {
     const logs: string[] = [];
     const guard = createRejoinGuard({ graceMs: 120_000, log: (line) => logs.push(line) });

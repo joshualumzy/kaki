@@ -2,18 +2,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
 import { CONTROL_TOPIC, MAX_TYPED_LENGTH, NPC_STATE_TOPIC, type ControlMessage, type NpcStateMessage } from '@kaki/shared';
+import { type KakiRejection } from '../kaki';
 
 /** Often enough that the server knows keys are being pressed, rarely enough not to flood the connection. */
 const TYPING_SIGNAL_EVERY_MS = 400;
+/** Give up waiting for the server's record and fall back to it after this long. */
+const PENDING_PAUSE_TIMEOUT_MS = 5_000;
+/** How long a failed pause notice stays visible. */
+const PAUSE_NOTICE_MS = 5_000;
 
 export interface TypeBarProps {
   send(message: ControlMessage): void;
+  /** The server record's paused flag; the button never keeps its own copy. */
+  paused?: boolean;
   canLock?: boolean;
   /**
-   * The person's pause intent, sent straight to the server over the browser's own hub socket.
-   * The LiveKit `stop`/`resume` above only gates the runner's speech instantly; this owns the meeting.
+   * Ask the server to pause or resume over the browser's own hub socket. Returning false means the
+   * command never left the browser (the socket was down), so the button must revert at once.
    */
-  onPauseChange?(paused: boolean): void;
+  onPauseChange?(paused: boolean): boolean | void;
+  /** The latest command the server refused, so a refused pause can revert with a notice. */
+  pauseRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
 }
 
 /**
@@ -21,10 +30,84 @@ export interface TypeBarProps {
  * the room is too noisy to be heard, and the "typing" signal tells the server that a short sound in
  * the microphone is probably a key press, so typing does not cut an attendee off.
  */
-export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) {
+export function TypeBar({
+  send,
+  paused = false,
+  canLock = false,
+  onPauseChange,
+  pauseRejection = null,
+}: TypeBarProps) {
   const [text, setText] = useState('');
-  const [paused, setPaused] = useState(false);
+  const [pendingPaused, setPendingPaused] = useState<boolean | undefined>(undefined);
+  const [notice, setNotice] = useState<string | undefined>(undefined);
   const lastSignal = useRef(0);
+  /** The rejection already showing when this request started must not be blamed on it. */
+  const rejectionBeforeRequest = useRef<Pick<KakiRejection, 'commandType' | 'reason'> | null>(null);
+
+  const failPause = useCallback(() => {
+    setPendingPaused(undefined);
+    setNotice("Couldn't pause, try again");
+  }, []);
+
+  /** Ask the server and the runner for a pause; the server's record still owns the final state. */
+  const requestPause = useCallback(
+    (next: boolean): boolean => {
+      rejectionBeforeRequest.current = pauseRejection;
+      setNotice(undefined);
+      setPendingPaused(next);
+      // The runner stops speaking at once; the server owns the meeting's actual pause.
+      send({ kind: next ? 'stop' : 'resume' });
+      const sent = onPauseChange?.(next);
+      if (sent === false) {
+        failPause();
+        return false;
+      }
+      return true;
+    },
+    [failPause, onPauseChange, pauseRejection, send],
+  );
+
+  /** Typing resumes the meeting through the server, without pretending the runner may un-gate itself. */
+  const requestServerResume = useCallback((): boolean => {
+    rejectionBeforeRequest.current = pauseRejection;
+    setNotice(undefined);
+    setPendingPaused(false);
+    const sent = onPauseChange?.(false);
+    if (sent === false) {
+      failPause();
+      return false;
+    }
+    return true;
+  }, [failPause, onPauseChange, pauseRejection]);
+
+  // The server record is the source of truth: a matching record ends the brief pending state.
+  useEffect(() => {
+    if (pendingPaused !== undefined && paused === pendingPaused) {
+      setPendingPaused(undefined);
+      setNotice(undefined);
+    }
+  }, [paused, pendingPaused]);
+
+  // A command the server refuses reverts to the current record and explains itself.
+  useEffect(() => {
+    if (pendingPaused === undefined || pauseRejection === null) return;
+    if (pauseRejection === rejectionBeforeRequest.current) return;
+    if (pauseRejection.commandType !== 'SET_PAUSED') return;
+    failPause();
+  }, [failPause, pauseRejection, pendingPaused]);
+
+  // A record that never arrives must not leave the button stuck in its pending state.
+  useEffect(() => {
+    if (pendingPaused === undefined) return;
+    const timer = setTimeout(failPause, PENDING_PAUSE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [failPause, pendingPaused]);
+
+  useEffect(() => {
+    if (notice === undefined) return;
+    const timer = setTimeout(() => setNotice(undefined), PAUSE_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const togglePause = useCallback(() => {
     if (
@@ -33,12 +116,9 @@ export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) 
     ) {
       return;
     }
-    const next = !paused;
-    setPaused(next);
-    // The runner stops speaking at once; the server owns the meeting's actual pause.
-    send({ kind: next ? 'stop' : 'resume' });
-    onPauseChange?.(next);
-  }, [send, onPauseChange, paused]);
+    if (pendingPaused !== undefined) return;
+    void requestPause(!paused);
+  }, [pendingPaused, paused, requestPause]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -71,8 +151,7 @@ export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) 
     };
     const onQuickLine = (): void => {
       // A starter line is the person taking their turn: resume the meeting they had paused.
-      if (paused) onPauseChange?.(false);
-      setPaused(false);
+      if (paused || pendingPaused === true) void requestServerResume();
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('kaki:quick-line', onQuickLine);
@@ -80,19 +159,19 @@ export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) 
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('kaki:quick-line', onQuickLine);
     };
-  }, [togglePause]);
+  }, [pendingPaused, paused, requestServerResume, togglePause]);
 
   function submit(): void {
     const typed = text.trim();
     if (typed.length === 0) return;
     // Typing is the person taking their turn: resume the meeting they had paused.
-    if (paused) {
-      setPaused(false);
-      onPauseChange?.(false);
-    }
+    if (paused || pendingPaused === true) void requestServerResume();
     send({ kind: 'text', text: typed });
     setText('');
   }
+
+  const pending = pendingPaused !== undefined;
+  const label = pending ? (pendingPaused ? 'Pausing…' : 'Resuming…') : paused ? '▶ Play' : '⏸ Pause';
 
   return (
     <form
@@ -128,12 +207,20 @@ export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) 
         type="button"
         className="kd-stop"
         data-paused={paused}
+        data-pending={pending}
         aria-pressed={paused}
+        aria-busy={pending}
+        disabled={pending}
         onClick={togglePause}
         title={paused ? 'Play / resume the meeting (Space)' : 'Pause the meeting (Space or Esc)'}
       >
-        {paused ? '▶ Play' : '⏸ Pause'}
+        {label}
       </button>
+      {notice !== undefined && (
+        <span className="kd-typebar-notice" role="alert">
+          {notice}
+        </span>
+      )}
     </form>
   );
 }
@@ -141,10 +228,14 @@ export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) 
 /** The type bar wired to the LiveKit room it is in. */
 export function ConnectedTypeBar({
   micOnline,
+  paused,
   onPauseChange,
+  pauseRejection,
 }: {
   micOnline?: boolean;
-  onPauseChange?(paused: boolean): void;
+  paused?: boolean;
+  onPauseChange?(paused: boolean): boolean | void;
+  pauseRejection?: Pick<KakiRejection, 'commandType' | 'reason'> | null;
 }) {
   const room = useRoomContext();
   const [canLock, setCanLock] = useState(false);
@@ -183,7 +274,13 @@ export function ConnectedTypeBar({
           {micOnline ? 'Voice active' : 'Mic muted'}
         </span>
       )}
-      <TypeBar send={send} canLock={canLock} {...(onPauseChange === undefined ? {} : { onPauseChange })} />
+      <TypeBar
+        send={send}
+        canLock={canLock}
+        {...(paused === undefined ? {} : { paused })}
+        {...(onPauseChange === undefined ? {} : { onPauseChange })}
+        {...(pauseRejection === undefined ? {} : { pauseRejection })}
+      />
     </div>
   );
 }

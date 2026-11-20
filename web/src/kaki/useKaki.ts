@@ -30,7 +30,8 @@ export interface UseKakiResult {
   meetingId: string | undefined;
   /** A message from the server explaining why this feed was closed for good, if it was. */
   ended: string | undefined;
-  send(command: KakiCommand): void;
+  /** True when the command went out on an open socket; false when it was refused locally. */
+  send(command: KakiCommand): boolean;
 }
 
 /** Subscribe to the server for one audience and keep the task list up to date. */
@@ -235,15 +236,16 @@ export function useKaki(audience: 'screen' | Role | 'lifecycle'): UseKakiResult 
     };
   }, [audience, scenario]);
 
-  const send = useCallback((command: KakiCommand) => {
+  const send = useCallback((command: KakiCommand): boolean => {
     const socket = socketRef.current;
     if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
       setRejections((previous) =>
         [...previous, { commandType: command.type, reason: 'not connected' }].slice(-5),
       );
-      return;
+      return false;
     }
     socket.send(JSON.stringify(command));
+    return true;
   }, []);
 
   return {

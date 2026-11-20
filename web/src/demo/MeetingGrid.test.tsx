@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   screenEvents: [] as KakiEvent[],
   roleEvents: [] as KakiEvent[],
   screenTasks: new Map<string, Task>(),
+  typeBarProps: [] as Array<{ paused?: boolean; pauseRejection?: unknown }>,
 }));
 
 vi.mock('@livekit/components-react', () => ({
@@ -30,7 +31,12 @@ vi.mock('../kaki', () => ({
     ? { events: mocks.screenEvents, tasks: mocks.screenTasks }
     : { tasks: [], events: mocks.roleEvents },
 }));
-vi.mock('./TypeBar', () => ({ ConnectedTypeBar: () => null }));
+vi.mock('./TypeBar', () => ({
+  ConnectedTypeBar: (props: { paused?: boolean; pauseRejection?: unknown }) => {
+    mocks.typeBarProps.push(props);
+    return null;
+  },
+}));
 vi.mock('./Orb', () => ({ Orb: () => null, orbPalette: () => ['--c'] }));
 
 type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
@@ -38,6 +44,7 @@ type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
 function record(
   agendaIndex: number,
   openQuestions: RecordEvent['payload']['openQuestions'] = [],
+  extra: Partial<RecordEvent['payload']> = {},
 ): KakiEvent {
   return {
     type: 'MEETING_RECORD_UPDATED',
@@ -45,6 +52,7 @@ function record(
     payload: {
       agendaIndex, openQuestions, elapsedSeconds: 0, speakerTalkSeconds: {},
       notetakerStatus: 'ok', quietRoles: [],
+      ...extra,
     },
   };
 }
@@ -72,6 +80,7 @@ function fact(agendaIndex: number, text: string): KakiEvent {
 
 beforeEach(() => {
   mocks.screenTasks.clear();
+  mocks.typeBarProps.splice(0, mocks.typeBarProps.length);
   mocks.roleEvents.splice(0, mocks.roleEvents.length);
   mocks.screenEvents.splice(0, mocks.screenEvents.length,
     line('Sam', 'What is your decision?'),
@@ -248,5 +257,23 @@ describe('phone stage ordering and settled topic', () => {
     });
     render(<MeetingGrid role="chef" />);
     expect(screen.queryByRole('region', { name: /Your turn and starter questions/ })).toBeNull();
+  });
+});
+
+describe('pause button state', () => {
+  it('follows the latest server record, including an empty-room pause', () => {
+    mocks.screenEvents = [
+      record(0, [], { paused: true, pauseKind: 'empty-room' }),
+      line('Sam', 'Take a minute.'),
+    ];
+    const view = render(<MeetingGrid role="chef" />);
+    expect(mocks.typeBarProps.at(-1)?.paused).toBe(true);
+
+    mocks.screenEvents = [
+      record(0),
+      line('Sam', 'Carry on.'),
+    ];
+    view.rerender(<MeetingGrid role="chef" />);
+    expect(mocks.typeBarProps.at(-1)?.paused).toBe(false);
   });
 });

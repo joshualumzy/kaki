@@ -295,15 +295,14 @@ describe('the server owns the empty-room pause', () => {
       () => (clock.snapshot().pauseKind === 'empty-room' ? true : undefined),
       'the empty-room pause',
     );
-    await waitFor(
+    const pausedRecord = await waitFor(
       () =>
         screen.messages
           .slice(beforePause)
-          .some((event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.paused === true)
-          ? true
-          : undefined,
+          .find((event) => event.type === 'MEETING_RECORD_UPDATED' && event.payload.paused === true),
       'the paused record',
     );
+    expect(pausedRecord).toMatchObject({ payload: { paused: true, pauseKind: 'empty-room' } });
 
     const beforeResume = screen.messages.length;
     people = [{ name: 'Guest' }];

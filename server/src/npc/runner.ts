@@ -57,6 +57,12 @@ const GUARD_TAIL_MS = 1400;
  */
 const STOP_GATE_TIMEOUT_MS = 5_000;
 
+/**
+ * The longest a typed line waits for the server to confirm the meeting resumed. The browser asks
+ * the server to resume before sending the text; the runner holds it until a snapshot says running.
+ */
+const HELD_TYPED_LINE_TIMEOUT_MS = 10_000;
+
 /** True when two snapshots came from the same server incarnation at the same sequence. */
 function sameVersion(a: RunnerSnapshotVersion, b: RunnerSnapshotVersion): boolean {
   return sameRunnerEpoch(a.epoch, b.epoch) && a.seq === b.seq;
@@ -97,6 +103,8 @@ export interface RunnerOptions {
   onEndMeeting?: () => void;
   /** How long a person's local Stop may outrank the server snapshot (default 5000 ms, safety only). */
   stopGateTimeoutMs?: number;
+  /** How long a typed line waits for the server to resume before it is dropped (default 10000 ms). */
+  heldTypedLineTimeoutMs?: number;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -437,6 +445,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** The safety timeout that releases a Stop the server never confirmed. */
   let stopGateTimer: ReturnType<typeof setTimeout> | undefined;
   /**
+   * A typed line that arrived before the server's resume snapshot: it is answered once the meeting
+   * is running again, and dropped if that never comes or the meeting moves on first.
+   */
+  let heldTypedLine: { text: string; meetingId: string | undefined; timer: ReturnType<typeof setTimeout> } | undefined;
+  /**
    * A server snapshot showed the empty-room pause ending after a person returned (or is about to
    * return); their one welcome-back line waits here until the cast and playback are ready for it.
    */
@@ -612,6 +625,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     startResumed = false;
     pausedLocally = false;
     clearStopGate();
+    dropHeldTypedLine('dropped the typed line held for the old meeting');
     greetReturnPending = false;
     endedTerminal = false;
     memory.reset();
@@ -670,10 +684,50 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     greetReturnPending = true;
   }
 
+  /** Forget a held typed line, saying why when it was dropped rather than answered. */
+  function dropHeldTypedLine(reason?: string): void {
+    if (heldTypedLine === undefined) return;
+    clearTimeout(heldTypedLine.timer);
+    heldTypedLine = undefined;
+    if (reason !== undefined) log(reason);
+  }
+
+  /** Keep the line until the server's next snapshot says the meeting is running again. */
+  function holdTypedLine(text: string): void {
+    dropHeldTypedLine('replaced a typed line that was still waiting for the meeting to resume');
+    const timeoutMs = options.heldTypedLineTimeoutMs ?? HELD_TYPED_LINE_TIMEOUT_MS;
+    const timer = setTimeout(() => {
+      if (heldTypedLine === undefined) return;
+      heldTypedLine = undefined;
+      log(`dropped a typed line: the meeting did not resume within ${timeoutMs} ms`);
+    }, timeoutMs);
+    timer.unref?.();
+    heldTypedLine = { text, meetingId: meeting.meetingId(), timer };
+    log('holding a typed line until the server says the meeting is running again');
+  }
+
+  /** Answer a held line once the meeting is open again, never before. */
+  function flushHeldTypedLine(): void {
+    if (heldTypedLine === undefined || !meetingOpen()) return;
+    const held = heldTypedLine;
+    if (held.meetingId !== meeting.meetingId()) {
+      dropHeldTypedLine('dropped a held typed line: the meeting changed before it resumed');
+      return;
+    }
+    clearTimeout(held.timer);
+    heldTypedLine = undefined;
+    typingUntil = Date.now() + TYPING_QUIET_MS;
+    conversation?.humanTyped(held.text);
+    log('answered the typed line held during the pause');
+  }
+
   /** Apply a pause locally, without asking the server. */
   function applyLocalPause(next: boolean): void {
     if (pausedLocally === next) {
-      if (!next) greetReturn();
+      if (!next) {
+        greetReturn();
+        flushHeldTypedLine();
+      }
       return;
     }
     pausedLocally = next;
@@ -695,28 +749,39 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           ? 'Welcome back.'
           : `Welcome back — we were on ${spokenAgendaName(meeting.scenario(), title)}.`;
       conversation.resumeAfterRejoin(hostName, line);
+      flushHeldTypedLine();
       return;
     }
     // A greeting that no longer belongs to a running AI-hosted meeting is dropped; one waiting
     // for a person to reappear in LiveKit stays pending.
     if (greetReturnPending && !meeting.started()) greetReturnPending = false;
     conversation?.resumeFromPause();
+    flushHeldTypedLine();
   }
 
   /**
    * A person pressed Stop. Stop the speech now and hold the local pause until a server snapshot
    * newer than the one held right now arrives. The person's browser sends the real pause straight
-   * to the server; the runner never forwards it.
+   * to the server; the runner never forwards it. When the snapshot already says paused, there is
+   * nothing newer to wait for, so no safety timeout is armed.
    */
   function holdLocalStop(): void {
+    if (meeting.paused() === true) {
+      clearStopGate();
+      applyLocalPause(true);
+      return;
+    }
     holdStopGate();
     applyLocalPause(true);
   }
 
-  /** A person pressed Resume: release the gate at once; the server snapshot still owns the truth. */
+  /**
+   * A person pressed Resume. This only asks the server to resume: the runner starts speaking again
+   * when a snapshot says the meeting is running, so a Resume whose command never reached the
+   * server cannot reopen a paused meeting locally.
+   */
   function releaseLocalStop(): void {
-    clearStopGate();
-    applyLocalPause(false);
+    log('the LiveKit resume only asks; waiting for a server snapshot that says the meeting is running');
   }
 
   /** Remember where the runner was when a Stop arrived, and arm the safety release. */
@@ -861,6 +926,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       pausedLocally = true;
       endedTerminal = true;
       clearStopGate();
+      dropHeldTypedLine('dropped the typed line held before the meeting ended');
       greetReturnPending = false;
       prepared = undefined;
       talking.clear();
@@ -1067,9 +1133,13 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       } else if (!openedLocally && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {
-        if (pausedLocally) releaseLocalStop();
         typingUntil = Date.now() + TYPING_QUIET_MS;
-        if (message.kind === 'text') conversation?.humanTyped(message.text);
+        if (message.kind === 'text') {
+          // Typing does not resume the meeting by itself: the browser asks the server, and this
+          // line waits for the snapshot that proves it resumed.
+          if (meetingOpen()) conversation?.humanTyped(message.text);
+          else holdTypedLine(message.text);
+        }
       }
       return;
     }
