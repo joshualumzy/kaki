@@ -20,12 +20,15 @@ export function Dock({
   meetingCode,
   started = false,
   sharedAudience = 'screen',
+  practice = false,
 }: {
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
   meetingCode?: string;
   started?: boolean;
   sharedAudience?: 'screen' | 'participant';
+  /** A practice meeting keeps the pack's host story; a team meeting briefs on its own plan. */
+  practice?: boolean;
 }) {
   const scenario = useScenario();
   const [briefingOpen, setBriefingOpen] = useState(!started);
@@ -78,6 +81,7 @@ export function Dock({
             isHost={role?.facilitator === true}
             started={started}
             sharedAudience={sharedAudience}
+            practice={practice}
           />
         </ErrorBoundary>
       </div>

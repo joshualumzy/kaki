@@ -815,3 +815,57 @@ describe('MeetingPanel', () => {
     expect(screen.queryByText('Open meeting minutes in Wiki ↗')).toBeNull();
   });
 });
+
+describe('the host briefing', () => {
+  const packStory = "It's 7 AM on opening day and the shutters are about to go up.";
+  const packDecision = 'Do we open on time with the old till?';
+
+  function hostScenario(): Scenario {
+    return {
+      ...scenario,
+      meetingTitle: 'Team playtest meeting',
+      hostBrief: { goal: packStory, decision: packDecision },
+      npcs: [
+        {
+          attendee: 'Wei Ling',
+          voice: 'v',
+          personality: 'Warm.',
+          agenda: 'Wei Ling wants the kiosks ready before doors open.',
+          concerns: [],
+          role: 'host',
+        },
+      ],
+    };
+  }
+
+  function renderHost(practice: boolean): void {
+    mocks.useScenario.mockReturnValue(hostScenario());
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Owner', seatName: 'Owner' }} isHost practice={practice} />);
+  }
+
+  it('briefs a team meeting on its own title, people and agenda, never the pack story', () => {
+    renderHost(false);
+
+    const brief = within(screen.getByLabelText('Your briefing as host'));
+    expect(screen.getByText('You are hosting · Team playtest meeting')).toBeTruthy();
+    expect(brief.getByText(/Wei Ling · Operations Director/)).toBeTruthy();
+    expect(brief.getByText(/Elderly regulars turned away at cashless kiosks/)).toBeTruthy();
+    expect(screen.queryByText(packStory)).toBeNull();
+    expect(screen.queryByText(packDecision)).toBeNull();
+    expect(screen.queryByText(/kiosks ready before doors open/)).toBeNull();
+  });
+
+  it('keeps the pack story for a practice meeting', () => {
+    renderHost(true);
+
+    expect(screen.getByText(packStory)).toBeTruthy();
+    expect(screen.getByText(packDecision)).toBeTruthy();
+  });
+});

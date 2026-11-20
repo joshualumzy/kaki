@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, pruneAgendaReferences, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, parseScenario, pruneAgendaReferences, resolveAgendaPick, seatProblem, setMeetingAgenda, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -435,6 +435,19 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
     } catch {
       // Best-effort profile sync when visitor joins.
     }
+  }
+}
+
+/**
+ * Hand a scenario to a browser only if it parses. An invalid one is a server bug, never a dead
+ * end: log it loudly and serve the fallback, which is always valid and lets the owner reach setup.
+ */
+function servableScenario(scenario: Scenario, fallback: Scenario, label: string): Scenario {
+  try {
+    return parseScenario(scenario);
+  } catch (error) {
+    console.error(`kaki scenario: ${label} is invalid; serving the demo pack instead`, error);
+    return fallback;
   }
 }
 
@@ -1140,7 +1153,7 @@ async function handleRequest(
           : phase === 'running'
             ? context.session.active()
             : context.seating().scenario;
-      sendJson(response, 200, active);
+      sendJson(response, 200, servableScenario(active, context.fullScenario, 'the runner scenario'));
       return;
     }
 
@@ -1162,7 +1175,11 @@ async function handleRequest(
           : context.auth === undefined
             ? context.visibleScenario(principal.kind === 'service')
             : principal.kind === 'host' || principal.kind === 'service'
-              ? context.visibleScenario(principal.kind === 'service')
+              ? context.session.phase() === 'ended' && context.session.reviewingEndedTeamMeeting()
+                ? // The owner is still reviewing the meeting that just ran: show that meeting, never
+                  // the next meeting's draft or the pack it was never built from.
+                  context.session.active()
+                : context.visibleScenario(principal.kind === 'service')
               : context.session.kind() === 'practice'
                 ? context.session.active()
                 : context.session.phase() === 'running' || context.session.phase() === 'starting'
@@ -1182,7 +1199,7 @@ async function handleRequest(
         context.auth === undefined || principal.kind === 'service'
           ? active
           : projectScenario(active, seat);
-      sendJson(response, 200, visible);
+      sendJson(response, 200, servableScenario(visible, context.fullScenario, 'the meeting scenario'));
       return;
     }
 
@@ -1799,17 +1816,9 @@ export async function createApp({
     if (sealed === undefined) {
       return meetingScenario({ agenda: savedLobbyAgenda ?? fullScenario.agenda });
     }
-    // An ended meeting is history: its cast is gone, so the next arrival sees the pack's open seats.
-    if (savedMeeting?.phase === 'ended') {
-      return meetingScenario({
-        meetingTitle: sealed.title,
-        roles: restoredRoles ?? fullScenario.roles,
-        npcs: setupAiCast(fullScenario, sealed),
-        agenda: meetingAgendaFromSetup(sealed, fullScenario, sealed.agenda.map((item) => item.title)),
-        allowPlain: true,
-      });
-    }
-    // A running meeting keeps exactly the people its sealed seats put in the room.
+    // A running meeting and an ended one still under review both keep exactly the plan they ran:
+    // its own title, roles, attendees, agenda and cast. The pack only supplies content attached to
+    // a matching topic or character, never a second set of roles, seats or people.
     return meetingScenarioFromSetup(fullScenario, sealed, {
       agendaOrder: sealed.agenda.map((item) => item.title),
     });

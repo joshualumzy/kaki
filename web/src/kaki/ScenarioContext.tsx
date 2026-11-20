@@ -173,7 +173,11 @@ export function ScenarioProvider({
           <p className="connection-banner" role="alert">
             {state.message}
           </p>
-          <Button onClick={start}>Try again</Button>
+          <div className="setup-tool-actions">
+            <Button onClick={start}>Try again</Button>
+            {/* A signed-in owner can always fix the plan from setup, even when the meeting scenario is unreadable. */}
+            <a href="/setup">Go to setup</a>
+          </div>
         </Card>
       </main>
     );

@@ -399,6 +399,7 @@ export default function Meeting({
         role={seatRole}
         sharedAudience={variant === 'participant' ? 'participant' : 'screen'}
         started={!needsStart}
+        practice={practice}
         viewer={{
           name: session.name,
           seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.zoomDisplayName,
