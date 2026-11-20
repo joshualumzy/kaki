@@ -1,6 +1,7 @@
 import {
   demoPackNpcProfileIds,
   deriveMeetingScenario,
+  isBlankMeetingDraft,
   isRoleIn,
   isTask,
   normalizeMeetingCode,
@@ -257,7 +258,8 @@ function clockProblem(value: unknown, agendaLength: number): string | undefined 
 }
 
 /** Name the first field `parseMeetingSetup` rejects, so the owner knows what to fix or reset. */
-function setupProblem(value: unknown, scenario: Scenario): string | undefined {
+function setupProblem(value: unknown, scenario: Scenario, allowBlank = false): string | undefined {
+  if (allowBlank && isBlankMeetingDraft(value)) return undefined;
   const parsed = parseMeetingSetup(value, { npcProfileIds: demoPackNpcProfileIds(scenario) });
   if (parsed.ok) return undefined;
   const first = parsed.errors[0];
@@ -316,7 +318,8 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   if (phase !== undefined) return phase;
   const kind = (saved as { kind?: unknown }).kind;
   if (kind !== undefined && kind !== 'real' && kind !== 'practice') return 'its meeting kind is not valid';
-  const draft = setupProblem((saved as { draft?: unknown }).draft, scenario);
+  const blankDraft = isBlankMeetingDraft((saved as { draft?: unknown }).draft);
+  const draft = setupProblem((saved as { draft?: unknown }).draft, scenario, blankDraft);
   if (draft !== undefined) return `its draft ${draft}`;
   if (typeof saved.draftTouched !== 'boolean') return 'its setup edit mark is not valid';
   if (saved.draftEditedSinceSeal !== undefined && typeof saved.draftEditedSinceSeal !== 'boolean') {
@@ -362,7 +365,8 @@ export function savedMeetingProblem(saved: StoredMeeting, scenario: Scenario): s
   const state = saved.state as unknown;
   if (!isObject(state)) return 'its meeting state is missing';
   const agendaTitles = savedAgendaTitles(saved);
-  const clock = clockProblem(state.clock, agendaTitles.length);
+  // A blank plan has no agenda yet; its clock still rests at the first item.
+  const clock = clockProblem(state.clock, agendaTitles.length === 0 && blankDraft ? 1 : agendaTitles.length);
   if (clock !== undefined) return clock;
   // A started meeting boots from the scenario its sealed setup describes, so refuse one that cannot
   // run with the same friendly message instead of crashing while the boot scenario is validated.
@@ -404,7 +408,11 @@ function unreadableSavedMeeting(problem: string): Error {
  * friendly saved-meeting message, not an exception from building roles out of broken data.
  */
 export function assertReadableSavedSetup(saved: StoredMeeting, scenario: Scenario): void {
-  const draft = setupProblem((saved as { draft?: unknown }).draft, scenario);
+  const draft = setupProblem(
+    (saved as { draft?: unknown }).draft,
+    scenario,
+    isBlankMeetingDraft((saved as { draft?: unknown }).draft),
+  );
   if (draft !== undefined) throw unreadableSavedMeeting(`its draft ${draft}`);
   if (typeof saved.draftTouched !== 'boolean') {
     throw unreadableSavedMeeting('its setup edit mark is not valid');

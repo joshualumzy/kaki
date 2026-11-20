@@ -113,6 +113,17 @@ export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
   return parseSetupResponse(await readJson(response), 'Could not save the setup.');
 }
 
+export async function startBlankSetup(): Promise<SetupResponse> {
+  let response: Response;
+  try {
+    response = await fetchWithTimeout('/api/setup/blank', { method: 'POST' });
+  } catch {
+    throw networkFailure('start a blank meeting');
+  }
+  if (!response.ok) throw await failure(response, 'Could not start a blank meeting');
+  return parseSetupResponse(await readJson(response), 'Could not start a blank meeting.');
+}
+
 export async function loadTools(): Promise<ToolStatus[]> {
   let response: Response;
   try {

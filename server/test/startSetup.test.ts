@@ -6,6 +6,7 @@ import {
   DEFAULT_MEETING_PACE,
   defaultMeetingSetup,
   humanRoles,
+  isPackFreeMeeting,
   KOPITIAM_INVITE_UID,
   meetingScenarioFromSetup,
   parseScenario,
@@ -194,6 +195,10 @@ function putSetup(app: KakiApp, setup: MeetingSetup): Promise<Response> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(setup),
   });
+}
+
+function startBlankSetup(app: KakiApp): Promise<Response> {
+  return fetch(`http://127.0.0.1:${portOf(app)}/api/setup/blank`, { method: 'POST' });
 }
 
 async function getScenario(app: KakiApp): Promise<Scenario> {
@@ -1146,6 +1151,99 @@ describe('Start applies the validated setup', () => {
     expect(started.status).toBe(200);
     expect(await started.json()).toEqual(expect.objectContaining({ started: true }));
     expect((await getScenario(app)).npcs ?? []).toEqual([]);
+  });
+
+  it('starts a team meeting filled in from a blank plan, with no demo-pack facts', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack);
+
+    const blankResponse = await startBlankSetup(app);
+    expect(blankResponse.status).toBe(200);
+    const blank = ((await blankResponse.json()) as { setup: MeetingSetup }).setup;
+    expect(blank).toEqual({
+      title: '',
+      agenda: [],
+      roles: [],
+      seats: [],
+      pace: DEFAULT_MEETING_PACE,
+      source: {
+        title: 'typed',
+        agenda: 'typed',
+        roles: 'typed',
+        seats: 'typed',
+        pace: 'typed',
+      },
+    });
+    expect(await getSetup(app)).toEqual(blank);
+
+    const filled: MeetingSetup = {
+      ...blank,
+      title: 'Floor planning',
+      roles: [{ id: 'chair', label: 'Chair', facilitator: true }],
+      agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 5, ownerRoleId: 'chair' }],
+      seats: [{ displayName: 'Alice', roleId: 'chair', kind: 'person' }],
+    };
+    expect((await putSetup(app, filled)).status).toBe(200);
+    expect(isPackFreeMeeting(filled, pack)).toBe(true);
+
+    expect((await join(app, 'Alice', 'chair')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+    const active = await getScenario(app);
+    expect(active.npcs ?? []).toEqual([]);
+    expect(active.roles.map((role) => role.id)).toContain('chair');
+  });
+
+  it('imports the Kopitiam template with person seats for a team meeting', async () => {
+    const pack = await loadScenario('kopitiam');
+    const calendar: CalendarSettings = { caldavUrl: 'http://cal.test', viewBaseUrl: 'http://kaki.test' };
+    const invite = buildMeetingInviteIcs(
+      {
+        uid: KOPITIAM_INVITE_UID,
+        title: 'Kopitiam launch',
+        agenda: [{ title: 'Launch checklist', minutes: 5, owner: 'Wei Ling' }],
+        people: ['Wei Ling', 'Mei'],
+      },
+      { start: '2026-11-11 07:30', end: '2026-11-11 08:00' },
+    );
+    const app = await startApp(pack, {
+      calendar,
+      calendarFetch: vi.fn<typeof fetch>(async () => new Response(invite)),
+    });
+
+    const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/setup/import-calendar`, {
+      method: 'POST',
+    });
+    expect(response.status).toBe(200);
+    const setup = ((await response.json()) as { setup: MeetingSetup }).setup;
+    expect(setup.seats.map((seat) => seat.displayName)).toEqual(['Wei Ling', 'Mei']);
+    expect(setup.seats.every((seat) => seat.kind === 'person')).toBe(true);
+    expect(setup.seats.some((seat) => seat.npcProfileId !== undefined)).toBe(false);
+  });
+
+  it('keeps a saved blank plan readable after a restart', async () => {
+    const pack = await loadScenario('kopitiam');
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(pack, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: firstPersistence,
+    });
+    expect((await startBlankSetup(first)).status).toBe(200);
+    await firstPersistence.flush();
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(pack, {
+      modules: [createMeetingModule({ notetakerIntervalMs: 60_000 })],
+      persistence: createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    });
+    const setup = await getSetup(restored);
+    expect(setup.title).toBe('');
+    expect(setup.agenda).toEqual([]);
+    expect(setup.roles).toEqual([]);
+    expect(setup.seats).toEqual([]);
+    expect((await getScenario(restored)).joinSeats).toEqual([]);
   });
 
   it('treats an edited draft a meeting ended with as consumed after a restart', async () => {

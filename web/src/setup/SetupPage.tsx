@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { demoPackNpcProfileIds, parseMeetingSetup, type MeetingSetup, type SetupFieldError } from '@kaki/shared';
+import {
+  demoPackNpcProfileIds,
+  isBlankMeetingDraft,
+  parseMeetingSetup,
+  type MeetingSetup,
+  type SetupFieldError,
+} from '@kaki/shared';
 import { useMe } from '../auth/useMe';
 import { useScenario } from '../kaki';
 import { Button, Card } from '../ui';
@@ -12,6 +18,7 @@ import {
   importKopitiamDemo,
   loadSetup,
   openMeeting,
+  startBlankSetup,
 } from './api';
 import { SetupDraft } from './SetupDraft';
 import { SetupEditor } from './SetupEditor';
@@ -64,6 +71,10 @@ export function SetupPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [importing, setImporting] = useState(false);
   const [importProblem, setImportProblem] = useState<ImportProblem | null>(null);
+  const [startingBlank, setStartingBlank] = useState(false);
+  const [confirmBlank, setConfirmBlank] = useState(false);
+  const [blankProblem, setBlankProblem] = useState<string | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,12 +108,16 @@ export function SetupPage() {
   const canEdit =
     authReady && (auth.me.authEnabled === false || (auth.me.authEnabled === true && auth.me.kind === 'host'));
   const signedOut = authReady && auth.me.authEnabled === true && auth.me.kind === null;
-  const setupValid = useMemo(
+  const setupCheck = useMemo(
     () =>
-      state.status === 'ready' &&
-      parseMeetingSetup(state.setup, { npcProfileIds: demoPackNpcProfileIds(scenario) }).ok,
+      state.status === 'ready'
+        ? parseMeetingSetup(state.setup, { npcProfileIds: demoPackNpcProfileIds(scenario) })
+        : undefined,
     [state, scenario],
   );
+  const setupValid = setupCheck?.ok === true;
+  const setupProblems = setupCheck?.ok === false ? setupCheck.errors : [];
+  const notifyDirty = useCallback((dirty: boolean) => setDraftDirty(dirty), []);
 
   async function openRoom(): Promise<void> {
     if (actionBusy) return;
@@ -153,6 +168,36 @@ export function SetupPage() {
     } finally {
       setActionBusy(false);
     }
+  }
+
+  async function applyBlank(): Promise<void> {
+    if (startingBlank) return;
+    setStartingBlank(true);
+    setBlankProblem(null);
+    try {
+      const result = await startBlankSetup();
+      setState({ status: 'ready', setup: result.setup, started: result.started });
+      setConfirmBlank(false);
+      setDraftDirty(false);
+    } catch (error) {
+      setBlankProblem(
+        error instanceof Error ? error.message : 'Could not start a blank meeting.',
+      );
+    } finally {
+      setStartingBlank(false);
+    }
+  }
+
+  function startBlank(): void {
+    if (startingBlank) return;
+    setBlankProblem(null);
+    const hasEdits =
+      draftDirty || (state.status === 'ready' && !isBlankMeetingDraft(state.setup));
+    if (hasEdits) {
+      setConfirmBlank(true);
+      return;
+    }
+    void applyBlank();
   }
 
   async function loadDemo(): Promise<void> {
@@ -210,9 +255,14 @@ export function SetupPage() {
             </p>
           ) : null}
           {!setupValid ? (
-            <p className="setup-note" role="status">
-              Fix the setup errors before opening the room.
-            </p>
+            <div className="setup-note" role="status">
+              <p>Before you can open the room:</p>
+              <ul className="setup-requirements">
+                {setupProblems.map((problem) => (
+                  <li key={`${problem.field}-${problem.message}`}>{problem.message}</li>
+                ))}
+              </ul>
+            </div>
           ) : null}
           {openProblem === null ? null : (
             <div className="connection-banner setup-alert" role="alert">
@@ -273,24 +323,59 @@ export function SetupPage() {
       {state.status === 'ready' ? (
         <>
           {canEdit ? (
-            <section className="card setup-import" aria-label="Load Kopitiam demo">
-              <div className="setup-import-row">
-                <div>
-                  <h2 className="card-title">Start from the Kopitiam demo</h2>
-                  <p className="setup-note">
-                    Reads the practice calendar invite, then fills roles and AI stand-ins from the demo pack.
-                  </p>
-                </div>
-                <Button onClick={() => void loadDemo()} disabled={importing || state.started}>
-                  {importing ? 'Loading demo…' : 'Load Kopitiam demo'}
+            <section className="setup-start-options" aria-label="Choose a starting point">
+              <div className="card setup-start-card">
+                <h2 className="card-title">Start a blank meeting</h2>
+                <p className="setup-note">
+                  A title and default nudge pace, with no agenda, roles or seats yet. Add them as you
+                  plan.
+                </p>
+                <Button
+                  onClick={startBlank}
+                  disabled={startingBlank || state.started}
+                >
+                  {startingBlank ? 'Starting blank…' : 'Start a blank meeting'}
                 </Button>
+                {confirmBlank ? (
+                  <div className="connection-banner setup-alert" role="alert">
+                    <p>Starting a blank meeting replaces the current plan and its edits.</p>
+                    <div className="setup-tool-actions">
+                      <Button onClick={() => void applyBlank()} disabled={startingBlank}>
+                        {startingBlank ? 'Replacing…' : 'Replace with a blank plan'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setConfirmBlank(false)}
+                        disabled={startingBlank}
+                      >
+                        Keep this plan
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {blankProblem === null ? null : (
+                  <div className="connection-banner setup-alert" role="alert">
+                    <p>{blankProblem}</p>
+                  </div>
+                )}
               </div>
-              {importProblem === null ? null : (
-                <div className="connection-banner setup-alert" role="alert">
-                  <p>{importProblem.message}</p>
-                  <FieldProblems errors={importProblem.fieldErrors} />
-                </div>
-              )}
+
+              <div className="card setup-start-card">
+                <h2 className="card-title">Use the Kopitiam template</h2>
+                <p className="setup-note">
+                  Reads the practice calendar invite, then fills roles and seats from the demo pack.
+                  Every seat starts as a person; you can switch a seat to an AI stand-in.
+                </p>
+                <Button onClick={() => void loadDemo()} disabled={importing || state.started}>
+                  {importing ? 'Loading template…' : 'Use the Kopitiam template'}
+                </Button>
+                {importProblem === null ? null : (
+                  <div className="connection-banner setup-alert" role="alert">
+                    <p>{importProblem.message}</p>
+                    <FieldProblems errors={importProblem.fieldErrors} />
+                  </div>
+                )}
+              </div>
             </section>
           ) : null}
 
@@ -299,6 +384,7 @@ export function SetupPage() {
               setup={state.setup}
               scenario={scenario}
               onSaved={(setup) => setState({ status: 'ready', setup, started: false })}
+              onDirtyChange={notifyDirty}
             />
           ) : (
             <SetupDraft setup={state.setup} />

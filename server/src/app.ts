@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingAgendaFromSetup, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -301,6 +301,7 @@ function buildRouteTable({ auth }: { auth: Auth | undefined }): Route[] {
     { method: 'GET', path: '/api/setup/tools', access: 'host' },
     { method: 'POST', path: '/api/setup/tools/:kind/test', access: 'host' },
     { method: 'PUT', path: '/api/setup', access: 'host' },
+    { method: 'POST', path: '/api/setup/blank', access: 'host' },
     { method: 'POST', path: '/api/setup/import-calendar', access: 'host' },
     { method: 'GET', path: '/api/join-info', access: 'public' },
     { method: 'POST', path: '/api/runner/emit', access: 'service' },
@@ -1106,6 +1107,22 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === 'POST' && path === '/api/setup/blank') {
+      // Only the meeting owner edits setup; everyone else gets the read-only join view.
+      const lock = context.setupLocked();
+      if (lock !== undefined) {
+        sendSetupLocked(response, lock);
+        return;
+      }
+      const setup = blankMeetingSetup();
+      // An ended meeting keeps its seal for saving; this blank plan is the next meeting's draft.
+      context.session.setDraft(setup);
+      context.runnerStateChanged();
+      context.scheduleSave();
+      sendJson(response, 200, { setup, started: false });
+      return;
+    }
+
     if (request.method === 'PUT' && path === '/api/setup') {
       // Only the meeting owner edits setup; everyone else gets the read-only join view.
       const lock = context.setupLocked();
@@ -1231,7 +1248,9 @@ async function handleRequest(
           });
           return;
         }
-        seats.push({ ...seat, displayName });
+        // A team meeting is chaired by its owner and Kaki stays silent, so every imported seat
+        // starts as a person; the owner can still switch an individual seat to an AI stand-in.
+        seats.push({ displayName, roleId: seat.roleId, kind: 'person' });
       });
 
       if (problems.length > 0) {
@@ -2577,21 +2596,6 @@ export async function createApp({
             status: 409,
             body: {
               error: `This meeting's setup has no place for ${role?.label ?? packRole?.label ?? stranded.seat}; the owner set the seats.`,
-            },
-          };
-        }
-        const roleIds = new Set(sealed.roles.map((role) => role.id));
-        const missingRoles = fullScenario.attendees
-          .filter((attendee) => !roleIds.has(attendee.role))
-          .map((attendee) => attendee.role);
-        if (missingRoles.length > 0) {
-          return {
-            status: 422,
-            body: {
-              error: 'The meeting setup is not valid, so the meeting was not started. Fix the setup and try again.',
-              errors: [
-                { field: 'roles', message: `Every seat's role must remain: ${[...new Set(missingRoles)].join(', ')}.` },
-              ],
             },
           };
         }

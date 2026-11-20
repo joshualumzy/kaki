@@ -134,6 +134,33 @@
   flex: 1 1 16rem;
 }
 
+.setup-start-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--space-4);
+}
+
+.setup-start-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.setup-start-card .card-title {
+  margin: 0;
+}
+
+.setup-start-card .btn {
+  margin-top: auto;
+}
+
+.setup-requirements {
+  margin: var(--space-1) 0 0;
+  padding-left: 1.2rem;
+  font-weight: 500;
+}
+
 .setup-alert {
   margin-top: var(--space-3);
 }

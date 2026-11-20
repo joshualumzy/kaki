@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   demoPackNpcProfileForRole,
   demoPackNpcProfileForSeat,
@@ -70,10 +70,12 @@ export function SetupEditor({
   setup,
   scenario,
   onSaved,
+  onDirtyChange,
 }: {
   setup: MeetingSetup;
   scenario: Scenario;
   onSaved: (setup: MeetingSetup) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<MeetingSetup>(setup);
   const [errors, setErrors] = useState<SetupFieldError[]>([]);
@@ -93,6 +95,10 @@ export function SetupEditor({
   }
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(setup);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   function changeTitle(title: string): void {
     setDraft((current) => ({
@@ -215,6 +221,22 @@ export function SetupEditor({
           : { ...seat, roleId, npcProfileId: profile };
       });
       return { ...current, seats, source: { ...current.source, seats: 'typed' } };
+    });
+  }
+
+  function addSeat(): void {
+    setDraft((current) => {
+      const taken = new Set(current.seats.map((seat) => seat.displayName));
+      const base = current.roles[0]?.label ?? 'New seat';
+      const displayName = uniqueLabel(base, taken);
+      return {
+        ...current,
+        seats: [
+          ...current.seats,
+          { displayName, roleId: current.roles[0]?.id ?? '', kind: 'person' as const },
+        ],
+        source: { ...current.source, seats: 'typed' },
+      };
     });
   }
 
@@ -504,6 +526,11 @@ export function SetupEditor({
             );
           })}
         </ul>
+        <div className="setup-tool-actions">
+          <Button variant="ghost" onClick={addSeat}>
+            Add seat
+          </Button>
+        </div>
       </EditorSection>
 
       <EditorSection title="Nudge timings" source={draft.source.pace}>

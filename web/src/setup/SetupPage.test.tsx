@@ -79,12 +79,31 @@ const importedDraft: MeetingSetup = {
   ...draft,
   title: 'Kopitiam launch',
   agenda: [{ id: 'agenda-1', title: 'Launch checklist', minutes: 8, ownerRoleId: 'host' }],
+  seats: [
+    { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+    { displayName: 'Cy', roleId: 'host', kind: 'person' },
+  ],
   source: {
     title: 'calendar invite',
     agenda: 'calendar invite',
     roles: 'demo pack',
     seats: 'demo pack',
     pace: 'demo pack',
+  },
+};
+
+const blankDraft: MeetingSetup = {
+  title: '',
+  agenda: [],
+  roles: [],
+  seats: [],
+  pace: { ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 },
+  source: {
+    title: 'typed',
+    agenda: 'typed',
+    roles: 'typed',
+    seats: 'typed',
+    pace: 'typed',
   },
 };
 
@@ -209,17 +228,19 @@ describe('SetupPage', () => {
     renderPage();
 
     await screen.findByDisplayValue('Morning huddle');
-    const load = screen.getByRole('button', { name: 'Load Kopitiam demo' }) as HTMLButtonElement;
+    const load = screen.getByRole('button', { name: 'Use the Kopitiam template' }) as HTMLButtonElement;
     fireEvent.click(load);
 
     expect(load.disabled).toBe(true);
-    expect(load.textContent).toBe('Loading demo…');
+    expect(load.textContent).toBe('Loading template…');
 
     resolveImport(reply({ setup: importedDraft, started: false }));
 
     expect(await screen.findByDisplayValue('Kopitiam launch')).toBeTruthy();
     expect(screen.queryByDisplayValue('Morning huddle')).toBeNull();
-    expect((screen.getByRole('button', { name: 'Load Kopitiam demo' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: 'Use the Kopitiam template' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByLabelText('Seat 1 AI stand-in') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText('Seat 2 AI stand-in') as HTMLInputElement).checked).toBe(false);
     expect(
       fetchMock.mock.calls.filter(
         ([input, init]) =>
@@ -249,7 +270,7 @@ describe('SetupPage', () => {
     renderPage();
 
     await screen.findByDisplayValue('Morning huddle');
-    fireEvent.click(screen.getByRole('button', { name: 'Load Kopitiam demo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use the Kopitiam template' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('The calendar invite does not match the demo pack.');
@@ -267,7 +288,7 @@ describe('SetupPage', () => {
     renderPage();
 
     await screen.findByDisplayValue('Morning huddle');
-    fireEvent.click(screen.getByRole('button', { name: 'Load Kopitiam demo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use the Kopitiam template' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('The calendar could not be read.');
@@ -336,7 +357,7 @@ describe('SetupPage', () => {
     expect(await screen.findByText(/The meeting has started; setup is locked\./)).toBeTruthy();
     const link = screen.getByRole('link', { name: 'Go to the meeting' });
     expect(link.getAttribute('href')).toBe('/meeting');
-    expect((screen.getByRole('button', { name: 'Load Kopitiam demo' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Use the Kopitiam template' }) as HTMLButtonElement).disabled).toBe(true);
     expect(
       ((await screen.findByRole('button', { name: 'Test connection' })) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -352,7 +373,7 @@ describe('SetupPage', () => {
     renderPage();
 
     expect(await screen.findByText('Morning huddle')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Load Kopitiam demo' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Use the Kopitiam template' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Test connection' })).toBeNull();
     expect(screen.queryByLabelText('Meeting title field')).toBeNull();
   });
@@ -369,7 +390,7 @@ describe('SetupPage', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Only the meeting owner can change the setup.');
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/login?return=/setup');
-    expect(screen.queryByRole('button', { name: 'Load Kopitiam demo' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Use the Kopitiam template' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Test connection' })).toBeNull();
   });
 
@@ -532,6 +553,78 @@ describe('SetupPage', () => {
     expect(screen.queryByLabelText('Seat 3 AI stand-in')).toBeNull();
     expect(screen.getByText('Person only')).toBeTruthy();
   });
+  it('starts a blank meeting after confirming when the draft has edits', async () => {
+    const fetchMock = installFetch(
+      baseRoutes({
+        'POST /api/setup/blank': () => reply({ setup: blankDraft, started: false }),
+      }),
+    );
+    renderPage();
+
+    await screen.findByDisplayValue('Morning huddle');
+    fireEvent.click(screen.getByRole('button', { name: 'Start a blank meeting' }));
+
+    expect(await screen.findByText(/replaces the current plan and its edits/)).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === '/api/setup/blank'),
+    ).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace with a blank plan' }));
+
+    const title = (await screen.findByLabelText('Meeting title field')) as HTMLInputElement;
+    expect(title.value).toBe('');
+    expect(screen.queryByLabelText('Agenda item 1 title')).toBeNull();
+    expect(screen.queryByLabelText('Role 1 name')).toBeNull();
+    expect(screen.queryByLabelText('Seat 1 name')).toBeNull();
+
+    const open = screen.getByRole('button', { name: 'Open the meeting room' }) as HTMLButtonElement;
+    expect(open.disabled).toBe(true);
+    expect(screen.getByText('Enter a meeting title.')).toBeTruthy();
+    expect(screen.getByText('Add at least one role.')).toBeTruthy();
+    expect(screen.getByText('Add at least one agenda item.')).toBeTruthy();
+    expect(screen.getByText('Add at least one seat for a person.')).toBeTruthy();
+  });
+
+  it('starts a blank meeting without a confirm when the plan is already blank', async () => {
+    let blanks = 0;
+    installFetch(
+      baseRoutes({
+        'GET /api/setup': () => reply({ setup: blankDraft, started: false }),
+        'POST /api/setup/blank': () => {
+          blanks += 1;
+          return reply({ setup: blankDraft, started: false });
+        },
+      }),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start a blank meeting' }));
+
+    expect(await screen.findByText('Add at least one role.')).toBeTruthy();
+    expect(screen.queryByText(/replaces the current plan and its edits/)).toBeNull();
+    expect(blanks).toBe(1);
+  });
+
+  it('adds roles, seats and agenda items from a blank plan', async () => {
+    installFetch(
+      baseRoutes({
+        'GET /api/setup': () => reply({ setup: blankDraft, started: false }),
+      }),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add role' }));
+    expect((screen.getByLabelText('Role 1 name') as HTMLInputElement).value).toBe('New role');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add seat' }));
+    expect((screen.getByLabelText('Seat 1 name') as HTMLInputElement).value).toBe('New role');
+    expect((screen.getByLabelText('Seat 1 role') as HTMLSelectElement).value).toBe('role_1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agenda item' }));
+    expect((screen.getByLabelText('Agenda item 1 title') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Agenda item 1 owner') as HTMLSelectElement).value).toBe('role_1');
+  });
+
   it('handles a practice meeting in progress when opening the room', async () => {
     let opens = 0;
     installFetch(

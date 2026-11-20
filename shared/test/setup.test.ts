@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Scenario } from '../src/scenario';
 import {
+  blankMeetingSetup,
   defaultMeetingSetup,
   demoPackNpcProfileForRole,
   demoPackNpcProfileForSeat,
+  isBlankMeetingDraft,
   isPackFreeMeeting,
   parseMeetingSetup,
   type MeetingSetup,
@@ -226,5 +228,32 @@ describe('isPackFreeMeeting', () => {
     setup.agenda = [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }];
     setup.seats[1] = { displayName: 'Bao', roleId: 'cashier', kind: 'ai', npcProfileId: 'Bao' };
     expect(isPackFreeMeeting(setup, packScenario)).toBe(false);
+  });
+});
+
+describe('blankMeetingSetup', () => {
+  it('starts an empty, editable plan with the default pace', () => {
+    const setup = blankMeetingSetup();
+    expect(setup.title).toBe('');
+    expect(setup.agenda).toEqual([]);
+    expect(setup.roles).toEqual([]);
+    expect(setup.seats).toEqual([]);
+    expect(setup.pace).toEqual({ ownerQuietBelow: 30, quietCheckAfter: 120, comingUpBefore: 60 });
+    expect(isBlankMeetingDraft(setup)).toBe(true);
+  });
+
+  it('rejects the blank plan until it is filled, then validates it', () => {
+    expect(parseMeetingSetup(blankMeetingSetup()).ok).toBe(false);
+
+    const filled: MeetingSetup = {
+      ...blankMeetingSetup(),
+      title: 'Weekly planning',
+      roles: [{ id: 'chair', label: 'Chair', facilitator: true }],
+      agenda: [{ id: 'agenda-1', title: 'Opening checklist', minutes: 10, ownerRoleId: 'chair' }],
+      seats: [{ displayName: 'Alex', roleId: 'chair', kind: 'person' }],
+    };
+    expect(isBlankMeetingDraft(filled)).toBe(false);
+    expect(parseMeetingSetup(filled)).toEqual({ ok: true, value: filled });
+    expect(isPackFreeMeeting(filled, packScenario)).toBe(true);
   });
 });

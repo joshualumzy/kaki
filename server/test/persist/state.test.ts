@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MeetingSetup } from '@kaki/shared';
+import { blankMeetingSetup, type MeetingSetup } from '@kaki/shared';
 import {
   assertCompatibleSavedMeeting,
   assertReadableSavedMeeting,
@@ -189,6 +189,20 @@ describe('saved meeting validation', () => {
 
     expect(savedMeetingProblem(meeting, testScenario)).toBeUndefined();
   });
+  it('accepts a saved blank plan as the next draft', () => {
+    const meeting = saved();
+    delete meeting.startedAt;
+    meeting.phase = 'lobby';
+    delete meeting.sealed;
+    meeting.draft = blankMeetingSetup();
+    meeting.state.clock.started = false;
+    meeting.state.clock.itemElapsedSeconds = 0;
+    meeting.state.clock.meetingElapsedSeconds = 0;
+
+    expect(savedMeetingProblem(meeting, testScenario)).toBeUndefined();
+    expect(() => assertReadableSavedMeeting(meeting, testScenario)).not.toThrow();
+  });
+
   it('accepts an ended meeting that kept its seal and the next draft', () => {
     const meeting = saved();
     meeting.phase = 'ended';

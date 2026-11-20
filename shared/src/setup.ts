@@ -261,7 +261,7 @@ function readSeats(
   let aiCount = 0;
 
   if (!Array.isArray(value) || value.length === 0) {
-    error(errors, 'seats', 'Add at least one person to the meeting.');
+    error(errors, 'seats', 'Add at least one seat for a person.');
     return { list, personCount, aiCount };
   }
 
@@ -324,7 +324,7 @@ function readSeats(
   });
 
   if (personCount === 0) {
-    error(errors, 'seats', 'Add at least one person to the meeting.');
+    error(errors, 'seats', 'Add at least one seat for a person.');
   }
   if (aiCount > 0 && personCount !== 1) {
     error(errors, 'seats', 'A meeting with AI stand-ins has room for one person.');
@@ -432,6 +432,40 @@ export function parseMeetingSetup(
       source,
     },
   };
+}
+
+/** A new meeting plan with nothing in it yet: a title field, default pace, no roles, seats or agenda. */
+export function blankMeetingSetup(): MeetingSetup {
+  return {
+    title: '',
+    agenda: [],
+    roles: [],
+    seats: [],
+    pace: { ...DEFAULT_MEETING_PACE },
+    source: {
+      title: 'typed',
+      agenda: 'typed',
+      roles: 'typed',
+      seats: 'typed',
+      pace: 'typed',
+    },
+  };
+}
+
+/**
+ * True for a draft that has no roles, seats or agenda yet. Such a plan is saved while the owner
+ * fills it in, so it is readable across a restart even though it cannot open a meeting until filled.
+ */
+export function isBlankMeetingDraft(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  if (typeof value.title !== 'string') return false;
+  if (!Array.isArray(value.agenda) || value.agenda.length > 0) return false;
+  if (!Array.isArray(value.roles) || value.roles.length > 0) return false;
+  if (!Array.isArray(value.seats) || value.seats.length > 0) return false;
+  const errors: SetupFieldError[] = [];
+  readPace(value.pace, errors);
+  readSources(value.source, errors);
+  return errors.length === 0;
 }
 
 /** The NPC profile ids a loaded scenario offers as AI stand-ins. */
