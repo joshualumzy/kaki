@@ -658,6 +658,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       const hostQuestion = latest !== undefined && lineKey(latest) === lineKey(line) &&
         /\?\s*$/.test(line.text.trim()) && line.speaker === hostName;
       const readBack = hostQuestion && decision !== undefined && robotLineCount(index) > 0;
+      // On the tabling topic the robot has no call of its own. If Sam refuses to table (an urgent topic) he asks
+      // again and then offers a call; a real guest takes that offer, or the topic can never settle.
+      const hostOffer = hostQuestion && decision === undefined && robotLineCount(index) > 0;
       let reply: string | undefined;
       let intent = `Reply to this latest colleague line and move the discussion forward: ${asked}`;
       if (/\brecap\b/i.test(line.text)) reply = `No need, here's my call: ${decision ?? "let's table it and settle it in the follow-up."}`;
@@ -665,11 +668,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
       else if (readBack) {
         reply = "Yes, that's my call.";
         intent = `Sam is checking your call back to you: "${asked}". If it matches what you decided, say yes in a few words; if it does not, correct it in one short line.`;
+      } else if (hostOffer) {
+        reply = "Yes, let's go with that.";
+        intent = `You asked to table this topic, but Sam needs a call now: "${asked}". If he is proposing a call or checking one back, accept it in a few words; if he is only asking for yours, say you'll go with whatever he suggests.`;
       } else if (isLatestQuestion) {
         reply = decision === undefined ? "Let's settle that in the follow-up." : `My call stands: ${reasonFor(title)}`;
       }
       if (reply === undefined) { reacted.add(lineKey(line)); continue; }
-      if (robotLineCount(index) >= (readBack ? 6 : 4)) { reacted.add(lineKey(line)); return; }
+      if (robotLineCount(index) >= (readBack || hostOffer ? 6 : 4)) { reacted.add(lineKey(line)); return; }
       if (!await quietBeforeTyping(index)) return;
       if (await speak(reply, intent)) reacted.add(lineKey(line));
       return;
