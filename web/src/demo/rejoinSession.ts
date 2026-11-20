@@ -1,3 +1,4 @@
+import { DisconnectReason } from 'livekit-client';
 /** How long the server keeps an empty meeting for the same person to come back. */
 export const REJOIN_GRACE_MS = 120_000;
 
@@ -92,4 +93,27 @@ export function formatGraceRemaining(remainingMs: number): string {
   const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/**
+ * What a LiveKit disconnect means for this person. Only a connection that dropped by itself is worth an automatic
+ * rejoin. A disconnect this page caused (leaving, or React unmounting the room) needs nothing; one the server
+ * caused (the meeting closed or replaced, or the seat opened in another window) must not be fought with a rejoin,
+ * which would take the seat back or start a fresh meeting, so it ends with a plain explanation instead.
+ */
+export type DisconnectOutcome = { kind: 'rejoin' } | { kind: 'none' } | { kind: 'ended'; message: string };
+
+export function disconnectOutcome(reason: DisconnectReason | undefined): DisconnectOutcome {
+  switch (reason) {
+    case DisconnectReason.CLIENT_INITIATED:
+      return { kind: 'none' };
+    case DisconnectReason.DUPLICATE_IDENTITY:
+      return { kind: 'ended', message: 'This seat was opened in another window or device, so this one left the meeting.' };
+    case DisconnectReason.PARTICIPANT_REMOVED:
+      return { kind: 'ended', message: 'You were removed from the meeting. Join again if the owner lets you back in.' };
+    case DisconnectReason.ROOM_DELETED:
+      return { kind: 'ended', message: 'The meeting room was closed.' };
+    default:
+      return { kind: 'rejoin' };
+  }
 }

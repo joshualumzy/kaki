@@ -17,6 +17,7 @@ import { TeamJoinForm } from '../meeting/TeamJoinForm';
 import { AudioUnlockPrompt } from './AudioUnlock';
 import {
   clearStoredJoin,
+  disconnectOutcome,
   formatGraceRemaining,
   readStoredJoin,
   REJOIN_GRACE_MS,
@@ -336,11 +337,19 @@ export default function Meeting({
           token={session.token}
           serverUrl={session.serverUrl}
           options={ROOM_OPTIONS}
-          onDisconnected={() => {
+          onDisconnected={(reason) => {
             const target = activeSession.current;
             if (target === undefined) return;
+            const outcome = disconnectOutcome(reason);
+            if (outcome.kind === 'none') return;
             activeSession.current = undefined;
-            beginReconnect(storedFromSession(target));
+            if (outcome.kind === 'rejoin') {
+              beginReconnect(storedFromSession(target));
+              return;
+            }
+            clearStoredJoin(variant);
+            setSession(undefined);
+            setError(outcome.message);
           }}
           onError={(roomError) => {
             const target = activeSession.current;

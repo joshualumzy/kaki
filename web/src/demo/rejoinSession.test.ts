@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DisconnectReason } from 'livekit-client';
 import {
+  disconnectOutcome,
   clearAllStoredJoins,
   clearStoredJoin,
   formatGraceRemaining,
@@ -72,5 +74,24 @@ describe('remembered meeting joins', () => {
     expect(formatGraceRemaining(107_001)).toBe('1:48');
     expect(formatGraceRemaining(0)).toBe('0:00');
     expect(formatGraceRemaining(-5_000)).toBe('0:00');
+  });
+});
+
+describe('disconnectOutcome', () => {
+  it('rejoins only when the connection dropped by itself', () => {
+    expect(disconnectOutcome(undefined)).toEqual({ kind: 'rejoin' });
+    expect(disconnectOutcome(DisconnectReason.SIGNAL_CLOSE)).toEqual({ kind: 'rejoin' });
+    expect(disconnectOutcome(DisconnectReason.UNKNOWN_REASON)).toEqual({ kind: 'rejoin' });
+  });
+
+  it('does nothing for a disconnect the page caused itself', () => {
+    expect(disconnectOutcome(DisconnectReason.CLIENT_INITIATED)).toEqual({ kind: 'none' });
+  });
+
+  it('ends with an explanation when the server closed, replaced or moved the seat', () => {
+    for (const reason of [DisconnectReason.DUPLICATE_IDENTITY, DisconnectReason.PARTICIPANT_REMOVED, DisconnectReason.ROOM_DELETED]) {
+      const outcome = disconnectOutcome(reason);
+      expect(outcome.kind).toBe('ended');
+    }
   });
 });
