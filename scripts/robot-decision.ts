@@ -3,9 +3,10 @@
  * what the room has said so far, and writes the call in the guest's own words. The title-specific
  * lines below are only the logged backstop for a failed call, never the decision itself.
  */
-import { LlmError, parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/llm';
+import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/llm';
 import type { Scenario } from '@kaki/shared';
 import type { Line } from './live-playtest';
+import { modelFailureKind } from './lib/playtest';
 import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 
 type RobotDecisionModel = Pick<LlmClient, 'complete'>;
@@ -89,11 +90,7 @@ export function cannedRobotDecision(topicTitle: string): string {
 }
 
 function failureWarning(request: RobotDecisionRequest, error: unknown): string {
-  const kind = error instanceof LlmError
-    ? 'model request failed'
-    : error instanceof RobotDecisionError
-      ? error.message
-      : 'model call failed';
+  const kind = modelFailureKind(error, (cause) => (cause instanceof RobotDecisionError ? cause.message : undefined));
   return `Model guest call failed for "${request.topicTitle}" (${kind}); used the logged canned call`;
 }
 

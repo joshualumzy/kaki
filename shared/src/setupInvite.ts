@@ -1,3 +1,4 @@
+import { eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from './ical';
 import { MAX_AGENDA_MINUTES, type SetupFieldError } from './setup';
 
 /** The stable UID of the seeded Kopitiam meeting invite. */
@@ -50,29 +51,10 @@ function addUnique(list: string[], value: string): void {
   if (value !== '' && !list.includes(value)) list.push(value);
 }
 
-/** Remove the CRLF + whitespace a folded iCalendar line continues on. */
-function unfoldIcs(ics: string): string {
-  return ics.replace(/^\uFEFF/, '').replace(/\r?\n[ \t]/g, '');
-}
-
-function eventBodies(ics: string): string[] {
-  const unfolded = unfoldIcs(ics);
-  const bodies: string[] = [];
-  for (const part of unfolded.split(/BEGIN:VEVENT/i).slice(1)) {
-    const end = part.search(/END:VEVENT/i);
-    bodies.push(end === -1 ? part : part.slice(0, end));
-  }
-  return bodies;
-}
-
 interface RawEvent {
   fields: Map<string, string>;
   people: string[];
   uid: string;
-}
-
-function unescapeText(text: string): string {
-  return text.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
 }
 
 function unescapeParam(text: string): string {
@@ -88,12 +70,7 @@ function readPersonName(head: string, value: string): string {
 function readEvent(body: string): RawEvent {
   const fields = new Map<string, string>();
   const people: string[] = [];
-  for (const line of body.split(/\r?\n/)) {
-    const colon = line.indexOf(':');
-    if (colon < 1) continue;
-    const head = line.slice(0, colon);
-    const value = line.slice(colon + 1);
-    const name = head.split(';')[0]!.toUpperCase();
+  for (const { name, head, value } of eventProperties(body)) {
     if (name === 'ATTENDEE') {
       addUnique(people, readPersonName(head, value));
     } else if (!fields.has(name)) {
@@ -115,7 +92,7 @@ function readAgenda(
   }
 
   const known = new Set([...people, ...knownOwners].map((owner) => owner.trim().toLowerCase()));
-  const text = unescapeText(rawDescription);
+  const text = unescapeIcalText(rawDescription);
   const agenda: MeetingInviteAgendaItem[] = [];
   let index = 0;
 
@@ -173,7 +150,7 @@ export function parseMeetingInvite(
   options: ParseMeetingInviteOptions = {},
 ): MeetingInviteParseResult {
   const errors: SetupFieldError[] = [];
-  const events = eventBodies(ics).map(readEvent);
+  const events = eventBodies(unfoldIcalLines(ics.replace(/^\uFEFF/, ''))).map(readEvent);
   const wanted = options.uid?.trim();
   const event =
     wanted === undefined
@@ -191,7 +168,7 @@ export function parseMeetingInvite(
     return { ok: false, errors };
   }
 
-  const title = unescapeText(event.fields.get('SUMMARY') ?? '').trim();
+  const title = unescapeIcalText(event.fields.get('SUMMARY') ?? '').trim();
   if (title === '') error(errors, 'title', 'The invite has no title.');
 
   const agenda = readAgenda(event.fields.get('DESCRIPTION'), event.people, options.knownOwners ?? [], errors);

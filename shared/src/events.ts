@@ -1,3 +1,4 @@
+import { isNonEmptyString, isObject, isString } from './guards';
 import type { Role } from './roles';
 import { isRoleIn, type Scenario } from './scenario';
 import { isRunnerMeetingSnapshot, type RunnerMeetingSnapshot } from './runnerMeeting';
@@ -176,20 +177,8 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'COMMAND_REJECTED',
 ];
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return isString(value) && value.trim() !== '';
-}
-
-// True for a finite number that is zero or more.
-function isNonNegativeFinite(value: unknown): value is number {
+/** True for a finite number that is zero or more. */
+export function isNonNegativeFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
@@ -214,7 +203,7 @@ function isFact(value: unknown): value is Fact {
   return isObject(value) && isString(value.text) && isString(value.source) && isString(value.date);
 }
 
-function isReviewIssue(value: unknown): value is ReviewIssue {
+export function isReviewIssue(value: unknown): value is ReviewIssue {
   return (
     isObject(value) &&
     isNonEmptyString(value.id) &&
@@ -223,11 +212,22 @@ function isReviewIssue(value: unknown): value is ReviewIssue {
   );
 }
 
-function isQuestion(value: unknown, scenario: Scenario): value is Question {
+/** Whether a question's id and text must hold more than whitespace; persisted state is stricter. */
+export interface QuestionCheckOptions {
+  requireNonEmptyText?: boolean;
+}
+
+/** True for an open question on a known agenda item, optionally owned by a role in the scenario. */
+export function isQuestion(
+  value: unknown,
+  scenario: Scenario,
+  options: QuestionCheckOptions = {},
+): value is Question {
+  const isText = options.requireNonEmptyText === true ? isNonEmptyString : isString;
   return (
     isObject(value) &&
-    isString(value.id) &&
-    isString(value.text) &&
+    isText(value.id) &&
+    isText(value.text) &&
     isAgendaIndex(value.agendaIndex) &&
     (value.forRole === undefined || isRoleIn(scenario, value.forRole))
   );

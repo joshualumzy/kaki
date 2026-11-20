@@ -1,5 +1,5 @@
 import type { Role } from '@kaki/shared';
-import { humanAttendeeForRole, type KakiEvent, type Scenario } from '@kaki/shared';
+import { humanAttendeeForRole, speakerName, type KakiEvent, type Scenario } from '@kaki/shared';
 
 /** One line of the meeting transcript, after any display-only cut or restore update has been applied. */
 export interface TranscriptChunk {
@@ -123,7 +123,7 @@ export function captionFor(
   const matchesSpeaker = (rawSpeaker: string): boolean => {
     const lower = rawSpeaker.trim().toLowerCase();
     if (candidates.has(lower)) return true;
-    const base = lower.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    const base = speakerName(lower);
     return base.length > 0 && candidates.has(base);
   };
   // A server-written human line knows its seat, so a renamed display name still matches its tile.
@@ -153,7 +153,7 @@ export interface TranscriptViewer {
 
 /** How a speaker is shown in the transcript panel: the visitor sees their own name and role, and AI colleagues show their name and role. */
 export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefined, scenario?: Scenario): string {
-  const cleanSpeaker = speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const cleanSpeaker = speakerName(speaker);
   const isViewer =
     viewer !== undefined &&
     (cleanSpeaker.toLowerCase() === viewer.name.trim().toLowerCase() ||

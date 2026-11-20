@@ -1,8 +1,10 @@
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
+import { eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from '@kaki/shared';
+import type { ChatMessage, LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, isObject, messageOf, plainReason } from './runner';
+import { ActionError, createActionModule, messageOf, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -158,10 +160,6 @@ export function buildIcs(uid: string, title: string, times: EventTimes, notes: s
   ].join('\r\n');
 }
 
-function unescapeText(text: string): string {
-  return text.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
-}
-
 /** One event as the calendar page shows it. */
 interface CalendarEvent {
   uid: string;
@@ -180,19 +178,13 @@ function readTime(value: string | undefined): { date: string; time: string } | u
 
 /** Every event in an iCalendar text (one event file, or a whole calendar). Events without a start time are skipped. */
 export function parseEvents(ics: string): CalendarEvent[] {
-  const unfolded = ics.replace(/\r?\n[ \t]/g, '');
   const events: CalendarEvent[] = [];
-  for (const block of unfolded.split(/BEGIN:VEVENT/i).slice(1)) {
-    const body = block.split(/END:VEVENT/i)[0] ?? '';
+  for (const body of eventBodies(unfoldIcalLines(ics))) {
     const fields = new Map<string, string>();
     const people: string[] = [];
-    for (const line of body.split(/\r?\n/)) {
-      const colon = line.indexOf(':');
-      if (colon < 1) continue;
-      const name = line.slice(0, colon).split(';')[0]!.toUpperCase();
-      const value = line.slice(colon + 1);
+    for (const { name, head, value } of eventProperties(body)) {
       if (name === 'ATTENDEE' || name === 'ORGANIZER') {
-        const cn = /CN="?([^";:]+)"?/i.exec(line.slice(0, colon));
+        const cn = /CN="?([^";:]+)"?/i.exec(head);
         const person = cn?.[1] ?? value.replace(/^mailto:/i, '');
         if (!people.includes(person)) people.push(person);
       } else if (!fields.has(name)) {
@@ -204,11 +196,11 @@ export function parseEvents(ics: string): CalendarEvent[] {
     const end = readTime(fields.get('DTEND'));
     events.push({
       uid: fields.get('UID') ?? '',
-      title: unescapeText(fields.get('SUMMARY') ?? 'Untitled event'),
+      title: unescapeIcalText(fields.get('SUMMARY') ?? 'Untitled event'),
       date: start.date,
       time: start.time,
       ...(end === undefined || end.date !== start.date ? {} : { endTime: end.time }),
-      description: unescapeText(fields.get('DESCRIPTION') ?? ''),
+      description: unescapeIcalText(fields.get('DESCRIPTION') ?? ''),
       people,
     });
   }
@@ -355,18 +347,13 @@ export function upcomingDays(date: string, count = 22): string[] {
 
 // Strictly one JSON object with a title and a valid start; anything else is unusable.
 function parseDraft(reply: string): { title: string; times: EventTimes; notes: string } | undefined {
-  let value: unknown;
-  try {
-    value = parseJsonReply(reply);
-  } catch {
-    return undefined;
-  }
-  if (!isObject(value)) return undefined;
-  const title = typeof value.title === 'string' ? value.title.trim() : '';
-  const start = typeof value.start === 'string' ? value.start.trim().replace('T', ' ') : '';
+  const value = parseDraftObject(reply);
+  if (value === undefined) return undefined;
+  const title = draftString(value, 'title').trim();
+  const start = draftString(value, 'start').trim().replace('T', ' ');
   if (title === '' || !START_PATTERN.test(start)) return undefined;
   const minutes = typeof value.durationMinutes === 'number' && value.durationMinutes >= 5 ? Math.round(value.durationMinutes) : 30;
-  const notes = typeof value.description === 'string' ? value.description.trim() : '';
+  const notes = draftString(value, 'description').trim();
   return { title, times: { start, durationMinutes: minutes }, notes };
 }
 

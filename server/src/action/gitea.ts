@@ -1,8 +1,10 @@
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
+import { isObject, speakerName } from '@kaki/shared';
+import type { ChatMessage, LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -31,15 +33,10 @@ const CONFIG_MESSAGE = 'Gitea is not configured: set GITEA_URL, GITEA_TOKEN, GIT
 
 // Strictly one JSON object with a non-empty title and body; anything else is unusable.
 function parseDraft(reply: string): IssueDraft | undefined {
-  let value: unknown;
-  try {
-    value = parseJsonReply(reply);
-  } catch {
-    return undefined;
-  }
-  if (!isObject(value)) return undefined;
-  const title = typeof value.title === 'string' ? value.title.trim() : '';
-  const body = typeof value.body === 'string' ? value.body : '';
+  const value = parseDraftObject(reply);
+  if (value === undefined) return undefined;
+  const title = draftString(value, 'title').trim();
+  const body = draftString(value, 'body');
   if (title === '' || body.trim() === '') return undefined;
   return { title, body };
 }
@@ -84,7 +81,7 @@ function giteaUsernameFor(
   if (roleId === undefined) return undefined;
   const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
   if (attendee === undefined || !scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) return undefined;
-  const cleanSpeaker = speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const cleanSpeaker = speaker === undefined ? undefined : speakerName(speaker);
   if (cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase()) {
     return { username: 'demo', visitorName: cleanSpeaker };
   }

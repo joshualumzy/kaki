@@ -1,5 +1,5 @@
 import { parseJsonReply, type LlmClient } from '../llm';
-import { isAssignmentEvidence, type ActionDraft, type KakiCommand, type KakiEvent, type NpcProfile, type Role, type Scenario, type Task } from '@kaki/shared';
+import { isAssignmentEvidence, speakerName, type ActionDraft, type KakiCommand, type KakiEvent, type NpcProfile, type Role, type Scenario, type Task } from '@kaki/shared';
 import { isHypotheticalProposal, isSelfVolunteerCommitment } from '../host/notetaker';
 
 /** One completed, actually heard transcript line on the topic the task came from. */
@@ -59,7 +59,7 @@ function profileFor(scenario: Scenario, role: Role): { npc: NpcProfile; attendee
 }
 
 function baseSpeakerName(speaker: string): string {
-  return speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+  return speakerName(speaker).toLowerCase();
 }
 
 /**

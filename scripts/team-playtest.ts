@@ -10,7 +10,7 @@
  * when the server has sign-in on.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 import { chromium, devices, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
 import type { KakiEvent, MeetingSetup, Task } from '@kaki/shared';
 import { reportResultLine, statusFor, type PlaytestCheck } from './playtest-report';
+import { errorMessage, escapeCell, parseArgv, stamp, writeMarkdownReport } from './lib/playtest';
 import {
   judgeFollowUpTask,
   judgeMinutesRecipient,
@@ -147,10 +148,6 @@ const VOICE_INIT_SCRIPT = `(() => {
   };
 })();`;
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** Make one 16 kHz 16-bit mono WAV per scripted sentence, and fail loudly if macOS say cannot. */
 async function prepareVoiceClips(lines: readonly VoiceScriptLine[]): Promise<Map<string, string>> {
   let voiceList: string;
@@ -199,21 +196,15 @@ async function prepareVoiceClips(lines: readonly VoiceScriptLine[]): Promise<Map
 }
 
 function options(): TeamPlaytestOptions {
-  let headless = false;
-  let maxMinutes = 20;
-  let voice = false;
-  for (let i = 2; i < process.argv.length; i += 1) {
-    const arg = process.argv[i];
-    if (arg === '--headless') headless = true;
-    else if (arg === '--voice') voice = true;
-    else if (arg === '--max-minutes' && process.argv[i + 1] !== undefined) maxMinutes = Number(process.argv[++i]);
-    else throw new Error(`Unknown or incomplete argument: ${arg}`);
-  }
+  const args = parseArgv(process.argv, {
+    booleans: ['--headless', '--voice'],
+    values: ['--max-minutes'],
+  });
+  const maxMinutesRaw = args.value('--max-minutes');
+  const maxMinutes = maxMinutesRaw === undefined ? 20 : Number(maxMinutesRaw);
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
-  return { headless, maxMinutes, voice };
+  return { headless: args.has('--headless'), maxMinutes, voice: args.has('--voice') };
 }
-function stamp(): string { return new Date().toISOString(); }
-function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }
 
 async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
@@ -1343,8 +1334,7 @@ async function runTeamPlaytest(parsed: TeamPlaytestOptions): Promise<{ reportPat
       '',
       ...(errors.length === 0 ? ['(none)'] : errors.map((error) => `- ${error}`)),
     ];
-    await mkdir(LOG_DIR, { recursive: true });
-    await writeFile(reportPath, lines.join('\n'));
+    await writeMarkdownReport(reportPath, lines);
     for (const actor of [ana, ben, owner, practice]) {
       if (actor !== undefined) await actor.context.close().catch(() => undefined);
     }

@@ -1,4 +1,4 @@
-import type { Fact, Role, SearchCompanyData } from '@kaki/shared';
+import { isObject, type Fact, type Role, type SearchCompanyData } from '@kaki/shared';
 import type { Pool } from 'pg';
 import { chatComplete, embedText, gatewayConfigFromEnv } from './gateway';
 import { isoDay } from './dates';
@@ -23,10 +23,6 @@ export interface SearchDeps {
   retrieve(embedding: number[], question: string, limit: number): Promise<RetrievedChunk[]>;
   /** Called with the retrieved chunks, so a check script can inspect the ranking. */
   onRetrieved?(chunks: RetrievedChunk[]): void;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Parse the JSON facts returned by the chat model: bad JSON throws, an unusable fact is dropped. */

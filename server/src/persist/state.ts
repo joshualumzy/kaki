@@ -2,6 +2,11 @@ import {
   demoPackNpcProfileIds,
   deriveMeetingScenario,
   isBlankMeetingDraft,
+  isNonEmptyString,
+  isNonNegativeFinite,
+  isObject,
+  isQuestion,
+  isReviewIssue,
   isRoleIn,
   isTask,
   normalizeMeetingCode,
@@ -145,18 +150,6 @@ export interface MeetingStateStore {
   clear(): Promise<void>;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '';
-}
-
-function isNonNegativeFinite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
-}
-
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0;
 }
@@ -170,25 +163,6 @@ function isTranscriptLine(value: unknown, scenario: Scenario): value is SavedTra
     (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle)) &&
     (value.atSeconds === undefined || isNonNegativeFinite(value.atSeconds)) &&
     (value.overlap === undefined || typeof value.overlap === 'boolean')
-  );
-}
-
-function isReviewIssue(value: unknown): value is ReviewIssue {
-  return (
-    isObject(value) &&
-    isNonEmptyString(value.id) &&
-    isNonEmptyString(value.text) &&
-    isNonNegativeInteger(value.agendaIndex)
-  );
-}
-
-function isQuestion(value: unknown, scenario: Scenario): value is Question {
-  return (
-    isObject(value) &&
-    isNonEmptyString(value.id) &&
-    isNonEmptyString(value.text) &&
-    isNonNegativeInteger(value.agendaIndex) &&
-    (value.forRole === undefined || isRoleIn(scenario, value.forRole))
   );
 }
 
@@ -237,7 +211,10 @@ function notetakerProblem(value: unknown, scenario: Scenario): string | undefine
     if (problem !== undefined) return problem;
   }
   if (!isNonNegativeInteger(value.contextAgendaIndex)) return 'its notetaker agenda index is not valid';
-  if (!Array.isArray(value.openQuestions) || !value.openQuestions.every((question) => isQuestion(question, scenario))) {
+  if (
+    !Array.isArray(value.openQuestions) ||
+    !value.openQuestions.every((question) => isQuestion(question, scenario, { requireNonEmptyText: true }))
+  ) {
     return 'its notetaker questions are not valid';
   }
   if (!isNonNegativeInteger(value.questionCount)) return 'its notetaker question count is not valid';

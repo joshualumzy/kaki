@@ -1,8 +1,9 @@
+import { isObject, speakerName } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -209,7 +210,7 @@ export function createMattermostModule({
       const mattermostPassword = process.env.MATTERMOST_PASSWORD;
       if (attendee !== undefined && mattermostPassword !== undefined && mattermostPassword !== '') {
         const speakerRaw = visitorName ?? task.assignmentEvidence?.speaker;
-        const cleanSpeaker = speakerRaw?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        const cleanSpeaker = speakerRaw === undefined ? undefined : speakerName(speakerRaw);
         const isVisitor =
           cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase();
         const loginIdFor = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '');

@@ -7,6 +7,7 @@
  * those quotes against the lines the room actually heard; a quote we cannot find is dropped here.
  */
 
+import { isObject } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage } from '../llm';
 
 export type GuestLineKind =
@@ -107,10 +108,6 @@ const KINDS: readonly GuestLineKind[] = [
 ];
 
 const SLOTS: readonly DecisionSlotName[] = ['action', 'catchAddressed', 'practical'];
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function normalise(text: string): string {
   return text

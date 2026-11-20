@@ -1,4 +1,4 @@
-import type { KakiEvent } from '@kaki/shared';
+import { speakerName, type KakiEvent } from '@kaki/shared';
 
 /** Who has spoken on one agenda item, as seen in a single feed. */
 export interface TopicSpeech {
@@ -30,12 +30,12 @@ export function addTopicSpeech(
     });
     return next;
   }
-  const speakerName = chunk.payload.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
-  if (speakerName === '' || current?.names.has(speakerName) === true) return speech;
+  const name = speakerName(chunk.payload.speaker).toLowerCase();
+  if (name === '' || current?.names.has(name) === true) return speech;
   const next = new Map(speech);
   next.set(agendaIndex, {
     roles: current?.roles ?? new Set<string>(),
-    names: new Set(current?.names ?? []).add(speakerName),
+    names: new Set(current?.names ?? []).add(name),
   });
   return next;
 }

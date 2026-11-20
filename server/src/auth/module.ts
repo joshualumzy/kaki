@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
-import { MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
+import { isObject, MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
 import type { ClientAudience } from '../hub';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../access';
+import { readJsonBody, sendJson } from '../http';
 import { createAttemptLimiter, type AttemptLimiter } from '../attemptLimiter';
 import {
   MEETING_CODE_FAILURE_LIMIT,
@@ -102,55 +103,6 @@ const MAX_PASSWORD_LENGTH = 1024;
 const WRONG_CREDENTIALS = 'Email or password is incorrect.';
 
 type JsonObject = Record<string, unknown>;
-
-function isObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  if (response.writableEnded) return;
-  response.writeHead(status, { 'content-type': 'application/json' });
-  response.end(JSON.stringify(body));
-}
-
-function readBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    let overflowed = false;
-    const chunks: Buffer[] = [];
-
-    request.on('data', (chunk: Buffer) => {
-      if (overflowed) return;
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        overflowed = true;
-        reject(new Error(`Request body exceeds ${MAX_BODY_BYTES} bytes`));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    request.on('end', () => {
-      if (!overflowed) resolve(Buffer.concat(chunks).toString('utf8'));
-    });
-    request.on('error', reject);
-  });
-}
-
-type ParsedBody = { ok: true; value: unknown } | { ok: false; error: string };
-
-async function readJsonBody(request: IncomingMessage): Promise<ParsedBody> {
-  let text: string;
-  try {
-    text = await readBody(request);
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Could not read body' };
-  }
-  try {
-    return { ok: true, value: JSON.parse(text) as unknown };
-  } catch {
-    return { ok: false, error: 'Body must be valid JSON' };
-  }
-}
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -305,7 +257,7 @@ export function createAuth({
   }
 
   async function handleLogin(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const parsed = await readJsonBody(request);
+    const parsed = await readJsonBody(request, MAX_BODY_BYTES);
     if (!parsed.ok) {
       sendJson(response, 400, { error: parsed.error });
       return;
@@ -416,7 +368,7 @@ export function createAuth({
   }
 
   async function handleJoin(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const parsed = await readJsonBody(request);
+    const parsed = await readJsonBody(request, MAX_BODY_BYTES);
     if (!parsed.ok) {
       sendJson(response, 400, { error: parsed.error });
       return;

@@ -1,3 +1,5 @@
+import { isObject } from '@kaki/shared';
+
 /** One chat message sent to the model. */
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -94,10 +96,6 @@ export function reasoningControlFromEnv(raw: string | undefined, name: string): 
 function fallbackWarning(primaryModel: string, error: unknown, fallbackModel: string): string {
   const detail = (error instanceof Error ? error.message : String(error)).slice(0, 200);
   return `[llm-fallback] primary ${primaryModel} failed: ${detail}; using ${fallbackModel}`;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Parse a JSON reply, dropping any Markdown code fence the model wrapped around it. */

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   assigneeLabel,
+  catchPosition,
   roleLabel,
   type AgendaItem,
   type KakiEvent,
@@ -11,7 +12,7 @@ import {
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../kaki';
 import { clearAllStoredJoins } from './rejoinSession';
-import { resolveArtifactUrl } from '../ui';
+import { artifactLinkText, resolveArtifactUrl, taskStatusText } from '../ui';
 import { MeetingRecordCard, isRecord, type RecordEvent } from './MeetingRecordCard';
 import type { TranscriptViewer } from './captions';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
@@ -409,7 +410,7 @@ export function MeetingPanel({
                     {actionKindBadge(task) !== undefined && (
                       <span className="kd-task-badge">{actionKindBadge(task)}</span>
                     )}
-                    <span className="kd-task-badge">{taskStatusText(task)}</span>
+                    <span className="kd-task-badge">{taskStatusText(task, { unresolvedSuggested: true })}</span>
                   </span>
                 </div>
                 <span>
@@ -475,21 +476,6 @@ export function MeetingPanel({
   );
 }
 
-function taskStatusText(task: Task): string {
-  switch (task.status) {
-    case 'SUGGESTED':
-      return task.error === undefined ? 'suggested' : 'Decision unresolved';
-    case 'CLAIMED':
-      return task.mode === 'ACTION_AGENT' ? 'drafting…' : 'accepted';
-    case 'DRAFT_READY':
-      return 'reviewing draft…';
-    case 'RUNNING':
-      return 'publishing…';
-    default:
-      return task.status.replace('_', ' ').toLowerCase();
-  }
-}
-
 function sourceBadgeText(source: string): string {
   const lower = source.toLowerCase();
   if (lower.includes('gitea') || lower.includes('issue') || lower.includes('ticket')) return '🐛 Gitea Ticket';
@@ -515,34 +501,6 @@ function actionKindBadge(task: Task): string | undefined {
     default:
       return undefined;
   }
-}
-
-function artifactLinkText(task: Task): string {
-  switch (task.actionKind) {
-    case 'gitea_issue':
-      return 'Open live in Gitea ↗';
-    case 'mattermost_post':
-      return 'Open live in Mattermost ↗';
-    case 'wiki_page':
-      return 'Open live in Wiki ↗';
-    case 'email':
-      return 'Open live in Mailpit ↗';
-    case 'calendar_event':
-      return 'Open live in Calendar ↗';
-    default:
-      return 'Open live artifact ↗';
-  }
-}
-
-/** The agenda item and trade-off a catch id names, or undefined when it is not a catch id. */
-function catchPosition(id: string | undefined): { agendaIndex: number; tradeOffIndex: number } | undefined {
-  if (id === undefined) return undefined;
-  const parts = id.split(':');
-  if (parts.length !== 3 || parts[1] !== 'catch') return undefined;
-  const agendaIndex = Number(parts[0]);
-  const tradeOffIndex = Number(parts[2]);
-  if (!Number.isInteger(agendaIndex) || !Number.isInteger(tradeOffIndex)) return undefined;
-  return { agendaIndex, tradeOffIndex };
 }
 
 /**

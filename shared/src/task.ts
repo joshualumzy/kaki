@@ -1,3 +1,4 @@
+import { isNonEmptyString, isObject, isString } from './guards';
 import type { Role } from './roles';
 import { isRoleIn, type Scenario } from './scenario';
 
@@ -142,18 +143,6 @@ const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   SYNCED: ['SUPERSEDED'],
   SUPERSEDED: [],
 };
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return isString(value) && value.trim().length > 0;
-}
 
 /** True when a task may move from one status to another; nothing else is legal. */
 export function canTransition(from: TaskStatus, to: TaskStatus): boolean {

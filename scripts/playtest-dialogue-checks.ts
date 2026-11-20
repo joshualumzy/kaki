@@ -1,5 +1,5 @@
 /** Pure dialogue and Wingman checks for scripts/playtest-dialogue.ts. */
-import type { AgendaItem } from '@kaki/shared';
+import { catchPosition, type AgendaItem } from '@kaki/shared';
 import { spokenTopicLead } from '../server/src/host/opening';
 
 export interface UtteranceRecord {
@@ -132,15 +132,6 @@ export function checkTranscriptQuality(
   }
 
   return failures;
-}
-
-function catchPosition(catchId: string): { agendaIndex: number; tradeOffIndex: number } | undefined {
-  const parts = catchId.split(':');
-  if (parts.length !== 3 || parts[1] !== 'catch') return undefined;
-  const agendaIndex = Number(parts[0]);
-  const tradeOffIndex = Number(parts[2]);
-  if (!Number.isInteger(agendaIndex) || !Number.isInteger(tradeOffIndex)) return undefined;
-  return { agendaIndex, tradeOffIndex };
 }
 
 /** True when a trade-off belongs to the visitor's own seat, which the Wingman must never show back to them. */

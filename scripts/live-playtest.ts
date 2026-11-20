@@ -4,7 +4,7 @@
  * `--act` needs a stack started without KAKI_DRAFT_ONLY, and writes to the local mock tools only.
  */
 import '../server/src/env.ts';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
@@ -22,6 +22,7 @@ import {
 } from './room-reply';
 import { decideRobotCall } from './robot-decision';
 import { reportResultLine, statusFor, type PlaytestCheck } from './playtest-report';
+import { escapeCell, parseArgv, stamp, writeMarkdownReport } from './lib/playtest';
 
 /** The demo to test; set KAKI_PLAYTEST_URL (e.g. the cloud URL) to test a deployed copy instead of the local stack. */
 const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
@@ -47,22 +48,17 @@ export type PlaytestHooks = {
 };
 
 function options(): PlaytestOptions {
-  let role: string | undefined;
-  let phone = false;
-  let shots = false;
-  let act = false;
-  let maxMinutes = 25;
-  for (let i = 2; i < process.argv.length; i += 1) {
-    const arg = process.argv[i];
-    if (arg === '--role' && process.argv[i + 1]) role = process.argv[++i];
-    else if (arg === '--max-minutes' && process.argv[i + 1]) maxMinutes = Number(process.argv[++i]);
-    else if (arg === '--phone') phone = true;
-    else if (arg === '--shots') shots = true;
-    else if (arg === '--act') act = true;
-    else throw new Error(`Unknown or incomplete argument: ${arg}`);
-  }
+  const args = parseArgv(process.argv, {
+    booleans: ['--phone', '--shots', '--act'],
+    values: ['--role', '--max-minutes'],
+  });
+  const role = args.value('--role');
+  if (role === '') throw new Error('Unknown or incomplete argument: --role');
+  const maxMinutesRaw = args.value('--max-minutes');
+  if (maxMinutesRaw === '') throw new Error('Unknown or incomplete argument: --max-minutes');
+  const maxMinutes = maxMinutesRaw === undefined ? 25 : Number(maxMinutesRaw);
   if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) throw new Error('--max-minutes must be positive');
-  return { role, maxMinutes, phone, shots, act };
+  return { role, maxMinutes, phone: args.has('--phone'), shots: args.has('--shots'), act: args.has('--act') };
 }
 
 const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
@@ -73,8 +69,6 @@ const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
   { matches: /delivery/i, markers: /grabfood|office platter|pickup code|commission/i },
 ];
 
-function escapeCell(value: string): string { return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' '); }
-function stamp(): string { return new Date().toISOString(); }
 function lineKey(line: Line): string { return `${line.sourceTime}|${line.speaker}|${line.text}`; }
 
 /**
@@ -1152,8 +1146,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       '',
       ...extraReportLines,
     ];
-    await mkdir(LOG_DIR, { recursive: true });
-    await writeFile(reportPath, lines.join('\n'));
+    await writeMarkdownReport(reportPath, lines);
     console.log(`Report: ${reportPath}`);
     for (const line of summaryLines) console.log(line);
   }

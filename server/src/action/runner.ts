@@ -1,4 +1,4 @@
-import type { ActionDraft, ActionKind, MeetingMemoryEntry, Scenario, Task, TaskStatus } from '@kaki/shared';
+import { errorMessage, type ActionDraft, type ActionKind, type MeetingMemoryEntry, type Scenario, type Task, type TaskStatus } from '@kaki/shared';
 import type { KakiContext, KakiModule } from '../modules';
 import type { TaskStore } from '../tasks';
 import { withActionFooter } from './footer';
@@ -18,15 +18,8 @@ interface ActionModuleOptions {
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
 
-/** True for a plain JSON object. */
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** The readable text of anything thrown. */
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export const messageOf = errorMessage;
 
 /** The error in plain words for a person: a connection failure says what to do, with the technical detail after it. */
 export function plainReason(error: unknown, service: string): string {

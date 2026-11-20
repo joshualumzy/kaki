@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { assigneeLabel, type KakiCommand, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario, type KakiRejection } from '../kaki';
-import { Button, Card, RejectionBanner, StatusPill, resolveArtifactUrl } from '../ui';
+import { artifactLinkText, Button, Card, RejectionBanner, StatusPill, resolveArtifactUrl, taskStatusText } from '../ui';
 import './activeRoleCards.css';
 
 function needsAction(task: Task): boolean {
@@ -19,36 +19,6 @@ function needsAction(task: Task): boolean {
       return true;
     default:
       return false;
-  }
-}
-
-function taskStatusText(task: Task): string {
-  switch (task.status) {
-    case 'CLAIMED':
-      return task.mode === 'ACTION_AGENT' ? 'drafting…' : 'accepted';
-    case 'DRAFT_READY':
-      return 'reviewing draft…';
-    case 'RUNNING':
-      return 'publishing…';
-    default:
-      return task.status.replace('_', ' ').toLowerCase();
-  }
-}
-
-function openLivePlatformLabel(task: Task): string {
-  switch (task.actionKind) {
-    case 'mattermost_post':
-      return 'Open live in Mattermost ↗';
-    case 'gitea_issue':
-      return 'Open live in Gitea ↗';
-    case 'wiki_page':
-      return 'Open live in Wiki ↗';
-    case 'email':
-      return 'Open live in Mailpit ↗';
-    case 'calendar_event':
-      return 'Open live in Calendar ↗';
-    default:
-      return 'Open live artifact ↗';
   }
 }
 
@@ -515,7 +485,7 @@ function TaskCardBody({
           </p>
           {task.artifactUrl === undefined ? null : (
             <a className="artifact-link" href={resolveArtifactUrl(task.artifactUrl)} target="_blank" rel="noreferrer">
-              {openLivePlatformLabel(task)}
+              {artifactLinkText(task)}
             </a>
           )}
         </div>

@@ -3,9 +3,10 @@
  * need the guest at all, and writes the short line if they do. The regex choices below are only the
  * logged backstop for a failed call, never the way a meaning is guessed.
  */
-import { createOpenAiLlm, LlmError, parseJsonReply, reasoningControlFromEnv, type ChatMessage, type LlmClient } from '../server/src/llm';
+import { createOpenAiLlm, parseJsonReply, reasoningControlFromEnv, type ChatMessage, type LlmClient } from '../server/src/llm';
 import type { Scenario } from '@kaki/shared';
 import type { Line } from './live-playtest';
+import { modelFailureKind } from './lib/playtest';
 import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 
 type RoomReplyKind = 'confirm' | 'answer' | 'accept-offer' | 'decline-offer' | 'draft-yes' | 'none';
@@ -165,11 +166,7 @@ export function cannedRoomReply(request: RoomReplyRequest): RoomReply {
 
 function failureWarning(request: RoomReplyRequest, error: unknown): string {
   const line = request.fresh.at(-1);
-  const kind = error instanceof LlmError
-    ? 'model request failed'
-    : error instanceof RoomReplyError
-      ? error.message
-      : 'model call failed';
+  const kind = modelFailureKind(error, (cause) => (cause instanceof RoomReplyError ? cause.message : undefined));
   return `Model room-reply failed for "${line?.text ?? '(no line)'}" (${kind}); used the logged canned line`;
 }
 

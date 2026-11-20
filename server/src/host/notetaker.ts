@@ -3,10 +3,12 @@ import {
   canTransition,
   hostIdentityOf,
   isActionKind,
+  isObject,
   isRoleIn,
   isSuggestInput,
   roleForZoomName,
   roleLabel,
+  speakerName,
   type AssignmentEvidence,
   type NotetakerStatus,
   type Question,
@@ -179,10 +181,6 @@ export interface VerifierResult {
   tasks: Map<number, TaskVerdict>;
   /** Specific issues for candidates the verifier could not decide. */
   issues: string[];
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalize(text: string): string {
@@ -462,7 +460,7 @@ export function isSelfVolunteerCommitment(text: string, scenario?: Scenario, spe
   if (/\b(?:if|unless|assuming|provided|maybe|perhaps|might|would|could|should|suppose|imagine)\b|\b(?:subject to|pending approval|depending on|in case)\b/i.test(text)) return false;
   if (/\b(?:said|says|claimed|quoted|told|reportedly|according to)\b/i.test(text)) return false;
   if (scenario === undefined || speaker === undefined) return true;
-  const self = speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+  const self = speakerName(speaker).toLowerCase();
   return scenario.attendees.every((attendee) => {
     if (attendee.name.trim().toLowerCase() === self) return true;
     const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -626,7 +624,7 @@ export function volunteerRole(evidence: string, source: { role?: Role }): Role |
 }
 
 function baseSpeakerName(speaker: string): string {
-  return speaker.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+  return speakerName(speaker).toLowerCase();
 }
 
 /**
@@ -979,7 +977,8 @@ function notetakerReplySchema(scenario: Scenario): { name: string; schema: Recor
 
 function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string {
   const roles = scenario.roles.map((role) => {
-    const lineSpeaker = lines.find((l) => l.role === role.id)?.speaker?.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    const line = lines.find((candidate) => candidate.role === role.id);
+    const lineSpeaker = line === undefined ? undefined : speakerName(line.speaker);
     const people =
       lineSpeaker !== undefined && lineSpeaker.length > 0
         ? [lineSpeaker]
@@ -1674,7 +1673,7 @@ export function createNotetaker({
           (line) => line.role === attendee.role && line.speaker !== undefined && !line.speaker.startsWith(attendee.name),
         );
         if (visitorLine?.speaker !== undefined) {
-          const visitorName = visitorLine.speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+          const visitorName = speakerName(visitorLine.speaker);
           const escaped = attendee.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const re = new RegExp(`\\b${escaped}\\b`, 'g');
           cleanedTitle = cleanedTitle.replace(re, visitorName);
@@ -1746,9 +1745,9 @@ export function createNotetaker({
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
       const isFacilitator = role !== undefined && scenario().roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
-      const speakerName = speaker.replace(/\s*\([^)]*\)\s*$/, '').trim();
+      const speakerBase = speakerName(speaker);
       const hostName = facilitatorName();
-      if (isFacilitator && hostName !== undefined && speakerName === hostName) {
+      if (isFacilitator && hostName !== undefined && speakerBase === hostName) {
         // When the AI facilitator explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
         // keep that line so the notetaker extracts the task even if the LLM put the task request on the facilitator's line.
         const isTaskRequestFromSam = new RegExp(

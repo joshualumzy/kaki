@@ -1,4 +1,6 @@
 import { setMeetingAgenda } from './demo';
+import { errorMessage } from './errors';
+import { isNonEmptyString, isObject } from './guards';
 import {
   parseScenario,
   RESERVED_ROLE_ID,
@@ -101,14 +103,6 @@ export const DEFAULT_MEETING_PACE: MeetingPace = {
   quietCheckAfter: 120,
   comingUpBefore: 60,
 };
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
 
 function isSource(value: unknown): value is SetupSource {
   return typeof value === 'string' && SETUP_SOURCES.includes(value as SetupSource);
@@ -811,10 +805,6 @@ type MeetingScenarioResult =
 
 const HOST_BRIEFING_PROBLEM =
   /^agenda\[(\d+)\]\.briefing\[(\d+)\]\.knownBy\[(\d+)\]\.attendee "(.+)" is the host and cannot know a briefing fact$/;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** Translate a derived scenario's parse problems into field errors an owner can act on. */
 function scenarioSetupErrors(

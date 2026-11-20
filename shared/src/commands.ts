@@ -1,3 +1,4 @@
+import { isNonEmptyString, isObject, isString } from './guards';
 import type { Role } from './roles';
 import { isRoleIn, type Scenario } from './scenario';
 import { isActionDraft, type ActionDraft } from './task';
@@ -63,18 +64,6 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'SET_PAUSED',
   'HUMAN_LINE',
 ];
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return isString(value) && value.trim() !== '';
-}
 
 function isCommandType(value: unknown): value is KakiCommand['type'] {
   return typeof value === 'string' && (COMMAND_TYPES as readonly string[]).includes(value);

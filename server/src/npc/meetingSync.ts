@@ -1,4 +1,4 @@
-import type { RunnerMeetingSnapshot } from '@kaki/shared';
+import { isNonEmptyString, type RunnerMeetingSnapshot } from '@kaki/shared';
 
 /** What one MEETING_STARTED event tells the runner about the meeting the server opened. */
 interface StartedEvent {
@@ -14,10 +14,6 @@ export interface PrepareRequest {
   meetingId: string;
   agendaIndex?: number;
   resumed?: boolean;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '';
 }
 
 function optionalAgendaIndex(value: unknown): { agendaIndex?: number } {

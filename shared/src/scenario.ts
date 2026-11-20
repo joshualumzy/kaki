@@ -1,3 +1,4 @@
+import { isNonEmptyString, isObject } from './guards';
 import type { Role } from './roles';
 import { ACTION_KINDS, type ActionKind } from './task';
 
@@ -261,14 +262,6 @@ export interface HostBrief {
 
 export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 export const RESERVED_ROLE_ID = 'screen';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);

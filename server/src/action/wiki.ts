@@ -1,9 +1,10 @@
-import { humanSeatRoles, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
+import { humanSeatRoles, isObject, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
+import type { ChatMessage, LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MINUTES_DELAY_MS = 1_500;
@@ -108,15 +109,10 @@ interface PageDraft {
 
 // Strictly one JSON object with a non-empty title and body; anything else is unusable.
 function parseDraft(reply: string): PageDraft | undefined {
-  let value: unknown;
-  try {
-    value = parseJsonReply(reply);
-  } catch {
-    return undefined;
-  }
-  if (!isObject(value)) return undefined;
-  const title = typeof value.title === 'string' ? value.title.trim() : '';
-  const body = typeof value.body === 'string' ? value.body.trim() : '';
+  const value = parseDraftObject(reply);
+  if (value === undefined) return undefined;
+  const title = draftString(value, 'title').trim();
+  const body = draftString(value, 'body').trim();
   if (title === '' || body === '') return undefined;
   return { title, body };
 }

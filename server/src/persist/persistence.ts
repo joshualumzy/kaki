@@ -1,3 +1,4 @@
+import { errorMessage } from '@kaki/shared';
 import { Pool } from 'pg';
 import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from './postgres';
 import {
@@ -45,10 +46,6 @@ interface MeetingPersistenceOptions {
   now?: () => Date;
   log?: (message: string) => void;
   closeStore?: () => Promise<void>;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 interface SaveEntry {

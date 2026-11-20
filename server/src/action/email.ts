@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import { isObject } from '@kaki/shared';
 import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-import { parseJsonReply, type ChatMessage, type LlmClient } from '../llm';
+import type { ChatMessage, LlmClient } from '../llm';
 import type { KakiModule } from '../modules';
+import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
-import { ActionError, createActionModule, isObject, messageOf, plainReason, factsForTask } from './runner';
+import { ActionError, createActionModule, messageOf, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -85,17 +87,12 @@ function recipientsOf(target: string): string[] {
 
 // Strictly one JSON object with a non-empty subject and body; a bad address only empties the target.
 function parseDraft(reply: string): EmailDraft | undefined {
-  let value: unknown;
-  try {
-    value = parseJsonReply(reply);
-  } catch {
-    return undefined;
-  }
-  if (!isObject(value)) return undefined;
-  const subject = typeof value.subject === 'string' ? value.subject.trim() : '';
-  const body = typeof value.body === 'string' ? value.body.trim() : '';
+  const value = parseDraftObject(reply);
+  if (value === undefined) return undefined;
+  const subject = draftString(value, 'subject').trim();
+  const body = draftString(value, 'body').trim();
   if (subject === '' || body === '') return undefined;
-  const to = typeof value.to === 'string' ? value.to.trim() : '';
+  const to = draftString(value, 'to').trim();
   const validTo = recipientsOf(to);
   return { to: validTo.join(', '), subject, body };
 }

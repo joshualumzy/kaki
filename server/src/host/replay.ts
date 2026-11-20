@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { roleForZoomName, type Scenario } from '@kaki/shared';
+import { isObject, roleForZoomName, type Scenario } from '@kaki/shared';
 import type { Hub } from '../hub';
 import { scenarioDir } from '../loadScenario';
 
@@ -13,10 +13,6 @@ export interface ReplayLine {
   speaker: string;
   text: string;
   agendaIndex?: number;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

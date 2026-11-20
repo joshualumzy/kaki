@@ -4,6 +4,7 @@
  */
 
 import type { Scenario } from '@kaki/shared';
+import { escapeRegExp } from '../text';
 import { cleanSpoken, type HumanInfo } from './director';
 import { contentWords } from './meetingState';
 
@@ -79,10 +80,6 @@ const CONTROL_LINE_RE = /^\s*(?:KAKI_CONTROL|\[|\()/i;
 const CARD_OR_SCREEN_RE =
   /\b(?:follow[- ]up\s+card|card\s+on\s+your|on\s+your\s+(?:screen|phone)|panel|dashboard)\b/i;
 const META_LINE_RE = /\b(?:as an ai|language model|system prompt|prompt leak|these instructions|this note)\b/i;
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function roleLabel(scenario: Scenario, speaker: string): string {
   const attendee = scenario.attendees.find((candidate) => candidate.name === speaker);

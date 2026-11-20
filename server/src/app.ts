@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, parseScenario, resolveAgendaPick, seatProblem, setMeetingAgenda, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { blankMeetingSetup, codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, hostIdentityOf, humanAttendeeForRole, isHumanParticipant, isKakiEvent, isKakiListener, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KAKI_LISTENER_IDENTITY, KOPITIAM_INVITE_UID, MAX_TYPED_LENGTH, MEETING_ENDED_MESSAGE, meetingScenarioFromSetup, NO_TEAM_MEETING_MESSAGE, parseMeetingInvite, parseMeetingSetup, parseScenario, resolveAgendaPick, seatProblem, setMeetingAgenda, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, speakerName, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -14,6 +14,7 @@ import {
   type Principal,
   type Route,
 } from './access';
+import { cookieValue, readJsonBody, sendJson } from './http';
 import { projectScenario } from './scenarioProjection';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from './persist/state';
 import { CALENDAR_CONFIG_MESSAGE, CalendarFetchError, fetchCalendarIcs, viewEvent, type CalendarSettings } from './action/calendar';
@@ -201,14 +202,6 @@ interface RequestContext {
 
 const MAX_BODY_BYTES = 1_000_000;
 
-type JsonBody = { ok: true; value: unknown } | { ok: false; status: number; error: string };
-
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  if (response.writableEnded) return;
-  response.writeHead(status, { 'content-type': 'application/json' });
-  response.end(JSON.stringify(body));
-}
-
 /** The one message for a role id this meeting does not offer: name it and list the offered seats. */
 function notAHumanSeat(wanted: string, offered: ReadonlyArray<{ id: string; label: string }>): string {
   const list =
@@ -236,60 +229,9 @@ const PRACTICE_COOKIE = 'kaki_practice';
 /** The one practice refusal while a real meeting is open or running. */
 const REAL_IN_PROGRESS_MESSAGE = 'A team meeting is in progress right now. Try practice again later.';
 
-function cookieValue(request: IncomingMessage, name: string): string | undefined {
-  const header = request.headers.cookie;
-  if (typeof header !== 'string' || header === '') return undefined;
-  for (const pair of header.split(';')) {
-    const index = pair.indexOf('=');
-    if (index < 0) continue;
-    if (pair.slice(0, index).trim() !== name) continue;
-    const value = pair.slice(index + 1).trim();
-    if (value !== '') return value;
-  }
-  return undefined;
-}
-
 function practiceCookie(token: string): string {
   const secure = publicUrlIsHttps() ? '; Secure' : '';
   return `${PRACTICE_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}`;
-}
-
-function readBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    let overflowed = false;
-    const chunks: Buffer[] = [];
-
-    request.on('data', (chunk: Buffer) => {
-      if (overflowed) return;
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        overflowed = true;
-        reject(new Error(`Request body exceeds ${MAX_BODY_BYTES} bytes`));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    request.on('end', () => {
-      if (!overflowed) resolve(Buffer.concat(chunks).toString('utf8'));
-    });
-    request.on('error', reject);
-  });
-}
-
-async function readJsonBody(request: IncomingMessage): Promise<JsonBody> {
-  let body: string;
-  try {
-    body = await readBody(request);
-  } catch (error) {
-    return { ok: false, status: 400, error: error instanceof Error ? error.message : 'Could not read body' };
-  }
-
-  try {
-    return { ok: true, value: JSON.parse(body) as unknown };
-  } catch {
-    return { ok: false, status: 400, error: 'Body must be valid JSON' };
-  }
 }
 
 /**
@@ -386,7 +328,7 @@ function mattermostPublicBase(internal: URL, env: NodeJS.ProcessEnv = process.en
 }
 
 async function syncDemoVisitorProfile(participantName: string): Promise<void> {
-  const cleanName = participantName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const cleanName = speakerName(participantName);
   if (cleanName === '') return;
 
   const giteaUrl = process.env.GITEA_URL?.trim();
@@ -488,7 +430,7 @@ async function handleRequest(
         sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
         return;
       }
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
         return;
@@ -1297,7 +1239,7 @@ async function handleRequest(
         sendSetupLocked(response, lock);
         return;
       }
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
         return;
@@ -1471,7 +1413,7 @@ async function handleRequest(
     }
 
     if (request.method === 'POST' && (path === '/dev/emit' || path === '/api/runner/emit')) {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
         return;
@@ -1503,7 +1445,7 @@ async function handleRequest(
     // The default server-side recogniser hears the person on the runner's echo-cancelled track.
     // The runner forwards the accepted words here so the app server still owns the transcript write.
     if (request.method === 'POST' && path === '/api/runner/human-line') {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
         return;
@@ -1572,7 +1514,7 @@ async function handleRequest(
     }
 
     if (request.method === 'POST' && (path === '/dev/suggest-task' || path === '/api/runner/suggest-task')) {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
         return;
@@ -1586,7 +1528,7 @@ async function handleRequest(
     }
 
     if (request.method === 'POST' && (path === '/dev/meeting-memory' || path === '/api/runner/meeting-memory')) {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) { sendJson(response, body.status, { error: body.error }); return; }
       if (!isMeetingMemoryEntries(body.value, context.session.active().agenda.map((item) => item.title))) {
         sendJson(response, 400, { error: 'Invalid meeting memory' }); return;
@@ -1599,7 +1541,7 @@ async function handleRequest(
     // The live demo's engine locked the visitor's decision on an agenda item: create its follow-up and release
     // whatever was held for that item, in one request so the two can never disagree.
     if (request.method === 'POST' && (path === '/dev/settle-topic' || path === '/api/runner/settle-topic')) {
-      const body = await readJsonBody(request);
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
       if (!body.ok) {
         sendJson(response, body.status, { error: body.error });
         return;

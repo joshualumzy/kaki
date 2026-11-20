@@ -1,4 +1,5 @@
 import { itemMode, type AgendaItem, type MeetingMemoryEntry, type NpcProfile, type Scenario } from '@kaki/shared';
+import { escapeRegExp } from '../text';
 import type { TopicPromptView } from './topicRecord';
 
 /** One thing an AI attendee says aloud: a sentence, tagged with who says it. */
@@ -315,10 +316,6 @@ function stripLeadName(text: string, namesToStrip: readonly (string | undefined)
     out = out.replace(pattern, '');
   }
   return out;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**

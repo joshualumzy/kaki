@@ -1,3 +1,4 @@
+import { isNonEmptyString, isObject } from './guards';
 import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenario';
 import type { Role } from './roles';
 
@@ -64,14 +65,6 @@ export interface RunnerMeetingSnapshot {
   pauseKind?: 'empty-room' | 'person';
   /** Fences stale reads: a snapshot is only newer within the same epoch when its seq is higher. */
   version: RunnerSnapshotVersion;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '';
 }
 
 function isAgendaIndex(value: unknown): value is number {
