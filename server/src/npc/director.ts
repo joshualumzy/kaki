@@ -35,7 +35,7 @@ export function replyShapeInstruction(shape: ReplyShape): string {
 /** What the person's role answers for (its role card's responsibility), if the role has a card. */
 export function responsibilityFor(scenario: Scenario, human: HumanInfo | undefined): string | undefined {
   const key = human?.role.trim().toLowerCase();
-  return scenario.roles.find((role) => role.label.toLowerCase() === key || role.id === human?.role)?.card?.responsibility;
+  return scenario.roles.find((role) => role.id.toLowerCase() === key)?.card?.responsibility;
 }
 
 /** Prefer the item's owner, then its stated viewpoints, then any colleague actually in the room. */
@@ -46,8 +46,8 @@ export function pushingColleague(
   presentNames: readonly string[],
   host: string | undefined,
 ): string | undefined {
-  const role = scenario.roles.find((candidate) =>
-    candidate.id.toLowerCase() === visitorRole?.toLowerCase() || candidate.label.toLowerCase() === visitorRole?.toLowerCase(),
+  const role = scenario.roles.find(
+    (candidate) => candidate.id.toLowerCase() === visitorRole?.toLowerCase(),
   );
   const seat = scenario.attendees.find((attendee) => attendee.role === role?.id)?.name;
   const eligible = (name: string | undefined): name is string =>
@@ -88,7 +88,7 @@ function describeNpc(scenario: Scenario, npc: NpcProfile, human?: HumanInfo, inc
   const attendee = scenario.attendees.find((candidate) => candidate.name === npc.attendee);
   const role = scenario.roles.find((candidate) => candidate.id === attendee?.role)?.label ?? 'Attendee';
   const humanRoleId = scenario.roles.find(
-    (candidate) => candidate.label.toLowerCase() === human?.role.trim().toLowerCase() || candidate.id === human?.role,
+    (candidate) => candidate.id.toLowerCase() === human?.role.trim().toLowerCase(),
   )?.id;
   const seatAttendee = scenario.attendees.find((candidate) => candidate.role === humanRoleId);
   const scrubSeatName = (text: string): string => {
@@ -117,7 +117,7 @@ function describeNpc(scenario: Scenario, npc: NpcProfile, human?: HumanInfo, inc
   }
   const towardHuman = humanRoleId === undefined ? undefined : npc.withRoles?.[humanRoleId];
   if (human !== undefined && towardHuman !== undefined) {
-    const visitorRoleLabel = scenario.roles.find((candidate) => candidate.id === human.role || candidate.label === human.role)?.label ?? human.role;
+    const visitorRoleLabel = scenario.roles.find((candidate) => candidate.id === human.role)?.label ?? human.role;
     lines.push(`  Towards ${human.name} (${visitorRoleLabel}): ${scrubSeatName(towardHuman)}`);
   }
   if (npc.knows !== undefined && npc.knows.length > 0) lines.push(`  Knows: ${npc.knows.map(scrubSeatName).join(' | ')}`);
@@ -146,7 +146,7 @@ export function buildSystemPrompt(
   const who =
     human === undefined
       ? 'A person is about to join the meeting; their name and role will be given when they do.'
-      : `The person you are talking to is ${human.name}, the ${scenario.roles.find((role) => role.id === human.role || role.label === human.role)?.label ?? human.role}. Use their name when you hand them the floor, never as a tag on the end of a statement, and tailor what you say to their role.`;
+      : `The person you are talking to is ${human.name}, the ${scenario.roles.find((role) => role.id === human.role)?.label ?? human.role}. Use their name when you hand them the floor, never as a tag on the end of a statement, and tailor what you say to their role.`;
   const misheard = npcs
     .filter((npc) => (npc.soundsLike ?? []).length > 0)
     .map((npc) => `${npc.attendee}: ${(npc.soundsLike ?? []).join(', ')}`)
@@ -156,7 +156,7 @@ export function buildSystemPrompt(
   const host = npcs.find((npc) => npc.role === 'host');
   const humanRoleKey = human?.role.trim().toLowerCase();
   const humanRoleId = scenario.roles.find(
-    (candidate) => candidate.label.toLowerCase() === human?.role.trim().toLowerCase() || candidate.id === human?.role,
+    (candidate) => candidate.id.toLowerCase() === human?.role.trim().toLowerCase(),
   )?.id;
   const seatAttendee = scenario.attendees.find((candidate) => candidate.role === humanRoleId);
   const scrubSeatName = (text: string): string => {
@@ -181,7 +181,7 @@ export function buildSystemPrompt(
   const humanHosts =
     human !== undefined &&
     scenario.roles.some(
-      (role) => role.facilitator === true && (role.id.toLowerCase() === humanRoleKey || role.label.toLowerCase() === humanRoleKey),
+      (role) => role.facilitator === true && role.id.toLowerCase() === humanRoleKey,
     );
   const unintroduced = names
     .filter((name) => name !== host?.attendee && !alreadyIntroduced.includes(name))

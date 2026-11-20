@@ -99,12 +99,13 @@ export function humanRoles(scenario: Scenario): ScenarioRole[] {
   return humanSeatRoles(scenario).filter((role) => role.facilitator !== true);
 }
 
-/** The attendee a person plays when they pick a role (by id or label): the first one no AI plays. */
-export function humanAttendeeForRole(scenario: Scenario, roleIdOrLabel: string): Attendee | undefined {
-  const wanted = roleIdOrLabel.trim().toLowerCase();
-  const role = scenario.roles.find(
-    (candidate) => candidate.id.toLowerCase() === wanted || candidate.label.toLowerCase() === wanted,
-  );
+/**
+ * The attendee a person plays when they pick a role, by canonical role id. Labels are display-only:
+ * a label is not a role identity and never resolves a seat.
+ */
+export function humanAttendeeForRole(scenario: Scenario, roleId: string): Attendee | undefined {
+  const wanted = roleId.trim().toLowerCase();
+  const role = scenario.roles.find((candidate) => candidate.id.toLowerCase() === wanted);
   if (role === undefined) return undefined;
   return scenario.attendees.find((attendee) => attendee.role === role.id && !isPlayedByAi(scenario, attendee));
 }
@@ -120,6 +121,29 @@ export function hostRole(scenario: Scenario): ScenarioRole | undefined {
       scenario.attendees.some((attendee) => attendee.role === role.id && !isPlayedByAi(scenario, attendee)) &&
       (scenario.npcs ?? []).some((npc) => scenario.attendees.some((a) => a.name === npc.attendee && a.role === role.id)),
   );
+}
+
+/**
+ * The roles the join form offers. When the server names the setup's person seats, those ids are the
+ * offered seats (a role added in setup included); otherwise every human seat, plus a host's chair a
+ * person can take. Ids are canonical; labels are display-only.
+ */
+export function joinSeatRoles(scenario: Scenario): ScenarioRole[] {
+  if (scenario.joinSeats === undefined) {
+    const host = hostRole(scenario);
+    return host === undefined ? humanRoles(scenario) : [...humanRoles(scenario), host];
+  }
+  const byId = new Map(scenario.roles.map((role) => [role.id, role]));
+  const seen = new Set<string>();
+  const roles: ScenarioRole[] = [];
+  for (const id of scenario.joinSeats) {
+    if (seen.has(id)) continue;
+    const role = byId.get(id);
+    if (role === undefined) continue;
+    seen.add(id);
+    roles.push(role);
+  }
+  return roles;
 }
 
 /** The one-person booth cap, for callers that deliberately want a single guest. */
@@ -152,11 +176,35 @@ export function seatProblem(
   wantedRole: string | undefined,
   maxHumans?: number,
 ): string | undefined {
-  const cap = humanSeatCapacity(scenario, maxHumans);
+  // When the server names the setup's person seats, those seats alone decide the cap and who is
+  // sitting where, including a role the owner added in setup.
+  const namedSeats = scenario.joinSeats;
+  const requested = maxHumans === undefined || !Number.isFinite(maxHumans) ? undefined : Math.floor(maxHumans);
+  const cap =
+    namedSeats === undefined
+      ? humanSeatCapacity(scenario, maxHumans)
+      : Math.max(0, Math.min(requested ?? namedSeats.length, namedSeats.length));
   if (cap === 0) return 'No human seats are available in this meeting.';
-  const seat = wantedRole === undefined ? undefined : humanAttendeeForRole(scenario, wantedRole);
-  if (seat !== undefined && present.some((person) => person.role !== undefined && humanAttendeeForRole(scenario, person.role)?.name === seat.name)) {
-    return `${seat.name}'s seat is taken. Pick another role.`;
+  if (namedSeats !== undefined) {
+    const wanted = wantedRole?.trim().toLowerCase();
+    if (
+      wanted !== undefined &&
+      present.some(
+        (person) => person.role !== undefined && person.role.trim().toLowerCase() === wanted,
+      )
+    ) {
+      return `That seat is taken. Pick another role.`;
+    }
+  } else {
+    const seat = wantedRole === undefined ? undefined : humanAttendeeForRole(scenario, wantedRole);
+    if (
+      seat !== undefined &&
+      present.some(
+        (person) => person.role !== undefined && humanAttendeeForRole(scenario, person.role)?.name === seat.name,
+      )
+    ) {
+      return `${seat.name}'s seat is taken. Pick another role.`;
+    }
   }
   if (present.length >= cap) {
     const why = (scenario.npcs ?? []).length > 0 ? ' Meetings with AI stand-ins take one person.' : '';
@@ -187,13 +235,13 @@ export type ItemMode = 'observe' | 'involve' | 'decide';
 /**
  * Worked out from who the person is, not fixed in the scenario: a contested item is `decide`, an item owned by the
  * person's own role is `involve`, and any other item is `observe`. A person who picks another role gets different items to take part in.
- * `visitorRole` is the role's label or id.
+ * `visitorRole` is the role's canonical id.
  */
 export function itemMode(scenario: Scenario, item: AgendaItem | undefined, visitorRole: string | undefined): ItemMode {
   if (item === undefined) return 'observe';
   if (item.contested === true) return 'decide';
   const key = visitorRole?.trim().toLowerCase();
-  const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id === visitorRole || candidate.label.toLowerCase() === key);
+  const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id.toLowerCase() === key);
   return role !== undefined && role.id === item.ownerRole ? 'involve' : 'observe';
 }
 
@@ -242,7 +290,7 @@ export function shuffleAgendaForRole(
   }
 
   const key = visitorRole?.trim().toLowerCase();
-  const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id === visitorRole || candidate.label.toLowerCase() === key);
+  const role = key === undefined ? undefined : scenario.roles.find((candidate) => candidate.id.toLowerCase() === key);
 
   const aiColleagues = new Set(
     scenario.attendees

@@ -608,12 +608,19 @@ export function setupScenarioRoles(scenario: Scenario, setup: MeetingSetup): Sce
   return [...roles, ...scenario.roles.filter((role) => !applied.has(role.id))];
 }
 
-/** The person seats a setup can give a role: a person seat whose role has someone to play it. */
-export function setupPersonSeatRoles(scenario: Scenario, setup: MeetingSetup): string[] {
-  return setup.seats
-    .filter((seat) => seat.kind === 'person')
-    .map((seat) => seat.roleId)
-    .filter((roleId) => scenario.attendees.some((attendee) => attendee.role === roleId));
+/**
+ * The role ids a setup offers as person seats, in setup order. A role the owner added in setup is a
+ * seat even when the demo pack has no attendee for it, so this never consults the pack's cast.
+ */
+export function setupPersonSeatRoles(setup: MeetingSetup): string[] {
+  const seen = new Set<string>();
+  const roles: string[] = [];
+  for (const seat of setup.seats) {
+    if (seat.kind !== 'person' || seen.has(seat.roleId)) continue;
+    seen.add(seat.roleId);
+    roles.push(seat.roleId);
+  }
+  return roles;
 }
 
 export interface MeetingScenarioFromSetupOptions {
@@ -636,7 +643,7 @@ export function meetingScenarioFromSetup(
     meetingTitle: setup.title,
     roles: setupScenarioRoles(scenario, setup),
     npcs: setupAiCast(scenario, setup).map((npc) => ({ ...npc, playable: false })),
-    joinSeats: setupPersonSeatRoles(scenario, setup),
+    joinSeats: setupPersonSeatRoles(setup),
     agenda: [...scenario.agenda],
     attendees: [...scenario.attendees],
   };

@@ -66,19 +66,20 @@ describe('JoinForm', () => {
     expect(onJoin).not.toHaveBeenCalled();
   });
 
-  it('joins with the trimmed name and the chosen role label', () => {
+  it('joins with the trimmed name and the chosen role id, while showing labels', () => {
     const { button, name, role, onJoin } = setup();
     fireEvent.change(name, { target: { value: '  Josh ' } });
-    fireEvent.change(role, { target: { value: 'Marketing Lead' } });
+    expect([...role.options].map((option) => option.value)).toEqual(['producer', 'marketing_lead']);
+    fireEvent.change(role, { target: { value: 'marketing_lead' } });
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Marketing Lead', { microphone: true, camera: false });
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'marketing_lead', { microphone: true, camera: false });
   });
 
   it('joins with the first role when the person does not change it', () => {
     const { button, name, onJoin } = setup();
     fireEvent.change(name, { target: { value: 'Josh' } });
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: true, camera: false });
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false });
   });
 
   it('cannot be submitted twice while joining, and shows why a join failed', () => {
@@ -113,7 +114,7 @@ describe('JoinForm', () => {
     fireEvent.click(mic);
     expect(button.textContent).toBe('Join to type');
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: false, camera: false });
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: false, camera: false });
   });
 
   it('has no code box until a code is needed or came with the link', () => {
@@ -128,7 +129,7 @@ describe('JoinForm', () => {
     fireEvent.change(screen.getByLabelText('Meeting code'), { target: { value: 'k7qx' } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: true, camera: false }, 'K7QX');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false }, 'K7QX');
   });
 
   it('fills the code from the link but does not insist on it', () => {
@@ -136,6 +137,6 @@ describe('JoinForm', () => {
     fireEvent.change(name, { target: { value: 'Josh' } });
     expect((screen.getByLabelText('Meeting code') as HTMLInputElement).value).toBe('ABCD');
     fireEvent.click(button);
-    expect(onJoin).toHaveBeenCalledWith('Josh', 'Producer', { microphone: true, camera: false }, 'ABCD');
+    expect(onJoin).toHaveBeenCalledWith('Josh', 'producer', { microphone: true, camera: false }, 'ABCD');
   });
 });

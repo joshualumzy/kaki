@@ -22,7 +22,7 @@ export interface JoinFormProps {
   /** A code from the page's link, to fill the box with. */
   initialCode?: string;
   /** `media`: which devices to join with. Without the microphone a person types to the AI attendees. */
-  onJoin(name: string, roleLabel: string, media: MediaChoice, meetingCode?: string): void;
+  onJoin(name: string, roleId: string, media: MediaChoice, meetingCode?: string): void;
 }
 
 function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
@@ -44,7 +44,7 @@ function roleVisualMeta(role: ScenarioRole): { icon: string; tag: string } {
 /** The screen before the meeting: a name and a role, then a microphone. */
 export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, askCode = false, initialCode = '', onJoin }: JoinFormProps) {
   const [name, setName] = useState(DEFAULT_NAME);
-  const [roleLabel, setRoleLabel] = useState(roles[0]?.label ?? '');
+  const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
   const [media, setMedia] = useState<MediaChoice>({ microphone: true, camera: false });
   const [code, setCode] = useState(initialCode);
   const showCode = askCode || initialCode.length > 0;
@@ -56,7 +56,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
       img.src = src;
     }
   }, [agenda]);
-  const ready = name.trim().length > 0 && roleLabel.length > 0 && !busy && (!askCode || code.trim().length > 0);
+  const ready = name.trim().length > 0 && roleId.length > 0 && !busy && (!askCode || code.trim().length > 0);
 
   return (
     <div className="kd-join">
@@ -65,8 +65,8 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
         onSubmit={(event) => {
           event.preventDefault();
           if (ready) {
-            if (showCode && code.trim().length > 0) onJoin(name.trim(), roleLabel, media, code.trim());
-            else onJoin(name.trim(), roleLabel, media);
+            if (showCode && code.trim().length > 0) onJoin(name.trim(), roleId, media, code.trim());
+            else onJoin(name.trim(), roleId, media);
           }
         }}
       >
@@ -105,11 +105,11 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
               id="join-role"
               aria-label="Your role"
               className="kd-field kd-role-select-sr"
-              value={roleLabel}
-              onChange={(event) => setRoleLabel(event.target.value)}
+              value={roleId}
+              onChange={(event) => setRoleId(event.target.value)}
             >
               {roles.map((role) => (
-                <option key={role.id} value={role.label}>
+                <option key={role.id} value={role.id}>
                   {role.facilitator === true ? `${role.label} · run the meeting` : role.label}
                 </option>
               ))}
@@ -118,7 +118,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
             {roles.length > 0 && (
               <div className="kd-seat-picker" role="radiogroup" aria-label="Pick your seat">
                 {roles.map((role) => {
-                  const selected = role.label === roleLabel;
+                  const selected = role.id === roleId;
                   const meta = roleVisualMeta(role);
                   return (
                     <button
@@ -128,7 +128,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
                       aria-checked={selected}
                       className="kd-seat-option"
                       data-selected={selected}
-                      onClick={() => setRoleLabel(role.label)}
+                      onClick={() => setRoleId(role.id)}
                     >
                       <span className="kd-seat-icon" aria-hidden="true">{meta.icon}</span>
                       <span className="kd-seat-text">
@@ -142,7 +142,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
             )}
 
             {(() => {
-              const selectedRole = roles.find((role) => role.label === roleLabel);
+              const selectedRole = roles.find((role) => role.id === roleId);
               const responsibility = selectedRole?.card?.responsibility;
               if (responsibility === undefined) return null;
               return (

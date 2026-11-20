@@ -2144,7 +2144,7 @@ export class NpcConversation<Clip> {
       return this.askOffer(view);
     }
     const role = this.options.scenario.roles.find((candidate) =>
-      candidate.id === human.role || candidate.label === human.role)?.id;
+      candidate.id === human.role)?.id;
     if (role === undefined) return false;
     this.humanSettledOnCurrentItem = true;
     this.decisionWrappedUpOnItem = true;
@@ -2731,7 +2731,7 @@ export class NpcConversation<Clip> {
     if (item === undefined || human === undefined) return undefined;
     const host = this.facilitatorOrCoHost();
     const seat = this.options.scenario.attendees.find((attendee) =>
-      attendee.role === this.options.scenario.roles.find((role) => role.id === human.role || role.label === human.role)?.id)?.name;
+      attendee.role === this.options.scenario.roles.find((role) => role.id === human.role)?.id)?.name;
 
     const planned: Array<{ speaker: string; texts: string[] }> = [];
     for (const fact of item.briefing ?? []) {
@@ -4322,7 +4322,7 @@ export class NpcConversation<Clip> {
     const human = this.human;
     if (human === undefined) return undefined;
     const role = this.options.scenario.roles.find((candidate) =>
-      candidate.id === human.role || candidate.label.toLowerCase() === human.role.trim().toLowerCase());
+      candidate.id === human.role);
     const seat = this.options.scenario.attendees.find((attendee) => attendee.role === role?.id)?.name;
     return seat === undefined ? undefined : { name: human.name, seat };
   }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
+import { codeProblem, defaultMeetingSetup, demoPackNpcProfileIds, demoRoomName, deriveMeetingScenario, humanAttendeeForRole, isKakiEvent, isMeetingMemoryEntries, isPackFreeMeeting, isSuggestInput, joinSeatRoles, KOPITIAM_INVITE_UID, meetingAgendaFromSetup, meetingScenarioFromSetup, parseMeetingInvite, parseMeetingSetup, resolveAgendaPick, seatProblem, setMeetingAgenda, setupAiCast, setupPersonSeatRoles, setupScenarioRoles, shuffleAgendaForRole, type MeetingMemoryEntry, type MeetingSetup, type RunnerMeetingSnapshot, type Scenario, type Task } from '@kaki/shared';
 import {
   accessProblem,
   assertSafeBind,
@@ -178,10 +178,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-/** The setup role a person names, by id or label. */
-function setupRoleFor(setup: MeetingSetup, wanted: string): MeetingSetup['roles'][number] | undefined {
-  const key = wanted.trim().toLowerCase();
-  return setup.roles.find((role) => role.id.toLowerCase() === key || role.label.toLowerCase() === key);
+/** The one message for a role id this meeting does not offer: name it and list the offered ids. */
+function notAHumanSeat(wanted: string, offered: readonly string[]): string {
+  const list = offered.length === 0 ? 'none' : offered.join(', ');
+  return `"${wanted}" is not a human seat in this meeting. Pick one of the roles offered when you join: ${list}.`;
 }
 
 /** Refuse a setup write while the meeting is starting or already started. */
@@ -504,28 +504,44 @@ async function handleRequest(
               abandoned,
             }) === 'resume';
           const seating = context.seating(returning, roomEmpty);
-          // An owner-edited draft admits only the person seats it names; an untouched draft stays open.
-          const setupRole = seating.setup === undefined ? undefined : setupRoleFor(seating.setup, wantedRole);
+          // The role id is the seat's one identity. An owner-edited draft admits only the person seats
+          // it names; an untouched draft admits every human seat the pack offers.
+          let seatId: string;
           if (seating.setup !== undefined) {
-            const isPersonSeat =
-              setupRole !== undefined &&
-              seating.setup.seats.some((candidate) => candidate.kind === 'person' && candidate.roleId === setupRole.id);
-            if (!isPersonSeat) {
-              sendJson(response, 409, {
-                error: `This meeting's setup has no place for ${setupRole?.label ?? wantedRole}; the owner set the seats.`,
+            const key = wantedRole.toLowerCase();
+            const role = seating.setup.roles.find((candidate) => candidate.id.toLowerCase() === key);
+            if (role === undefined) {
+              sendJson(response, 400, {
+                error: notAHumanSeat(
+                  wantedRole,
+                  joinSeatRoles(seating.scenario).map((offered) => offered.id),
+                ),
               });
               return;
             }
+            const isPersonSeat = seating.setup.seats.some(
+              (candidate) => candidate.kind === 'person' && candidate.roleId === role.id,
+            );
+            if (!isPersonSeat) {
+              sendJson(response, 409, {
+                error: `This meeting's setup has no place for ${role.label}; the owner set the seats.`,
+              });
+              return;
+            }
+            seatId = role.id;
+          } else {
+            const seat = humanAttendeeForRole(seating.admissionScenario, wantedRole);
+            if (seat === undefined) {
+              sendJson(response, 400, {
+                error: notAHumanSeat(
+                  wantedRole,
+                  joinSeatRoles(seating.scenario).map((offered) => offered.id),
+                ),
+              });
+              return;
+            }
+            seatId = seat.role;
           }
-          const seat = humanAttendeeForRole(seating.admissionScenario, wantedRole);
-          if (seat === undefined) {
-            sendJson(response, 400, {
-              error: `"${wantedRole}" is not a human seat in this meeting. Pick one of the roles offered when you join.`,
-            });
-            return;
-          }
-          // The canonical role id is what the roster and transcript use, whatever the person typed.
-          const seatId = seat.role;
           const decision: Admission = roomEmpty
             ? admission({
                 phase: decisionPhase,
@@ -1561,7 +1577,7 @@ export async function createApp({
   function holderPersonSeat(): string | undefined {
     const setup = session.sealed() ?? session.draft();
     const holders = session.holders();
-    for (const roleId of setupPersonSeatRoles(fullScenario, setup)) {
+    for (const roleId of setupPersonSeatRoles(setup)) {
       const key = roleId.trim().toLowerCase();
       if (holders.some((holder) => holder.seat.trim().toLowerCase() === key)) return roleId;
     }
@@ -1712,12 +1728,12 @@ export async function createApp({
     return undefined;
   }
 
-  /** The person seats admission can actually give a role: a person seat whose role has someone to play it. */
+  /** The roles the setup offers as person seats, including a role the owner added in setup. */
   function personSeatRoles(setup: MeetingSetup): string[] {
-    return setupPersonSeatRoles(fullScenario, setup);
+    return setupPersonSeatRoles(setup);
   }
 
-  /** How many real people the setup can seat: one per person seat that has someone to play it. */
+  /** How many real people the setup can seat: one per offered person seat. */
   function personSeatCapacity(setup: MeetingSetup): number {
     return personSeatRoles(setup).length;
   }
@@ -1746,9 +1762,10 @@ export async function createApp({
     const joiningSealed =
       sealed !== undefined && phase === 'running' && (returning || !empty);
     if (joiningSealed) {
+      const joinSeats = personSeatRoles(sealed);
       return {
-        scenario: { ...active, joinSeats: personSeatRoles(sealed) },
-        admissionScenario: active,
+        scenario: { ...active, joinSeats },
+        admissionScenario: { ...active, joinSeats },
         setup: sealed,
         admissionCap: personSeatCapacity(sealed),
       };
@@ -1765,9 +1782,11 @@ export async function createApp({
         : { scenario: active, admissionScenario: active };
     }
     const setup = session.draft();
+    const joinSeats = personSeatRoles(setup);
     return {
-      // The live view keeps its title, roles and cast; only the seats people may join change.
-      scenario: { ...active, joinSeats: personSeatRoles(setup) },
+      // The live view keeps its title and cast; its roles and offered seats follow the owner's setup,
+      // so a renamed or newly added role is shown (and admitted) by its canonical id.
+      scenario: { ...active, roles: setupScenarioRoles(fullScenario, setup), joinSeats },
       admissionScenario: scenarioFromSetup(setup),
       setup,
       admissionCap: personSeatCapacity(setup),

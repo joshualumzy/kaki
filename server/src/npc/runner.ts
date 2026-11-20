@@ -544,9 +544,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     if (rebuilt || !openedLocally) {
       const person = [...humans.values()].at(-1)!;
-      const role = meeting.roles().find(
-        (candidate) => candidate.id.toLowerCase() === person.role.trim().toLowerCase() || candidate.label.toLowerCase() === person.role.trim().toLowerCase(),
-      );
+      const role = meeting
+        .roles()
+        .find((candidate) => candidate.id.toLowerCase() === person.role.trim().toLowerCase());
       conversation!.setHuman({
         name: person.name,
         role: person.role,
@@ -1302,7 +1302,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     },
     visitorRole() {
       const wanted = [...humans.values()].at(-1)?.role;
-      return meeting.roles().find((role) => role.id === wanted || role.label === wanted)?.id;
+      return meeting.roles().find((role) => role.id === wanted)?.id;
     },
     say(attendee, text, onDone) {
       if (endedTerminal || conversation === undefined) {

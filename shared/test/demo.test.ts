@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles } from '../src/demo';
+import { itemMode, resolveAgendaPick, shuffleAgendaForRole, codeProblem, normalizeMeetingCode, aiCast, hostRole, seatProblem, humanSeatCapacity, humanSeatCount, MAX_TYPED_LENGTH, parseControlMessage, demoRoomName, humanAttendeeForRole, humanRoles, joinSeatRoles } from '../src/demo';
 import type { Scenario } from '../src/scenario';
 import { testScenario } from './fixtures';
 
@@ -21,10 +21,20 @@ describe('demo meeting helpers', () => {
     expect(humanRoles(withAi).map((role) => role.id)).toEqual(['cashier']);
   });
 
-  it('maps a chosen role, by id or label, to the attendee the transcript will call them', () => {
+  it('offers the setup person seats by id, including a role the pack has no attendee for', () => {
+    const scenario: Scenario = {
+      ...withAi,
+      roles: [...withAi.roles, { id: 'runner', label: 'Runner' }],
+      joinSeats: ['cashier', 'runner', 'missing'],
+    };
+    expect(joinSeatRoles(scenario).map((role) => role.id)).toEqual(['cashier', 'runner']);
+  });
+
+  it('maps a chosen role id to the attendee the transcript will call them, never a label', () => {
     expect(humanAttendeeForRole(withAi, 'cashier')?.zoomDisplayName).toBe('Bao (Cashier)');
     expect(humanAttendeeForRole(withAi, ' CASHIER ')?.name).toBe('Bao');
     expect(humanAttendeeForRole(withAi, 'Chef')).toBeUndefined();
+    expect(humanAttendeeForRole(withAi, 'Marketing Lead')).toBeUndefined();
     expect(humanAttendeeForRole(withAi, 'astronaut')).toBeUndefined();
   });
 
@@ -104,9 +114,9 @@ describe('demo meeting helpers', () => {
     const scenario: Scenario = { ...testScenario, npcs: cast };
     const role = humanRoles(scenario)[0]!;
     expect(humanSeatCapacity(scenario, 3)).toBe(1);
-    expect(seatProblem(scenario, [], role.label, 3)).toBeUndefined();
-    expect(seatProblem(scenario, [{ role: role.label }], role.label, 3)).toMatch(/seat is taken/);
-    expect(seatProblem(scenario, [{ role: 'someone else' }], role.label, 3)).toMatch(/full.*AI stand-ins take one person/);
+    expect(seatProblem(scenario, [], role.id, 3)).toBeUndefined();
+    expect(seatProblem(scenario, [{ role: role.id }], role.id, 3)).toMatch(/seat is taken/);
+    expect(seatProblem(scenario, [{ role: 'someone else' }], role.id, 3)).toMatch(/full.*AI stand-ins take one person/);
   });
 
   it('never exceeds the human seats of a human-only meeting, whatever the requested cap says', () => {
@@ -151,11 +161,12 @@ describe('itemMode', () => {
   const item = (extra: object) => ({ title: 'T', minutes: 5, ownerRole: 'lead', ...extra }) as never;
 
   it('depends on who the person is: their own item involves them, others are watched, a contested one is theirs to settle', () => {
-    expect(itemMode(scenario, item({}), 'Lead Programmer')).toBe('involve');
     expect(itemMode(scenario, item({}), 'lead')).toBe('involve');
-    expect(itemMode(scenario, item({}), 'Producer')).toBe('observe');
-    expect(itemMode(scenario, item({ contested: true }), 'Producer')).toBe('decide');
-    expect(itemMode(scenario, undefined, 'Producer')).toBe('observe');
+    // A label is not a role id, so it never puts the person on the item.
+    expect(itemMode(scenario, item({}), 'Lead Programmer')).toBe('observe');
+    expect(itemMode(scenario, item({}), 'producer')).toBe('observe');
+    expect(itemMode(scenario, item({ contested: true }), 'producer')).toBe('decide');
+    expect(itemMode(scenario, undefined, 'producer')).toBe('observe');
     expect(itemMode(scenario, item({}), undefined)).toBe('observe');
   });
 
@@ -173,15 +184,15 @@ describe('itemMode', () => {
         { title: 'Item C', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'marketing' },
       ],
     };
-    const forMarketing = shuffleAgendaForRole(fullScenario, 'Marketing Lead', () => 0.1);
+    const forMarketing = shuffleAgendaForRole(fullScenario, 'marketing', () => 0.1);
     expect(forMarketing[0]?.title).toBe('Item B');
     expect(forMarketing).toHaveLength(3);
 
-    const forProducer = shuffleAgendaForRole(fullScenario, 'Producer', () => 0.99);
+    const forProducer = shuffleAgendaForRole(fullScenario, 'producer', () => 0.99);
     expect(forProducer[0]?.title).not.toBe('Item A');
-    expect(itemMode(fullScenario, forProducer[0], 'Producer')).toBe('decide');
+    expect(itemMode(fullScenario, forProducer[0], 'producer')).toBe('decide');
 
-    const capped = shuffleAgendaForRole(fullScenario, 'Marketing Lead', () => 0.1, 2);
+    const capped = shuffleAgendaForRole(fullScenario, 'marketing', () => 0.1, 2);
     expect(capped).toHaveLength(2);
     expect(capped[0]?.title).toBe('Item B');
     expect(capped[1]?.title).toBe('Item C');
@@ -205,7 +216,7 @@ describe('agenda pair rules', () => {
 
   it('never draws a pair listed in excludedPairs', () => {
     const withExcluded: Scenario = { ...scenario, excludedPairs: [['Item B', 'Item C']] };
-    const picked = shuffleAgendaForRole(withExcluded, 'Marketing Lead', () => 0.1, 2);
+    const picked = shuffleAgendaForRole(withExcluded, 'marketing', () => 0.1, 2);
     expect(picked.map((item) => item.title)).toEqual(['Item B', 'Item A']);
     const wide = shuffleAgendaForRole(withExcluded, undefined, () => 0.1, 5);
     const titles = wide.map((item) => item.title);

@@ -340,6 +340,31 @@ describe('meeting persistence across a restart', () => {
     expect(store.saved!.startedAt).not.toBe(frozen.startedAt);
   });
 
+  it('keeps an unconsumed edited draft across New meeting and a restart', async () => {
+    const store = new MemoryStore();
+    const firstPersistence = createMeetingPersistence({ store, log: () => undefined });
+    const first = await startApp(firstPersistence);
+    const edited = editedSetup(await readSetup(first));
+    expect((await putSetup(first, edited)).status).toBe(200);
+    await firstPersistence.flush();
+
+    const screen = await connectScreen(first);
+    screen.ws.send(JSON.stringify({ type: 'NEW_MEETING' }));
+    await waitForEvent(screen, (event) => event.type === 'MEETING_RESET', 'reset');
+    await firstPersistence.flush();
+    // The clear removed the old meeting; the kept draft is the new lobby and must be saved.
+    expect(store.saved?.draft.title).toBe('Friday lunch readiness');
+    expect(store.saved?.draftTouched).toBe(true);
+
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const restored = await startApp(
+      createMeetingPersistence({ store, saved: await store.load(), log: () => undefined }),
+    );
+    expect((await readSetup(restored)).title).toBe('Friday lunch readiness');
+  });
+
   it('refuses the previous format save with a clear message', () => {
     const saved: StoredMeeting = {
       ...savedState({ agenda: ['Prep'] }),

@@ -389,7 +389,12 @@ export function createMeetingModule({
             return {
               commit() {
                 try { resetMeeting({ savedCleared: true }); }
-                finally { resetting = false; }
+                finally {
+                  // The clear removed the old meeting. A draft the reset kept (an unconsumed edit) is
+                  // part of the new lobby, so save it now that the pre-reset snapshot is allowed again.
+                  resetting = false;
+                  if (session?.draftTouched() === true) persistence.scheduleSave();
+                }
               },
               cancel() {
                 resetting = false;

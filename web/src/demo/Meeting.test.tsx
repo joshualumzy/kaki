@@ -36,7 +36,7 @@ vi.mock('./JoinForm', () => ({
       <output data-testid="join-roles">{roles.map((role) => role.label).join(',')}</output>
       <button
         type="button"
-        onClick={() => onJoin('Josh', 'Producer', { microphone: false, camera: false })}
+        onClick={() => onJoin('Josh', 'producer', { microphone: false, camera: false })}
       >
         Join now
       </button>
@@ -123,7 +123,7 @@ describe('Meeting join', () => {
     await waitFor(() => expect(mocks.refreshScenario).toHaveBeenCalledTimes(1));
   });
 
-  it('offers only join seats the server would accept', async () => {
+  it('offers every setup person seat, including a role added in setup', async () => {
     mocks.useScenario.mockReturnValue({
       ...scenario,
       roles: [
@@ -135,7 +135,7 @@ describe('Meeting join', () => {
     });
     render(<Meeting />);
 
-    expect(screen.getByTestId('join-roles').textContent).toBe('Producer');
+    expect(screen.getByTestId('join-roles').textContent).toBe('Producer,Ghost Seat,General Manager');
   });
 
   it('offers the setup person seats when the meeting has no AI attendees', () => {

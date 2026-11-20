@@ -137,7 +137,7 @@ describe.skipIf(!enabled)('AI attendees over LiveKit', () => {
     const token = await createRoomToken({
       roomName: demoRoomName(scenario),
       participantName: 'Josh',
-      participantRole: 'Operations Director',
+      participantRole: 'producer',
     });
     human = new Room();
     await human.connect(livekitUrl, token);

@@ -721,8 +721,12 @@ describe('Start applies the validated setup', () => {
 
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
+    // The lobby still shows the saved draft (including its renamed role); the failed Start applied
+    // nothing to the running meeting: the agenda and cast are the pack's, untouched.
     expect(agendaShape(after)).toEqual(agendaShape(before));
-    expect(after.roles).toEqual(before.roles);
+    expect(after.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator: facilitator === true }))).toEqual(
+      draft.roles.map(({ id, label, facilitator }) => ({ id, label, facilitator })),
+    );
     expect(after.npcs).toEqual(before.npcs);
     expect((await getSetup(app)).title).toBe('A different meeting');
   });
@@ -986,7 +990,10 @@ describe('Start applies the validated setup', () => {
     expect((await startMeeting(app)).status).toBe(503);
     const after = await getScenario(app);
     expect(agendaShape(after)).toEqual(agendaShape(before));
-    expect(after.roles).toEqual(before.roles);
+    // The setup named the same roles; the lobby now also shows their facilitator flag.
+    expect(after.roles.map(({ id, label }) => ({ id, label }))).toEqual(
+      before.roles.map(({ id, label }) => ({ id, label })),
+    );
     expect(after.npcs).toEqual(before.npcs);
     expect(after.excludedPairs).toEqual(before.excludedPairs);
   });
@@ -1005,6 +1012,98 @@ describe('Start applies the validated setup', () => {
     const third = await joinWithCode(app, 'Cara', 'producer', code);
     expect(third.status).toBe(409);
     expect(((await third.json()) as { error: string }).error).toMatch(/seat is taken|full/i);
+  });
+
+  it('admits a renamed person role by its id and shows the new label', async () => {
+    const app = await startApp(await loadScenario('kopitiam'));
+    await connectService(portOf(app));
+    const setup = await getSetup(app);
+    const producer = setup.roles.find((role) => role.id === 'producer');
+    if (producer === undefined) throw new Error('Expected the producer role');
+    producer.label = 'Floor Lead';
+    expect((await putSetup(app, setup)).status).toBe(200);
+
+    // The offered seat keeps its canonical id, and the lobby shows the owner's label.
+    const offered = await getScenario(app);
+    expect(offered.joinSeats).toEqual(['producer']);
+    expect(offered.roles.find((role) => role.id === 'producer')?.label).toBe('Floor Lead');
+
+    expect((await join(app, 'Booth Playtest', 'producer')).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+    expect((await getScenario(app)).roles.find((role) => role.id === 'producer')?.label).toBe('Floor Lead');
+  });
+
+  it('offers and seats a role added in setup, counting it toward capacity', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack);
+    const setup = humanOnlySetup(pack);
+    setup.roles.push({ id: 'runner', label: 'Runner', facilitator: false });
+    setup.seats = [
+      { displayName: 'Wei Ling', roleId: 'producer', kind: 'person' },
+      { displayName: 'Runner One', roleId: 'runner', kind: 'person' },
+    ];
+    expect((await putSetup(app, setup)).status).toBe(200);
+
+    const offered = await getScenario(app);
+    expect(offered.joinSeats).toEqual(['producer', 'runner']);
+    expect(offered.roles.find((role) => role.id === 'runner')?.label).toBe('Runner');
+
+    const first = await join(app, 'Alice', 'producer');
+    expect(first.status).toBe(200);
+    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+    expect((await joinWithCode(app, 'Bob', 'runner', code)).status).toBe(200);
+    // Two person seats, one of them the new role: a third person does not fit.
+    expect((await joinWithCode(app, 'Cara', 'runner', code)).status).toBe(409);
+
+    expect((await startMeeting(app)).status).toBe(200);
+    const active = await getScenario(app);
+    expect(active.roles.find((role) => role.id === 'runner')?.label).toBe('Runner');
+    expect(active.joinSeats).toEqual(['producer', 'runner']);
+  });
+
+  it('seats people in setup roles that the demo pack has never heard of', async () => {
+    const pack = await loadScenario('kopitiam');
+    const app = await startApp(pack);
+    const setup = humanOnlySetup(pack);
+    setup.roles.push(
+      { id: 'ops_lead', label: 'Ops Lead', facilitator: false },
+      { id: 'floor_lead', label: 'Floor Lead', facilitator: false },
+    );
+    setup.seats = [
+      { displayName: 'Wei Ling', roleId: 'ops_lead', kind: 'person' },
+      { displayName: 'Arjun', roleId: 'floor_lead', kind: 'person' },
+    ];
+    expect((await putSetup(app, setup)).status).toBe(200);
+
+    expect((await getScenario(app)).joinSeats).toEqual(['ops_lead', 'floor_lead']);
+    const first = await join(app, 'Alice', 'ops_lead');
+    expect(first.status).toBe(200);
+    const code = ((await first.json()) as { meetingCode: string }).meetingCode;
+    expect((await joinWithCode(app, 'Bob', 'floor_lead', code)).status).toBe(200);
+    expect((await startMeeting(app)).status).toBe(200);
+    const active = await getScenario(app);
+    expect(active.roles.map((role) => role.id)).toEqual(
+      expect.arrayContaining(['ops_lead', 'floor_lead']),
+    );
+  });
+
+  it('refuses an unknown role id with the ids this meeting offers', async () => {
+    const app = await startApp(await loadScenario('kopitiam'));
+    const refused = await join(app, 'Guest', 'astronaut');
+    expect(refused.status).toBe(400);
+    const body = (await refused.json()) as { error: string };
+    expect(body.error).toContain('"astronaut" is not a human seat');
+    expect(body.error).toContain('producer');
+    expect(body.error).toContain('lead_programmer');
+  });
+
+  it('refuses a role label where a role id is required', async () => {
+    const app = await startApp(await loadScenario('kopitiam'));
+    const refused = await join(app, 'Guest', 'Marketing Lead');
+    expect(refused.status).toBe(400);
+    const body = (await refused.json()) as { error: string };
+    expect(body.error).toContain('"Marketing Lead" is not a human seat');
+    expect(body.error).toContain('marketing_lead');
   });
 
   it('starts a pack-free human-only meeting with no AI runner connected', async () => {

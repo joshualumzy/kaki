@@ -146,7 +146,7 @@ describe('startNpcRunner topic transition', () => {
 
 describe('startNpcRunner visitor transcript identity', () => {
   it.each([
-    ['Operations Director', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],
+    ['producer', CONTROL_TOPIC, { kind: 'text', text: 'Typed visitor line' }, 'Typed visitor line'],
     ['producer', STT_TOPIC, { text: 'Recognized visitor line' }, 'Recognized visitor line'],
   ])('attributes %s input on %s to the visitor and preserves the role', async (role, topic, message, line) => {
     rooms.length = 0;

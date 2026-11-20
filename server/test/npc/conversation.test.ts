@@ -154,7 +154,7 @@ function harness(
         : `${request.speaker}: How about we ${lower}?`;
     })(),
     ...optionOverrides });
-  conversation.setHuman({ name: 'Josh', role: 'Producer', transcriptName: 'Ada (Chef)' });
+  conversation.setHuman({ name: 'Josh', role: 'producer', transcriptName: 'Ada (Chef)' });
 
   const flush = async (): Promise<void> => {
     await vi.advanceTimersByTimeAsync(0);
@@ -562,7 +562,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     conversation.announce('Ada', 'Josh, the card is waiting for you.');
     await h.flush();
     h.playing.at(-1)?.finish();
@@ -594,7 +594,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     conversation.humanSpeech(true);
     conversation.humanText('Ship it.');
     conversation.humanSpeech(false);
@@ -625,7 +625,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     conversation.humanSpeech(true);
     conversation.humanText('Ship it.');
     conversation.humanSpeech(false);
@@ -657,7 +657,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     conversation.humanSpeech(true);
     conversation.humanText('Ship it.');
     conversation.humanSpeech(false);
@@ -687,7 +687,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     conversation.humanSpeech(true);
     conversation.humanText('Ship it.');
     conversation.humanSpeech(false);
@@ -728,7 +728,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0,
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     await h.say('Ship it.');
     h.conversation.lockDecision();
     await h.flush();
@@ -750,7 +750,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0,
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     await h.say('Ship it.');
     h.conversation.lockDecision();
     await h.flush();
@@ -773,7 +773,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0,
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     await h.say('Ship it.');
     const settled = `KAKI_CONTROL ${JSON.stringify({ state: 'settled',
       followUp: { kind: 'mattermost_post', title: 'Send the card rules' }, wingmanNeeded: false })}`;
@@ -796,7 +796,7 @@ describe('NpcConversation', () => {
       scenario: hostedScenario(), reviewNudgeMs: 60_000, reviewWindowMs: 60_000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0,
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     await h.say('Ship it.');
     h.conversation.lockDecision();
     await h.flush();
@@ -913,7 +913,7 @@ describe('NpcConversation', () => {
       scenario: spokenScenario, reviewNudgeMs: 1000, reviewWindowMs: 3000, responseDelayMs: 0,
       speakerGapMs: 0, sentenceGapMs: 0, replies: 'legacy',
     });
-    conversation.setHuman({ name: 'Josh', role: 'Producer' });
+    conversation.setHuman({ name: 'Josh', role: 'producer' });
     conversation.humanSpeech(true);
     conversation.humanText('Ship it.');
     conversation.humanSpeech(false);
@@ -1673,7 +1673,7 @@ describe('NpcConversation', () => {
     await say('Hello team.');
     expect(calls).toHaveLength(1);
     expect(calls[0]?.messages.at(0)?.content).toContain('Calm chef');
-    expect(calls[0]?.messages.at(0)?.content).toContain('Josh, the Producer');
+    expect(calls[0]?.messages.at(0)?.content).toContain('Josh, the producer');
     expect(calls[0]?.messages.at(-1)).toEqual({ role: 'user', content: 'Hello team.' });
     expect(states.at(-1)).toEqual({ kind: 'thinking', canLock: true });
 
@@ -2026,7 +2026,7 @@ describe('NpcConversation', () => {
       sentenceGapMs: 300,
       replies: 'legacy',
     });
-    gapped.setHuman({ name: 'Josh', role: 'Producer' });
+    gapped.setHuman({ name: 'Josh', role: 'producer' });
     gapped.humanSpeech(true);
     gapped.humanText('Hello team.');
     gapped.humanSpeech(false);
