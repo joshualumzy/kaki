@@ -9,6 +9,11 @@ const TYPING_SIGNAL_EVERY_MS = 400;
 export interface TypeBarProps {
   send(message: ControlMessage): void;
   canLock?: boolean;
+  /**
+   * The person's pause intent, sent straight to the server over the browser's own hub socket.
+   * The LiveKit `stop`/`resume` above only gates the runner's speech instantly; this owns the meeting.
+   */
+  onPauseChange?(paused: boolean): void;
 }
 
 /**
@@ -16,7 +21,7 @@ export interface TypeBarProps {
  * the room is too noisy to be heard, and the "typing" signal tells the server that a short sound in
  * the microphone is probably a key press, so typing does not cut an attendee off.
  */
-export function TypeBar({ send, canLock = false }: TypeBarProps) {
+export function TypeBar({ send, canLock = false, onPauseChange }: TypeBarProps) {
   const [text, setText] = useState('');
   const [paused, setPaused] = useState(false);
   const lastSignal = useRef(0);
@@ -28,12 +33,12 @@ export function TypeBar({ send, canLock = false }: TypeBarProps) {
     ) {
       return;
     }
-    setPaused((prev) => {
-      const next = !prev;
-      send({ kind: next ? 'stop' : 'resume' });
-      return next;
-    });
-  }, [send]);
+    const next = !paused;
+    setPaused(next);
+    // The runner stops speaking at once; the server owns the meeting's actual pause.
+    send({ kind: next ? 'stop' : 'resume' });
+    onPauseChange?.(next);
+  }, [send, onPauseChange, paused]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -64,7 +69,11 @@ export function TypeBar({ send, canLock = false }: TypeBarProps) {
         togglePause();
       }
     };
-    const onQuickLine = (): void => setPaused(false);
+    const onQuickLine = (): void => {
+      // A starter line is the person taking their turn: resume the meeting they had paused.
+      if (paused) onPauseChange?.(false);
+      setPaused(false);
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('kaki:quick-line', onQuickLine);
     return () => {
@@ -76,7 +85,11 @@ export function TypeBar({ send, canLock = false }: TypeBarProps) {
   function submit(): void {
     const typed = text.trim();
     if (typed.length === 0) return;
-    setPaused(false);
+    // Typing is the person taking their turn: resume the meeting they had paused.
+    if (paused) {
+      setPaused(false);
+      onPauseChange?.(false);
+    }
     send({ kind: 'text', text: typed });
     setText('');
   }
@@ -126,7 +139,13 @@ export function TypeBar({ send, canLock = false }: TypeBarProps) {
 }
 
 /** The type bar wired to the LiveKit room it is in. */
-export function ConnectedTypeBar({ micOnline }: { micOnline?: boolean }) {
+export function ConnectedTypeBar({
+  micOnline,
+  onPauseChange,
+}: {
+  micOnline?: boolean;
+  onPauseChange?(paused: boolean): void;
+}) {
   const room = useRoomContext();
   const [canLock, setCanLock] = useState(false);
   useEffect(() => {
@@ -164,7 +183,7 @@ export function ConnectedTypeBar({ micOnline }: { micOnline?: boolean }) {
           {micOnline ? 'Voice active' : 'Mic muted'}
         </span>
       )}
-      <TypeBar send={send} canLock={canLock} />
+      <TypeBar send={send} canLock={canLock} {...(onPauseChange === undefined ? {} : { onPauseChange })} />
     </div>
   );
 }

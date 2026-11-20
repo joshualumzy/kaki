@@ -227,7 +227,7 @@ export function MeetingGrid({
   const scenario = useScenario();
   const room = useRoomContext();
   const { isMicrophoneEnabled } = useLocalParticipant();
-  const { events } = useKaki(role);
+  const { events, send: sendToServer } = useKaki(role);
   const { events: screenEvents, tasks: screenTasks } = useKaki('screen');
   const participants = useParticipants();
   const tracks = useTracks(
@@ -700,7 +700,10 @@ export function MeetingGrid({
             )}
           </div>
         )}
-        <ConnectedTypeBar micOnline={isMicrophoneEnabled} />
+        <ConnectedTypeBar
+          micOnline={isMicrophoneEnabled}
+          onPauseChange={(paused) => sendToServer({ type: 'SET_PAUSED', paused })}
+        />
         <ControlBar controls={{ screenShare: false, chat: false }} />
         <RoomAudioRenderer />
       </div>

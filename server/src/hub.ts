@@ -164,9 +164,10 @@ function parseServiceMessage(value: unknown): ServiceMessage | undefined {
 
 /**
  * The commands the AI runner may send on its authenticated command sockets. It acts for the screen
- * to advance/end/pause and for its own roles to accept or approve a task, and nothing else.
+ * to advance/end and for its own roles to accept or approve a task, and nothing else. Pause is not
+ * here: a person's Stop/Resume goes straight from their browser to the server, never via the runner.
  */
-const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_PAUSED', 'SET_HOST_MODE']);
+const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_HOST_MODE']);
 const RUNNER_ROLE_COMMANDS = new Set(['CLAIM_TASK', 'DECLINE_TASK', 'APPROVE_ACTION', 'RETRY_ACTION']);
 
 function runnerMaySend(audience: ClientAudience, commandType: string): boolean {

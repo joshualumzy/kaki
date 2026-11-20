@@ -9,6 +9,9 @@ import { hashPassword, hashToken } from '../../src/auth/password';
 import { createPostgresAuthStore } from '../../src/auth/postgres';
 import { ensureAuthSchema } from '../../src/auth/schema';
 import { createMemoryAuthStore, type AuthStore } from '../../src/auth/store';
+import type { MeetingPauseControl } from '../../src/host';
+import { createAgendaClock } from '../../src/host/clock';
+import { createMeetingModule } from '../../src/host/meeting';
 import { createMeetingCodeSource } from '../../src/meetingCode';
 import { createRunnerClient } from '../../src/npc/runnerClient';
 import { testScenario } from '../fixtures/scenario';
@@ -91,6 +94,9 @@ for (const kind of ['memory', 'postgres'] as const) {
 
     it('admits guests before the host, protects runner traffic, and revokes the old meeting', async () => {
       vi.stubEnv('KAKI_AUTH', '1');
+      // The meeting module is here for its one pause owner; this check creates its follow-up cards
+      // explicitly, so Sam must not auto-dispatch the earlier suggestion behind its back.
+      vi.stubEnv('KAKI_AUTO_DISPATCH', '0');
       vi.stubEnv('KAKI_PUBLIC_URL', 'https://kaki.example.test');
       vi.stubEnv('LIVEKIT_API_KEY', 'acceptance-key');
       vi.stubEnv('LIVEKIT_API_SECRET', 'acceptance-secret-for-local-signing-only');
@@ -113,9 +119,19 @@ for (const kind of ['memory', 'postgres'] as const) {
       const meetingCode = createMeetingCodeSource(code);
       const auth = createAuth({ store, roles: ['chef', 'cashier', 'manager'], meetingCode, secureCookies: true });
       let roster: Array<{ name: string; role: string }> = [];
+      const clock = createAgendaClock({ agenda: scenario.agenda });
+      const pause: MeetingPauseControl = {
+        paused: () => (clock.snapshot().started ? clock.snapshot().paused === true : undefined),
+        kind: () => clock.snapshot().pauseKind,
+        pause: (kind) => clock.pause(kind),
+        resume: () => clock.resume(),
+      };
       app = await createApp({ scenario: structuredClone(scenario), auth, meetingCode, serviceToken,
+        modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
         roomRoster: async () => roster, rejoinGraceMs: 25, rejoinPollMs: 5, admissionReservationMs: 5,
-        meetingAgendaIndex: () => 0 });
+        meetingAgendaIndex: () => (clock.snapshot().started ? clock.snapshot().agendaIndex : undefined),
+        meetingPaused: pause.paused,
+        meetingPause: pause });
       const joinLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
       const port = portOf(app);
       const base = `http://127.0.0.1:${port}`;
@@ -190,6 +206,16 @@ for (const kind of ['memory', 'postgres'] as const) {
 
       // 5. Use the actual client from npc/main against the app and the same bearer socket path.
       const runner = createRunnerClient({ baseUrl: base, serviceToken });
+      // A seated person's Stop goes straight from their browser socket to the server; the runner
+      // is not involved, and the shared runner snapshot shows the pause.
+      guestSocket.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: true }));
+      await waitFor(
+        () => (clock.snapshot().pauseKind === 'person' ? true : undefined),
+        'the seated guest pause',
+      );
+      expect((await runner.fetchMeetingState()).paused).toBe(true);
+      guestSocket.ws.send(JSON.stringify({ type: 'SET_PAUSED', paused: false }));
+      await waitFor(() => (clock.snapshot().paused === false ? true : undefined), 'the guest resume');
       const serviceSocket = await socket(port, 'service', { token: serviceToken });
       const screenSocket = await socket(port, 'screen', { token: serviceToken });
       expect(serviceSocket.ok).toBe(true);

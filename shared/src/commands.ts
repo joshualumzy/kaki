@@ -20,7 +20,10 @@ export type KakiCommand =
   | { type: 'NEXT_AGENDA_ITEM' }
   /** Screen only. Whether a person (not the AI) is in the host's seat: while one is, Sam does not dispatch tasks by himself. */
   | { type: 'SET_HOST_MODE'; human: boolean }
-  /** Screen only. Pauses or resumes the agenda clock when the visitor clicks Pause / Play. */
+  /**
+   * The shared screen (host) or a person seated in this meeting. Pauses or resumes the agenda
+   * clock when the visitor clicks Pause / Play. Sent straight to the server, never via the runner.
+   */
   | { type: 'SET_PAUSED'; paused: boolean };
 
 const COMMAND_TYPES: readonly KakiCommand['type'][] = [

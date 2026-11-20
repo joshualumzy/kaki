@@ -61,4 +61,34 @@ describe('TypeBar', () => {
     fireEvent.keyDown(window, { key: ' ', code: 'Space' });
     expect(send).toHaveBeenLastCalledWith({ kind: 'resume' });
   });
+
+  it('tells the server directly about a pause and resume, beside the instant LiveKit gate', () => {
+    const send = vi.fn();
+    const onPauseChange = vi.fn();
+    render(<TypeBar send={send} onPauseChange={onPauseChange} />);
+
+    fireEvent.click(screen.getByText(/Pause/));
+    expect(send).toHaveBeenLastCalledWith({ kind: 'stop' });
+    expect(onPauseChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByText(/Play/));
+    expect(send).toHaveBeenLastCalledWith({ kind: 'resume' });
+    expect(onPauseChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('resumes the server when a typed message or starter line takes the person\'s turn', () => {
+    const send = vi.fn();
+    const onPauseChange = vi.fn();
+    render(<TypeBar send={send} onPauseChange={onPauseChange} />);
+    const input = screen.getByLabelText('Type to the meeting') as HTMLInputElement;
+
+    fireEvent.click(screen.getByText(/Pause/));
+    fireEvent.change(input, { target: { value: 'Carry on' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onPauseChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.click(screen.getByText(/Pause/));
+    fireEvent(window, new Event('kaki:quick-line'));
+    expect(onPauseChange).toHaveBeenLastCalledWith(false);
+  });
 });

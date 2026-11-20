@@ -83,6 +83,14 @@ export function roomPollIntervalMs(running: boolean, configured = REJOIN_POLL_MS
 }
 
 /**
+ * How long the room must read empty on consecutive polls before a running meeting pauses. A page
+ * reload or a blink in connectivity leaves the room empty for a moment; pausing for that would
+ * greet the same person with "Welcome back" and stop the agenda for no reason. Three seconds spans
+ * several 1 s running polls, so only a real departure reaches the pause.
+ */
+export const EMPTY_ROOM_PAUSE_MS = 3_000;
+
+/**
  * The one place that owns "the room has been empty since T". The session owns the phase and the
  * seat holders; this guard only owns the empty-room grace window and tells the app when it ends so
  * the holders who did not come back can be pruned.
@@ -206,7 +214,12 @@ export interface RoomPollOptions {
   isHuman: (name: string) => boolean;
   /** How often to look; a function is asked again after every poll so it can follow the phase. */
   intervalMs?: number | (() => number);
-  /** A successful read found nobody in the room: the server may pause a running meeting. */
+  /**
+   * How long the room must read empty across consecutive polls before `onEmpty` fires. A brief
+   * blink (page reload, reconnect) never reaches it; `onOccupied` still fires immediately.
+   */
+  emptyPauseAfterMs?: number;
+  /** A successful read found nobody in the room long enough to count as a real departure. */
   onEmpty?(): void;
   /** A successful read found someone in the room: the server may resume an empty-room pause. */
   onOccupied?(): void;
@@ -229,12 +242,15 @@ export function createRoomPoll({
   roomName,
   isHuman,
   intervalMs = REJOIN_POLL_MS,
+  emptyPauseAfterMs = EMPTY_ROOM_PAUSE_MS,
   onEmpty,
   onOccupied,
 }: RoomPollOptions): RoomPoll {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let polling = false;
   let closed = false;
+  /** When this spell of consecutive empty reads began; cleared the moment anyone is back. */
+  let emptySince: number | undefined;
   const nextDelay = (): number => (typeof intervalMs === 'function' ? intervalMs() : intervalMs);
 
   async function poll(): Promise<void> {
@@ -250,9 +266,13 @@ export function createRoomPoll({
       // repeated empty or occupied observation is a no-op rather than a second transition.
       if (people.filter((person) => isHuman(person.name)).length === 0) {
         guard.emptied();
-        onEmpty?.();
+        emptySince ??= Date.now();
+        // A page reload leaves the room empty for a moment; only a sustained absence pauses.
+        if (Date.now() - emptySince >= emptyPauseAfterMs) onEmpty?.();
       } else {
+        emptySince = undefined;
         guard.occupied();
+        // Someone is back: resume at once, without waiting for the debounce.
         onOccupied?.();
       }
     } finally {

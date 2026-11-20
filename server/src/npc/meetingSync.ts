@@ -89,11 +89,6 @@ export interface MeetingSyncOptions {
   log(message: string): void;
   /** The runner moved from one meeting to another: anything tagged for the old one is stale. */
   onMeetingChanged?(meetingId: string): void;
-  /**
-   * A newer snapshot was adopted. Anything queued against the old state (an unsent pause intent)
-   * must be dropped: the snapshot now says what the server actually owns.
-   */
-  onSnapshotAdopted?(state: RunnerMeetingSnapshot): void;
 }
 
 export interface MeetingSync {
@@ -123,7 +118,6 @@ export function createMeetingSync({
   fetchState,
   log,
   onMeetingChanged,
-  onSnapshotAdopted,
 }: MeetingSyncOptions): MeetingSync {
   let generation = 0;
 
@@ -133,11 +127,10 @@ export function createMeetingSync({
     // current generation, or an event on the current socket. That authority is what lets the runner
     // adopt a restarted server's new epoch even when its sequence starts again. Only the reconnect
     // read is authoritative enough to accept a server whose clock moved backwards.
-    const adopted = runner.reconcileMeeting(state, {
+    runner.reconcileMeeting(state, {
       currentConnection: true,
       ...(options?.authoritative === true ? { authoritative: true } : {}),
     });
-    if (adopted) onSnapshotAdopted?.(state);
     // Only a snapshot the runner actually adopted can have moved the meeting; a stale read that was
     // refused must not throw away the current meeting's queued commands.
     const moved = runner.meetingId();

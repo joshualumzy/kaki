@@ -80,6 +80,11 @@ export interface CreateAppOptions {
   rejoinGraceMs?: number;
   /** How often the app server checks who is in the room; defaults to 5 seconds. */
   rejoinPollMs?: number;
+  /**
+   * How long the room must read empty before a running meeting auto-pauses; defaults to
+   * EMPTY_ROOM_PAUSE_MS. Tests set it low so a blip can be told from a real departure quickly.
+   */
+  emptyRoomPauseMs?: number;
   /** How long a seat stays reserved after a token is issued; defaults to 15 seconds. */
   admissionReservationMs?: number;
   /** How long Start waits for the AI runner to open the meeting; defaults to 6 seconds. */
@@ -1201,6 +1206,7 @@ export async function createApp({
   persistence,
   rejoinGraceMs,
   rejoinPollMs,
+  emptyRoomPauseMs,
   admissionReservationMs = ADMISSION_RESERVATION_MS,
   startAckTimeoutMs = 6_000,
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
@@ -1356,9 +1362,10 @@ export async function createApp({
   // The pack owns the reserved names for the whole meeting, whatever cast is active right now.
   const packNpcNames = (fullScenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
   let watchedRoom: string | undefined;
-  // The server owns the empty-room pause: a running meeting pauses when the room empties and
-  // resumes when someone returns, but only when the pause was the empty-room kind. A person's
-  // explicit Stop stays paused, and the kind is saved so a restart keeps that distinction.
+  // The server owns the empty-room pause: a running meeting pauses once the room has read empty
+  // across the poll debounce (EMPTY_ROOM_PAUSE_MS), and resumes the moment someone returns, but
+  // only when the pause was the empty-room kind. A person's explicit Stop stays paused, and the
+  // kind is saved so a restart keeps that distinction.
   function autoPauseForEmptyRoom(): void {
     if (meetingPause === undefined || session.phase() !== 'running') return;
     if (meetingPause.paused() !== false) return;
@@ -1387,6 +1394,7 @@ export async function createApp({
     // the slower interval is only for the grace window around a meeting that has not started.
     intervalMs: () =>
       roomPollIntervalMs(session.phase() === 'running', rejoinPollMs ?? REJOIN_POLL_MS),
+    ...(emptyRoomPauseMs === undefined ? {} : { emptyPauseAfterMs: emptyRoomPauseMs }),
     onEmpty: autoPauseForEmptyRoom,
     onOccupied: autoResumeForReturn,
   });

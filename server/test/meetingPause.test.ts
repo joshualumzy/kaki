@@ -93,6 +93,7 @@ describe('the server owns the empty-room pause', () => {
       roomRoster: async () => people,
       rejoinGraceMs: 60_000,
       rejoinPollMs: 10,
+      emptyRoomPauseMs: 5,
       meetingElapsedSeconds: () => clock.snapshot().meetingElapsedSeconds,
       meetingAgendaIndex: () => clock.snapshot().agendaIndex,
       meetingPaused: () => pausedOf(clock),
@@ -124,6 +125,7 @@ describe('the server owns the empty-room pause', () => {
       roomRoster: async () => [{ name: 'Guest' }],
       rejoinGraceMs: 60_000,
       rejoinPollMs: 10,
+      emptyRoomPauseMs: 5,
       meetingPaused: () => pausedOf(restoredClock),
       meetingPause: pauseControl(restoredClock),
     });
@@ -146,6 +148,7 @@ describe('the server owns the empty-room pause', () => {
       roomRoster: async () => people,
       rejoinGraceMs: 60_000,
       rejoinPollMs: 10,
+      emptyRoomPauseMs: 5,
       meetingPaused: () => pausedOf(clock),
       meetingPause: pauseControl(clock),
     });
@@ -192,6 +195,7 @@ describe('the server owns the empty-room pause', () => {
       roomRoster: async () => people,
       rejoinGraceMs: 60_000,
       rejoinPollMs: 10,
+      emptyRoomPauseMs: 5,
       meetingPaused: () => pausedOf(clock),
       meetingPause: pauseControl(clock),
     });
@@ -224,6 +228,43 @@ describe('the server owns the empty-room pause', () => {
     screen.close();
   });
 
+  it('does not pause for a quick blip but pauses after a sustained empty room', async () => {
+    const pack = await loadScenario('kopitiam');
+    let people: Array<{ name: string }> = [];
+    const clock = createAgendaClock({ agenda: pack.agenda });
+    const app = await createApp({
+      scenario: pack,
+      modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+      roomRoster: async () => people,
+      rejoinGraceMs: 60_000,
+      rejoinPollMs: 10,
+      emptyRoomPauseMs: 50,
+      meetingPaused: () => pausedOf(clock),
+      meetingPause: pauseControl(clock),
+    });
+    apps.push(app);
+    await connectService(app);
+    expect((await join(app, 'Guest', 'producer')).status).toBe(200);
+    // The roster sees the guest as soon as they have joined, before Start.
+    people = [{ name: 'Guest' }];
+    expect((await startMeeting(app)).status).toBe(200);
+    await waitFor(() => (app.session.phase() === 'running' ? true : undefined), 'the meeting to run');
+    await settle(40);
+
+    // A page reload: the room reads empty for less than the debounce, then the same person is back.
+    people = [];
+    await settle(25);
+    people = [{ name: 'Guest' }];
+    await settle(80);
+    expect(clock.snapshot().paused).toBe(false);
+
+    // A real departure spans the debounce and pauses.
+    people = [];
+    await waitFor(() => (clock.snapshot().pauseKind === 'empty-room' ? true : undefined), 'the empty-room pause');
+    people = [{ name: 'Guest' }];
+    await waitFor(() => (clock.snapshot().paused === false ? true : undefined), 'the return to resume');
+  });
+
   it('publishes the paused record to the screen on auto-pause and auto-resume', async () => {
     const pack = await loadScenario('kopitiam');
     let people: Array<{ name: string }> = [];
@@ -234,6 +275,7 @@ describe('the server owns the empty-room pause', () => {
       roomRoster: async () => people,
       rejoinGraceMs: 60_000,
       rejoinPollMs: 10,
+      emptyRoomPauseMs: 5,
       meetingPaused: () => pausedOf(clock),
       meetingPause: pauseControl(clock),
     });

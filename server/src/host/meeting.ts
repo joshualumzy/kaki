@@ -355,6 +355,22 @@ export function createMeetingModule({
         ) {
           return;
         }
+        if (command.type === 'SET_PAUSED') {
+          // The agenda clock is the one owner of the meeting's paused flag. The shared screen
+          // (the host) and a person seated in this meeting drive it; nobody else may freeze the room.
+          if (sender !== 'screen') {
+            const seated = session?.holders().some(
+              (holder) => holder.seat.trim().toLowerCase() === sender.trim().toLowerCase(),
+            ) === true;
+            if (!seated) throw new CommandError('Only a person seated in this meeting can pause it');
+          }
+          if (command.paused) clock.pause('person');
+          else clock.resume();
+          // The clock's pause listener republishes the record; save the kind with the meeting.
+          publishRecord();
+          persistence?.scheduleSave();
+          return;
+        }
         if (sender !== 'screen') throw new CommandError('Only the shared screen can do that');
         if (command.type === 'NEW_MEETING') {
           // Only say the meeting started once the old one is really gone; otherwise the host must know.
@@ -386,15 +402,6 @@ export function createMeetingModule({
         if (command.type === 'SET_HOST_MODE') {
           // The server derives host mode from the seat holders in the roster; this report is
           // accepted for older runners but never overrides that value.
-          return;
-        }
-        if (command.type === 'SET_PAUSED') {
-          // The agenda clock is the one owner of the meeting's paused flag. The runner reports the
-          // person's local pause/resume here and adopts the snapshot back after a reconnect.
-          if (command.paused) clock.pause();
-          else clock.resume();
-          // The clock's pause listener republishes the record; save the kind with the meeting.
-          persistence?.scheduleSave();
           return;
         }
         if (command.type === 'END_MEETING') {

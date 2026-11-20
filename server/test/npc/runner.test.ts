@@ -449,14 +449,12 @@ describe('server-owned start preparation', () => {
     published.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
-    const pauses: boolean[] = [];
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      onPauseChange: (paused) => pauses.push(paused),
       responseDelayMs: 0,
     });
     try {
@@ -468,8 +466,6 @@ describe('server-owned start preparation', () => {
 
       rooms[0]!.emit('participantDisconnected', first);
       await new Promise((resolve) => setTimeout(resolve, 20));
-      // The server owns the empty-room pause: the runner sends no pause intent of its own.
-      expect(pauses).toEqual([]);
       runner.reconcileMeeting(
         runnerSnapshot(scenario, {
           meetingId: 'meeting-1',
@@ -1109,7 +1105,7 @@ describe('meeting sync with the real runner', () => {
     }
   });
 
-  it('keeps the person\'s Stop when an older paused:false snapshot arrives', async () => {
+  it('keeps the person\'s Stop against an in-flight paused:false snapshot at the same version', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
@@ -1121,7 +1117,7 @@ describe('meeting sync with the real runner', () => {
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
       log: (line) => log.push(line),
-      pauseIntentGraceMs: 40,
+      stopGateTimeoutMs: 60,
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -1130,8 +1126,13 @@ describe('meeting sync with the real runner', () => {
       const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', participant);
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
-      await runner.markStarted({ meetingId: 'meeting-1' });
-      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+      // Hold a snapshot first, so the Stop remembers exactly where the runner was.
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, version: 1 }),
+        ),
+      ).toBe(true);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
 
       rooms[0]!.emit(
         'dataReceived',
@@ -1142,23 +1143,98 @@ describe('meeting sync with the real runner', () => {
       );
       await vi.waitFor(() => expect(log.some((line) => line.includes('pressed stop'))).toBe(true));
 
-      expect(
-        runner.reconcileMeeting(
-          runnerSnapshot(scenario, {
-            meetingId: 'meeting-1',
-            phase: 'running',
-            started: true,
-            paused: false,
-            version: 2,
-          }),
-        ),
-      ).toBe(true);
-      expect(log.some((line) => line.includes("kept the person's pause"))).toBe(true);
-
-      // The snapshot wins once the intent grace runs out.
-      await vi.waitFor(() =>
-        expect(log.some((line) => line.includes('following its snapshot'))).toBe(true),
+      // A snapshot made before the server saw the Stop still says running: it must not undo it.
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 1 }),
       );
+      expect(log.some((line) => line.includes("kept the person's stop locally"))).toBe(true);
+
+      // The safety net releases the local gate loudly when no newer snapshot ever arrives.
+      await vi.waitFor(() =>
+        expect(log.some((line) => line.includes('releasing the local stop'))).toBe(true),
+      );
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('greets once when the resume snapshot arrives before the person is back in LiveKit', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+    });
+    try {
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', first);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      rooms[0]!.emit('participantDisconnected', first);
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'empty-room', version: 2,
+        }),
+      );
+      // The server resumes before LiveKit reports the person: the greeting waits for them.
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3 }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
+
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(1));
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('drops the pending welcome-back when the meeting pauses before the person returns', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      responseDelayMs: 0,
+    });
+    try {
+      const first = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', first);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      rooms[0]!.emit('participantDisconnected', first);
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'empty-room', version: 2,
+        }),
+      );
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, paused: false, version: 3 }),
+      );
+      // A person's Stop lands before they are back: there is no return to greet any more.
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1', phase: 'running', started: true, paused: true, pauseKind: 'person', version: 4,
+        }),
+      );
+
+      rooms[0]!.emit('participantConnected', { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
     } finally {
       await runner.stop();
     }

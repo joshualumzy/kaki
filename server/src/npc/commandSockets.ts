@@ -1,4 +1,4 @@
-import { sameRunnerEpoch, type KakiCommand, type Role, type RunnerSnapshotVersion } from '@kaki/shared';
+import type { KakiCommand, Role } from '@kaki/shared';
 import { WebSocket } from 'ws';
 
 /** The screen and each AI role each get their own command socket, exactly as a phone would. */
@@ -10,29 +10,12 @@ interface QueuedCommand {
   meetingId: string | undefined;
 }
 
-/** A pause or host-mode report: the latest intent only, never a queue of stale state. */
-interface StateIntent {
-  message: string;
-  meetingId: string | undefined;
-  type: string;
-  /** The server snapshot the person acted against, so a restart cannot replay it into a new epoch. */
-  version: RunnerSnapshotVersion | undefined;
-}
-
 interface Entry {
   socket: WebSocket | undefined;
   queue: QueuedCommand[];
-  intent: StateIntent | undefined;
   attempts: number;
   timer: ReturnType<typeof setTimeout> | undefined;
   closing: boolean;
-}
-
-/** Commands that report state the server owns; only the latest matters and a snapshot supersedes it. */
-const STATE_COMMANDS = new Set(['SET_PAUSED', 'SET_HOST_MODE']);
-
-function isStateCommand(type: string): boolean {
-  return STATE_COMMANDS.has(type);
 }
 
 export interface CommandSocketsOptions {
@@ -49,8 +32,6 @@ export interface CommandSocketsOptions {
   reconnectDelayMs?(attempt: number): number;
   /** The meeting the runner is in now, used to fence queued commands from older meetings. */
   currentMeetingId?(): string | undefined;
-  /** The snapshot version the runner holds, so a state intent from another epoch is never replayed. */
-  currentVersion?(): RunnerSnapshotVersion | undefined;
 }
 
 export interface CommandSockets {
@@ -59,11 +40,6 @@ export interface CommandSockets {
   dropQueued(): void;
   /** Forget queued commands whose meeting is not the runner's current meeting. */
   dropStale(): void;
-  /**
-   * Forget unsettled pause/host-mode intents: a newer server snapshot now owns that state, so
-   * replaying an old intent after a reconnect would overrule it.
-   */
-  dropStateIntents(): void;
   close(): void;
 }
 
@@ -82,10 +58,12 @@ function commandType(message: string): string {
 }
 
 /**
- * Command sockets for the runner's own writes (task Accept/Approve, agenda, pause, host mode).
+ * Command sockets for the runner's own writes (task Accept/Approve, agenda, host mode).
  * A socket that goes down is reopened with bounded, backed-off attempts and its queue is flushed in
- * order; the queue is capped so a long outage cannot grow without limit. State is never replayed on
- * reconnect: host mode and pause belong to the server, and a stale pause would freeze the meeting.
+ * order; the queue is capped so a long outage cannot grow without limit. Queued commands are fenced
+ * to the meeting they were sent in, so a reconnect never replays an old meeting's command into the
+ * next one. Pause is not among the runner's writes: a person's Stop/Resume goes straight to the
+ * server from their browser.
  */
 export function createCommandSockets(options: CommandSocketsOptions): CommandSockets {
   const { baseUrl, token, log, logError } = options;
@@ -93,7 +71,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   const maxAttempts = options.maxReconnectAttempts ?? 5;
   const reconnectDelay = options.reconnectDelayMs ?? defaultReconnectDelayMs;
   const currentMeetingId = options.currentMeetingId ?? (() => undefined);
-  const currentVersion = options.currentVersion ?? (() => undefined);
   const createSocket =
     options.createSocket ?? ((url, init) => new WebSocket(url, init));
   const socketOptions =
@@ -109,7 +86,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
       entry = {
         socket: undefined,
         queue: [],
-        intent: undefined,
         attempts: 0,
         timer: undefined,
         closing: false,
@@ -156,33 +132,9 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     entry.queue.push({ message, meetingId });
   }
 
-  /** Drop queued commands and an intent that belong to another meeting or server epoch. */
-  function dropStaleFor(entry: Entry, role: CommandAudience): void {
+  /** Drop queued commands that belong to another meeting. */
+  function dropQueuedForOtherMeetings(entry: Entry, role: CommandAudience): void {
     const current = currentMeetingId();
-    if (entry.intent !== undefined) {
-      if (entry.intent.meetingId !== current) {
-        logError(
-          `dropped the unsent ${entry.intent.type} ${role} intent from another meeting; ` +
-            `the runner is now in ${current ?? 'no meeting'}`,
-        );
-        entry.intent = undefined;
-      } else {
-        const held = currentVersion();
-        if (
-          entry.intent.version !== undefined &&
-          held !== undefined &&
-          !sameRunnerEpoch(entry.intent.version.epoch, held.epoch)
-        ) {
-          // The server restarted while this intent waited. Replaying it would write a Stop made
-          // against the old incarnation into the new one before its snapshot is even read.
-          logError(
-            `dropped the unsent ${entry.intent.type} ${role} intent from an older server epoch; ` +
-              `the runner now holds ${held.epoch.id}`,
-          );
-          entry.intent = undefined;
-        }
-      }
-    }
     const stale = entry.queue.filter((queued) => queued.meetingId !== current);
     if (stale.length === 0) return;
     entry.queue = entry.queue.filter((queued) => queued.meetingId === current);
@@ -194,20 +146,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   }
 
   function flush(entry: Entry, role: CommandAudience): void {
-    dropStaleFor(entry, role);
-    if (entry.intent !== undefined) {
-      const socket = entry.socket;
-      if (socket === undefined || socket.readyState !== WebSocket.OPEN) return;
-      const intent = entry.intent;
-      try {
-        socket.send(intent.message);
-      } catch (error) {
-        logError(`could not flush the ${role} ${intent.type} intent: ${String(error)}`);
-        down(entry, role);
-        return;
-      }
-      entry.intent = undefined;
-    }
+    dropQueuedForOtherMeetings(entry, role);
     while (entry.queue.length > 0) {
       const socket = entry.socket;
       if (socket === undefined || socket.readyState !== WebSocket.OPEN) return;
@@ -229,12 +168,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     if (entry.attempts >= maxAttempts) {
       const dropped = entry.queue.splice(0);
       const types = [...new Set(dropped.map((queued) => commandType(queued.message)))];
-      let count = dropped.length;
-      if (entry.intent !== undefined) {
-        count += 1;
-        types.push(entry.intent.type);
-        entry.intent = undefined;
-      }
+      const count = dropped.length;
       logError(
         `could not reconnect the ${role} command socket after ${entry.attempts} attempts; ` +
           `dropped ${count} queued command${count === 1 ? '' : 's'}` +
@@ -283,25 +217,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
         logError(`not sending ${command.type} as ${role}: the command sockets are closed`);
         return;
       }
-      if (isStateCommand(command.type)) {
-        // State is not a cue. Keep only the latest intent; a newer snapshot drops it instead of
-        // replaying an old pause into a meeting the server has since changed.
-        if (entry.socket !== undefined && entry.socket.readyState === WebSocket.OPEN) {
-          try {
-            entry.socket.send(message);
-            return;
-          } catch (error) {
-            logError(`could not send ${command.type} as ${role}: ${String(error)}; keeping one intent for the reconnect`);
-            down(entry, role);
-          }
-        }
-        if (entry.intent !== undefined && entry.intent.message !== message) {
-          log(`replaced the unsent ${entry.intent.type} ${role} intent with a newer one`);
-        }
-        entry.intent = { message, meetingId, type: command.type, version: currentVersion() };
-        if (entry.socket === undefined && entry.timer === undefined) connect(entry, role);
-        return;
-      }
       if (entry.socket !== undefined && entry.socket.readyState === WebSocket.OPEN) {
         sendMessage(entry, role, message, meetingId);
         return;
@@ -316,10 +231,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
     },
     dropQueued() {
       for (const [role, entry] of entries) {
-        if (entry.intent !== undefined) {
-          logError(`the meeting was reset: dropped the unsent ${entry.intent.type} ${role} intent`);
-          entry.intent = undefined;
-        }
         if (entry.queue.length === 0) continue;
         const types = [...new Set(entry.queue.map((queued) => commandType(queued.message)))];
         logError(`the meeting was reset: dropped ${entry.queue.length} unsent ${role} command(s) (${types.join(', ')})`);
@@ -327,17 +238,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
       }
     },
     dropStale() {
-      for (const [role, entry] of entries) dropStaleFor(entry, role);
-    },
-    dropStateIntents() {
-      for (const [role, entry] of entries) {
-        if (entry.intent === undefined) continue;
-        logError(
-          `dropped the unsent ${entry.intent.type} ${role} intent; ` +
-            'a newer server snapshot now owns that state',
-        );
-        entry.intent = undefined;
-      }
+      for (const [role, entry] of entries) dropQueuedForOtherMeetings(entry, role);
     },
     close() {
       for (const entry of entries.values()) {
@@ -347,7 +248,6 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
           entry.timer = undefined;
         }
         entry.queue.length = 0;
-        entry.intent = undefined;
         const socket = entry.socket;
         entry.socket = undefined;
         socket?.close();

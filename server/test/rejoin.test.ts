@@ -3,6 +3,7 @@ import {
   admission,
   createRejoinGuard,
   createRoomPoll,
+  EMPTY_ROOM_PAUSE_MS,
   roomPollIntervalMs,
   REJOIN_POLL_MS,
   RUNNING_ROOM_POLL_MS,
@@ -217,6 +218,46 @@ describe('room poll', () => {
 
     expect(logs).not.toContain('[rejoin] grace started');
     expect(guard.isEmpty()).toBe(false);
+    poll.close();
+    guard.close();
+  });
+
+  it('pauses only after the room stays empty for ~3 s and resumes at once on a return', async () => {
+    let people: Array<{ name: string }> = [{ name: 'Daniel' }];
+    const guard = createRejoinGuard({ graceMs: 120_000, log: () => undefined });
+    const emptyReads: number[] = [];
+    const occupiedReads: number[] = [];
+    const poll = createRoomPoll({
+      guard,
+      hasMeeting: () => true,
+      roster: async () => people,
+      roomName: () => 'kopitiam',
+      isHuman: (name) => name !== 'Sam',
+      intervalMs: 1_000,
+      onEmpty: () => emptyReads.push(Date.now()),
+      onOccupied: () => occupiedReads.push(Date.now()),
+    });
+    poll.start();
+
+    // A 2 s blip (a page reload) never spans the debounce.
+    people = [];
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(emptyReads).toEqual([]);
+    people = [{ name: 'Daniel' }];
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(occupiedReads).toHaveLength(1);
+
+    // An empty room across the debounce is a real departure.
+    people = [];
+    await vi.advanceTimersByTimeAsync(EMPTY_ROOM_PAUSE_MS + 1_000);
+    expect(emptyReads.length).toBeGreaterThanOrEqual(1);
+    const pausedAt = emptyReads[0]!;
+
+    // A person returning resumes immediately, not after another poll's debounce.
+    people = [{ name: 'Daniel' }];
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(occupiedReads.at(-1)).toBeGreaterThan(pausedAt);
+
     poll.close();
     guard.close();
   });

@@ -27,6 +27,8 @@ class FakeWebSocket {
 
   readyState = FakeWebSocket.OPEN;
 
+  readonly sent: string[] = [];
+
   private readonly listeners = new Map<string, Array<(event?: unknown) => void>>();
 
   constructor(readonly url: string) {
@@ -37,8 +39,8 @@ class FakeWebSocket {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), handler]);
   }
 
-  send(): void {
-    // The hook only sends from its send() helper, which these tests do not exercise.
+  send(data?: string): void {
+    if (data !== undefined) this.sent.push(data);
   }
 
   close(): void {
@@ -154,6 +156,26 @@ describe('useKaki lifecycle state', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     // The closed socket's old answer must not reopen Start after the reset.
     expect(result.current.started).toBe(false);
+  });
+
+  it('does not replay a pause that could not be sent while the hub socket was down', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki('chef'));
+    const first = sockets[0]!;
+    act(() => first.emit('open'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    act(() => (first as unknown as { close(): void }).close());
+    // The person presses Stop while the hub socket is reconnecting: it is refused, not queued.
+    act(() => result.current.send({ type: 'SET_PAUSED', paused: true }));
+    await waitFor(() => expect(result.current.rejection?.commandType).toBe('SET_PAUSED'));
+
+    await waitFor(() => expect(sockets[1]).toBeDefined(), { timeout: 2_000 });
+    const second = sockets[1]! as unknown as { emit(type: string): void; sent: string[] };
+    act(() => second.emit('open'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // It must not arrive after a reconnect: no stale Stop outlives the socket it was made on.
+    expect(second.sent).toEqual([]);
   });
 
   it('stops reconnecting and reports the ended meeting after a failed reconnect', async () => {
