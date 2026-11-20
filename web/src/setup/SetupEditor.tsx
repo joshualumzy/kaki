@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   demoPackNpcProfileForRole,
   demoPackNpcProfileForSeat,
@@ -80,13 +80,17 @@ export function SetupEditor({
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const [roleProblem, setRoleProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [shownSetup, setShownSetup] = useState(setup);
 
-  useEffect(() => {
+  // A new saved setup (save, demo import) replaces the form during render, not in an effect: an
+  // effect runs after the form is on screen, so an edit typed in between would be overwritten.
+  if (shownSetup !== setup) {
+    setShownSetup(setup);
     setDraft(setup);
     setErrors([]);
     setSaveProblem(null);
     setRoleProblem(null);
-  }, [setup]);
+  }
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(setup);
 

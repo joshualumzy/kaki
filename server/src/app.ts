@@ -40,7 +40,12 @@ import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createRoomToken, create
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
   port?: number;
-  /** The bind address; when given, an open (sign-in off) non-loopback bind needs KAKI_ALLOW_OPEN=1. */
+  /**
+   * The bind address, 127.0.0.1 by default (the production entry point always passes one). A
+   * loopback default keeps a test server's port its own: on macOS a wildcard bind can share its
+   * port with another program's 127.0.0.1 listener, which then answers the test's requests.
+   * An open (sign-in off) non-loopback bind needs KAKI_ALLOW_OPEN=1.
+   */
   host?: string;
   scenario: Scenario;
   modules?: KakiModule[];
@@ -1143,7 +1148,7 @@ async function handleRequest(
   }
 }
 
-function listen(server: Server, port: number, host?: string): Promise<void> {
+function listen(server: Server, port: number, host: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);
     server.once('error', onError);
@@ -1151,8 +1156,7 @@ function listen(server: Server, port: number, host?: string): Promise<void> {
       server.off('error', onError);
       resolve();
     };
-    if (host === undefined) server.listen(port, ready);
-    else server.listen(port, host, ready);
+    server.listen(port, host, ready);
   });
 }
 
@@ -1165,7 +1169,7 @@ function closeServer(server: Server): Promise<void> {
 /** Create the HTTP server, the `/ws` hub and the task store, then start every module. */
 export async function createApp({
   port = 0,
-  host,
+  host = '127.0.0.1',
   scenario,
   modules = [],
   devRoutes = false,
@@ -1185,7 +1189,7 @@ export async function createApp({
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
   meetingCode: meetingCodeOption,
 }: CreateAppOptions): Promise<KakiApp> {
-  if (host !== undefined) assertSafeBind(host, auth !== undefined);
+  assertSafeBind(host, auth !== undefined);
   assertSafeMattermost(auth !== undefined);
   if (devRoutes && auth !== undefined) {
     throw new Error(

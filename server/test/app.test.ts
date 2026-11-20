@@ -424,7 +424,7 @@ describe('app', () => {
     const occupied = createServer();
     await new Promise<void>((resolve, reject) => {
       occupied.once('error', reject);
-      occupied.listen(0, () => {
+      occupied.listen(0, '127.0.0.1', () => {
         occupied.off('error', reject);
         resolve();
       });

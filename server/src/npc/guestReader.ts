@@ -428,7 +428,7 @@ export async function readGuestLine(input: GuestReaderInput, ports: GuestReaderP
   }
 
   if (ports.fallbackStream !== undefined && remainingMs() > 50) {
-    log(`[reader] failed: ${failure}; retrying on the backup model`);
+    log(`[llm-fallback] [reader] failed: ${failure}; retrying on the backup model`);
     try {
       const reading = await attempt(
         input, ports, ports.fallbackStream, log, Math.min(firstOutputMs, remainingMs()), remainingMs());

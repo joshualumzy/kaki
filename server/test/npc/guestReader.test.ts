@@ -212,7 +212,7 @@ describe('guest line reader', () => {
     expect(result.kind).toBe('answer');
     expect(calls).toHaveLength(1);
     expect(p.logs).toContainEqual(expect.stringContaining('[reader] failed:'));
-    expect(p.logs).toContainEqual(expect.stringContaining('retrying on the backup model'));
+    expect(p.logs).toContainEqual(expect.stringContaining('[llm-fallback] [reader] failed'));
   });
 
   it('returns a loud unsure reading when both models fail', async () => {
@@ -303,7 +303,7 @@ describe('guest line reader', () => {
 
     expect(result.kind).toBe('unsure');
     expect(logs).toContainEqual(expect.stringContaining('[reader] failed:'));
-    expect(logs).toContainEqual(expect.stringContaining('retrying on the backup model'));
+    expect(logs).toContainEqual(expect.stringContaining('[llm-fallback] [reader] failed'));
     expect(logs).toContainEqual(expect.stringContaining('treating the line as unsure'));
     vi.useRealTimers();
   });
