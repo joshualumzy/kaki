@@ -90,6 +90,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   const uiLines: UiLine[] = [];
   const tasks = new Map<string, Task>();
   const taskHistory: string[] = [];
+  /** Set when the minutes card reaches DRAFT_READY, so an early approval still counts as the card having appeared. */
+  let minutesReachedDraft = false;
   let uiTaskCards: string[] = [];
   const errors: string[] = [];
   const notes: string[] = [];
@@ -214,6 +216,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     } else if (event.type === 'TASK_UPDATED') {
       const previous = tasks.get(event.payload.task.id);
       tasks.set(event.payload.task.id, event.payload.task);
+      if (event.payload.task.purpose === 'meeting_minutes' && event.payload.task.status === 'DRAFT_READY') minutesReachedDraft = true;
       if (previous?.status !== event.payload.task.status) {
         taskHistory.push(`${stamp()} ${event.payload.task.id} ${event.payload.task.agendaItemTitle ?? '(no agenda item)'} ${event.payload.task.actionKind ?? '(no kind)'} ${event.payload.task.status} ${event.payload.task.title}`);
       }
@@ -499,11 +502,9 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     }
   }
 
-  /** True once the end-of-meeting minutes card is waiting for a person to approve it. */
+  /** True once the end-of-meeting minutes card has been ready for a person to approve, even if they already approved it. */
   function minutesCardReady(): boolean {
-    return [...tasks.values()].some(
-      (task) => task.purpose === 'meeting_minutes' && task.status === 'DRAFT_READY',
-    );
+    return minutesReachedDraft;
   }
 
   /** Click Approve & publish for a card whose draft is on screen, waiting for the draft to appear first. */
@@ -1028,7 +1029,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       // The minutes card is created a moment after the closing cue; approve it like any other guest card.
       const minutesReady = await waitFor('Minutes card for approval', minutesCardReady, 30_000, false);
       await check('Minutes card for approval', minutesReady,
-        minutesReady ? 'Minutes card appeared in DRAFT_READY for approval' : 'No end-of-meeting minutes card appeared within 30 s');
+        minutesReady ? 'Minutes card reached DRAFT_READY for approval' : 'No end-of-meeting minutes card appeared within 30 s');
       await actOnRobotTasks();
       await finishActedCards();
     }
