@@ -69,7 +69,8 @@ export type PrepareOutcome =
 export interface MeetingSyncRunner {
   meetingId(): string | undefined;
   wasPreparedFor(meetingId: string): boolean;
-  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): void;
+  /** Replace the meeting from a server snapshot; true when a newer version was adopted. */
+  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): boolean;
   prepareMeeting(request: {
     meetingId: string;
     attempt: string;
@@ -88,6 +89,11 @@ export interface MeetingSyncOptions {
   log(message: string): void;
   /** The runner moved from one meeting to another: anything tagged for the old one is stale. */
   onMeetingChanged?(meetingId: string): void;
+  /**
+   * A newer snapshot was adopted. Anything queued against the old state (an unsent pause intent)
+   * must be dropped: the snapshot now says what the server actually owns.
+   */
+  onSnapshotAdopted?(state: RunnerMeetingSnapshot): void;
 }
 
 export interface MeetingSync {
@@ -112,7 +118,13 @@ export interface MeetingSync {
  * before a socket was replaced) can never reopen a meeting the server has already cleared.
  * Snapshots are additionally fenced by meeting id and version inside the runner's RunnerMeeting.
  */
-export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }: MeetingSyncOptions): MeetingSync {
+export function createMeetingSync({
+  runner,
+  fetchState,
+  log,
+  onMeetingChanged,
+  onSnapshotAdopted,
+}: MeetingSyncOptions): MeetingSync {
   let generation = 0;
 
   function apply(state: RunnerMeetingSnapshot): void {
@@ -120,9 +132,13 @@ export function createMeetingSync({ runner, fetchState, log, onMeetingChanged }:
     // Everything this module applies came from the live service connection: a fetch tied to the
     // current generation, or an event on the current socket. That authority is what lets the runner
     // adopt a restarted server's new epoch even when its sequence starts again.
-    runner.reconcileMeeting(state, { currentConnection: true });
-    if (previous !== undefined && previous !== state.meetingId) {
-      onMeetingChanged?.(state.meetingId);
+    const adopted = runner.reconcileMeeting(state, { currentConnection: true });
+    if (adopted) onSnapshotAdopted?.(state);
+    // Only a snapshot the runner actually adopted can have moved the meeting; a stale read that was
+    // refused must not throw away the current meeting's queued commands.
+    const moved = runner.meetingId();
+    if (previous !== undefined && moved !== undefined && previous !== moved) {
+      onMeetingChanged?.(moved);
     }
   }
 

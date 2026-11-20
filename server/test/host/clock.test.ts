@@ -147,4 +147,36 @@ describe('agenda clock', () => {
     time.advance(40);
     expect(clock.snapshot()).toMatchObject({ paused: false, itemElapsedSeconds: 190, meetingElapsedSeconds: 190 });
   });
+
+  it('remembers why it was paused, so a restart can resume an empty-room pause but not a person\'s Stop', () => {
+    const time = fakeTime();
+    const clock = createAgendaClock({ agenda, now: time.now });
+    clock.start();
+    time.advance(10);
+    clock.pause('empty-room');
+    expect(clock.snapshot()).toMatchObject({ paused: true, pauseKind: 'empty-room' });
+
+    const restored = createAgendaClock({ agenda, now: time.now });
+    restored.restore({
+      started: true,
+      ended: false,
+      paused: true,
+      pauseKind: 'empty-room',
+      agendaIndex: 0,
+      itemElapsedSeconds: 10,
+      meetingElapsedSeconds: 10,
+    });
+    expect(restored.snapshot()).toMatchObject({ paused: true, pauseKind: 'empty-room' });
+
+    const older = createAgendaClock({ agenda, now: time.now });
+    older.restore({
+      started: true,
+      ended: false,
+      paused: true,
+      agendaIndex: 0,
+      itemElapsedSeconds: 10,
+      meetingElapsedSeconds: 10,
+    });
+    expect(older.snapshot()).toMatchObject({ paused: true, pauseKind: 'person' });
+  });
 });

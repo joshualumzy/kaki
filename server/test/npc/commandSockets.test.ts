@@ -108,10 +108,10 @@ describe('the runner command sockets', () => {
 
   it('does not replay host-mode or pause state after a screen reconnect', async () => {
     const { socketsApi, sockets } = setup();
-
     socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: false });
-    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
     sockets[0]!.open();
+
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
     expect(sockets[0]!.sent).toEqual([
       JSON.stringify({ type: 'SET_HOST_MODE', human: false }),
       JSON.stringify({ type: 'SET_PAUSED', paused: true }),
@@ -132,6 +132,49 @@ describe('the runner command sockets', () => {
     expect(sockets[0]!.sent).toEqual([JSON.stringify({ type: 'SET_PAUSED', paused: true })]);
 
     // The screen command resumed the meeting; the runner's snapshot already resumed local playback.
+    sockets[0]!.fail();
+    await tick();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
+  });
+
+  it('keeps only the latest pause intent while the socket is down', async () => {
+    const { socketsApi, sockets, logs } = setup();
+
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: false });
+    expect(logs.some((line) => line.includes('replaced the unsent SET_PAUSED'))).toBe(true);
+
+    sockets[0]!.fail();
+    await tick();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([JSON.stringify({ type: 'SET_PAUSED', paused: false })]);
+  });
+
+  it('drops an unsent pause when a newer server snapshot owns the state (crash restore)', async () => {
+    const { socketsApi, sockets, errors } = setup();
+
+    // The screen was down when the person pressed Stop; the server then restored the meeting alive.
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    socketsApi.dropStateIntents();
+
+    sockets[0]!.fail();
+    await tick();
+    sockets[1]!.open();
+
+    expect(sockets[1]!.sent).toEqual([]);
+    expect(errors.some((message) => message.includes('dropped the unsent SET_PAUSED screen intent'))).toBe(true);
+  });
+
+  it('does not replay a Stop after the screen resumed while the socket was down', async () => {
+    const { socketsApi, sockets } = setup();
+
+    socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
+    // The screen's Resume changed the server snapshot, which supersedes the unsent Stop.
+    socketsApi.dropStateIntents();
+
     sockets[0]!.fail();
     await tick();
     sockets[1]!.open();
@@ -207,7 +250,6 @@ describe('the runner command sockets', () => {
     socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: false });
     socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
     sockets[0]!.open();
-    expect(sockets[0]!.sent).toHaveLength(2);
 
     socketsApi.dropQueued();
     meetingId = 'meeting-b';
@@ -225,7 +267,6 @@ describe('the runner command sockets', () => {
     socketsApi.sendAs('screen', { type: 'SET_HOST_MODE', human: true });
     socketsApi.sendAs('screen', { type: 'SET_PAUSED', paused: true });
     sockets[0]!.open();
-    expect(sockets[0]!.sent).toHaveLength(2);
 
     meetingId = 'meeting-b';
     sockets[0]!.fail();

@@ -1,13 +1,14 @@
 import {
   castWithHostProfile,
   hostIdentityOf,
+  type RunnerEpoch,
   type RunnerMeetingSnapshot,
   type RunnerSnapshotVersion,
   type Scenario,
 } from '@kaki/shared';
 
 /** The epoch every test snapshot uses unless it names another server incarnation. */
-export const TEST_EPOCH = 'test-epoch';
+export const TEST_EPOCH: RunnerEpoch = { startedAt: 1_000, id: 'test-epoch' };
 
 /** Let a test keep passing a plain number for `version`; it becomes a seq in the test epoch. */
 type SnapshotOverrides = Omit<Partial<RunnerMeetingSnapshot>, 'version'> & {

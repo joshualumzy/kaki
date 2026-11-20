@@ -17,6 +17,7 @@ import {
   CONTROL_TOPIC,
   NPC_STATE_TOPIC,
   parseControlMessage,
+  sameRunnerEpoch,
   STT_TOPIC,
   type NpcProfile,
   type NpcStateMessage,
@@ -49,9 +50,12 @@ export const SAMPLE_RATE = 16000;
  */
 const GUARD_TAIL_MS = 1400;
 
+/** How long a person's pause/resume intent may override the server snapshot before it wins. */
+const PAUSE_INTENT_GRACE_MS = 3_000;
+
 /** True when two snapshots came from the same server incarnation at the same sequence. */
 function sameVersion(a: RunnerSnapshotVersion, b: RunnerSnapshotVersion): boolean {
-  return a.epoch === b.epoch && a.seq === b.seq;
+  return sameRunnerEpoch(a.epoch, b.epoch) && a.seq === b.seq;
 }
 
 export interface RunnerOptions {
@@ -89,6 +93,8 @@ export interface RunnerOptions {
   onEndMeeting?: () => void;
   /** Called when the visitor pauses or resumes the meeting via the TypeBar button or Escape. */
   onPauseChange?: (paused: boolean) => void;
+  /** How long a pending pause/resume intent may outrank the server snapshot (default 3000 ms). */
+  pauseIntentGraceMs?: number;
   /** Pause between one character and the next. */
   speakerGapMs?: number;
   /** Pause between two sentences of the same speaker. */
@@ -205,8 +211,9 @@ export interface NpcRunner {
    * Align with the server's state after a reconnect: a different meeting id clears the local start,
    * topic and welcome; a running meeting resumes at its item without opening again.
    * `currentConnection` proves a new server epoch arrived on the live service connection.
+   * Returns true when a newer version was adopted.
    */
-  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): void;
+  reconcileMeeting(state: RunnerMeetingSnapshot, options?: { currentConnection?: boolean }): boolean;
   /** Pause the current conversation (for example when the meeting ends). */
   pause(): void;
   /** Interrupt any running AI turn, speak the closing line from the host, and then keep the conversation stopped. */
@@ -417,8 +424,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
    * This is the runner having opened the conversation locally, not a mirror of the server snapshot's `started`.
    */
   let openedLocally = false;
-  /** The conversation's local playback pause; it follows the snapshot but also holds a visitor stop or an empty room. */
+  /** The conversation's local playback pause; it follows the server snapshot, with a short intent grace. */
   let pausedLocally = false;
+  /** The person's pause/resume request, kept until the server snapshot shows it or the grace runs out. */
+  let pendingPause: { paused: boolean; timer: ReturnType<typeof setTimeout> } | undefined;
+  /** The room emptied while a meeting was open; the next person to arrive gets one welcome back. */
+  let roomWasEmpty = false;
+  /** A person came back and still needs their one welcome-back line once playback allows it. */
+  let greetReturnPending = false;
   /** The meeting ended: only a new meeting's snapshot or prepare can open the conversation again. */
   let endedTerminal = false;
   /** The Start attempt that prepared the cast, if the server has not opened the meeting yet. */
@@ -555,10 +568,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
             conversation?.agendaMoved(title);
           }
         }
-        if (rejoinPending && !endedTerminal) {
-          rejoinPending = false;
-          resumeFromEmptyRoom();
-        }
+        greetReturn();
         settleStart();
       })
       .catch((error: unknown) => {
@@ -592,8 +602,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     openingAgendaIndex = 0;
     startResumed = false;
     pausedLocally = false;
-    emptyPaused = false;
-    rejoinPending = false;
+    clearPauseIntent();
+    roomWasEmpty = false;
+    greetReturnPending = false;
     endedTerminal = false;
     memory.reset();
     lastConversationState = { kind: 'idle' };
@@ -610,30 +621,108 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** Adopt a server snapshot without opening anything: used by prepare and by catch-up reads. */
   function adoptSnapshot(state: RunnerMeetingSnapshot): void {
     const held = meeting.meetingId();
+    const heldEpoch = meeting.version()?.epoch;
     const changed = held !== undefined && held !== state.meetingId;
     const current = meeting.current();
     const identical =
       current !== undefined && current.meetingId === state.meetingId && sameVersion(current.version, state.version);
     // A prepare is fetched on the live service connection, so it may prove a new server epoch.
-    if (!meeting.apply(state, { currentConnection: true }) && !identical) return;
+    const accepted = meeting.apply(state, { currentConnection: true });
+    if (!accepted && !identical) return;
     if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
+    } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
+      clearPauseIntent();
     }
   }
 
-  /** The person's local pause follows the server's snapshot; a pause reported by this runner is a no-op. */
-  function adoptPaused(next: boolean): void {
-    if (pausedLocally === next) return;
+  /** Forget a pause/resume request that no snapshot is expected to confirm any more. */
+  function clearPauseIntent(): void {
+    if (pendingPause !== undefined) clearTimeout(pendingPause.timer);
+    pendingPause = undefined;
+  }
+
+  /** Apply a pause locally, without asking the server. */
+  function applyLocalPause(next: boolean): void {
+    if (pausedLocally === next) {
+      if (!next) greetReturn();
+      return;
+    }
     pausedLocally = next;
     if (next) {
       talking.clear();
       for (const vad of vads.values()) vad.close();
       conversation?.stop();
-    } else {
-      conversation?.resumeFromPause();
+      return;
     }
+    const hostName = meeting.hostName();
+    if (greetReturnPending && !endedTerminal && conversation !== undefined && !hostIsHuman() && hostName !== undefined) {
+      greetReturnPending = false;
+      const title = conversation.currentTopicTitle();
+      const line =
+        title === undefined
+          ? 'Welcome back.'
+          : `Welcome back — we were on ${spokenAgendaName(meeting.scenario(), title)}.`;
+      conversation.resumeAfterRejoin(hostName, line);
+      return;
+    }
+    conversation?.resumeFromPause();
+  }
+
+  /**
+   * The person pressed Stop or Resume. Apply it now, forward exactly one intent, and let the
+   * snapshot take over as soon as it reflects the intent (or after a short grace).
+   */
+  function requestPause(next: boolean): void {
+    applyLocalPause(next);
+    options.onPauseChange?.(next);
+    clearPauseIntent();
+    const graceMs = options.pauseIntentGraceMs ?? PAUSE_INTENT_GRACE_MS;
+    const timer = setTimeout(() => {
+      if (pendingPause === undefined) return;
+      pendingPause = undefined;
+      log(
+        `the ${next ? 'pause' : 'resume'} request had no matching server snapshot within ${graceMs} ms; ` +
+          'following its snapshot',
+      );
+      applyLocalPause(meeting.paused());
+    }, graceMs);
+    timer.unref?.();
+    pendingPause = { paused: next, timer };
+  }
+
+  /** The snapshot is the truth, except while a person's pause/resume intent is still settling. */
+  function adoptPaused(next: boolean): void {
+    if (pendingPause !== undefined) {
+      if (pendingPause.paused !== next) {
+        log(
+          `kept the person's ${pendingPause.paused ? 'pause' : 'resume'} locally; ` +
+            `the server snapshot says ${next ? 'paused' : 'running'}`,
+        );
+        return;
+      }
+      clearPauseIntent();
+    }
+    applyLocalPause(next);
+  }
+
+  /** Say one welcome-back line once the cast is ready and playback allows it. */
+  function greetReturn(): void {
+    if (!greetReturnPending || endedTerminal || pausedLocally || conversation === undefined) return;
+    const hostName = meeting.hostName();
+    if (hostName === undefined) return;
+    greetReturnPending = false;
+    if (!hostIsHuman()) {
+      const title = conversation.currentTopicTitle();
+      const line =
+        title === undefined
+          ? 'Welcome back.'
+          : `Welcome back — we were on ${spokenAgendaName(meeting.scenario(), title)}.`;
+      conversation.announce(hostName, line);
+    }
+    log('someone returned; the meeting carries on');
   }
 
   function prepareMeeting(request: RunnerPrepareRequest): Promise<void> {
@@ -673,8 +762,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   function reconcileMeeting(
     state: RunnerMeetingSnapshot,
     options?: { currentConnection?: boolean },
-  ): void {
+  ): boolean {
     const held = meeting.meetingId();
+    const heldEpoch = meeting.version()?.epoch;
     const changed = held !== undefined && held !== state.meetingId;
     const current = meeting.current();
     // The same snapshot arriving again (for example on reconnect) is still reconciled locally: a
@@ -682,11 +772,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const identical =
       current !== undefined && current.meetingId === state.meetingId && sameVersion(current.version, state.version);
     const accepted = meeting.apply(state, options);
-    if (!accepted && !identical) return;
+    if (!accepted && !identical) return false;
     if (state.phase !== 'ended') endedTerminal = false;
     if (changed) {
       log(`the server is on meeting ${state.meetingId}; clearing the old meeting ${held}`);
       clearLocalMeeting();
+    } else if (accepted && heldEpoch !== undefined && !sameRunnerEpoch(state.version.epoch, heldEpoch)) {
+      // A new server incarnation owns the state now: an intent from the old one cannot apply to it.
+      clearPauseIntent();
     }
     if (state.phase === 'ended') {
       // A reconnect can learn the meeting ended without hearing the live END cue. A closing line is
@@ -698,14 +791,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       startResumed = false;
       pausedLocally = true;
       endedTerminal = true;
-      emptyPaused = false;
-      rejoinPending = false;
+      clearPauseIntent();
+      roomWasEmpty = false;
+      greetReturnPending = false;
       prepared = undefined;
       talking.clear();
       for (const vad of vads.values()) vad.close();
       conversation?.stop();
       if (changed && humans.size > 0) syncCast();
-      return;
+      return accepted;
     }
     const lostStart = openedLocally && !state.started;
     if (lostStart) {
@@ -735,50 +829,7 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     if (state.started) adoptPaused(state.paused);
     if ((changed || lostStart) && humans.size > 0) syncCast();
-  }
-
-  /** The meeting was paused because the room emptied, not because the person pressed Pause. */
-  let emptyPaused = false;
-  /** A person came back into an empty room; resume once the cast for them is ready. */
-  let rejoinPending = false;
-
-  /** Nobody is in the room: hold the conversation exactly where it is, like pressing Pause. */
-  function pauseForEmptyRoom(): void {
-    if (endedTerminal) return;
-    if (!openedLocally && !hostIsHuman()) return;
-    if (pausedLocally) return;
-    pausedLocally = true;
-    emptyPaused = true;
-    talking.clear();
-    for (const vad of vads.values()) vad.close();
-    options.onPauseChange?.(true);
-    conversation?.stop();
-    log('the room is empty; the meeting is paused in case someone returns');
-  }
-
-  /** The person is back inside the grace window: carry on, and let Sam say one welcome-back line. */
-  function resumeFromEmptyRoom(): void {
-    if (!emptyPaused) return;
-    if (endedTerminal) {
-      emptyPaused = false;
-      rejoinPending = false;
-      pausedLocally = true;
-      return;
-    }
-    emptyPaused = false;
-    pausedLocally = false;
-    options.onPauseChange?.(false);
-    const hostName = meeting.hostName();
-    if (conversation !== undefined && !hostIsHuman() && hostName !== undefined) {
-      const title = conversation.currentTopicTitle();
-      const line = title === undefined
-        ? 'Welcome back.'
-        : `Welcome back — we were on ${spokenAgendaName(meeting.scenario(), title)}.`;
-      conversation.resumeAfterRejoin(hostName, line);
-    } else {
-      conversation?.resumeFromPause();
-    }
-    log('someone returned; the meeting resumes');
+    return accepted;
   }
 
   function registerHuman(participant: RemoteParticipant): void {
@@ -788,7 +839,8 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const seat = humanAttendeeForRole(meeting.scenario(), role)?.name;
     const known = humans.get(participant.identity);
     if (known !== undefined && known.role === role && known.name === name) return;
-    if (humans.size === 0 && emptyPaused && !endedTerminal) rejoinPending = true;
+    if (humans.size === 0 && roomWasEmpty && !endedTerminal) greetReturnPending = true;
+    roomWasEmpty = false;
     humans.set(participant.identity, { name, role, seat });
     if (known === undefined) log(`${name} joined as ${role}`);
     syncCast();
@@ -899,8 +951,9 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     log(`${participant.identity} left`);
     if (humans.size === 0) {
-      // Hold the meeting where it is; the server decides whether a later join resumes it or resets it.
-      pauseForEmptyRoom();
+      // The server watches the room and pauses the meeting itself; the runner only remembers that
+      // the next person to arrive gets one welcome-back line.
+      roomWasEmpty = true;
       options.onRoomEmpty?.();
       return;
     }
@@ -935,30 +988,21 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
           log('ignored stop: the meeting has not started');
           return;
         }
-        pausedLocally = true;
-        options.onPauseChange?.(true);
-        talking.clear();
-        for (const vad of vads.values()) vad.close();
         log(`${participant.identity} pressed stop`);
-        conversation?.stop();
+        requestPause(true);
       } else if (message.kind === 'resume') {
         if (!openedLocally && !hostIsHuman()) {
           log('ignored resume: the meeting has not started');
           return;
         }
-        pausedLocally = false;
-        options.onPauseChange?.(false);
         log(`${participant.identity} pressed resume`);
-        conversation?.resumeFromPause();
+        requestPause(false);
       } else if (message.kind === 'lock') {
         if (openedLocally || hostIsHuman()) conversation?.lockDecision();
       } else if (!openedLocally && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {
-        if (pausedLocally) {
-          pausedLocally = false;
-          options.onPauseChange?.(false);
-        }
+        if (pausedLocally) requestPause(false);
         typingUntil = Date.now() + TYPING_QUIET_MS;
         if (message.kind === 'text') conversation?.humanTyped(message.text);
       }
@@ -1147,17 +1191,14 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       conversation.pointAtCard(note, options);
     },
     pause() {
-      pausedLocally = true;
-      talking.clear();
-      for (const vad of vads.values()) vad.close();
-      conversation?.stop();
+      clearPauseIntent();
+      applyLocalPause(true);
     },
     announceClosing(text) {
       const hostName = meeting.hostName();
       if (hostName === undefined || conversation === undefined) return;
-      pausedLocally = true;
-      talking.clear();
-      for (const vad of vads.values()) vad.close();
+      clearPauseIntent();
+      applyLocalPause(true);
       conversation.announceClosing(hostName, text);
     },
     async stop() {

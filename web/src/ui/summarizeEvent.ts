@@ -34,7 +34,7 @@ export function summarizeEvent(event: KakiEvent): string {
     case 'MEETING_RESTORED':
       return `Meeting restored from ${new Date(event.payload.startedAt).toLocaleString()}`;
     case 'RUNNER_STATE':
-      return `Runner state ${event.payload.version.epoch.slice(0, 8)}#${event.payload.version.seq} (${event.payload.phase})`;
+      return `Runner state ${event.payload.version.epoch.id.slice(0, 8)}#${event.payload.version.seq} (${event.payload.phase})`;
     case 'COMMAND_REJECTED':
       return `Command ${event.payload.commandType} rejected: ${event.payload.reason}`;
   }

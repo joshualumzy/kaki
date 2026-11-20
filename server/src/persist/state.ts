@@ -24,11 +24,16 @@ export const MEETING_STATE_SCHEMA_VERSION = 6;
 /** The one saved meeting. A single row: Kaki hosts one meeting at a time. */
 export const MEETING_STATE_ID = 'meeting';
 
+/** Why the meeting clock is paused: an empty room (auto) or a person's explicit Stop. */
+export type MeetingPauseKind = 'empty-room' | 'person';
+
 /** Where the agenda clock was when the meeting was saved. */
 export interface SavedClockState {
   started: boolean;
   ended: boolean;
   paused: boolean;
+  /** Present while paused; older saves without it are treated as a person's pause. */
+  pauseKind?: MeetingPauseKind;
   agendaIndex: number;
   itemElapsedSeconds: number;
   meetingElapsedSeconds: number;
@@ -227,6 +232,13 @@ function clockProblem(value: unknown, agendaLength: number): string | undefined 
   if (!isObject(value)) return 'its clock is missing';
   if (typeof value.started !== 'boolean' || typeof value.ended !== 'boolean' || typeof value.paused !== 'boolean') {
     return 'its clock is not valid';
+  }
+  if (
+    value.pauseKind !== undefined &&
+    value.pauseKind !== 'empty-room' &&
+    value.pauseKind !== 'person'
+  ) {
+    return 'its clock pause kind is not valid';
   }
   if (!isNonNegativeInteger(value.agendaIndex) || value.agendaIndex >= agendaLength) {
     return 'its clock points at an agenda item that is not saved';

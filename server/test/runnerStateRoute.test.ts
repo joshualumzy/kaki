@@ -70,7 +70,7 @@ function runnerStates(messages: KakiEvent[]): RunnerMeetingSnapshot[] {
 }
 
 function expectNewerThan(after: RunnerSnapshotVersion, before: RunnerSnapshotVersion): void {
-  expect(after.epoch).toBe(before.epoch);
+  expect(after.epoch).toEqual(before.epoch);
   expect(after.seq).toBeGreaterThan(before.seq);
 }
 
@@ -92,6 +92,19 @@ describe('the service-only runner meeting endpoint', () => {
       'meetingId',
       'started',
     ]);
+  });
+});
+
+describe('a reset always yields a newer snapshot', () => {
+  it('bumps the version even when the meeting id stays the same', async () => {
+    app = await createApp({ scenario: await loadScenario('kopitiam'), serviceToken: TOKEN, roomRoster: async () => [] });
+    const before = await runnerState();
+
+    app.session.reset({ rotateIdentity: false });
+
+    const after = await runnerState();
+    expect(after.meetingId).toBe(before.meetingId);
+    expectNewerThan(after.version, before.version);
   });
 });
 

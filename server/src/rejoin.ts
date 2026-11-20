@@ -195,6 +195,10 @@ export interface RoomPollOptions {
   isHuman: (name: string) => boolean;
   /** How often to look; defaults to `REJOIN_POLL_MS`. */
   intervalMs?: number;
+  /** A successful read found nobody in the room: the server may pause a running meeting. */
+  onEmpty?(): void;
+  /** A successful read found someone in the room: the server may resume an empty-room pause. */
+  onOccupied?(): void;
 }
 
 export interface RoomPoll {
@@ -214,6 +218,8 @@ export function createRoomPoll({
   roomName,
   isHuman,
   intervalMs = REJOIN_POLL_MS,
+  onEmpty,
+  onOccupied,
 }: RoomPollOptions): RoomPoll {
   let timer: ReturnType<typeof setInterval> | undefined;
   let polling = false;
@@ -228,8 +234,15 @@ export function createRoomPoll({
       const people = await roster(name);
       // LiveKit not reachable: change nothing.
       if (people === undefined || closed) return;
-      if (people.filter((person) => isHuman(person.name)).length === 0) guard.emptied();
-      else guard.occupied();
+      // The hooks are safe to call on every read: each one re-checks the clock's own state, so a
+      // repeated empty or occupied observation is a no-op rather than a second transition.
+      if (people.filter((person) => isHuman(person.name)).length === 0) {
+        guard.emptied();
+        onEmpty?.();
+      } else {
+        guard.occupied();
+        onOccupied?.();
+      }
     } finally {
       polling = false;
     }

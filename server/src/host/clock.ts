@@ -1,13 +1,17 @@
 import type { AgendaItem } from '@kaki/shared';
-import type { SavedClockState } from '../persist/state';
+import type { MeetingPauseKind, SavedClockState } from '../persist/state';
+
+export type { MeetingPauseKind } from '../persist/state';
 
 /** Where the meeting is on its agenda right now. */
 export interface ClockSnapshot {
   started: boolean;
   /** True once the meeting is over; time stands still from then on. */
   ended: boolean;
-  /** True while the meeting clock is paused by the visitor. */
+  /** True while the meeting clock is paused. */
   paused?: boolean;
+  /** Why it is paused, so a restart knows whether a returning person may resume it. */
+  pauseKind?: MeetingPauseKind;
   agendaIndex: number;
   /** Seconds spent on the current agenda item. */
   itemElapsedSeconds: number;
@@ -20,7 +24,8 @@ export interface ClockSnapshot {
 /** The agenda clock: knows the current item and its elapsed time, and signals overrun once per item. */
 export interface AgendaClock {
   start(): void;
-  pause(): void;
+  /** Pause the clock; `kind` says whether a person stopped it or the room emptied. */
+  pause(kind?: MeetingPauseKind): void;
   resume(): void;
   /** Back to a meeting that has not started: item 0, no time spent, overruns armed again. */
   reset(): void;
@@ -54,6 +59,7 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
 
   let startedAt: number | undefined;
   let pausedAt: number | undefined;
+  let pauseKind: MeetingPauseKind | undefined;
   let totalPausedMs = 0;
   let endedAtSeconds: number | undefined;
   let agendaIndex = 0;
@@ -76,6 +82,7 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
       started: startedAt !== undefined,
       ended: endedAtSeconds !== undefined,
       paused: pausedAt !== undefined,
+      ...(pauseKind === undefined ? {} : { pauseKind }),
       agendaIndex,
       itemElapsedSeconds,
       meetingElapsedSeconds,
@@ -87,18 +94,21 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
     start() {
       startedAt ??= now();
     },
-    pause() {
+    pause(kind = 'person') {
       if (startedAt === undefined || endedAtSeconds !== undefined || pausedAt !== undefined) return;
       pausedAt = now();
+      pauseKind = kind;
     },
     resume() {
       if (pausedAt === undefined) return;
       totalPausedMs += Math.max(0, now() - pausedAt);
       pausedAt = undefined;
+      pauseKind = undefined;
     },
     reset() {
       startedAt = undefined;
       pausedAt = undefined;
+      pauseKind = undefined;
       totalPausedMs = 0;
       endedAtSeconds = undefined;
       agendaIndex = 0;
@@ -112,6 +122,7 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
         ? now() - (elapsed / speed) * 1000
         : undefined;
       pausedAt = saved.started && saved.paused && !saved.ended ? now() : undefined;
+      pauseKind = pausedAt === undefined ? undefined : (saved.pauseKind ?? 'person');
       totalPausedMs = 0;
       endedAtSeconds = saved.started && saved.ended ? elapsed : undefined;
       agendaIndex = Number.isInteger(saved.agendaIndex) ? Math.max(0, saved.agendaIndex) : 0;
@@ -125,6 +136,7 @@ export function createAgendaClock({ agenda: initialAgenda, speed = 1, now = Date
     end() {
       if (startedAt !== undefined) endedAtSeconds ??= meetingSeconds();
       pausedAt = undefined;
+      pauseKind = undefined;
     },
     snapshot,
     advanceTo(index) {

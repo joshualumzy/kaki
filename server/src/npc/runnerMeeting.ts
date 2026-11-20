@@ -1,5 +1,7 @@
 import {
   hostIdentityOf,
+  runnerEpochNewer,
+  sameRunnerEpoch,
   type AgendaItem,
   type NpcProfile,
   type RunnerMeetingSnapshot,
@@ -11,8 +13,10 @@ import {
 /**
  * The runner's one view of the meeting. It holds the server's immutable snapshot and replaces it
  * wholesale; nothing else edits it. A snapshot is accepted when its seq is higher within the same
- * server epoch, or when a new epoch arrives through the current service connection. That keeps a
- * slow fetch or a retained event from rolling the runner backwards, including across a restart.
+ * server epoch, or when a newer server epoch arrives through the current service connection. That
+ * keeps a slow fetch or a retained event from rolling the runner backwards, including across a
+ * restart. `clear()` forgets the snapshot but not the ordering, so a reset that republishes the same
+ * version is still adopted.
  */
 export interface RunnerMeeting {
   current(): RunnerMeetingSnapshot | undefined;
@@ -59,7 +63,6 @@ export function createRunnerMeeting(
   let snapshot: RunnerMeetingSnapshot | undefined;
   let knownMeetingId: string | undefined;
   let knownVersion: RunnerSnapshotVersion | undefined;
-  const retiredEpochs = new Set<string>();
   let derived = base;
   let names: ReadonlySet<string> = new Set((base.npcs ?? []).map((npc) => npc.attendee));
 
@@ -98,32 +101,43 @@ export function createRunnerMeeting(
     scenario: view,
     apply(next, options) {
       if (knownVersion !== undefined) {
-        if (next.version.epoch === knownVersion.epoch) {
-          if (next.version.seq <= knownVersion.seq) {
-            if (next.version.seq < knownVersion.seq) {
-              log?.(
-                `ignored a stale runner snapshot from epoch ${next.version.epoch}: ` +
-                  `seq ${next.version.seq} is older than ${knownVersion.seq}`,
-              );
-            }
+        if (sameRunnerEpoch(next.version.epoch, knownVersion.epoch)) {
+          // Same incarnation: the sequence is the only ordering. A snapshot at the known seq is
+          // normally a repeat, but after `clear()` the snapshot is gone and must be re-adopted.
+          const afterClear = snapshot === undefined;
+          if (next.version.seq < knownVersion.seq) {
+            log?.(
+              `ignored a stale runner snapshot from epoch ${knownVersion.epoch.id}: ` +
+                `seq ${next.version.seq} is older than ${knownVersion.seq}`,
+            );
             return false;
           }
-        } else if (options?.currentConnection !== true) {
-          // A different epoch is only believable when the current service connection delivered it.
-          log?.(
-            `ignored a runner snapshot from another server epoch (${next.version.epoch}) ` +
-              'on a path that is not the current service connection',
-          );
-          return false;
-        } else if (retiredEpochs.has(next.version.epoch)) {
-          // Once a newer incarnation has been adopted, an older one must never come back.
-          log?.(
-            `ignored a runner snapshot from retired server epoch ${next.version.epoch} ` +
-              `while on ${knownVersion.epoch}`,
-          );
-          return false;
+          if (next.version.seq === knownVersion.seq && !afterClear) return false;
+          if (afterClear && knownMeetingId !== undefined && next.meetingId !== knownMeetingId) {
+            log?.(
+              `ignored a runner snapshot for meeting ${next.meetingId}: ` +
+                `the next snapshot must be for ${knownMeetingId ?? 'the expected meeting'}`,
+            );
+            return false;
+          }
         } else {
-          retiredEpochs.add(knownVersion.epoch);
+          // A different epoch is only believable when the current service connection delivered it,
+          // and only when it is a newer incarnation. `clear()` keeps this ordering too.
+          if (options?.currentConnection !== true) {
+            log?.(
+              `ignored a runner snapshot from another server epoch (${next.version.epoch.id}) ` +
+                'on a path that is not the current service connection',
+            );
+            return false;
+          }
+          if (!runnerEpochNewer(next.version.epoch, knownVersion.epoch)) {
+            log?.(
+              `ignored a runner snapshot from an older server epoch (${next.version.epoch.id}, ` +
+                `booted ${next.version.epoch.startedAt}) while holding ${knownVersion.epoch.id} ` +
+                `(booted ${knownVersion.epoch.startedAt})`,
+            );
+            return false;
+          }
         }
       }
       adopt(next);

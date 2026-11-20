@@ -45,6 +45,7 @@ try {
     meetingElapsedSeconds: host.meetingElapsedSeconds,
     meetingAgendaIndex: host.meetingAgendaIndex,
     meetingPaused: host.meetingPaused,
+    meetingPause: host.meetingPause,
     persistence,
     meetingCode,
   });

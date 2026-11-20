@@ -104,6 +104,7 @@ export function createMeetingModule({
               started: now.started,
               ended: now.ended,
               paused: now.paused === true,
+              ...(now.pauseKind === undefined ? {} : { pauseKind: now.pauseKind }),
               agendaIndex: now.agendaIndex,
               itemElapsedSeconds: now.itemElapsedSeconds,
               meetingElapsedSeconds: now.meetingElapsedSeconds,

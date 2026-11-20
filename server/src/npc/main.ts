@@ -227,11 +227,12 @@ const runner = await startNpcRunner({
   vad,
   traceVad: process.env.NPC_DEBUG_VAD === '1',
   log,
-  // The visitor left: the runner pauses locally; the app server watches the roster for the reset.
+  // The app server watches the roster and pauses/resumes the meeting itself; the runner only notes
+  // that the next person to arrive gets one welcome-back line.
   onRoomEmpty: () => {
     log('the room is empty; holding the meeting for a rejoin');
   },
-  // Host mode belongs to the server roster; the runner reads it from the snapshot instead.
+  // Only a person's explicit Stop/Resume is forwarded; empty-room pause belongs to the server.
   onPauseChange: (paused) => sendAs('screen', { type: 'SET_PAUSED', paused }),
   onAdvanceAgenda: () => {
     if (!runner.hostIsHuman()) sendAs('screen', { type: 'NEXT_AGENDA_ITEM' });
@@ -332,6 +333,8 @@ const meetingSync = createMeetingSync({
     commandSockets.dropStale();
     resetTaskMaps();
   },
+  // A newer snapshot owns pause/host-mode state, so an unsent intent must never overrule it.
+  onSnapshotAdopted: () => commandSockets.dropStateIntents(),
 });
 
 interface ServiceEvent {

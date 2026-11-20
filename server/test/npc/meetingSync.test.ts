@@ -18,7 +18,7 @@ function fakeRunner(meetingId: string | undefined) {
   return {
     meetingId: () => meetingId,
     wasPreparedFor: (_id: string) => false,
-    reconcileMeeting: vi.fn((_state: RunnerMeetingSnapshot) => undefined),
+    reconcileMeeting: vi.fn((_state: RunnerMeetingSnapshot) => true),
     prepareMeeting: vi.fn(async (_request: unknown) => undefined),
     markStarted: vi.fn(async (_state: RunnerStartState & { meetingId?: string }) => undefined),
     resetMeeting: vi.fn((next?: string) => {
@@ -120,6 +120,7 @@ describe('meeting sync', () => {
     const runner = fakeRunner('meeting-1');
     runner.reconcileMeeting = vi.fn((state: RunnerMeetingSnapshot) => {
       runner.meetingId = () => state.meetingId;
+      return true;
     });
     const changed: string[] = [];
     const sync = createMeetingSync({

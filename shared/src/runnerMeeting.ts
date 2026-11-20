@@ -2,13 +2,39 @@ import type { AgendaItem, NpcProfile, Scenario, ScenarioRole } from './scenario'
 import type { Role } from './roles';
 
 /**
+ * One server process, ordered by when it booted. The random id keeps two boots in the same
+ * millisecond distinct; `startedAt` is what lets a surviving runner tell a newer incarnation from
+ * an older one without remembering every epoch it has seen.
+ */
+export interface RunnerEpoch {
+  /** Wall-clock milliseconds when the server process booted. */
+  startedAt: number;
+  /** A random id for this process. */
+  id: string;
+}
+
+/**
  * The fence on a runner snapshot. `epoch` names one server process; `seq` counts the snapshots
- * that process has published. A restarted server has a new epoch but restarts its sequence, so the
+ * that process has published. A restarted server has a newer epoch but restarts its sequence, so the
  * epoch is what lets a surviving runner adopt it without mistaking an old read for a new one.
  */
 export interface RunnerSnapshotVersion {
-  epoch: string;
+  epoch: RunnerEpoch;
   seq: number;
+}
+
+/** True when `a` and `b` name the same server process. */
+export function sameRunnerEpoch(a: RunnerEpoch, b: RunnerEpoch): boolean {
+  return a.startedAt === b.startedAt && a.id === b.id;
+}
+
+/**
+ * A total order over server incarnations. A process that booted later is newer; two boots in the
+ * same millisecond are ordered by id so the choice is stable and never rolls back.
+ */
+export function runnerEpochNewer(a: RunnerEpoch, b: RunnerEpoch): boolean {
+  if (a.startedAt !== b.startedAt) return a.startedAt > b.startedAt;
+  return a.id > b.id;
 }
 
 /** The one meeting snapshot the AI runner reads; the server replaces it wholesale on every change. */
@@ -42,6 +68,16 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isAgendaIndex(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isRunnerEpoch(value: unknown): value is RunnerEpoch {
+  return (
+    isObject(value) &&
+    typeof value.startedAt === 'number' &&
+    Number.isFinite(value.startedAt) &&
+    value.startedAt >= 0 &&
+    isNonEmptyString(value.id)
+  );
 }
 
 function isAgendaItem(value: unknown): value is AgendaItem {
@@ -103,7 +139,7 @@ export function isRunnerMeetingSnapshot(value: unknown): value is RunnerMeetingS
     typeof value.hostIsHuman === 'boolean' &&
     typeof value.paused === 'boolean' &&
     isObject(value.version) &&
-    isNonEmptyString(value.version.epoch) &&
+    isRunnerEpoch(value.version.epoch) &&
     isAgendaIndex(value.version.seq)
   );
 }

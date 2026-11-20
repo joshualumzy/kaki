@@ -32,6 +32,7 @@ import {
   MEETING_ENDED_MESSAGE,
   type MeetingCodeSource,
 } from './meetingCode';
+import type { MeetingPauseControl } from './host';
 import { admission, createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, type Admission, type RejoinGuard } from './rejoin';
 import { buildRunnerMeetingSnapshot } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
@@ -68,6 +69,11 @@ export interface CreateAppOptions {
   meetingAgendaIndex?: () => number | undefined;
   /** Whether the server-owned agenda clock is paused, for the runner snapshot. */
   meetingPaused?: () => boolean | undefined;
+  /**
+   * The server's pause control. When present, the app pauses a running meeting for an empty room
+   * and resumes it when someone returns; a person's explicit Stop stays paused.
+   */
+  meetingPause?: MeetingPauseControl;
   /** Keeps the meeting, notetaker and tasks across a restart; absent means memory only. */
   persistence?: MeetingPersistence;
   /** How long an empty meeting is kept for the same person to return; defaults to KAKI_REJOIN_GRACE_MS or 2 minutes. */
@@ -1191,6 +1197,7 @@ export async function createApp({
   meetingElapsedSeconds,
   meetingAgendaIndex,
   meetingPaused,
+  meetingPause,
   persistence,
   rejoinGraceMs,
   rejoinPollMs,
@@ -1349,6 +1356,25 @@ export async function createApp({
   // The pack owns the reserved names for the whole meeting, whatever cast is active right now.
   const packNpcNames = (fullScenario.npcs ?? []).map((npc) => npc.attendee.toLowerCase());
   let watchedRoom: string | undefined;
+  // The server owns the empty-room pause: a running meeting pauses when the room empties and
+  // resumes when someone returns, but only when the pause was the empty-room kind. A person's
+  // explicit Stop stays paused, and the kind is saved so a restart keeps that distinction.
+  function autoPauseForEmptyRoom(): void {
+    if (meetingPause === undefined || session.phase() !== 'running') return;
+    if (meetingPause.paused() !== false) return;
+    meetingPause.pause('empty-room');
+    console.log('kaki meeting: the room is empty; pausing until someone returns');
+    publishRunnerState();
+    persistence?.scheduleSave();
+  }
+  function autoResumeForReturn(): void {
+    if (meetingPause === undefined || session.phase() !== 'running') return;
+    if (meetingPause.kind() !== 'empty-room') return;
+    meetingPause.resume();
+    console.log('kaki meeting: someone returned; the meeting resumes');
+    publishRunnerState();
+    persistence?.scheduleSave();
+  }
   const roomPoll = createRoomPoll({
     guard: rejoin,
     // Someone joined (even before Start), or the meeting is running: keep watching the room.
@@ -1358,6 +1384,8 @@ export async function createApp({
     roomName: () => watchedRoom,
     isHuman: (name) => !packNpcNames.includes(name.toLowerCase()),
     intervalMs: rejoinPollMs,
+    onEmpty: autoPauseForEmptyRoom,
+    onOccupied: autoResumeForReturn,
   });
   const watchRoom = (roomName: string): void => {
     watchedRoom = roomName;
@@ -1551,10 +1579,11 @@ export async function createApp({
 
   // The AI runner reads exactly this snapshot, through the service-only endpoint and RUNNER_STATE.
   // Its version moves only when a field a runner can see changes, so a reconnect can fence old reads.
-  // The version is a server-incarnation fence: `epoch` is made once for this process and `seq` only
-  // increases across every meeting. A restarted server therefore starts a new epoch instead of
-  // having to continue a persisted revision it may never have managed to save.
-  const runnerEpoch = randomUUID();
+  // The version is a server-incarnation fence: `epoch` is made once for this process, ordered by the
+  // boot time and identified by a random id, and `seq` only increases across every meeting. A
+  // restarted server therefore starts a newer epoch instead of having to continue a persisted
+  // revision it may never have managed to save.
+  const runnerEpoch = { startedAt: Date.now(), id: randomUUID() };
   let runnerStateSeq = 0;
   let runnerStateSignature: string | undefined;
   function publishRunnerState(): RunnerMeetingSnapshot {
@@ -1581,11 +1610,14 @@ export async function createApp({
   // Start, agenda moves and pause/resume all surface as these events; a seat change is published
   // by whoever changes the roster, because it has no event of its own.
   hub.subscribe((event) => {
-    if (
-      event.type === 'MEETING_STARTED' ||
-      event.type === 'MEETING_RESET' ||
-      event.type === 'MEETING_RECORD_UPDATED'
-    ) {
+    if (event.type === 'MEETING_RESET') {
+      // A reset always yields a newer snapshot, even when it keeps the meeting id and every visible
+      // field (the runner cleared its copy and must be able to adopt the republished version).
+      runnerStateSignature = undefined;
+      publishRunnerState();
+      return;
+    }
+    if (event.type === 'MEETING_STARTED' || event.type === 'MEETING_RECORD_UPDATED') {
       publishRunnerState();
     }
   });

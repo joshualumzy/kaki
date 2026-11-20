@@ -444,20 +444,18 @@ describe('server-owned start preparation', () => {
     }
   });
 
-  it('pauses when the room empties and says one welcome-back line on return', async () => {
+  it('leaves the empty-room pause to the server and says one welcome-back line on return', async () => {
     rooms.length = 0;
     published.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
     const pauses: boolean[] = [];
-    const log: string[] = [];
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      log: (line) => log.push(line),
       onPauseChange: (paused) => pauses.push(paused),
       responseDelayMs: 0,
     });
@@ -469,12 +467,30 @@ describe('server-owned start preparation', () => {
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
 
       rooms[0]!.emit('participantDisconnected', first);
-      await vi.waitFor(() => expect(pauses).toContain(true));
-      expect(log.some((line) => line.includes('paused in case someone returns'))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // The server owns the empty-room pause: the runner sends no pause intent of its own.
+      expect(pauses).toEqual([]);
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1',
+          phase: 'running',
+          started: true,
+          paused: true,
+          version: 2,
+        }),
+      );
 
       const back = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
       rooms[0]!.emit('participantConnected', back);
-      await vi.waitFor(() => expect(pauses.at(-1)).toBe(false));
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, {
+          meetingId: 'meeting-1',
+          phase: 'running',
+          started: true,
+          paused: false,
+          version: 3,
+        }),
+      );
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome back')).length).toBe(1));
 
       // The same person starts again (a page refresh, then the server's no-op Start): no second welcome.
@@ -712,18 +728,16 @@ describe('an ended meeting on reconnect', () => {
     }
   });
 
-  it('does not reopen an ended meeting when the guest returns to an empty room', async () => {
+  it('does not reopen or greet an ended meeting when the guest returns to an empty room', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
-    const pauses: boolean[] = [];
     const runner = await startNpcRunner({
       scenario,
       livekitUrl: 'ws://offline.invalid',
       stream: async function* () {},
       synthesize: async () => new Int16Array(),
       postTranscript: (_speaker, text) => transcript.push(text),
-      onPauseChange: (paused) => pauses.push(paused),
       responseDelayMs: 0,
       speakerGapMs: 0,
       sentenceGapMs: 0,
@@ -736,7 +750,7 @@ describe('an ended meeting on reconnect', () => {
       await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
 
       rooms[0]!.emit('participantDisconnected', first);
-      await vi.waitFor(() => expect(pauses).toContain(true));
+      await new Promise((resolve) => setTimeout(resolve, 20));
 
       runner.reconcileMeeting(
         runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
@@ -754,7 +768,6 @@ describe('an ended meeting on reconnect', () => {
       await new Promise((resolve) => setTimeout(resolve, 60));
 
       expect(transcript.filter((line) => line.startsWith('Welcome back'))).toHaveLength(0);
-      expect(pauses.at(-1)).toBe(true);
       expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
     } finally {
       await runner.stop();
@@ -945,6 +958,129 @@ describe('meeting sync with the real runner', () => {
       } finally {
         timeoutSpy.mockRestore();
       }
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('refuses a late older server incarnation through the real runner (E1 -> E3 -> late E2)', async () => {
+    rooms.length = 0;
+    const transcript: string[] = [];
+    const { runner, scenario } = await openRunner(transcript);
+    try {
+      const e1 = { startedAt: 1_000, id: 'e1' };
+      const e2 = { startedAt: 2_000, id: 'e2' };
+      const e3 = { startedAt: 3_000, id: 'e3' };
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, version: { epoch: e1, seq: 10 } }),
+          { currentConnection: true },
+        ),
+      ).toBe(true);
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, { meetingId: 'meeting-3', phase: 'running', started: true, version: { epoch: e3, seq: 1 } }),
+          { currentConnection: true },
+        ),
+      ).toBe(true);
+      expect(runner.meetingId()).toBe('meeting-3');
+
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, { meetingId: 'meeting-2', phase: 'running', started: true, version: { epoch: e2, seq: 9 } }),
+          { currentConnection: true },
+        ),
+      ).toBe(false);
+      expect(runner.meetingId()).toBe('meeting-3');
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('adopts a newer server incarnation through the real runner (E1 -> E2 restart)', async () => {
+    rooms.length = 0;
+    const transcript: string[] = [];
+    const { runner, scenario } = await openRunner(transcript);
+    try {
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-1',
+            phase: 'running',
+            started: true,
+            version: { epoch: { startedAt: 1_000, id: 'e1' }, seq: 50 },
+          }),
+          { currentConnection: true },
+        ),
+      ).toBe(true);
+
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-2',
+            phase: 'running',
+            started: true,
+            version: { epoch: { startedAt: 2_000, id: 'e2' }, seq: 1 },
+          }),
+          { currentConnection: true },
+        ),
+      ).toBe(true);
+      expect(runner.meetingId()).toBe('meeting-2');
+    } finally {
+      await runner.stop();
+    }
+  });
+
+  it('keeps the person\'s Stop when an older paused:false snapshot arrives', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      log: (line) => log.push(line),
+      pauseIntentGraceMs: 40,
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Booth Playtest', metadata: 'producer' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      rooms[0]!.emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify({ kind: 'stop' })),
+        participant,
+        undefined,
+        CONTROL_TOPIC,
+      );
+      await vi.waitFor(() => expect(log.some((line) => line.includes('pressed stop'))).toBe(true));
+
+      expect(
+        runner.reconcileMeeting(
+          runnerSnapshot(scenario, {
+            meetingId: 'meeting-1',
+            phase: 'running',
+            started: true,
+            paused: false,
+            version: 2,
+          }),
+        ),
+      ).toBe(true);
+      expect(log.some((line) => line.includes("kept the person's pause"))).toBe(true);
+
+      // The snapshot wins once the intent grace runs out.
+      await vi.waitFor(() =>
+        expect(log.some((line) => line.includes('following its snapshot'))).toBe(true),
+      );
     } finally {
       await runner.stop();
     }
