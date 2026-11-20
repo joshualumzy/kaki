@@ -262,7 +262,8 @@ describe('app', () => {
       const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
-          suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' }),
+          suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock',
+          cardId: early.id }),
       });
       expect(response.status).toBe(200);
       const settled = (await response.json()) as { id: string };
@@ -283,12 +284,12 @@ describe('app', () => {
     });
     try {
       const clockedPort = portOf(clocked);
-      const post = async (): Promise<{ id: string; sourceSeconds?: number }> => {
+      const post = async (cardId?: string): Promise<{ id: string; sourceSeconds?: number }> => {
         const response = await fetch(`http://127.0.0.1:${clockedPort}/dev/settle-topic`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
             suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep',
-            decisionSource: 'use fresh stock' }),
+            decisionSource: 'use fresh stock', ...(cardId === undefined ? {} : { cardId }) }),
         });
         expect(response.status).toBe(200);
         return (await response.json()) as { id: string; sourceSeconds?: number };
@@ -296,7 +297,7 @@ describe('app', () => {
       const first = await post();
       expect(first.sourceSeconds).toBe(930);
       meetingSeconds = 1200;
-      const retried = await post();
+      const retried = await post(first.id);
       expect(retried.id).toBe(first.id);
       expect(retried.sourceSeconds).toBe(930);
     } finally {
@@ -316,7 +317,7 @@ describe('app', () => {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
           suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep',
-          decisionSource: 'use fresh stock' }),
+          decisionSource: 'use fresh stock', cardId: early.id }),
       });
       expect(response.status).toBe(200);
       const settled = (await response.json()) as { id: string };
@@ -334,11 +335,12 @@ describe('app', () => {
     try {
       const body = { title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
         suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' };
-      const post = () => fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      const post = (cardId?: string) => fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...body, ...(cardId === undefined ? {} : { cardId }) }),
       });
       const first = (await (await post()).json()) as { id: string };
-      const retry = (await (await post()).json()) as { id: string };
+      const retry = (await (await post(first.id)).json()) as { id: string };
       expect(retry.id).toBe(first.id);
       expect(app.tasks.list()).toHaveLength(1);
     } finally { release(); }
@@ -352,7 +354,8 @@ describe('app', () => {
     const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ title: 'Email the team decision', context: 'Use fresh stock.',
-        suggestedAssignee: 'chef', actionKind: 'email', agendaItemTitle: 'Prep', decisionSource: 'Use fresh stock.' }),
+        suggestedAssignee: 'chef', actionKind: 'email', agendaItemTitle: 'Prep', decisionSource: 'Use fresh stock.',
+        cardId: early.id }),
     });
     const settled = (await response.json()) as { id: string };
     expect(settled.id).toBe(early.id);
@@ -369,13 +372,58 @@ describe('app', () => {
     const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
-        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' }),
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock',
+        cardId: first.id }),
     });
     const settled = (await response.json()) as { id: string };
     expect(settled.id).toBe(first.id);
     expect(app.tasks.list()).toHaveLength(2);
     expect(app.tasks.get(first.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post the prep plan' });
     expect(app.tasks.get(second.id)?.status).toBe('DISMISSED');
+  });
+
+  it('revises the named held card, not the first one that matches', async () => {
+    const first = app.tasks.suggest({ title: 'Post one update', context: 'Early note',
+      suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early one' });
+    const second = app.tasks.suggest({ title: 'Post another update', context: 'Early note',
+      suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early two' });
+    const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock',
+        cardId: second.id }),
+    });
+    const settled = (await response.json()) as { id: string };
+    expect(settled.id).toBe(second.id);
+    expect(app.tasks.get(second.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post the prep plan' });
+    expect(app.tasks.get(first.id)?.status).toBe('DISMISSED');
+  });
+
+  it('revises nothing when a settlement names no card', async () => {
+    const early = app.tasks.suggest({ title: 'Post one update', context: 'Early note',
+      suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early one' });
+    const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' }),
+    });
+    const settled = (await response.json()) as { id: string };
+    expect(settled.id).not.toBe(early.id);
+    expect(app.tasks.get(early.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post one update' });
+  });
+
+  it('revises nothing when a settlement names an unknown card', async () => {
+    const early = app.tasks.suggest({ title: 'Post one update', context: 'Early note',
+      suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early one' });
+    const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock',
+        cardId: 'task-does-not-exist' }),
+    });
+    const settled = (await response.json()) as { id: string };
+    expect(settled.id).not.toBe(early.id);
+    expect(app.tasks.get(early.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post one update' });
   });
 
   it('leaves a held card with a different action kind untouched when settling', async () => {

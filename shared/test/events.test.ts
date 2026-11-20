@@ -126,6 +126,26 @@ describe('isKakiEvent', () => {
     expect(
       isKakiEvent(
         {
+          type: 'HOST_SPEECH_TRIGGERED',
+          audience: { kind: 'screen' },
+          payload: { kind: 'DISPATCH', text: 'Ada, a task.', title: 'Plan', assignee: 'Ada', taskId: 'task-1' },
+        },
+        testScenario,
+      ),
+    ).toBe(true);
+    expect(
+      isKakiEvent(
+        {
+          type: 'HOST_SPEECH_TRIGGERED',
+          audience: { kind: 'screen' },
+          payload: { kind: 'DISPATCH', text: 'Ada, a task.', title: 'Plan', assignee: 'Ada', taskId: '' },
+        },
+        testScenario,
+      ),
+    ).toBe(false);
+    expect(
+      isKakiEvent(
+        {
           type: 'MEETING_STARTED',
           audience: { kind: 'all' },
           payload: { meetingId: 'm1', startedAt: '2026-11-19T09:00:00.000Z' },

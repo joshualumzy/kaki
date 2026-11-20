@@ -18,7 +18,8 @@ export interface Visitor {
  */
 export function openingLine(scenario: Scenario, visitor?: Visitor): string {
   const seat = visitor === undefined ? undefined : scenario.attendees.find((attendee) => attendee.name === visitor.seat);
-  const parts = [`${OPENING_PREFIX}${scenario.meetingTitle} at ${scenario.organisation}.`];
+  const where = scenario.organisation === undefined ? '' : ` at ${scenario.organisation}`;
+  const parts = [`${OPENING_PREFIX}${scenario.meetingTitle}${where}.`];
   if (visitor !== undefined && seat !== undefined) {
     const responsibility = scenario.roles.find((role) => role.id === seat.role)?.card?.responsibility;
     parts.push(`${visitor.name}, you are joining as ${roleLabel(scenario, seat.role)}.${responsibility === undefined ? '' : ` ${responsibility}`}`);
@@ -162,7 +163,8 @@ export function liveOpeningLine(
   const first = scenario.agenda[0];
   const colleagues = colleagueIntroductions(scenario, hostAttendee?.name, visitor);
   const role = visitor !== undefined && seat !== undefined ? `, our ${roleLabel(scenario, seat.role)}` : '';
-  const lead = `${OPENING_PREFIX}${scenario.organisation}${visitor === undefined ? '' : `, ${visitor.name}${role}`}`;
+  const welcomeLead = scenario.organisation === undefined ? 'Welcome' : `${OPENING_PREFIX}${scenario.organisation}`;
+  const lead = `${welcomeLead}${visitor === undefined ? '' : `, ${visitor.name}${role}`}`;
   const welcome = hostIntro !== '' && colleagues !== ''
     ? `${lead}.${hostIntro} and with us are ${colleagues}.`
     : hostIntro !== ''
@@ -176,7 +178,15 @@ export function liveOpeningLine(
     ?.split(/\n/)[0]
     ?.split(/(?<=[.!?])\s+/)[0]
     ?.trim()
-    .replace(new RegExp(`\\s*${scenario.organisation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), ' ')
+    .replace(
+      new RegExp(
+        scenario.organisation === undefined
+          ? '(?!)'
+          : `\\s*${scenario.organisation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`,
+        'i',
+      ),
+      ' ',
+    )
     .replace(/\s+/g, ' ')
     .replace(/,\s*and the team needs your call.*$/i, '')
     .replace(/\.$/, '');

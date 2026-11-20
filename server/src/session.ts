@@ -199,7 +199,7 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
 
   /** Every scenario the session will hand to a consumer must parse; fail loudly at the source. */
   function checked(scenario: Scenario): Scenario {
-    parseScenario(scenario);
+    parseScenario(scenario, { requireOrganisation: false });
     return scenario;
   }
 

@@ -69,6 +69,12 @@ export interface HeardLine {
   /** True only when playback or reading finished; a partial line is not counted as heard. */
   complete: boolean;
   question?: { to: string; text: string };
+  /**
+   * This colleague line was written to answer the question the room put to its speaker. The reply
+   * generation decides it from the reply's purpose, so a complete line that merely reacts is not
+   * mistaken for an answer.
+   */
+  answersQuestion?: boolean;
   /** The guest offered this line as an idea for the topic. */
   proposal: boolean;
   factId?: string;
@@ -180,6 +186,8 @@ export interface HeardLineStart {
   text: string;
   at: number;
   question?: { to: string; text: string };
+  /** The reply generation's judgement that this line answers the question put to its speaker. */
+  answersQuestion?: boolean;
   proposal?: boolean;
   factId?: string;
   factIds?: readonly string[];
@@ -349,6 +357,7 @@ function derive(
       at: start.at,
       complete: end?.complete === true,
       ...(start.question === undefined ? {} : { question: start.question }),
+      ...(start.answersQuestion === undefined ? {} : { answersQuestion: start.answersQuestion }),
       proposal: start.proposal === true || reading?.kind === 'idea',
       ...(start.factId === undefined ? {} : { factId: start.factId }),
       ...(start.factIds === undefined ? {} : { factIds: start.factIds }),
@@ -384,13 +393,14 @@ function derive(
 
   lines.forEach((line, index) => {
     // The guest counts as answering only when the reader says the line answers the open question. A
-    // colleague answers only with a whole line that does not put its own question back: a cut-off line
+    // colleague counts only when its reply generation says the line answers the question put to it
+    // (never from the words alone), and only with the sentences the room actually heard: a cut-off line
     // or a clarification is not an answer, so the gate stays open until the real answer is heard.
     const answersOpenQuestion = (heardSomething: boolean): boolean => {
       if (line.speaker === guest) {
         return (line.reading === undefined || line.reading.answersOpenQuestion) && heardSomething;
       }
-      return line.complete && line.question === undefined;
+      return line.answersQuestion === true && line.question === undefined && heardSomething;
     };
     if (!line.complete) {
       if (openQuestion !== undefined && line.speaker === openQuestion.to && answersOpenQuestion((line.sentencesHeard ?? 0) > 0)) {

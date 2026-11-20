@@ -196,13 +196,22 @@ export interface NpcTension {
 /** The meeting Kaki is set in: organisation, roles, people and agenda. */
 export interface Scenario {
   id: string;
-  organisation: string;
+  /**
+   * The team or company the meeting belongs to. Required in a demo pack file; absent in an
+   * owner-written meeting whose organisation field was left blank.
+   */
+  organisation?: string;
   meetingTitle: string;
   roles: ScenarioRole[];
   attendees: Attendee[];
   agenda: AgendaItem[];
   /** What is going on and what the meeting is for, told to the AI attendees; optional. */
   situation?: string;
+  /**
+   * How the AI colleagues should sound (phrasing, dialect, words to avoid); optional. A demo pack
+   * carries its own register; an owner-written meeting has none.
+   */
+  speechRegister?: string;
   /** Shared background every colleague knows, usable for invented details; optional. */
   background?: string[];
   /** Agenda titles that must never be drawn together in one meeting; optional. */
@@ -608,16 +617,30 @@ function readAgendaDiscussion(
   }
 }
 
+export interface ParseScenarioOptions {
+  /**
+   * Require the organisation, as a demo pack file must have. Runtime scenarios may leave it out:
+   * an owner-written meeting with a blank organisation field has none.
+   */
+  requireOrganisation?: boolean;
+}
+
 /** Validate unknown JSON as a scenario, throwing once with every problem found. */
-export function parseScenario(value: unknown): Scenario {
+export function parseScenario(value: unknown, options: ParseScenarioOptions = {}): Scenario {
   if (!isObject(value)) {
     throw new Error('Invalid scenario: expected a JSON object');
   }
 
+  const requireOrganisation = options.requireOrganisation !== false;
   const problems: string[] = [];
   if (!isNonEmptyString(value.id)) problems.push('id must be a non-empty string');
-  if (!isNonEmptyString(value.organisation)) problems.push('organisation must be a non-empty string');
+  if (value.organisation === undefined ? requireOrganisation : !isNonEmptyString(value.organisation)) {
+    problems.push('organisation must be a non-empty string');
+  }
   if (!isNonEmptyString(value.meetingTitle)) problems.push('meetingTitle must be a non-empty string');
+  if (value.speechRegister !== undefined && !isNonEmptyString(value.speechRegister)) {
+    problems.push('speechRegister must be a non-empty string when present');
+  }
 
   const roleIds = readRoles(value.roles, problems);
   readAttendees(value.attendees, roleIds, problems);

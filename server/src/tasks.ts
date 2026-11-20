@@ -237,12 +237,14 @@ export function createTaskStore({
     if (current.status !== 'SUGGESTED') throw new CommandError('Only a suggested task can be revised');
     // Evidence for the old scope cannot authorise a changed deliverable.
     const { assignmentEvidence: _oldEvidence, ...base } = current;
+    // `cardId` names the request's target; it is not part of the stored card.
+    const { cardId: _cardId, ...revision } = input;
     // Where the card came from is fixed once known: a retried settlement must not move it later in the meeting.
     const source = current.sourceSeconds ?? sourceSeconds;
     // A revision may change the work, never the server-owned purpose.
     const revised: Task = {
       ...base,
-      ...input,
+      ...revision,
       ...(source === undefined ? {} : { sourceSeconds: source }),
       updatedAt: new Date().toISOString(),
     };

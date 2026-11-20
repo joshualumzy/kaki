@@ -555,6 +555,25 @@ describe('SetupPage', () => {
     expect(putCalls(fetchMock)).toHaveLength(1);
   });
 
+  it('saves the optional team or organisation field and re-renders it', async () => {
+    const savedDraft: MeetingSetup = { ...draft, organisation: 'Northwind Labs' };
+    const fetchMock = installFetch(
+      baseRoutes({
+        'PUT /api/setup': () => reply({ setup: savedDraft, started: false }),
+      }),
+    );
+    renderPage();
+
+    const organisation = (await screen.findByLabelText('Team or organisation field')) as HTMLInputElement;
+    expect(organisation.value).toBe('');
+    fireEvent.change(organisation, { target: { value: 'Northwind Labs' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }));
+
+    expect(await screen.findByDisplayValue('Northwind Labs')).toBeTruthy();
+    const [, init] = putCalls(fetchMock)[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ organisation: 'Northwind Labs' });
+  });
+
   it('reverts unsaved edits with Cancel', async () => {
     installFetch(baseRoutes());
     renderPage();

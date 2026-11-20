@@ -64,7 +64,7 @@ async function attemptScenario(view: ScenarioView, timeoutMs: number): Promise<A
     if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
     throw error;
   }
-  return { status: 'ready', scenario: parseScenario(await response.json()) };
+  return { status: 'ready', scenario: parseScenario(await response.json(), { requireOrganisation: false }) };
 }
 
 async function fetchScenario(

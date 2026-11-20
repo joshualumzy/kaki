@@ -3,6 +3,7 @@ import {
   demoPackNpcProfileForRole,
   demoPackNpcProfileForSeat,
   demoPackNpcProfileIds,
+  MAX_ORGANISATION_LENGTH,
   parseMeetingSetup,
   type MeetingPace,
   type MeetingSetup,
@@ -106,6 +107,15 @@ export function SetupEditor({
       title,
       source: { ...current.source, title: 'typed' },
     }));
+  }
+
+  function changeOrganisation(organisation: string): void {
+    setDraft((current) => {
+      const next = { ...current };
+      if (organisation.length === 0) delete next.organisation;
+      else next.organisation = organisation;
+      return next;
+    });
   }
 
   function changeAgenda(index: number, patch: Partial<MeetingSetupAgendaItem>): void {
@@ -341,6 +351,19 @@ export function SetupEditor({
           onChange={(event) => changeTitle(event.currentTarget.value)}
         />
         <FieldError errors={errorsForField(errors, 'title')} />
+        <div className="setup-field">
+          <label htmlFor="setup-organisation">Team or organisation (optional)</label>
+          <input
+            id="setup-organisation"
+            className="setup-input"
+            aria-label="Team or organisation field"
+            maxLength={MAX_ORGANISATION_LENGTH}
+            value={draft.organisation ?? ''}
+            placeholder="Leave blank to leave it out"
+            onChange={(event) => changeOrganisation(event.currentTarget.value)}
+          />
+          <FieldError errors={errorsForField(errors, 'organisation')} />
+        </div>
       </section>
 
       <EditorSection title="Agenda" source={draft.source.agenda}>

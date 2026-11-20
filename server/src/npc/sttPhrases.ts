@@ -46,7 +46,7 @@ export function buildSttPhrases({ startupPack, meeting, joinedNames = [] }: SttP
     return tidySttPhrases([
       ...(startupPack.vocabulary ?? []),
       ...startupPack.attendees.map((attendee) => attendee.name),
-      startupPack.organisation,
+      ...(startupPack.organisation === undefined ? [] : [startupPack.organisation]),
       ...people,
     ]);
   }

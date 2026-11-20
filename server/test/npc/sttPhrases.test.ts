@@ -54,7 +54,7 @@ describe('buildSttPhrases', () => {
     const phrases = buildSttPhrases({ startupPack: pack });
 
     expect(lower(phrases)).toEqual(
-      lower([...packVocabulary, ...packAttendeeNames, pack.organisation]),
+      lower([...packVocabulary, ...packAttendeeNames, pack.organisation ?? '']),
     );
   });
 

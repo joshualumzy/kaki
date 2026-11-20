@@ -130,7 +130,7 @@ export function createRunnerClient({
           `Scenario fetch returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`,
         );
       }
-      return parseScenario(await response.json());
+      return parseScenario(await response.json(), { requireOrganisation: false });
     },
   };
 }

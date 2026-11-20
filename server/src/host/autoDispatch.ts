@@ -128,7 +128,7 @@ export function installAutoDispatch({
     const cue: KakiEvent = {
       type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' },
       payload: { kind: 'DISPATCH', text: dispatchLine(addressee(scenario, task), task.title, sent),
-        assignee: addressee(scenario, task), title: task.title },
+        assignee: addressee(scenario, task), title: task.title, taskId: task.id },
     };
     hub.publish(cue);
     sent += 1;

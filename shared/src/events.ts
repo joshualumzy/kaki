@@ -132,6 +132,8 @@ export type KakiEvent =
         /** DISPATCH only: who the task went to and what it is, so the voice can say it differently to an AI colleague. */
         assignee?: string;
         title?: string;
+        /** DISPATCH only: the exact task, so cues for two tasks with the same title never collide. */
+        taskId?: string;
       }
     >
   | KakiEventOf<'NUDGE', { text: string; agendaIndex: number }>
@@ -283,7 +285,8 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
       payload.kind === 'TIMEOUT' ||
       payload.kind === 'CLOSING' ||
       payload.kind === 'DISPATCH') &&
-    isString(payload.text),
+    isString(payload.text) &&
+    (payload.taskId === undefined || isNonEmptyString(payload.taskId)),
   NUDGE: (payload) => isString(payload.text) && isAgendaIndex(payload.agendaIndex),
   FACT_FOUND: (payload) =>
     isString(payload.questionId) &&

@@ -67,7 +67,7 @@ export function buildRunnerMeetingSnapshot(input: RunnerStateInput): Omit<Runner
     roles: scenario.roles.map((role) => ({ ...role })),
     cast: castWithHostProfile(scenario.npcs ?? [], host.name),
     ...(kind === undefined ? {} : { kind }),
-    organisation: scenario.organisation,
+    ...(scenario.organisation === undefined ? {} : { organisation: scenario.organisation }),
     attendeeNames: scenario.attendees.map((attendee) => attendee.name),
     ...(scenario.meetingTitle === undefined ? {} : { meetingTitle: scenario.meetingTitle }),
     ...(host.name === undefined ? {} : { hostName: host.name }),

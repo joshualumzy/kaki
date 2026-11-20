@@ -535,6 +535,8 @@ interface Turn {
     /** The whole call's spoken text, stored on its one heard event. */
     text?: string;
     question?: OpenQuestion;
+    /** This line was written to answer the open question put to its speaker. */
+    answersQuestion?: boolean;
     lastUtterance?: Utterance;
     eventId?: string;
   };
@@ -652,6 +654,11 @@ export class NpcConversation<Clip> {
   private reviewNudged = false;
   private reviewWarned = false;
   private readonly topicTasks = new Map<string, Map<string, 'pending' | 'done'>>();
+  /**
+   * The latest visitor card still held as a suggestion on each topic. A settlement names this exact
+   * card, so the server never has to guess which held card the decision belongs to.
+   */
+  private readonly suggestedCardByTopic = new Map<string, string>();
   /** The follow-up kind of the visitor's card on each topic, so a card nudge names what is actually there. */
   private readonly reviewActionKind = new Map<string, ActionKind>();
   /** Topics that have already had their one card nudge. */
@@ -825,6 +832,7 @@ export class NpcConversation<Clip> {
     this.cardPointer.clear();
     this.parkedTopics.clear();
     this.reviewActionKind.clear();
+    this.suggestedCardByTopic.clear();
     this.usedGuestInvites.clear();
   }
 
@@ -1690,6 +1698,7 @@ export class NpcConversation<Clip> {
       ...(planned.question === undefined
         ? {}
         : { question: { to: planned.question.to, text: planned.question.text } }),
+      ...(planned.answersQuestion === true ? { answersQuestion: true } : {}),
       ...(planned.factIds.length === 0 ? {} : { factIds: planned.factIds }),
       ...(planned.catchId === undefined ? {} : { catchId: planned.catchId }),
     });
@@ -2191,12 +2200,14 @@ export class NpcConversation<Clip> {
     const generation = this.memoryGeneration;
     const previousMemory = this.memory.snapshot();
     this.memory.decision(item.title, decision);
+    const cardId = this.suggestedCardByTopic.get(item.title);
     const input: SuggestInput = {
       title,
       context: `Agenda: ${item.title}. Visitor decision: ${decision}` +
         (openQuestion === undefined ? '' : ` Open question to carry into the follow-up: ${openQuestion}`),
       suggestedAssignee: role, actionKind: kind, agendaItemTitle: item.title,
       decisionSource: decision,
+      ...(cardId === undefined ? {} : { cardId }),
     };
     const succeeded = (): void => {
       if (generation !== this.memoryGeneration) return;
@@ -2248,6 +2259,12 @@ export class NpcConversation<Clip> {
     if (status === 'DISMISSED') tasks.delete(id);
     else tasks.set(id, status === 'SYNCED' || declined ? 'done' : 'pending');
     this.topicTasks.set(title, tasks);
+    const cardTitle = origin ?? title;
+    if (status === 'DISMISSED' || status === 'SUPERSEDED') {
+      if (this.suggestedCardByTopic.get(cardTitle) === id) this.suggestedCardByTopic.delete(cardTitle);
+    } else if (status === 'SUGGESTED') {
+      this.suggestedCardByTopic.set(cardTitle, id);
+    }
     // The visitor is working on the card: the review window counts from their last step, not from the decision.
     if (tasks.get(id) === 'pending' && this.humanSettledOnCurrentItem && !this.reviewWarned) {
       this.clearReviewTimer();
@@ -3092,6 +3109,13 @@ export class NpcConversation<Clip> {
     const question = utterances
       .map((utterance) => this.questionFrom(utterance))
       .find((candidate) => candidate !== undefined);
+    // The reply's purpose is the reply generation's judgement: only a step written to answer the open
+    // question closes it. A reaction, catch or clarification that happens to end without a question does not.
+    const openQuestion = view.openQuestion;
+    const answersQuestion = openQuestion !== undefined &&
+      decision.speaker === openQuestion.to &&
+      decision.respondsTo === openQuestion.eventId &&
+      (decision.purpose === 'answer' || decision.purpose === 'brief');
     turn.planned = {
       kind: run.kind,
       factIds,
@@ -3099,6 +3123,7 @@ export class NpcConversation<Clip> {
       text,
       ...(decision.catchId === undefined ? {} : { catchId: decision.catchId }),
       ...(question === undefined ? {} : { question }),
+      ...(answersQuestion ? { answersQuestion: true } : {}),
     };
     for (const utterance of utterances) {
       turn.enqueued.push(utterance);

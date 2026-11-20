@@ -379,10 +379,12 @@ const taskResponder = createTaskResponder({
 // server Start, and opens the meeting only when MEETING_STARTED names the meeting it prepared. The hub marks every
 // retained event `replayed: true`; an old host cue is history and is never spoken again.
 const taskStatusByTitle = new Map<string, { status: string; topic?: string }>();
+const taskStatusById = new Map<string, { status: string; topic?: string }>();
 const syncedTaskIds = new Set<string>();
 const declinedTaskIds = new Set<string>();
 const resetTaskMaps = (): void => {
   taskStatusByTitle.clear();
+  taskStatusById.clear();
   syncedTaskIds.clear();
   declinedTaskIds.clear();
 };
@@ -494,7 +496,9 @@ function wireServiceSocket(socket: WebSocket): void {
       declinedBy?: string[]; agendaItemTitle?: string;
     } } | undefined)?.task;
     if (task?.id === undefined || task.status === undefined) return;
+    taskStatusById.set(task.id, { status: task.status, topic: task.agendaItemTitle });
     if (task.title !== undefined) {
+      // Kept only for older cues that carry no task id; new cues are keyed by the exact task.
       taskStatusByTitle.set(task.title.trim().toLowerCase(), { status: task.status, topic: task.agendaItemTitle });
     }
     taskResponder.handle(event as unknown as KakiEvent);
@@ -521,7 +525,9 @@ function wireServiceSocket(socket: WebSocket): void {
     }
     // With a person in the host's seat these cues are only suggestions on their Host tab; nobody voices them.
     if (!runner.hostIsHuman()) {
-      const payload = event.payload as { kind?: string; text: string; assignee?: string; title?: string; topic?: string };
+      const payload = event.payload as {
+        kind?: string; text: string; assignee?: string; title?: string; topic?: string; taskId?: string;
+      };
       if (payload.kind === 'CLOSING') {
         runner.announceClosing(payload.text);
         return;
@@ -533,8 +539,12 @@ function wireServiceSocket(socket: WebSocket): void {
         payload.assignee !== undefined &&
         payload.title !== undefined &&
         runner.plays(payload.assignee);
+      // New cues name the exact task, so two tasks sharing a title never share state. The title map is
+      // only the fallback for an older retained cue that carries no id.
+      const statusFor = (titleKey: string): { status: string; topic?: string } | undefined =>
+        payload.taskId === undefined ? taskStatusByTitle.get(titleKey) : taskStatusById.get(payload.taskId);
       const stillDispatched = (titleKey: string) => (): boolean => {
-        const current = taskStatusByTitle.get(titleKey);
+        const current = statusFor(titleKey);
         return current === undefined || current.status === 'DISPATCHED';
       };
       if (colleague) {
@@ -551,7 +561,7 @@ function wireServiceSocket(socket: WebSocket): void {
         } else {
           const titleKey = title.trim().toLowerCase();
           const shouldStillAsk = () => {
-            const current = taskStatusByTitle.get(titleKey);
+            const current = statusFor(titleKey);
             return shouldStillAskColleague(
               current?.status,
               payload.topic ?? current?.topic,

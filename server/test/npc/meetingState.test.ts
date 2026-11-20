@@ -134,8 +134,64 @@ describe('meeting state', () => {
     state.heard({ id: 'bao-1', speaker: 'Bao', text: 'I am on the till.', at: 2 });
     expect(state.view(2).openQuestion?.to).toBe('Ada');
 
-    state.heard({ id: 'ada-1', speaker: 'Ada', text: 'I will cover it with Mei.', at: 3 });
+    state.heard({
+      id: 'ada-1', speaker: 'Ada', text: 'I will cover it with Mei.', at: 3, answersQuestion: true,
+    });
     expect(state.view(3).openQuestion).toBeUndefined();
+  });
+
+  it('keeps a colleague question open when the colleague reacts without answering it', () => {
+    const state = make();
+    state.openTopic('Prep', 0);
+    state.heard({
+      id: 'josh-1',
+      speaker: 'Josh',
+      text: 'Ada, who covers the counter?',
+      at: 1,
+      question: { to: 'Ada', text: 'Ada, who covers the counter?' },
+    });
+
+    state.heard({ id: 'ada-1', speaker: 'Ada', text: 'That is a fair worry about the queue.', at: 2 });
+    expect(state.view(2).openQuestion?.eventId).toBe('josh-1');
+
+    state.heard({
+      id: 'ada-2', speaker: 'Ada', text: 'I will cover it with Mei.', at: 3, answersQuestion: true,
+    });
+    expect(state.view(3).openQuestion).toBeUndefined();
+  });
+
+  it('counts the sentences heard from an answering line that is then cut off', () => {
+    const state = make();
+    state.openTopic('Prep', 0);
+    state.heard({
+      id: 'sam-1',
+      speaker: 'Sam',
+      text: 'Mei, what happened at the trial?',
+      at: 1,
+      question: { to: 'Mei', text: 'Mei, what happened at the trial?' },
+    });
+
+    state.lineStarted({
+      id: 'mei-1', speaker: 'Mei', text: 'Half our seats went to laptop campers. Then the queue grew.',
+      at: 2, answersQuestion: true,
+    });
+    state.lineEnded('mei-1', false, 3, { sentencesHeard: 1 });
+    expect(state.view(3).openQuestion).toBeUndefined();
+  });
+
+  it('keeps a colleague question open when nobody answers it', () => {
+    const state = make();
+    state.openTopic('Prep', 0);
+    state.heard({
+      id: 'josh-1',
+      speaker: 'Josh',
+      text: 'Ada, who covers the counter?',
+      at: 1,
+      question: { to: 'Ada', text: 'Ada, who covers the counter?' },
+    });
+
+    state.heard({ id: 'ada-1', speaker: 'Ada', text: 'It is tight on the morning shift.', at: 2 });
+    expect(state.view(2).openQuestion?.eventId).toBe('josh-1');
   });
 
   it('does not count a cut-off colleague line as the answer to its question', () => {

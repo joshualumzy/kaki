@@ -66,6 +66,8 @@ export interface MeetingSetupSources {
 /** The one authoritative meeting setup saved before Start. */
 export interface MeetingSetup {
   title: string;
+  /** The team or organisation the owner typed; absent when they left it blank. */
+  organisation?: string;
   agenda: MeetingSetupAgendaItem[];
   roles: MeetingSetupRole[];
   seats: MeetingSetupSeat[];
@@ -91,6 +93,8 @@ export interface ParseMeetingSetupOptions {
 export const MAX_AGENDA_MINUTES = 240;
 export const MIN_PACE_SECONDS = 10;
 export const MAX_PACE_SECONDS = 600;
+/** A team or organisation name is kept short enough to say and show beside the title. */
+export const MAX_ORGANISATION_LENGTH = 120;
 
 export const DEFAULT_MEETING_PACE: MeetingPace = {
   ownerQuietBelow: 30,
@@ -414,6 +418,26 @@ export function parseMeetingSetup(
   const title = value.title;
   if (!isNonEmptyString(title)) error(errors, 'title', 'Enter a meeting title.');
 
+  // Optional: blank is a real choice (the meeting has no organisation to name), not an error.
+  const organisation = value.organisation;
+  let parsedOrganisation: string | undefined;
+  if (organisation !== undefined) {
+    if (typeof organisation !== 'string') {
+      error(errors, 'organisation', 'Enter a team or organisation, or leave it blank.');
+    } else {
+      const trimmed = organisation.trim();
+      if (trimmed.length > MAX_ORGANISATION_LENGTH) {
+        error(
+          errors,
+          'organisation',
+          `Keep the team or organisation to ${MAX_ORGANISATION_LENGTH} characters or fewer.`,
+        );
+      } else if (trimmed.length > 0) {
+        parsedOrganisation = trimmed;
+      }
+    }
+  }
+
   const roles = readRoles(value.roles, errors);
   const agenda = readAgenda(value.agenda, roles.ids, errors);
   const seats = readSeats(value.seats, roles.ids, options.npcProfileIds ?? [], errors);
@@ -426,6 +450,7 @@ export function parseMeetingSetup(
     ok: true,
     value: {
       title: title as string,
+      ...(parsedOrganisation === undefined ? {} : { organisation: parsedOrganisation }),
       agenda,
       roles: roles.list,
       seats: seats.list,
@@ -560,6 +585,7 @@ export function defaultMeetingSetup(scenario: Scenario): MeetingSetup {
 
   return {
     title: scenario.meetingTitle,
+    ...(scenario.organisation === undefined ? {} : { organisation: scenario.organisation }),
     agenda,
     roles,
     seats,
@@ -742,8 +768,8 @@ export interface MeetingScenarioFromSetupOptions {
 /**
  * The meeting scenario a setup describes, built the one way the app builds any meeting scenario:
  * pack title, roles and cast applied over the pack, and the setup agenda normalized so links to
- * omitted topics are dropped. A pack-free meeting takes its organisation from the owner's meeting
- * name and keeps none of the pack's situation, background or wording.
+ * omitted topics are dropped. A pack-free meeting takes its organisation only from the owner's own
+ * field, and keeps none of the pack's situation, background, register or wording.
  */
 export function meetingScenarioFromSetup(
   scenario: Scenario,
@@ -753,7 +779,6 @@ export function meetingScenarioFromSetup(
   const packFree = isPackFreeMeeting(setup, scenario);
   const meeting: Scenario = {
     ...scenario,
-    organisation: packFree ? (setup.title.trim() === '' ? 'your team' : setup.title) : scenario.organisation,
     meetingTitle: setup.title,
     roles: setupScenarioRoles(scenario, setup),
     npcs: setupAiCast(scenario, setup).map((npc) => ({ ...npc, playable: false })),
@@ -761,6 +786,9 @@ export function meetingScenarioFromSetup(
     agenda: [...scenario.agenda],
     attendees: setupAttendees(scenario, setup),
   };
+  const organisation = setup.organisation ?? (packFree ? undefined : scenario.organisation);
+  if (organisation === undefined) delete meeting.organisation;
+  else meeting.organisation = organisation;
   if (packFree) {
     delete meeting.situation;
     delete meeting.background;
@@ -768,6 +796,7 @@ export function meetingScenarioFromSetup(
     delete meeting.glossary;
     delete meeting.hostBrief;
     delete meeting.excludedPairs;
+    delete meeting.speechRegister;
   }
   setMeetingAgenda(meeting, scenario, meetingAgendaFromSetup(setup, scenario, options.agendaOrder), {
     allowPlain: true,
@@ -872,7 +901,7 @@ export function deriveMeetingScenario(
     };
   }
   try {
-    parseScenario(meeting);
+    parseScenario(meeting, { requireOrganisation: false });
     return { ok: true, scenario: meeting };
   } catch (error) {
     return { ok: false, errors: scenarioSetupErrors(meeting, setup, error) };

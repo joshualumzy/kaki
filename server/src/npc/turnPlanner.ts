@@ -795,8 +795,11 @@ export function projectHeard(view: MeetingView, line: HeardLine, factIds: readon
       ? { ...fact, told: true, toldBy: line.speaker, eventId: line.eventId }
       : fact);
   const lines = [...view.lines, line];
+  const answersOpenQuestion = line.speaker === view.guest
+    ? line.reading === undefined || line.reading.answersOpenQuestion
+    : line.answersQuestion === true && line.question === undefined;
   const openQuestion = line.question === undefined
-    ? (view.openQuestion?.to === line.speaker ? undefined : view.openQuestion)
+    ? (answersOpenQuestion && view.openQuestion?.to === line.speaker ? undefined : view.openQuestion)
     : { from: line.speaker, to: line.question.to, text: line.question.text, askedAt: line.at, eventId: line.eventId };
   const guestInvited = view.guestInvited ||
     (line.speaker === view.host && line.question?.to !== undefined && line.question.to === view.guest);

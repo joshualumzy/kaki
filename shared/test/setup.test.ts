@@ -65,8 +65,30 @@ describe('meeting setup parser', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('accepts an optional team or organisation, trims it, and treats blank as no organisation', () => {
+    const withOrg = { ...validSetup(), organisation: '  Northwind Labs  ' };
+    const parsed = parseMeetingSetup(withOrg);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.organisation).toBe('Northwind Labs');
+
+    for (const blank of [undefined, '', '   ']) {
+      const setup: Record<string, unknown> = { ...validSetup() };
+      if (blank === undefined) delete setup.organisation;
+      else setup.organisation = blank;
+      const result = parseMeetingSetup(setup);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.organisation).toBeUndefined();
+    }
+  });
+
+  it('rejects an organisation longer than the limit', () => {
+    const errors = errorsFor({ ...validSetup(), organisation: 'x'.repeat(121) });
+    expect(fields(errors)).toContain('organisation');
+  });
+
   it('builds a demo-pack default that passes the parser', () => {
     const setup = defaultMeetingSetup(packScenario);
+    expect(setup.organisation).toBe(packScenario.organisation);
     expect(setup.source).toEqual({
       title: 'demo pack',
       agenda: 'demo pack',
@@ -247,19 +269,31 @@ describe('owner-written meetings take no pack story', () => {
       : role),
   };
 
-  it('derives organisation from the owner title and drops the pack situation and background', () => {
+  it('leaves the organisation out and drops the pack situation and background when the owner field is blank', () => {
     const setup: MeetingSetup = {
       ...validSetup(),
       title: 'Weekly planning',
       agenda: [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }],
     };
     const derived = meetingScenarioFromSetup(storyPack, setup);
-    expect(derived.organisation).toBe('Weekly planning');
+    expect(derived.organisation).toBeUndefined();
     expect(derived.meetingTitle).toBe('Weekly planning');
     expect(derived.situation).toBeUndefined();
     expect(derived.background).toBeUndefined();
     expect(derived.vocabulary).toBeUndefined();
     expect(derived.glossary).toBeUndefined();
+    expect(derived.speechRegister).toBeUndefined();
+  });
+
+  it('uses the team or organisation the owner typed', () => {
+    const setup: MeetingSetup = {
+      ...validSetup(),
+      title: 'Weekly planning',
+      organisation: 'Northwind Labs',
+      agenda: [{ id: 'typed', title: 'Weekly planning', minutes: 10, ownerRoleId: 'chef' }],
+    };
+    const derived = meetingScenarioFromSetup(storyPack, setup);
+    expect(derived.organisation).toBe('Northwind Labs');
   });
 
   it('does not give a reused role id the pack role card', () => {

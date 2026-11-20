@@ -68,6 +68,9 @@ export function SetupDraft({ setup }: { setup: MeetingSetup }) {
           <h2 className="setup-title">{setup.title}</h2>
           <SourceLabel source={setup.source.title} />
         </div>
+        {setup.organisation === undefined ? null : (
+          <p className="setup-meta">{setup.organisation}</p>
+        )}
       </section>
 
       <Section title="Agenda" source={setup.source.agenda}>

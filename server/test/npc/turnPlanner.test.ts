@@ -660,4 +660,23 @@ describe('turn planner', () => {
     const first = next(state.view(1), { kind: 'heard', line: handover });
     expect(first).toMatchObject({ kind: 'Speak', speaker: 'Ada', purpose: 'brief', factIds: ['0:0'] });
   });
+
+  it('stops re-asking a colleague who never answers, so the repeat cap can move the meeting on', () => {
+    const state = make();
+    heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Start with the morning shift.' });
+    record(state, 'josh-1', reading({ kind: 'answer' }));
+    const question = heard(state, {
+      id: 'sam-1', speaker: 'Sam', text: 'Ada, who covers the counter?',
+      question: { to: 'Ada', text: 'Ada, who covers the counter?' },
+    }, 2);
+
+    // The room asks the addressee once; she reacts without answering, and the question stays open.
+    expect(next(state.view(2), { kind: 'heard', line: question })).toMatchObject({
+      kind: 'Speak', speaker: 'Ada', purpose: 'answer',
+    });
+    const react = heard(state, { id: 'ada-1', speaker: 'Ada', text: 'It is tight on the morning shift.' }, 3);
+    expect(state.view(3).openQuestion?.eventId).toBe('sam-1');
+    // Two colleagues have now spoken since the guest; the cap waits instead of asking Ada a third time.
+    expect(next(state.view(3), { kind: 'heard', line: react })).toMatchObject({ kind: 'Wait' });
+  });
 });

@@ -100,6 +100,11 @@ export interface SuggestInput {
   decisionSource?: string;
   /** The agenda item this task came from, stamped by the notetaker; never chosen by the model. */
   agendaItemTitle?: string;
+  /**
+   * The exact held card the sender means, when settling a topic. The server revises that card by id
+   * and never guesses a card from matching topic, role and kind.
+   */
+  cardId?: string;
 }
 
 /** Every status, in lifecycle order. */
@@ -236,6 +241,7 @@ export function isSuggestInput(value: unknown, scenario: Scenario): value is Sug
     // `purpose` is server-internal: a request body carrying it is rejected, never silently accepted.
     !('purpose' in value) &&
     (value.decisionSource === undefined || isNonEmptyString(value.decisionSource)) &&
-    (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle))
+    (value.agendaItemTitle === undefined || isNonEmptyString(value.agendaItemTitle)) &&
+    (value.cardId === undefined || isNonEmptyString(value.cardId))
   );
 }

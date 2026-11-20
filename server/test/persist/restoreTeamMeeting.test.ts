@@ -164,7 +164,7 @@ async function endMeeting(app: KakiApp): Promise<void> {
 }
 
 function expectOwnTeamScenario(scenario: unknown): void {
-  const parsed = parseScenario(scenario);
+  const parsed = parseScenario(scenario, { requireOrganisation: false });
   expect(parsed.meetingTitle).toBe('Team playtest meeting');
   expect(parsed.roles.map((role) => role.id)).toEqual(expect.arrayContaining(['role_1', 'role_2']));
   expect(parsed.agenda.map((item) => `${item.title}:${item.ownerRole}`)).toEqual([

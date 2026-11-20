@@ -450,7 +450,7 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
  */
 function servableScenario(scenario: Scenario, label: string): Scenario | undefined {
   try {
-    return parseScenario(scenario);
+    return parseScenario(scenario, { requireOrganisation: false });
   } catch (error) {
     console.error(`kaki scenario: ${label} is invalid; refusing to serve it`, error);
     return undefined;
@@ -1623,26 +1623,62 @@ async function handleRequest(
       }
       // The settlement is the visitor's authoritative follow-up for this topic, so it replaces whichever early
       // suggestion was being held for the same agenda item, role and deliverable, however differently the two were
-      // worded. A retried settlement reuses the card its first POST already dispatched, so it never creates a second
-      // one. Any other held card for those same three keys is a duplicate and is dismissed; cards for another
-      // deliverable or owner stay untouched.
+      // worded. The sender names the exact held card it means; the server revises that card by id and never guesses
+      // one from matching keys, because two cards can share the topic, role and kind.
       const sameTopic = (task: Task): boolean =>
         task.agendaItemTitle === followUp.agendaItemTitle &&
         task.suggestedAssignee === followUp.suggestedAssignee && (reopening || task.actionKind === followUp.actionKind);
       const matching = context.tasks.list().filter((task) => sameTopic(task) && task.status !== 'SUPERSEDED');
       const settled = matching.find((task) => task.status !== 'SUGGESTED' && task.status !== 'DISMISSED');
       const suggested = matching.filter((task) => task.status === 'SUGGESTED');
-      const sameDecision = settled !== undefined && settled.decisionSource === followUp.decisionSource &&
-        settled.actionKind === followUp.actionKind;
-      if (settled !== undefined && reopening && !sameDecision) {
+      const idSpecified = followUp.cardId !== undefined;
+      const requested = followUp.cardId === undefined ? undefined : context.tasks.get(followUp.cardId);
+      if (idSpecified && requested === undefined) {
+        console.warn(
+          `kaki server: settlement for "${agendaTitle}" named unknown card ${followUp.cardId}; revising nothing`,
+        );
+      } else if (requested !== undefined && !sameTopic(requested)) {
+        console.warn(
+          `kaki server: settlement for "${agendaTitle}" named card ${requested.id}, which belongs to another topic or owner; revising nothing`,
+        );
+      }
+      const target = requested !== undefined && sameTopic(requested) ? requested : undefined;
+      if (!idSpecified && suggested.length > 0) {
+        console.warn(
+          `kaki server: settlement for "${agendaTitle}" named no card; revising none of ${suggested.length} held card(s)`,
+        );
+      }
+      const targetAccepted = target !== undefined && target.status !== 'SUGGESTED' && target.status !== 'DISMISSED';
+      const targetSameDecision = target !== undefined &&
+        target.decisionSource === followUp.decisionSource && target.actionKind === followUp.actionKind;
+      const settledSameDecision = settled !== undefined &&
+        settled.decisionSource === followUp.decisionSource && settled.actionKind === followUp.actionKind;
+      if (targetAccepted && reopening && !targetSameDecision) {
+        context.tasks.supersede(target.id);
+      } else if (target === undefined && settled !== undefined && reopening && !settledSameDecision) {
         context.tasks.supersede(settled.id);
       }
-      const task = settled !== undefined && (!reopening || sameDecision) ? settled :
-        (suggested[0] === undefined
-          ? context.tasks.suggest(followUp, undefined, sourceSeconds)
-          : context.tasks.reviseSuggested(suggested[0].id, followUp, sourceSeconds));
-      for (const duplicate of settled === undefined ? suggested.slice(1) : suggested) {
-        context.tasks.transition(duplicate.id, 'DISMISSED');
+      let task: Task;
+      if (target !== undefined) {
+        if (target.status === 'SUGGESTED') {
+          task = context.tasks.reviseSuggested(target.id, followUp, sourceSeconds);
+        } else if (targetAccepted && (!reopening || targetSameDecision)) {
+          task = target;
+        } else {
+          // The named card was dismissed, superseded, or just superseded by this reopened decision.
+          task = context.tasks.suggest(followUp, undefined, sourceSeconds);
+        }
+      } else if (!idSpecified && settled !== undefined && (!reopening || settledSameDecision)) {
+        task = settled;
+      } else {
+        task = context.tasks.suggest(followUp, undefined, sourceSeconds);
+      }
+      // Only touch other held cards when the intended card is known. A missing, unknown or foreign id
+      // must leave every card exactly as it was, rather than guess which one the settlement meant.
+      if (target !== undefined) {
+        for (const duplicate of suggested) {
+          if (duplicate.id !== task.id) context.tasks.transition(duplicate.id, 'DISMISSED');
+        }
       }
       context.hub.publish({
         type: 'TOPIC_SETTLED',

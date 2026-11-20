@@ -116,7 +116,8 @@ function describeOffScreen(scenario: Scenario, topicTitle: string): string | und
 
 function describeSpeaker(scenario: Scenario, speaker: string, human?: HumanInfo): string {
   const npc = (scenario.npcs ?? []).find((candidate) => candidate.attendee === speaker);
-  const lines = [`You are ${speaker}, ${roleLabel(scenario, speaker)} at ${scenario.organisation}.`];
+  const where = scenario.organisation === undefined ? '' : ` at ${scenario.organisation}`;
+  const lines = [`You are ${speaker}, ${roleLabel(scenario, speaker)}${where}.`];
   if (scenario.situation !== undefined) lines.push(`The situation: ${scenario.situation}`);
   if (npc === undefined) return lines.join('\n');
   lines.push(`Personality: ${npc.personality}`);

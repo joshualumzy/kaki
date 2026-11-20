@@ -24,6 +24,21 @@ describe('parseScenario', () => {
     expect(() => parseScenario(scenario)).toThrow(/meetingTitle must be a non-empty string/);
   });
 
+  it('requires an organisation in a pack file but allows a runtime meeting to have none', () => {
+    const scenario = cloneScenario();
+    delete scenario.organisation;
+    expect(() => parseScenario(scenario)).toThrow(/organisation must be a non-empty string/);
+    expect(parseScenario(scenario, { requireOrganisation: false }).organisation).toBeUndefined();
+  });
+
+  it('accepts an optional speech register and rejects an empty one', () => {
+    const scenario = cloneScenario();
+    scenario.speechRegister = 'Use warm, casual phrasing.';
+    expect(parseScenario(scenario).speechRegister).toBe('Use warm, casual phrasing.');
+    scenario.speechRegister = '  ';
+    expect(() => parseScenario(scenario)).toThrow(/speechRegister must be a non-empty string/);
+  });
+
   it('accepts AI attendees that play scenario attendees', () => {
     const scenario = cloneScenario();
     scenario.npcs = [

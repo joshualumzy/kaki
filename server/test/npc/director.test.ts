@@ -23,6 +23,15 @@ function parseWithLogs(pieces: string[]): { lines: Utterance[]; logs: string[] }
 }
 
 describe('meeting carry-over prompt', () => {
+  it('emits the scenario\'s speech register only when the scenario carries one', () => {
+    const withRegister = buildSystemPrompt({ ...npcScenario, speechRegister: 'Use warm, casual phrasing.' });
+    expect(withRegister).toContain('- Use warm, casual phrasing.');
+
+    const withoutRegister = buildSystemPrompt(npcScenario);
+    expect(withoutRegister).not.toContain('warm, casual Singapore or British phrasing');
+    expect(withoutRegister).not.toContain('Use warm, casual phrasing.');
+  });
+
   it('tells the room to raise its catch before accepting the visitor\'s first idea', () => {
     const scenario = {
       ...npcScenario,

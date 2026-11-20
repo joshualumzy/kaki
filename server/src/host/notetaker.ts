@@ -991,7 +991,7 @@ function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string 
   );
 
   return [
-    `You are the notetaker for "${scenario.meetingTitle}" at ${scenario.organisation}.`,
+    `You are the notetaker for "${scenario.meetingTitle}"${scenario.organisation === undefined ? '' : ` at ${scenario.organisation}`}.`,
     'You read new transcript lines and update the meeting record. Reply with one JSON object only.',
     '',
     'Roles (use the id on the left):',

@@ -25,7 +25,9 @@ describe('auto-dispatch', () => {
     const cue = published.find((event) => event.type === 'HOST_SPEECH_TRIGGERED');
     expect(cue).toMatchObject({ payload: { kind: 'DISPATCH' } });
     expect((cue as { payload: { text: string } }).payload.text).toContain('Ada, I\'ve sent you a task: Fix the oven');
-    expect((cue as { payload: { assignee?: string; title?: string } }).payload).toMatchObject({ assignee: 'Ada', title: 'Fix the oven' });
+    expect((cue as { payload: { assignee?: string; title?: string; taskId?: string } }).payload).toMatchObject({
+      assignee: 'Ada', title: 'Fix the oven', taskId: task.id,
+    });
   });
 
   it('leaves a minutes task waiting for its person even when its title is reworded', () => {
