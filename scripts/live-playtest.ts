@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { chromium, devices, type Browser, type Page } from 'playwright';
-import type { KakiEvent, MeetingSetup, Scenario, Task } from '@kaki/shared';
+import { joinSeatRoles, type KakiEvent, type MeetingSetup, type Scenario, type Task } from '@kaki/shared';
 import { cardFollowsFinalCall, duplicatedAiLines, rejoinResumes, rejoinWelcome, silencePromptWithin, type Behaviour } from './playtest-behaviours';
 import {
   draftOnlyRefusal, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction, wingmanFactVerdicts,
@@ -760,9 +760,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks?: PlaytestH
     const response = await page.request.get(`${BASE}/api/scenario`, { timeout: 10_000 });
     if (!response.ok()) throw new Error(`/api/scenario returned HTTP ${response.status()}`);
     scenario = await response.json() as Scenario;
-    const playable = scenario.roles.filter((role) => role.facilitator !== true &&
-      scenario?.attendees.some((attendee) => attendee.role === role.id &&
-        scenario?.npcs?.some((npc) => npc.attendee === attendee.name && npc.playable === true && npc.attendee !== 'Sam')));
+    // The seats the join form offers (one shared function), minus the chair: the robot plays a guest, not Sam.
+    const playable = joinSeatRoles(scenario).filter((role) => role.facilitator !== true);
     const role = playable.find((candidate) => candidate.id === parsed.role) ?? (parsed.role === undefined ? playable[0] : undefined);
     if (role === undefined) throw new Error(`Role ${parsed.role ?? '(default)'} is not a playable non-Sam seat; choices: ${playable.map((r) => r.id).join(', ')}`);
     visitorRole = role.id;
