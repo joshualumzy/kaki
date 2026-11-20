@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AgendaItem, Scenario, ScenarioRole } from '@kaki/shared';
 import { useScenario } from '../kaki';
 import './demo.css';
@@ -18,7 +18,17 @@ export interface StartPromptProps {
   startError?: string;
 }
 
-const HERO_ART = '/scenario/kopitiam-hero.svg';
+/** Render the briefing intro's `**bold**` runs without letting scenario text become markup. */
+function introParts(text: string): ReactNode[] {
+  return text
+    .split(/(\*\*[^*]+\*\*)/g)
+    .filter((part) => part.length > 0)
+    .map((part, index) =>
+      part.startsWith('**') && part.endsWith('**')
+        ? <strong key={`intro-${index}`}>{part.slice(2, -2)}</strong>
+        : part,
+    );
+}
 
 function safeUseScenario(): Scenario | undefined {
   try {
@@ -36,13 +46,13 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
   const scenario = safeUseScenario();
   const [stepIndex, setStepIndex] = useState<0 | 1>(0);
 
+  const heroArt = scenario?.practiceBriefing?.heroArt?.trim();
+
   useEffect(() => {
-    if (typeof Image === 'undefined') return;
-    for (const src of [HERO_ART, ...(scenario?.agenda.map((item) => item.art ?? HERO_ART) ?? [])]) {
-      const img = new Image();
-      img.src = src;
-    }
-  }, [scenario]);
+    if (typeof Image === 'undefined' || heroArt === undefined || heroArt === '') return;
+    const img = new Image();
+    img.src = heroArt;
+  }, [heroArt]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -72,10 +82,16 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
     ? agendaItems.reduce((sum, item) => sum + (Number.isFinite(item.minutes) ? item.minutes : 0), 0)
     : topicCount * 5;
   const stepLabels = ['1. Your role', '2. How to play'] as const;
-  const heroArt = agendaItems.find((item) => item.art !== undefined)?.art ?? HERO_ART;
   const organisation = scenario?.organisation?.trim();
   const meetingTitle = scenario?.meetingTitle?.trim();
   const situation = scenario?.situation?.trim();
+  const briefing = scenario?.practiceBriefing;
+  const badge = briefing?.badge?.trim() ?? (organisation !== undefined && organisation !== '' ? organisation : undefined);
+  const intro = briefing?.intro !== undefined
+    ? briefing.intro.replace(/\{minutes\}/g, String(totalMinutes))
+    : situation !== undefined && situation !== ''
+      ? situation
+      : `You are leading this meeting: ${topicCount} calls in ${totalMinutes} minutes.`;
 
   return (
     <div className="kd-start" role="region" aria-label="Before the meeting starts">
@@ -98,21 +114,17 @@ export function StartPrompt({ onStart, role, viewerName, seatName, starting = fa
         {stepIndex === 0 ? (
           <div className="kd-story-step">
             <div className="kd-story-hero">
-              <img src={heroArt} alt={meetingTitle ?? 'Meeting'} className="kd-story-hero-img" />
+              {heroArt !== undefined && heroArt !== '' && (
+                <img src={heroArt} alt={meetingTitle ?? 'Meeting'} className="kd-story-hero-img" />
+              )}
               <div className="kd-story-hero-overlay">
-                {organisation !== undefined && organisation !== '' && (
-                  <span className="kd-story-badge">{organisation}</span>
-                )}
+                {badge !== undefined && <span className="kd-story-badge">{badge}</span>}
                 <h2>{meetingTitle ?? 'This meeting'}</h2>
               </div>
             </div>
 
             <div className="kd-story-role-box">
-              <p className="kd-story-shop-intro">
-                {situation !== undefined && situation !== ''
-                  ? situation
-                  : `You are leading this meeting: the team has ${totalMinutes} minutes, and the calls are yours.`}
-              </p>
+              <p className="kd-story-shop-intro">{introParts(intro)}</p>
               {role !== undefined && card !== undefined && (
                 <p className="kd-story-role-headline">
                   <strong>🪑 {youAre}</strong>

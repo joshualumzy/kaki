@@ -2,11 +2,17 @@
   "id": "kopitiam",
   "organisation": "Nanyang Kopi & Toast",
   "meetingTitle": "Raffles Place Flagship Opening Day",
+  "practiceBriefing": {
+    "heroArt": "/scenario/kopitiam-hero.svg",
+    "badge": "Nanyang Kopi & Toast · Opening day",
+    "intro": "Our renovated **Nanyang Kopi & Toast** flagship at **Raffles Place** opens this morning. You’re opening-day lead: the team has {minutes} minutes, and the calls are yours."
+  },
   "speechRegister": "Use warm, casual Singapore or British phrasing (\"shop\", \"queue\", \"counter\", \"steady\", \"can\", \"fair point\"). Avoid Americanisms and office buzzwords: \"awesome\", \"super excited\", \"totally\", \"gotten\", \"touch base\", \"kudos\", \"math\", \"store clerk\", \"line up\", \"friction points\", \"bandwidth\", \"alignment\", \"deep dive\". Each colleague sounds like their own speech style, temperament and stake.",
   "roles": [
     {
       "id": "producer",
       "label": "Operations Director",
+      "stance": "Guards staff, hygiene & margins",
       "card": {
         "youAre": "You are Wei Ling, Operations Director. You look after the floor team and watch the money.",
         "facts": [],
@@ -16,6 +22,7 @@
     {
       "id": "lead_programmer",
       "label": "Tech & POS Lead",
+      "stance": "Keeps POS & kiosks simple",
       "card": {
         "youAre": "You are Arjun, Tech & POS Lead. Doors open at eight, so any change now leaves almost no time to test.",
         "facts": [],
@@ -25,6 +32,7 @@
     {
       "id": "game_designer",
       "label": "Menu & Store Experience Lead",
+      "stance": "Protects Kopi & Toast craft",
       "card": {
         "youAre": "You are Mei, Menu & Store Experience Lead. You built the new menu and fought to keep the old shop's name and regulars in it.",
         "facts": [],
@@ -34,6 +42,7 @@
     {
       "id": "marketing_lead",
       "label": "Marketing Lead",
+      "stance": "Watches TikTok & PR buzz",
       "card": {
         "youAre": "You are Daniel, Marketing Lead. You made the opening-day promises to customers and the offices nearby.",
         "facts": [],
@@ -44,6 +53,7 @@
       "id": "studio_manager",
       "label": "General Manager",
       "facilitator": true,
+      "stance": "Chairs the meeting",
       "card": {
         "youAre": "You are Sam, General Manager chairing the huddle.",
         "facts": [],

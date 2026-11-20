@@ -120,19 +120,25 @@ afterEach(cleanup);
 describe('scenario-owned copy', () => {
   const stanceScenario: Scenario = {
     id: 'owner', organisation: 'Northwind Labs', meetingTitle: 'Supplier huddle',
-    roles: [{ id: 'lead', label: 'Supplier lead', card: { youAre: 'You lead suppliers.', facts: [], responsibility: 'Keep trays right.' } }],
+    roles: [{
+      id: 'lead', label: 'Supplier lead', stance: 'Protects the morning delivery',
+      card: { youAre: 'You lead suppliers.', facts: [], responsibility: 'Keep trays right.' },
+    }],
     attendees: [{ name: 'Mei', role: 'lead', zoomDisplayName: 'Mei' }],
     agenda: [{ title: 'Trays', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'lead' }],
   };
 
-  it('takes a colleague stance from the scenario angle, never a pack role id', () => {
-    const item = {
-      title: 'Trays', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'lead',
-      discussion: { openingViews: [{ attendee: 'Mei', angle: 'Protects the morning delivery' }], tradeOffs: [] },
+  it('takes a colleague stance only from the scenario seat stance, never a pack role id', () => {
+    expect(colleagueStance(stanceScenario, 'Mei')).toBe('Protects the morning delivery');
+    expect(colleagueStance(stanceScenario, 'Someone else')).toBeUndefined();
+  });
+
+  it('shows no stance for an owner meeting whose scenario gives none', () => {
+    const owner: Scenario = {
+      ...stanceScenario,
+      roles: [{ ...stanceScenario.roles[0]!, stance: undefined }],
     };
-    expect(colleagueStance(stanceScenario, 'Mei', item)).toBe('Protects the morning delivery');
-    expect(colleagueStance(stanceScenario, 'Mei', undefined)).toBe('Keep trays right.');
-    expect(colleagueStance(stanceScenario, 'Someone else', item)).toBeUndefined();
+    expect(colleagueStance(owner, 'Mei')).toBeUndefined();
   });
 
   it('addresses the fallback starter chips to the meeting host named by the scenario', () => {

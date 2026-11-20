@@ -42,8 +42,10 @@ type EchoAnalysis =
  *   or more words whose word triples mostly appear in what the AI said a moment ago. If the person's own
  *   words are mixed into it, only those are kept. Short replies like "ok" are never treated as echo: they
  *   cannot be told apart from the AI's words by text alone. The person's echo-cancelled microphone carrying
- *   speech outranks the text match: someone repeating the AI's wording aloud is speaking, not echo, and
- *   once the AI has been quiet past the tail there is no echo left to match.
+ *   speech outranks the text match when that voice is still going or lasts past the AI's last audible
+ *   moment: someone repeating the AI's wording aloud is speaking, not echo. A brief barge-in followed by
+ *   the AI's tail does not count, because the person stopped before the last words were heard. Once the AI
+ *   has been quiet past the tail there is no echo left to match.
  * - Voice: while the AI is talking, and just after, text is only accepted if the person's own
  *   (echo-cancelled) microphone track carried speech since the AI began its current stretch of
  *   talking. Plain echo leaves that track quiet; the person's previous sentence does not count.
@@ -94,11 +96,15 @@ export class SpeechGate {
     const at = this.now();
     const aiRecently = this.aiAudible || at - this.aiLastAudible < this.aiTailMs;
     const voiceBehindIt = this.humanTalking || this.humanLastTalking >= this.aiSince;
+    // Overriding a text echo match takes a voice that overlaps the recognised words themselves: still
+    // talking now, or talking past the AI's last audible moment. A person who spoke earlier in the AI's
+    // stretch (a barge-in "wait—") is not behind the AI's tail once it is recognised, so that stays echo.
+    const voiceOverEcho = this.humanTalking || this.humanLastTalking > this.aiLastAudible;
     // Echo matching only means something while the AI's voice could actually be in the microphone: while it
     // talks or within the recognition tail. A person repeating the AI's wording later, or over it with their
     // own voice live, is speaking, not echo.
     const echo = aiRecently ? this.analyseEcho(text, at) : ({ kind: 'none' } as EchoAnalysis);
-    if (echo.kind === 'echo' && !voiceBehindIt) return { ok: false, reason: 'echo' };
+    if (echo.kind === 'echo' && !voiceOverEcho) return { ok: false, reason: 'echo' };
     if (aiRecently && !voiceBehindIt) return { ok: false, reason: 'no-voice' };
     return echo.kind === 'mixed' ? { ok: true, text: echo.text, removed: echo.removed } : { ok: true };
   }

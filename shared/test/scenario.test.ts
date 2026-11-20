@@ -47,6 +47,28 @@ describe('parseScenario', () => {
     expect(parseScenario(scenario).npcs).toHaveLength(1);
   });
 
+  it('accepts a per-role stance and a practice briefing, and rejects empty ones', () => {
+    const scenario = cloneScenario();
+    (scenario.roles as Array<Record<string, unknown>>)[0]!.stance = 'Guards the till';
+    scenario.practiceBriefing = {
+      heroArt: '/scenario/hero.svg',
+      badge: 'Opening day',
+      intro: 'The team has {minutes} minutes.',
+    };
+    const parsed = parseScenario(scenario);
+    expect(parsed.roles[0]?.stance).toBe('Guards the till');
+    expect(parsed.practiceBriefing).toEqual({
+      heroArt: '/scenario/hero.svg',
+      badge: 'Opening day',
+      intro: 'The team has {minutes} minutes.',
+    });
+
+    (scenario.roles as Array<Record<string, unknown>>)[0]!.stance = '  ';
+    scenario.practiceBriefing = { intro: ' ', heroArt: ' ', badge: ' ' };
+    expect(() => parseScenario(scenario)).toThrow(/stance must be a non-empty string/);
+    expect(() => parseScenario(scenario)).toThrow(/practiceBriefing must have a non-empty "intro"/);
+  });
+
   it('accepts a situation and mishearing hints, and rejects empty ones', () => {
     const scenario = cloneScenario();
     scenario.situation = 'Lunch service starts in an hour.';

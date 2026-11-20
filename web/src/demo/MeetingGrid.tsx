@@ -41,19 +41,14 @@ export function newClientLineId(): string {
   return `line-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** What a colleague stands for on a topic, from the scenario's own angle for them, never a role-id lookup. */
-export function colleagueStance(
-  scenario: Scenario,
-  attendeeName: string,
-  item: AgendaItem | undefined,
-): string | undefined {
-  const angle = item?.discussion?.openingViews.find((view) => view.attendee === attendeeName)?.angle.trim();
-  if (angle !== undefined && angle !== '') return angle;
+/**
+ * What a colleague stands for, from the scenario's own short stance for their seat. A scenario
+ * without one shows nothing: an owner-written meeting never inherits a pack's role copy.
+ */
+export function colleagueStance(scenario: Scenario, attendeeName: string): string | undefined {
   const roleId = scenario.attendees.find((attendee) => attendee.name === attendeeName)?.role;
-  const responsibility = roleId === undefined
-    ? undefined
-    : scenario.roles.find((role) => role.id === roleId)?.card?.responsibility;
-  return responsibility === undefined || responsibility.trim() === '' ? undefined : responsibility.trim();
+  const stance = roleId === undefined ? undefined : scenario.roles.find((role) => role.id === roleId)?.stance?.trim();
+  return stance === undefined || stance === '' ? undefined : stance;
 }
 
 export function starterChipsFromAgendaItem(
@@ -140,7 +135,7 @@ function useStage(): Stage {
 }
 
 function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState, speechStatus, activeAgendaIndex } = useStage();
+  const { scenario, chunks, events, now, npcState, speechStatus } = useStage();
   const participant = useTrackRefContext().participant;
   const localParticipant = useLocalParticipant().localParticipant;
   const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
@@ -184,7 +179,7 @@ function CaptionedTile() {
   // Never repeat a role whose label is already the person's display name.
   const shownRoleTitle = roleTitle === displayName ? undefined : roleTitle;
   const stance = isAi && attendee !== undefined
-    ? colleagueStance(scenario, attendee.name, scenario.agenda[activeAgendaIndex])
+    ? colleagueStance(scenario, attendee.name)
     : undefined;
   const reaction = isAi
     ? reactionForColleague(participant.identity, events, now)

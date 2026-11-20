@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
 import { installAutoDispatch, shouldStillAskColleague } from '../../src/host/autoDispatch';
 import { roleAudience } from '../../src/hub';
@@ -163,6 +163,61 @@ describe('auto-dispatch', () => {
     screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
     await settle();
     expect(app.tasks.get(stock.id)?.status).toBe('DISMISSED');
+    screen.close();
+  });
+
+  it('warns loudly when one settled topic would send several same-kind cards to the same person', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      installAutoDispatch({ hub: app.hub, tasks: app.tasks, scenario: () => testScenario, holdUntilSettled: true });
+      const first = app.tasks.suggest({ title: 'Post one update', context: 'x', suggestedAssignee: 'chef',
+        actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
+      const second = app.tasks.suggest({ title: 'Post another update', context: 'x', suggestedAssignee: 'chef',
+        actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
+      const settled = app.tasks.suggest({ title: 'Post the prep plan', context: 'x', suggestedAssignee: 'chef',
+        actionKind: 'mattermost_post', agendaItemTitle: 'Prep' });
+      app.hub.publish({ type: 'TOPIC_SETTLED', audience: { kind: 'screen' }, payload: { title: 'Prep', taskId: settled.id } });
+      for (const task of [first, second, settled]) expect(app.tasks.get(task.id)?.status).toBe('DISPATCHED');
+      expect(warn.mock.calls.some((call) => String(call[0]).includes('may duplicate one follow-up'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('releases each left topic from the server clock even when the Note Taker is silent', async () => {
+    const scenario = {
+      ...testScenario,
+      agenda: [
+        { title: 'One', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'chef' as const },
+        { title: 'Two', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'chef' as const },
+        { title: 'Three', minutes: 5, canWait: false, deadline: 'today', ownerRole: 'chef' as const },
+      ],
+    };
+    let index = 0;
+    installAutoDispatch({
+      hub: app.hub, tasks: app.tasks, scenario: () => scenario, holdUntilSettled: true,
+      agendaIndex: () => index,
+    });
+    const one = app.tasks.suggest({ title: 'Card one', context: 'x', suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post', agendaItemTitle: 'One' });
+    const two = app.tasks.suggest({ title: 'Card two', context: 'x', suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post', agendaItemTitle: 'Two' });
+    const three = app.tasks.suggest({ title: 'Card three', context: 'x', suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post', agendaItemTitle: 'Three' });
+
+    const screen = await connectClient(portOf(app), 'screen');
+    screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    await settle();
+    index = 1;
+    expect(app.tasks.get(one.id)?.status).toBe('DISMISSED');
+    expect(app.tasks.get(two.id)?.status).toBe('SUGGESTED');
+    expect(app.tasks.get(three.id)?.status).toBe('SUGGESTED');
+
+    screen.ws.send(JSON.stringify({ type: 'NEXT_AGENDA_ITEM' }));
+    await settle();
+    index = 2;
+    expect(app.tasks.get(two.id)?.status).toBe('DISMISSED');
+    expect(app.tasks.get(three.id)?.status).toBe('SUGGESTED');
     screen.close();
   });
 

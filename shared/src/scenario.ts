@@ -12,6 +12,11 @@ export interface ScenarioRole {
   facilitator?: boolean;
   /** What a person playing this role is told on their Wingman: facts, not a script. */
   card?: RoleCard;
+  /**
+   * A few words for what this seat stands for, shown on the meeting tile. Optional: a scenario
+   * without one shows no stance rather than inventing copy.
+   */
+  stance?: string;
 }
 
 /** A short, open-ended briefing for the person playing a role in the live demo meeting. */
@@ -229,6 +234,21 @@ export interface Scenario {
   joinSeats?: string[];
   /** What a person hosting the meeting is told before they start; optional. */
   hostBrief?: HostBrief;
+  /**
+   * The story the practice briefing shows over the meeting stage. Optional: an owner-written
+   * meeting without one gets neutral, scenario-derived copy and no pack artwork.
+   */
+  practiceBriefing?: PracticeBriefing;
+}
+
+/** The story shown on the start prompt before a practice meeting: artwork, badge and intro line. */
+export interface PracticeBriefing {
+  /** Artwork for the briefing hero, if the scenario provides it, for example "/scenario/kopitiam-hero.svg". */
+  heroArt?: string;
+  /** The pill over the hero, for example "Nanyang Kopi & Toast · Opening day". */
+  badge?: string;
+  /** The story line under the hero; `{minutes}` becomes the meeting's total agenda minutes. */
+  intro: string;
 }
 
 /** A short briefing for a person who runs the meeting. */
@@ -294,6 +314,9 @@ function readRoles(value: unknown, problems: string[]): Set<string> {
     }
     if (role.facilitator !== undefined && typeof role.facilitator !== 'boolean') {
       problems.push(`roles[${index}].facilitator must be true or false`);
+    }
+    if (role.stance !== undefined && !isNonEmptyString(role.stance)) {
+      problems.push(`roles[${index}].stance must be a non-empty string when present`);
     }
     if (role.card !== undefined) {
       const card = role.card;
@@ -701,6 +724,18 @@ export function parseScenario(value: unknown, options: ParseScenarioOptions = {}
   if (value.hostBrief !== undefined) {
     if (!isObject(value.hostBrief) || !isNonEmptyString(value.hostBrief.goal) || !isNonEmptyString(value.hostBrief.decision)) {
       problems.push('hostBrief must have a non-empty "goal" and "decision" when present');
+    }
+  }
+  if (value.practiceBriefing !== undefined) {
+    const briefing = value.practiceBriefing;
+    if (!isObject(briefing) || !isNonEmptyString(briefing.intro)) {
+      problems.push('practiceBriefing must have a non-empty "intro" when present');
+    } else {
+      for (const field of ['heroArt', 'badge'] as const) {
+        if (briefing[field] !== undefined && !isNonEmptyString(briefing[field])) {
+          problems.push(`practiceBriefing.${field} must be a non-empty string when present`);
+        }
+      }
     }
   }
   if (

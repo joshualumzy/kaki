@@ -1649,18 +1649,28 @@ async function handleRequest(
           `kaki server: settlement for "${agendaTitle}" named card ${requested.id}, which belongs to another topic or owner; revising nothing`,
         );
       }
-      const target = requested !== undefined && sameTopic(requested) ? requested : undefined;
-      if (!idSpecified && suggested.length > 0) {
-        console.warn(
-          `kaki server: settlement for "${agendaTitle}" named no card; revising none of ${suggested.length} held card(s)`,
-        );
+      let target = requested !== undefined && sameTopic(requested) ? requested : undefined;
+      if (!idSpecified) {
+        // The runner may not have seen the live TASK_UPDATED (a reconnect gap, or the card landing at
+        // "Next up"). One held card matching this topic, owner and kind is unambiguous, so resolve it
+        // here rather than create a second copy. More than one is genuinely ambiguous: revise none.
+        if (suggested.length === 1) {
+          target = suggested[0];
+          console.info(
+            `kaki server: settlement for "${agendaTitle}" named no card; resolved its one held card ${target?.id} server-side`,
+          );
+        } else if (suggested.length > 1) {
+          console.warn(
+            `kaki server: settlement for "${agendaTitle}" named no card; ${suggested.length} held cards match this topic, owner and kind, so none is revised`,
+          );
+        }
       }
       const targetAccepted = target !== undefined && target.status !== 'SUGGESTED' && target.status !== 'DISMISSED';
       const targetSameDecision = target !== undefined &&
         target.decisionSource === followUp.decisionSource && target.actionKind === followUp.actionKind;
       const settledSameDecision = settled !== undefined &&
         settled.decisionSource === followUp.decisionSource && settled.actionKind === followUp.actionKind;
-      if (targetAccepted && reopening && !targetSameDecision) {
+      if (target !== undefined && targetAccepted && reopening && !targetSameDecision) {
         context.tasks.supersede(target.id);
       } else if (target === undefined && settled !== undefined && reopening && !settledSameDecision) {
         context.tasks.supersede(settled.id);

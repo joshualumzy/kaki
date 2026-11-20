@@ -94,6 +94,7 @@ export function installAutoDispatch({
   scenario: activeScenario,
   hostIsHuman = () => false,
   holdUntilSettled = () => false,
+  agendaIndex,
 }: {
   hub: Hub;
   tasks: TaskStore;
@@ -101,6 +102,12 @@ export function installAutoDispatch({
   scenario: () => Scenario;
   /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
   hostIsHuman?: () => boolean;
+  /**
+   * The server's authoritative agenda position (the agenda clock), not the Note Taker's record.
+   * Read when a NEXT_AGENDA_ITEM arrives, which still names the topic being left. Omitted by
+   * callers that have no clock: then the shared record's index is the only source.
+   */
+  agendaIndex?: () => number | undefined;
   /**
    * Whether suggestions wait for TOPIC_SETTLED. Read for every new suggestion, because the active
    * cast can change at Start: no AI cast means no Director will ever publish a settlement.
@@ -114,8 +121,9 @@ export function installAutoDispatch({
     typeof holdUntilSettled === 'function' ? holdUntilSettled() : holdUntilSettled;
   const settledTopics = new Set<string>();
   const held = new Map<string, Task>();
-  /** The agenda item the meeting is on, learned from the shared record; 0 until the first record. */
-  let currentAgendaIndex = 0;
+  /** The agenda item the meeting is on when no clock is supplied, learned from the shared record. */
+  let recordAgendaIndex = 0;
+  const currentAgendaIndex = (): number => agendaIndex?.() ?? recordAgendaIndex;
   const dispatch = (task: Task): void => {
     if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return;
     const scenario = activeScenario();
@@ -137,6 +145,7 @@ export function installAutoDispatch({
     const candidates = [...held.values()].filter((task) => title === undefined || task.agendaItemTitle === title);
     candidates.sort((left, right) => Number(right.id === priorityId) - Number(left.id === priorityId));
     const released: Task[] = [];
+    const sentByKind = new Map<string, Task[]>();
     for (const task of candidates) {
       held.delete(task.id);
       const current = tasks.get(task.id);
@@ -154,6 +163,22 @@ export function installAutoDispatch({
       }
       dispatch(current);
       released.push(current);
+      const kindKey = `${current.suggestedAssignee ?? ''}\u0000${current.actionKind ?? ''}`;
+      const sameKind = sentByKind.get(kindKey) ?? [];
+      sameKind.push(current);
+      sentByKind.set(kindKey, sameKind);
+    }
+    // Two cards of the same kind to the same person on one topic can be two copies of one follow-up,
+    // especially when a settlement named no card and left the old ones in place. Never send them silently.
+    if (title !== undefined) {
+      for (const group of sentByKind.values()) {
+        if (group.length < 2) continue;
+        const first = group[0];
+        console.warn(
+          `kaki auto-dispatch: sent ${group.length} held cards for "${title}" to ${first?.suggestedAssignee ?? 'a role'} ` +
+            `(${first?.actionKind ?? 'unknown kind'}); they may duplicate one follow-up`,
+        );
+      }
     }
   };
   const titleAt = (index: number): string | undefined => activeScenario().agenda[index]?.title;
@@ -167,24 +192,26 @@ export function installAutoDispatch({
   const unsubscribeReset = hub.subscribe((event) => {
     if (event.type === 'MEETING_RESET') {
       sent = 0;
-      currentAgendaIndex = 0;
+      recordAgendaIndex = 0;
       settledTopics.clear();
       held.clear();
     } else if (event.type === 'TOPIC_SETTLED') {
       settledTopics.add(event.payload.title);
       release(event.payload.title, event.payload.taskId);
-    } else if (event.type === 'MEETING_RECORD_UPDATED') {
+    } else if (event.type === 'MEETING_RECORD_UPDATED' && agendaIndex === undefined) {
+      // Without a clock the shared record is the only source; with one it may lag behind the server.
       const next = event.payload.agendaIndex;
-      if (next > currentAgendaIndex) leaveTopics(currentAgendaIndex, next);
-      currentAgendaIndex = next;
+      if (next > recordAgendaIndex) leaveTopics(recordAgendaIndex, next);
+      recordAgendaIndex = next;
     }
   });
   hub.onCommand((command, sender) => {
     if (!active || sender.kind !== 'screen') return;
     if (command.type === 'NEXT_AGENDA_ITEM') {
       // Only the topic being left has moved on; a held card for a later topic has not had its turn yet.
-      const title = titleAt(currentAgendaIndex);
-      if (title === undefined) console.warn(`kaki auto-dispatch: no agenda item at index ${currentAgendaIndex}; held cards wait for the record`);
+      const leaving = currentAgendaIndex();
+      const title = titleAt(leaving);
+      if (title === undefined) console.warn(`kaki auto-dispatch: no agenda item at index ${leaving}; held cards wait for the record`);
       else release(title);
     } else if (command.type === 'END_MEETING') {
       release();

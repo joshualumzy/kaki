@@ -34,6 +34,22 @@ describe('SpeechGate', () => {
     expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: true });
   });
 
+  it('rejects the AI\'s last words heard after a barge-in, because the person stopped before them', () => {
+    const { gate, advance } = setup();
+    const said = 'We should delay the launch until the tills are tested again.';
+    gate.aiSaid(said);
+    gate.setAiAudible(true);
+    advance(500);
+    // The person barges in with "wait—", then stops; the next recognised words are the AI's tail.
+    gate.setHumanTalking(true);
+    advance(300);
+    gate.setHumanTalking(false);
+    advance(100);
+    gate.setAiAudible(false);
+    advance(400);
+    expect(gate.check(said)).toEqual({ ok: false, reason: 'echo' });
+  });
+
   it('lets a person repeat the AI\'s wording once the AI has been quiet past the tail', () => {
     const { gate, advance } = setup();
     gate.aiSaid('So we are meeting Tuesday morning then.');

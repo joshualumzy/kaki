@@ -144,7 +144,8 @@ export function createMeetingModule({
           hostIsHuman: session === undefined
             ? () => humanHost
             : () => hostIsHumanFromSession(session, activeScenario()),
-          holdUntilSettled: holdSuggestionsUntilSettled });
+          holdUntilSettled: holdSuggestionsUntilSettled,
+          agendaIndex: () => clock.snapshot().agendaIndex });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;

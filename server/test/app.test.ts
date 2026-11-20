@@ -407,7 +407,7 @@ describe('app', () => {
     expect(app.tasks.get(first.id)?.status).toBe('DISMISSED');
   });
 
-  it('revises nothing when a settlement names no card', async () => {
+  it('revises the one held card server-side when a settlement names no card', async () => {
     const early = app.tasks.suggest({ title: 'Post one update', context: 'Early note',
       suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early one' });
     const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
@@ -416,8 +416,33 @@ describe('app', () => {
         suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' }),
     });
     const settled = (await response.json()) as { id: string };
-    expect(settled.id).not.toBe(early.id);
-    expect(app.tasks.get(early.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post one update' });
+    expect(settled.id).toBe(early.id);
+    expect(app.tasks.list()).toHaveLength(1);
+    expect(app.tasks.get(early.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post the prep plan',
+      decisionSource: 'use fresh stock' });
+  });
+
+  it('revises none and warns when a settlement names no card but several held cards match', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const first = app.tasks.suggest({ title: 'Post one update', context: 'Early note',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early one' });
+      const second = app.tasks.suggest({ title: 'Post another update', context: 'Early note',
+        suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'early two' });
+      const response = await fetch(`http://127.0.0.1:${port}/dev/settle-topic`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Post the prep plan', context: 'Visitor decision: use fresh stock',
+          suggestedAssignee: 'chef', actionKind: 'mattermost_post', agendaItemTitle: 'Prep', decisionSource: 'use fresh stock' }),
+      });
+      const settled = (await response.json()) as { id: string };
+      expect(settled.id).not.toBe(first.id);
+      expect(settled.id).not.toBe(second.id);
+      expect(app.tasks.get(first.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post one update' });
+      expect(app.tasks.get(second.id)).toMatchObject({ status: 'SUGGESTED', title: 'Post another update' });
+      expect(warn.mock.calls.some((call) => String(call[0]).includes('none is revised'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('revises nothing when a settlement names an unknown card', async () => {

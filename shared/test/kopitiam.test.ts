@@ -86,6 +86,23 @@ describe('shipped Kopitiam story', () => {
     expect(draws).toBe(full.roles.length * 3 * 120);
     expect(JSON.stringify(full)).toBe(original);
   });
+  it('keeps the practice briefing and every seat stance in the scenario data', () => {
+    const scenario = loadScenario();
+    expect(scenario.practiceBriefing).toEqual({
+      heroArt: '/scenario/kopitiam-hero.svg',
+      badge: 'Nanyang Kopi & Toast · Opening day',
+      intro: 'Our renovated **Nanyang Kopi & Toast** flagship at **Raffles Place** opens this morning. ' +
+        'You’re opening-day lead: the team has {minutes} minutes, and the calls are yours.',
+    });
+    expect(scenario.roles.map((role) => role.stance)).toEqual([
+      'Guards staff, hygiene & margins',
+      'Keeps POS & kiosks simple',
+      'Protects Kopi & Toast craft',
+      'Watches TikTok & PR buzz',
+      'Chairs the meeting',
+    ]);
+  });
+
   it('validates and gives every topic the v2 fields the later steps use', () => {
     const scenario = loadScenario();
     const playableRoles = (scenario.npcs ?? [])

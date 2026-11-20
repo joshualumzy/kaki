@@ -4,7 +4,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Scenario } from '@kaki/shared';
+import { parseScenario, type Scenario } from '@kaki/shared';
+import kopitiamJson from '../../../scenarios/kopitiam/scenario.json';
 
 const mocks = vi.hoisted(() => ({ useScenario: vi.fn() }));
 
@@ -55,7 +56,35 @@ function goToStart(): void {
   fireEvent.click(screen.getByRole('button', { name: /Next: How to play/i }));
 }
 
+const kopitiam = parseScenario(kopitiamJson);
+const kopitiamMinutes = kopitiam.agenda.reduce((sum, item) => sum + item.minutes, 0);
+
 describe('StartPrompt', () => {
+  it('renders the Kopitiam practice briefing exactly as the old start prompt', () => {
+    mocks.useScenario.mockReturnValue(kopitiam);
+    const { container } = render(<StartPrompt onStart={vi.fn()} />);
+    expect(container.querySelector('.kd-story-badge')?.textContent).toBe('Nanyang Kopi & Toast · Opening day');
+    expect(container.querySelector('.kd-story-hero-img')?.getAttribute('src')).toBe('/scenario/kopitiam-hero.svg');
+    expect(container.querySelector('.kd-story-shop-intro')?.textContent).toBe(
+      'Our renovated Nanyang Kopi & Toast flagship at Raffles Place opens this morning. ' +
+        `You’re opening-day lead: the team has ${kopitiamMinutes} minutes, and the calls are yours.`,
+    );
+  });
+
+  it('shows no pack story or artwork for an owner meeting without a practice briefing', () => {
+    mocks.useScenario.mockReturnValue({
+      ...scenario,
+      organisation: 'Northwind Labs',
+      meetingTitle: 'Weekly planning',
+      situation: undefined,
+    });
+    const { container } = render(<StartPrompt onStart={vi.fn()} />);
+    expect(container.querySelector('.kd-story-hero-img')).toBeNull();
+    expect(screen.queryByText(/Nanyang Kopi/)).toBeNull();
+    expect(screen.queryByText(/Opening day/)).toBeNull();
+    expect(container.querySelector('.kd-story-shop-intro')?.textContent).not.toMatch(/Nanyang Kopi|Raffles Place/);
+  });
+
   it('lists today’s calls on the first screen', () => {
     mocks.useScenario.mockReturnValue({ ...scenario, agenda: [
       { title: 'Till login fix', minutes: 5, ownerRole: 'producer' },
