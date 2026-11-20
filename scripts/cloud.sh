@@ -24,7 +24,7 @@ case "$cmd" in
         echo "  Main App:   $URL"
         echo "  Wiki.js:    http://kaki.southeastasia.cloudapp.azure.com:8081  (demo / demo)"
         echo "  Gitea:      http://kaki.southeastasia.cloudapp.azure.com:8082  (demo / demo)"
-        echo "  Mattermost: http://kaki.southeastasia.cloudapp.azure.com:8083  (demo / demo)"
+        echo "  Mattermost: https://kaki.southeastasia.cloudapp.azure.com:8443  (demo / demo)"
         echo "  Mailpit:    http://kaki.southeastasia.cloudapp.azure.com:8084"
         echo "  Calendar:   http://kaki.southeastasia.cloudapp.azure.com:5232  (demo / demo)"
         exit 0

@@ -16,7 +16,7 @@ The project is deployed on Azure (`kaki-vm` in `KAKI-BOT-RG`, Southeast Asia) wi
 - **Cloud Company Systems (Unified Login: `demo` / `demo`):**
   - **Wiki.js:** `http://kaki.southeastasia.cloudapp.azure.com:8081` (`demo` / `demo`)
   - **Gitea:** `http://kaki.southeastasia.cloudapp.azure.com:8082` (`demo` / `demo` — or NPC usernames `wei-ling`, `arjun`, `mei`, `daniel` with password `demo`)
-  - **Mattermost:** `http://kaki.southeastasia.cloudapp.azure.com:8083` (`demo` / `demo` — or NPC usernames `weiling`, `arjun`, `mei`, `daniel` with password `demo`)
+  - **Mattermost:** `https://kaki.southeastasia.cloudapp.azure.com:8443` (`demo` / `demo` — or NPC usernames `weiling`, `arjun`, `mei`, `daniel` with password `demo`)
   - **Mailpit (Email Inbox):** `http://kaki.southeastasia.cloudapp.azure.com:8084` *(no login required)*
   - **Radicale Calendar:** `http://kaki.southeastasia.cloudapp.azure.com:5232` (`demo` / `demo`)
 
