@@ -9,7 +9,7 @@ import { SpeechGate } from './speechGate';
 import { MeetingMemory } from './meetingMemory';
 import { TopicRecord, type OpenQuestion, type TopicPromptView } from './topicRecord';
 import { meetingTopic, MeetingState, type HeardLine, type MeetingView } from './meetingState';
-import { describeDecision, MAX_OFFERS, mergedReadiness, next as nextPlannerDecision, plainDirection, projectHeard, readinessMet, type OfferDecision, type PlannerDecision, type PlannerEvent, type SpeakDecision } from './turnPlanner';
+import { describeDecision, MAX_OFFERS, mergedReadiness, standingCallEventIds, next as nextPlannerDecision, plainDirection, projectHeard, readinessMet, type OfferDecision, type PlannerDecision, type PlannerEvent, type SpeakDecision } from './turnPlanner';
 import { readGuestLine, type GuestReaderInput, type GuestReaderPorts, type GuestReading } from './guestReader';
 import { carriesCatch, carriesFact, gateSpeakerMessages, openingSpeakerMessages, parseGateReply, parsePlannedReply, replySpeakerMessages, type GateSpeakerRequest } from './openingWriter';
 
@@ -4021,6 +4021,11 @@ export class NpcConversation<Clip> {
     return parsed.text;
   }
 
+  private standingCallLines(view: MeetingView): string[] {
+    const ids = standingCallEventIds(view);
+    return view.lines.filter((line) => line.complete && ids.has(line.eventId)).map((line) => line.text);
+  }
+
   private gateGuestLines(view: MeetingView): string[] {
     return view.lines
       .filter((line) => line.complete && line.speaker === this.human?.name)
@@ -4095,7 +4100,7 @@ export class NpcConversation<Clip> {
         }
         this.meetingState.noteOffer();
         this.meetingState.setOfferAsked(true, { ...put, spoken: line });
-      });
+      }, () => this.pendingGate?.abort === abort && !abort.signal.aborted);
     };
     if (proposal === undefined) {
       speak(fallback);
@@ -4155,7 +4160,7 @@ export class NpcConversation<Clip> {
         this.confirmationNudged = false;
         // The read-back now owns the room's next move: silence after it must be nudged and then committed.
         this.scheduleSilencePrompt();
-      });
+      }, () => this.pendingGate?.abort === abort && !abort.signal.aborted);
     };
     if (evidence === undefined) {
       speak(fallback);
@@ -4167,7 +4172,8 @@ export class NpcConversation<Clip> {
       human: this.human,
       topicTitle: item?.title ?? title,
       purpose: 'readback',
-      guestLines: this.gateGuestLines(view),
+      // Only the lines that make up the standing call: a line that added nothing to it is not read back.
+      guestLines: this.standingCallLines(view),
       call: evidence,
       ...(view.lastHeard === undefined ? {} : {
         previous: { speaker: view.lastHeard.speaker, text: view.lastHeard.text },
@@ -4397,7 +4403,9 @@ export class NpcConversation<Clip> {
         this.turn !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined ||
-        this.pendingAnnouncements > 0
+        this.pendingAnnouncements > 0 ||
+        // A read-back or offer being written owns the room's next move; its own end schedules the silence check.
+        this.pendingGate !== undefined
       ) {
         this.scheduleSilencePrompt();
         return;

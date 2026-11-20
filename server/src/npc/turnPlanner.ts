@@ -215,6 +215,24 @@ export function mergedReadiness(view: MeetingView): GuestReadiness {
   return merged;
 }
 
+/**
+ * The guest lines whose readings make up the standing call (the lines behind mergedReadiness's action
+ * evidence, restarting at a line that changed the call). A read-back is written from these whole lines, so a
+ * part the reader quoted only in short is not lost, and a line that added nothing to the call (such as a
+ * refused request to table it) is not read back.
+ */
+export function standingCallEventIds(view: MeetingView): ReadonlySet<string> {
+  const ids: string[] = [];
+  for (const { eventId, reading } of view.readings) {
+    const action = reading.readiness.action;
+    const evidence = action.covered ? action.evidence?.trim() : undefined;
+    if (evidence === undefined || evidence.length === 0) continue;
+    if (action.revises === true) ids.length = 0;
+    ids.push(eventId);
+  }
+  return new Set(ids);
+}
+
 function normalisedCallPart(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?…]+$/u, '').trim();
 }

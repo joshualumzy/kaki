@@ -3227,6 +3227,132 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
+  it('does not send a silence nudge while a read-back is still being written', async () => {
+    let releaseGate: (() => void) | undefined;
+    const h = harness(withColleagueHost(scenario), 0, undefined, 'one-speaker',
+      () => readyFor('Old price only on the small cup'), {
+        silencePromptMs: 5,
+        silenceNudgeLeadMs: 0,
+        topicTimeBudgetMs: 600_000,
+        gateStream: (request) => (async function* () {
+          await new Promise<void>((resolve) => { releaseGate = resolve; });
+          yield `${request.speaker}: So it's old price only on the small cup. That's the call?`;
+        })(),
+      });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('Old price only on the small cup.');
+    for (let i = 0; i < 40 && releaseGate === undefined; i += 1) await h.flush();
+    expect(releaseGate).toBeDefined();
+
+    // The silence prompt is due while the read-back is still being written; it must not start a free nudge.
+    await vi.advanceTimersByTimeAsync(50);
+    expect(h.logs).not.toContainEqual('[respond] asking the model');
+    expect(h.calls).toHaveLength(0);
+
+    releaseGate?.();
+    await h.flush();
+    await finishPlaying(h);
+    expect(h.transcript.some(([, text]) => text.includes("That's the call?"))).toBe(true);
+    h.conversation.close();
+  });
+
+  it('reads back the whole standing call, not an earlier request that added nothing to it', async () => {
+    const first = "We're split on this — let's table it for now and set up a follow-up to settle it later.";
+    const second = 'Fair point — put me on the counter myself from 8 to 10, and we keep Auntie Mary on her rest day.';
+    const reader = (input: GuestReaderInput): GuestReading => input.line === first
+      ? {
+        kind: 'park',
+        answersOpenQuestion: false,
+        relevantFactIds: [],
+        relevantCatchIds: [],
+        readiness: {
+          action: { covered: false },
+          catchAddressed: { covered: false },
+          practical: { covered: false },
+        },
+      }
+      : readyFor('put me on the counter myself from 8 to 10');
+    const h = harness(withColleagueHost(scenario), 0, undefined, 'one-speaker', reader, {
+      silencePromptMs: 600_000,
+      topicTimeBudgetMs: 600_000,
+      gateStream: (request) => (async function* () {
+        // A stand-in for the live writer: it restates every guest line it is handed.
+        const said = request.purpose === 'readback' ? request.guestLines.join(', ') : request.call;
+        yield `${request.speaker}: So the call is ${said.replace(/[.!?]/g, '')}, is that your call?`;
+      })(),
+    });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say(first);
+    await waitForCall(h, 0);
+    await reply(h, 'Ada: This has to be decided before service.');
+
+    await h.say(second);
+    await h.flush();
+    await finishPlaying(h);
+
+    const readback = h.transcript.find(([, text]) => text.endsWith('is that your call?'));
+    expect(readback?.[0]).toBe('Sam');
+    expect(readback?.[1]).toContain('put me on the counter myself from 8 to 10');
+    // The reader quoted only part of the line; the read-back still gets the whole line, so no part is lost.
+    expect(readback?.[1]).toContain('Auntie Mary on her rest day');
+    expect(readback?.[1]).not.toContain('table it for now');
+    h.conversation.close();
+  });
+
+  it('drops a prepared read-back when the guest speaks before it is heard', async () => {
+    let releaseGate: (() => void) | undefined;
+    let releaseReader: (() => void) | undefined;
+    const h = harness(withColleagueHost(scenario), 0, undefined, 'one-speaker', (input) => {
+      if (input.line.startsWith('Yes,')) {
+        return new Promise<GuestReading>((resolve) => {
+          releaseReader = () => resolve(readyFor('put me on the counter myself from 8 to 10'));
+        });
+      }
+      return readyFor('put me on the counter myself from 8 to 10');
+    }, {
+      silencePromptMs: 600_000,
+      topicTimeBudgetMs: 600_000,
+      gateStream: (request) => (async function* () {
+        if (request.purpose === 'readback') {
+          await new Promise<void>((resolve) => { releaseGate = resolve; });
+        }
+        yield `${request.speaker}: So it's put me on the counter myself from 8 to 10. That's the call?`;
+      })(),
+    });
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+
+    await h.say('Put me on the counter myself from 8 to 10.');
+    for (let i = 0; i < 40 && releaseGate === undefined; i += 1) await h.flush();
+    expect(releaseGate).toBeDefined();
+
+    // Keep the room busy so the written read-back waits its turn.
+    h.conversation.announce('Bao', 'One moment, checking the rota.');
+    await h.flush();
+    releaseGate?.();
+    await h.flush();
+    expect(h.transcript.some(([, text]) => text.includes("That's the call?"))).toBe(false);
+
+    // The guest speaks again before the prepared read-back is heard; the new line's reader is still working.
+    h.conversation.humanTyped("Yes, that's the call — I'm on the counter from 8 to 10.");
+    await h.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    for (let i = 0; i < 40 && releaseReader === undefined; i += 1) await h.flush();
+    expect(releaseReader).toBeDefined();
+    await vi.advanceTimersByTimeAsync(1500);
+    for (let i = 0; i < 80; i += 1) {
+      await h.flush();
+      const next = h.playing.find((entry) => !entry.finished);
+      if (next === undefined) break;
+      next.finish();
+      await h.flush();
+    }
+
+    expect(h.transcript.some(([, text]) => text.includes("That's the call?"))).toBe(false);
+    h.conversation.close();
+  });
+
   it('keeps the open question when settling fails, so the room does not treat it as answered', async () => {
     const readerInputs: GuestReaderInput[] = [];
     const h = harness(scenario, 0, undefined, 'one-speaker', (input) => {

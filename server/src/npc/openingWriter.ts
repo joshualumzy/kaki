@@ -38,7 +38,7 @@ export interface GateSpeakerRequest {
   human?: HumanInfo;
   topicTitle: string;
   purpose: GatePurpose;
-  /** The guest's own heard lines on this topic, oldest first. */
+  /** For an offer, the guest's own heard lines on this topic; for a read-back, the lines that make up the standing call. Oldest first. */
   guestLines: readonly string[];
   /** The one call to restate (read-back) or propose (offer): never a menu and never quoted notes. */
   call: string;
@@ -261,9 +261,9 @@ export function gateSpeakerMessages(request: GateSpeakerRequest): Array<{ role: 
   const task = request.purpose === 'readback'
     ? [
       `The meeting is on "${request.topicTitle}".`,
-      `What ${guest} said on this topic, in order:\n${transcript}`,
-      `The room's reading of their call, from all their lines on this topic: "${request.call}".`,
-      `Say that whole call back in your own plain words: keep every part they decided, not just their latest line, and where a later line changes an earlier one, say the later one. Put the call in one plain sentence, joining its parts with commas or and. Then add a short check that asks ${guest} if that is their call.`,
+      `What ${guest} said that makes up their call, in order:\n${transcript}`,
+      `The room's reading of their call, from those lines: "${request.call}".`,
+      `Say that whole call back in your own plain words: keep every part they decided in those lines, not just the quoted reading, and where a later line changes an earlier one, say the later one. Put the call in one plain sentence, joining its parts with commas or and. Then add a short check that asks ${guest} if that is their call.`,
       'Restate only what the guest said. Add no new step, owner, person, open item, task, number or time. Do not quote them or use quotation marks.',
       `Reply with exactly one line: "${request.speaker}: <the words said aloud>".`,
     ].join('\n')
