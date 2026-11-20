@@ -161,6 +161,39 @@ describe('wiki action module', () => {
     expect(done.artifactUrl).toContain('/en/meetings/2026-11-03-launch-notes');
   });
 
+  /** A wiki whose create outlasts the timeout; `existingPaths` is what the recent-pages lookup then sees. */
+  function slowCreateFetch(existingPaths: string[]) {
+    return vi.fn<typeof fetch>(async (_url, init) => {
+      const query = JSON.parse(String(init?.body)).query as string;
+      if (query.includes('Create')) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+        });
+      }
+      const data = query.includes('Login')
+        ? { authentication: { login: { jwt: 'jwt', responseResult: { succeeded: true } } } }
+        : { pages: { list: existingPaths.map((path) => ({ path })) } };
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+  }
+
+  it('completes when the create times out but the page was written', async () => {
+    const fetchImpl = slowCreateFetch(['meetings/2026-11-03-launch-notes']);
+    const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, timeoutMs: 50, today: () => '2026-11-03' });
+    const ready = await draftAndRun(tasks);
+    const done = await waitForStatus(tasks, ready.id, 'COMPLETED');
+    expect(done.artifactUrl).toBe('http://wiki.test/en/meetings/2026-11-03-launch-notes');
+  });
+
+  it('fails and says a retry is safe when the create times out and the page is not there', async () => {
+    const fetchImpl = slowCreateFetch(['meetings/something-else']);
+    const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, timeoutMs: 50, today: () => '2026-11-03' });
+    const ready = await draftAndRun(tasks);
+    const failed = await waitForStatus(tasks, ready.id, 'FAILED');
+    expect(failed.error).toContain('timed out');
+    expect(failed.error).toContain('safe to retry');
+  });
+
   it('fails in plain words when the wiki cannot be reached', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => {
       throw new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED 127.0.0.1:8081') });

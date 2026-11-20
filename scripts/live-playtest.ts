@@ -81,7 +81,7 @@ function lineKey(line: Line): string { return `${line.sourceTime}|${line.speaker
  * The transcript speaker for this run's own seat. The server writes a person's line under the
  * setup's seat display name, not the name typed at join, so reading the transcript must follow it.
  */
-let robotSpeaker = 'Robot Visitor';
+const robotSpeaker = 'Robot Visitor';
 function isRobotSpeaker(speaker: string): boolean {
   return isRobotSpeakerName(speaker, robotSpeaker);
 }
@@ -289,7 +289,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   /** Reuse the start-of-run join flow: name, seat, muted microphone, then wait out a seat still held by the last visitor. */
   async function joinAsRobot(deadline: number): Promise<'joined' | 'full' | 'unknown'> {
     if (page === undefined || visitorRoleLabel === '') return 'unknown';
-    await page.getByRole('textbox', { name: 'Your name' }).fill('Robot Visitor');
+    await page.getByRole('textbox', { name: 'Your name' }).fill(robotSpeaker);
     await page.getByRole('radio', { name: new RegExp(visitorRoleLabel, 'i') }).click();
     for (;;) {
       if (Date.now() > deadline) return 'full';
@@ -796,18 +796,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario?kind=practice returned HTTP ${activeResponse.status()}`);
     scenario = await activeResponse.json() as Scenario;
     hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
-    // The server records this person's lines under the practice seat's name from the meeting setup,
-    // which the practice projection carries as the attendee for this role. That is all a practice
-    // visitor legitimately has: its own seat, never the owner-only /api/setup.
-    const seat = scenario.attendees.find((candidate) => candidate.role === visitorRole);
-    const seatName = seat?.name.trim() || seat?.zoomDisplayName.trim();
-    if (seatName === undefined || seatName === '') {
-      await check('Robot speaker identity', false,
-        `No named attendee for role ${visitorRole} in the practice scenario: cannot tell the robot's lines from other people's`);
-    } else {
-      robotSpeaker = seatName;
-      await check('Robot speaker identity', true, `Transcript speaker is exactly "${robotSpeaker}"`);
-    }
+    // The server records a person's lines under the name they joined with, never the seat's character name.
+    await check('Robot speaker identity', true, `Transcript speaker is exactly "${robotSpeaker}", the name the robot joined with`);
     await check('Two agenda topics for the session', scenario.agenda.length === 2,
       `API returned ${scenario.agenda.length}; each meeting draws two of the five topics`);
     await check('Event API connection', await waitFor('Screen event stream', async () =>

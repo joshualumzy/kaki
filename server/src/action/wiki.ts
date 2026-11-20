@@ -132,6 +132,13 @@ export function pagePath(date: string, title: string): string {
   return `meetings/${date}-${slug === '' ? 'notes' : slug}`;
 }
 
+/** A wiki request that outlasted its timeout; the write may still have happened. */
+class WikiTimeout extends ActionError {
+  constructor(timeoutMs: number) {
+    super(`The wiki timed out after ${timeoutMs} ms`);
+  }
+}
+
 function wikiError(message: string): ActionError {
   return new ActionError(message);
 }
@@ -243,11 +250,8 @@ export function createWikiModule({
         signal: AbortSignal.any([timeout, signal]),
       });
     } catch (error) {
-      throw wikiError(
-        timeout.aborted
-          ? `The wiki timed out after ${timeoutMs} ms; check the wiki before retrying, the page may already exist`
-          : `could not reach the wiki: ${plainReason(error, 'The wiki')}`,
-      );
+      if (timeout.aborted) throw new WikiTimeout(timeoutMs);
+      throw wikiError(`could not reach the wiki: ${plainReason(error, 'The wiki')}`);
     }
     if (!response.ok) throw wikiError(`The wiki returned HTTP ${response.status}`);
     let body: unknown;
@@ -288,7 +292,7 @@ export function createWikiModule({
       throw wikiError(`The wiki rejected the login: ${auth.responseResult.message ?? 'no token returned'}`);
     }
 
-    const created = await graphql<{
+    const createdOrTimedOut = await graphql<{
       pages: { create: { responseResult: { succeeded: boolean; message?: string } } };
     }>(
       settings,
@@ -300,8 +304,29 @@ export function createWikiModule({
       { content, description: description.slice(0, 200), path, title },
       signal,
       auth.jwt,
-    );
-    const result = created.pages.create.responseResult;
+    ).catch(async (error: unknown) => {
+      // The wiki renders and rebuilds its page tree before answering a create, which can outlast the timeout
+      // although the page was written. Look it up instead of reporting a failure that did not happen.
+      if (!(error instanceof WikiTimeout)) throw error;
+      let recent: { pages: { list: Array<{ path: string }> } };
+      try {
+        recent = await graphql<{ pages: { list: Array<{ path: string }> } }>(
+          settings,
+          `query Recent { pages { list(limit: 50, orderBy: UPDATED, orderByDirection: DESC, locale: "en") { path } } }`,
+          {},
+          signal,
+          auth.jwt,
+        );
+      } catch (lookupError) {
+        throw wikiError(
+          `${error.message} and could not be checked afterwards (${messageOf(lookupError)}); check the wiki for ${path} before retrying`,
+        );
+      }
+      if (recent.pages.list.some((page) => page.path === path)) return undefined;
+      throw wikiError(`${error.message}; the page ${path} is not there, so it is safe to retry`);
+    });
+    if (createdOrTimedOut === undefined) return `${settings.url.replace(/\/+$/, '')}/en/${path}`;
+    const result = createdOrTimedOut.pages.create.responseResult;
     // A retry after a lost reply finds the page already there: link it rather than fail or duplicate.
     if (!result.succeeded && !/already exist/i.test(result.message ?? '')) {
       throw wikiError(`The wiki could not create the page ${path}: ${result.message ?? 'unknown error'}`);
