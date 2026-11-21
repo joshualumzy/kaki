@@ -354,7 +354,7 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
   it('never points at the card before a committed settle', async () => {
     const h = harness();
     const done = vi.fn();
-    h.conversation.pointAtCard('Point at the follow-up card', { onDone: done });
+    h.conversation.markCardShown({ onDone: done });
     await flush();
 
     expect(done).toHaveBeenCalledWith(false);
@@ -428,7 +428,8 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     h.conversation.taskStatus('task-1', 'Prep', 'DISPATCHED', true);
     await vi.advanceTimersByTimeAsync(10);
     await finishPlaying(h);
-    expect(h.playing.some((entry) => /follow-up's on your screen/i.test(entry.text))).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining('[card] review nudge on'));
+    expect(h.playing.some((entry) => /on your (?:screen|card)/i.test(entry.text))).toBe(false);
     h.conversation.close();
   });
 

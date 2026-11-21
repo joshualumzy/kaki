@@ -1,7 +1,7 @@
 import { itemMode, type ActionKind, type MeetingMemoryEntry, type NpcStateMessage, type Scenario, type SuggestInput } from '@kaki/shared';
 import type { ChatMessage } from '../services/llm';
 import { cleanSpokenTopic, liveNextItemLine, liveWrapUpLine, spokenAgendaName } from '../host/opening';
-import { CardPointer, visitorCardPointerLine } from './cardPointer';
+import { CardPointer } from './cardPointer';
 import { buildSystemPrompt, findHandover, HandoverGuard, responsibilityFor, TurnParser, type HumanInfo, type Utterance } from './director';
 import { silenceCheckInLine, silenceCheckInNote, silenceColleagueNote } from './silence';
 import { couldBeReplyControlLine, isReplyControlLine, OPEN_REPLY_CONTROL, parseReplyControl, type ReplyControl } from './replyControl';
@@ -474,8 +474,6 @@ interface DispatchCue {
   what: string;
   /** The task title that must never be read aloud; a line carrying it is dropped. */
   forbiddenText?: string;
-  /** Sam is pointing at the card, so his own line may mention the card or screen. */
-  cardPointer?: boolean;
   /** The task may have moved on; checked again right before a line is spoken. */
   shouldStillSpeak?: () => boolean;
   /** Runs once: `true` when at least one line was heard, otherwise `false` and the ask is skipped. */
@@ -1353,20 +1351,11 @@ export class NpcConversation<Clip> {
   }
 
   /**
-   * Sam points the visitor at the follow-up card on the current topic, in his own words from `note`, once per topic.
-   * While a question on this topic is still open he waits, so he does not point and move on over the top of it;
-   * the wait ends when it is answered, or when the topic's own time runs out. The claim is given back when the
-   * line is not heard, so the review nudge can still point later.
+   * Marks the visitor's follow-up card on the current topic as pointed out, once per topic. Kaki's pop-up on the
+   * visitor's screen is what points at the card: Sam is a colleague in the meeting, not Kaki, so he never says it.
+   * `onDone(true)` means this call claimed the topic's pointer; `false` means it was refused or already claimed.
    */
-  pointAtCard(
-    note: string,
-    options: {
-      /** The task title the spoken line must never carry. */
-      forbiddenText?: string;
-      shouldStillSpeak?: () => boolean;
-      onDone?: (spoken: boolean) => void;
-    } = {},
-  ): void {
+  markCardShown(options: { onDone?: (claimed: boolean) => void } = {}): void {
     const topic = this.currentItem()?.title;
     const view = this.meetingState.view(Date.now());
     if (!this.humanSettledOnCurrentItem) {
@@ -1384,58 +1373,8 @@ export class NpcConversation<Clip> {
       options.onDone?.(false);
       return;
     }
-    const attempt = (): void => {
-      if (this.closed || this.concluded || this.currentItem()?.title !== topic) return;
-      const host = this.facilitatorOrCoHost();
-      if (this.paused || host === undefined) {
-        this.ports.log?.('[dispatch] cannot point at the card: the conversation is not running');
-        options.onDone?.(false);
-        return;
-      }
-      if (topic === undefined) {
-        this.ports.log?.('[dispatch] skipped the card pointer: no topic is open');
-        options.onDone?.(false);
-        return;
-      }
-      this.startTopic(topic);
-      const open = this.topicRecord.openQuestion;
-      if (open !== undefined && this.topicStillHasTime()) {
-        this.logCardWait(open.text);
-        setTimeout(attempt, CARD_WAIT_POLL_MS).unref();
-        return;
-      }
-      if (!this.cardPointer.claim(topic)) {
-        this.ports.log?.(`skipped the card pointer on "${topic}": the visitor was already pointed to their card`);
-        options.onDone?.(false);
-        return;
-      }
-      const what = `the card pointer on "${topic}"`;
-      this.cueWhenQuiet(
-        what,
-        () => {
-          this.forcedSpeaker = { target: host, from: host };
-          this.pending.push(note);
-          this.startTurn(false, false, undefined, {
-            what,
-            cardPointer: true,
-            forbiddenText: options.forbiddenText,
-            shouldStillSpeak: options.shouldStillSpeak,
-            onDone: (spoken) => {
-              if (!spoken) this.cardPointer.release(topic);
-              options.onDone?.(spoken);
-            },
-          });
-        },
-        DEFAULT_ANNOUNCE_GIVE_UP_MS,
-        () => {
-          this.cardPointer.release(topic);
-          options.onDone?.(false);
-        },
-        options.shouldStillSpeak,
-      );
-    };
-    if (this.closed || this.concluded) {
-      this.ports.log?.('[dispatch] cannot point at the card: the conversation is not running');
+    if (this.closed || this.concluded || this.paused) {
+      this.ports.log?.('[dispatch] cannot mark the card: the conversation is not running');
       options.onDone?.(false);
       return;
     }
@@ -1444,7 +1383,13 @@ export class NpcConversation<Clip> {
       options.onDone?.(false);
       return;
     }
-    attempt();
+    if (!this.cardPointer.claim(topic)) {
+      this.ports.log?.(`skipped the card pointer on "${topic}": the visitor was already pointed to their card`);
+      options.onDone?.(false);
+      return;
+    }
+    this.ports.log?.(`[card] the follow-up on "${topic}" is on the visitor's screen; Kaki's pop-up points at it, Sam says nothing`);
+    options.onDone?.(true);
   }
 
   /**
@@ -1517,18 +1462,6 @@ export class NpcConversation<Clip> {
   /** True when the host has already pointed the visitor at their card on the topic the meeting is on now. */
   cardPointedOnCurrentTopic(): boolean {
     return this.cardPointer.hasPointed(this.currentItem()?.title);
-  }
-
-  /**
-   * Claim the single card pointer for the current topic. False means another path already pointed at it,
-   * so the caller must stay quiet. Release it if the line is never spoken.
-   */
-  claimCardPointerOnCurrentTopic(): boolean {
-    return this.cardPointer.claim(this.currentItem()?.title);
-  }
-
-  releaseCardPointerOnCurrentTopic(): void {
-    this.cardPointer.release(this.currentItem()?.title);
   }
 
   /** The open question on the topic the meeting is on now, if any. */
@@ -2438,10 +2371,6 @@ export class NpcConversation<Clip> {
     return fresh;
   }
 
-  /** The first pointer at what the visitor will find on their card on this topic: a draft to send, or an invite to confirm. */
-  private cardNudgeLine(visitor: string, title: string): string {
-    return visitorCardPointerLine(visitor, this.reviewActionKind.get(title), this.topicIndex(title));
-  }
 
   /** True once a TASK_UPDATED for the visitor's card on this topic has reached the conversation. */
   private hasVisitorCardOnTopic(title = this.currentItem()?.title): boolean {
@@ -2502,23 +2431,11 @@ export class NpcConversation<Clip> {
         this.startReviewWindow();
         return;
       }
-      const visitor = this.human?.name ?? 'You';
-      if (!this.cardPointer.claim(title)) {
-        this.ports.log?.(`skipped the card nudge on "${title}": the visitor was already pointed to their card`);
-        this.startReviewWindow();
-        return;
-      }
-      this.announce(host, this.cardNudgeLine(visitor, title),
-        DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
-          if (spoken) {
-            this.cardNudgedTopics.add(title);
-            this.startReviewWindow();
-          } else {
-            this.cardPointer.release(title);
-            this.reviewNudged = false;
-            this.startReviewWindow();
-          }
-        });
+      // Kaki's pop-up already points at the card, so the review nudge only marks it; Sam says nothing.
+      this.cardPointer.claim(title);
+      this.cardNudgedTopics.add(title);
+      this.ports.log?.(`[card] review nudge on "${title}": Kaki's pop-up points at the card, Sam says nothing`);
+      this.startReviewWindow();
       return;
     }
     this.reviewWarned = true;
@@ -2548,10 +2465,7 @@ export class NpcConversation<Clip> {
       });
       return;
     }
-    const warning = this.cardPointer.hasPointed(title)
-      ? wrapUp
-      : `${wrapUp} The follow-up's on your card whenever you're ready.`;
-    this.announce(host, warning,
+    this.announce(host, wrapUp,
       DEFAULT_ANNOUNCE_GIVE_UP_MS, (spoken) => {
         if (spoken) this.checkTopicAdvance(true);
         else {
@@ -3119,7 +3033,7 @@ export class NpcConversation<Clip> {
     }
     const keptSentences = parsed.sentences.filter((sentence) => {
       const dropped = run.kind === 'reply'
-        ? this.plannedOwnershipDrop(sentence, decision.speaker, turn)
+        ? this.plannedOwnershipDrop(sentence, decision.speaker)
         : undefined;
       if (dropped !== undefined) {
         this.ports.log?.(dropped);
@@ -3311,9 +3225,9 @@ export class NpcConversation<Clip> {
   }
 
   /** The log line for a planned sentence that gives the visitor's follow-up to a colleague or the host. */
-  private plannedOwnershipDrop(sentence: string, speaker: string, turn: Turn): string | undefined {
+  private plannedOwnershipDrop(sentence: string, speaker: string): string | undefined {
     const aiHost = (this.options.scenario.npcs ?? []).find((npc) => npc.role === 'host')?.attendee;
-    if (turn.dispatchCue?.cardPointer !== true && aiHost !== undefined && speaker === aiHost &&
+    if (aiHost !== undefined && speaker === aiHost &&
         this.currentTopicHasVisitorFollowUp() && !namesColleague(sentence, this.names) &&
         (HOST_SEND_PLACE_RE.test(sentence) ||
           (HOST_SEND_INSTRUCTION_RE.test(sentence) &&
@@ -5092,11 +5006,11 @@ export class NpcConversation<Clip> {
         this.ports.log?.(`[repeat] ${aiHost}: skipped a repeated lock-in ask`);
         return;
       }
-      if (turn.dispatchCue?.cardPointer !== true && MODEL_CARD_MENTION_RE.test(trimmed)) {
-        this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; the handoff line does that: "${trimmed}"`);
+      if (MODEL_CARD_MENTION_RE.test(trimmed)) {
+        this.ports.log?.(`[card] ${utterance.speaker}: dropped a sentence that points at the card; Kaki's pop-up does that: "${trimmed}"`);
         return;
       }
-      if (turn.dispatchCue?.cardPointer !== true && aiHost !== undefined && utterance.speaker === aiHost &&
+      if (aiHost !== undefined && utterance.speaker === aiHost &&
           this.currentTopicHasVisitorFollowUp() &&
           !namesColleague(trimmed, this.names) &&
           (HOST_SEND_PLACE_RE.test(trimmed) || (HOST_SEND_INSTRUCTION_RE.test(trimmed) &&

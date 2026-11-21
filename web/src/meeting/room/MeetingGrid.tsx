@@ -388,7 +388,6 @@ export function MeetingGrid({
     activeStageToast.key !== dismissedToastKey &&
     !meetingWrappedUp &&
     (!topicSettled || activeStageToast.key.startsWith('task:') || activeStageToast.key.startsWith('published:')) &&
-    !(!narrow && activeStageToast.key.startsWith('task:') && actionableMyTasksCount > 0) &&
     (wingmanBannerVisible ? activeStageToast.key.startsWith('task:') : true);
 
   return (

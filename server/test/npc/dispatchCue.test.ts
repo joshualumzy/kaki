@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ACTION_KINDS, aiCast, humanRoles, type Scenario } from '@kaki/shared';
-import { colleagueAskNote, guestCardNote } from '../../src/host/autoDispatch';
+import { colleagueAskNote } from '../../src/host/autoDispatch';
 import { NpcConversation, type NpcPorts } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { loadScenario } from '../../src/core/loadScenario';
@@ -129,29 +129,20 @@ describe('asking a colleague through the model', () => {
 });
 
 describe('the visitor card pointer', () => {
-  it('never speaks a task title in the card pointer either', async () => {
+  it('Sam never speaks the card pointer: Kaki\'s pop-up shows the follow-up', async () => {
     vi.useFakeTimers();
     const scenario = await loadScenario('kopitiam');
     const role = humanRoles(scenario)[0]!.id;
     const { cast, host } = castFor(scenario, role);
-    for (const item of scenario.agenda) {
-      for (const shape of taskTitles(item)) {
-        const h = meeting(scenario, role, cast, [`${host}: Josh, the follow-up for ${shape} is on your screen.`]);
-        h.conversation.agendaMoved(item.title);
-        let heard: boolean | undefined;
-        h.conversation.pointAtCard(guestCardNote(host, 'Josh'), {
-          forbiddenText: shape,
-          onDone: (spoken) => {
-            heard = spoken;
-          },
-        });
-        await h.conversation.settled();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(h.spoken.join(' ').toLowerCase(), shape).not.toContain(shape.toLowerCase());
-        expect(heard, shape).toBe(false);
-        h.conversation.close();
-      }
-    }
+    const item = scenario.agenda[0]!;
+    const h = meeting(scenario, role, cast, [`${host}: Josh, the follow-up is on your screen.`]);
+    h.conversation.agendaMoved(item.title);
+    const done = vi.fn();
+    h.conversation.markCardShown({ onDone: done });
+    await h.conversation.settled();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.spoken).toEqual([]);
+    expect(done).toHaveBeenCalledWith(false);
+    h.conversation.close();
   });
-
 });

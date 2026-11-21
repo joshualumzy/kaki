@@ -272,18 +272,6 @@ describe('colleagueAskNote', () => {
   });
 });
 
-describe('guestCardNote', () => {
-  it('does not carry a task title and names the guest and the host', async () => {
-    const { guestCardNote } = await import('../../src/host/autoDispatch');
-    const note = guestCardNote('Sam', 'Josh');
-    expect(note).toContain('Josh');
-    expect(note).toContain('Sam');
-    expect(note).toMatch(/follow-up/i);
-    expect(note).toMatch(/own words/i);
-    expect(note).not.toMatch(/task title:|\btitle\b.*"/i);
-  });
-});
-
 describe('colleagueCue', () => {
   it('gives the model a note in Sam\'s own words', async () => {
     const { colleagueCue } = await import('../../src/host/autoDispatch');

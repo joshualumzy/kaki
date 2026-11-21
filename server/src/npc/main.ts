@@ -13,7 +13,7 @@ import { buildSttPhrases } from './sttPhrases';
 import { DEFAULT_BARGE_IN_MS, DEFAULT_SENTENCE_GAP_MS, DEFAULT_SPEAKER_GAP_MS } from './conversation';
 import { startNpcRunner, type NpcRunner } from './runner';
 import { createMeetingSync, parsePrepareRequest, parseStartedEvent, type PrepareRequest } from './meetingSync';
-import { colleagueCue, guestCardNote, shouldStillAskColleague } from '../host/autoDispatch';
+import { colleagueCue, shouldStillAskColleague } from '../host/autoDispatch';
 import { createCueOrder } from './cueOrder';
 import { createTaskResponder, DEFAULT_APPROVE_DELAY_MS } from './taskResponder';
 import { createRunnerClient } from './runnerClient';
@@ -540,10 +540,6 @@ function wireServiceSocket(socket: WebSocket): void {
       // only the fallback for an older retained cue that carries no id.
       const statusFor = (titleKey: string): { status: string; topic?: string } | undefined =>
         payload.taskId === undefined ? taskStatusByTitle.get(titleKey) : taskStatusById.get(payload.taskId);
-      const stillDispatched = (titleKey: string) => (): boolean => {
-        const current = statusFor(titleKey);
-        return current === undefined || current.status === 'DISPATCHED';
-      };
       if (colleague) {
         const name = payload.assignee!;
         const title = payload.title!;
@@ -572,12 +568,8 @@ function wireServiceSocket(socket: WebSocket): void {
           }));
         }
       } else if (payload.kind === 'DISPATCH') {
-        const titleKey = (payload.title ?? '').trim().toLowerCase();
-        const guest = runner.visitorName() ?? payload.assignee ?? 'there';
-        runner.pointAtCard(guestCardNote(runner.hostName() ?? 'Sam', guest), {
-          forbiddenText: payload.title,
-          shouldStillSpeak: stillDispatched(titleKey),
-        });
+        // Kaki's pop-up on the visitor's screen points at the follow-up; Sam only records that it was shown.
+        runner.markCardShown();
       } else {
         runner.announce(payload.text);
       }

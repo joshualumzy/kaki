@@ -4,7 +4,7 @@ import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
 import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
-import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
+import { startNpcRunner } from '../../src/npc/runner';
 import type { Recognizer } from '../../src/npc/utterance';
 import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
@@ -80,24 +80,8 @@ vi.mock('@livekit/rtc-node', () => {
   };
 });
 
-describe('visitorDispatchLine', () => {
-  it('points at the card once on the first dispatch and is brief after', () => {
-    expect(visitorDispatchLine('Daniel', 1)).toBe(
-      "Daniel, the follow-up's on your screen whenever you want to send it.",
-    );
-    expect(visitorDispatchLine('Daniel', 2)).toBe(
-      "Daniel, the follow-up's still on your screen whenever you're ready.",
-    );
-  });
-
-  it('never reads the formal task title aloud', () => {
-    const title = 'Reply to trial-day customer by 7:30 with goodwill payment, no admission';
-    for (const count of [1, 2]) expect(visitorDispatchLine('Daniel', count)).not.toContain(title);
-  });
-});
-
-describe('startNpcRunner visitor pointer count', () => {
-  it('points at the card once per topic, however many dispatches arrive', async () => {
+describe('startNpcRunner task dispatch to the visitor', () => {
+  it('says nothing when a task lands on the visitor: Kaki\'s pop-up points at it, not Sam', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
@@ -118,18 +102,15 @@ describe('startNpcRunner visitor pointer count', () => {
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted();
       await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      const dispatch = (title: string): string =>
-        `Daniel, I've sent you a task: ${title}. Accept or decline it on your phone.`;
+      const spokenBefore = transcript.length;
+      const done = vi.fn();
 
-      runner.announce(dispatch('Send the note'));
-      await vi.waitFor(() => expect(transcript.filter((line) => line.includes("the follow-up's on your screen"))).toHaveLength(1));
-      runner.announce(dispatch('Book the call'));
+      runner.announce("Daniel, I've sent you a task: Send the note. Accept or decline it on your phone.", done);
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(transcript.filter((line) => line.includes("on your screen"))).toHaveLength(1);
 
-      runner.agendaMoved(scenario.agenda[1]?.title);
-      runner.announce(dispatch('Check the till'));
-      await vi.waitFor(() => expect(transcript.filter((line) => line.includes("the follow-up's on your screen"))).toHaveLength(2));
+      expect(done).toHaveBeenCalledWith(true);
+      const after = transcript.slice(spokenBefore).join(' ');
+      expect(after).not.toMatch(/on your (?:screen|phone)|follow-up|Send the note/i);
     } finally {
       await runner.stop();
     }
