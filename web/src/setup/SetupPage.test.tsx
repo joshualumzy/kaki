@@ -494,6 +494,18 @@ describe('SetupPage', () => {
     expect(screen.getByLabelText('Role 1 name')).toBeTruthy();
   });
 
+  it('keeps the cursor in a seat name while typing', async () => {
+    installFetch(baseRoutes());
+    renderPage();
+
+    const name = (await screen.findByLabelText('Seat 1 name')) as HTMLInputElement;
+    name.focus();
+    fireEvent.change(name, { target: { value: `${name.value}x` } });
+
+    expect(document.activeElement).toBe(name);
+    expect((screen.getByLabelText('Seat 1 name') as HTMLInputElement).value.endsWith('x')).toBe(true);
+  });
+
   it('removes a seat from the draft', async () => {
     installFetch(baseRoutes());
     renderPage();

@@ -509,7 +509,9 @@ export function SetupEditor({
           {draft.seats.map((seat, index) => {
             const profile = demoPackNpcProfileForSeat(scenario, seat);
             return (
-              <li key={`${seat.roleId}-${seat.displayName}-${index}`}>
+              // Seats have no id; the row's place is its identity. Keying by the name remounted the row on
+              // every keystroke and dropped the cursor.
+              <li key={index}>
                 <div className="setup-edit-row">
                   <div className="setup-field setup-field-grow">
                     <label htmlFor={`seat-name-${index}`}>Display name</label>
