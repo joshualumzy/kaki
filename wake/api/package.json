@@ -1,0 +1,20 @@
+{
+  "name": "kaki-wake-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Status and wake endpoints for the Kaki waking page.",
+  "main": "src/functions.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
+  }
+}

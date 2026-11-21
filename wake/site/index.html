@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <title>Kaki — Meeting Assistant</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main class="landing">
+      <header class="landing-head">
+        <p class="eyebrow">Kaki</p>
+        <h1>Kaki</h1>
+        <p class="landing-sub">
+          A meeting assistant that keeps the agenda, coaches each person privately, hands out follow-up
+          tasks and drafts the minutes.
+        </p>
+      </header>
+
+      <div class="landing-paths">
+        <section class="landing-card" aria-label="Run a team meeting">
+          <p class="eyebrow">For the meeting owner</p>
+          <h2>Run a team meeting</h2>
+          <p>Set the agenda, invite your people, and let Kaki keep the meeting on track.</p>
+          <button type="button" class="landing-go" data-path="/setup">Run a team meeting</button>
+        </section>
+
+        <section class="landing-card" aria-label="Try a practice meeting">
+          <p class="eyebrow">On your own</p>
+          <h2>Try a practice meeting</h2>
+          <p>You join alone; AI colleagues play the rest of the team.</p>
+          <button type="button" class="landing-go landing-go-secondary" data-path="/practice">
+            Try a practice meeting
+          </button>
+        </section>
+      </div>
+
+      <form class="landing-invite" id="invite-form" aria-label="Enter a meeting code">
+        <label for="invite-code">Got an invite? Enter the meeting code</label>
+        <div class="landing-invite-row">
+          <input
+            id="invite-code"
+            class="kd-field"
+            type="text"
+            placeholder="ABCD"
+            maxlength="8"
+            autocapitalize="characters"
+            autocomplete="off"
+          />
+          <button type="submit" class="landing-code-go" id="invite-go" disabled>Join</button>
+        </div>
+      </form>
+
+      <div class="wake" id="wake">
+        <p class="wake-text" id="wake-status" role="status">Checking Kaki…</p>
+        <p class="wake-detail" id="wake-detail" hidden></p>
+        <p class="wake-elapsed" id="wake-elapsed" aria-hidden="true" hidden></p>
+        <button type="button" class="wake-retry" id="wake-retry" hidden>Try again</button>
+      </div>
+    </main>
+  </body>
+</html>
