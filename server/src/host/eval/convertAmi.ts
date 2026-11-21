@@ -3,7 +3,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ReplayLine } from '../replay';
 
+/** Meetings used while improving the notetaker. */
 export const AMI_MEETINGS = ['ES2008a', 'ES2013b', 'IS1005c', 'IS1008d'] as const;
+/** Held back: scored only before and after a round of fixes, to check the fixes generalise beyond AMI_MEETINGS. */
+export const AMI_HOLDOUT_MEETINGS = ['ES2016c', 'IS1006b'] as const;
 
 const RAW_DIR = fileURLToPath(new URL('../../../../planning/ami-raw/', import.meta.url));
 const OUT_DIR = fileURLToPath(new URL('../../../../scenarios/ami-eval/meetings/', import.meta.url));
@@ -187,7 +190,7 @@ export async function convertMeeting(meeting: string, rawDir = RAW_DIR, outDir =
 }
 
 async function main(): Promise<void> {
-  for (const meeting of AMI_MEETINGS) {
+  for (const meeting of [...AMI_MEETINGS, ...AMI_HOLDOUT_MEETINGS]) {
     const fixture = await convertMeeting(meeting);
     console.log(
       `${meeting}: ${fixture.lines.length} lines, ${fixture.gold.actions.length} actions, ` +

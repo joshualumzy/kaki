@@ -49,6 +49,8 @@ function systemPrompt(): string {
     'Go through the gold list in order. For each gold item, give the number of the found item that describes the',
     'same concrete task or the same open question, or null when no found item does.',
     'Do not pair items merely because they share a topic, a person or a keyword.',
+    'A found task covers a gold action only when doing the found task would itself get that action done. A card to',
+    'post, send or announce a summary covers only a gold action about sharing that summary, not the work it lists.',
     'One found item may be named for several gold items when it really covers each of them (for example one card',
     '"email the minutes and the slides" covers two gold actions).',
     'Return one JSON object only, with exactly one entry per gold item, in gold order:',

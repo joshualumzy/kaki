@@ -8,7 +8,7 @@ import { createTaskStore } from '../../meeting/tasks';
 import { notetakerLlmFromEnv, type LlmClient } from '../../services/llm';
 import { createNotetaker } from '../notetaker';
 import { parseReplay, type ReplayLine } from '../replay';
-import { AMI_MEETINGS } from './convertAmi';
+import { AMI_HOLDOUT_MEETINGS, AMI_MEETINGS } from './convertAmi';
 import { judgeAmi, type JudgePair } from './judgeAmi';
 
 const LOG_DIR = fileURLToPath(new URL('../../../../.live-logs/', import.meta.url));
@@ -324,13 +324,18 @@ function runsFrom(raw: string | undefined): number {
 }
 
 export function parseAmiArgs(argv: string[]): { meetings: string[]; runs: number } {
-  const known = new Set<string>(AMI_MEETINGS);
+  const known = new Set<string>([...AMI_MEETINGS, ...AMI_HOLDOUT_MEETINGS]);
   const selected = new Set<string>();
   let runs = 2;
+  let holdout = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === '--ami') continue;
+    if (argument === '--holdout') {
+      holdout = true;
+      continue;
+    }
     if (argument === '--runs') {
       runs = runsFrom(argv[++index]);
       continue;
@@ -355,7 +360,9 @@ export function parseAmiArgs(argv: string[]): { meetings: string[]; runs: number
     throw new Error(`Unknown argument "${argument}"`);
   }
 
-  return { meetings: selected.size === 0 ? [...AMI_MEETINGS] : [...selected], runs };
+  if (holdout && selected.size > 0) throw new Error('Use either --holdout or --meeting, not both');
+  const meetings = holdout ? [...AMI_HOLDOUT_MEETINGS] : selected.size === 0 ? [...AMI_MEETINGS] : [...selected];
+  return { meetings, runs };
 }
 
 export async function runAmiEval(argv: string[]): Promise<void> {
