@@ -536,6 +536,12 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
 
   if (reading.kind === 'park') return parkDecision(view, line, reading);
 
+  // A line put to a colleague by name is theirs to answer, even when the reader could not tell what it was.
+  if ((reading.kind === 'unsure' || reading.kind === 'off_topic') && reading.addressee !== undefined &&
+      reading.addressee !== view.host && isColleague(view, reading.addressee)) {
+    return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
+  }
+
   if (reading.kind === 'unsure') {
     const helpLines = view.readings.filter((entry) => entry.reading.kind === 'unsure').length;
     if (helpLines >= 3) {

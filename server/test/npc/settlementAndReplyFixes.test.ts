@@ -104,6 +104,8 @@ function harness(options: {
   responseDelayMs?: number;
   sentenceGapMs?: number;
   reader?: (input: GuestReaderInput) => Promise<GuestReading>;
+  /** The first model call writes nothing until this settles, like a slow model. */
+  firstStreamWaitsFor?: Promise<void>;
 } = {}) {
   const readings = [...(options.readings ?? [])];
   const replies = [...(options.replies ?? [])];
@@ -119,8 +121,12 @@ function harness(options: {
   const overlaps: Array<[string, string]> = [];
 
   const ports: NpcPorts<Utterance> = {
-    async *stream(messages) {
+    async *stream(messages, signal) {
       calls.push(messages);
+      if (calls.length === 1 && options.firstStreamWaitsFor !== undefined) {
+        await options.firstStreamWaitsFor;
+        if (signal?.aborted) return;
+      }
       const reply = replies.shift();
       if (reply !== undefined) yield reply;
     },
@@ -683,6 +689,66 @@ describe('a line said before the topic opened', () => {
     for (let i = 0; i < 20; i += 1) await flush();
 
     expect(h.readerInputs.some((input) => JSON.stringify(input).includes('Raise the app price'))).toBe(true);
+    h.conversation.close();
+  });
+});
+
+describe('a line said while the reply is still being written', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('is answered even though nothing of the cancelled reply was ever heard', async () => {
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => { release = resolve; });
+    const h = harness({ firstStreamWaitsFor: slow, replies: ['Ada: Two trays, ready by 8.'] });
+    await say(h, 'So what do you think?', reading({ kind: 'question' }));
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing).toHaveLength(0);
+
+    h.conversation.humanText('Hello, what do you think?');
+    for (let i = 0; i < 20; i += 1) await flush();
+    release();
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.logs).toContain('[reply] cancelled: the guest spoke');
+    expect(h.calls.length).toBeGreaterThanOrEqual(2);
+    expect(h.playing.map((entry) => entry.text)).toContain('Two trays, ready by 8.');
+    h.conversation.close();
+  });
+});
+
+describe('a colleague called on by name', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('answers the line even when the reader could not tell what it was (seen live)', async () => {
+    const h = harness({ replies: ['Bao: The listing drops a place, but nothing breaks before 8.'] });
+    await say(h, 'Bao, what happens to our listing if we raise the price?', reading({ kind: 'unsure', addressee: 'Bao' }));
+    await finishPlaying(h);
+    expect(h.playing.map((entry) => entry.speaker)).toContain('Bao');
+    h.conversation.close();
+  });
+});
+
+describe('moving on after the call is made', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('takes "let\'s move on" on a decided topic as moving on, not as parking it (seen live)', async () => {
+    const h = harness({
+      replies: ['Sam: The choice is how we cover the counter.', 'Sam: Pick the one that feels workable.', 'Sam: Noted, that one is parked.'],
+    });
+    await reachChoiceOffer(h);
+    await say(h, 'Yes.', reading({ kind: 'agree' }));
+    await finishPlaying(h);
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    expect(h.advanced).toHaveLength(0);
+
+    await say(h, "Let's move on to the next agenda.", reading({ kind: 'park' }));
+    await finishPlaying(h);
+
+    expect(h.advanced).toHaveLength(1);
+    expect(h.playing.map((entry) => entry.text).join(' ')).not.toMatch(/parked/i);
     h.conversation.close();
   });
 });

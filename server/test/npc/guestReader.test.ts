@@ -412,3 +412,29 @@ describe('guest line reader offer choices and deadlines', () => {
     vi.useRealTimers();
   });
 });
+
+describe('guest line reader names', () => {
+  const withMei: GuestReaderInput = {
+    ...input,
+    colleagues: [...input.colleagues, { name: 'Mei', facts: [], catches: [] }],
+  };
+
+  it('takes a name spelled by sound ("May") as the one colleague it sounds like (seen live)', async () => {
+    const p = ports({ stream: streamOf(reading({ addressee: 'May' })) });
+    const result = await readGuestLine(withMei, p);
+    expect(result.addressee).toBe('Mei');
+  });
+
+  it('keeps the colleague a line calls on by name when both models fail (seen live)', async () => {
+    const p = ports({ stream: streamOf('{nope'), fallbackStream: failStream('backup down') });
+    const result = await readGuestLine({ ...withMei, line: 'Bao, what happens to our listing if we raise the price?' }, p);
+    expect(result.kind).toBe('unsure');
+    expect(result.addressee).toBe('Bao');
+  });
+
+  it('does not invent an addressee from a name inside the line when both models fail', async () => {
+    const p = ports({ stream: streamOf('{nope'), fallbackStream: failStream('backup down') });
+    const result = await readGuestLine({ ...withMei, line: 'I think Bao covers the till.' }, p);
+    expect(result.addressee).toBeUndefined();
+  });
+});

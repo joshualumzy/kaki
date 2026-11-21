@@ -1236,8 +1236,10 @@ export class NpcConversation<Clip> {
     this.lastHumanInputWasTyped = false;
     // Recognised words over a line that is still playing, without a barge-in, are held: the AI line finishes
     // and is heard whole, then this line goes to the reader like any other. Only the voice-timing barge-in
-    // (a held turn) makes it a real interruption.
-    const heldOverAiLine = this.turn !== undefined && this.turn.held !== true && this.turn.finalized !== true;
+    // (a held turn) makes it a real interruption. A turn the model is still writing, with nothing heard yet, is not
+    // a line playing: the guest's words replace it, or the cancelled reply would leave them waiting forever.
+    const heldOverAiLine = this.turn !== undefined && this.turn.held !== true && this.turn.finalized !== true &&
+      this.turn.spoken.length > 0;
     if (heldOverAiLine) this.clearBargeTimer();
     this.paused = false;
     this.pausedCutOff = false;
@@ -3604,6 +3606,17 @@ export class NpcConversation<Clip> {
     if (run.cancelled || this.closed || this.paused) {
       this.finishReplyRun(run);
       return;
+    }
+    // Once the call is made, "let's move on" is the guest closing the review, not parking an open topic.
+    const title = this.currentItem()?.title;
+    if (title !== undefined && this.humanSettledOnCurrentItem && !this.advanced.has(title)) {
+      const readings = this.meetingState.view(Date.now()).readings.filter((entry) => ids.has(entry.eventId));
+      if (readings.at(-1)?.reading.kind === 'park') {
+        this.ports.log?.(`[topic] "${title}" is already decided; the guest asked to move on, so the meeting moves on`);
+        this.finishReplyRun(run);
+        this.checkTopicAdvance(true);
+        return;
+      }
     }
     await this.runReply(run, previous);
   }
