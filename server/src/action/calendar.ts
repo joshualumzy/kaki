@@ -8,6 +8,7 @@ import { ActionError, createActionModule, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** The setup message shown when the calendar action has no CalDAV address. */
 export const CALENDAR_CONFIG_MESSAGE = 'The calendar is not configured: set CALDAV_URL';
 
 /** The local mock CalDAV server (Radicale) and where people open an event; built from the environment. */
@@ -78,6 +79,7 @@ export async function fetchCalendarIcs(
   return response.text();
 }
 
+/** Checks the CalDAV collection can be read and looks like a calendar. */
 export async function probeCalendar(
   settings: CalendarSettings,
   fetchImpl: typeof fetch = fetch,

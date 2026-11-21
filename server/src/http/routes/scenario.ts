@@ -36,6 +36,7 @@ function servableScenario(scenario: Scenario, label: string): Scenario | undefin
   }
 }
 
+/** Serves the scenario the caller may see, narrowing it to their seat when sign-in is on. */
 export async function handleScenario(call: RouteCall): Promise<void> {
   const { response, context, principal, url } = call;
   const requestedView = url.searchParams.get('kind');
@@ -90,6 +91,7 @@ export async function handleScenario(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Serves the full scenario to the runner, using the candidate while Start is in flight. */
 export async function handleScenarioFull(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // The runner prepares the sealed candidate while Start is in flight; everyone else sees the live one.
@@ -110,6 +112,7 @@ export async function handleScenarioFull(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Serves one calendar event as an ICS download or view. */
 export async function handleCalendarEvent(call: RouteCall): Promise<void> {
   const { request, response, context, path } = call;
   const eventMatch = /^\/api\/calendar\/([^/]+)$/.exec(path);
@@ -131,6 +134,7 @@ export async function handleCalendarEvent(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Redirects a Mattermost link onto the configured public server and signs the demo user in. */
 export async function handleMattermostOpen(call: RouteCall): Promise<void> {
   const { response, url } = call;
   const query = url.searchParams;

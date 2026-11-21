@@ -91,6 +91,7 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
   }
 }
 
+/** Issues a LiveKit join token after the meeting code and seat admission checks. */
 export async function handleLivekitToken(call: RouteCall): Promise<void> {
   const { request, response, context, principal } = call;
   const codeIp = clientAddress(request);
@@ -519,6 +520,7 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Starts the meeting once, letting a practice visitor start only its own practice meeting. */
 export async function handleMeetingStart(call: RouteCall): Promise<void> {
   const { response, context, principal } = call;
   // One server-owned start for the whole meeting. A second Start is a no-op: it must never open the
@@ -533,6 +535,7 @@ export async function handleMeetingStart(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Opens the team meeting from the current draft and blocks practice until it ends. */
 export async function handleMeetingOpen(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // The owner opens the team meeting: the current draft is its plan, and it blocks practice
@@ -582,6 +585,7 @@ export async function handleMeetingOpen(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Closes an unstarted team room, or an ended one under review, and frees the server for practice. */
 export async function handleMeetingClose(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // The owner closes a real meeting room that never started. It releases the server for practice
@@ -610,6 +614,7 @@ export async function handleMeetingClose(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Ends the practice meeting and frees the server for the team meeting. */
 export async function handleMeetingEndPractice(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // End a practice meeting and free the server for the team meeting. This is the existing
@@ -627,6 +632,7 @@ export async function handleMeetingEndPractice(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Returns the meeting code to the owner's lobby and shared screen. */
 export async function handleMeetingCode(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // The meeting code is owner-only, whether or not sign-in is configured: the owner's lobby and
@@ -635,6 +641,7 @@ export async function handleMeetingCode(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Returns the people currently holding seats, for the owner only. */
 export async function handleMeetingParticipants(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // Who has joined is owner-only: the public state must not expose participant names.
@@ -644,6 +651,7 @@ export async function handleMeetingParticipants(call: RouteCall): Promise<void> 
   return;
 }
 
+/** Serves the lifecycle marker to browsers and the full runner snapshot to the runner. */
 export async function handleMeetingState(call: RouteCall): Promise<void> {
   const { response, context, path } = call;
   // Browsers only need the lifecycle marker; the runner gets the one full meeting snapshot.
@@ -659,6 +667,7 @@ export async function handleMeetingState(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Answers the health check. */
 export async function handleHealth(call: RouteCall): Promise<void> {
   const { response } = call;
   sendJson(response, 200, { ok: true });

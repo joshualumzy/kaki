@@ -21,6 +21,7 @@ export interface RevisionRequest {
   taskIds: string[];
 }
 
+/** What one notetaker reply may contain: new questions and tasks, answers it closes, and reported revisions. */
 export interface NotetakerReply {
   agendaIndex?: number;
   newQuestions: Array<{ text: string; forRole?: Role }>;
@@ -210,6 +211,7 @@ export function notetakerReplySchema(scenario: Scenario): { name: string; schema
   };
 }
 
+/** The system prompt that gives the model the scenario, roles and agenda plus the reply rules. */
 export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string {
   const roles = scenario.roles.map((role) => {
     const line = lines.find((candidate) => candidate.role === role.id);
@@ -343,6 +345,7 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
   ].join('\n');
 }
 
+/** The user prompt with the current item, open questions, existing tasks and the earlier and new lines. */
 export function userPrompt(
   scenario: Scenario,
   agendaIndex: number,
@@ -380,6 +383,7 @@ export function userPrompt(
  * long enough to identify the line and only one line contains it.
  */
 const MIN_REVISION_QUOTE_WORDS = 4;
+/** The one transcript line an evidence quote exactly matches, or one unique phrase inside it; undefined otherwise. */
 export function exactTranscriptLine(evidence: string, lines: TranscriptLine[]): TranscriptLine | undefined {
   const stripped = evidence
     .replace(/^\s*\[[^\]]+\]\s*/, '')

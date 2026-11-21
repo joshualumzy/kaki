@@ -4,6 +4,7 @@ import { REPO_ROOT } from './env';
 
 const SCENARIO_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+/** One wiki page: its path and title plus the content file the seed reads. */
 export interface WikiPageSeed {
   path: string;
   title: string;
@@ -18,6 +19,7 @@ interface GiteaLabelSeed {
   description?: string;
 }
 
+/** One seeded issue with its labels, body and creation and close dates. */
 export interface GiteaIssueSeed {
   title: string;
   state: 'open' | 'closed';
@@ -28,12 +30,14 @@ export interface GiteaIssueSeed {
   date: string;
 }
 
+/** Everything the Gitea seeder creates: the repository, labels and issues. */
 export interface GiteaSeed {
   repository: { name: string; description: string; private: boolean };
   labels: GiteaLabelSeed[];
   issues: GiteaIssueSeed[];
 }
 
+/** One Mattermost account to create, with the profile fields the seed supplies. */
 export interface MattermostUserSeed {
   username: string;
   email: string;
@@ -48,6 +52,7 @@ interface MattermostChannelSeed {
   purpose: string;
 }
 
+/** One seeded post; key and replyToKey wire a reply to an earlier post. */
 export interface MattermostPostSeed {
   key?: string;
   channel: string;
@@ -57,6 +62,7 @@ export interface MattermostPostSeed {
   text: string;
 }
 
+/** Everything the Mattermost seeder creates: team, users, channels and posts. */
 export interface MattermostSeed {
   team: { name: string; display_name: string };
   users: MattermostUserSeed[];
@@ -69,6 +75,7 @@ interface MailAddressSeed {
   address: string;
 }
 
+/** One email to deliver to Mailpit, with its addresses, dates and plain text. */
 export interface MailMessageSeed {
   from: MailAddressSeed;
   to: MailAddressSeed[];
@@ -85,6 +92,7 @@ interface ScenarioMeetingSeed {
   agenda: Array<{ title: string; minutes: number; ownerRole: string }>;
 }
 
+/** A whole scenario loaded from disk, ready to hand to each service seeder. */
 export interface ScenarioSeed {
   name: string;
   organisation: string;
@@ -159,6 +167,7 @@ function parseAddress(value: unknown, file: string, where: string): MailAddressS
   };
 }
 
+/** Checks the wiki page manifest and returns its pages without content; paths must stay inside the wiki. */
 export function parseWikiManifest(value: unknown, file = 'wiki/pages.json'): { pages: Array<Omit<WikiPageSeed, 'content'>> } {
   const manifest = objectAt(value, file, 'root');
   const pages = arrayAt(manifest.pages, file, 'pages').map((entry, index) => {
@@ -182,6 +191,7 @@ export function parseWikiManifest(value: unknown, file = 'wiki/pages.json'): { p
   return { pages };
 }
 
+/** Checks the Gitea seed file and returns its repository, labels and issues. */
 export function parseGiteaSeed(value: unknown, file = 'gitea/issues.json'): GiteaSeed {
   const root = objectAt(value, file, 'root');
   const repository = objectAt(root.repository, file, 'repository');
@@ -224,6 +234,7 @@ export function parseGiteaSeed(value: unknown, file = 'gitea/issues.json'): Gite
   };
 }
 
+/** Checks the Mattermost seed file and returns its team, users, channels and posts. */
 export function parseMattermostSeed(value: unknown, file = 'mattermost/seed.json'): MattermostSeed {
   const root = objectAt(value, file, 'root');
   const team = objectAt(root.team, file, 'team');
@@ -285,6 +296,7 @@ export function parseMattermostSeed(value: unknown, file = 'mattermost/seed.json
   };
 }
 
+/** Checks the mail seed file and returns its messages. */
 export function parseMailSeed(value: unknown, file = 'mail/emails.json'): MailMessageSeed[] {
   const root = objectAt(value, file, 'root');
   const emails = arrayAt(root.emails, file, 'emails').map((entry, index) => {
@@ -372,6 +384,7 @@ function parseMeetingSeed(scenario: JsonObject, file: string): ScenarioMeetingSe
   };
 }
 
+/** Loads a scenario folder meeting, wiki pages, Gitea, Mattermost, mail and SQL seed files. */
 export function loadScenarioSeed(name = process.env.SCENARIO ?? 'kopitiam'): ScenarioSeed {
   if (!SCENARIO_PATTERN.test(name)) {
     throw new Error(`Invalid SCENARIO "${name}": expected a folder name such as "kopitiam"`);

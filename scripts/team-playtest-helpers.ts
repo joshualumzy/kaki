@@ -131,6 +131,7 @@ export function judgeMinutesRecipient(
   return { ok: false, detail: `Minutes card assigned to ${assignee === '' ? '(no seat)' : assignee}, not the owner ${ownerRoleId}` };
 }
 
+/** The result of judging one team-playtest check. */
 export type TaskVerdict = { status: CheckStatus; detail: string };
 
 /**

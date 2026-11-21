@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { roleLabel, type KakiEvent, type Scenario } from '@kaki/shared';
 import { Card } from '../../ui';
 
+/** A meeting-record update, the event that carries the clock and agenda position. */
 export type RecordEvent = Extract<KakiEvent, { type: 'MEETING_RECORD_UPDATED' }>;
 
+/** Narrows a meeting event to a record update. */
 export function isRecord(event: KakiEvent): event is RecordEvent {
   return event.type === 'MEETING_RECORD_UPDATED';
 }

@@ -10,6 +10,7 @@
 import { isObject } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage } from '../services/llm';
 
+/** The kinds of finished guest line the reader can recognise. */
 export type GuestLineKind =
   | 'idea'
   | 'question'
@@ -21,6 +22,7 @@ export type GuestLineKind =
   | 'off_topic'
   | 'noise';
 
+/** The decision slots a guest line can cover: the call, the catch, or a practical detail. */
 export type DecisionSlotName = 'action' | 'catchAddressed' | 'practical';
 
 /** One decision slot the guest may have covered, with the guest's own words as evidence. */
@@ -31,6 +33,7 @@ interface DecisionSlot {
   revises?: boolean;
 }
 
+/** Whether the guest's line covered each decision slot it could be asked about. */
 export interface GuestReadiness {
   action: DecisionSlot;
   catchAddressed: DecisionSlot;
@@ -68,6 +71,7 @@ interface GuestReaderColleague {
   catches: readonly { id: string; idea: string; text: string }[];
 }
 
+/** Everything the reader is given about one guest line and the topic it lands on. */
 export interface GuestReaderInput {
   topic: GuestReaderTopic;
   openQuestion?: { from: string; to?: string; text: string };
@@ -87,6 +91,7 @@ export interface GuestReaderInput {
   line: string;
 }
 
+/** The model stream and timing limits the guest reader runs under. */
 export interface GuestReaderPorts {
   stream(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
   fallbackStream?(messages: ChatMessage[], signal: AbortSignal): AsyncIterable<string>;

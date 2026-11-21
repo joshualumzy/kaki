@@ -21,12 +21,14 @@ const RUNNER_ROLE_COMMANDS = new Set([
   'RETRY_ACTION',
 ]);
 
+/** True when the runner's connection for this audience may send the command. */
 export function runnerMaySend(audience: ClientAudience, commandType: string): boolean {
   if (audience.kind === 'screen') return RUNNER_SCREEN_COMMANDS.has(commandType);
   if (audience.kind !== 'role') return false;
   return RUNNER_ROLE_COMMANDS.has(commandType);
 }
 
+/** The rejection event for a command this audience may not send, aimed back at that audience. */
 export function rejectionFor(
   audience: ClientAudience,
   commandType: string,

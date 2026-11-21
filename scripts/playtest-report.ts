@@ -2,6 +2,7 @@
 
 export type CheckStatus = 'PASS' | 'WARN' | 'FAIL' | 'NOT EXERCISED';
 
+/** One named check in a playtest report, with its status, detail and optional screenshot. */
 export type PlaytestCheck = {
   at: string;
   name: string;
@@ -21,6 +22,7 @@ interface CheckSummary {
   notExercised: number;
 }
 
+/** Counts a run's failures, warnings and unexercised checks and gives the overall result. */
 export function summarizeChecks(checks: readonly Pick<PlaytestCheck, 'status'>[]): CheckSummary {
   const result = checks.some((item) => item.status === 'FAIL') ? 'FAIL' : 'PASS';
   const warnings = checks.filter((item) => item.status === 'WARN').length;

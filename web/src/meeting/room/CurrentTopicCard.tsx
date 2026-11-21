@@ -9,6 +9,7 @@ import {
 } from '@kaki/shared';
 import type { TranscriptViewer } from './captions';
 
+/** A fact-found event, the event the current-topic card reads facts from. */
 export type FactEvent = Extract<KakiEvent, { type: 'FACT_FOUND' }>;
 
 function sourceBadgeText(source: string): string {

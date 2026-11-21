@@ -99,6 +99,7 @@ export function draftSourceText(
     .join('\n');
 }
 
+/** Lists the meeting facts a draft must treat as already true, or an empty string when there are none. */
 export function memorySourceBlock(memory: readonly MeetingMemoryEntry[] = []): string {
   return memory.length === 0 ? '' : `\n\nAlready true in this meeting:\n${memory.map((entry) =>
     `${entry.kind === 'decision' ? `Decision on ${entry.item}` : entry.item}: ${entry.text}`).join('\n')}`;

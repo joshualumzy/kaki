@@ -1,5 +1,6 @@
 /** Results this short are the ones Azure invents from room noise ("You know.", "Dislocation."). */
 const SHORT_RESULT_WORDS = 4;
+/** The confidence a short speech result needs before it is kept. */
 export const DEFAULT_MIN_CONFIDENCE = 0.6;
 const MULTI_WORD_MIN_CONFIDENCE = 0.34;
 

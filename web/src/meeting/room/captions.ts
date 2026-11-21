@@ -96,6 +96,7 @@ export function textOnlyNote(
  */
 const CUT_MARK = '…';
 
+/** Shows a partly heard line as the words that were heard followed by an ellipsis. */
 export function cutLineText(text: string): string {
   const trimmed = text.trim();
   return trimmed.length === 0 ? CUT_MARK : `${trimmed} ${CUT_MARK}`;

@@ -85,6 +85,7 @@ function actionStepRank(task: Task): number {
   }
 }
 
+/** The two task cards that need this role now, with the action that moves each one on. */
 export function ActiveRoleCards({
   role,
   viewer,

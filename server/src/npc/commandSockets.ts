@@ -18,6 +18,7 @@ interface Entry {
   closing: boolean;
 }
 
+/** The runner's command socket settings: where to connect, how to log, retry and fence queued commands. */
 export interface CommandSocketsOptions {
   baseUrl: string;
   token?: string | undefined;

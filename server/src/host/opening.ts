@@ -115,6 +115,7 @@ function topicHandover(
   };
 }
 
+/** Rewrites a headline agenda title into a phrase that reads naturally when spoken. */
 export function cleanSpokenTopic(title: string): string {
   return title
     .replace(/^@/, '')

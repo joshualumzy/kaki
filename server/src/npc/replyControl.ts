@@ -1,5 +1,6 @@
 import { ACTION_KINDS, type ActionKind } from '@kaki/shared';
 
+/** State a reply line can set: open, settled or deferred, plus any card, tip or reactions it carries. */
 export interface ReplyControl {
   state: 'open' | 'settled' | 'deferred';
   followUp?: { kind: ActionKind; title: string };
@@ -14,13 +15,16 @@ export interface ReplyControl {
 const REACTION_EMOJIS = ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'] as const;
 type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
+/** The control an ordinary reply starts with: open, with no Wingman needed. */
 export const OPEN_REPLY_CONTROL: ReplyControl = { state: 'open', wingmanNeeded: false };
 const CONTROL_HEADER = /^KAKI_CONTROL(?:\s+|$)/u;
 
+/** True when the trimmed line begins with the control header. */
 export function isReplyControlLine(line: string): boolean {
   return CONTROL_HEADER.test(line.trimStart());
 }
 
+/** True when the line is a prefix of the control header, so a partial first line is not spoken. */
 export function couldBeReplyControlLine(line: string): boolean {
   const head = line.trimStart();
   return 'KAKI_CONTROL'.startsWith(head) || isReplyControlLine(head);

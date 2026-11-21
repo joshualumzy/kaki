@@ -30,6 +30,7 @@ function baseUrl({ url }: MattermostSettings): string {
   return url.replace(/\/+$/, '');
 }
 
+/** Checks the saved token belongs to a live Mattermost user. */
 export async function probeMattermost(
   settings: MattermostSettings,
   fetchImpl: typeof fetch = fetch,

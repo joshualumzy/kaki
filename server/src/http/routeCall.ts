@@ -23,6 +23,7 @@ export interface StartOutcome {
   body: Record<string, unknown>;
 }
 
+/** Everything a route handler may use: the live meeting, auth, tools and the operations that change it. */
 export interface RequestContext {
   hub: Hub;
   tasks: TaskStore;
@@ -117,6 +118,7 @@ export interface RouteCall {
   principal: Principal;
 }
 
+/** A route handler: it writes the response for one matched and authorised request. */
 export type RouteHandler = (call: RouteCall) => Promise<void>;
 
 /** A route table entry: the access declaration plus the handler that serves it. */
@@ -124,6 +126,7 @@ export interface RoutedRoute extends Route {
   handle: RouteHandler;
 }
 
+/** The largest request body the JSON-reading routes accept, in bytes. */
 export const MAX_BODY_BYTES = 1_000_000;
 
 /**

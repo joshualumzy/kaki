@@ -4,8 +4,10 @@ export type MeetingMemoryEntry =
   | { kind: 'invented'; item: string; text: string }
   | { kind: 'saidAloud'; item: string; text: string };
 
+/** The most facts one meeting may remember before the oldest are dropped. */
 export const MEETING_MEMORY_LIMIT = 40;
 
+/** True when the value is a saved fact list within the limit and naming known agenda items. */
 export function isMeetingMemoryEntries(value: unknown, agendaTitles: readonly string[]): value is MeetingMemoryEntry[] {
   return Array.isArray(value) && value.length <= MEETING_MEMORY_LIMIT && value.every((entry) =>
     typeof entry === 'object' && entry !== null && !Array.isArray(entry) &&

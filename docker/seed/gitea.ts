@@ -321,6 +321,7 @@ async function ensureIssues(env: Env, token: string, repo: string, seed: GiteaSe
   }
 }
 
+/** Creates the admin, team users, org, repository, labels and issues, returning the repo name and token. */
 export async function seedGitea(env: Env, seed: GiteaSeed, organisation: string): Promise<{ repo: string; token: string }> {
   const basic = await ensureAdmin(env);
   ensureTeamUsers(env);

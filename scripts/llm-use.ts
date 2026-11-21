@@ -244,6 +244,7 @@ export function applyLlmUse(envPath: string, mode: LlmMode): LlmUseResult {
   return result;
 }
 
+/** The operator-facing lines saying which LLM routing is now in force. */
 export function formatLlmUseResult(result: LlmUseResult): string {
   const lines = [
     result.changed
@@ -256,6 +257,7 @@ export function formatLlmUseResult(result: LlmUseResult): string {
   return lines.join('\n');
 }
 
+/** Reads the school or direct mode and optional --env path from the command line. */
 export function parseLlmUseArgs(argv: string[]): { mode: LlmMode; envPath?: string } {
   let mode: LlmMode | undefined;
   let envPath: string | undefined;

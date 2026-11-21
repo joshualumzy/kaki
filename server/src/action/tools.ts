@@ -37,6 +37,7 @@ interface ActionToolStatus {
   missing: string[];
 }
 
+/** Overrides for action tool handling; tests pass a fake environment, fetch or mail transport. */
 export interface ActionToolOptions {
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
@@ -75,12 +76,14 @@ function envFor<K extends ActionKind>(
   return values as Record<(typeof ACTION_ENV_REQUIREMENTS)[K][number], string>;
 }
 
+/** The Gitea settings from the environment, or undefined when a required value is missing. */
 export function giteaFromEnv(env: NodeJS.ProcessEnv = process.env): GiteaSettings | undefined {
   const values = envFor('gitea_issue', env);
   if (values === undefined) return undefined;
   return { url: values.GITEA_URL, token: values.GITEA_TOKEN, owner: values.GITEA_ORG, repo: values.GITEA_REPO };
 }
 
+/** The Mattermost settings from the environment, or undefined when a required value is missing. */
 export function mattermostFromEnv(env: NodeJS.ProcessEnv = process.env): MattermostSettings | undefined {
   const values = envFor('mattermost_post', env);
   if (values === undefined) return undefined;
@@ -92,6 +95,7 @@ export function mattermostFromEnv(env: NodeJS.ProcessEnv = process.env): Matterm
   };
 }
 
+/** The mail settings from the environment, or undefined when a required value or valid port is missing. */
 export function emailFromEnv(env: NodeJS.ProcessEnv = process.env): EmailSettings | undefined {
   const values = envFor('email', env);
   if (values === undefined) return undefined;
@@ -100,12 +104,14 @@ export function emailFromEnv(env: NodeJS.ProcessEnv = process.env): EmailSetting
   return { smtpHost: values.MAILPIT_SMTP_HOST, smtpPort, from: values.EMAIL_FROM, mailpitUrl: values.MAILPIT_URL };
 }
 
+/** The wiki settings from the environment, or undefined when a required value is missing. */
 export function wikiFromEnv(env: NodeJS.ProcessEnv = process.env): WikiSettings | undefined {
   const values = envFor('wiki_page', env);
   if (values === undefined) return undefined;
   return { url: values.WIKI_URL, email: values.WIKI_ADMIN_EMAIL, password: values.WIKI_ADMIN_PASSWORD };
 }
 
+/** The calendar settings from the environment, with the public view URL, or undefined without a CalDAV address. */
 export function calendarFromEnv(env: NodeJS.ProcessEnv = process.env): CalendarSettings | undefined {
   const values = envFor('calendar_event', env);
   if (values === undefined) return undefined;
@@ -113,6 +119,7 @@ export function calendarFromEnv(env: NodeJS.ProcessEnv = process.env): CalendarS
   return { caldavUrl: values.CALDAV_URL, viewBaseUrl };
 }
 
+/** The required setting names each unconfigured action tool is missing, keyed by kind. */
 export function missingActionEnv(env: NodeJS.ProcessEnv = process.env): Partial<Record<ActionKind, string[]>> {
   const missing: Partial<Record<ActionKind, string[]>> = {};
   for (const kind of ACTION_TOOL_KINDS) {
@@ -122,6 +129,7 @@ export function missingActionEnv(env: NodeJS.ProcessEnv = process.env): Partial<
   return missing;
 }
 
+/** Every action tool with its label and whether its settings are complete. */
 export function actionToolStatus(env: NodeJS.ProcessEnv = process.env): ActionToolStatus[] {
   return ACTION_TOOL_KINDS.map((kind) => {
     const missing = missingNames(kind, env);
@@ -129,10 +137,12 @@ export function actionToolStatus(env: NodeJS.ProcessEnv = process.env): ActionTo
   });
 }
 
+/** True when the value names an action tool kind. */
 export function isActionToolKind(value: string): value is ActionKind {
   return (ACTION_TOOL_KINDS as readonly string[]).includes(value);
 }
 
+/** Checks one action tool with its saved settings, without drafting anything. */
 export async function probeActionTool(
   kind: ActionKind,
   {

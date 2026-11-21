@@ -11,6 +11,7 @@ function scenarioText(value: unknown, into: string[] = []): string[] {
   return into;
 }
 
+/** The facts a meeting has established, reported to the server whenever they change. */
 export class MeetingMemory {
   private entries: MeetingMemoryEntry[] = [];
   private readonly reopened = new Set<string>();

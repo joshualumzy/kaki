@@ -11,6 +11,7 @@ import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 
 type RobotDecisionModel = Pick<LlmClient, 'complete'>;
 
+/** What the scripted robot knows when it makes its call on a topic. */
 export interface RobotDecisionRequest {
   scenario: Scenario;
   role: string;

@@ -1,7 +1,9 @@
 /** Behaviour switches and browser-free checks for the AI-guest live playtest personas. */
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../server/src/services/llm';
 
+/** The personas whose live behaviour changes as well as their wording. */
 export const BEHAVIOURS = ['silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
+/** One live-meeting behaviour a persona can run. */
 export type Behaviour = (typeof BEHAVIOURS)[number];
 
 /** Personas that also change how the robot behaves, not only how it words a line. */
@@ -12,6 +14,7 @@ const PERSONA_BEHAVIOURS: Readonly<Record<string, Behaviour | undefined>> = {
   rejoin: 'rejoin',
 };
 
+/** The behaviour a persona name turns on, or undefined for a plain scripted guest. */
 export function behaviourForPersona(persona: string): Behaviour | undefined {
   return PERSONA_BEHAVIOURS[persona];
 }

@@ -22,6 +22,7 @@ export interface VadOptions {
   leakCap: number;
 }
 
+/** The voice detector's default levels and timings. */
 export const DEFAULT_VAD_OPTIONS: VadOptions = {
   minLevel: 0.015,
   guardedMinLevel: 0.02,

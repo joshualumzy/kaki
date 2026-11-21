@@ -17,6 +17,7 @@ import { createWikiModule } from './wiki';
 
 export { calendarFromEnv, missingActionEnv } from './tools';
 
+/** Logs at startup which action tools are unconfigured and what they are missing. */
 export function logMissingActionConfig(env: NodeJS.ProcessEnv = process.env): void {
   const entries = Object.entries(missingActionEnv(env)) as Array<[ActionKind, string[]]>;
   if (entries.length === 0) return;
@@ -29,6 +30,7 @@ export function logMissingActionConfig(env: NodeJS.ProcessEnv = process.env): vo
 
 const llm = llmFromEnv();
 
+/** The action modules the server runs, one per tool, built from the environment. */
 export const actionModules: KakiModule[] = [
   createGiteaModule({
     llm,

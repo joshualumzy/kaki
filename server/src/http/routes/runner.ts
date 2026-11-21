@@ -3,6 +3,7 @@ import { CommandError } from '../../core/hub';
 import { MAX_BODY_BYTES, type RouteCall } from '../routeCall';
 import { readJsonBody, sendJson } from '../http';
 
+/** Accepts one demo event onto the hub, keeping transcript and reactions live-only and retaining the rest. */
 export async function handleEmit(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   const body = await readJsonBody(request, MAX_BODY_BYTES);
@@ -34,6 +35,7 @@ export async function handleEmit(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Accepts the runner's transcribed or typed human line and writes it through the server's one transcript writer. */
 export async function handleHumanLine(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   // The default server-side recogniser hears the person on the runner's echo-cancelled track.
@@ -106,6 +108,7 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Accepts a task suggestion from the runner and returns the card the task store created. */
 export async function handleSuggestTask(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   const body = await readJsonBody(request, MAX_BODY_BYTES);
@@ -121,6 +124,7 @@ export async function handleSuggestTask(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Replaces the meeting memory with a validated runner-supplied fact list. */
 export async function handleMeetingMemory(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   const body = await readJsonBody(request, MAX_BODY_BYTES);
@@ -133,6 +137,7 @@ export async function handleMeetingMemory(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Creates the follow-up for a locked decision and releases the topic in one request. */
 export async function handleSettleTopic(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   // The live demo's engine locked the visitor's decision on an agenda item: create its follow-up and release

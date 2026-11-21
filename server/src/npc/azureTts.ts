@@ -6,6 +6,7 @@ interface VoiceSpec { voice: string; pitch?: string; rate?: string; lang?: strin
 
 const VOICE_SPEC_PARAMS = new Set(['pitch', 'rate', 'lang']);
 
+/** Splits a voice name from its optional pitch, rate and language settings, rejecting unknown settings. */
 export function parseVoiceSpec(spec: string): VoiceSpec {
   const [voice, query] = spec.split('?', 2);
   if (query === undefined) return { voice: spec };

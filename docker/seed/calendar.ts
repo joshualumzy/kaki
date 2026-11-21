@@ -26,6 +26,7 @@ export function buildSeedInvite(seed: ScenarioSeed): MeetingInvite {
   };
 }
 
+/** The calendar event text for the seeded meeting invite. */
 export function buildSeedInviteIcs(seed: ScenarioSeed): string {
   return buildMeetingInviteIcs(buildSeedInvite(seed), {
     start: '2026-11-11 07:30',

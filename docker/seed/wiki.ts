@@ -218,6 +218,7 @@ function syncWikiDemoAdmin(env: Env): void {
   }
 }
 
+/** Completes Wiki.js setup when needed, then writes the scenario pages and removes stale ones. */
 export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
   await waitFor('Wiki.js', async () => {
     const root = await request(`${env.WIKI_URL}/`, {}, 'Wiki.js setup page');

@@ -3,12 +3,15 @@ import { parseJsonReply, type ChatMessage, type LlmClient } from '../services/ll
 import type { AnswerCandidate } from './notetakerQuestions';
 import type { ResolvedTaskCandidate } from './notetakerTasks';
 
+/** The verifier's judgement of one candidate: supported, not supported, or not decidable from the line. */
 export type Verdict = 'yes' | 'no' | 'unclear';
+/** The verifier's verdict for one task and the role it says owns the work. */
 export interface TaskVerdict {
   verdict: Verdict;
   assigneeRole: Role | null;
 }
 
+/** The verifier's verdicts for all answer and task candidates, plus the issues it could not decide. */
 export interface VerifierResult {
   answers: Map<string, Verdict>;
   tasks: Map<number, TaskVerdict>;

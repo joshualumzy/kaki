@@ -29,6 +29,7 @@ interface MmToken {
   token?: string;
 }
 
+/** A post as Mattermost returns it, used to spot posts the seed already made. */
 export interface MmPost {
   id: string;
   message: string;
@@ -49,6 +50,7 @@ interface PostPlan {
 
 type Parent = { kind: 'root' } | { kind: 'existing'; id: string } | { kind: 'new' };
 
+/** Works out which seeded posts already exist and which stale posts to delete. */
 export function planPosts(
   existingByChannel: Map<string, MmPost[]>,
   posts: MattermostPostSeed[],
@@ -421,6 +423,7 @@ async function syncDemoPasswords(env: Env, token?: string): Promise<void> {
   }
 }
 
+/** Creates the team, users, channels and posts, returning the admin token other seeders use. */
 export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<string> {
   await waitFor('Mattermost', async () => {
     const response = await request(`${env.MATTERMOST_URL}/api/v4/system/ping`, {}, 'Mattermost ping');

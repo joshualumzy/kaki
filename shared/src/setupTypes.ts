@@ -41,6 +41,7 @@ export interface MeetingPace {
   comingUpBefore: number;
 }
 
+/** Where each setup field's value came from, so the screen can label it. */
 export interface MeetingSetupSources {
   title: SetupSource;
   agenda: SetupSource;
@@ -67,11 +68,13 @@ export interface SetupFieldError {
   message: string;
 }
 
+/** The longest a single agenda item may be, in minutes. */
 export const MAX_AGENDA_MINUTES = 240;
 
 /** A team or organisation name is kept short enough to say and show beside the title. */
 export const MAX_ORGANISATION_LENGTH = 120;
 
+/** The pace used before the owner sets their own on the setup screen. */
 export const DEFAULT_MEETING_PACE: MeetingPace = {
   ownerQuietBelow: 30,
   quietCheckAfter: 120,

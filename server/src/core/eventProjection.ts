@@ -1,6 +1,7 @@
 import type { KakiEvent, Task } from '@kaki/shared';
 import { audienceRole, type ClientAudience } from './audience';
 
+/** True when an event belongs in this audience's feed. */
 export function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
   // A lifecycle feed is read-only and only carries the meeting's start/reset/restore state.
   if (audience.kind === 'lifecycle') {

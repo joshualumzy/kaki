@@ -9,6 +9,7 @@ interface State {
   error?: Error;
 }
 
+/** Shows the error instead of a blank page when a child component throws. */
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false

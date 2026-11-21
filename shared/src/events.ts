@@ -204,6 +204,7 @@ function isFact(value: unknown): value is Fact {
   return isObject(value) && isString(value.text) && isString(value.source) && isString(value.date);
 }
 
+/** True when a saved review issue has the id, text and agenda index the board expects. */
 export function isReviewIssue(value: unknown): value is ReviewIssue {
   return (
     isObject(value) &&

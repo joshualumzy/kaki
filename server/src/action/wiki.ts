@@ -177,6 +177,7 @@ async function wikiGraphqlBody(
   }
 }
 
+/** Checks the saved wiki login works and a page list can be read. */
 export async function probeWiki(
   settings: WikiSettings,
   fetchImpl: typeof fetch = fetch,

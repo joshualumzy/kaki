@@ -17,8 +17,10 @@ interface RoomReply {
   kind: RoomReplyKind;
 }
 
+/** The model the room reply needs: one completion call. */
 export type RoomReplyModel = Pick<LlmClient, 'complete'>;
 
+/** What the room reply model is given: the scenario, seat, topic, transcript and fresh lines. */
 export interface RoomReplyRequest {
   scenario: Scenario;
   role: string;
@@ -33,6 +35,7 @@ export interface RoomReplyRequest {
   robotLineCount: number;
 }
 
+/** The room reply decision plus any warning when the model failed and the backstop answered. */
 export interface RoomReplyOutcome extends RoomReply {
   /** Set when the model failed and the logged canned backstop supplied the reply. */
   warning?: string;

@@ -13,14 +13,18 @@ interface ToolProbeFailure {
   message: string;
 }
 
+/** A tool connection check: either a success detail or a problem and a message for the person. */
 export type ToolProbeResult = ToolProbeSuccess | ToolProbeFailure;
 
+/** How long a tool probe waits for an answer before calling it a timeout. */
 export const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 
+/** A successful probe result with the detail shown to the person. */
 export function probeOk(detail: string): ToolProbeSuccess {
   return { ok: true, detail };
 }
 
+/** A failed probe result with the problem kind and the message shown to the person. */
 export function probeFailed(problem: ToolProblem, message: string): ToolProbeFailure {
   return { ok: false, problem, message };
 }
@@ -40,6 +44,7 @@ type ProbeFetchOutcome =
   | { ok: true; response: Response }
   | { ok: false; result: ToolProbeFailure };
 
+/** Runs a probe request, turning a timeout or transport failure into a failure result. */
 export async function probeFetch(
   fetchImpl: typeof fetch,
   url: string,
@@ -60,6 +65,7 @@ export async function probeFetch(
   }
 }
 
+/** The failure for a non-OK probe response, naming rejected credentials separately. */
 export function responseProblem(response: Response, subject: string): ToolProbeFailure {
   if (isAuthFailure(response.status)) {
     return probeFailed('auth failed', `${subject} rejected the saved credentials (HTTP ${response.status}).`);

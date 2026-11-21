@@ -7,6 +7,7 @@ const SOURCE_LABELS: Record<SetupSource, string> = {
   typed: 'Typed',
 };
 
+/** A small tag saying where a setup field's value came from. */
 export function SourceLabel({ source }: { source: SetupSource }) {
   return (
     <span className="setup-source" data-source={source}>
@@ -39,6 +40,7 @@ function formatMinutes(minutes: number): string {
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
 }
 
+/** Spells a duration in whole minutes and seconds, leaving out zero parts. */
 export function formatSeconds(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;

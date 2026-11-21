@@ -25,6 +25,7 @@ export interface OpenQuestion {
   procedural?: boolean;
 }
 
+/** The compact transcript view a prompt gets for the current topic. */
 export interface TopicPromptView {
   /** Lines older than the latest {@link TOPIC_RECENT_LINES}, clipped to their opening words. */
   earlier: TopicLine[];
@@ -38,6 +39,7 @@ function firstWords(text: string, count: number): string {
   return words.length <= count ? words.join(' ') : `${words.slice(0, count).join(' ')}…`;
 }
 
+/** The lines and open question on the current topic, trimmed for prompt use. */
 export class TopicRecord {
   private topic: string | undefined;
   private lines: TopicLine[] = [];

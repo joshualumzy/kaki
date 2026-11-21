@@ -7,6 +7,7 @@ import type { IncomingMessage } from 'node:http';
  */
 type Access = 'public' | 'session' | 'host' | 'host-or-practice' | 'seat' | 'service' | 'dev';
 
+/** The access levels a route may declare, as setup and tests enumerate them. */
 export const ACCESS_LEVELS: readonly Access[] = [
   'public',
   'session',

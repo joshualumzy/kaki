@@ -7,6 +7,7 @@ export const MEETING_CODE_RATE_LIMIT_MESSAGE =
 
 /** Wrong codes allowed per address in one window. */
 export const MEETING_CODE_FAILURE_LIMIT = 5;
+/** How long one meeting-code attempt window lasts, in milliseconds. */
 export const MEETING_CODE_WINDOW_MS = 60_000;
 
 /** Uppercase letters and digits without look-alikes such as I/O/0/1. */

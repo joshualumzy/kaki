@@ -46,6 +46,7 @@ interface RunnerClientOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** Builds the HTTP client the runner uses to post human lines and follow-ups to the server. */
 export function createRunnerClient({
   baseUrl,
   serviceToken,

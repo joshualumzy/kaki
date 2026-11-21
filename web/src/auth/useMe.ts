@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchMe, type Me } from './api';
 
+/** The sign-in check's state: still loading, failed with a message, or the signed-in person. */
 export type MeState =
   | { status: 'loading' }
   | { status: 'error'; message: string }

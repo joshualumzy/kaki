@@ -100,6 +100,7 @@ const ASK_GIVE_UP_MS = 45_000;
 
 /** A topic still open after this many lines from the visitor, or this long, gets one offer from the host to lock in what they said. */
 const DEFAULT_TOPIC_TURN_BUDGET = 12;
+/** How long a topic may stay open before the host offers to lock in what was said. */
 export const DEFAULT_TOPIC_TIME_BUDGET_MS = 180_000;
 /** How long the host waits for an answer to that offer before asking once more, and then before locking it in. */
 const DEFAULT_BUDGET_SILENCE_MS = 20_000;
@@ -414,6 +415,7 @@ function namesColleague(text: string, names: readonly string[]): boolean {
   });
 }
 
+/** Timing and budget overrides for the AI conversation, with the scenario it plays. */
 export interface ConversationOptions {
   topicTurnBudget?: number;
   topicTimeBudgetMs?: number;

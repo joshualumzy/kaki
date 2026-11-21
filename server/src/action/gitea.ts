@@ -45,6 +45,7 @@ function issueEndpoint({ url, owner, repo }: GiteaSettings): string {
   return `${url.replace(/\/+$/, '')}/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`;
 }
 
+/** Checks the saved token signs in to Gitea and returns the account name. */
 export async function probeGitea(
   settings: GiteaSettings,
   fetchImpl: typeof fetch = fetch,

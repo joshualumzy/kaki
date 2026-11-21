@@ -192,4 +192,5 @@ export function createNudgeModule(options: NudgeModuleOptions = {}): KakiModule 
   };
 }
 
+/** The Wingman module that sends quiet-owner and coming-up nudges on the meeting pace. */
 export const nudgeModule = createNudgeModule();

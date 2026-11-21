@@ -199,6 +199,7 @@ interface RunnerPrepareRequest extends RunnerStartState {
   snapshot?: RunnerMeetingSnapshot;
 }
 
+/** The host-side AI runner the server calls to speak, move the agenda and settle tasks. */
 export interface NpcRunner {
   /**
    * The host character says `text` aloud when the person is in the room and it is quiet (dropped if nobody is there).

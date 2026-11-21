@@ -2,6 +2,7 @@
 import { catchPosition, type AgendaItem } from '@kaki/shared';
 import { spokenTopicLead } from '../server/src/host/opening';
 
+/** One transcript utterance and the catch id when it raises a scenario catch. */
 export interface UtteranceRecord {
   speaker: string;
   text: string;
@@ -16,12 +17,14 @@ interface VisitorSeat {
   seat?: string;
 }
 
+/** One Wingman tip as the dialogue check sees it. */
 export interface WingmanTip {
   tip: string;
   title: string;
   agendaIndex: number;
 }
 
+/** A catch the transcript shows was said aloud. */
 export interface EmittedCatch {
   speaker: string;
   text: string;
@@ -39,6 +42,7 @@ const BANNED_PATTERNS = [
   { re: /\bpulling (?:our )?counter staff off the line to hand-deliver\b/i, reason: 'Argued against a phantom proposal to pull counter staff to hand-deliver' },
 ];
 
+/** Lists dialogue problems for one agenda item, such as banned phrases, long sentences or a missing briefing turn. */
 export function checkTranscriptQuality(
   item: AgendaItem,
   transcript: UtteranceRecord[],

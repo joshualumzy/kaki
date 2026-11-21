@@ -10,6 +10,7 @@
 import type { AgendaItem } from '@kaki/shared';
 import type { GuestReading } from './guestReader';
 
+/** The steps of one topic, from the handover to the follow-up card. */
 export type MeetingPhase =
   | 'handover'
   | 'brief'
@@ -92,6 +93,7 @@ export interface HeardLine {
   reading?: GuestReading;
 }
 
+/** One briefing fact with whether the room heard it and from whom. */
 export interface MeetingFactView {
   id: string;
   text: string;
@@ -101,6 +103,7 @@ export interface MeetingFactView {
   eventId?: string;
 }
 
+/** One trade-off catch with whether it has been raised. */
 export interface MeetingCatchView {
   id: string;
   attendee: string;
@@ -118,6 +121,7 @@ interface MeetingOffer {
   spoken?: string;
 }
 
+/** The derived state of the current topic that the planner decides from. */
 export interface MeetingView {
   topic: string | undefined;
   phase: MeetingPhase;
@@ -549,6 +553,7 @@ function derive(
   };
 }
 
+/** Records heard line events per topic and serves the derived view the planner reads. */
 export class MeetingState {
   private readonly topics = new Map<string, MeetingTopicInfo>();
   private readonly ledgers = new Map<string, Ledger>();

@@ -29,6 +29,7 @@ const BASE = (process.env.KAKI_PLAYTEST_URL ?? 'http://localhost:5173').replace(
 const BASE_ORIGIN = new URL(BASE).host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const LOG_DIR = '.live-logs';
 type Check = PlaytestCheck;
+/** One transcript line as the playtest reads it from the meeting event stream. */
 export type Line = {
   at: string; agendaIndex: number; speaker: string; text: string; sourceTime: string;
   /** A server-marked host gate, so a lock-in offer does not need phrase matching. */
@@ -37,8 +38,11 @@ export type Line = {
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
 
 type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean; act?: boolean };
+/** What the guest is told before it answers: the scenario, its seat, the topic and the transcript so far. */
 export type AnswerContext = { scenario: Scenario; role: string; topicTitle: string; transcript: Line[]; intent: string };
+/** What a run hands its hooks at the end: the scenario, full transcript and the topics that were played. */
 export type FinishContext = { scenario?: Scenario; transcript: Line[]; playedTopics: number[] };
+/** The pluggable guest behind a playtest: it answers lines and produces the final report. */
 export type PlaytestHooks = {
   answer(context: AnswerContext): Promise<string>;
   finish(context: FinishContext): Promise<{ reportLines: string[]; summaryLines: string[] }>;
@@ -80,6 +84,7 @@ function isRobotSpeaker(speaker: string): boolean {
   return isRobotSpeakerName(speaker, robotSpeaker);
 }
 
+/** Drives one browser through the meeting, answers as the guest and writes a playtest report. */
 export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHooks | undefined, roomReply: RoomReplyModel): Promise<{ reportPath: string; passed: boolean; summaryLines: string[] }> {
   const startedAt = new Date();
   const stem = `playtest-${startedAt.toISOString().replace(/[:.]/g, '-')}`;

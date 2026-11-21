@@ -7,7 +7,9 @@ import { behaviourForPersona, reversalLine, type Behaviour } from './playtest-be
 import { guestIdentity, topicContext, transcriptText } from './visitor-context';
 import { pathToFileURL } from 'node:url';
 
+/** The guest personas the AI playtest can run. */
 export const PERSONAS = ['hesitant', 'terse', 'off-topic', 'inventive', 'delegator', 'silent', 'interrupter', 'flip-flop', 'rejoin'] as const;
+/** One scripted guest personality the AI playtest drives. */
 export type Persona = typeof PERSONAS[number];
 type Score = { score: number; reason: string };
 type Judgement = {
@@ -42,6 +44,7 @@ const personaDirections: Record<Persona, string> = {
   rejoin: 'Step out briefly after the first decision, then come back and carry on as if you never left.',
 };
 
+/** The messages that ask the model for the visitor's next spoken line. */
 export function visitorPrompt(persona: Persona, context: AnswerContext): ChatMessage[] {
   const topic = topicContext(context.scenario, context.role, context.topicTitle);
   return [
@@ -50,6 +53,7 @@ export function visitorPrompt(persona: Persona, context: AnswerContext): ChatMes
   ];
 }
 
+/** The messages that ask the model to score the finished meeting against the scenario canon. */
 export function judgePrompt(context: FinishContext): ChatMessage[] {
   if (context.scenario === undefined) throw new Error('AI judge needs the session scenario');
   const scenario = context.scenario;
@@ -77,6 +81,7 @@ Every line must quote an actual transcript line exactly. Return only JSON: {"nat
   ];
 }
 
+/** Reads the judge's JSON, checking every score and quoted line against the transcript. */
 export function parseJudgement(text: string, transcript: Line[]): Judgement {
   let value: unknown;
   try { value = parseJsonReply(text); } catch { throw new Error('AI judge returned malformed JSON'); }
@@ -113,6 +118,7 @@ export function parseJudgement(text: string, transcript: Line[]): Judgement {
   return { natural: scoreOf('natural'), dynamic: scoreOf('dynamic'), fun: scoreOf('fun'), realistic: scoreOf('realistic'), contradictions, unsupported, toneBreaches };
 }
 
+/** A playtest guest that answers as one persona and scores the finished meeting with a separate judge model. */
 export class AiVisitor implements PlaytestHooks {
   visitorCalls = 0;
   judgeCalls = 0;
@@ -200,6 +206,7 @@ function parseOptions(argv: string[]): { persona: Persona | 'all'; phone: boolea
   return { persona, phone, maxMinutes };
 }
 
+/** CLI entry that runs one persona or all of them against the live stack and reports the scores. */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseOptions(argv);
   const env = process.env;

@@ -64,6 +64,7 @@ export function storeJoin(variant: string, join: StoredJoin): void {
   }
 }
 
+/** Forgets this browser's remembered join for the given meeting kind. */
 export function clearStoredJoin(variant: string): void {
   try {
     storage()?.removeItem(storageKey(variant));
@@ -103,6 +104,7 @@ export function formatGraceRemaining(remainingMs: number): string {
  */
 type DisconnectOutcome = { kind: 'rejoin' } | { kind: 'none' } | { kind: 'ended'; message: string };
 
+/** What a LiveKit disconnect means for this person, and whether an automatic rejoin is right. */
 export function disconnectOutcome(reason: DisconnectReason | undefined): DisconnectOutcome {
   switch (reason) {
     case DisconnectReason.CLIENT_INITIATED:

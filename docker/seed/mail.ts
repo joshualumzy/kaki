@@ -3,6 +3,7 @@ import type { Env } from './env';
 import { jsonRequest, request, waitFor } from './http';
 import type { MailMessageSeed } from './scenario';
 
+/** Clears Mailpit and delivers the scenario emails through its SMTP endpoint. */
 export async function seedMail(env: Env, emails: MailMessageSeed[]): Promise<void> {
   await waitFor('Mailpit', async () => {
     const response = await request(`${env.MAILPIT_URL}/api/v1/info`, {}, 'Mailpit info');

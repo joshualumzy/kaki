@@ -39,6 +39,7 @@ interface PracticeGrant {
   generation?: number;
 }
 
+/** Choices a meeting reset may make about seat shaping, identity, code and saved state. */
 export interface MeetingSessionResetOptions {
   /** Shape an untouched draft's agenda for this seat; omitted uses the deterministic person seat. */
   seat?: string;
@@ -82,6 +83,7 @@ interface MeetingSessionDeps {
   persistence?: Pick<MeetingPersistence, 'replaceSaved'>;
 }
 
+/** The one owner of the meeting lifecycle, identity, draft and seal that routes and modules read. */
 export interface MeetingSession {
   /** The one lifecycle state: lobby, starting, running or ended. */
   phase(): MeetingPhase;
@@ -163,6 +165,7 @@ export interface MeetingSession {
   restore(saved: StoredMeeting): void;
 }
 
+/** Builds the meeting session from its dependencies and any saved meeting to restore. */
 export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
   let generation = 0;
   let phase: MeetingPhase = 'lobby';

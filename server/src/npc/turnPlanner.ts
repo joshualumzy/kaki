@@ -9,6 +9,7 @@ import type { GuestReadiness, GuestReading } from './guestReader';
 
 type SpeakPurpose = 'handover' | 'brief' | 'answer' | 'catch' | 'invite' | 'confirm' | 'clarify' | 'defer';
 
+/** The planner's decision to have one speaker say a line for a given purpose. */
 export interface SpeakDecision {
   kind: 'Speak';
   speaker: string;
@@ -35,6 +36,7 @@ interface WaitDecision {
   allowedSilence?: boolean;
 }
 
+/** The planner's decision to confirm the guest's acceptance before committing. */
 export interface ConfirmDecision {
   kind: 'ConfirmDecision';
   reason: string;
@@ -81,6 +83,7 @@ interface AdvanceDecision {
   reason: string;
 }
 
+/** Every next action the planner may choose for the room. */
 export type PlannerDecision =
   | SpeakDecision
   | WaitDecision

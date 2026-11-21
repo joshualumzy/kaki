@@ -27,6 +27,7 @@ function clientOptions(env: Env) {
   };
 }
 
+/** Waits for Postgres, then loads the scenario schema and data in one transaction. */
 export async function seedPostgres(env: Env, seed: ScenarioSeed): Promise<void> {
   let client: Client | undefined;
   let lastError: unknown;

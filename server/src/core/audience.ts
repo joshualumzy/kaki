@@ -31,6 +31,7 @@ export function audienceLabel(audience: ClientAudience): string {
   return audience.kind === 'role' ? audience.role : audience.kind;
 }
 
+/** Reads the requested audience from a socket URL, or undefined when the request is malformed. */
 export function audienceFor(scenario: Scenario, url: URL): ClientAudience | undefined {
   const rawAudience = url.searchParams.get('audience');
   const rawRole = url.searchParams.get('role');

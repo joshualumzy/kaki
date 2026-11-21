@@ -2,12 +2,14 @@ import type { MeetingSetup, SetupFieldError } from '@kaki/shared';
 import { invalidateScenario } from '../kaki/scenarioRevision';
 import { fetchWithTimeout } from '../net/withTimeout';
 
+/** The setup and whether the meeting is already started, as the setup endpoints return it. */
 export interface SetupResponse {
   setup: MeetingSetup;
   started: boolean;
   kind?: 'real' | 'practice';
 }
 
+/** One action tool's configuration state and the settings it is missing. */
 export interface ToolStatus {
   kind: string;
   label: string;
@@ -15,6 +17,7 @@ export interface ToolStatus {
   missing: string[];
 }
 
+/** The outcome of testing a tool connection, with a human detail or problem message. */
 export interface ToolProbeResult {
   ok: boolean;
   detail?: string;
@@ -22,6 +25,7 @@ export interface ToolProbeResult {
   message?: string;
 }
 
+/** A setup request failure carrying the HTTP status and any field errors from the server. */
 export class SetupApiError extends Error {
   readonly status: number;
   readonly fieldErrors: SetupFieldError[];
@@ -77,6 +81,7 @@ function parseSetupResponse(body: Record<string, unknown> | null, fallback: stri
   };
 }
 
+/** Loads the saved setup and meeting state, throwing SetupApiError when the server refuses. */
 export async function loadSetup(): Promise<SetupResponse> {
   let response: Response;
   try {
@@ -88,6 +93,7 @@ export async function loadSetup(): Promise<SetupResponse> {
   return parseSetupResponse(await readJson(response), 'Could not load the setup.');
 }
 
+/** Loads the Kopitiam demo into the setup and refreshes the cached scenario. */
 export async function importKopitiamDemo(): Promise<SetupResponse> {
   let response: Response;
   try {
@@ -101,6 +107,7 @@ export async function importKopitiamDemo(): Promise<SetupResponse> {
   return result;
 }
 
+/** Saves the edited setup, refreshes the cached scenario and returns the saved state. */
 export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
   let response: Response;
   try {
@@ -118,6 +125,7 @@ export async function saveSetup(setup: MeetingSetup): Promise<SetupResponse> {
   return result;
 }
 
+/** Starts a blank meeting from the server's empty setup. */
 export async function startBlankSetup(): Promise<SetupResponse> {
   let response: Response;
   try {
@@ -131,6 +139,7 @@ export async function startBlankSetup(): Promise<SetupResponse> {
   return result;
 }
 
+/** Lists each action tool and whether its settings are complete. */
 export async function loadTools(): Promise<ToolStatus[]> {
   let response: Response;
   try {
@@ -146,6 +155,7 @@ export async function loadTools(): Promise<ToolStatus[]> {
   return body.tools as ToolStatus[];
 }
 
+/** Tests one action tool's connection and returns the probe result. */
 export async function testTool(kind: string): Promise<ToolProbeResult> {
   let response: Response;
   try {

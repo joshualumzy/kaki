@@ -13,6 +13,7 @@ export interface SeatHolder {
   displayName?: string;
 }
 
+/** What the rejoin guard needs to decide whether an arrival resumes, resets or joins the room. */
 export interface AdmissionInput {
   /** The session's phase; rejoin never derives it from speech or the transcript. */
   phase: 'lobby' | 'starting' | 'running' | 'ended';

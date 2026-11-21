@@ -1,6 +1,7 @@
 import type { Question } from '@kaki/shared';
 import { FILLER_WORDS, QUESTION_WORDS, keywords, normalize, words, type TranscriptLine } from './notetakerText';
 
+/** An open question paired with the line that may answer it, ready for the verifier. */
 export interface AnswerCandidate {
   id: string;
   question: Question;

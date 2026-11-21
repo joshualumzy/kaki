@@ -15,6 +15,7 @@ import { Orb, orbPalette } from './Orb';
 import { captionFor, transcriptNameFor, type TranscriptChunk } from './captions';
 import { colleagueStance, reactionForColleague } from './stageModel';
 
+/** The live meeting values a captioned tile reads from the stage. */
 export interface Stage {
   scenario: Scenario;
   chunks: TranscriptChunk[];
@@ -27,6 +28,7 @@ export interface Stage {
   activeAgendaIndex: number;
 }
 
+/** Carries the stage values to the tiles without passing them through every component. */
 export const StageContext = createContext<Stage | null>(null);
 
 function useStage(): Stage {
@@ -35,6 +37,7 @@ function useStage(): Stage {
   return stage;
 }
 
+/** One participant tile with its live caption, speaking state and reaction badge. */
 export function CaptionedTile() {
   const { scenario, chunks, events, now, npcState, speechStatus } = useStage();
   const participant = useTrackRefContext().participant;

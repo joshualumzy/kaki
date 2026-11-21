@@ -24,6 +24,7 @@ function sendSetupLocked(response: ServerResponse, lock: 'starting' | 'started')
   });
 }
 
+/** Returns the current meeting setup: the sealed plan while running, else the draft. */
 export async function handleGetSetup(call: RouteCall): Promise<void> {
   const { response, context } = call;
   const phase = context.session.phase();
@@ -37,12 +38,14 @@ export async function handleGetSetup(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Lists every action tool and whether its settings are complete. */
 export async function handleGetSetupTools(call: RouteCall): Promise<void> {
   const { response, context } = call;
   sendJson(response, 200, { tools: actionToolStatus(context.actionTools.env) });
   return;
 }
 
+/** Tests one action tool's connection by kind and returns the probe result. */
 export async function handleSetupToolTest(call: RouteCall): Promise<void> {
   const { response, context, path } = call;
   const toolTestMatch = /^\/api\/setup\/tools\/([^/]+)\/test$/.exec(path);
@@ -60,6 +63,7 @@ export async function handleSetupToolTest(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Replaces the draft with an empty setup for a blank meeting. */
 export async function handleSetupBlank(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // Only the meeting owner edits setup; everyone else gets the read-only join view.
@@ -81,6 +85,7 @@ export async function handleSetupBlank(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Validates and saves an edited setup as the next meeting's draft. */
 export async function handlePutSetup(call: RouteCall): Promise<void> {
   const { request, response, context } = call;
   // Only the meeting owner edits setup; everyone else gets the read-only join view.
@@ -126,6 +131,7 @@ export async function handlePutSetup(call: RouteCall): Promise<void> {
   return;
 }
 
+/** Reads the demo calendar invite and drafts a setup from its agenda. */
 export async function handleImportCalendar(call: RouteCall): Promise<void> {
   const { response, context } = call;
   // Only the meeting owner edits setup; everyone else gets the read-only join view.

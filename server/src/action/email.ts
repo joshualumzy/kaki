@@ -193,6 +193,7 @@ async function probeSendingSide(
   }
 }
 
+/** Checks both the mailbox read side and the SMTP sending side of the mail server. */
 export async function probeEmail(
   settings: EmailSettings,
   {

@@ -19,6 +19,7 @@ export interface TaskCandidate extends SuggestInput {
   decisionEvidence?: string;
   duplicateOf?: string;
 }
+/** A proposed task matched to its evidence line and checked owner, ready for the verifier. */
 export interface ResolvedTaskCandidate {
   index: number;
   task: Omit<TaskCandidate, 'evidence' | 'decisionEvidence' | 'duplicateOf'>;
@@ -186,6 +187,7 @@ const MATTERMOST_FIRST_PERSON_PROMISE = new RegExp(
   'i',
 );
 
+/** True when a verified decision line lets a Mattermost post task stand without its own assignment evidence. */
 export function recoversMattermostDecision(
   task: Pick<Task, 'title' | 'context' | 'actionKind'>,
   decisionLine: TranscriptLine | undefined,

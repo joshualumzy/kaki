@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Orb } from './Orb';
 
+/** Which devices the person chose to turn on before joining. */
 export interface MediaChoice {
   microphone: boolean;
   camera: boolean;

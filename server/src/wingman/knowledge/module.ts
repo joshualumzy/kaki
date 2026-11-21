@@ -289,4 +289,5 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
   };
 }
 
+/** The Wingman module that searches company knowledge and answers room questions. */
 export const knowledgeModule = createKnowledgeModule();

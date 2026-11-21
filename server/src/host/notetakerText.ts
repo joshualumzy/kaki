@@ -20,11 +20,14 @@ export const QUESTION_WORDS = new Set(
     'will would should have has had know any if so then than not no yes'
   ).split(' '),
 );
+/** The saved transcript line shape the notetaker and its prompts use. */
 export type TranscriptLine = SavedTranscriptLine;
+/** Lower-cases text and keeps only words and digits, separated by single spaces. */
 export function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/** The normalised words of a text. */
 export function words(text: string): string[] {
   return normalize(text).split(' ').filter(Boolean);
 }
@@ -36,6 +39,7 @@ export function keywords(text: string, ignore: Set<string> = FILLER_WORDS): Set<
       .map((word) => (word.length > 3 && word.endsWith('s') ? word.slice(0, -1) : word)),
   );
 }
+/** Rough talk time for a line, from its word count and an average speaking rate. */
 export function estimateTalkSeconds(text: string): number {
   return Math.max(1, words(text).length / WORDS_PER_SECOND);
 }

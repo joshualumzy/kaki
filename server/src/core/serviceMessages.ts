@@ -19,6 +19,7 @@ export type ServiceMessage =
   | { kind: 'ready'; requestId: string; attempt: string; meetingId: string }
   | { kind: 'failed'; requestId: string; attempt: string; meetingId: string; reason?: string };
 
+/** Converts a WebSocket frame (buffer, buffer list or array buffer) to UTF-8 text. */
 export function rawDataToString(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
   if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString('utf8');
@@ -29,6 +30,7 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
 }
 
+/** Reads a runner service message, or undefined when it lacks the ids the protocol needs. */
 export function parseServiceMessage(value: unknown): ServiceMessage | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   const message = value as {

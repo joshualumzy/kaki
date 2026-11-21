@@ -186,6 +186,7 @@ export interface NpcProfile {
   tensions?: NpcTension[];
 }
 
+/** How an NPC attends: chairing the meeting, taking part, or watching only. */
 export type NpcRole = 'host' | 'participant' | 'observer';
 
 /** A standing disagreement between this character and another attendee. */
@@ -257,5 +258,7 @@ export interface HostBrief {
   decision: string;
 }
 
+/** Role ids are lower-case words joined by underscores, starting with a letter. */
 export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
+/** The role id kept for the shared room screen, so no person may take it. */
 export const RESERVED_ROLE_ID = 'screen';

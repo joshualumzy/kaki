@@ -21,6 +21,7 @@ export interface CompleteOptions {
   maxTokens?: number;
 }
 
+/** The token counts one completion call reports. */
 export interface CompletionUsage {
   promptTokens: number;
   completionTokens: number;

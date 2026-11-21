@@ -73,6 +73,7 @@ export function livekitPublicUrl(): string | undefined {
 /** The people (not AI attendees) in a room right now; `undefined` when LiveKit cannot be asked. */
 export type RoomRoster = (roomName: string) => Promise<Array<{ name: string; role?: string }> | undefined>;
 
+/** The roster reader backed by LiveKit, returning undefined when the service cannot be asked. */
 export function livekitRoster(): RoomRoster {
   const { key, secret } = livekitCredentials();
   const url = (process.env.LIVEKIT_URL || 'ws://127.0.0.1:7880').replace(/^ws/, 'http');
@@ -116,6 +117,7 @@ interface AdmissionReservation {
   expiresAt: number;
 }
 
+/** Seats handed out with a token but not yet visible in LiveKit's roster. */
 export interface SeatReservations {
   /** Live reservations, dropping expired ones and those the roster now shows. */
   active(rosterNames: readonly string[], at?: number): AdmissionReservation[];

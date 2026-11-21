@@ -22,6 +22,7 @@ export async function postSettledTopic(
   }
 }
 
+/** Posts the meeting memory snapshot, retrying once before throwing. */
 export async function postMeetingMemory(
   fetcher: (url: string, init: RequestInit) => Promise<Response>,
   url: string,

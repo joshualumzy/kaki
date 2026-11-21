@@ -23,6 +23,7 @@ export function colleagueStance(scenario: Scenario, attendeeName: string): strin
   return stance === undefined || stance === '' ? undefined : stance;
 }
 
+/** The two quick replies a person may tap on this topic: their open questions, then colleague trade-offs. */
 export function starterChipsFromAgendaItem(
   item: Scenario['agenda'][number] | undefined,
   viewerSeatName: string | undefined,
@@ -56,6 +57,7 @@ export function starterChipsFromAgendaItem(
   return chips.slice(0, 2);
 }
 
+/** A colleague's reaction emoji if one landed in the last four seconds, with its tone for styling. */
 export function reactionForColleague(
   attendeeName: string,
   events: readonly (KakiEvent & { receivedAt?: number })[],
