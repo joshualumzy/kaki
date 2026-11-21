@@ -250,6 +250,14 @@ export function SetupEditor({
     });
   }
 
+  function removeSeat(index: number): void {
+    setDraft((current) => ({
+      ...current,
+      seats: current.seats.filter((_seat, seatIndex) => seatIndex !== index),
+      source: { ...current.source, seats: 'typed' },
+    }));
+  }
+
   function setSeatAi(index: number, useAi: boolean): void {
     setDraft((current) => {
       const seat = current.seats[index];
@@ -543,6 +551,15 @@ export function SetupEditor({
                       AI stand-in ({profile})
                     </label>
                   )}
+                  <div className="setup-item-actions">
+                    <Button
+                      variant="ghost"
+                      aria-label={`Remove seat ${index + 1}`}
+                      onClick={() => removeSeat(index)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 </div>
                 <FieldError errors={errorsForIndex(errors, `seats[${index}].`)} />
               </li>

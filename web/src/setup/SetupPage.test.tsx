@@ -494,6 +494,16 @@ describe('SetupPage', () => {
     expect(screen.getByLabelText('Role 1 name')).toBeTruthy();
   });
 
+  it('removes a seat from the draft', async () => {
+    installFetch(baseRoutes());
+    renderPage();
+
+    const seatCount = (await screen.findAllByLabelText(/^Seat \d+ name$/)).length;
+    fireEvent.click(screen.getByRole('button', { name: `Remove seat ${seatCount}` }));
+
+    expect(screen.getAllByLabelText(/^Seat \d+ name$/)).toHaveLength(seatCount - 1);
+  });
+
   it('shows the AI stand-in room limit when a second person joins', async () => {
     const fetchMock = installFetch(
       baseRoutes({
