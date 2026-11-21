@@ -55,6 +55,12 @@ interface HubOptions {
   closeUnknownRoleAfterUpgrade?: boolean;
   /** True when a person currently holds this role, so the runner's token may not act as it. */
   isHumanSeat?(role: string): boolean;
+  /** Called when a person's socket registers; sockets opened with the runner's token never count. */
+  onPersonConnected?(): void;
+  /** Called once when a person's socket is gone. */
+  onPersonDisconnected?(): void;
+  /** Called for each frame a person's socket sends, so idleness follows real use. */
+  onPersonActivity?(): void;
 }
 
 /** Options for publishing an event to the hub. */
@@ -217,6 +223,8 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
   const socketSessions = new Map<WebSocket, string>();
   /** The seat a participant projection or practice screen belongs to, for redacting private work. */
   const socketSeats = new Map<WebSocket, string>();
+  /** Sockets a person opened. The runner's service channel and token-opened sockets stay out. */
+  const personSockets = new Set<WebSocket>();
 
   function currentServicePresence(): ServicePresence {
     let connected = false;
@@ -242,12 +250,14 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
 
   function forgetSocket(socket: WebSocket): void {
     const wasService = serviceSockets.delete(socket);
+    const wasPerson = personSockets.delete(socket);
     clients.delete(socket);
     runnerSockets.delete(socket);
     participantSockets.delete(socket);
     practiceSockets.delete(socket);
     socketSessions.delete(socket);
     socketSeats.delete(socket);
+    if (wasPerson) options.onPersonDisconnected?.();
     if (wasService) notifyServicePresence();
   }
 
@@ -323,6 +333,7 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     // Revocation removes the socket from the client set synchronously, while the close handshake
     // may still allow frames to arrive; those frames must carry no authority.
     if (!clients.has(socket)) return;
+    if (personSockets.has(socket)) options.onPersonActivity?.();
     const seat = socketSeats.get(socket);
     let parsed: unknown;
     try {
@@ -476,6 +487,12 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     if (authorization?.sessionTokenHash !== undefined) {
       socketSessions.set(socket, authorization.sessionTokenHash);
     }
+    // The runner opens both the service channel and token-authorized role/screen sockets; neither
+    // is a person, so only the rest affect the VM's people count.
+    if (audience.kind !== 'service' && authorization?.runner !== true) {
+      personSockets.add(socket);
+      options.onPersonConnected?.();
+    }
     sendRetained(socket, audience);
     if (audience.kind === 'service') notifyServicePresence();
     socket.on('close', () => {
@@ -614,6 +631,10 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     },
     close() {
       for (const socket of clients.keys()) socket.terminate();
+      // The sockets are gone with the hub; clear the count first so their close events cannot repeat it.
+      const people = personSockets.size;
+      personSockets.clear();
+      for (let index = 0; index < people; index += 1) options.onPersonDisconnected?.();
       clients.clear();
       serviceSockets.clear();
       runnerSockets.clear();

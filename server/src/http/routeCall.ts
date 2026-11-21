@@ -9,6 +9,7 @@ import type { CalendarSettings } from '../action/calendar';
 import type { ActionToolOptions } from '../action/tools';
 import type { Auth } from '../auth/module';
 import type { Hub } from '../core/hub';
+import type { IdleTracker } from '../core/idle';
 import type { MeetingCodeSource } from '../meeting/meetingCode';
 import type { RejoinGuard } from '../meeting/rejoin';
 import type { MeetingSession } from '../meeting/session';
@@ -37,6 +38,8 @@ export interface RequestContext {
   serviceToken?: string;
   /** Every route the access layer knows; anything not listed here is a 404. */
   routes: readonly RoutedRoute[];
+  /** The server's view of idleness, read by the VM's loopback-only `/idle` route. */
+  idle: IdleTracker;
   calendar?: CalendarSettings;
   calendarFetch?: typeof fetch;
   actionTools: ActionToolOptions;

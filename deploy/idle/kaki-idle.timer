@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Kaki idle check every 5 minutes, starting 5 minutes after boot
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Unit=kaki-idle.service
+
+[Install]
+WantedBy=timers.target

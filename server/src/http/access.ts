@@ -5,7 +5,15 @@ import type { IncomingMessage } from 'node:http';
  * The one access vocabulary shared by HTTP routes and WebSocket audiences. Every route names one
  * of these before any handler runs; nothing else may decide who a request is.
  */
-type Access = 'public' | 'session' | 'host' | 'host-or-practice' | 'seat' | 'service' | 'dev';
+type Access =
+  | 'public'
+  | 'session'
+  | 'host'
+  | 'host-or-practice'
+  | 'seat'
+  | 'service'
+  | 'loopback'
+  | 'dev';
 
 /** The access levels a route may declare, as setup and tests enumerate them. */
 export const ACCESS_LEVELS: readonly Access[] = [
@@ -15,6 +23,7 @@ export const ACCESS_LEVELS: readonly Access[] = [
   'host-or-practice',
   'seat',
   'service',
+  'loopback',
   'dev',
 ];
 
@@ -51,6 +60,8 @@ interface AccessContext {
   serviceTokenConfigured: boolean;
   /** True when the request came from this machine (not a phone). */
   loopback: boolean;
+  /** True when a proxy forwarded the request (it adds X-Forwarded-For), so the peer is not the caller. */
+  proxied: boolean;
   /** The raw request target, before URL normalisation, for the dev-route dot-segment guard. */
   rawPath: string;
 }
@@ -127,6 +138,11 @@ export function accessProblem(
       }
       // With no credentials configured, only the machine running Kaki may act as the runner.
       return context.loopback ? undefined : { status: 401, error: 'Service sign-in required.' };
+
+    case 'loopback':
+      // The VM's own idle checker: nothing arriving through the public proxy may read it, even if
+      // the proxy is later widened to forward this path.
+      return context.loopback && !context.proxied ? undefined : { status: 404, error: 'Not found' };
 
     case 'session':
       if (!context.authEnabled) return undefined;

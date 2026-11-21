@@ -20,6 +20,7 @@ import type { Auth } from './auth/module';
 import { createAttemptLimiter } from './http/attemptLimiter';
 import { audienceRole, type ClientAudience } from './core/audience';
 import { CommandError, createHub, type Hub } from './core/hub';
+import { createIdleTracker, type IdleTracker } from './core/idle';
 import type { KakiModule } from './core/modules';
 import type { MeetingPersistence } from './persist/persistence';
 import {
@@ -36,6 +37,7 @@ import { createTaskStore, type TaskStore } from './meeting/tasks';
 import { ADMISSION_RESERVATION_MS, createAdmissionQueue, createSeatReservations, livekitRoster, removeRoomHumans, type RoomRoster } from './services/livekit';
 import { PRACTICE_COOKIE, type RequestContext, type RoutedRoute, type StartOutcome } from './http/routeCall';
 import { handleAuthRoutes } from './http/routes/auth';
+import { handleIdle } from './http/routes/idle';
 import { handleHealth, handleLivekitToken, handleMeetingClose, handleMeetingCode, handleMeetingEndPractice, handleMeetingOpen, handleMeetingParticipants, handleMeetingStart, handleMeetingState } from './http/routes/meeting';
 import { handleCalendarEvent, handleMattermostOpen, handleScenario, handleScenarioFull } from './http/routes/scenario';
 import { handleEmit, handleHumanLine, handleMeetingMemory, handleSettleTopic, handleSuggestTask } from './http/routes/runner';
@@ -100,6 +102,8 @@ export interface CreateAppOptions {
    * A server-side meeting needs a connected runner even when every seat is a person.
    */
   speechRecognition?: 'server' | 'browser';
+  /** The clock behind idle timing; tests inject one so it can move without waiting. */
+  idleClock?: () => number;
 }
 
 /** A listening Kaki server and its hub and task store. */
@@ -111,6 +115,8 @@ export interface KakiApp {
   memory: readonly MeetingMemoryEntry[];
   /** Every HTTP route this server serves, each with its mandatory access level. */
   routes: readonly Route[];
+  /** The server's view of who is connected and when a person was last active. */
+  idle: IdleTracker;
   close(): Promise<void>;
 }
 
@@ -121,6 +127,8 @@ export interface KakiApp {
 function buildRouteTable({ auth }: { auth: Auth | undefined }): RoutedRoute[] {
   const routes: RoutedRoute[] = [
     { method: 'GET', path: '/health', access: 'public', handle: handleHealth },
+    // Deliberately outside the proxied prefixes: only the VM's own idle checker may read it.
+    { method: 'GET', path: '/idle', access: 'loopback', handle: handleIdle },
     { method: 'GET', path: '/api/meeting/state', access: 'public', handle: handleMeetingState },
     { method: 'GET', path: '/api/meeting/participants', access: 'host', handle: handleMeetingParticipants },
     { method: 'GET', path: '/api/meeting-code', access: 'host', handle: handleMeetingCode },
@@ -190,6 +198,16 @@ async function resolvePrincipal(
   return { kind: 'anonymous' };
 }
 
+/**
+ * Whether one handled request is evidence that a person is using Kaki. Health probes, the idle
+ * checker itself and the AI runner's own traffic must never keep the VM awake.
+ */
+function countsAsActivity(route: Route, principal: Principal): boolean {
+  if (route.path === '/health' || route.access === 'loopback') return false;
+  if (route.access === 'service') return false;
+  return principal.kind !== 'service';
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -205,11 +223,13 @@ async function handleRequest(
       return;
     }
     const principal = await resolvePrincipal(request, context);
+    if (countsAsActivity(match.route, principal)) context.idle.recordActivity();
     const denied = accessProblem(match.route, principal, {
       authEnabled: context.auth !== undefined,
       devRoutes: context.devRoutes,
       serviceTokenConfigured: context.serviceToken !== undefined && context.serviceToken !== '',
       loopback: isLoopbackAddress(request.socket.remoteAddress),
+      proxied: request.headers['x-forwarded-for'] !== undefined,
       rawPath: request.url ?? '',
     });
     if (denied !== undefined) {
@@ -272,6 +292,7 @@ export async function createApp({
   serviceToken = process.env.KAKI_SERVICE_TOKEN?.trim(),
   meetingCode: meetingCodeOption,
   speechRecognition = 'server',
+  idleClock,
 }: CreateAppOptions): Promise<KakiApp> {
   assertSafeBind(host, auth !== undefined);
   assertSafeMattermost(auth !== undefined);
@@ -281,6 +302,7 @@ export async function createApp({
     );
   }
   const routes = buildRouteTable({ auth });
+  const idle = createIdleTracker(idleClock);
   const meetingCode = meetingCodeOption ?? createMeetingCodeSource();
   const meetingCodeAttempts =
     auth?.meetingCodeLimiter ??
@@ -503,7 +525,7 @@ export async function createApp({
     });
   }
   const server = createServer((request, response) => {
-    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused,     runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, publicScenario, captureLobbySnapshot, shapeLobbyFor, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
+    void handleRequest(request, response, { hub, tasks, memory, fullScenario, pickedAgenda, devRoutes, auth, serviceToken, routes, idle, calendar, calendarFetch, actionTools, roomRoster, meetingCode, meetingCodeAttempts, rejoin, meeting, session, startMeeting, reservations, admit, watchRoom, practicePrincipal, meetingElapsedSeconds, meetingAgendaIndex, meetingPaused,     runnerStateChanged: () => publishRunnerState(), seating, visibleScenario, publicScenario, captureLobbySnapshot, shapeLobbyFor, setupLocked, scheduleSave: () => persistence?.scheduleSave(), writeHumanLine: (input) => writeHumanLine(input) });
   });
   const serviceTokenConfigured = serviceToken !== undefined && serviceToken !== '';
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -587,6 +609,9 @@ export async function createApp({
     authorize: authorizeUpgrade,
     closeUnknownRoleAfterUpgrade: auth === undefined && !serviceTokenConfigured,
     isHumanSeat,
+    onPersonConnected: () => idle.personConnected(),
+    onPersonDisconnected: () => idle.personDisconnected(),
+    onPersonActivity: () => idle.recordActivity(),
   });
   auth?.bindMeetingIdentity(() => meeting.id);
   auth?.bindOfferedSeats(() => joinSeatRoles(visibleScenario()).map((role) => role.id));
@@ -1616,6 +1641,7 @@ export async function createApp({
     session,
     memory,
     routes,
+    idle,
     close: async () => {
       if (closed) return;
       closed = true;

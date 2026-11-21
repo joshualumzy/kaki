@@ -1,0 +1,11 @@
+[Unit]
+Description=Kaki VM idle check (deallocate after 60 idle minutes)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Optional: KAKI_IDLE_URL, KAKI_IDLE_MINUTES, KAKI_IDLE_DRY_RUN.
+EnvironmentFile=-/etc/kaki-idle.env
+ExecStart=/bin/bash /usr/local/bin/kaki-idle-check.sh
