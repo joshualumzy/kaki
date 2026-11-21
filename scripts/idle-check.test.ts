@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -54,8 +54,17 @@ function idleState(overrides: Record<string, unknown> = {}): Record<string, unkn
     peopleConnected: 0,
     lastActivityAt: new Date().toISOString(),
     idleSeconds: 3_600,
+    lastActionAt: new Date(Date.now() - 3_000_000).toISOString(),
+    actionIdleSeconds: 3_000,
     ...overrides,
   };
+}
+
+/** A state file whose last successful read was `secondsAgo` seconds back. */
+function stateFileAgo(secondsAgo: number): string {
+  const path = join(tempDir(), 'last-ok');
+  writeFileSync(path, `${Math.floor(Date.now() / 1000) - secondsAgo}\n`);
+  return path;
 }
 
 interface RunResult {
@@ -64,10 +73,16 @@ interface RunResult {
 }
 
 async function run(env: NodeJS.ProcessEnv): Promise<RunResult> {
+  const stateFile = join(tempDir(), 'last-ok');
   try {
     const { stdout, stderr } = await execFileAsync('bash', [script], {
       encoding: 'utf8',
-      env: { ...process.env, KAKI_IDLE_DRY_RUN: '1', ...env },
+      env: {
+        ...process.env,
+        KAKI_IDLE_DRY_RUN: '1',
+        KAKI_IDLE_STATE_FILE: stateFile,
+        ...env,
+      },
     });
     return { status: 0, output: `${stdout}${stderr}` };
   } catch (error) {
@@ -130,6 +145,119 @@ describe('VM idle checker', () => {
     expect(result.status).toBe(0);
     expect(result.output).toMatch(/decision=deallocate/);
     expect(result.output).toMatch(/thresholdSeconds=60/);
+  });
+
+  it('deallocates on the action backstop even while people are connected', async () => {
+    const url = await serveIdle(idleState({ peopleConnected: 1, idleSeconds: 12, actionIdleSeconds: 7_600 }));
+    const result = await run({ KAKI_IDLE_URL: url, KAKI_IDLE_UPTIME_FILE: uptimeFile(8_600) });
+
+    expect(result.status).toBe(0);
+    expect(result.output).toMatch(/decision=deallocate/);
+    expect(result.output).toMatch(/rule=action backstop/);
+    expect(result.output).toMatch(/peopleConnected=1/);
+    expect(result.output).toMatch(/actionIdleSeconds=7600/);
+    expect(result.output).toMatch(/dry run: would POST/);
+  });
+
+  it('stays on while people are connected and the action backstop is still open', async () => {
+    const url = await serveIdle(idleState({ peopleConnected: 1, idleSeconds: 12, actionIdleSeconds: 7_000 }));
+    const result = await run({ KAKI_IDLE_URL: url, KAKI_IDLE_UPTIME_FILE: uptimeFile(8_600) });
+
+    expect(result.status).toBe(0);
+    expect(result.output).toMatch(/decision=stay on: 1 people connected/);
+    expect(result.output).not.toMatch(/decision=deallocate/);
+  });
+
+  it('stays on when the server has been unreadable for less than the backstop', async () => {
+    const result = await run({
+      KAKI_IDLE_URL: 'http://127.0.0.1:1/idle',
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(8_600),
+      KAKI_IDLE_STATE_FILE: stateFileAgo(3_600),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toContain('idle check could not read server state; staying on');
+    expect(result.output).toMatch(/unreadable for 60 min/);
+    expect(result.output).not.toMatch(/decision=deallocate/);
+  });
+
+  it('would deallocate when the server has been unreadable for the whole backstop', async () => {
+    const result = await run({
+      KAKI_IDLE_URL: 'http://127.0.0.1:1/idle',
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(8_600),
+      KAKI_IDLE_STATE_FILE: stateFileAgo(7_600),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output).toMatch(/server unreadable for 126 min; switching off/);
+    expect(result.output).toMatch(/decision=deallocate/);
+    expect(result.output).toMatch(/rule=unreadable backstop/);
+    expect(result.output).toMatch(/dry run: would POST/);
+  });
+
+  it('counts unreadable time from boot when there is no state file', async () => {
+    const result = await run({
+      KAKI_IDLE_URL: 'http://127.0.0.1:1/idle',
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(8_600),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output).toMatch(/server unreadable for 143 min; switching off/);
+    expect(result.output).toMatch(/decision=deallocate/);
+  });
+
+  it('ignores a state file from before this boot, so a fresh wake gets the whole backstop', async () => {
+    const result = await run({
+      KAKI_IDLE_URL: 'http://127.0.0.1:1/idle',
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(1_200),
+      KAKI_IDLE_STATE_FILE: stateFileAgo(20_000),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toMatch(/unreadable for 20 min, under the 120 min backstop/);
+    expect(result.output).not.toMatch(/decision=deallocate/);
+  });
+
+  it('still waits for the boot grace when the unreadable backstop has passed', async () => {
+    const result = await run({
+      KAKI_IDLE_URL: 'http://127.0.0.1:1/idle',
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(60),
+      KAKI_IDLE_STATE_FILE: stateFileAgo(7_600),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.output).toMatch(/the VM booted 60s ago/);
+    expect(result.output).not.toMatch(/decision=deallocate/);
+  });
+
+  it('records each successful read in the state file', async () => {
+    const url = await serveIdle(idleState());
+    const stateFile = join(tempDir(), 'last-ok');
+    const before = Math.floor(Date.now() / 1000);
+    const result = await run({
+      KAKI_IDLE_URL: url,
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(1_200),
+      KAKI_IDLE_STATE_FILE: stateFile,
+    });
+    const after = Math.floor(Date.now() / 1000);
+
+    expect(result.status).toBe(0);
+    const written = Number(readFileSync(stateFile, 'utf8').trim());
+    expect(written).toBeGreaterThanOrEqual(before);
+    expect(written).toBeLessThanOrEqual(after);
+  });
+
+  it('honours KAKI_IDLE_BACKSTOP_MINUTES', async () => {
+    const url = await serveIdle(idleState({ peopleConnected: 1, idleSeconds: 12, actionIdleSeconds: 120 }));
+    const result = await run({
+      KAKI_IDLE_URL: url,
+      KAKI_IDLE_UPTIME_FILE: uptimeFile(8_600),
+      KAKI_IDLE_BACKSTOP_MINUTES: '1',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output).toMatch(/decision=deallocate/);
+    expect(result.output).toMatch(/backstopSeconds=60/);
   });
 
   it('stays on and exits non-zero when the server is down', async () => {

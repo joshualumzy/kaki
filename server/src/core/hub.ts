@@ -61,6 +61,8 @@ interface HubOptions {
   onPersonDisconnected?(): void;
   /** Called for each frame a person's socket sends, so idleness follows real use. */
   onPersonActivity?(): void;
+  /** Called for a valid command a person's socket sends, so the long backstop follows real actions. */
+  onPersonAction?(): void;
 }
 
 /** Options for publishing an event to the hub. */
@@ -333,7 +335,6 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
     // Revocation removes the socket from the client set synchronously, while the close handshake
     // may still allow frames to arrive; those frames must carry no authority.
     if (!clients.has(socket)) return;
-    if (personSockets.has(socket)) options.onPersonActivity?.();
     const seat = socketSeats.get(socket);
     let parsed: unknown;
     try {
@@ -346,6 +347,8 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       sendTo(socket, audience, JSON.stringify(rejectionFor(audience, 'unknown', 'Invalid JSON', seat)));
       return;
     }
+
+    if (personSockets.has(socket)) options.onPersonActivity?.();
 
     if (audience.kind === 'service') {
       const message = parseServiceMessage(parsed);
@@ -408,6 +411,9 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       sendTo(socket, audience, JSON.stringify(rejectionFor(audience, rawType, reason, seat)));
       return;
     }
+
+    // A typed line held during a reconnect still counts: the person typed it.
+    if (personSockets.has(socket)) options.onPersonAction?.();
 
     if (runnerSockets.has(socket)) {
       // The cast can change when Start seals the setup or a person takes the seat. Re-check the

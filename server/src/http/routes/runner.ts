@@ -85,6 +85,9 @@ export async function handleHumanLine(call: RouteCall): Promise<void> {
     });
     return;
   }
+  // The runner sends this on the person's behalf, so it is a real action even though the request
+  // itself is runner traffic.
+  context.idle.recordAction();
   try {
     context.writeHumanLine({
       seat: value.seat,

@@ -57,7 +57,7 @@ async function waitForIdle(
 }
 
 describe('idle tracker', () => {
-  it('measures idle seconds against the injected clock and resets on activity', () => {
+  it('measures idle and action seconds against the injected clock and resets each separately', () => {
     let now = 1_000;
     const idle = createIdleTracker(() => now);
 
@@ -65,16 +65,23 @@ describe('idle tracker', () => {
       peopleConnected: 0,
       lastActivityAt: isoAt(1_000),
       idleSeconds: 0,
+      lastActionAt: isoAt(1_000),
+      actionIdleSeconds: 0,
     });
 
     now += 12_900;
     expect(idle.snapshot().idleSeconds).toBe(12);
+    expect(idle.snapshot().actionIdleSeconds).toBe(12);
 
     idle.recordActivity();
     expect(idle.snapshot().idleSeconds).toBe(0);
+    expect(idle.snapshot().actionIdleSeconds).toBe(12);
 
     now += 500;
     expect(idle.snapshot().idleSeconds).toBe(0);
+
+    idle.recordAction();
+    expect(idle.snapshot().actionIdleSeconds).toBe(0);
   });
 
   it('counts people up and down without dropping below zero', () => {
@@ -116,6 +123,8 @@ describe('GET /idle', () => {
       peopleConnected: 0,
       lastActivityAt: isoAt(START),
       idleSeconds: 0,
+      lastActionAt: isoAt(START),
+      actionIdleSeconds: 0,
     });
   });
 
@@ -126,17 +135,34 @@ describe('GET /idle', () => {
     expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
     now += 10_000;
 
-    expect((await readIdle(port)).idleSeconds).toBe(40);
+    const state = await readIdle(port);
+    expect(state.idleSeconds).toBe(40);
+    expect(state.actionIdleSeconds).toBe(40);
   });
 
-  it('counts a person HTTP request as activity', async () => {
+  it('counts a person GET poll as activity but not as an action', async () => {
     const port = await start();
 
     now += 100_000;
     expect((await fetch(`http://127.0.0.1:${port}/api/scenario`)).status).toBe(200);
     now += 7_000;
 
-    expect((await readIdle(port)).idleSeconds).toBe(7);
+    const state = await readIdle(port);
+    expect(state.idleSeconds).toBe(7);
+    expect(state.actionIdleSeconds).toBe(107);
+  });
+
+  it('counts a person state-changing request as an action', async () => {
+    const port = await start();
+
+    now += 100_000;
+    const response = await fetch(`http://127.0.0.1:${port}/api/meeting/start`, { method: 'POST' });
+    expect(response.ok).toBe(false);
+    now += 7_000;
+
+    const state = await readIdle(port);
+    expect(state.idleSeconds).toBe(7);
+    expect(state.actionIdleSeconds).toBe(7);
   });
 
   it("does not count the runner's HTTP traffic as activity", async () => {
@@ -149,7 +175,34 @@ describe('GET /idle', () => {
     expect(runner.status).toBe(200);
     now += 10_000;
 
-    expect((await readIdle(port)).idleSeconds).toBe(110);
+    const state = await readIdle(port);
+    expect(state.idleSeconds).toBe(110);
+    expect(state.actionIdleSeconds).toBe(110);
+  });
+
+  it('counts the runner-reported human line as a person action, not as activity', async () => {
+    const port = await start();
+
+    now += 100_000;
+    const line = await fetch(`http://127.0.0.1:${port}/api/runner/human-line`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        seat: 'chef',
+        text: 'The prep list is ready',
+        source: 'speech',
+        clientLineId: 'line-1',
+        meetingId: 'm1',
+        participantIdentity: 'Ada',
+      }),
+    });
+    // The meeting is not running, so the write is refused; the person still spoke.
+    expect(line.status).toBe(409);
+    now += 5_000;
+
+    const state = await readIdle(port);
+    expect(state.idleSeconds).toBe(105);
+    expect(state.actionIdleSeconds).toBe(5);
   });
 
   it('counts people up and down, and a person frame as activity', async () => {
@@ -164,7 +217,9 @@ describe('GET /idle', () => {
       await settle(50);
       now += 5_000;
 
-      expect((await readIdle(port)).idleSeconds).toBe(5);
+      const state = await readIdle(port);
+      expect(state.idleSeconds).toBe(5);
+      expect(state.actionIdleSeconds).toBe(5);
     } finally {
       await closeSocket(person);
     }
@@ -201,7 +256,11 @@ describe('GET /idle', () => {
       warn.mockRestore();
       now += 10_000;
 
-      expect(await readIdle(port)).toMatchObject({ peopleConnected: 0, idleSeconds: 110 });
+      expect(await readIdle(port)).toMatchObject({
+        peopleConnected: 0,
+        idleSeconds: 110,
+        actionIdleSeconds: 110,
+      });
     } finally {
       await closeSocket(service);
       await closeSocket(role);

@@ -6,12 +6,18 @@ export interface IdleSnapshot {
   lastActivityAt: string;
   /** Whole seconds since that activity, measured against the injected clock. */
   idleSeconds: number;
+  /** When a person last did something themselves, not a page on their behalf, as an ISO timestamp. */
+  lastActionAt: string;
+  /** Whole seconds since that real person action, measured against the injected clock. */
+  actionIdleSeconds: number;
 }
 
 /** Tracks the evidence the VM uses to decide whether anybody is still using Kaki. */
 export interface IdleTracker {
   /** Record one person's HTTP request or WebSocket frame. */
   recordActivity(): void;
+  /** Record one real person action, such as a person's command or a line they spoke. */
+  recordAction(): void;
   /** Record a person's WebSocket opening. */
   personConnected(): void;
   /** Record a person's WebSocket closing. */
@@ -25,12 +31,17 @@ export interface IdleTracker {
  * idle window rather than inheriting an old timestamp; the clock is injected so tests can move time.
  */
 export function createIdleTracker(now: () => number = Date.now): IdleTracker {
-  let lastActivityMs = now();
+  const startedMs = now();
+  let lastActivityMs = startedMs;
+  let lastActionMs = startedMs;
   let people = 0;
 
   return {
     recordActivity() {
       lastActivityMs = now();
+    },
+    recordAction() {
+      lastActionMs = now();
     },
     personConnected() {
       people += 1;
@@ -40,10 +51,13 @@ export function createIdleTracker(now: () => number = Date.now): IdleTracker {
     },
     snapshot() {
       const idleMs = Math.max(0, now() - lastActivityMs);
+      const actionIdleMs = Math.max(0, now() - lastActionMs);
       return {
         peopleConnected: people,
         lastActivityAt: new Date(lastActivityMs).toISOString(),
         idleSeconds: Math.floor(idleMs / 1000),
+        lastActionAt: new Date(lastActionMs).toISOString(),
+        actionIdleSeconds: Math.floor(actionIdleMs / 1000),
       };
     },
   };

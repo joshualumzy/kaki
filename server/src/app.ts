@@ -208,6 +208,15 @@ function countsAsActivity(route: Route, principal: Principal): boolean {
   return principal.kind !== 'service';
 }
 
+/**
+ * Whether one request is a real person action rather than a page polling by itself. A state-changing
+ * method counts; a GET read does not, because open lobbies poll with GETs on a timer.
+ */
+function countsAsAction(method: string, route: Route, principal: Principal): boolean {
+  if (!countsAsActivity(route, principal)) return false;
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -224,6 +233,7 @@ async function handleRequest(
     }
     const principal = await resolvePrincipal(request, context);
     if (countsAsActivity(match.route, principal)) context.idle.recordActivity();
+    if (countsAsAction(method, match.route, principal)) context.idle.recordAction();
     const denied = accessProblem(match.route, principal, {
       authEnabled: context.auth !== undefined,
       devRoutes: context.devRoutes,
@@ -612,6 +622,7 @@ export async function createApp({
     onPersonConnected: () => idle.personConnected(),
     onPersonDisconnected: () => idle.personDisconnected(),
     onPersonActivity: () => idle.recordActivity(),
+    onPersonAction: () => idle.recordAction(),
   });
   auth?.bindMeetingIdentity(() => meeting.id);
   auth?.bindOfferedSeats(() => joinSeatRoles(visibleScenario()).map((role) => role.id));
