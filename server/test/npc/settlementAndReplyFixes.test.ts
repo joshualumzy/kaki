@@ -626,3 +626,26 @@ describe('turn-taking (#66, #67, #68)', () => {
     h.conversation.close();
   });
 });
+
+describe('topic time follows the agenda', () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it('closes a topic at its agenda minutes, not at a fixed three minutes', async () => {
+    const h = harness();
+    // "Prep" is a five-minute agenda item.
+    await vi.advanceTimersByTimeAsync(180_000);
+    await finishPlaying(h);
+    expect(h.logs.some((line) => line.includes('time is up'))).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await finishPlaying(h);
+    expect(h.logs).toContainEqual(expect.stringContaining('[lock] time is up'));
+    h.conversation.close();
+  });
+
+  it('leaves the clock\'s overtime cue to Sam\'s own time-up while he runs an unsettled topic', () => {
+    const h = harness();
+    expect(h.conversation.shouldSkipOvertimeCue()).toBe(true);
+    h.conversation.close();
+  });
+});

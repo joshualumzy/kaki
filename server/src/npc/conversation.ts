@@ -108,7 +108,10 @@ const ASK_GIVE_UP_MS = 45_000;
 
 /** A topic still open after this many lines from the visitor, or this long, gets one offer from the host to lock in what they said. */
 const DEFAULT_TOPIC_TURN_BUDGET = 12;
-/** How long a topic may stay open before the host offers to lock in what was said. */
+/**
+ * How long a topic may stay open before time is up on it, when its agenda item gives no minutes. An item's own
+ * minutes win, so the AI closes a topic when the agenda says, not on a fixed clock.
+ */
 export const DEFAULT_TOPIC_TIME_BUDGET_MS = 180_000;
 /** How long the host waits for an answer to that offer before asking once more, and then before locking it in. */
 const DEFAULT_BUDGET_SILENCE_MS = 20_000;
@@ -429,6 +432,7 @@ function namesColleague(text: string, names: readonly string[]): boolean {
 /** Timing and budget overrides for the AI conversation, with the scenario it plays. */
 export interface ConversationOptions {
   topicTurnBudget?: number;
+  /** Overrides every topic's time budget; otherwise each agenda item's own minutes are used. */
   topicTimeBudgetMs?: number;
   budgetSilenceMs?: number;
   /** How long before the host nudges the visitor to work from their follow-up card (see {@link DEFAULT_REVIEW_NUDGE_MS}). */
@@ -1107,7 +1111,7 @@ export class NpcConversation<Clip> {
       this.checkTopicAdvance();
     } else {
       this.topicBudgetTimer = setTimeout(() => this.offerBudgetLock(true),
-        this.options.topicTimeBudgetMs ?? DEFAULT_TOPIC_TIME_BUDGET_MS).unref();
+        this.topicTimeBudgetMs()).unref();
     }
   }
 
@@ -1472,7 +1476,7 @@ export class NpcConversation<Clip> {
 
   /** True while the current topic is inside its own time budget, so a wait for an answer can never hold the meeting. */
   private topicStillHasTime(): boolean {
-    return Date.now() - this.topicOpenedAt < (this.options.topicTimeBudgetMs ?? DEFAULT_TOPIC_TIME_BUDGET_MS);
+    return Date.now() - this.topicOpenedAt < this.topicTimeBudgetMs();
   }
 
   /** Log a wait once per question text, so a poll every half second does not flood the log. */
@@ -2038,7 +2042,7 @@ export class NpcConversation<Clip> {
     if (this.humanLines >= ASK_BACKSTOP_LINES || this.askDue) this.ask();
     if (!this.humanSettledOnCurrentItem && !this.budgetOffered &&
         (this.humanLines - this.linesAtMove >= (this.options.topicTurnBudget ?? DEFAULT_TOPIC_TURN_BUDGET) ||
-         Date.now() - this.topicOpenedAt >= (this.options.topicTimeBudgetMs ?? DEFAULT_TOPIC_TIME_BUDGET_MS))) {
+         Date.now() - this.topicOpenedAt >= this.topicTimeBudgetMs())) {
       queueMicrotask(() => this.offerBudgetLock());
     }
     if (this.budgetOffered && this.humanLines > this.budgetOfferAtLine) {
@@ -2332,9 +2336,21 @@ export class NpcConversation<Clip> {
       }, undefined, { lockOffer: true });
   }
 
-  /** The clock's overtime cue would pile another decision request onto Sam's recent ask. */
+  /**
+   * The clock's overtime cue would pile another decision request onto Sam's recent ask, or repeat the time-up
+   * close Sam already owns: while readiness runs an unsettled topic whose budget is not spent, its time-up at the
+   * agenda item's minutes closes the topic. Once the budget was spent on a lock-in ask, the cue is the backstop.
+   */
   shouldSkipOvertimeCue(): boolean {
-    return Date.now() - this.lastLockAskAt < 15_000;
+    const timeUpOwnsIt = this.readinessApplies() && !this.budgetOffered && !this.humanSettledOnCurrentItem;
+    return timeUpOwnsIt || Date.now() - this.lastLockAskAt < 15_000;
+  }
+
+  /** The current topic's time budget: the option when set, else the agenda item's own minutes. */
+  private topicTimeBudgetMs(): number {
+    if (this.options.topicTimeBudgetMs !== undefined) return this.options.topicTimeBudgetMs;
+    const minutes = this.currentItem()?.minutes;
+    return minutes !== undefined && minutes > 0 ? minutes * 60_000 : DEFAULT_TOPIC_TIME_BUDGET_MS;
   }
 
   /** The card line's variant for this topic, so two topics never use the same wording. */
@@ -2618,7 +2634,7 @@ export class NpcConversation<Clip> {
     if (this.timeUpTimer !== undefined) clearTimeout(this.timeUpTimer);
     this.timeUpTimer = undefined;
     this.topicBudgetTimer = setTimeout(() => this.offerBudgetLock(true),
-      this.options.topicTimeBudgetMs ?? DEFAULT_TOPIC_TIME_BUDGET_MS).unref();
+      this.topicTimeBudgetMs()).unref();
     this.ports.emitState(this.idleState());
     this.decisionWrappedUpOnItem = false;
     const item = this.currentItem();

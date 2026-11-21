@@ -2,7 +2,6 @@ import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScen
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
-import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
 import { startNpcRunner } from '../../src/npc/runner';
 import type { Recognizer } from '../../src/npc/utterance';
@@ -855,7 +854,7 @@ describe('startNpcRunner serialized start', () => {
 
         await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
         // Opening the topic is a real initialization, not just the default agenda item: its timer is armed.
-        expect(timeoutSpy.mock.calls.some((call) => call[1] === DEFAULT_TOPIC_TIME_BUDGET_MS)).toBe(true);
+        expect(timeoutSpy.mock.calls.some((call) => call[1] === scenario.agenda[0]!.minutes * 60_000)).toBe(true);
       } finally {
         timeoutSpy.mockRestore();
       }
@@ -1280,7 +1279,7 @@ describe('meeting sync with the real runner', () => {
         await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
         await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
         // Opening the topic is a real initialization: its timer is armed, not just the default item.
-        expect(timeoutSpy.mock.calls.some((call) => call[1] === DEFAULT_TOPIC_TIME_BUDGET_MS)).toBe(true);
+        expect(timeoutSpy.mock.calls.some((call) => call[1] === scenario.agenda[0]!.minutes * 60_000)).toBe(true);
 
         // The retained event catches up afterwards; it must not welcome the guest a second time.
         sync.started({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false });
