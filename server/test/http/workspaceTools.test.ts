@@ -53,6 +53,10 @@ async function signIn(store: AuthStore, name: string): Promise<SignedIn> {
 async function buildApp(
   store: AuthStore,
   workspaceTools: WorkspaceToolStore,
+  indexWorkspaceTool: (input: {
+    workspaceId: string;
+    kind: 'mattermost' | 'gitea' | 'wiki' | 'email' | 'calendar';
+  }) => Promise<void> = async () => undefined,
 ): Promise<{ base: string; workspaceTools: WorkspaceToolStore }> {
   const meetingCode = createMeetingCodeSource('K7M2Q9');
   const auth = createAuth({ store, meetingCode });
@@ -63,6 +67,8 @@ async function buildApp(
     meetingCode,
     meetings: createMemoryMeetingStore(),
     workspaceTools,
+    // Tests never call the embedding gateway; the fake records what the route asked to index.
+    indexWorkspaceTool,
   });
   apps.push(app);
   return { base: `http://127.0.0.1:${portOf(app)}`, workspaceTools };
@@ -207,6 +213,27 @@ describe('workspace tools API', () => {
     });
     expect(deleted.status).toBe(200);
     expect(await workspaceTools.get(workspaceId, 'mattermost')).toBeUndefined();
+  });
+
+  it('starts indexing a just-connected tool in the background', async () => {
+    process.env.KAKI_SECRET_KEY = newKey();
+    const store = createMemoryAuthStore();
+    const calls: Array<{ workspaceId: string; kind: string }> = [];
+    const { base } = await buildApp(store, createMemoryWorkspaceToolStore(), async (input) => {
+      calls.push({ workspaceId: input.workspaceId, kind: input.kind });
+    });
+    const ada = await signIn(store, 'Ada');
+    const workspaceId = await createTeam(base, ada.cookie);
+    const mattermost = await mattermostServer();
+
+    const saved = await request(base, `/api/workspaces/${workspaceId}/tools/mattermost`, {
+      method: 'PUT',
+      cookie: ada.cookie,
+      body: { settings: { url: mattermost.url, team: 'kopitiam', channel: 'launch' }, token: 'bot-token' },
+    });
+    expect(saved.status).toBe(200);
+
+    await vi.waitFor(() => expect(calls).toEqual([{ workspaceId, kind: 'mattermost' }]));
   });
 
   it('reports a channel that is not in the account as a failed test', async () => {

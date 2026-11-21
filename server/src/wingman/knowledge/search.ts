@@ -130,6 +130,49 @@ function toChunks(rows: ChunkRow[]): RetrievedChunk[] {
   }));
 }
 
+/** The SQL and parameters of both retrieval queries for one workspace. */
+export interface RetrievalQueries {
+  vector: { text: string; values: unknown[] };
+  keyword: { text: string; values: unknown[] };
+}
+
+/**
+ * Build both hybrid queries for one workspace. Every query names its workspace in the WHERE
+ * clause, so a search can only ever read the records of the meeting's own workspace.
+ */
+export function buildRetrievalQueries(
+  workspaceId: string,
+  embedding: number[],
+  question: string,
+  limit: number,
+): RetrievalQueries {
+  return {
+    vector: {
+      text: `SELECT source, ref, text, published_at
+         FROM knowledge_chunks
+        WHERE workspace_id = $1 AND embedding IS NOT NULL
+        ORDER BY embedding <=> $2::vector
+        LIMIT $3`,
+      values: [workspaceId, `[${embedding.join(',')}]`, limit],
+    },
+    // Questions are full sentences, so any of their words may match (OR), and chunks matching more of them
+    // rank higher. The lexemes come from the same 'english' parser as text_tsv, quoted so they cast to a
+    // tsquery exactly; a question with no usable words gives NULL and matches nothing.
+    keyword: {
+      text: `WITH q AS (
+         SELECT (SELECT string_agg(quote_literal(lexeme), ' | ')
+                   FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lexeme)::tsquery AS query
+       )
+       SELECT source, ref, text, published_at
+         FROM knowledge_chunks, q
+        WHERE workspace_id = $2 AND text_tsv @@ q.query
+        ORDER BY ts_rank_cd(text_tsv, q.query) DESC
+        LIMIT $3`,
+      values: [question, workspaceId, limit],
+    },
+  };
+}
+
 /**
  * Read the hybrid candidates from Postgres: nearest chunks by pgvector cosine distance
  * plus full-text matches ranked by ts_rank_cd, merged with RRF.
@@ -137,47 +180,30 @@ function toChunks(rows: ChunkRow[]): RetrievedChunk[] {
  */
 export async function retrieveFromPostgres(
   pool: Pool,
+  workspaceId: string,
   embedding: number[],
   question: string,
   limit: number,
 ): Promise<RetrievedChunk[]> {
+  const queries = buildRetrievalQueries(workspaceId, embedding, question, limit);
   const [vector, keyword] = await Promise.all([
-    pool.query<ChunkRow>(
-      `SELECT source, ref, text, published_at
-         FROM knowledge_chunks
-        WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> $1::vector
-        LIMIT $2`,
-      [`[${embedding.join(',')}]`, limit],
-    ),
-    // Questions are full sentences, so any of their words may match (OR), and chunks matching more of them
-    // rank higher. The lexemes come from the same 'english' parser as text_tsv, quoted so they cast to a
-    // tsquery exactly; a question with no usable words gives NULL and matches nothing.
-    pool.query<ChunkRow>(
-      `WITH q AS (
-         SELECT (SELECT string_agg(quote_literal(lexeme), ' | ')
-                   FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS lexeme)::tsquery AS query
-       )
-       SELECT source, ref, text, published_at
-         FROM knowledge_chunks, q
-        WHERE text_tsv @@ q.query
-        ORDER BY ts_rank_cd(text_tsv, q.query) DESC
-        LIMIT $2`,
-      [question, limit],
-    ),
+    pool.query<ChunkRow>(queries.vector.text, queries.vector.values),
+    pool.query<ChunkRow>(queries.keyword.text, queries.keyword.values),
   ]);
   return reciprocalRankFusion([toChunks(vector.rows), toChunks(keyword.rows)], limit);
 }
 
-/** Build the search from env and a Postgres pool. */
+/** Build the search for one workspace from env and a Postgres pool. */
 export function createCompanySearchFromEnv(
   env: NodeJS.ProcessEnv,
   pool: Pool,
+  workspaceId: string,
 ): SearchCompanyData {
   const config = gatewayConfigFromEnv(env);
   return createSearchCompanyData({
     embed: (text) => embedText(config, text),
     chat: (prompt) => chatComplete(config, prompt),
-    retrieve: (embedding, question, limit) => retrieveFromPostgres(pool, embedding, question, limit),
+    retrieve: (embedding, question, limit) =>
+      retrieveFromPostgres(pool, workspaceId, embedding, question, limit),
   });
 }

@@ -54,9 +54,14 @@ import { SAMPLE_WORKSPACE_ID } from './workspace/constants';
 import {
   createMemoryWorkspaceToolStore,
   createWorkspaceToolSource,
+  WORKSPACE_TOOL_KINDS,
+  type WorkspaceToolKind,
   type WorkspaceToolStore,
+  type WorkspaceTools,
 } from './workspace/tools';
 import { createMeetingModules, type MeetingModules } from './modules';
+import { createWorkspaceIndexScheduler } from './meeting/indexScheduler';
+import { indexSampleKnowledge, indexWorkspaceSource } from './wingman/knowledge/indexer';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
 export interface CreateAppOptions {
@@ -81,6 +86,17 @@ export interface CreateAppOptions {
   actionTools?: ActionToolOptions;
   /** The workspace tool table; absent uses an in-memory store (tests, and a database-less server). */
   workspaceTools?: WorkspaceToolStore;
+  /**
+   * Index one just-connected tool for its workspace; defaults to the real indexer. Tests inject a
+   * fake so connecting a tool never calls the embedding gateway.
+   */
+  indexWorkspaceTool?: (input: {
+    workspaceId: string;
+    kind: WorkspaceToolKind;
+    tools: WorkspaceTools;
+  }) => Promise<void>;
+  /** How often an open workspace is reindexed; defaults to 30 minutes. Tests set it low. */
+  workspaceIndexIntervalMs?: number;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
@@ -184,6 +200,24 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'POST', path: '/api/meetings/:id/join', access: 'public', handle: handleMeetingJoin },
   );
   return routes;
+}
+
+/** The connected tool kinds that hold searchable records; the calendar has none. */
+function connectedIndexKinds(tools: WorkspaceTools): WorkspaceToolKind[] {
+  return WORKSPACE_TOOL_KINDS.filter((kind) => {
+    switch (kind) {
+      case 'mattermost':
+        return tools.mattermost !== undefined;
+      case 'gitea':
+        return tools.gitea !== undefined;
+      case 'wiki':
+        return tools.wiki !== undefined;
+      case 'email':
+        return tools.email !== undefined;
+      case 'calendar':
+        return false;
+    }
+  });
 }
 
 function listen(server: Server, port: number, host: string): Promise<void> {
@@ -292,6 +326,8 @@ export async function createApp({
   calendarFetch,
   actionTools = {},
   workspaceTools: workspaceToolsOption,
+  indexWorkspaceTool: indexWorkspaceToolOption,
+  workspaceIndexIntervalMs,
   roomRoster = livekitRoster(),
   draftOnly = false,
   meetingElapsedSeconds,
@@ -325,6 +361,40 @@ export async function createApp({
   const idle = createIdleTracker(idleClock);
   const workspaceTools = workspaceToolsOption ?? createMemoryWorkspaceToolStore();
   const toolSource = createWorkspaceToolSource(workspaceTools, actionTools.env);
+  const requirePostgresUrl = (): string => {
+    const url = process.env.POSTGRES_URL?.trim();
+    if (url === undefined || url === '') {
+      throw new Error('POSTGRES_URL is not set, so workspace knowledge cannot be indexed');
+    }
+    return url;
+  };
+  const indexWorkspaceTool =
+    indexWorkspaceToolOption ??
+    (async ({ workspaceId, kind, tools }: { workspaceId: string; kind: WorkspaceToolKind; tools: WorkspaceTools }) => {
+      await indexWorkspaceSource({ workspaceId, kind, tools, postgresUrl: requirePostgresUrl() });
+    });
+  // The sample is connectionless: refresh its seeded records while its legacy meeting is open.
+  const workspaceIndexScheduler = createWorkspaceIndexScheduler({
+    intervalMs: workspaceIndexIntervalMs ?? 30 * 60_000,
+    async index(workspaceId) {
+      if (workspaceId === SAMPLE_WORKSPACE_ID) {
+        await indexSampleKnowledge();
+        return;
+      }
+      const tools = await toolSource.toolsFor(workspaceId);
+      for (const kind of connectedIndexKinds(tools)) {
+        try {
+          await indexWorkspaceSource({ workspaceId, kind, tools, postgresUrl: requirePostgresUrl() });
+        } catch (error) {
+          console.error(
+            `kaki indexer: scheduled reindex of ${kind} for workspace ${workspaceId} failed`,
+            error,
+          );
+        }
+      }
+    },
+  });
+  workspaceIndexScheduler.opened(SAMPLE_WORKSPACE_ID);
   const serverRoutes = buildServerRouteTable({ auth });
   const legacyRoutes = buildMeetingRouteTable({ devRoutes });
   const newMeetingRoutes = buildMeetingRouteTable({ devRoutes: false });
@@ -438,6 +508,8 @@ export async function createApp({
     ...(meetingSweepMs === undefined ? {} : { sweepMs: meetingSweepMs }),
     onOpened: (meeting) => runnerControl.opened(meeting),
     onClosed: (meetingId) => runnerControl.closed(meetingId),
+    onWorkspaceOpened: (workspaceId) => workspaceIndexScheduler.opened(workspaceId),
+    onWorkspaceClosed: (workspaceId) => workspaceIndexScheduler.closed(workspaceId),
   });
 
   /** Server-wide routes have no meeting of their own; their handlers read only auth and idle. */
@@ -446,6 +518,8 @@ export async function createApp({
     authStore: auth?.store,
     meetings,
     workspaceTools,
+    toolSource,
+    indexWorkspaceTool,
     guestJoinAttempts,
     serviceToken,
     routes: serverRoutes,
@@ -549,6 +623,7 @@ export async function createApp({
   try {
     await listen(server, port, host);
   } catch (error) {
+    workspaceIndexScheduler.close();
     await legacy.dispose();
     await closeServer(server).catch(() => undefined);
     throw error;
@@ -567,6 +642,7 @@ export async function createApp({
     close: async () => {
       if (closed) return;
       closed = true;
+      workspaceIndexScheduler.close();
       await registry.close();
       await legacy.dispose();
       await persistence?.close().catch((error: unknown) =>

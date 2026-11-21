@@ -276,6 +276,24 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         connectedAt: now,
         lastOkAt: now,
       });
+      // Index the new connection in the background; the saved answer never waits for embeddings.
+      try {
+        const tools = await context.toolSource?.toolsFor(toolWorkspaceId);
+        if (tools !== undefined && context.indexWorkspaceTool !== undefined) {
+          void context.indexWorkspaceTool({ workspaceId: toolWorkspaceId, kind, tools }).catch(
+            (error: unknown) =>
+              console.error(
+                `kaki indexer: indexing ${kind} for workspace ${toolWorkspaceId} after connect failed`,
+                error,
+              ),
+          );
+        }
+      } catch (error) {
+        console.error(
+          `kaki indexer: could not read ${kind} for workspace ${toolWorkspaceId} after connect`,
+          error,
+        );
+      }
       sendJson(response, 200, {
         kind,
         connected: true,

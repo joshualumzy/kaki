@@ -65,6 +65,9 @@ interface MeetingRegistryDeps {
   /** A meeting was opened (loaded) or closed (unloaded), for the runner control channel. */
   onOpened?(meeting: OpenMeeting): void;
   onClosed?(meetingId: string): void;
+  /** A meeting of a workspace opened or closed, so its periodic index can start or stop. */
+  onWorkspaceOpened?(workspaceId: string): void;
+  onWorkspaceClosed?(workspaceId: string): void;
 }
 
 const DEFAULT_MAX_OPEN = 10;
@@ -121,6 +124,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       log(`kaki meetings: closing the saved meeting ${instance.id} failed: ${String(error)}`),
     );
     deps.onClosed?.(instance.id);
+    deps.onWorkspaceClosed?.(instance.workspaceId);
   }
 
   async function load(id: string): Promise<MeetingInstance | undefined> {
@@ -136,6 +140,7 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     const instance = await deps.buildInstance(row, persistence);
     loaded.set(id, instance);
     deps.onOpened?.(openMeeting(instance));
+    deps.onWorkspaceOpened?.(instance.workspaceId);
     return instance;
   }
 

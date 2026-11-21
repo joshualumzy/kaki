@@ -5,11 +5,43 @@ import {
   type Role,
   type Scenario,
   type SearchCompanyData,
+  type Task,
 } from '@kaki/shared';
 import { Pool } from 'pg';
 import type { KakiContext, KakiModule } from '../../core/modules';
+import { isoDay } from './dates';
 import { gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
+import { indexMeetingRecord } from './indexer';
 import { createCompanySearchFromEnv } from './search';
+
+/** The one searchable record of an ended meeting: its minutes and its to-dos. */
+function meetingKnowledgeText(options: {
+  title: string;
+  date: string;
+  agenda: ReadonlyArray<{ title: string }>;
+  tasks: readonly Task[];
+  minutes?: string;
+}): string {
+  const parts = [`[Meeting: ${options.title}, ${options.date}]`];
+  if (options.minutes !== undefined && options.minutes.trim() !== '') {
+    parts.push('', 'Minutes:', '', options.minutes.trim());
+  } else {
+    parts.push('', 'Agenda:', ...options.agenda.map((item) => `- ${item.title}`));
+  }
+  const todos = options.tasks.filter(
+    (task) => task.purpose !== 'meeting_minutes' && task.status !== 'DISMISSED',
+  );
+  parts.push('', 'To-dos:');
+  if (todos.length === 0) {
+    parts.push('- None recorded.');
+  } else {
+    for (const task of todos) {
+      const owner = task.assignee === undefined ? '' : ` (${task.assignee})`;
+      parts.push(`- ${task.title}${owner} [${task.status}]`);
+    }
+  }
+  return parts.join('\n');
+}
 
 interface KnowledgeModuleOptions {
   /** A prepared search, used by tests and the check script. */
@@ -254,12 +286,14 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
     name: 'wingman-knowledge',
     start(ctx) {
       const env = options.env ?? process.env;
+      const workspaceId = ctx.workspaceId();
       let search = options.search;
       let pool: Pool | undefined;
+      const gateway = gatewayConfigFromEnv(env);
 
       if (search === undefined) {
         const missing = missingSearchEnv(env);
-        if (gatewayConfigFromEnv(env) === undefined || missing.length > 0) {
+        if (gateway === undefined || missing.length > 0) {
           console.log(
             `kaki wingman: company search disabled (missing ${[...new Set(missing)].join(', ')})`,
           );
@@ -268,7 +302,8 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
         pool = new Pool({ connectionString: env.POSTGRES_URL });
         // An idle connection dying (database restart) must not crash the server.
         pool.on('error', (error) => console.error('kaki wingman: company search database error', error));
-        search = createCompanySearchFromEnv(env, pool);
+        // The search is bound to this meeting's workspace: no query can read another workspace.
+        search = createCompanySearchFromEnv(env, pool, workspaceId);
       }
 
       const now = options.now ?? Date.now;
@@ -279,7 +314,64 @@ export function createKnowledgeModule(options: KnowledgeModuleOptions = {}): Kak
         lastAttemptAt: new Map(),
         exhausted: new Set(),
       };
-      const unsubscribe = ctx.hub.subscribe((event) => handleEvent(ctx, search, log, now, event));
+
+      let indexedMeeting: { meetingId: string; text: string } | undefined;
+      let meetingQueue: Promise<void> = Promise.resolve();
+      const indexEndedMeeting = (minutes?: string): void => {
+        const db = pool;
+        if (db === undefined || gateway === undefined || log.stopped) return;
+        const meetingId = ctx.meetingId();
+        const scenario = ctx.activeScenario();
+        const date = isoDay(new Date());
+        const text = meetingKnowledgeText({
+          title: scenario.meetingTitle,
+          date,
+          agenda: scenario.agenda,
+          tasks: ctx.tasks.list(),
+          ...(minutes === undefined ? {} : { minutes }),
+        });
+        if (indexedMeeting?.meetingId === meetingId && indexedMeeting.text === text) return;
+        indexedMeeting = { meetingId, text };
+        // Index in order: the closing pass (to-dos only) first, then the pass with the minutes, so
+        // the newer record always wins the shared ref.
+        meetingQueue = meetingQueue
+          .catch(() => undefined)
+          .then(() => {
+            if (log.stopped) return;
+            return indexMeetingRecord({
+              db,
+              workspaceId,
+              meetingId,
+              title: scenario.meetingTitle,
+              text,
+              publishedAt: date,
+              gateway,
+            });
+          })
+          .catch((error: unknown) =>
+            console.error(
+              `kaki wingman: indexing meeting ${meetingId} for workspace ${workspaceId} failed`,
+              error,
+            ),
+          );
+      };
+
+      const unsubscribe = ctx.hub.subscribe((event) => {
+        if (event.type === 'MEETING_RESET') indexedMeeting = undefined;
+        if (event.type === 'HOST_SPEECH_TRIGGERED' && event.payload.kind === 'CLOSING') {
+          indexEndedMeeting();
+        } else if (
+          event.type === 'TASK_UPDATED' &&
+          event.payload.task.purpose === 'meeting_minutes' &&
+          (event.payload.task.status === 'DRAFT_READY' ||
+            event.payload.task.status === 'COMPLETED' ||
+            event.payload.task.status === 'SYNCED') &&
+          event.payload.task.draft !== undefined
+        ) {
+          indexEndedMeeting(event.payload.task.draft.body);
+        }
+        handleEvent(ctx, search, log, now, event);
+      });
       return () => {
         log.stopped = true;
         unsubscribe();

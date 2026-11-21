@@ -6,6 +6,7 @@ import { loadEnv } from '../../../../docker/seed/env';
 import type { TaskStore } from '../../meeting/tasks';
 import { audienceLabel, roleAudience, type ClientAudience } from '../../core/audience';
 import type { Hub } from '../../core/hub';
+import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { chatComplete, embedText, gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
 import { createKnowledgeModule } from './module';
 import {
@@ -55,7 +56,8 @@ function tracedSearch(pool: Pool, gateway: NonNullable<ReturnType<typeof gateway
   const search = createSearchCompanyData({
     embed: (text) => embedText(gateway, text),
     chat: (prompt) => chatComplete(gateway, prompt),
-    retrieve: (embedding, question, limit) => retrieveFromPostgres(pool, embedding, question, limit),
+    retrieve: (embedding, question, limit) =>
+      retrieveFromPostgres(pool, SAMPLE_WORKSPACE_ID, embedding, question, limit),
     onRetrieved: (chunks) => {
       top = chunks.slice(0, 3);
     },

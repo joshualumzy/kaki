@@ -17,7 +17,12 @@ import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
 import type { MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
-import type { WorkspaceToolStore } from '../workspace/tools';
+import type {
+  WorkspaceToolKind,
+  WorkspaceToolSource,
+  WorkspaceToolStore,
+  WorkspaceTools,
+} from '../workspace/tools';
 import type { AttemptLimiter } from './attemptLimiter';
 import type { Principal, Route } from './access';
 
@@ -45,6 +50,14 @@ export interface RequestContext {
   meetings?: MeetingStore;
   /** The workspace tool table, for the workspace tools API. */
   workspaceTools?: WorkspaceToolStore;
+  /** The tool source, so a just-connected tool can be read for indexing. */
+  toolSource?: WorkspaceToolSource;
+  /** Start a background index of one just-connected tool; the PUT response never waits for it. */
+  indexWorkspaceTool?: (input: {
+    workspaceId: string;
+    kind: WorkspaceToolKind;
+    tools: WorkspaceTools;
+  }) => Promise<void>;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
   /**

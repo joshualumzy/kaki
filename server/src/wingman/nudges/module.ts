@@ -165,7 +165,8 @@ export function createNudgeModule(options: NudgeModuleOptions = {}): KakiModule 
         pool = new Pool({ connectionString: env.POSTGRES_URL });
         // An idle connection dying (database restart) must not crash the server.
         pool.on('error', (error) => console.error('kaki wingman: nudge database error', error));
-        search = createCompanySearchFromEnv(env, pool);
+        // Bound to this meeting's workspace, so a nudge can never quote another workspace's records.
+        search = createCompanySearchFromEnv(env, pool, ctx.workspaceId());
       }
 
       const activeSearch = search;

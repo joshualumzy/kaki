@@ -72,22 +72,26 @@ export function knowledgeSourceFor(kind: WorkspaceToolKind): string {
 
 /**
  * Delete the knowledge chunks a disconnected tool contributed to one workspace.
- * The workspace column is added by the Wingman scoping work; until then this is a safe no-op.
+ * The column is ensured here too, inside the caller's transaction, so a disconnect works on a
+ * database the indexer has not migrated yet. With no chunks table there is nothing to delete.
  */
 export async function deleteKnowledgeFor(
   client: Pool | PoolClient,
   workspaceId: string,
   source: string,
 ): Promise<void> {
-  const column = await client.query(
+  const table = await client.query(
     `select 1
-       from information_schema.columns
+       from information_schema.tables
       where table_schema = current_schema()
         and table_name = 'knowledge_chunks'
-        and column_name = 'workspace_id'
       limit 1`,
   );
-  if (column.rowCount === null || column.rowCount === 0) return;
+  if (table.rowCount === null || table.rowCount === 0) return;
+  await client.query(
+    `alter table knowledge_chunks
+       add column if not exists workspace_id text not null default '${SAMPLE_WORKSPACE_ID}'`,
+  );
   await client.query('delete from knowledge_chunks where workspace_id = $1 and source = $2', [
     workspaceId,
     source,
