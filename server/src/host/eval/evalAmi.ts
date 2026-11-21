@@ -233,7 +233,8 @@ function summarizeSections(sections: SectionScore[], runs: number): SummarySecti
     missed: missed / runs,
     invented: invented / runs,
     recall: ratio(caught, gold),
-    precision: ratio(caught, found),
+    // One found item may cover several gold items, so precision counts found items that matched anything.
+    precision: ratio(found - invented, found),
   };
 }
 
@@ -266,7 +267,7 @@ function percent(value: number): string {
 }
 
 function printSummary(rows: SummaryRow[]): void {
-  console.log('\nFinal table (counts averaged over runs; recall = caught/gold, precision = caught/found)');
+  console.log('\nFinal table (counts averaged over runs; recall = caught/gold, precision = found items that matched / found)');
   console.table(
     rows.map((row) => ({
       Meeting: row.meeting,
