@@ -26,7 +26,7 @@ export function LandingPage() {
   return (
     <main className="landing">
       <header className="landing-head">
-        <p className="eyebrow">Kaki</p>
+        <img className="landing-mark" src="/kaki-cup.svg" alt="" width="88" height="88" />
         <h1>Kaki</h1>
         <p className="landing-sub">
           A meeting assistant that keeps the agenda, coaches each person privately, hands out follow-up

@@ -4,6 +4,20 @@ const WAKE_LIMIT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 5000;
 const STATUS_TIMEOUT_MS = 10000;
 const WAKE_TIMEOUT_MS = 15000;
+const TICK_MS = 250;
+const READY_PAUSE_MS = 1200;
+/** The most the cup may rise per tick, so a new wake step eases it up instead of jumping. */
+const MAX_RISE_PER_TICK = 0.012;
+/** Height of the cup's coffee shape in SVG units: moved down by this much, the cup is empty. */
+const CUP_FILL_HEIGHT = 46;
+/**
+ * The cup fills by the wake steps the status API really reports. Within a step it creeps towards that step's
+ * top so it never looks frozen, and only a healthy Kaki fills it to the brim.
+ */
+const STAGES = {
+  switchingOn: { floor: 0.05, top: 0.6, tauSeconds: 25, message: 'Waking Kaki up: switching the server on, about a minute or two' },
+  startingUp: { floor: 0.6, top: 0.92, tauSeconds: 20, message: 'Almost there: starting Kaki' },
+};
 
 const wakeBox = document.getElementById('wake');
 const statusText = document.getElementById('wake-status');
@@ -14,6 +28,8 @@ const inviteForm = document.getElementById('invite-form');
 const inviteInput = document.getElementById('invite-code');
 const inviteGo = document.getElementById('invite-go');
 const goButtons = [...document.querySelectorAll('.landing-go')];
+const cup = document.getElementById('cup');
+const cupFill = document.getElementById('cup-fill');
 
 /** idle: at the landing page; waking: WAKE in progress; failed: gave up. */
 let phase = 'idle';
@@ -21,7 +37,11 @@ let healthy = false;
 let destination = null;
 let wakeStartedAt = 0;
 let pollTimer = null;
-let elapsedTimer = null;
+let tickTimer = null;
+let cupLevel = 0;
+let stage = null;
+let stageStartedAt = 0;
+let stageFloor = 0;
 
 function showStatus(state, message, detail = '') {
   wakeBox.dataset.state = state;
@@ -36,11 +56,35 @@ function showElapsed() {
   elapsedText.hidden = false;
 }
 
+function drawCup(state) {
+  cup.dataset.state = state;
+  cupFill.style.transform = `translateY(${((1 - cupLevel) * CUP_FILL_HEIGHT).toFixed(2)}px)`;
+}
+
+function enterStage(name) {
+  if (stage === name) return;
+  stage = name;
+  stageStartedAt = Date.now();
+  stageFloor = Math.max(cupLevel, STAGES[name].floor);
+  showStatus('waking', STAGES[name].message);
+}
+
+function tick() {
+  showElapsed();
+  if (stage === null) return;
+  const { top, tauSeconds } = STAGES[stage];
+  const seconds = (Date.now() - stageStartedAt) / 1000;
+  const target = stageFloor + (top - stageFloor) * (1 - Math.exp(-seconds / tauSeconds));
+  cupLevel += Math.min(Math.max((target - cupLevel) * 0.15, 0), MAX_RISE_PER_TICK);
+  drawCup('waking');
+}
+
 function stopTimers() {
   clearTimeout(pollTimer);
-  clearInterval(elapsedTimer);
+  clearInterval(tickTimer);
   pollTimer = null;
-  elapsedTimer = null;
+  tickTimer = null;
+  stage = null;
 }
 
 function setBusy(busy) {
@@ -84,6 +128,7 @@ function giveUp(reason) {
   elapsedText.hidden = true;
   phase = 'failed';
   setBusy(false);
+  drawCup('failed');
   showStatus('failed', 'Kaki could not be woken. Try again in a minute, or contact the team.', reason);
   retryButton.hidden = false;
 }
@@ -92,8 +137,11 @@ function finish() {
   stopTimers();
   phase = 'idle';
   healthy = true;
+  cupLevel = 1;
+  drawCup('ready');
   showStatus('ready', 'Kaki is ready.');
-  go();
+  // A short pause so the full, steaming cup is seen before the page moves on.
+  setTimeout(go, READY_PAUSE_MS);
 }
 
 function schedulePoll(delay) {
@@ -113,6 +161,7 @@ async function poll() {
     finish();
     return;
   }
+  if (result.ok && result.data?.power === 'running') enterStage('startingUp');
   schedulePoll(POLL_INTERVAL_MS);
 }
 
@@ -123,10 +172,12 @@ async function beginWake(target) {
   healthy = false;
   setBusy(true);
   retryButton.hidden = true;
-  showStatus('waking', 'Waking Kaki up, about 2 minutes');
   wakeStartedAt = Date.now();
+  cupLevel = 0;
+  drawCup('waking');
+  enterStage('switchingOn');
   showElapsed();
-  elapsedTimer = setInterval(showElapsed, 1000);
+  tickTimer = setInterval(tick, TICK_MS);
 
   const result = await requestJson('/api/wake', { method: 'POST' }, WAKE_TIMEOUT_MS);
   if (phase !== 'waking') return;
@@ -154,10 +205,14 @@ async function checkStatus() {
   if (phase !== 'idle') return;
   if (result.ok && result.data?.healthy === true) {
     healthy = true;
+    cupLevel = 1;
+    drawCup('ready');
     showStatus('ready', 'Kaki is ready.');
     return;
   }
   healthy = false;
+  cupLevel = 0;
+  drawCup('asleep');
   if (result.ok) {
     showStatus('asleep', 'Kaki is asleep — it will start when you choose an option.');
   } else {
@@ -199,6 +254,8 @@ window.addEventListener('pageshow', (event) => {
   setBusy(false);
   retryButton.hidden = true;
   elapsedText.hidden = true;
+  cupLevel = 0;
+  drawCup('checking');
   checkStatus();
 });
 
