@@ -10,6 +10,11 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
       created_at timestamptz not null default now()
     )
   `);
+  // Google is the product sign-in; password accounts are still created by the host CLI.
+  await pool.query('alter table users add column if not exists google_sub text');
+  await pool.query('alter table users add column if not exists name text');
+  await pool.query('alter table users alter column password_hash drop not null');
+  await pool.query('create unique index if not exists users_google_sub_key on users (google_sub)');
 
   await pool.query(`
     create table if not exists sessions (
@@ -24,9 +29,40 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
   `);
   // Older deployments added before a meeting generation was part of a seat.
   await pool.query('alter table sessions add column if not exists meeting_id text');
+  await pool.query('alter table sessions add column if not exists display_name text');
+  await pool.query('alter table sessions add column if not exists user_id text');
   // A participant session without a generation cannot be authorized against the current meeting,
   // so retire it rather than letting a NULL slip through every generation check.
   await pool.query("delete from sessions where kind = 'participant' and meeting_id is null");
+  // Replace the kind check safely: older tables named it sessions_kind_check, but a deployment
+  // could also carry a differently named check, so find every check that mentions `kind`.
+  await pool.query(`
+    do $$
+    declare
+      found record;
+    begin
+      for found in
+        select conname, pg_get_constraintdef(oid) as definition
+          from pg_constraint
+         where conrelid = 'sessions'::regclass
+           and contype = 'c'
+           and pg_get_constraintdef(oid) like '%kind%'
+      loop
+        if found.definition not like '%user%' or found.definition not like '%guest%' then
+          execute format('alter table sessions drop constraint %I', found.conname);
+        end if;
+      end loop;
+      if not exists (
+        select 1
+          from pg_constraint
+         where conrelid = 'sessions'::regclass
+           and conname = 'sessions_kind_check'
+      ) then
+        alter table sessions add constraint sessions_kind_check
+          check (kind in ('host', 'participant', 'user', 'guest'));
+      end if;
+    end $$;
+  `);
 
   await pool.query(`
     create table if not exists seat_claims (
@@ -38,12 +74,32 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
     )
   `);
 
+  await pool.query(`
+    create table if not exists workspaces (
+      id text primary key,
+      name text not null,
+      kind text not null check (kind in ('personal', 'team')),
+      created_by text references users(id),
+      created_at timestamptz not null default now()
+    )
+  `);
+
+  await pool.query(`
+    create table if not exists workspace_members (
+      workspace_id text not null references workspaces(id),
+      user_id text not null references users(id),
+      role text not null check (role in ('admin', 'member')),
+      primary key (workspace_id, user_id)
+    )
+  `);
+
   await ensureMeetingsSchema(pool);
 }
 
 /**
- * Create the meetings table if it is missing. Workspaces arrive in steps 3/4, so the workspace
- * and owner ids are plain text for now: the sample workspace is built into code, not a row.
+ * Create the meetings table if it is missing, then add the real-product columns an older step-2
+ * table does not have. The workspace and owner ids stay plain text: the sample workspace is built
+ * into code, not a row, and an existing meeting may predate accounts.
  */
 export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
   await pool.query(`
@@ -57,5 +113,28 @@ export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
       created_at timestamptz not null default now(),
       ended_at timestamptz
     )
+  `);
+  await pool.query('alter table meetings add column if not exists status text');
+  // Step-2 rows had no status; an open meeting is the truthful default for them.
+  await pool.query("update meetings set status = 'open' where status is null");
+  await pool.query("alter table meetings alter column status set default 'open'");
+  await pool.query('alter table meetings alter column status set not null');
+  await pool.query(`
+    do $$
+    begin
+      if not exists (
+        select 1 from pg_constraint
+         where conrelid = 'meetings'::regclass and conname = 'meetings_kind_check'
+      ) then
+        alter table meetings add constraint meetings_kind_check check (kind in ('real'));
+      end if;
+      if not exists (
+        select 1 from pg_constraint
+         where conrelid = 'meetings'::regclass and conname = 'meetings_status_check'
+      ) then
+        alter table meetings add constraint meetings_status_check
+          check (status in ('scheduled', 'open', 'ended'));
+      end if;
+    end $$;
   `);
 }

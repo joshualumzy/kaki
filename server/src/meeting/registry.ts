@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 import { ensureMeetingsSchema } from '../auth/schema';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { MeetingInstance } from './instance';
-import type { MeetingRow } from './types';
+import type { MeetingRow, MeetingStatus } from './types';
 
 /** A registry refusal the HTTP layer turns into a 503 with this exact message. */
 export class MeetingBusyError extends Error {
@@ -15,7 +15,13 @@ export class MeetingBusyError extends Error {
 
 /** The `meetings` rows this server can load and list. */
 export interface MeetingStore {
-  create(input: { workspaceId: string; ownerUserId: string; title: string; scheduledFor?: string }): Promise<MeetingRow>;
+  create(input: {
+    workspaceId: string;
+    ownerUserId: string;
+    title: string;
+    status?: MeetingStatus;
+    scheduledFor?: string;
+  }): Promise<MeetingRow>;
   get(id: string): Promise<MeetingRow | undefined>;
   list(workspaceId: string): Promise<MeetingRow[]>;
   /** Release the store's connection, when it owns one. */
@@ -137,10 +143,16 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     async create({ workspaceId, ownerUserId, title, scheduledFor }) {
       const cleanTitle = title.trim();
       if (cleanTitle === '') throw new Error('a meeting needs a title');
+      const scheduledAt = scheduledFor === undefined ? undefined : Date.parse(scheduledFor);
+      if (scheduledAt !== undefined && Number.isNaN(scheduledAt)) {
+        throw new Error('a meeting scheduledFor must be a date');
+      }
+      const status: MeetingStatus = scheduledAt !== undefined && scheduledAt > now() ? 'scheduled' : 'open';
       return deps.store.create({
         workspaceId,
         ownerUserId,
         title: cleanTitle,
+        status,
         ...(scheduledFor === undefined ? {} : { scheduledFor }),
       });
     },
@@ -220,6 +232,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     owner_user_id: string | null;
     title: string;
     kind: string;
+    status: string;
     scheduled_for: Date | string | null;
     created_at: Date | string;
     ended_at: Date | string | null;
@@ -229,26 +242,28 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     ownerUserId: record.owner_user_id,
     title: record.title,
     kind: 'real',
+    status:
+      record.status === 'scheduled' || record.status === 'ended' ? record.status : 'open',
     scheduledFor: record.scheduled_for === null ? null : new Date(record.scheduled_for).toISOString(),
     createdAt: new Date(record.created_at).toISOString(),
     endedAt: record.ended_at === null ? null : new Date(record.ended_at).toISOString(),
   });
 
   return {
-    async create({ workspaceId, ownerUserId, title, scheduledFor }) {
+    async create({ workspaceId, ownerUserId, title, status = 'open', scheduledFor }) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `insert into meetings (id, workspace_id, owner_user_id, title, kind, scheduled_for)
-         values ($1, $2, $3, $4, 'real', $5)
-         returning id, workspace_id, owner_user_id, title, kind, scheduled_for, created_at, ended_at`,
-        [newMeetingId(), workspaceId, ownerUserId, title, scheduledFor ?? null],
+        `insert into meetings (id, workspace_id, owner_user_id, title, kind, status, scheduled_for)
+         values ($1, $2, $3, $4, 'real', $5, $6)
+         returning id, workspace_id, owner_user_id, title, kind, status, scheduled_for, created_at, ended_at`,
+        [newMeetingId(), workspaceId, ownerUserId, title, status, scheduledFor ?? null],
       );
       return row(result.rows[0]);
     },
     async get(id) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, scheduled_for, created_at, ended_at
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, created_at, ended_at
            from meetings where id = $1`,
         [id],
       );
@@ -257,7 +272,7 @@ export function createPostgresMeetingStore(pool: Pool): MeetingStore {
     async list(workspaceId) {
       await ensureMeetingsSchema(pool);
       const result = await pool.query(
-        `select id, workspace_id, owner_user_id, title, kind, scheduled_for, created_at, ended_at
+        `select id, workspace_id, owner_user_id, title, kind, status, scheduled_for, created_at, ended_at
            from meetings where workspace_id = $1 order by created_at desc`,
         [workspaceId],
       );
@@ -271,13 +286,14 @@ export function createMemoryMeetingStore(): MeetingStore & { rows: Map<string, M
   const rows = new Map<string, MeetingRow>();
   return {
     rows,
-    async create({ workspaceId, ownerUserId, title, scheduledFor }) {
+    async create({ workspaceId, ownerUserId, title, status = 'open', scheduledFor }) {
       const meeting: MeetingRow = {
         id: newMeetingId(),
         workspaceId,
         ownerUserId,
         title,
         kind: 'real',
+        status,
         scheduledFor: scheduledFor ?? null,
         createdAt: new Date().toISOString(),
         endedAt: null,

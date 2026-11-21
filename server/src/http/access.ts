@@ -7,6 +7,7 @@ import type { IncomingMessage } from 'node:http';
  */
 type Access =
   | 'public'
+  | 'user'
   | 'session'
   | 'host'
   | 'host-or-practice'
@@ -18,6 +19,7 @@ type Access =
 /** The access levels a route may declare, as setup and tests enumerate them. */
 export const ACCESS_LEVELS: readonly Access[] = [
   'public',
+  'user',
   'session',
   'host',
   'host-or-practice',
@@ -31,8 +33,12 @@ export const ACCESS_LEVELS: readonly Access[] = [
 export type Principal =
   | { kind: 'anonymous' }
   /** A host may also hold a seat they took; they keep every host power either way. */
-  | { kind: 'host'; seat?: string }
+  | { kind: 'host'; seat?: string; userId?: string; name?: string }
   | { kind: 'seat'; role: string }
+  /** A signed-in product user; only a meeting's owner or workspace admin becomes its host. */
+  | { kind: 'user'; userId: string; name: string }
+  /** A visitor bound to exactly one meeting; never a member of its workspace. */
+  | { kind: 'guest'; meetingId: string; name: string }
   /**
    * The one visitor in a practice meeting, holding nothing but the right to start that meeting.
    * It ends with the practice meeting and never opens setup, tools, owner routes or a real meeting.
@@ -143,6 +149,14 @@ export function accessProblem(
       // The VM's own idle checker: nothing arriving through the public proxy may read it, even if
       // the proxy is later widened to forward this path.
       return context.loopback && !context.proxied ? undefined : { status: 404, error: 'Not found' };
+
+    case 'user':
+      if (!context.authEnabled) return undefined;
+      if (principal.kind === 'user') return undefined;
+      return {
+        status: principal.kind === 'anonymous' ? 401 : 403,
+        error: 'Sign in with Google to do that.',
+      };
 
     case 'session':
       if (!context.authEnabled) return undefined;

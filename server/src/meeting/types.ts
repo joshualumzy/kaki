@@ -1,3 +1,6 @@
+/** The lifecycle state of a real meeting. */
+export type MeetingStatus = 'scheduled' | 'open' | 'ended';
+
 /** One row of the `meetings` table. Workspace and owner ids are plain text for now. */
 export interface MeetingRow {
   id: string;
@@ -5,6 +8,7 @@ export interface MeetingRow {
   ownerUserId: string | null;
   title: string;
   kind: 'real';
+  status: MeetingStatus;
   scheduledFor: string | null;
   createdAt: string;
   endedAt: string | null;

@@ -13,6 +13,11 @@ import {
   type MeetingCodeSource,
 } from '../meeting/meetingCode';
 import { clearSessionCookie, readSessionCookie, SESSION_TTL_MS, sessionCookie } from './cookie';
+import {
+  createGoogleSignIn,
+  GOOGLE_NOT_SET_UP_MESSAGE,
+  type GoogleSignIn,
+} from './google';
 import { hashPassword, hashToken, verifyPassword } from './password';
 import { createPostgresAuthStore } from './postgres';
 import { ensureAuthSchema } from './schema';
@@ -68,8 +73,19 @@ export interface Auth {
   onSessionEnded(handler: (sessionTokenHash: string) => void): void;
   /** The code-attempt limiter shared with the LiveKit token route, per client address. */
   readonly meetingCodeLimiter: AttemptLimiter;
+  /** The auth persistence, also used by the workspace API. */
+  readonly store: AuthStore;
+  /** Whether this server issues Secure cookies, so other routes can match it. */
+  readonly secureCookies: boolean;
+  /** Bind how a real meeting decides its owner or workspace admin. */
+  bindMeetingHost(handler: MeetingHostCheck): void;
+  /** Create a guest session for exactly one meeting and return its Set-Cookie value. */
+  createGuestSession(meetingId: string, name: string): Promise<string>;
   close(): Promise<void>;
 }
+
+/** Whether this product user is the meeting's owner or an admin of its workspace. */
+export type MeetingHostCheck = (meetingId: string, userId: string) => Promise<boolean>;
 
 /** The meeting facts `/api/join` needs so it cannot escalate a practice visitor into another seat. */
 interface JoinGuard {
@@ -94,6 +110,8 @@ export interface AuthOptions {
   log?: (message: string) => void;
   /** Injectable password check, so tests can prove an unknown email still takes that path. */
   verifyPassword?: typeof verifyPassword;
+  /** The Google code flow; absent means `/api/auth/google/start` answers the setup message. */
+  google?: GoogleSignIn;
 }
 
 const MAX_BODY_BYTES = 64_000;
@@ -141,11 +159,13 @@ export function createAuth({
   now = Date.now,
   log = () => undefined,
   verifyPassword: verify = verifyPassword,
+  google,
 }: AuthOptions): Auth {
   const sessionEndedHandlers = new Set<(sessionTokenHash: string) => void>();
   let meetingIdentity: (() => string | undefined) | undefined;
   let offeredRoles: () => readonly string[] = readOfferedRoles ?? (() => []);
   let joinGuard: JoinGuard | undefined;
+  let meetingHost: MeetingHostCheck | undefined;
   const currentMeetingId = (): string => meetingIdentity?.() ?? meetingCode.value;
   /** A real hash to check against when the email is unknown, so both paths cost the same. */
   let dummyHash: Promise<string> | undefined;
@@ -201,6 +221,8 @@ export function createAuth({
     role: string | null,
     code: string | null,
     meetingId: string | null,
+    displayName: string | null = null,
+    userId: string | null = null,
   ): SessionRecord {
     return {
       tokenHash: hashToken(token),
@@ -208,6 +230,8 @@ export function createAuth({
       role,
       meetingCode: code,
       meetingId,
+      displayName,
+      userId,
       expiresAt: new Date(now() + SESSION_TTL_MS),
     };
   }
@@ -345,6 +369,29 @@ export function createAuth({
       sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
       return;
     }
+    if (session.kind === 'user') {
+      const user = session.userId === null || session.userId === undefined
+        ? undefined
+        : await store.findUserById(session.userId);
+      if (user === undefined) {
+        sendJson(response, 401, { error: 'Not signed in', authEnabled: true });
+        return;
+      }
+      sendJson(response, 200, {
+        kind: 'user',
+        user: { id: user.id, name: user.name ?? user.email, email: user.email },
+        authEnabled: true,
+      });
+      return;
+    }
+    if (session.kind === 'guest') {
+      sendJson(response, 200, {
+        kind: 'guest',
+        name: session.displayName ?? '',
+        authEnabled: true,
+      });
+      return;
+    }
     if (
       session.kind === 'participant' &&
       (session.meetingCode !== meetingCode.value || session.meetingId !== currentMeetingId())
@@ -479,6 +526,44 @@ export function createAuth({
   > {
     const session = await currentSession(request);
     if (session === undefined) return { ok: false, ended: false };
+
+    if (session.kind === 'user') {
+      const userId = session.userId ?? null;
+      const user = userId === null ? undefined : await store.findUserById(userId);
+      if (user === undefined || userId === null) return { ok: false, ended: false };
+      const name = user.name ?? user.email;
+      // A real meeting's host is its owner or a workspace admin, never merely a signed-in visitor.
+      if (
+        expectedMeetingId !== undefined &&
+        meetingHost !== undefined &&
+        (await meetingHost(expectedMeetingId, userId))
+      ) {
+        return { ok: true, session, principal: { kind: 'host', userId, name } };
+      }
+      return { ok: true, session, principal: { kind: 'user', userId, name } };
+    }
+
+    if (session.kind === 'guest') {
+      // A guest belongs to exactly one meeting; its cookie is useless on any other.
+      if (expectedMeetingId !== undefined && session.meetingId !== expectedMeetingId) {
+        return { ok: false, ended: false };
+      }
+      return {
+        ok: true,
+        session,
+        principal: {
+          kind: 'guest',
+          meetingId: session.meetingId ?? '',
+          name: session.displayName ?? '',
+        },
+      };
+    }
+
+    if (session.kind === 'host' && expectedMeetingId !== undefined) {
+      // A password host owns the legacy meeting only; a real meeting names its owner by user id.
+      return { ok: false, ended: false };
+    }
+
     const meetingId = expectedMeetingId ?? currentMeetingId();
     if (session.kind === 'participant') {
       const ended = session.meetingCode !== meetingCode.value || session.meetingId !== meetingId;
@@ -499,10 +584,24 @@ export function createAuth({
 
   return {
     meetingCodeLimiter: meetingCodeAttempts,
+    store,
+    secureCookies,
     enterSeat,
 
     bindMeetingIdentity(meetingId) {
       meetingIdentity = meetingId;
+    },
+
+    bindMeetingHost(handler) {
+      meetingHost = handler;
+    },
+
+    async createGuestSession(meetingId, name) {
+      const token = randomBytes(32).toString('base64url');
+      await store.createSession(
+        sessionRecord(token, 'guest', null, null, meetingId, name, null),
+      );
+      return sessionCookie(token, secureCookies);
     },
 
     bindOfferedSeats(offered) {
@@ -541,6 +640,17 @@ export function createAuth({
         await handleMe(request, response);
         return true;
       }
+      if (
+        request.method === 'GET' &&
+        (path === '/api/auth/google/start' || path === '/api/auth/google/callback')
+      ) {
+        if (google === undefined) {
+          sendJson(response, 503, { error: GOOGLE_NOT_SET_UP_MESSAGE });
+        } else {
+          await google.handleHttp(request, response);
+        }
+        return true;
+      }
       if (request.method === 'POST' && path === '/api/join') {
         await handleJoin(request, response);
         return true;
@@ -556,8 +666,15 @@ export function createAuth({
       const { session, principal } = resolved;
       const participant = session.kind === 'participant';
       const sessionTokenHash = session.tokenHash;
-      // Any signed-in person may follow the read-only start/reset lifecycle; it drives no meeting state.
+      // Any signed-in person may follow the read-only lifecycle of their own meeting; on the legacy
+      // meeting a product user or guest is refused exactly like an anonymous visitor.
       if (audience.kind === 'lifecycle') {
+        if (
+          meetingId === undefined &&
+          (session.kind === 'user' || session.kind === 'guest')
+        ) {
+          return { ok: false, message: 'Sign in required' };
+        }
         return { ok: true, participant, principal, sessionTokenHash };
       }
       if (audience.kind === 'screen') {
@@ -665,14 +782,50 @@ export async function createAuthFromEnv({
     await ensureAuthSchema(pool);
     const store = createPostgresAuthStore(pool);
     await bootstrapHostAccount(store, env);
+    const secureCookies = secureCookiesFromEnv(env);
+    const google = createGoogleFromEnv(env, { store, secureCookies, now });
+    if (google === undefined) {
+      console.log(
+        'kaki auth: Google sign-in is off: set KAKI_GOOGLE_CLIENT_ID, KAKI_GOOGLE_CLIENT_SECRET and KAKI_PUBLIC_URL to turn it on.',
+      );
+    }
     return createAuth({
       store,
       meetingCode,
-      secureCookies: secureCookiesFromEnv(env),
+      secureCookies,
       now,
+      ...(google === undefined ? {} : { google }),
     });
   } catch (error) {
     await pool.end().catch(() => undefined);
     throw error;
   }
+}
+
+/** Build the Google flow only when every credential is present; never fall back silently. */
+function createGoogleFromEnv(
+  env: NodeJS.ProcessEnv,
+  deps: { store: AuthStore; secureCookies: boolean; now: () => number },
+): GoogleSignIn | undefined {
+  const clientId = env.KAKI_GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = env.KAKI_GOOGLE_CLIENT_SECRET?.trim();
+  const publicUrl = env.KAKI_PUBLIC_URL?.trim();
+  if (
+    clientId === undefined ||
+    clientId === '' ||
+    clientSecret === undefined ||
+    clientSecret === '' ||
+    publicUrl === undefined ||
+    publicUrl === ''
+  ) {
+    return undefined;
+  }
+  return createGoogleSignIn({
+    store: deps.store,
+    clientId,
+    clientSecret,
+    publicUrl,
+    secureCookies: deps.secureCookies,
+    now: deps.now,
+  });
 }

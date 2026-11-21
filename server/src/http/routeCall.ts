@@ -8,12 +8,14 @@ import type {
 import type { CalendarSettings } from '../action/calendar';
 import type { ActionToolOptions } from '../action/tools';
 import type { Auth } from '../auth/module';
+import type { AuthStore } from '../auth/store';
 import type { Hub } from '../core/hub';
 import type { IdleTracker } from '../core/idle';
 import type { MeetingCodeSource } from '../meeting/meetingCode';
 import type { RejoinGuard } from '../meeting/rejoin';
 import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
+import type { MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
 import type { AttemptLimiter } from './attemptLimiter';
 import type { Principal, Route } from './access';
@@ -34,6 +36,12 @@ export interface RequestContext {
   pickedAgenda?: Scenario['agenda'];
   devRoutes: boolean;
   auth?: Auth;
+  /** The auth persistence, for the server-wide workspace API. */
+  authStore?: AuthStore;
+  /** The meetings table, for the server-wide meetings API. */
+  meetings?: MeetingStore;
+  /** Guest-join attempts per client address, owned by the app. */
+  guestJoinAttempts?: AttemptLimiter;
   /**
    * The meeting a session must belong to, when this is not the legacy meeting. A phone session
    * for meeting A resolves to nobody on meeting B's routes.

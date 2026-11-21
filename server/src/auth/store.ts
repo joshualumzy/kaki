@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
 /** Who a session belongs to. */
-export type SessionKind = 'host' | 'participant';
+export type SessionKind = 'host' | 'participant' | 'user' | 'guest';
 
-/** A host account. */
+/** A product user, created by Google sign-in, or a password account made by the host CLI. */
 export interface UserRecord {
   id: string;
   email: string;
-  passwordHash: string;
+  passwordHash: string | null;
+  googleSub: string | null;
+  name: string | null;
   createdAt: Date;
 }
 
@@ -17,9 +19,37 @@ export interface SessionRecord {
   kind: SessionKind;
   role: string | null;
   meetingCode: string | null;
-  /** The meeting generation a seat belongs to; a host keeps host powers when it rotates, not the seat. */
+  /** The meeting generation a seat or guest belongs to; a host keeps host powers when it rotates. */
   meetingId: string | null;
+  /** The name a guest typed, or the Google user's display name. */
+  displayName?: string | null;
+  /** The product user a `user` session belongs to. */
+  userId?: string | null;
   expiresAt: Date;
+}
+
+/** A workspace as stored; the sample workspace is built into code and never a row. */
+export type WorkspaceKind = 'personal' | 'team';
+export type WorkspaceRole = 'admin' | 'member';
+
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  kind: WorkspaceKind;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
+export interface WorkspaceMembership {
+  workspace: WorkspaceRecord;
+  role: WorkspaceRole;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  name: string | null;
+  email: string;
+  role: WorkspaceRole;
 }
 
 /** One role's seat holder in one meeting generation, whoever they are. */
@@ -33,7 +63,16 @@ interface SeatClaim {
 /** Everything the auth module needs from persistence. */
 export interface AuthStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
+  findUserById(id: string): Promise<UserRecord | undefined>;
+  findUserByGoogleSub(googleSub: string): Promise<UserRecord | undefined>;
   createUser(input: { email: string; passwordHash: string }): Promise<UserRecord>;
+  /**
+   * Upsert a Google user by `google_sub`, and on first sign-in create their personal workspace
+   * with them as admin in the same transaction. A second sign-in neither duplicates the user nor
+   * the workspace.
+   */
+  createGoogleUser(input: { googleSub: string; name: string; email: string }): Promise<UserRecord>;
+  updateUserProfile(input: { id: string; name: string; email: string }): Promise<void>;
   createSession(session: SessionRecord): Promise<void>;
   /** Return undefined for an unknown or expired session; expired rows are dropped. */
   findSession(tokenHash: string): Promise<SessionRecord | undefined>;
@@ -52,32 +91,147 @@ export interface AuthStore {
   /** Release every seat held by one session, or one meeting's seats when `meetingId` is given. */
   releaseSeats(input: { holder?: string; meetingId?: string }): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
+
+  listWorkspacesForUser(userId: string): Promise<WorkspaceMembership[]>;
+  createWorkspace(input: { name: string; createdBy: string }): Promise<WorkspaceMembership>;
+  getWorkspace(id: string): Promise<WorkspaceRecord | undefined>;
+  getMembership(input: { workspaceId: string; userId: string }): Promise<WorkspaceRole | undefined>;
+  listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[]>;
+  addWorkspaceMember(input: {
+    workspaceId: string;
+    userId: string;
+    role: WorkspaceRole;
+  }): Promise<void>;
+  renameWorkspace(input: { id: string; name: string }): Promise<WorkspaceRecord | undefined>;
+
   close(): Promise<void>;
 }
 
+const PERSONAL_WORKSPACE_NAME = 'My workspace';
+
 /** An in-memory store for tests and for running without Postgres. */
 export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
-  const users = new Map<string, UserRecord>();
+  const usersById = new Map<string, UserRecord>();
+  const userIdByEmail = new Map<string, string>();
+  const userIdByGoogleSub = new Map<string, string>();
   const sessions = new Map<string, SessionRecord>();
   const seats = new Map<string, SeatClaim & { expiresAt: number }>();
+  const workspaces = new Map<string, WorkspaceRecord>();
+  const members = new Map<string, Map<string, WorkspaceRole>>();
   const seatKey = (meetingId: string, role: string): string => `${meetingId}\u0000${role}`;
+
+  function rememberUser(user: UserRecord): UserRecord {
+    usersById.set(user.id, user);
+    userIdByEmail.set(user.email, user.id);
+    if (user.googleSub !== null) userIdByGoogleSub.set(user.googleSub, user.id);
+    return user;
+  }
+
+  function personalWorkspace(userId: string): WorkspaceMembership | undefined {
+    for (const [workspaceId, roles] of members) {
+      const role = roles.get(userId);
+      if (role === undefined) continue;
+      const workspace = workspaces.get(workspaceId);
+      if (workspace !== undefined && workspace.kind === 'personal') return { workspace, role };
+    }
+    return undefined;
+  }
+
+  function insertWorkspace(
+    id: string,
+    name: string,
+    kind: WorkspaceKind,
+    createdBy: string,
+    role: WorkspaceRole,
+  ): WorkspaceMembership {
+    const workspace: WorkspaceRecord = {
+      id,
+      name,
+      kind,
+      createdBy,
+      createdAt: new Date(now()),
+    };
+    workspaces.set(id, workspace);
+    members.set(id, new Map([[createdBy, role]]));
+    return { workspace, role };
+  }
 
   return {
     async findUserByEmail(email) {
-      return users.get(email);
+      const id = userIdByEmail.get(email);
+      return id === undefined ? undefined : usersById.get(id);
+    },
+    async findUserById(id) {
+      return usersById.get(id);
+    },
+    async findUserByGoogleSub(googleSub) {
+      const id = userIdByGoogleSub.get(googleSub);
+      return id === undefined ? undefined : usersById.get(id);
     },
     async createUser({ email, passwordHash }) {
-      if (users.has(email)) {
+      if (userIdByEmail.has(email)) {
         throw new Error('A host account with that email already exists.');
       }
       const user: UserRecord = {
         id: randomUUID(),
         email,
         passwordHash,
+        googleSub: null,
+        name: null,
         createdAt: new Date(now()),
       };
-      users.set(email, user);
+      return rememberUser(user);
+    },
+    async createGoogleUser({ googleSub, name, email }) {
+      const existingBySub = userIdByGoogleSub.get(googleSub);
+      if (existingBySub !== undefined) {
+        const existing = usersById.get(existingBySub);
+        if (existing !== undefined) {
+          const emailOwner = userIdByEmail.get(email);
+          if (emailOwner !== undefined && emailOwner !== existing.id) {
+            throw new Error('That email already belongs to another account.');
+          }
+          const updated: UserRecord = { ...existing, name, email };
+          userIdByEmail.delete(existing.email);
+          return rememberUser(updated);
+        }
+      }
+      const existingByEmailId = userIdByEmail.get(email);
+      if (existingByEmailId !== undefined) {
+        const existing = usersById.get(existingByEmailId);
+        if (existing === undefined) throw new Error('The existing user row is missing');
+        if (existing.googleSub !== null && existing.googleSub !== googleSub) {
+          throw new Error('That email already belongs to another Google account.');
+        }
+        const linked: UserRecord = { ...existing, googleSub: existing.googleSub ?? googleSub, name };
+        rememberUser(linked);
+        if (personalWorkspace(linked.id) === undefined) {
+          insertWorkspace(randomUUID(), PERSONAL_WORKSPACE_NAME, 'personal', linked.id, 'admin');
+        }
+        return linked;
+      }
+      // No awaits below: the user, personal workspace and admin membership land together or not at all.
+      const user: UserRecord = {
+        id: randomUUID(),
+        email,
+        passwordHash: null,
+        googleSub,
+        name,
+        createdAt: new Date(now()),
+      };
+      rememberUser(user);
+      insertWorkspace(randomUUID(), PERSONAL_WORKSPACE_NAME, 'personal', user.id, 'admin');
       return user;
+    },
+    async updateUserProfile({ id, name, email }) {
+      const existing = usersById.get(id);
+      if (existing === undefined) return;
+      const emailOwner = userIdByEmail.get(email);
+      if (emailOwner !== undefined && emailOwner !== id) {
+        throw new Error('That email already belongs to another account.');
+      }
+      userIdByEmail.delete(existing.email);
+      rememberUser({ ...existing, name, email });
     },
     async createSession(session) {
       sessions.set(session.tokenHash, { ...session });
@@ -133,10 +287,55 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
     async deleteSession(tokenHash) {
       sessions.delete(tokenHash);
     },
+    async listWorkspacesForUser(userId) {
+      const result: WorkspaceMembership[] = [];
+      for (const [workspaceId, roles] of members) {
+        const role = roles.get(userId);
+        if (role === undefined) continue;
+        const workspace = workspaces.get(workspaceId);
+        if (workspace !== undefined) result.push({ workspace, role });
+      }
+      return result.sort((a, b) => a.workspace.createdAt.getTime() - b.workspace.createdAt.getTime());
+    },
+    async createWorkspace({ name, createdBy }) {
+      return insertWorkspace(randomUUID(), name, 'team', createdBy, 'admin');
+    },
+    async getWorkspace(id) {
+      return workspaces.get(id);
+    },
+    async getMembership({ workspaceId, userId }) {
+      return members.get(workspaceId)?.get(userId);
+    },
+    async listWorkspaceMembers(workspaceId) {
+      const roles = members.get(workspaceId);
+      if (roles === undefined) return [];
+      const result: WorkspaceMember[] = [];
+      for (const [userId, role] of roles) {
+        const user = usersById.get(userId);
+        result.push({ userId, name: user?.name ?? null, email: user?.email ?? '', role });
+      }
+      return result;
+    },
+    async addWorkspaceMember({ workspaceId, userId, role }) {
+      const roles = members.get(workspaceId);
+      if (roles === undefined) throw new Error('That workspace does not exist.');
+      roles.set(userId, role);
+    },
+    async renameWorkspace({ id, name }) {
+      const workspace = workspaces.get(id);
+      if (workspace === undefined) return undefined;
+      const updated: WorkspaceRecord = { ...workspace, name };
+      workspaces.set(id, updated);
+      return updated;
+    },
     async close() {
-      users.clear();
+      usersById.clear();
+      userIdByEmail.clear();
+      userIdByGoogleSub.clear();
       sessions.clear();
       seats.clear();
+      workspaces.clear();
+      members.clear();
     },
   };
 }

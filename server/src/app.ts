@@ -37,6 +37,8 @@ import type { RequestContext, RoutedRoute } from './http/routeCall';
 import { handleAuthRoutes } from './http/routes/auth';
 import { handleIdle } from './http/routes/idle';
 import { handleHealth } from './http/routes/meeting';
+import { handleCreateMeeting, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
+import { handleWorkspaces } from './http/routes/workspaces';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
 import {
   LEGACY_MEETING_ID,
@@ -159,7 +161,16 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'POST', path: '/api/auth/login', access: 'public', handle: handleAuthRoutes },
     { method: 'POST', path: '/api/auth/logout', access: 'public', handle: handleAuthRoutes },
     { method: 'GET', path: '/api/auth/me', access: 'public', handle: handleAuthRoutes },
+    { method: 'GET', path: '/api/auth/google/start', access: 'public', handle: handleAuthRoutes },
+    { method: 'GET', path: '/api/auth/google/callback', access: 'public', handle: handleAuthRoutes },
     { method: 'POST', path: '/api/join', access: 'public', handle: handleAuthRoutes },
+    { method: 'GET', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
+    { method: 'POST', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
+    { method: 'GET', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
+    { method: 'PATCH', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
+    { method: 'POST', path: '/api/meetings', access: 'user', handle: handleCreateMeeting },
+    { method: 'GET', path: '/api/meetings/:id/info', access: 'public', handle: handleMeetingInfo },
+    { method: 'POST', path: '/api/meetings/:id/join', access: 'public', handle: handleMeetingJoin },
   );
   return routes;
 }
@@ -310,6 +321,17 @@ export async function createApp({
       limit: MEETING_CODE_FAILURE_LIMIT,
       windowMs: MEETING_CODE_WINDOW_MS,
     });
+  const guestJoinAttempts = createAttemptLimiter({ limit: 20, windowMs: 60_000 });
+
+  if (auth !== undefined) {
+    auth.bindMeetingHost(async (meetingId, userId) => {
+      const row = await meetings.get(meetingId);
+      if (row === undefined) return false;
+      if (row.ownerUserId === userId) return true;
+      const role = await auth.store.getMembership({ workspaceId: row.workspaceId, userId });
+      return role === 'admin';
+    });
+  }
 
   const legacy = await createMeetingInstance({
     id: LEGACY_MEETING_ID,
@@ -405,6 +427,9 @@ export async function createApp({
   /** Server-wide routes have no meeting of their own; their handlers read only auth and idle. */
   const serverContext = {
     auth,
+    authStore: auth?.store,
+    meetings,
+    guestJoinAttempts,
     serviceToken,
     routes: serverRoutes,
     idle,
@@ -417,6 +442,14 @@ export async function createApp({
   async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const path = url.pathname;
+    // Server-wide paths (health, idle, sign-in, workspaces, and a meeting's public info/join) are
+    // answered once. They are matched before the meeting prefix so info and join never load an
+    // instance; every other /api/meetings/:id/<rest> still belongs to that meeting.
+    if (matchRoute(serverRoutes, request.method ?? 'GET', path) !== undefined) {
+      await handleRoutedRequest(request, response, serverContext);
+      return;
+    }
+
     // The only prefixed meeting paths: /api/meetings/:id/<rest> resolves that meeting first, so
     // its handlers, access levels and principal are never the legacy meeting's.
     const prefixed = /^\/api\/meetings\/([^/]+)(?:\/(.+))?$/.exec(path);
@@ -443,13 +476,6 @@ export async function createApp({
         return;
       }
       await instance.handle(request, response, rest);
-      return;
-    }
-
-    // Server-wide paths (health, idle, sign-in) are answered once. Everything else that starts
-    // with /api or /dev belongs to the legacy instance: unprefixed means legacy, always.
-    if (matchRoute(serverRoutes, request.method ?? 'GET', path) !== undefined) {
-      await handleRoutedRequest(request, response, serverContext);
       return;
     }
     if (path.startsWith('/api/') || path.startsWith('/dev/')) {
@@ -532,6 +558,7 @@ export async function createApp({
       await meetings.close?.().catch((error: unknown) =>
         console.error('kaki server: the meetings store failed to stop', error),
       );
+      guestJoinAttempts.clearAll();
       runnerControl.close();
       await closeServer(server);
       await auth?.close().catch((error: unknown) =>
