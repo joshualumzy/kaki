@@ -292,6 +292,7 @@ export function buildSystemPrompt(
 /** Strip anything that would be read out loud badly: markdown, emoji, stage directions, and spaced dashes that TTS rushes through. */
 export function cleanSpoken(text: string): string {
   return text
+    .replace(/<\/?[a-z][^>\n]{0,20}>/gi, ' ') // <br>, <p>: markup the model leaked
     .replace(/(\*\*|__)([^*_\n]+)\1/g, '$2') // **bold** keeps its words
     .replace(/\*[^*\n]{1,40}\*/g, ' ') // *smiles*
     .replace(/\([^)\n]{1,40}\)/g, ' ') // (smiles)
@@ -301,6 +302,15 @@ export function cleanSpoken(text: string): string {
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * True when a line has at least one word a voice can say: a number, a non-Latin word, or a Latin word of two or
+ * more letters with a vowel. Fragments such as ",br" or "-" are not lines.
+ */
+export function hasSpeakableWord(text: string): boolean {
+  return text.split(/[^\p{L}\p{N}']+/u).some((word) =>
+    /\p{N}/u.test(word) || /[^\u0000-\u024F']/u.test(word) || (word.length >= 2 && /[aeiouy]/i.test(word)));
 }
 
 /** Phrases that only appear when the model talks about its instructions instead of speaking as a character. */
@@ -459,6 +469,10 @@ export class TurnParser {
         return;
       }
       if (META_LEAK.test(spoken)) return;
+      if (/[\p{L}\p{N}]/u.test(spoken) && !hasSpeakableWord(spoken)) {
+        this.log?.(`[unspeakable] dropped a fragment with no word to say: ${JSON.stringify(spoken)}`);
+        return;
+      }
       if (/[\p{L}\p{N}]/u.test(spoken) && this.speaker !== undefined) {
         this.sentenceCount += 1;
         if (this.pendingVisitorQuestion !== undefined) {
