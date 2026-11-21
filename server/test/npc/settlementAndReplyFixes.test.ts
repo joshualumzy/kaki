@@ -527,4 +527,28 @@ describe('turn-taking (#66, #67, #68)', () => {
     expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
     h.conversation.close();
   });
+  it('keeps an offer live when the read of the answer fails, so the repeated yes still settles (#68)', async () => {
+    const failed: GuestReading = { ...reading({ kind: 'unsure' }), failed: true };
+    const queue: GuestReading[] = [];
+    const h = harness({
+      replies: ['Sam: The choice is how we cover the counter.', 'Sam: Pick the one that feels workable.'],
+      reader: async () => queue.shift() ?? reading(),
+    });
+    queue.push(reading({ kind: 'unsure' }), reading({ kind: 'unsure' }), reading({ kind: 'unsure' }));
+    await reachChoiceOffer(h);
+
+    // The first answer is lost: the read and its one retry both fail.
+    queue.push(failed, failed);
+    await say(h, "Yeah, that's my call.");
+    await finishPlaying(h);
+    expect(h.logs).toContainEqual(expect.stringContaining('reading the line once more'));
+    expect(h.logs).not.toContainEqual(expect.stringContaining('the offer is no longer live'));
+
+    queue.push(reading({ kind: 'agree' }));
+    await say(h, 'Yes, that one.');
+    await finishPlaying(h);
+    await flush();
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
 });

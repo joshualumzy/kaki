@@ -105,6 +105,18 @@ describe('turn planner', () => {
     });
   });
 
+  it('asks again when the answer to a confirmation could not be read, instead of reopening the call (#68)', () => {
+    const state = make();
+    state.setConfirmationAsked(true, 'Call Auntie Mary in at double pay');
+    const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: "Yeah, that's my call." });
+    const value = record(state, 'josh-1', reading({ kind: 'unsure', failed: true }));
+
+    expect(next(state.view(1), { kind: 'heard', line: guest, reading: value })).toMatchObject({
+      kind: 'Speak', speaker: 'Sam', purpose: 'clarify', respondsTo: 'josh-1',
+      reason: "the guest's answer could not be read; ask for it again",
+    });
+  });
+
   it('drops an addressee who is not in the room', () => {
     const state = make();
     const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Ask Arjun about it.' });

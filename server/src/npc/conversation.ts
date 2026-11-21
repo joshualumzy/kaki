@@ -1787,7 +1787,9 @@ export class NpcConversation<Clip> {
         const fresh = this.meetingState.view(Date.now());
         const choseAnOffer = reading.chosenOption !== undefined &&
           fresh.offer?.choices?.[reading.chosenOption] !== undefined;
-        if (reading.kind !== 'agree' && reading.kind !== 'backchannel' && !choseAnOffer && !fresh.whichOneAsked) {
+        // A failed read is not a "no": the confirmation or offer stays live and Sam asks again (#68).
+        if (reading.failed !== true && reading.kind !== 'agree' && reading.kind !== 'backchannel' &&
+            !choseAnOffer && !fresh.whichOneAsked) {
           if (fresh.confirmationAsked) {
             this.meetingState.setConfirmationAsked(false);
             this.ports.log?.('[confirm] the guest corrected the call; it is open again');
@@ -3725,9 +3727,16 @@ export class NpcConversation<Clip> {
   private async readOneGuestLine(view: MeetingView, line: HeardLine): Promise<GuestReading> {
     const input = this.readerInput(view, line);
     const ports = this.readerPorts();
-    return this.options.readGuestLine === undefined
+    const read = (): Promise<GuestReading> => this.options.readGuestLine === undefined
       ? readGuestLine(input, ports)
       : this.options.readGuestLine(input, ports);
+    const reading = await read();
+    // The answer to a confirmation or offer decides the topic: one slow read must not lose it (#68).
+    if (reading.failed === true && (view.confirmationAsked || view.offerAsked) && !this.closed) {
+      this.ports.log?.('[reader] the read failed while Sam waits for an answer; reading the line once more');
+      return read();
+    }
+    return reading;
   }
 
   private async runReply(run: OpeningRun, first: HeardLine): Promise<void> {

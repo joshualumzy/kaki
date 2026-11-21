@@ -422,6 +422,13 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
   // A short listener sound said while someone else was talking means "go on": no reply and no gate answer.
   if (reading.kind === 'backchannel') return wait('a listener backchannel; the room carries on', true);
 
+  // The guest answered a confirmation or offer, but their line could not be read: ask again rather than
+  // guess, so a "yes" lost to a slow model is not taken as a "no" (#68).
+  if (reading.failed === true && (view.confirmationAsked || view.offerAsked) && host !== undefined) {
+    return speak(host, 'clarify', line.eventId, "the guest's answer could not be read; ask for it again", undefined, undefined,
+      'You did not catch their answer. In one short line, ask again whether that is their call. Do not restate the call in full.');
+  }
+
   const confirmationCall = view.confirmationCall ?? mergedReadiness(view).action.evidence;
   if (view.confirmationAsked && reading.kind === 'agree' && confirmationCall !== undefined) {
     return {

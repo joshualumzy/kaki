@@ -50,6 +50,11 @@ export interface GuestReading {
   readiness: GuestReadiness;
   /** The zero-based index of the offered choice the guest picked, after validation. */
   chosenOption?: number;
+  /**
+   * The reader failed (timeout, gateway error) and this is the stand-in `unsure` reading. It says nothing about
+   * what the guest meant, so it must never count as a "no" to a pending confirmation or offer (#68).
+   */
+  failed?: true;
 }
 
 /** The exact call or choice Sam put to the guest in an open offer. */
@@ -443,7 +448,7 @@ export async function readGuestLine(input: GuestReaderInput, ports: GuestReaderP
   }
 
   log(`[reader] failed: ${failure}; treating the line as unsure`);
-  const reading = unsureReading();
+  const reading: GuestReading = { ...unsureReading(), failed: true };
   logReader(log, reading, Date.now() - startedAt);
   return reading;
 }
