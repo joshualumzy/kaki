@@ -28,6 +28,9 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
     <td align="center"><img src="docs/images/owner-lobby.png" alt="Kaki owner lobby" width="420"><br><sub>The owner lobby shares the link, code and QR code.</sub></td>
     <td align="center"><img src="docs/images/phone-join.png" alt="Kaki join screen on a phone" width="260"><br><sub>The join screen on a phone.</sub></td>
   </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="docs/images/waking.png" alt="Kaki start page waking the cloud server" width="420"><br><sub>The always-on start page wakes the cloud server when it is off.</sub></td>
+  </tr>
 </table>
 
 ## Team
@@ -194,13 +197,15 @@ Screen map:
 
 ### Platform
 
-- One route table declares every HTTP path and its access level: public, session, host, host-or-practice, service or dev. An unlisted path returns 404. `server/src/app.ts`, `server/src/http/routes/`
+- One route table declares every HTTP path and its access level: public, session, host, host-or-practice, service, loopback or dev. An unlisted path returns 404. `server/src/app.ts`, `server/src/http/routes/`
 - One WebSocket hub carries the typed protocol. Each event names its audience, and the server delivers it only to the connections that audience covers. `server/src/core/hub.ts`, `server/src/core/audience.ts`, `shared/src/events.ts`, `shared/src/commands.ts`
 - A meeting moves through lobby, starting, running and ended. An empty room keeps the same seats for a grace period, and a restored meeting keeps its code and start time. `server/src/meeting/session.ts`, `server/src/meeting/rejoin.ts`, `server/src/persist/`
 - Scenario packs supply roles, attendees, AI profiles, agenda, seed data and a replay transcript. `SCENARIO` names the folder to load. `server/src/core/loadScenario.ts`, `scenarios/README.md`
 - Idempotent seed scripts load the Kopitiam company records into Gitea, Mattermost, Wiki.js, Mailpit, Radicale and Postgres. `docker/seed/index.ts`, `docker/seed/gitea.ts`, `docker/seed/mattermost.ts`, `docker/seed/wiki.ts`, `docker/seed/mail.ts`, `docker/seed/calendar.ts`, `docker/seed/postgres.ts`
 - `npm start` checks Docker and `.env`, starts the seven containers, seeds the company, indexes knowledge, starts the server, web app and AI runner, then runs a preflight. `scripts/live-up.sh`
 - `npm run cloud:up`, `cloud:down` and `cloud:status` manage the Azure VM. `scripts/cloud.sh`
+- An always-on start page on Azure Static Web Apps (free plan) wakes the VM when a visitor picks an option, waits until Kaki answers, then sends them on. Its two small functions can only read the VM's state and start it. `wake/`
+- The VM switches itself off. Every 5 minutes a check reads the server's idle state from a route only the VM itself can reach, and deallocates the VM after 60 minutes with nobody connected or 2 hours with no real person action. If it cannot read the server it stays on, and switches off only after 2 hours of that. `deploy/idle/`, `server/src/core/idle.ts`
 
 ### Authentication
 
