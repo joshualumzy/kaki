@@ -1,0 +1,59 @@
+{
+  "id": "ami-eval",
+  "organisation": "Real Reaction",
+  "meetingTitle": "Remote control design meeting",
+  "roles": [
+    {
+      "id": "project_manager",
+      "label": "Project Manager"
+    },
+    {
+      "id": "marketing_expert",
+      "label": "Marketing Expert"
+    },
+    {
+      "id": "user_interface_designer",
+      "label": "User Interface Designer"
+    },
+    {
+      "id": "industrial_designer",
+      "label": "Industrial Designer"
+    }
+  ],
+  "attendees": [
+    {
+      "name": "Project Manager",
+      "role": "project_manager",
+      "displayName": "Project Manager"
+    },
+    {
+      "name": "Marketing Expert",
+      "role": "marketing_expert",
+      "displayName": "Marketing Expert"
+    },
+    {
+      "name": "User Interface Designer",
+      "role": "user_interface_designer",
+      "displayName": "User Interface Designer"
+    },
+    {
+      "name": "Industrial Designer",
+      "role": "industrial_designer",
+      "displayName": "Industrial Designer"
+    }
+  ],
+  "agenda": [
+    {
+      "title": "Remote control design",
+      "minutes": 60,
+      "canWait": false,
+      "deadline": "by the end of the meeting",
+      "ownerRole": "project_manager"
+    }
+  ],
+  "situation": "The team is meeting to discuss the design of a new television remote control.",
+  "background": [
+    "Real Reaction is designing a new television remote control.",
+    "The four attendees are the project manager, marketing expert, user interface designer and industrial designer."
+  ]
+}

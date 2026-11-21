@@ -1,0 +1,1190 @@
+{
+  "meeting": "IS1008d",
+  "source": "AMI Meeting Corpus, CC BY 4.0",
+  "lines": [
+    {
+      "at": 0,
+      "speaker": "Industrial Designer",
+      "text": "I'm sorry to be late."
+    },
+    {
+      "at": 0.12,
+      "speaker": "Project Manager",
+      "text": "Welcome back. Welcome back everybody."
+    },
+    {
+      "at": 6.25,
+      "speaker": "User Interface Designer",
+      "text": "Yeah. Thanks."
+    },
+    {
+      "at": 10.9,
+      "speaker": "Project Manager",
+      "text": "So this meeting agenda will be the detailed design meeting. And uh opening and uh P_M_s of the meet minutes, uh prototype presentation from uh Christine and uh Agnes. Yes and uh evaluation criteria. The finance, it's uh from my side, from the management, and uh production evaluation. Then uh closing. So we have forty minutes to discuss and uh finalise and close the product and project and to move further, okay, so"
+    },
+    {
+      "at": 29.85,
+      "speaker": "Industrial Designer",
+      "text": "Agnes, yes."
+    },
+    {
+      "at": 58.31,
+      "speaker": "Project Manager",
+      "text": "Okay, let's talk about uh maybe first uh for the prototype."
+    },
+    {
+      "at": 65.2,
+      "speaker": "User Interface Designer",
+      "text": "Mm, okay."
+    },
+    {
+      "at": 66.08,
+      "speaker": "Project Manager",
+      "text": "So I handle to"
+    },
+    {
+      "at": 68.64,
+      "speaker": "User Interface Designer",
+      "text": "I've done a presentation, but it pretty much covers work that we've both done, so if I'm missing anything, Christine can just correct me."
+    },
+    {
+      "at": 74.39,
+      "speaker": "Project Manager",
+      "text": "So shall I go to sorry. Yep. S Okay, let's go to A_M_I_."
+    },
+    {
+      "at": 75.17,
+      "speaker": "Industrial Designer",
+      "text": "Uh thank you, so you did a PowerPoint presentation, good for you."
+    },
+    {
+      "at": 83.28,
+      "speaker": "User Interface Designer",
+      "text": "It's not the biggest PowerPoint presentation in the world, but"
+    },
+    {
+      "at": 87.92,
+      "speaker": "Project Manager",
+      "text": "So in two or three or"
+    },
+    {
+      "at": 89.27,
+      "speaker": "User Interface Designer",
+      "text": "Three."
+    },
+    {
+      "at": 95.54,
+      "speaker": "User Interface Designer",
+      "text": "Um. No it's think it's the last one. No, then this is the la yeah, that one, final design. It is named appropriately, you just couldn't see the name. Um okay, can I have the mouse? Thanks."
+    },
+    {
+      "at": 98.08,
+      "speaker": "Marketing Expert",
+      "text": "Probably. Technical pa I would think. Ha."
+    },
+    {
+      "at": 106.15,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 112.18,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 117.23,
+      "speaker": "User Interface Designer",
+      "text": "Alright, so"
+    },
+    {
+      "at": 120.77,
+      "speaker": "User Interface Designer",
+      "text": "from when we were discussing specifying the case in the last meeting, we decided that we wanted an ergonomic shape, the material that we chose was wood, and uh the colour would be customisable, 'cause you can stain the wood whatever colour. Um, so in terms of function, you have to be able to turn the T_V_ on and off, volume and channel control, menu control, voice recognition control, and we've incorporated the L_C_D_ screen on the flip panel as part of the design, if we figure out it's too expensive, well then you just take it off. Um, so to unveil our lovely product."
+    },
+    {
+      "at": 159.46,
+      "speaker": "User Interface Designer",
+      "text": "This is our remote control, with the flip panel as you can see. So if you lift up the panel, you can see the lovely yellow L_C_D_ display. Um, this is actually hard to do. The yellow button you have is the on off button, so it's really big, hard to miss. You have the the red um triangles are the toggles for changing the volume. So up volume up, down volume down. The green are the channel changing. S And it's one of those very light, very touchable displays. And then you have the numeric pad in the dark blue at the bottom, and on the right-hand side you have the access to the menu on the T_V_, and on the left-hand side you have the the the ability to turn off the voice recognition. So this is pretty much what we had on the white board the last time."
+    },
+    {
+      "at": 216.41,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 219.16,
+      "speaker": "User Interface Designer",
+      "text": "So. Oh yes. Additional feature on the back is that you can have your own customised backing and I suppose you could do the same thing on the flip case on the front. So that you can really make this a highly highly customisable remote control."
+    },
+    {
+      "at": 219.81,
+      "speaker": "Industrial Designer",
+      "text": "Um and uh I could Yeah the d"
+    },
+    {
+      "at": 235.67,
+      "speaker": "Industrial Designer",
+      "text": "We haven't um uh specified where the speaker or the microphone will be placed. That depends on the uh s design of the circuit board inside and uh what room is left um"
+    },
+    {
+      "at": 249.38,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 250.74,
+      "speaker": "Project Manager",
+      "text": "I think the microphone is on on the top, uh on the middle, the under the flip. So that will be the safe, so p any the chip it's not on the chip because you need to have microphone to"
+    },
+    {
+      "at": 253.36,
+      "speaker": "Industrial Designer",
+      "text": "Yes, okay. Uh-huh."
+    },
+    {
+      "at": 264.26,
+      "speaker": "Industrial Designer",
+      "text": "No, I mean it depends on the design of the circuit board."
+    },
+    {
+      "at": 266.74,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 267.41,
+      "speaker": "User Interface Designer",
+      "text": "But it shouldn't be under the flip either, because you can have the remote control closed, but you still might want to activate it by voice."
+    },
+    {
+      "at": 273.5,
+      "speaker": "Project Manager",
+      "text": "Uh it's it's Yeah, but uh uh my opinion I think it's better under the flip because whenever you want to uh the talk, okay, so then you can speak then you can close it. But if you put it on the on the flip, okay, then uh technical I don't think it's uh feasible, 'cause most of the time you speak then it will be recognised."
+    },
+    {
+      "at": 294.11,
+      "speaker": "User Interface Designer",
+      "text": "But if you've already got the remote control in your hand you need to open the flip to use the voice, why use the voice, why not just use your hand? I mean the whole point of the voice is that if the remote control is sitting there and I'm too lazy to reach over and pick it up, I can just use my voice."
+    },
+    {
+      "at": 307.67,
+      "speaker": "Industrial Designer",
+      "text": "Maybe I've got my hand in the popcorn bowl and I'm holding my cup of Coca-Cola in the other hand."
+    },
+    {
+      "at": 313.99,
+      "speaker": "User Interface Designer",
+      "text": "Yeah. And you don't wanna let go of either one. I mean it doesn't have to be on the flip, it can be on the side somewhere. Yeah. So, I mean I can pass this around if anyone wants to"
+    },
+    {
+      "at": 314.88,
+      "speaker": "Marketing Expert",
+      "text": "I don't wanna say. Louder. Yeah."
+    },
+    {
+      "at": 321.6,
+      "speaker": "Marketing Expert",
+      "text": "Can also be on the side."
+    },
+    {
+      "at": 322.26,
+      "speaker": "Project Manager",
+      "text": "Yeah, the sides maybe is good. So That's good idea. Yes. So it's maybe good idea."
+    },
+    {
+      "at": 324.36,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 328.71,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, y better you pass it around with a napkin."
+    },
+    {
+      "at": 334.24,
+      "speaker": "Marketing Expert",
+      "text": "No, because y you can easily put a microphone on the side that would have no problem would haven't been not be damaged or anything, and it'd be accessible all the time to voice."
+    },
+    {
+      "at": 336.85,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 337.17,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 339.72,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 341.84,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, exactly."
+    },
+    {
+      "at": 345.29,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 345.93,
+      "speaker": "Project Manager",
+      "text": "So it's maybe good idea. S s"
+    },
+    {
+      "at": 347.81,
+      "speaker": "Industrial Designer",
+      "text": "It's um"
+    },
+    {
+      "at": 349.38,
+      "speaker": "Marketing Expert",
+      "text": "Compliments to the artist."
+    },
+    {
+      "at": 350.67,
+      "speaker": "Industrial Designer",
+      "text": "It's um You need to work on the weight a little bit."
+    },
+    {
+      "at": 355.13,
+      "speaker": "User Interface Designer",
+      "text": "Yes. And maybe the shape of the buttons, the little egg shapes aren't the most economical, but"
+    },
+    {
+      "at": 355.21,
+      "speaker": "Marketing Expert",
+      "text": "Uh."
+    },
+    {
+      "at": 356.29,
+      "speaker": "Project Manager",
+      "text": "Okay. S I'm fine, I'm satisfi I'm satisfied."
+    },
+    {
+      "at": 362.33,
+      "speaker": "Industrial Designer",
+      "text": "We're glad you're satisfied."
+    },
+    {
+      "at": 362.5,
+      "speaker": "Project Manager",
+      "text": "Of course it's it's it's looks more heo heavy, but I think when it's completely maybe it's a less weight."
+    },
+    {
+      "at": 368.29,
+      "speaker": "User Interface Designer",
+      "text": "Yeah. I mean this is plasticene. There's only so much you can do. We could have possibly made it a lot thinner as well. But And part of the thing is m a lot of people say that they don't like something that's too light, because they don't feel like they have enough control over it. So I mean maybe this is excessively heavy, but I think it needs to have some weight, it needs to feel like you're still holding something."
+    },
+    {
+      "at": 370.45,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 383.23,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 387.48,
+      "speaker": "Project Manager",
+      "text": "Yep."
+    },
+    {
+      "at": 392.35,
+      "speaker": "User Interface Designer",
+      "text": "So that's pretty much it for our presentation actually. Yeah."
+    },
+    {
+      "at": 396.03,
+      "speaker": "Project Manager",
+      "text": "That's your uh prototype model? Okay, that's good, thank you very much. So any comments or uh"
+    },
+    {
+      "at": 403.32,
+      "speaker": "Marketing Expert",
+      "text": "Well, the prototype is is very well within the design and ideas that we've we've talked about on the previous meetings. Now it goes into this next phase as the financial uh marketing uh"
+    },
+    {
+      "at": 410.29,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 414.23,
+      "speaker": "Project Manager",
+      "text": "Yes, that uh So I'll come back to the"
+    },
+    {
+      "at": 433.1,
+      "speaker": "Project Manager",
+      "text": "So evaluation criteria, I think uh that will be good, so then let's come to the finance uh, I have some uh calculations which I made uh as for uh the budget. So here you can uh look like uh the energy and uh dynamo and uh kinetic and solar cells. Uh it's optional, somewhat optional and Ed wants the chip on print, that's what uh we were talking about that. So then we have sample sensor and sample speaker, then uh we have the wood material, then special colour and push button. So it's uh actually, our budget was uh twelve point five Euro, but uh it's coming to nine point nine five Euro, so we are under uh below the budget, okay, so still we are saving some money."
+    },
+    {
+      "at": 485.7,
+      "speaker": "Project Manager",
+      "text": "I think it's a good figure."
+    },
+    {
+      "at": 487.2,
+      "speaker": "Industrial Designer",
+      "text": "Yes, great I I'm surprised. Congratulations. Oh, okay. It's gonna cost a long way to c you know, cost a lot of money to market it, is it?"
+    },
+    {
+      "at": 491.38,
+      "speaker": "Project Manager",
+      "text": "Than thank you."
+    },
+    {
+      "at": 492.32,
+      "speaker": "Marketing Expert",
+      "text": "Well we haven't come to mine yet, so we're gonna have a bit of difference of opinion, yes."
+    },
+    {
+      "at": 499.76,
+      "speaker": "Project Manager",
+      "text": "So maybe it's for some money we can utilise for our uh marketing, for the sales, okay, and uh"
+    },
+    {
+      "at": 509.24,
+      "speaker": "Marketing Expert",
+      "text": "Well, it just depends on if we're gonna add a o on this pr provisionary cost analysis, we do not have a L_C_ display. L_C_ display is gonna be very expensive, it's gonna be It's not it doesn't say. We don't have the price up there, okay, so if we add approximately two to three Euro per remote, now we're up around about twelve, twelve and a half as to what uh the company had initially uh requested. Um Display in. But as far as production um I'm putting up a question because we're talking about profit also, and in mine you'll see uh the problem with uh our survey, the p the possibility that how many units can be sold, what percentage of the market, etcetera etcetera because that has to be taken in into consideration. Uh this is just production cost, it is not uh advertising cost, it's not transportation cost uh"
+    },
+    {
+      "at": 523.52,
+      "speaker": "User Interface Designer",
+      "text": "No we do, but it's not filled in. It's number thirty. Oh, yeah, yeah, you're right, sorry, yes."
+    },
+    {
+      "at": 525.47,
+      "speaker": "Project Manager",
+      "text": "It's not. Yeah. Yeah. Yeah. Yeah."
+    },
+    {
+      "at": 525.84,
+      "speaker": "Industrial Designer",
+      "text": "Thirty. Yeah."
+    },
+    {
+      "at": 543.79,
+      "speaker": "Industrial Designer",
+      "text": "So that means we can put the uh the L_C_D_ in, yeah."
+    },
+    {
+      "at": 575.06,
+      "speaker": "Project Manager",
+      "text": "Yes, so still uh we have twelve point five Euro. Yes. Yeah, but Yes. Yep."
+    },
+    {
+      "at": 576.88,
+      "speaker": "Marketing Expert",
+      "text": "And that will inflate quite a bit the cost of the uh the cost of the unit for the company. So to come up with what the company wants is a fifty million Pound profit, we're gonna have to go a long ways."
+    },
+    {
+      "at": 583.53,
+      "speaker": "User Interface Designer",
+      "text": "Um-hmm."
+    },
+    {
+      "at": 590.39,
+      "speaker": "Project Manager",
+      "text": "Yes. This we are talking about one unit, okay, so when it go into the quantity, okay, and the cost will come down."
+    },
+    {
+      "at": 592.98,
+      "speaker": "Marketing Expert",
+      "text": "Yes."
+    },
+    {
+      "at": 599.29,
+      "speaker": "Marketing Expert",
+      "text": "Slightly."
+    },
+    {
+      "at": 599.61,
+      "speaker": "Industrial Designer",
+      "text": "Although customisation, because this is being done, you know, the on on-order basis, it might be uh the the quantity won't m won't uh the circuit board will b you're right, would be in producing quantity, but the cost of the case would uh be fixed at the Uh you got some pretty cheap labour that can do this case for one Euro. That's really that's the cost of the material and lab wow, that's really outstanding."
+    },
+    {
+      "at": 605.47,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 605.84,
+      "speaker": "Marketing Expert",
+      "text": "It's gonna be very hard to reduce."
+    },
+    {
+      "at": 607.37,
+      "speaker": "User Interface Designer",
+      "text": "Yes."
+    },
+    {
+      "at": 621.7,
+      "speaker": "Marketing Expert",
+      "text": "That's not bad."
+    },
+    {
+      "at": 623.96,
+      "speaker": "Project Manager",
+      "text": "Yep. Yeah."
+    },
+    {
+      "at": 629.58,
+      "speaker": "Project Manager",
+      "text": "But anyhow, still we are under control, okay, so what uh I will do is I will try to negotiate with the vendors, okay, to get uh the production cost less, okay, so then we can save some money, okay, to put into th our marketing or uh you know the promotions, whatever, okay, so that uh I will look after. I will speak to the management and how to get uh you know some more uh cost down."
+    },
+    {
+      "at": 659.43,
+      "speaker": "Marketing Expert",
+      "text": "If we can go to to my display. And we'll come back to yours just to give everybody an idea of the market."
+    },
+    {
+      "at": 664.52,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 670.9,
+      "speaker": "Marketing Expert",
+      "text": "So now I'm gonna scare everybody out of this project."
+    },
+    {
+      "at": 677.83,
+      "speaker": "Marketing Expert",
+      "text": "If I'm still here. Yep. The four gives me it's gotta be uh TrendWatch."
+    },
+    {
+      "at": 680.31,
+      "speaker": "Project Manager",
+      "text": "You're in four?"
+    },
+    {
+      "at": 685.22,
+      "speaker": "Project Manager",
+      "text": "TrendWatch."
+    },
+    {
+      "at": 686.85,
+      "speaker": "Industrial Designer",
+      "text": "Is this the same one you did before? Okay."
+    },
+    {
+      "at": 689.31,
+      "speaker": "Marketing Expert",
+      "text": "No."
+    },
+    {
+      "at": 691.98,
+      "speaker": "Marketing Expert",
+      "text": "It shouldn't be if it's not it's not the right one. No, no we g no, that's the same one. You have to go back and find another one."
+    },
+    {
+      "at": 692.6,
+      "speaker": "User Interface Designer",
+      "text": "That's no, I think it's the same one."
+    },
+    {
+      "at": 703.22,
+      "speaker": "Marketing Expert",
+      "text": "Whatever name it popped up under. Uh functional, try functional, it might not be it either, but we'll see."
+    },
+    {
+      "at": 706.47,
+      "speaker": "User Interface Designer",
+      "text": "Functional."
+    },
+    {
+      "at": 711.86,
+      "speaker": "User Interface Designer",
+      "text": "It looks like it, there's S Yeah."
+    },
+    {
+      "at": 713.94,
+      "speaker": "Marketing Expert",
+      "text": "Yep, that's it. So we'll go screen by screen. Although since uh we need to have some type of idea on a market uh we had independent study that says it this this market has an availability to absorb eight mi eight million units per year. Okay? Our internal company evaluation puts it between eight to nine million which is approximately the same as the independent study. So if we continue, we'll look at the findings. Next screen."
+    },
+    {
+      "at": 715.88,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 734.87,
+      "speaker": "Project Manager",
+      "text": "Yep."
+    },
+    {
+      "at": 743.08,
+      "speaker": "Marketing Expert",
+      "text": "Which means that uh if we have a target of two million would the company has to take twenty five percent of the market in the first year, which is actually a tremendous amount. No kidding, yeah. So, if we put an inflated price of fifty Euro at a production cost that cannot exceed twenty-five Euro, okay, we're already in that that price, okay, with transport, promotion, labour, because we hav gi included the promotion in the cost, transport for the material to the stores or whatever how however we're gonna break this down between our our retailers. Twenty-five percent of the market to get to two million units. At two million units, we have to have a profit of twenty-five Euro per unit to get to the fifty million unit Eu Euro profit. Okay? So, obviously we w w I just did a run down the evaluation of the form, the fan uh the fancy stylishness of the of the unit, the ease of use, speech recognition, cost, we've gone through these. Now, the company must evaluate the feasibility of being able to take enough of the market to justify in production. Or we project this over two years, but being that the market changes very very quickly, maybe there's no more interest in buying this thing in eighteen months from now. So, now we have to come up with a decision. Can the company sell two million units? Can it sell it for fifty Euros?"
+    },
+    {
+      "at": 749.07,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 750.85,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, no kidding. Mayb maybe they already expected something."
+    },
+    {
+      "at": 764.34,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 770.85,
+      "speaker": "User Interface Designer",
+      "text": "Um-hmm."
+    },
+    {
+      "at": 786.39,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. Yep."
+    },
+    {
+      "at": 814.84,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 817.72,
+      "speaker": "Project Manager",
+      "text": "Yep. Of course."
+    },
+    {
+      "at": 818.98,
+      "speaker": "User Interface Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 822.79,
+      "speaker": "Project Manager",
+      "text": "Yep."
+    },
+    {
+      "at": 824.57,
+      "speaker": "Industrial Designer",
+      "text": "Could could I go to findings? Uh uh um I would uh like to explore the possibility of using um alternative um delivery and sales channel which would be um to use the internet for promotion and ordering and then to drop-ship the p product to the customer's residence. That way you have no storage, you have no um you do have transportation, still have the labour cost, but you don't have the transport to the uh point of sale. The point of sale is online."
+    },
+    {
+      "at": 825.2,
+      "speaker": "Project Manager",
+      "text": "Yep."
+    },
+    {
+      "at": 842.25,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 842.25,
+      "speaker": "User Interface Designer",
+      "text": "I was thinking the same thing, yeah."
+    },
+    {
+      "at": 848.11,
+      "speaker": "User Interface Designer",
+      "text": "Directly."
+    },
+    {
+      "at": 853.96,
+      "speaker": "User Interface Designer",
+      "text": "Um-hmm."
+    },
+    {
+      "at": 860.24,
+      "speaker": "Project Manager",
+      "text": "Yes. To the agents."
+    },
+    {
+      "at": 860.53,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 863.47,
+      "speaker": "User Interface Designer",
+      "text": "Yeah. You can do a shipping centre somewhere, or strategically place shipping centres to minimise distance costs."
+    },
+    {
+      "at": 867.92,
+      "speaker": "Industrial Designer",
+      "text": "Right, like Amazon. In fact, we should sell through Amazon, don't you think? Or eBay, yeah."
+    },
+    {
+      "at": 870.12,
+      "speaker": "Project Manager",
+      "text": "Yes. Or eBay, or Yes."
+    },
+    {
+      "at": 873.57,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 875.77,
+      "speaker": "Industrial Designer",
+      "text": "There's an idea. Going with um"
+    },
+    {
+      "at": 876.67,
+      "speaker": "Project Manager",
+      "text": "Yeah, that's a good idea. To impro more profit and uh Yeah, yes."
+    },
+    {
+      "at": 879.92,
+      "speaker": "Marketing Expert",
+      "text": "S Upscale technology. Well."
+    },
+    {
+      "at": 881.97,
+      "speaker": "Industrial Designer",
+      "text": "Ah, we we're do you know, selling a unique product uh."
+    },
+    {
+      "at": 887.99,
+      "speaker": "User Interface Designer",
+      "text": "That actually makes more sense if we're gonna make it so highly customisable, 'cause on the web people can look at the different options they have, see maybe what other people have done, what the range of possibility as, whereas if you're in a store, you can't unless you're a highly imaginative person, you may not really know what it is you want, whereas on the web, if you have a bunch of pictures, it can sort of trigger ideas and"
+    },
+    {
+      "at": 896.99,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 897.89,
+      "speaker": "Marketing Expert",
+      "text": "There are several companies that have gone that way."
+    },
+    {
+      "at": 900.49,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 907.69,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 910.2,
+      "speaker": "Industrial Designer",
+      "text": "And you can even have an a movie that you can rotate the object and look at the di the only thing that you're missing really is the weight. Mm. We're getting used to that. It's not quite like trying on a shoe, but people are getting used to buying things online that they can't touch before buying."
+    },
+    {
+      "at": 915.33,
+      "speaker": "User Interface Designer",
+      "text": "Yeah. The weight and feel. Yeah."
+    },
+    {
+      "at": 918.05,
+      "speaker": "Marketing Expert",
+      "text": "Weight, the feel of the product, but"
+    },
+    {
+      "at": 926.16,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 929.43,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 929.73,
+      "speaker": "Marketing Expert",
+      "text": "There are several that have gone through with the watches, too. You can customise a watch, you can see how it is at the f at the end of the production, you can change it uh There's a lot of online that's that is doing this now. And when you're rotating, you'll look behind and look this way uh it's possible to do with this, maybe there's a possibility of selling more than two million units in one year, which could you know, feasibili feasibility uh lower the price of the unit."
+    },
+    {
+      "at": 934.87,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 935.54,
+      "speaker": "Industrial Designer",
+      "text": "Uh-huh."
+    },
+    {
+      "at": 939.58,
+      "speaker": "User Interface Designer",
+      "text": "Yes."
+    },
+    {
+      "at": 948.68,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 954.69,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 957.19,
+      "speaker": "Project Manager",
+      "text": "We can. I don't think that's uh not possible, it's uh okay then, l uh let's wait for the production, okay, then uh you can evaluate the product, so how it looks like technically and uh how it look like uh the real."
+    },
+    {
+      "at": 957.97,
+      "speaker": "Industrial Designer",
+      "text": "Great."
+    },
+    {
+      "at": 972.11,
+      "speaker": "User Interface Designer",
+      "text": "What turnaround time do we have? 'Cause I mean production evaluation can be very very quick or very very long."
+    },
+    {
+      "at": 974.2,
+      "speaker": "Project Manager",
+      "text": "T"
+    },
+    {
+      "at": 977.27,
+      "speaker": "Project Manager",
+      "text": "Oh but Yes it's it's very quick, of course. It will uh come back in two weeks, okay, it will be ready in two weeks. For evaluation, okay."
+    },
+    {
+      "at": 985.64,
+      "speaker": "Industrial Designer",
+      "text": "Works for me."
+    },
+    {
+      "at": 989.35,
+      "speaker": "Industrial Designer",
+      "text": "Prototypes, you mean. In um We probably should do some market tests uh once we have the prototypes and do some orders and things like that and test-market it."
+    },
+    {
+      "at": 990.9,
+      "speaker": "Project Manager",
+      "text": "Yes, the prototype uh prototype product evaluation."
+    },
+    {
+      "at": 995.46,
+      "speaker": "Project Manager",
+      "text": "Yes. Yes. Yes. Yeah."
+    },
+    {
+      "at": 996.88,
+      "speaker": "Marketing Expert",
+      "text": "Well, obviously."
+    },
+    {
+      "at": 998.05,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1000.97,
+      "speaker": "Marketing Expert",
+      "text": "Mm that'd have to be thrown out on the market for people to get an idea, to see get get their"
+    },
+    {
+      "at": 1003.78,
+      "speaker": "Project Manager",
+      "text": "So you can take a minimum two weeks to a maximum four weeks. Yeah."
+    },
+    {
+      "at": 1004.48,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm. Think minimum two weeks if we're gonna develop prototypes and then try to take them to different places and see how people use it's not a trivial task."
+    },
+    {
+      "at": 1015.83,
+      "speaker": "Project Manager",
+      "text": "Yeah, because we we are not going to do it in uh our factory, okay, so we can give it a product evalua Yes, yes. So we'll do it in the other place, and I don't think it's take more than four weeks time."
+    },
+    {
+      "at": 1019.31,
+      "speaker": "User Interface Designer",
+      "text": "No no. We definitely shouldn't do it in our factory."
+    },
+    {
+      "at": 1030.92,
+      "speaker": "Project Manager",
+      "text": "Or uh"
+    },
+    {
+      "at": 1033.42,
+      "speaker": "Project Manager",
+      "text": "Okay, so then the real production we will start once we product evaluation, okay, then uh it's approve from uh the technical team and uh your team, okay, uh from the management, then we can launch in the market."
+    },
+    {
+      "at": 1051.14,
+      "speaker": "Project Manager",
+      "text": "Hm? S Any any other uh questions or uh comments to be discuss?"
+    },
+    {
+      "at": 1051.59,
+      "speaker": "Industrial Designer",
+      "text": "Any outstanding?"
+    },
+    {
+      "at": 1060.92,
+      "speaker": "Industrial Designer",
+      "text": "No, I'm go ahead. Did you have something?"
+    },
+    {
+      "at": 1060.97,
+      "speaker": "User Interface Designer",
+      "text": "What ab"
+    },
+    {
+      "at": 1061.64,
+      "speaker": "Marketing Expert",
+      "text": "I think we pretty much covered everything."
+    },
+    {
+      "at": 1063.47,
+      "speaker": "Project Manager",
+      "text": "Okay, so then uh"
+    },
+    {
+      "at": 1064.98,
+      "speaker": "User Interface Designer",
+      "text": "Well I was just wondering about if we're gonna do a product evaluation then what about time for redesign if the users come back and tell us no this is bad, this is bad, we want this done differently."
+    },
+    {
+      "at": 1078.39,
+      "speaker": "Project Manager",
+      "text": "Okay uh, let's take like this. Let's proceed with this model, okay, for the for the marketing direction, okay. So no more changes will be made, okay, in this the basic design. Okay? So we will introduce m this model and uh let's introduce in the market and let's take the feedback from the customers, then we can uh go for the second generation. Okay. There's no end, there's not limit. Every every custom"
+    },
+    {
+      "at": 1101.63,
+      "speaker": "Industrial Designer",
+      "text": "Second generation."
+    },
+    {
+      "at": 1107.11,
+      "speaker": "User Interface Designer",
+      "text": "The problem is there might not be a second generation if the first generation flops for some silly reason that we haven't thought of."
+    },
+    {
+      "at": 1109.91,
+      "speaker": "Marketing Expert",
+      "text": "Well, then it may not be."
+    },
+    {
+      "at": 1112.1,
+      "speaker": "Project Manager",
+      "text": "Okay. Well, every customer, okay, they have their own ideas, they have their own test, okay, so there's no end, there's no limit."
+    },
+    {
+      "at": 1113.66,
+      "speaker": "Marketing Expert",
+      "text": "Like people don't like wood."
+    },
+    {
+      "at": 1122.21,
+      "speaker": "User Interface Designer",
+      "text": "No, but there's a difference between releasing a product that has been minimally tested and fine-tuned to suit a general range of requirements versus releasing a product that we think will work but we don't really have anything to back it up."
+    },
+    {
+      "at": 1134.11,
+      "speaker": "Marketing Expert",
+      "text": "very specific."
+    },
+    {
+      "at": 1135.27,
+      "speaker": "Project Manager",
+      "text": "Yeah, so that's the reason you are here for uh the design, okay, I hope you made a good design."
+    },
+    {
+      "at": 1139.01,
+      "speaker": "User Interface Designer",
+      "text": "Yes, but I'm not everybody. I mean the whole point of user evaluation is to see what real people need. We have our own motivations in mind, we have our own ideas in mind, but that doesn't mean that that's what's gonna sell."
+    },
+    {
+      "at": 1151.18,
+      "speaker": "Project Manager",
+      "text": "Yeah, but uh see, we ought to take a few considerations, okay, one is the price consideration, one is future consideration, okay, like uh you can eat uh you can all eat more chi I can eat more chilli, okay, so i it's a depends on the individual taste, you know, so we have we have to balance somewhere."
+    },
+    {
+      "at": 1168.32,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, of course. I'm just trying to point out that I think that your evaluation and redesign turnaround time is too short well you have no redesign not you personally, but in the project we have no redesign time and"
+    },
+    {
+      "at": 1179.07,
+      "speaker": "Project Manager",
+      "text": "Yes. Yeah."
+    },
+    {
+      "at": 1179.71,
+      "speaker": "Industrial Designer",
+      "text": "Our project doesn't um Ed, d do you know what season of the year or time of the year is the most important for T_V_ remote control sales? Would it be the Christmas season by any chance? Sports season. Which sport season? So so"
+    },
+    {
+      "at": 1190.39,
+      "speaker": "Marketing Expert",
+      "text": "Hmm."
+    },
+    {
+      "at": 1194.08,
+      "speaker": "Project Manager",
+      "text": "The sports time."
+    },
+    {
+      "at": 1197.42,
+      "speaker": "Marketing Expert",
+      "text": "Right before the Eur the World Cup. World soccer. World Cup soccer, they need those things that they have their hands g occupied and they need to be able to talk to the con remote control."
+    },
+    {
+      "at": 1199.66,
+      "speaker": "Project Manager",
+      "text": "Football."
+    },
+    {
+      "at": 1200.31,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1203.09,
+      "speaker": "Project Manager",
+      "text": "Football."
+    },
+    {
+      "at": 1203.86,
+      "speaker": "Industrial Designer",
+      "text": "maybe what"
+    },
+    {
+      "at": 1208.01,
+      "speaker": "Industrial Designer",
+      "text": "So I think what we need to do is perhaps to synchronise the final the the launch of a user-tested device with some special event. And and then um so that gives us a little more time perhaps then we anticipated, because I don't know when the World Cup is, but I'm sure there's gonna be one. Or another m major sports event. Probably not the um the football games coming up the end of January. I think that might be a little too aggressive um, but, so, I'm just ig uh pointing out a uh a strategy to uh do some additional user testing pri and then to launch um at a a major sports event or uh perhaps to uh also And to work with motion pictures. There might be some motion pictures that are coming out um that are coming out on D_V_D_ that uh they need to have a m special remote control to work with it, so we could maybe work out a campaign with uh with Sony Pictures for example. Maybe some management has got uh relationships there we can leverage."
+    },
+    {
+      "at": 1214.13,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 1216.7,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 1216.82,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, that's a good idea."
+    },
+    {
+      "at": 1226.72,
+      "speaker": "Marketing Expert",
+      "text": "Or any major sports."
+    },
+    {
+      "at": 1236.51,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 1236.69,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1246.48,
+      "speaker": "Project Manager",
+      "text": "Research."
+    },
+    {
+      "at": 1246.64,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1251.59,
+      "speaker": "Project Manager",
+      "text": "Yep."
+    },
+    {
+      "at": 1253.69,
+      "speaker": "User Interface Designer",
+      "text": "That's actually good place to advertise it too. Yeah."
+    },
+    {
+      "at": 1272.55,
+      "speaker": "Project Manager",
+      "text": "Yes."
+    },
+    {
+      "at": 1273.57,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1277.62,
+      "speaker": "Project Manager",
+      "text": "Yes, the that of course uh I will convince the management to do that, okay."
+    },
+    {
+      "at": 1283.79,
+      "speaker": "Industrial Designer",
+      "text": "That's great."
+    },
+    {
+      "at": 1286.2,
+      "speaker": "User Interface Designer",
+      "text": "It's just something to to keep in mind, 'cause it's really really important. A lot of products have gone out there without being properly user-tested and completely flopped, when in fact it gets re-released a few years down the line with proper testing and it takes off like crazy."
+    },
+    {
+      "at": 1289.07,
+      "speaker": "Project Manager",
+      "text": "Sure, sure, yes.."
+    },
+    {
+      "at": 1300.23,
+      "speaker": "Industrial Designer",
+      "text": "Disposable diapers is an example of that in fact. Yes, it is one of the first consumer products that was launched about thirty years that was a disposable consumer product, and uh people the market hadn't really gotten on to the concept that you could use something and then throw it away, 'cause it wasn't uh but then when they re-launched them thirty years later, they were virtually the same design, but people had gotten the throw-away, you know, paper cups and napki y all kinds of things that they hadn't um so, you're right, timing is very important, but I think we've got a good product. That's right."
+    },
+    {
+      "at": 1303.01,
+      "speaker": "User Interface Designer",
+      "text": "Really? That I didn't know."
+    },
+    {
+      "at": 1319.21,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1332.66,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1334.82,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 1336.93,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1337.05,
+      "speaker": "Project Manager",
+      "text": "That's the reason Ed is here. I think he can promote the the brand value and the product value. Yes."
+    },
+    {
+      "at": 1342.62,
+      "speaker": "Industrial Designer",
+      "text": "It's gonna be very important to the company."
+    },
+    {
+      "at": 1346.98,
+      "speaker": "Project Manager",
+      "text": "We are behind the scene and he is the front screen, so. He's on the big screen."
+    },
+    {
+      "at": 1349.92,
+      "speaker": "User Interface Designer",
+      "text": "Yep."
+    },
+    {
+      "at": 1351.08,
+      "speaker": "Marketing Expert",
+      "text": "Yeah, I'm the one who takes the heat. If it's a flop, it's the marketer."
+    },
+    {
+      "at": 1352.92,
+      "speaker": "User Interface Designer",
+      "text": "Exactly."
+    },
+    {
+      "at": 1354.55,
+      "speaker": "Industrial Designer",
+      "text": "Good luck, Ed."
+    },
+    {
+      "at": 1358.59,
+      "speaker": "Industrial Designer",
+      "text": "You look very relaxed, considering h you know, the uh the weight on your shoulders, yeah."
+    },
+    {
+      "at": 1359.88,
+      "speaker": "Marketing Expert",
+      "text": "Yes. Yes. Stress."
+    },
+    {
+      "at": 1365.81,
+      "speaker": "Project Manager",
+      "text": "Okay, so then uh let's come to the closing and uh are the costs within the budget and uh is the product evaluated, okay, so that will uh come soon. Okay for uh but our time being, so thanks for all your efforts and great work and uh great design and uh let's leave it to the Ed for later for once production is over and the meantime let's celebrate. So let's meet up uh this evening to hang up for some party."
+    },
+    {
+      "at": 1369.24,
+      "speaker": "Marketing Expert",
+      "text": "Celebration."
+    },
+    {
+      "at": 1398.47,
+      "speaker": "Industrial Designer",
+      "text": "Sounds good. Thank you. Nice working with you."
+    },
+    {
+      "at": 1399.31,
+      "speaker": "Project Manager",
+      "text": "'S good."
+    },
+    {
+      "at": 1399.41,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 1399.87,
+      "speaker": "Marketing Expert",
+      "text": "Very good. Thank you very much. Bye-bye. Yep, okay, see you later on."
+    },
+    {
+      "at": 1402.39,
+      "speaker": "Project Manager",
+      "text": "Thank you. Thank you again for all. And see you in the evening for drinks."
+    },
+    {
+      "at": 1403.5,
+      "speaker": "User Interface Designer",
+      "text": "Thanks."
+    },
+    {
+      "at": 1407.77,
+      "speaker": "User Interface Designer",
+      "text": "Bye."
+    }
+  ],
+  "gold": {
+    "actions": [
+      "The Project Manager will negotiate with production companies and with management to decrease the cost of production.",
+      "He will also present the new promotion plan to management.",
+      "The Marketing Expert will begin his marketing plan after production has begun.",
+      "The group will evaluate the product after real units have been produced."
+    ],
+    "decisions": [
+      "The group decided that the LCD display will be included in the design and that the microphone for the remote will be placed on the side of the device.",
+      "The Project Manager decided to negotiate the cost of production to allow the integration of the display into the design.",
+      "The group will work with other companies to promote the product and have it released along with other products or with an event, such as a sporting event.",
+      "The Project Manager decided that no additional changes will be made to the remote.",
+      "The product evaluation will occur at a later time, after the production of some real units have been produced, rather than evaluating the prototype."
+    ],
+    "problems": [
+      "The group will have to make many changes to their original budget plans after the final cost analysis showed that their current budget would not cover the cost of all components and that the current price point would not meet the expected profit goal.",
+      "The group had problems agreeing on the project agenda, if more or less time should have been alotted for user testing and making changes to the design."
+    ]
+  }
+}

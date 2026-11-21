@@ -23,6 +23,7 @@
     "build": "npm run build --workspaces --if-present",
     "llm:use": "tsx scripts/llm-use.ts",
     "eval:notetaker": "tsx server/src/host/evalNotetaker.ts",
+    "eval:ami:convert": "tsx server/src/host/eval/convertAmi.ts",
     "playtest:dialogue": "tsx scripts/playtest-dialogue.ts",
     "playtest:live": "tsx scripts/live-playtest.ts",
     "playtest:team": "tsx scripts/team-playtest.ts",

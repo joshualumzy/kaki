@@ -15,6 +15,12 @@ import { createTaskStore } from '../meeting/tasks';
 import { createNotetaker } from './notetaker';
 import { loadReplay } from './replay';
 
+if (process.argv.includes('--ami')) {
+  const { runAmiEval } = await import('./eval/evalAmi');
+  await runAmiEval(process.argv.slice(2));
+  process.exit(process.exitCode ?? 0);
+}
+
 interface ExpectedTask {
   name: string;
   assignee: Role;
