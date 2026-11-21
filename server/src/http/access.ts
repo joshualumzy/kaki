@@ -38,8 +38,8 @@ export interface Route {
   access: Access;
 }
 
-interface RouteMatch {
-  route: Route;
+interface RouteMatch<T extends Route> {
+  route: T;
   params: Record<string, string>;
 }
 
@@ -83,11 +83,11 @@ function matchPath(pattern: string, pathname: string): Record<string, string> | 
 }
 
 /** Find the one route that owns this method and path; anything else is a 404. */
-export function matchRoute(
-  routes: readonly Route[],
+export function matchRoute<T extends Route>(
+  routes: readonly T[],
   method: string,
   pathname: string,
-): RouteMatch | undefined {
+): RouteMatch<T> | undefined {
   for (const route of routes) {
     if (route.method !== method) continue;
     const params = matchPath(route.path, pathname);
