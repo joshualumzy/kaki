@@ -114,6 +114,8 @@ function harness(options: {
   const settle = vi.fn((_followUp: SuggestInput) => undefined);
   const advanced: string[] = [];
   const readerInputs: GuestReaderInput[] = [];
+  /** Lines that started while another line was still playing: two voices at once. */
+  const overlaps: Array<[string, string]> = [];
 
   const ports: NpcPorts<Utterance> = {
     async *stream(messages) {
@@ -123,6 +125,8 @@ function harness(options: {
     },
     async synthesize(utterance) { return utterance; },
     play(speaker, clip) {
+      const still = playing.find((entry) => !entry.finished);
+      if (still !== undefined) overlaps.push([still.text, clip.text]);
       return new Promise<void>((resolve) => {
         const entry: Playing = {
           speaker, text: clip.text, finished: false,
@@ -166,7 +170,7 @@ function harness(options: {
   conversation.setHuman({ name: 'Josh', role: 'chef' });
   conversation.agendaMoved('Prep');
 
-  return { conversation, readings, replies, calls, playing, spoken, logs, states, settle, advanced, readerInputs };
+  return { conversation, readings, replies, calls, playing, spoken, logs, states, settle, advanced, readerInputs, overlaps };
 }
 
 const flush = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(0); };
@@ -455,3 +459,34 @@ describe('checkpoint 4 review fixes', () => {
     h.conversation.close();
   });
 });
+
+describe('turn-taking (#66, #67, #68)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('holds a scripted cue while a reply is still reading the guest, so two lines never play at once (#66)', async () => {
+    let resolveReading: ((value: GuestReading) => void) | undefined;
+    const h = harness({
+      reader: () => new Promise<GuestReading>((resolve) => { resolveReading = resolve; }),
+      replies: ['Ada: The eggs are the problem.', 'Ada: The eggs are the problem.', 'Ada: The eggs are the problem.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 5; i += 1) await flush();
+
+    h.conversation.announce('Sam', "Okay, we'll leave prep open for now.");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+
+    resolveReading?.(reading({ kind: 'question', addressee: 'Ada' }));
+    for (let i = 0; i < 20; i += 1) await flush();
+    await finishPlaying(h);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await finishPlaying(h);
+
+    expect(h.playing.some((entry) => entry.speaker === 'Ada')).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
+    expect(h.overlaps).toEqual([]);
+    h.conversation.close();
+  });
+});
+

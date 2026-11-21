@@ -83,6 +83,8 @@ export const MAX_FOLLOW_UPS = 2;
 
 /** How long a Host cue waits for a quiet moment before it is dropped as out of date. */
 const DEFAULT_ANNOUNCE_GIVE_UP_MS = 40_000;
+/** The longest a planned line waits for another line to stop playing before it speaks anyway. */
+const FLOOR_WAIT_MAX_MS = 15_000;
 
 
 /** The host asks when the agenda moves on; if that never happens, after this many lines from the person. */
@@ -1468,6 +1470,8 @@ export class NpcConversation<Clip> {
         this.humanTalking ||
         this.recognizingSpeech ||
         this.turn !== undefined ||
+        // A reply that is still reading the guest's line has no turn yet, but it will speak next (#66).
+        this.replyRun !== undefined ||
         this.pending.length > 0 ||
         this.respondTimer !== undefined;
       if (!busy) {
@@ -2918,6 +2922,9 @@ export class NpcConversation<Clip> {
       startedAt: prefetched?.startedAt ?? Date.now(),
       planned: { kind: run.kind, factIds, ...(decision.catchId === undefined ? {} : { catchId: decision.catchId }) },
     };
+    // One voice at a time: a line already playing (a scripted cue, or the previous step) finishes first (#66).
+    await this.waitForFloor(abort.signal);
+    if (abort.signal.aborted || this.closed) return { reason: 'cancelled while another line was playing' };
     this.turn = turn;
     const queue = new SentenceQueue<{ utterance: Utterance; clip: Promise<Clip | undefined> }>();
     abort.signal.addEventListener('abort', () => queue.close(), { once: true });
@@ -5241,6 +5248,28 @@ export class NpcConversation<Clip> {
   }
 
   /** Wait `ms`, resolving early (and without a stray timer) when the turn aborts. */
+  /**
+   * Wait until no other turn is playing, so two AI lines never sound at once. A held turn (cut off and waiting on
+   * the guest) is not waited for forever: after FLOOR_WAIT_MAX_MS the new line goes ahead, as it did before.
+   */
+  private async waitForFloor(signal: AbortSignal): Promise<void> {
+    const deadline = Date.now() + FLOOR_WAIT_MAX_MS;
+    let logged = false;
+    while (!signal.aborted && !this.closed) {
+      const current = this.turn;
+      if (current === undefined || current.finalized) return;
+      if (Date.now() >= deadline) {
+        this.ports.log?.('[floor] another line is still holding the floor; speaking anyway');
+        return;
+      }
+      if (!logged) {
+        logged = true;
+        this.ports.log?.('[floor] waiting for the line that is playing to finish');
+      }
+      await Promise.race([current.done, this.wait(250, signal)]);
+    }
+  }
+
   private wait(ms: number, signal: AbortSignal): Promise<void> {
     return new Promise<void>((resolve) => {
       if (signal.aborted) {
