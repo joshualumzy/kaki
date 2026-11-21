@@ -1,5 +1,6 @@
 import {
   ACTION_KINDS,
+  hostIdentityOf,
   isActionKind,
   isObject,
   isRoleIn,
@@ -211,6 +212,20 @@ export function notetakerReplySchema(scenario: Scenario): { name: string; schema
   };
 }
 
+/**
+ * The rule for the AI facilitator's own lines, only for meetings that have one. It names that seat so the model
+ * never applies it to a person chairing the meeting, whose assignments are ordinary task requests.
+ */
+function facilitatorRule(scenario: Scenario): string[] {
+  const host = hostIdentityOf(scenario);
+  if (host.seat === undefined) return [];
+  const who = host.name === undefined ? `the ${host.seat} seat` : `${host.name} (${host.seat})`;
+  return [
+    `- ${who} is the AI facilitator. Its greetings, agenda narration, handing the floor and summaries are context,`,
+    '  not tasks; only its explicit request to a named person for a follow-up deliverable creates one.',
+  ];
+}
+
 /** The system prompt that gives the model the scenario, roles and agenda plus the reply rules. */
 export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): string {
   const roles = scenario.roles.map((role) => {
@@ -239,9 +254,9 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     'Action kinds (pick the one that matches the nature of the follow-up deliverable):',
     '- gitea_issue: a software bug or engineering ticket in the code/issue tracker ONLY (never use gitea_issue for marketing, budgets, external partners, procurement, or non-software operations)',
     '- mattermost_post: an internal announcement, decision update, or operational note for the team ("so everyone\'s on the same page", team updates, budget/schedule decisions, internal coordination)',
-    '- email: a message to a specific external person or partner outside the team ONLY (an external creator/streamer, vendor, supplier, publisher, or venue/building management — never use email for "to the team" or "so everyone\'s on the same page"; use mattermost_post for internal team updates)',
+    '- email: a message to a specific person or organisation outside the team ONLY (for example a vendor, partner, client, supplier or building manager — never use email for "to the team" or "so everyone\'s on the same page"; use mattermost_post for internal team updates)',
     '- wiki_page: a longer written document or reference page on the team wiki (meeting notes, decision logs, specs, checklists, or runbooks)',
-    '- calendar_event: schedule a follow-up meeting, review session, playtest, or reminder at a specific date and time',
+    '- calendar_event: schedule a follow-up meeting, review session, workshop or reminder at a specific date and time',
     '',
     'Reply shape:',
     '{"agendaIndex": number, "newQuestions": [{"text": string, "forRole": role id}],',
@@ -252,13 +267,12 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     '',
     'Rules:',
     '- agendaIndex: the agenda item being discussed at the end of the new lines.',
-    '- newQuestions: factual questions someone asked about data, rules, costs, dates, or specs that nobody answered in the lines. Write each as a full,',
+    '- newQuestions: the open problems the group still needs answered or decided after these lines, whether or not anyone phrased them as a question. They include a question nobody answered, and a point the group said it does not know, has not agreed, or has left unresolved. Write each as a full,',
     '  self-contained question ending in a question mark that explicitly names the current agenda topic (for example "What supplier lead time do we need to confirm?" rather than just "What lead time do you need me to confirm?").',
     '  forRole is the role best placed to answer (always set forRole to one of the role ids listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of the current agenda item so Kaki can search company records for them; never omit forRole).',
-    '  NEVER list a host opening handoff ("What\'s happening there?", "Can you walk us through...?") or the open-ended agenda decision question',
-    '  addressed to a colleague ("How do we fix this for our customers...?", "How should we handle...?", "What do you want to do?", "What do you think from your side?") in newQuestions —',
-    '  those are discussion prompts, not factual lookups.',
-    '  NEVER invent a question out of a declarative statement: if a speaker is simply stating a fact or explaining a problem during the briefing (for example "a thirty percent price rise would cut demand"), do NOT turn their statement into a question in newQuestions. A question in newQuestions must come from someone actually asking about an unknown figure, policy, or option.',
+    '  NEVER list a host merely opening a topic or handing the floor ("What\'s happening there?", "Can you walk us through...?"), and do not turn an open-ended invitation to discuss ("What do you think?") into a question',
+    '  unless the group leaves a concrete unknown or decision unresolved.',
+    '  NEVER invent a question out of a declarative statement: if a speaker is simply stating a fact, giving an opinion, or explaining a problem without leaving anything the group still needs answered or decided (for example "a thirty percent price rise would cut demand"), do NOT turn their statement into a question in newQuestions. Only list something the group actually needs answered or decided and has not settled; quality matters more than count.',
     '  A reply that does not give the answer ("I don\'t know", "no idea", "I\'d have to check", "let me look it up",',
     '  "I haven\'t looked", "not per hour", "that is still open") does not answer the question: it stays a question.',
     '  Neither does an answer its speaker doubts or contradicts.',
@@ -266,7 +280,8 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     '  One topic can hold several separate unknowns: list each as its own question (for example "who signs off the',
     '  budget?" and "how is the budget reconciled at month end?"), even when they share the word budget. Only treat a',
     '  question as a repeat when it asks the same unknown, not merely because it is about the same topic. Use the',
-    '  transcript\'s own nouns so each question names the unknown precisely.',
+    '  transcript\'s own nouns, names and figures so each question names the unknown precisely; where a line names a',
+    '  person, item or number, keep that name or number in the question rather than a vague phrase.',
     '- answeredQuestions: open questions that a new line answers with the fact asked for, stated without doubt.',
     '  evidence: copy, word for word, the line that states the answer. A line that only mentions the topic, says the data',
     '  exists somewhere ("the report has that split"), gives a figure the speaker is unsure of, or promises to look',
@@ -324,6 +339,7 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     '  tools/actionKinds in the same turn (for example, an email AND a wiki_page, or a gitea_issue AND a mattermost_post,',
     '  or a calendar_event), extract BOTH deliverables as separate entries in newTasks with their respective actionKinds',
     '  (up to 2 tasks per turn).',
+    ...facilitatorRule(scenario),
     '- revisions: report only an actual withdrawal or replacement of an accepted decision. Quote the earlier decision',
     '  and the changing line verbatim. Name only existing suggested task IDs that depend on that decision. Ordinary',
     '  "instead of" discussion is not a revision. Use [] when none.',

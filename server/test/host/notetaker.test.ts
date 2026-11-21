@@ -5,6 +5,7 @@ import { createNotetaker } from '../../src/host/notetaker';
 import {
   answerMatchesQuestion,
   isAffirmativeAnswer,
+  isExactDuplicateQuestion,
   isLikelyDuplicateQuestion,
   type AnswerCandidate,
 } from '../../src/host/notetakerQuestions';
@@ -17,7 +18,7 @@ import {
   taskMatchesAssignment,
   type ResolvedTaskCandidate,
 } from '../../src/host/notetakerTasks';
-import { parseNotetakerReply } from '../../src/host/notetakerPrompt';
+import { parseNotetakerReply, systemPrompt } from '../../src/host/notetakerPrompt';
 import { type VerifierResult } from '../../src/host/notetakerVerifier';
 import { loadReplay, type ReplayLine } from '../../src/host/replay';
 import { createFakeLlm, type ChatMessage } from '../../src/services/llm';
@@ -309,6 +310,7 @@ describe('notetaker record keeping', () => {
 
     const system = llm.calls[0]?.find((message) => message.role === 'system')?.content ?? '';
     expect(system).not.toMatch(/GrabFood|Foodpanda|plushies|menu label|opening hours|ordering app|re-taste/i);
+    expect(system).not.toMatch(/streamer|publisher|playtest/i);
   });
 
   it('keeps a re-asked question when the same reply closes the older wording', async () => {
@@ -328,6 +330,92 @@ describe('notetaker record keeping', () => {
     }
 
     expect(notetaker.state().openQuestions.map((question) => question.text)).toEqual(['Where do players quit in the game?']);
+  });
+
+  it('adds the exact same question only once, however many passes list it again', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const question = 'What is the delivery window?';
+    const { notetaker } = setup(() => reply({ newQuestions: [{ text: question }] }));
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      notetaker.addChunk({ speaker: 'Mei', text: pass === 0 ? question : 'Let us keep going.' });
+      await notetaker.run();
+    }
+
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([question]);
+  });
+
+  it('reopens a closed question when it is raised again, but never piles up', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const question = 'When is the delivery due?';
+    const { notetaker } = setup((_messages, call) =>
+      [
+        reply({ newQuestions: [{ text: question }] }),
+        reply({
+          answeredQuestions: [{ id: 'q-1', evidence: 'The delivery is due on Monday morning.' }],
+          newQuestions: [{ text: question }],
+        }),
+        reply({ newQuestions: [{ text: question }] }),
+      ][call]!,
+    );
+
+    notetaker.addChunk({ speaker: 'Mei', text: question });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Arjun', text: 'The delivery is due on Monday morning.' });
+    await notetaker.run();
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([question]);
+
+    notetaker.addChunk({ speaker: 'Mei', text: 'Let us move on to the budget.' });
+    await notetaker.run();
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([question]);
+  });
+
+  it('drops a reworded repeat when the verifier says it asks the same thing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const first = 'What is the delivery window?';
+    const second = 'When will the delivery arrive?';
+    const replies = [reply({ newQuestions: [{ text: first }] }), reply({ newQuestions: [{ text: second }] })];
+    const verifier = createFakeLlm(() =>
+      JSON.stringify({ answers: [], tasks: [], questions: [{ index: 0, duplicateOf: 'q-1' }] }),
+    );
+    const notetaker = createNotetaker({
+      scenario: () => scenario,
+      tasks: createTaskStore({ hub: quietHub(), scenario }),
+      llm: createFakeLlm((_messages, call) => replies[call]!),
+      verifier,
+      agendaIndex: () => 0,
+    });
+
+    notetaker.addChunk({ speaker: 'Mei', text: first });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Arjun', text: 'Let us look at the delivery.' });
+    await notetaker.run();
+
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([first]);
+    expect(verifier.calls).toHaveLength(1);
+  });
+
+  it('keeps a reworded question the verifier says asks a different unknown', async () => {
+    const first = 'Who runs the counter at 8?';
+    const second = 'How is change counted and balanced at close?';
+    const replies = [reply({ newQuestions: [{ text: first }] }), reply({ newQuestions: [{ text: second }] })];
+    const verifier = createFakeLlm(() =>
+      JSON.stringify({ answers: [], tasks: [], questions: [{ index: 0, duplicateOf: null }] }),
+    );
+    const notetaker = createNotetaker({
+      scenario: () => scenario,
+      tasks: createTaskStore({ hub: quietHub(), scenario }),
+      llm: createFakeLlm((_messages, call) => replies[call]!),
+      verifier,
+      agendaIndex: () => 0,
+    });
+
+    notetaker.addChunk({ speaker: 'Mei', text: first });
+    await notetaker.run();
+    notetaker.addChunk({ speaker: 'Arjun', text: 'Let us look at the cash at close.' });
+    await notetaker.run();
+
+    expect(notetaker.state().openQuestions.map((open) => open.text)).toEqual([first, second]);
   });
 
   it('keeps the cash owner and change/float questions as separate open questions', async () => {
@@ -1811,8 +1899,8 @@ describe('duplicate handling across batches', () => {
   });
 });
 
-describe('facilitator identity', () => {
-  it('filters the facilitator who actually holds the seat, not the old host profile', async () => {
+describe('facilitator lines', () => {
+  it('sends the facilitator\'s lines to the model like any other line', async () => {
     const moved: Scenario = {
       ...scenario,
       roles: scenario.roles.map((role) =>
@@ -1848,8 +1936,20 @@ describe('facilitator identity', () => {
     await notetaker.run();
 
     const transcript = newLines(llm.calls[0]!);
-    expect(transcript).not.toContain('Morning everyone');
+    expect(transcript).toContain('Morning everyone');
     expect(transcript).toContain('Who owns the till today?');
+    const system = llm.calls[0]!.find((message) => message.role === 'system')?.content ?? '';
+    expect(system).toMatch(/Arjun \(tech_pos_lead\) is the AI facilitator/);
+  });
+
+  it('gives no facilitator rule when no seat is the AI facilitator, so a person chairing is not muted', () => {
+    const noFacilitator: Scenario = {
+      ...scenario,
+      roles: scenario.roles.map((role) => ({ ...role, facilitator: false })),
+      npcs: scenario.npcs?.filter((npc) => npc.role !== 'host'),
+    };
+
+    expect(systemPrompt(noFacilitator)).not.toMatch(/AI facilitator/);
   });
 });
 
@@ -2059,6 +2159,13 @@ describe('taskMatchesAssignment', () => {
         [],
       ),
     ).toBe(true);
+  });
+});
+
+describe('isExactDuplicateQuestion', () => {
+  it('ignores case and whitespace but not wording', () => {
+    expect(isExactDuplicateQuestion('  What  is the DELIVERY window? ', ['What is the delivery window?'])).toBe(true);
+    expect(isExactDuplicateQuestion('When will the delivery arrive?', ['What is the delivery window?'])).toBe(false);
   });
 });
 

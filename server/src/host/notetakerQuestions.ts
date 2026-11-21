@@ -7,6 +7,11 @@ export interface AnswerCandidate {
   question: Question;
   source: TranscriptLine;
 }
+/** A question the notetaker wants to add, ready to be checked against the questions already open. */
+export interface NewQuestionCandidate {
+  index: number;
+  text: string;
+}
 const QUESTION_OVERLAP = 0.6;
 
 function questionKeywords(text: string): Set<string> {
@@ -137,6 +142,12 @@ export function isRhetoricalTopicHandoff(text: string): boolean {
   return /^\W*(?:[a-z][a-z\s]{0,20},\s*)?(?:how (?:do|should|can|could|would|shall) we\b|(?:can|could|should|shall|would) we\b|what (?:do|should|can|could|would|shall) we\b)/i.test(
     trimmed,
   );
+}
+
+/** True when a question is word for word one already open, ignoring case and whitespace. */
+export function isExactDuplicateQuestion(text: string, openTexts: string[]): boolean {
+  const wanted = normalize(text);
+  return wanted !== '' && openTexts.some((other) => normalize(other) === wanted);
 }
 
 /** True when a question asks (nearly) the same thing as one already open. */

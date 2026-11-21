@@ -283,6 +283,17 @@ Playwright drives the real app in installed Google Chrome:
 - `npm run playtest:live` runs one visitor through the practice meeting with the AI colleagues.
 - `npm run playtest:ai` lets a language model play the visitor in one of nine styles, then a second model judges the meeting.
 
+`npm run eval:notetaker -- --ami` measures the notetaker on real, unscripted recorded meetings from the AMI Meeting Corpus. It replays each transcript, and a model judge pairs what the notetaker found with the corpus's own summary of follow-up actions and open problems. Two of the six meetings (`--holdout`) were kept out of all tuning, to check that changes hold for meetings the notetaker was not adjusted on. Results from 22 Nov 2026, before and after making the open-question handling general (two runs per meeting, both measured the same day):
+
+| Meetings | Open problems caught | Extra questions per meeting | Follow-ups caught | Extra follow-ups per meeting |
+| --- | --- | --- | --- | --- |
+| 4 working meetings, before | 41% | 11.5 | 59% | 0.8 |
+| 4 working meetings, after | 78% | 2.6 | 59% | 1.8 |
+| 2 hold-out meetings, before | 28% | 9.5 | 21% | 0 |
+| 2 hold-out meetings, after | 50% | 3.3 | 14% | 0 |
+
+"Extra" items are ones the corpus summary does not list. Many extra follow-ups are real work the summary leaves out, such as checking whether a feature is technically possible. Follow-ups in the hold-out meetings are mostly informal work splits ("you take the interface design"), which the notetaker rarely turns into cards.
+
 See [How we tested Kaki](docs/testing.md) for the full test map.
 
 ## Run locally
@@ -435,6 +446,8 @@ External services and APIs:
 | Azure Speech | Server-side speech recognition and multi-voice text-to-speech for the AI colleagues |
 | LiveKit | WebRTC audio room for the meeting and the NPC runner |
 | Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets |
+
+The notetaker evaluation uses meetings from the [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (Carletta et al., 2005), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The transcripts in `scenarios/ami-eval/meetings/` are converted from the corpus word files, with speakers named by their role.
 
 The reciprocal rank fusion in `server/src/wingman/knowledge/search.ts` implements the published RRF formula with `k = 60`.
 

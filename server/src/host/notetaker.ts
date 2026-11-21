@@ -1,6 +1,5 @@
 import {
   canTransition,
-  hostIdentityOf,
   isRoleIn,
   roleForDisplayName,
   speakerName,
@@ -18,12 +17,13 @@ import { estimateTalkSeconds, normalize, type TranscriptLine } from './notetaker
 import {
   answerMatchesQuestion,
   isAffirmativeAnswer,
+  isExactDuplicateQuestion,
   isLikelyDuplicateQuestion,
   isRhetoricalTopicHandoff,
   type AnswerCandidate,
+  type NewQuestionCandidate,
 } from './notetakerQuestions';
 import {
-  DELIVERABLE_FORM,
   addressedRole,
   decisionSourceLineFrom,
   groundingLine,
@@ -163,8 +163,6 @@ export function createNotetaker({
   let talkTotal = 0;
   const attending = () =>
     attendingRoles?.() ?? new Set(scenario().attendees.map((attendee) => attendee.role));
-  // The effective host follows the facilitator seat, so moving or assigning that seat moves the name too.
-  const facilitatorName = () => hostIdentityOf(scenario()).name;
   const attendeeNamePattern = () =>
     new RegExp(
       `\\s*\\((?:${scenario()
@@ -353,6 +351,12 @@ export function createNotetaker({
       }
     }
 
+    // Exact repeats are settled by the text itself; only the rest need the model's meaning check.
+    const openQuestionTexts = openQuestions.map((question) => question.text);
+    const newQuestionCandidates: NewQuestionCandidate[] = reply.newQuestions.flatMap((question, index) =>
+      isExactDuplicateQuestion(question.text, openQuestionTexts) ? [] : [{ index, text: question.text }],
+    );
+
     // A withdrawal only retires the cards the model names, and only after both quotes resolve exactly.
     const revisionPool = [...agendaContext, ...batch];
     const itemTitle = scenario().agenda[agendaIndex()]?.title;
@@ -431,6 +435,8 @@ export function createNotetaker({
             scenario(),
             answerCandidates,
             taskCandidates,
+            newQuestionCandidates,
+            openQuestions,
             (message) => console.warn(`kaki notetaker: ${message}`),
           );
     if (startedIn !== generation) return; // the meeting was reset while the verifier was thinking
@@ -469,17 +475,30 @@ export function createNotetaker({
     }
     openQuestions = openQuestions.filter((question) => !answered.has(question.id));
 
-    for (const question of reply.newQuestions) {
-      // The model decides what is a real question and whether it repeats one already open. These checks are
-      // backstops that make a disagreement visible; they never throw away something a person asked.
+    for (const [index, question] of reply.newQuestions.entries()) {
+      const openTexts = openQuestions.map((open) => open.text);
+      // The lexical checks are backstops only: they make a disagreement visible, but meaning decides.
+      if (isLikelyDuplicateQuestion(question.text, openTexts)) {
+        console.warn(`kaki notetaker: "${question.text}" looks like a question already open; checking before adding`);
+      }
+      if (isExactDuplicateQuestion(question.text, openTexts)) {
+        console.warn(`kaki notetaker: "${question.text}" is word for word a question already open; not adding it again`);
+        continue;
+      }
+      const duplicateOf = verdicts.questionDuplicates?.get(index);
+      const repeated =
+        typeof duplicateOf === 'string' ? openQuestions.find((open) => open.id === duplicateOf) : undefined;
+      if (repeated !== undefined) {
+        console.warn(
+          `kaki notetaker: "${question.text}" asks the same thing as open question ${repeated.id}; not adding it again`,
+        );
+        continue;
+      }
       if (!question.text.includes('?')) {
         console.warn(`kaki notetaker: "${question.text}" was listed without a question mark; keeping it open`);
       }
       if (isRhetoricalTopicHandoff(question.text)) {
         console.warn(`kaki notetaker: "${question.text}" looks like a discussion prompt; keeping it open`);
-      }
-      if (isLikelyDuplicateQuestion(question.text, openQuestions.map((open) => open.text))) {
-        console.warn(`kaki notetaker: "${question.text}" looks like a question already open; keeping it open`);
       }
       questionCount += 1;
       openQuestions.push({ id: `q-${questionCount}`, agendaIndex: questionAgendaIndex, ...question });
@@ -588,18 +607,6 @@ export function createNotetaker({
           : roleForDisplayName(scenario(), speaker);
       if (role !== undefined) addTalk(agendaIndex(), role, estimateTalkSeconds(text));
       if (llm === undefined) return;
-      const isFacilitator = role !== undefined && scenario().roles.some((candidate) => candidate.id === role && candidate.facilitator === true);
-      const speakerBase = speakerName(speaker);
-      const hostName = facilitatorName();
-      if (isFacilitator && hostName !== undefined && speakerBase === hostName) {
-        // When the AI facilitator explicitly asks the visitor by name for a post-meeting follow-up deliverable ("Ben, could you post that decision in the team channel today so everyone has it?"),
-        // keep that line so the notetaker extracts the task even if the LLM put the task request on the facilitator's line.
-        const isTaskRequestFromSam = new RegExp(
-          `\\b(?:(?:can|could|would|will)\\s+you|(?:do\\s+you\\s+)?mind|let'?s\\s+have\\s+you)\\s+(?:[\\w'-]+,?\\s+){0,8}(?:${DELIVERABLE_FORM}|handle|handling|sort out|sorting out|take care of|taking care of|take on|taking on|take the lead on|taking the lead on)\\b`,
-          'i',
-        ).test(text);
-        if (!isTaskRequestFromSam) return;
-      }
       const agendaItemTitle = scenario().agenda[agendaIndex()]?.title;
       const atSeconds = meetingElapsedSeconds?.();
       keepPending([
