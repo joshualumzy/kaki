@@ -2,7 +2,7 @@
 
 A meeting assistant that gives every seat a private wingman.
 
-[Live demo](https://kaki.southeastasia.cloudapp.azure.com) · [Screenshots](#screenshots) · [Architecture](#how-it-works) · [Run locally](#run-locally) · [Poster](docs/poster/kaki-a1-poster.pdf)
+[Live demo](https://green-sky-0c9a41800.4.azurestaticapps.net) · [Screenshots](#screenshots) · [Architecture](#how-it-works) · [Run locally](#run-locally) · [Poster](docs/poster/kaki-a1-poster.pdf)
 
 ![Kaki meeting room](docs/images/meeting-room.png)
 *A practice meeting. Kaki Wingman has just handed the Operations Director a private fact for the question on the table.*
@@ -64,7 +64,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 
 ## Try it
 
-The demo runs on an Azure VM and uses HTTPS so browsers and phones allow the microphone.
+Start at **[green-sky-0c9a41800.4.azurestaticapps.net](https://green-sky-0c9a41800.4.azurestaticapps.net)**. That page is always on. The demo itself runs on an Azure VM (HTTPS, so browsers and phones allow the microphone) that switches itself off when nobody is using it; if it is off, choosing an option on the start page wakes it, which takes a minute or two, and then takes you where you chose. The other links below work once it is awake.
 
 | What | Where | Sign-in |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ The demo runs on an Azure VM and uses HTTPS so browsers and phones allow the mic
 
 In a team meeting, sign in as the owner, set the agenda, open the room and share the invite code. Everyone else joins with the code and picks a seat. In a practice meeting, the AI colleagues take the other seats and the visitor can speak or type.
 
-The cloud server runs on Azure student credits and is switched off between demos. If a link above does not load, contact the team to start it, or run Kaki locally with `npm start` (see [Run locally](#run-locally)).
+The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking, typing or clicking (a forgotten open tab). A meeting cut off this way is saved and comes back when the VM wakes. The waking page is in `wake/` and the switch-off check in `deploy/idle/`. You can also run Kaki locally with `npm start` (see [Run locally](#run-locally)).
 
 ```bash
 npm run cloud:status   # Check the VM and the live HTTPS health endpoint
@@ -466,6 +466,8 @@ No code was copied from other projects, tutorials or repositories. We wrote the 
 ├── scenarios/kopitiam/     # Nanyang Kopi & Toast scenario, seed data and replay fixtures
 ├── docker/                 # Docker Compose stack and idempotent multi-service seed scripts
 ├── scripts/                # Local and cloud launchers, preflight and Playwright playtests
+├── wake/                   # Always-on waking page and its start/status API (Azure Static Web Apps)
+├── deploy/idle/            # VM idle check that switches the cloud VM off when nobody uses it
 └── docs/                   # Live demo guide, testing guide, screenshots and STePS poster
 ```
 
