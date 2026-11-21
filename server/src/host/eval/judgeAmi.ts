@@ -44,17 +44,15 @@ function numbered(items: string[]): string {
 function systemPrompt(): string {
   return [
     'You are scoring a meeting notetaker against a gold answer key from the AMI Meeting Corpus.',
-    'For each judgement you receive a numbered list of items the notetaker found and a numbered list of gold items.',
+    'For each judgement you receive a numbered list of gold items and a numbered list of items the notetaker found.',
     'The gold decisions are background context only. Never pair a found item with a decision.',
-    'Pair a found item with a gold item only when they describe the same concrete task or the same open question.',
+    'Go through the gold list in order. For each gold item, give the number of the found item that describes the',
+    'same concrete task or the same open question, or null when no found item does.',
     'Do not pair items merely because they share a topic, a person or a keyword.',
-    'One gold item may match at most one found item. One found item may match several gold items when it really',
-    'covers each of them (for example one card "email the minutes and the slides" covers two gold actions).',
-    'Every gold index must appear exactly once, in a pair or in unmatchedGold. Every found index must appear in at',
-    'least one pair or in unmatchedFound, never both.',
-    'Use 1-based indices. Return one JSON object only, in exactly this shape:',
-    '{"pairs":[{"found":1,"gold":2,"reason":"why these are the same"}],"unmatchedFound":[3],"unmatchedGold":[4]}',
-    'Use empty arrays when there is nothing to list.',
+    'One found item may be named for several gold items when it really covers each of them (for example one card',
+    '"email the minutes and the slides" covers two gold actions).',
+    'Return one JSON object only, with exactly one entry per gold item, in gold order:',
+    '{"matches":[{"gold":1,"found":2,"reason":"why these are the same"},{"gold":2,"found":null,"reason":"why nothing matches"}]}',
   ].join('\n');
 }
 
@@ -78,16 +76,10 @@ function userPrompt(input: SectionInput): string {
   ].join('\n');
 }
 
-function indices(value: unknown, label: string, limit: number): number[] {
-  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
-  return value.map((entry, index) => {
-    if (!Number.isInteger(entry) || (entry as number) < 1 || (entry as number) > limit) {
-      throw new Error(`${label}[${index}] must be an integer from 1 to ${limit}`);
-    }
-    return entry as number;
-  });
-}
-
+/**
+ * The judge answers once per gold item, so every gold item is accounted for by shape; the code derives which found
+ * items matched nothing (invented) instead of trusting the model with that bookkeeping.
+ */
 export function validateJudgeReply(text: string, foundCount: number, goldCount: number): JudgeSection {
   let json: unknown;
   try {
@@ -96,55 +88,35 @@ export function validateJudgeReply(text: string, foundCount: number, goldCount: 
     throw new Error(`judge reply is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!isObject(json)) throw new Error('judge reply must be a JSON object');
-  if (!Array.isArray(json.pairs)) throw new Error('judge reply is missing its "pairs" array');
+  if (!Array.isArray(json.matches)) throw new Error('judge reply is missing its "matches" array');
+  if (json.matches.length !== goldCount) {
+    throw new Error(`judge reply has ${json.matches.length} matches for ${goldCount} gold items`);
+  }
 
-  const pairs = json.pairs.map((entry, index): JudgePair => {
-    if (!isObject(entry)) throw new Error(`pairs[${index}] must be an object`);
-    if (!Number.isInteger(entry.found) || (entry.found as number) < 1 || (entry.found as number) > foundCount) {
-      throw new Error(`pairs[${index}].found must be an integer from 1 to ${foundCount}`);
-    }
-    if (!Number.isInteger(entry.gold) || (entry.gold as number) < 1 || (entry.gold as number) > goldCount) {
-      throw new Error(`pairs[${index}].gold must be an integer from 1 to ${goldCount}`);
-    }
+  const pairs: JudgePair[] = [];
+  const unmatchedGold: number[] = [];
+  json.matches.forEach((entry, index) => {
+    const gold = index + 1;
+    if (!isObject(entry)) throw new Error(`matches[${index}] must be an object`);
+    if (entry.gold !== gold) throw new Error(`matches[${index}].gold must be ${gold} (one entry per gold item, in order)`);
     if (typeof entry.reason !== 'string' || entry.reason.trim() === '') {
-      throw new Error(`pairs[${index}].reason must be a non-empty string`);
+      throw new Error(`matches[${index}].reason must be a non-empty string`);
     }
-    return { found: entry.found as number, gold: entry.gold as number, reason: entry.reason.trim() };
+    if (entry.found === null) {
+      unmatchedGold.push(gold);
+      return;
+    }
+    if (!Number.isInteger(entry.found) || (entry.found as number) < 1 || (entry.found as number) > foundCount) {
+      throw new Error(`matches[${index}].found must be null or an integer from 1 to ${foundCount}`);
+    }
+    pairs.push({ found: entry.found as number, gold, reason: entry.reason.trim() });
   });
 
-  const unmatchedFound = indices(json.unmatchedFound, 'unmatchedFound', foundCount);
-  const unmatchedGold = indices(json.unmatchedGold, 'unmatchedGold', goldCount);
-
-  const seenFound = new Set<number>();
-  const seenGold = new Set<number>();
-  const claimFound = (index: number, where: string) => {
-    if (seenFound.has(index)) throw new Error(`found index ${index} appears more than once (${where})`);
-    seenFound.add(index);
-  };
-  const claimGold = (index: number, where: string) => {
-    if (seenGold.has(index)) throw new Error(`gold index ${index} appears more than once (${where})`);
-    seenGold.add(index);
-  };
-
-  // A found item may cover several gold items, so it may repeat across pairs; each gold item is matched once.
   const pairedFound = new Set(pairs.map((pair) => pair.found));
-  for (const found of pairedFound) claimFound(found, 'pairs');
-  for (const [index, pair] of pairs.entries()) claimGold(pair.gold, `pairs[${index}]`);
-  for (const [index, found] of unmatchedFound.entries()) claimFound(found, `unmatchedFound[${index}]`);
-  for (const [index, gold] of unmatchedGold.entries()) claimGold(gold, `unmatchedGold[${index}]`);
-
-  if (seenFound.size !== foundCount) {
-    throw new Error(`judge reply accounts for ${seenFound.size} of ${foundCount} found items`);
-  }
-  if (seenGold.size !== goldCount) {
-    throw new Error(`judge reply accounts for ${seenGold.size} of ${goldCount} gold items`);
-  }
-
-  return {
-    pairs,
-    unmatchedFound: [...unmatchedFound].sort((left, right) => left - right),
-    unmatchedGold: [...unmatchedGold].sort((left, right) => left - right),
-  };
+  const unmatchedFound = Array.from({ length: foundCount }, (_, index) => index + 1).filter(
+    (found) => !pairedFound.has(found),
+  );
+  return { pairs, unmatchedFound, unmatchedGold };
 }
 
 async function judgeSection(llm: LlmClient, input: SectionInput): Promise<JudgeSection> {
