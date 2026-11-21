@@ -406,6 +406,23 @@ describe('SetupPage', () => {
     expect(screen.queryByLabelText('Meeting title field')).toBeNull();
   });
 
+  it('sends a signed-out visitor straight to sign-in, returning to setup', async () => {
+    installFetch(baseRoutes({ 'GET /api/auth/me': () => reply({ authEnabled: true, kind: null }) }));
+    render(
+      <MemoryRouter initialEntries={['/setup']}>
+        <ScenarioProvider>
+          <Routes>
+            <Route path="/setup" element={<SetupPage />} />
+            <Route path="/login" element={<p>sign-in page</p>} />
+          </Routes>
+        </ScenarioProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('sign-in page')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('shows a 403 message with a sign-in link and no actions', async () => {
     installFetch(
       baseRoutes({

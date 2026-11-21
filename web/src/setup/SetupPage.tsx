@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import {
   demoPackNpcProfileIds,
   isBlankMeetingDraft,
@@ -224,6 +224,10 @@ export function SetupPage() {
     }
   }
 
+  // Visitors can arrive here from any link (the start page, the always-on waking page, a bookmark), so a signed-out
+  // visitor goes straight to sign-in and comes back, instead of seeing the setup page's errors.
+  if (signedOut) return <Navigate to="/login?return=/setup" replace />;
+
   return (
     <main className="page setup-page">
       <PageHeader />
@@ -251,12 +255,6 @@ export function SetupPage() {
             </Button>
           </div>
         </section>
-      ) : null}
-
-      {signedOut ? (
-        <p className="setup-note" role="status">
-          <Link to="/login?return=/setup">Sign in</Link> as the meeting owner to change the setup.
-        </p>
       ) : null}
 
       {canEdit && state.status === 'ready' && !state.started ? (
