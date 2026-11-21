@@ -42,6 +42,28 @@ describe('AMI judge validation', () => {
     expect(() => validateJudgeReply(reply, 1, 1)).toThrow(/more than once/);
   });
 
+  it('lets one found item cover several gold items but matches each gold item once', () => {
+    const covering = JSON.stringify({
+      pairs: [
+        { found: 1, gold: 1, reason: 'minutes' },
+        { found: 1, gold: 2, reason: 'slides' },
+      ],
+      unmatchedFound: [],
+      unmatchedGold: [],
+    });
+    const goldTwice = JSON.stringify({
+      pairs: [
+        { found: 1, gold: 1, reason: 'same' },
+        { found: 2, gold: 1, reason: 'same again' },
+      ],
+      unmatchedFound: [],
+      unmatchedGold: [],
+    });
+
+    expect(validateJudgeReply(covering, 1, 2).pairs).toHaveLength(2);
+    expect(() => validateJudgeReply(goldTwice, 2, 1)).toThrow(/gold index 1 appears more than once/);
+  });
+
   it('rejects a reply that leaves an item unaccounted for', () => {
     const reply = JSON.stringify({ pairs: [], unmatchedFound: [], unmatchedGold: [] });
 

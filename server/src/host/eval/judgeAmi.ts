@@ -48,8 +48,10 @@ function systemPrompt(): string {
     'The gold decisions are background context only. Never pair a found item with a decision.',
     'Pair a found item with a gold item only when they describe the same concrete task or the same open question.',
     'Do not pair items merely because they share a topic, a person or a keyword.',
-    'One found item may match at most one gold item, and one gold item may match at most one found item.',
-    'Every found index and every gold index must appear exactly once, either in a pair or in its unmatched list.',
+    'One gold item may match at most one found item. One found item may match several gold items when it really',
+    'covers each of them (for example one card "email the minutes and the slides" covers two gold actions).',
+    'Every gold index must appear exactly once, in a pair or in unmatchedGold. Every found index must appear in at',
+    'least one pair or in unmatchedFound, never both.',
     'Use 1-based indices. Return one JSON object only, in exactly this shape:',
     '{"pairs":[{"found":1,"gold":2,"reason":"why these are the same"}],"unmatchedFound":[3],"unmatchedGold":[4]}',
     'Use empty arrays when there is nothing to list.',
@@ -124,10 +126,10 @@ export function validateJudgeReply(text: string, foundCount: number, goldCount: 
     seenGold.add(index);
   };
 
-  for (const [index, pair] of pairs.entries()) {
-    claimFound(pair.found, `pairs[${index}]`);
-    claimGold(pair.gold, `pairs[${index}]`);
-  }
+  // A found item may cover several gold items, so it may repeat across pairs; each gold item is matched once.
+  const pairedFound = new Set(pairs.map((pair) => pair.found));
+  for (const found of pairedFound) claimFound(found, 'pairs');
+  for (const [index, pair] of pairs.entries()) claimGold(pair.gold, `pairs[${index}]`);
   for (const [index, found] of unmatchedFound.entries()) claimFound(found, `unmatchedFound[${index}]`);
   for (const [index, gold] of unmatchedGold.entries()) claimGold(gold, `unmatchedGold[${index}]`);
 

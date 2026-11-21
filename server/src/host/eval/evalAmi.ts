@@ -84,7 +84,9 @@ function ratio(part: number, whole: number): number {
 }
 
 function scoreSection(found: string[], gold: string[], section: { pairs: JudgePair[]; unmatchedFound: number[]; unmatchedGold: number[] }): SectionScore {
+  // Each gold item is paired at most once; one found item may cover several gold items.
   const caught = section.pairs.length;
+  const matchedFound = new Set(section.pairs.map((pair) => pair.found)).size;
   return {
     found,
     gold,
@@ -95,7 +97,7 @@ function scoreSection(found: string[], gold: string[], section: { pairs: JudgePa
     missed: section.unmatchedGold.length,
     invented: section.unmatchedFound.length,
     recall: ratio(caught, gold.length),
-    precision: ratio(caught, found.length),
+    precision: ratio(matchedFound, found.length),
   };
 }
 
