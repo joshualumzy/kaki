@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../../src/services/llm';
-import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
+import { claimsStepGivenToOther, NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { readGuestLine, type GuestReaderInput, type GuestReading } from '../../src/npc/guestReader';
 import { testScenario } from '../fixtures/scenario';
@@ -1569,6 +1569,30 @@ describe('robustness with real people', () => {
     expect(said).toContain('I can help Bao with anything he needs.');
     expect(h.logs.some((text) => text.includes('claims a step the visitor gave someone else'))).toBe(false);
     h.conversation.close();
+  });
+
+  describe('which colleague sentences count as claiming a step given to someone else', () => {
+    const names = ['Ada', 'Bao', 'Mei', 'Josh'];
+    it.each([
+      ['Bao will test the rule before 8.', "I'd sooner be the one testing that button."],
+      ['Bao will test the rule before 8.', "I'll test it myself tonight."],
+      ['Let Mei print the price cards.', 'I can print them faster.'],
+    ])('drops: visitor "%s", Ada "%s"', (guest, line) => {
+      expect(claimsStepGivenToOther(line, 'Ada', [guest], names)).toBe(true);
+    });
+    it.each([
+      // Naming someone else's step while claiming a different one.
+      ['Bao will test the rule before 8.', "I'll print the cards so Bao can test them tonight."],
+      ['Bao will test the rule before 8.', "Bao will test it, and I'll prep the price cards."],
+      // Same general verb, different job.
+      ['Mei will check the fridge temps.', "I'll check the till float tonight."],
+      ['Mei will tell the regulars.', "I'll tell the kitchen crew."],
+      ['Mei will post the notice.', "I'll update the poster by the counter."],
+      // The visitor moved the step to Ada.
+      ['Bao will test the rule. Actually Ada, you test it instead.', "Sure, I'll test it then."],
+    ])('keeps: visitor "%s", Ada "%s"', (guest, line) => {
+      expect(claimsStepGivenToOther(line, 'Ada', [guest], names)).toBe(false);
+    });
   });
 
   it('keeps a second AI question to the visitor who has gone quiet, and says so loudly', async () => {
