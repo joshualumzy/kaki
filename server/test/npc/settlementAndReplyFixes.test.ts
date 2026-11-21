@@ -649,3 +649,40 @@ describe('topic time follows the agenda', () => {
     h.conversation.close();
   });
 });
+
+describe('a line said before the topic opened', () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it('is shown but not read as the new topic\'s first guest line, so the opening is not cut short', async () => {
+    const h = harness();
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(50);
+    // The agenda moves on while the recogniser is still finishing the line.
+    h.conversation.agendaMoved('Delivery app commission squeeze');
+    await flush();
+    const before = h.readerInputs.length;
+    h.conversation.humanText("Let's move on to the next agenda.");
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.spoken).toContainEqual(['Josh', "Let's move on to the next agenda."]);
+    expect(h.readerInputs.length).toBe(before);
+    expect(h.logs).toContainEqual(expect.stringContaining('was said before "Delivery app commission squeeze" opened'));
+    h.conversation.close();
+  });
+
+  it('still reads a line the person finished after the topic opened', async () => {
+    const h = harness();
+    h.conversation.agendaMoved('Delivery app commission squeeze');
+    await vi.advanceTimersByTimeAsync(50);
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanText('Raise the app price.');
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.readerInputs.some((input) => JSON.stringify(input).includes('Raise the app price'))).toBe(true);
+    h.conversation.close();
+  });
+});

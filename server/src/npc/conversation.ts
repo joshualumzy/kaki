@@ -658,6 +658,8 @@ export class NpcConversation<Clip> {
   /** That question, captured just before the visitor's latest line, so settling can fold it into the follow-up. */
   private questionBeforeGuestLine: string | undefined;
   private topicOpenedAt = Date.now();
+  /** When the person last stopped talking: a line they finished before the topic opened belongs to the last topic. */
+  private humanSpeechEndedAt: number | undefined;
   private budgetOffered = false;
   private budgetRecoveryPending = false;
   private budgetOfferAtLine = 0;
@@ -1171,6 +1173,7 @@ export class NpcConversation<Clip> {
     }
     this.humanTalking = talking;
     this.gate.setHumanTalking(talking);
+    this.humanSpeechEndedAt = talking ? undefined : Date.now();
     if (talking) {
       this.clearRespondTimer();
       this.clearSilenceTimer();
@@ -1218,6 +1221,18 @@ export class NpcConversation<Clip> {
     }
 
     const accepted = decision.text ?? heard;
+    // The recogniser can finish a line just after the agenda moved on. Said whole before this topic opened, it was
+    // about the last topic: it is shown, but it is not this topic's first guest line, so the opening carries on.
+    const endedAt = this.humanSpeechEndedAt;
+    // One stop belongs to one recognised line; a later line the voice detector missed must not reuse it.
+    this.humanSpeechEndedAt = undefined;
+    if (!this.humanTalking && endedAt !== undefined && endedAt < this.topicOpenedAt) {
+      const topic = this.currentItem()?.title ?? 'this topic';
+      this.ports.log?.(`[topic] "${accepted}" was said before "${topic}" opened: shown, but not answered as a line on it`);
+      this.ports.emitTranscript(this.human?.transcriptName ?? 'Guest', accepted, { human: true });
+      this.scheduleRespond();
+      return accepted;
+    }
     this.lastHumanInputWasTyped = false;
     // Recognised words over a line that is still playing, without a barge-in, are held: the AI line finishes
     // and is heard whole, then this line goes to the reader like any other. Only the voice-timing barge-in
