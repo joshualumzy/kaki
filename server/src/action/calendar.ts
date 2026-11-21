@@ -1,12 +1,14 @@
 import { errorMessage, eventBodies, eventProperties, unescapeIcalText, unfoldIcalLines } from '@kaki/shared';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
+import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, plainReason } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const CONNECTION_MESSAGE = 'The calendar is not connected for this workspace.';
 
 /** The setup message shown when the calendar action has no CalDAV address. */
 export const CALENDAR_CONFIG_MESSAGE = 'The calendar is not configured: set CALDAV_URL';
@@ -367,6 +369,16 @@ export function createCalendarModule({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }),
 }: CalendarModuleOptions = {}): KakiModule {
+  function settingsFrom(tools: WorkspaceTools | undefined): CalendarSettings | undefined {
+    return calendar ?? tools?.calendar;
+  }
+
+  function requireSettings(tools: WorkspaceTools | undefined): CalendarSettings {
+    const settings = settingsFrom(tools);
+    if (settings === undefined) throw new ActionError(CONNECTION_MESSAGE);
+    return settings;
+  }
+
   async function call(url: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     try {
@@ -383,9 +395,9 @@ export function createCalendarModule({
   return createActionModule({
     name: 'action-calendar',
     kind: 'calendar_event',
-    unconfiguredReason: calendar === undefined ? CALENDAR_CONFIG_MESSAGE : undefined,
-    async draft(task, signal, _scenario, _visitorName, memory) {
-      if (calendar === undefined) throw new ActionError(CALENDAR_CONFIG_MESSAGE);
+    unconfiguredReason: (tools) => (settingsFrom(tools) === undefined ? CONNECTION_MESSAGE : undefined),
+    async draft(task, signal, _scenario, _visitorName, memory, tools) {
+      requireSettings(tools);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the event cannot be drafted');
 
       const date = today();
@@ -415,14 +427,14 @@ export function createCalendarModule({
       if (draft === undefined) throw new ActionError('The LLM did not return usable JSON with a title and a start time');
       return { target: 'Team calendar', subject: draft.title, body: formatBody(draft.times, draft.notes) };
     },
-    async run(task, signal) {
-      if (calendar === undefined) throw new ActionError(CALENDAR_CONFIG_MESSAGE);
+    async run(task, signal, _scenario, _visitorName, tools) {
+      const settings = requireSettings(tools);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to save');
 
       const { times, notes } = parseBody(draft.body);
       const ics = buildIcs(`kaki-${task.id}@kaki.local`, draft.subject, times, notes, new Date());
-      const collection = collectionUrl(calendar);
+      const collection = collectionUrl(settings);
 
       // Make sure the calendar exists; "already there" answers are fine, real failures show up on the PUT.
       const root = collection.replace(/[^/]+\/$/, '');
@@ -439,7 +451,7 @@ export function createCalendarModule({
         const detail = (await response.text().catch(() => '')).slice(0, 200).trim();
         throw new ActionError(`The calendar returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`);
       }
-      return `${calendar.viewBaseUrl.replace(/\/+$/, '')}/api/calendar/${task.id}`;
+      return `${settings.viewBaseUrl.replace(/\/+$/, '')}/api/calendar/${task.id}`;
     },
   });
 }

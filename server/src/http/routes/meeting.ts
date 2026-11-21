@@ -18,6 +18,7 @@ import { readJsonBody, sendJson } from '../http';
 import { MEETING_CODE_RATE_LIMIT_MESSAGE } from '../../meeting/meetingCode';
 import { admission, type Admission } from '../../meeting/rejoin';
 import { createRoomToken, joinNameProblem, JoinError, livekitPublicUrl } from '../../services/livekit';
+import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 
 /** The one message for a role id this meeting does not offer: name it and list the offered seats. */
 function notAHumanSeat(wanted: string, offered: ReadonlyArray<{ id: string; label: string }>): string {
@@ -506,7 +507,10 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
       // Seat holders are part of the meeting: save them so a restart recognises the same people.
       context.scheduleSave();
       context.watchRoom(roomName);
-      void syncDemoVisitorProfile(participantName);
+      // The demo profiles belong to the sample workspace only; a real meeting's people are their own.
+      if (context.workspaceId === SAMPLE_WORKSPACE_ID) {
+        void syncDemoVisitorProfile(participantName);
+      }
       const resumed = meetingWasRunning && decision !== 'reset';
       const started = context.session.phase() === 'running';
       console.log(`[join] seat=${seatId} room=${roomName} reset=${decision === 'reset'} resumed=${resumed} started=${started}`);

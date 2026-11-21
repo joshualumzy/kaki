@@ -3,11 +3,14 @@ import { createActionModules } from './action';
 import type { KakiModule } from './core/modules';
 import { createHostModules, type MeetingPauseControl } from './host';
 import type { MeetingRow } from './meeting/types';
+import type { WorkspaceToolSource, WorkspaceTools } from './workspace/tools';
 import { createWingmanModules } from './wingman';
 
 /** The modules one meeting runs, with the agenda clock the app server reads to stamp and pause it. */
 export interface MeetingModules {
   modules: KakiModule[];
+  /** The tools of this meeting's workspace, bound to the meeting the modules run for. */
+  tools?: () => Promise<WorkspaceTools>;
   meetingElapsedSeconds: () => number | undefined;
   meetingAgendaIndex: () => number | undefined;
   meetingPaused: () => boolean | undefined;
@@ -18,13 +21,18 @@ export interface MeetingModules {
  * Fresh modules for one meeting instance: its own agenda clock, Wingman and Action modules. Never
  * share these between meetings; every module keeps its state inside `start(ctx)`.
  *
- * The scenario is the pack this meeting runs. Until workspaces own their knowledge (step 4), every
- * meeting of this server runs the same pack.
+ * The scenario is the pack this meeting runs. The tool source is bound to the meeting's workspace,
+ * so an action can only ever use that workspace's connections.
  */
-export function createMeetingModules(_meeting: MeetingRow, scenario: Scenario): MeetingModules {
+export function createMeetingModules(
+  meeting: MeetingRow,
+  scenario: Scenario,
+  toolSource: WorkspaceToolSource,
+): MeetingModules {
   const host = createHostModules({ ...scenario });
   return {
     modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
+    tools: () => toolSource.toolsFor(meeting.workspaceId),
     meetingElapsedSeconds: host.meetingElapsedSeconds,
     meetingAgendaIndex: host.meetingAgendaIndex,
     meetingPaused: host.meetingPaused,

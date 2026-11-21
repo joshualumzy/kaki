@@ -4,6 +4,7 @@ import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
+import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
@@ -11,8 +12,7 @@ import { ActionError, createActionModule, plainReason, factsForTask } from './ru
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-const CONFIG_MESSAGE =
-  'Email is not configured: set MAILPIT_SMTP_HOST, MAILPIT_SMTP_PORT, MAILPIT_URL and EMAIL_FROM';
+const CONFIG_MESSAGE = 'Email is not connected for this workspace.';
 
 /** Where email goes: Mailpit's SMTP server, the sender address and the Mailpit web URL. */
 export interface EmailSettings {
@@ -222,9 +222,14 @@ export function createEmailModule({
 }: EmailModuleOptions = {}): KakiModule {
   let transport: Transporter | undefined;
 
-  function requireSettings(): EmailSettings {
-    if (email === undefined) throw new ActionError(CONFIG_MESSAGE);
-    return email;
+  function settingsFrom(tools: WorkspaceTools | undefined): EmailSettings | undefined {
+    return email ?? tools?.email;
+  }
+
+  function requireSettings(tools: WorkspaceTools | undefined): EmailSettings {
+    const settings = settingsFrom(tools);
+    if (settings === undefined) throw new ActionError(CONFIG_MESSAGE);
+    return settings;
   }
 
   function sendWithSmtp(settings: EmailSettings, message: EmailMessage): Promise<unknown> {
@@ -258,9 +263,9 @@ export function createEmailModule({
   const actionModule = createActionModule({
     name: 'action-email',
     kind: 'email',
-    unconfiguredReason: email === undefined ? CONFIG_MESSAGE : undefined,
-    async draft(task, signal, scenario, _visitorName, memory) {
-      requireSettings();
+    unconfiguredReason: (tools) => (settingsFrom(tools) === undefined ? CONFIG_MESSAGE : undefined),
+    async draft(task, signal, scenario, _visitorName, memory, tools) {
+      requireSettings(tools);
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the email cannot be drafted');
       }
@@ -309,8 +314,8 @@ export function createEmailModule({
       }
       return { target: draft.to, subject: draft.subject, body: draft.body };
     },
-    async run(task, signal) {
-      const settings = requireSettings();
+    async run(task, signal, _scenario, _visitorName, tools) {
+      const settings = requireSettings(tools);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to send');
 

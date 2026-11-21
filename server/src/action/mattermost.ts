@@ -1,14 +1,14 @@
-import { errorMessage, isObject, speakerName } from '@kaki/shared';
+import { errorMessage, isObject } from '@kaki/shared';
 import { parseJsonReply, type ChatMessage, type LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
+import type { WorkspaceTools } from '../workspace/tools';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
 import { ActionError, createActionModule, plainReason, factsForTask } from './runner';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-const CONFIG_MESSAGE =
-  'Mattermost is not configured: set MATTERMOST_URL, MATTERMOST_TOKEN, MATTERMOST_TEAM and MATTERMOST_CHANNEL';
+const CONFIG_MESSAGE = 'Mattermost is not connected for this workspace.';
 
 /** Where Mattermost posts go: server, credentials, team and default channel. */
 export interface MattermostSettings {
@@ -79,9 +79,14 @@ export function createMattermostModule({
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: MattermostModuleOptions = {}): KakiModule {
-  function requireSettings(): MattermostSettings {
-    if (mattermost === undefined) throw new ActionError(CONFIG_MESSAGE);
-    return mattermost;
+  function settingsFrom(tools: WorkspaceTools | undefined): MattermostSettings | undefined {
+    return mattermost ?? tools?.mattermost;
+  }
+
+  function requireSettings(tools: WorkspaceTools | undefined): MattermostSettings {
+    const settings = settingsFrom(tools);
+    if (settings === undefined) throw new ActionError(CONFIG_MESSAGE);
+    return settings;
   }
 
   async function request(
@@ -141,9 +146,9 @@ export function createMattermostModule({
   return createActionModule({
     name: 'action-mattermost',
     kind: 'mattermost_post',
-    unconfiguredReason: mattermost === undefined ? CONFIG_MESSAGE : undefined,
-    async draft(task, signal, scenario, _visitorName, memory) {
-      const settings = requireSettings();
+    unconfiguredReason: (tools) => (settingsFrom(tools) === undefined ? CONFIG_MESSAGE : undefined),
+    async draft(task, signal, scenario, _visitorName, memory, tools) {
+      const settings = requireSettings(tools);
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the message cannot be drafted');
       }
@@ -190,8 +195,8 @@ export function createMattermostModule({
       }
       return { target: `#${settings.channel}`, subject: task.title, body: message };
     },
-    async run(task, signal, scenario, visitorName) {
-      const settings = requireSettings();
+    async run(task, signal, _scenario, _visitorName, tools) {
+      const settings = requireSettings(tools);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
 
@@ -205,101 +210,13 @@ export function createMattermostModule({
       await requireOk(lookup);
       const channelId = idOf(await jsonOf(lookup), 'channel');
 
-      let postToken: string | undefined;
-      const roleId = task.assignee ?? task.suggestedAssignee;
-      const attendee = roleId === undefined ? undefined : scenario.attendees.find((candidate) => candidate.role === roleId);
-      const mattermostPassword = process.env.MATTERMOST_PASSWORD;
-      if (attendee !== undefined && mattermostPassword !== undefined && mattermostPassword !== '') {
-        const speakerRaw = visitorName ?? task.assignmentEvidence?.speaker;
-        const cleanSpeaker = speakerRaw === undefined ? undefined : speakerName(speakerRaw);
-        const isVisitor =
-          cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase();
-        const loginIdFor = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
-        // The person's own account first: their name comes from the meeting's setup, never from the demo pack.
-        const loginIds = [
-          ...(isVisitor && cleanSpeaker !== undefined ? [loginIdFor(cleanSpeaker)] : []),
-          loginIdFor(attendee.name),
-          // The demo pack's own accounts are the demo's, not an owner meeting's. Only a role carrying
-          // the pack's card falls back to them, so a pack-free meeting never posts as the demo visitor.
-          ...(scenario.roles.some((role) => role.id === roleId && role.card !== undefined)
-            ? ['demo@nanyangkopitiam.example', 'demo']
-            : []),
-        ].filter((candidate, index, all) => candidate !== '' && all.indexOf(candidate) === index);
-        try {
-          let loginResp: Response | undefined;
-          let usedDemoAccount = false;
-          for (const candidateLoginId of loginIds) {
-            const resp = await request(
-              settings,
-              '/api/v4/users/login',
-              'POST',
-              JSON.stringify({ login_id: candidateLoginId, password: mattermostPassword }),
-              signal,
-            );
-            if (resp.ok) {
-              loginResp = resp;
-              usedDemoAccount = candidateLoginId === 'demo' || candidateLoginId === 'demo@nanyangkopitiam.example';
-              break;
-            }
-          }
-          if (loginResp?.ok) {
-            const sessionToken = loginResp.headers.get('Token') ?? undefined;
-            if (sessionToken !== undefined) {
-              postToken = sessionToken;
-              if (isVisitor && cleanSpeaker !== undefined) {
-                const userObj = (await loginResp.json().catch(() => undefined)) as { id?: string } | undefined;
-                if (userObj?.id !== undefined) {
-                  await request(
-                    settings,
-                    `/api/v4/users/${userObj.id}/patch`,
-                    'PUT',
-                    JSON.stringify({
-                      ...(usedDemoAccount ? { username: 'demo', last_name: '' } : {}),
-                      first_name: cleanSpeaker,
-                      nickname: cleanSpeaker,
-                    }),
-                    signal,
-                    sessionToken,
-                  ).catch(() => undefined);
-                }
-                await request(
-                  settings,
-                  '/api/v4/config/patch',
-                  'PUT',
-                  JSON.stringify({ TeamSettings: { TeammateNameDisplay: 'full_name', LockTeammateNameDisplay: true } }),
-                  signal,
-                  settings.token,
-                ).catch(() => undefined);
-              }
-            }
-          }
-        } catch {
-          // Fall back to default token if per-user login is unavailable.
-        }
-      }
-      // Ensure the posting user (e.g. 'demo' on an older unseeded channel) is a member of the target channel before posting!
-      if (postToken !== undefined) {
-        const meResp = await request(settings, '/api/v4/users/me', 'GET', undefined, signal, postToken).catch(() => undefined);
-        const meObj = (await meResp?.json().catch(() => undefined)) as { id?: string } | undefined;
-        if (meObj?.id !== undefined) {
-          await request(
-            settings,
-            `/api/v4/channels/${channelId}/members`,
-            'POST',
-            JSON.stringify({ user_id: meObj.id }),
-            signal,
-            settings.token,
-          ).catch(() => undefined);
-        }
-      }
-
+      // Every post is made by the workspace's one bot connection.
       const post = await request(
         settings,
         '/api/v4/posts',
         'POST',
         JSON.stringify({ channel_id: channelId, message: draft.body }),
         signal,
-        postToken,
       );
       await requireOk(post);
       const postId = idOf(await jsonOf(post), 'post');

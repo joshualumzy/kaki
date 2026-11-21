@@ -93,7 +93,28 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
     )
   `);
 
+  await ensureWorkspaceToolsSchema(pool);
+
   await ensureMeetingsSchema(pool);
+}
+
+/** Create the per-workspace tool table if it is missing; safe to run on every startup. */
+export async function ensureWorkspaceToolsSchema(pool: Pool): Promise<void> {
+  await pool.query(`
+    create table if not exists workspace_tools (
+      workspace_id text not null,
+      kind text not null check (kind in ('mattermost', 'gitea', 'wiki', 'email', 'calendar')),
+      settings jsonb not null,
+      secret bytea not null,
+      iv bytea not null,
+      tag bytea not null,
+      key_id text not null,
+      connected_by text not null,
+      connected_at timestamptz not null default now(),
+      last_ok_at timestamptz,
+      primary key (workspace_id, kind)
+    )
+  `);
 }
 
 /**

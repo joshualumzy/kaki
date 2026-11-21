@@ -1,6 +1,7 @@
 import { errorMessage, humanSeatRoles, isObject, roleLabel, type Question, type Role, type Scenario, type Task } from '@kaki/shared';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
+import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, memorySourceBlock } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
@@ -9,7 +10,7 @@ import { ActionError, createActionModule, plainReason, factsForTask } from './ru
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MINUTES_DELAY_MS = 1_500;
 
-const CONFIG_MESSAGE = 'The wiki is not configured: set WIKI_URL, WIKI_ADMIN_EMAIL and WIKI_ADMIN_PASSWORD';
+const CONFIG_MESSAGE = 'The wiki is not connected for this workspace.';
 
 /** Where wiki pages go and who writes them; `index.ts` builds it from the environment. */
 export interface WikiSettings {
@@ -227,6 +228,16 @@ export function createWikiModule({
   minutesDelayMs = DEFAULT_MINUTES_DELAY_MS,
   today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }),
 }: WikiModuleOptions = {}): KakiModule {
+  function settingsFrom(tools: WorkspaceTools | undefined): WikiSettings | undefined {
+    return wiki ?? tools?.wiki;
+  }
+
+  function requireSettings(tools: WorkspaceTools | undefined): WikiSettings {
+    const settings = settingsFrom(tools);
+    if (settings === undefined) throw new ActionError(CONFIG_MESSAGE);
+    return settings;
+  }
+
   async function graphql<T>(
     settings: WikiSettings,
     query: string,
@@ -334,9 +345,9 @@ export function createWikiModule({
   const baseModule = createActionModule({
     name: 'action-wiki',
     kind: 'wiki_page',
-    unconfiguredReason: wiki === undefined ? CONFIG_MESSAGE : undefined,
-    async draft(task, signal, scenario, _visitorName, memory) {
-      if (wiki === undefined) throw new ActionError(CONFIG_MESSAGE);
+    unconfiguredReason: (tools) => (settingsFrom(tools) === undefined ? CONFIG_MESSAGE : undefined),
+    async draft(task, signal, scenario, _visitorName, memory, tools) {
+      requireSettings(tools);
       if (llm === undefined) throw new ActionError('The LLM is not configured, so the page cannot be drafted');
 
       const roleId = task.assignee ?? task.suggestedAssignee;
@@ -372,13 +383,13 @@ export function createWikiModule({
       if (draft === undefined) throw new ActionError('The LLM did not return usable JSON with a title and body');
       return { target: 'Wiki: meeting notes', subject: draft.title, body: draft.body };
     },
-    async run(task, signal) {
-      if (wiki === undefined) throw new ActionError(CONFIG_MESSAGE);
+    async run(task, signal, _scenario, _visitorName, tools) {
+      const settings = requireSettings(tools);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to publish');
 
       const path = pagePath(today(), draft.subject);
-      return publishPage(wiki, path, draft.subject, draft.body, `Written by Kaki: ${task.title}`, signal);
+      return publishPage(settings, path, draft.subject, draft.body, `Written by Kaki: ${task.title}`, signal);
     },
   });
 

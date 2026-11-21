@@ -51,6 +51,11 @@ import {
 } from './meeting/registry';
 import type { MeetingRow } from './meeting/types';
 import { SAMPLE_WORKSPACE_ID } from './workspace/constants';
+import {
+  createMemoryWorkspaceToolStore,
+  createWorkspaceToolSource,
+  type WorkspaceToolStore,
+} from './workspace/tools';
 import { createMeetingModules, type MeetingModules } from './modules';
 
 /** Options for creating the Kaki server; port 0 picks a free port for tests. */
@@ -74,6 +79,8 @@ export interface CreateAppOptions {
   /** How the setup import reads the calendar; tests inject a fake, elsewhere global fetch is used. */
   calendarFetch?: typeof fetch;
   actionTools?: ActionToolOptions;
+  /** The workspace tool table; absent uses an in-memory store (tests, and a database-less server). */
+  workspaceTools?: WorkspaceToolStore;
   /** Who is in a LiveKit room, to refuse a join when the meeting is full; defaults to asking LiveKit. */
   roomRoster?: RoomRoster;
   /** When true, modules may draft and review actions but must never send them to external services. */
@@ -168,6 +175,10 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'POST', path: '/api/workspaces', access: 'user', handle: handleWorkspaces },
     { method: 'GET', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
     { method: 'PATCH', path: '/api/workspaces/:id', access: 'user', handle: handleWorkspaces },
+    { method: 'GET', path: '/api/workspaces/:id/tools', access: 'user', handle: handleWorkspaces },
+    { method: 'POST', path: '/api/workspaces/:id/tools/:kind/test', access: 'user', handle: handleWorkspaces },
+    { method: 'PUT', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
+    { method: 'DELETE', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/meetings', access: 'user', handle: handleCreateMeeting },
     { method: 'GET', path: '/api/meetings/:id/info', access: 'public', handle: handleMeetingInfo },
     { method: 'POST', path: '/api/meetings/:id/join', access: 'public', handle: handleMeetingJoin },
@@ -280,6 +291,7 @@ export async function createApp({
   calendar,
   calendarFetch,
   actionTools = {},
+  workspaceTools: workspaceToolsOption,
   roomRoster = livekitRoster(),
   draftOnly = false,
   meetingElapsedSeconds,
@@ -311,6 +323,8 @@ export async function createApp({
     );
   }
   const idle = createIdleTracker(idleClock);
+  const workspaceTools = workspaceToolsOption ?? createMemoryWorkspaceToolStore();
+  const toolSource = createWorkspaceToolSource(workspaceTools, actionTools.env);
   const serverRoutes = buildServerRouteTable({ auth });
   const legacyRoutes = buildMeetingRouteTable({ devRoutes });
   const newMeetingRoutes = buildMeetingRouteTable({ devRoutes: false });
@@ -339,6 +353,7 @@ export async function createApp({
     legacy: true,
     scenario,
     modules,
+    tools: () => toolSource.toolsFor(SAMPLE_WORKSPACE_ID),
     routes: legacyRoutes,
     devRoutes,
     ...(persistence === undefined ? {} : { persistence }),
@@ -376,13 +391,14 @@ export async function createApp({
     row: MeetingRow,
     rowPersistence: MeetingPersistence | undefined,
   ): Promise<MeetingInstance> {
-    const built = meetingModules === undefined ? createMeetingModules(row, scenario) : meetingModules(row);
+    const built = meetingModules === undefined ? createMeetingModules(row, scenario, toolSource) : meetingModules(row);
     return createMeetingInstance({
       id: row.id,
       workspaceId: row.workspaceId,
       legacy: false,
       scenario,
       modules: built.modules,
+      tools: built.tools ?? (() => toolSource.toolsFor(row.workspaceId)),
       routes: newMeetingRoutes,
       devRoutes: false,
       ...(rowPersistence === undefined ? {} : { persistence: rowPersistence }),
@@ -429,6 +445,7 @@ export async function createApp({
     auth,
     authStore: auth?.store,
     meetings,
+    workspaceTools,
     guestJoinAttempts,
     serviceToken,
     routes: serverRoutes,

@@ -4,6 +4,16 @@ import type { RouteCall } from '../routeCall';
 import type { WorkspaceMember, WorkspaceRecord } from '../../auth/store';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
+import { connectorFor, ConnectorError } from '../../workspace/connector';
+import { decryptSecret, parseSecretKey, SecretKeyError } from '../../workspace/secrets';
+import {
+  encryptToolToken,
+  isWorkspaceToolKind,
+  WORKSPACE_TOOL_KINDS,
+  type WorkspaceToolKind,
+  type WorkspaceToolRecord,
+  type WorkspaceToolStore,
+} from '../../workspace/tools';
 
 const MAX_BODY_BYTES = 64_000;
 const MIN_NAME_LENGTH = 1;
@@ -24,6 +34,98 @@ function summary(workspace: WorkspaceRecord, role: 'admin' | 'member') {
   return { id: workspace.id, name: workspace.name, kind: workspace.kind, role };
 }
 
+function toolStatuses(records: WorkspaceToolRecord[]) {
+  const byKind = new Map(records.map((record) => [record.kind, record]));
+  return WORKSPACE_TOOL_KINDS.map((kind) => {
+    const record = byKind.get(kind);
+    return {
+      kind,
+      connected: record !== undefined,
+      settings: record?.settings ?? {},
+      lastOkAt: record?.lastOkAt ?? null,
+    };
+  });
+}
+
+/** Send the one clear answer for a server key that is missing, invalid or has changed. */
+function sendSecretProblem(response: Parameters<typeof sendJson>[0], error: SecretKeyError): void {
+  sendJson(response, error.problem === 'wrong-key' ? 409 : 503, { error: error.message });
+}
+
+function tokenForKindRequired(kind: WorkspaceToolKind): boolean {
+  return kind === 'mattermost' || kind === 'gitea' || kind === 'wiki';
+}
+
+interface ToolTestValues {
+  settings: Record<string, unknown>;
+  token: string;
+}
+
+/** Check a submitted connection and prove its chosen channel/repo/prefix exists. */
+async function testTool(
+  kind: WorkspaceToolKind,
+  settings: Record<string, unknown>,
+  token: string,
+): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
+  const connector = connectorFor(kind);
+  const result = await connector.test(settings, token);
+  if (!result.ok) return { ok: false, message: result.message };
+  const wanted = connector.targetRef(settings);
+  if (wanted !== undefined) {
+    try {
+      const targets = await connector.listTargets(settings, token);
+      if (!targets.some((target) => target.id === wanted || target.label === wanted)) {
+        return {
+          ok: false,
+          message: `${wanted} was not found in the ${kind} account. Pick one it offers and test again.`,
+        };
+      }
+    } catch (error) {
+      if (error instanceof ConnectorError) return { ok: false, message: error.message };
+      throw error;
+    }
+  }
+  return { ok: true, message: result.detail };
+}
+
+/** Resolve the settings and token a test should use, falling back to the saved token. */
+async function readToolTest(
+  store: WorkspaceToolStore,
+  workspaceId: string,
+  kind: WorkspaceToolKind,
+  body: unknown,
+  env: NodeJS.ProcessEnv,
+): Promise<ToolTestValues | { error: string; status: number }> {
+  if (!isObject(body)) return { error: 'Body must be a JSON object', status: 400 };
+  const connector = connectorFor(kind);
+  const normalized = connector.normalizeSettings(body.settings);
+  if (!normalized.ok) return { error: normalized.error, status: 400 };
+
+  let token = typeof body.token === 'string' ? body.token : undefined;
+  if (token === undefined) {
+    if (!tokenForKindRequired(kind)) {
+      token = '';
+    } else {
+      const saved = await store.get(workspaceId, kind);
+      if (saved === undefined) {
+        return { error: 'Connect this tool first, or send its token with the test.', status: 400 };
+      }
+      try {
+        token = decryptSecret(saved, parseSecretKey(env.KAKI_SECRET_KEY));
+      } catch (error) {
+        if (error instanceof SecretKeyError) {
+          return { error: error.message, status: error.problem === 'wrong-key' ? 409 : 503 };
+        }
+        throw error;
+      }
+    }
+  }
+  if (tokenForKindRequired(kind) && token.trim() === '') {
+    return { error: 'This tool needs a token.', status: 400 };
+  }
+  return { settings: normalized.settings, token };
+}
+
 /** Serves the signed-in workspace API: list, create, read and rename. */
 export async function handleWorkspaces(call: RouteCall): Promise<void> {
   const { request, response, context, method, path, principal } = call;
@@ -34,6 +136,162 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
   }
   if (principal.kind !== 'user') {
     sendJson(response, 403, { error: 'Sign in with Google to use workspaces.' });
+    return;
+  }
+
+  const toolsMatch = /^\/api\/workspaces\/([^/]+)\/tools(?:\/([^/]+))?(?:\/(test))?$/.exec(path);
+  if (toolsMatch !== null) {
+    const toolStore = context.workspaceTools;
+    if (toolStore === undefined) {
+      sendJson(response, 500, { error: 'Workspace tool storage is unavailable.' });
+      return;
+    }
+    const toolWorkspaceId = decodeURIComponent(toolsMatch[1] ?? '');
+    const kindValue = toolsMatch[2] === undefined ? undefined : decodeURIComponent(toolsMatch[2]);
+    const isTest = toolsMatch[3] === 'test';
+
+    if (toolWorkspaceId === SAMPLE_WORKSPACE_ID) {
+      sendJson(response, 403, { error: "The sample workspace's tools are built in" });
+      return;
+    }
+    const membership = await store.getMembership({ workspaceId: toolWorkspaceId, userId: principal.userId });
+    if (membership === undefined) {
+      sendJson(response, 404, { error: 'Workspace not found' });
+      return;
+    }
+    if (membership !== 'admin') {
+      sendJson(response, 403, { error: 'Only a workspace admin can change its tools.' });
+      return;
+    }
+
+    if (method === 'GET' && kindValue === undefined && !isTest) {
+      const records = await toolStore.list(toolWorkspaceId);
+      const statuses: Array<{
+        kind: WorkspaceToolKind;
+        connected: boolean;
+        settings: Record<string, unknown>;
+        lastOkAt: Date | null;
+        error?: string;
+      }> = toolStatuses(records);
+      if (records.length > 0) {
+        try {
+          const key = parseSecretKey(process.env.KAKI_SECRET_KEY);
+          for (const status of statuses) {
+            const record = records.find((entry) => entry.kind === status.kind);
+            if (record === undefined) continue;
+            try {
+              decryptSecret(record, key);
+            } catch (error) {
+              if (!(error instanceof SecretKeyError)) throw error;
+              status.error = error.message;
+            }
+          }
+        } catch (error) {
+          if (error instanceof SecretKeyError) {
+            sendSecretProblem(response, error);
+            return;
+          }
+          throw error;
+        }
+      }
+      sendJson(response, 200, statuses);
+      return;
+    }
+
+    if (kindValue === undefined || !isWorkspaceToolKind(kindValue)) {
+      sendJson(response, 404, { error: 'Unknown tool kind' });
+      return;
+    }
+    const kind = kindValue;
+
+    if (method === 'POST' && isTest) {
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      let test: ToolTestValues;
+      try {
+        const values = await readToolTest(toolStore, toolWorkspaceId, kind, body.value, process.env);
+        if ('error' in values) {
+          sendJson(response, values.status, { error: values.error });
+          return;
+        }
+        test = values;
+      } catch (error) {
+        if (error instanceof SecretKeyError) {
+          sendSecretProblem(response, error);
+          return;
+        }
+        throw error;
+      }
+      const result = await testTool(kind, test.settings, test.token);
+      sendJson(response, 200, result);
+      return;
+    }
+
+    if (method === 'PUT' && !isTest) {
+      const body = await readJsonBody(request, MAX_BODY_BYTES);
+      if (!body.ok) {
+        sendJson(response, body.status, { error: body.error });
+        return;
+      }
+      let test: ToolTestValues;
+      try {
+        const values = await readToolTest(toolStore, toolWorkspaceId, kind, body.value, process.env);
+        if ('error' in values) {
+          sendJson(response, values.status, { error: values.error });
+          return;
+        }
+        test = values;
+      } catch (error) {
+        if (error instanceof SecretKeyError) {
+          sendSecretProblem(response, error);
+          return;
+        }
+        throw error;
+      }
+      const result = await testTool(kind, test.settings, test.token);
+      if (!result.ok) {
+        sendJson(response, 400, { error: result.message });
+        return;
+      }
+      let encrypted: ReturnType<typeof encryptToolToken>;
+      try {
+        encrypted = encryptToolToken(test.token, process.env);
+      } catch (error) {
+        if (error instanceof SecretKeyError) {
+          sendSecretProblem(response, error);
+          return;
+        }
+        throw error;
+      }
+      const now = new Date();
+      await toolStore.save({
+        workspaceId: toolWorkspaceId,
+        kind,
+        settings: test.settings,
+        ...encrypted,
+        connectedBy: principal.userId,
+        connectedAt: now,
+        lastOkAt: now,
+      });
+      sendJson(response, 200, {
+        kind,
+        connected: true,
+        settings: test.settings,
+        lastOkAt: now,
+      });
+      return;
+    }
+
+    if (method === 'DELETE' && !isTest) {
+      await toolStore.delete(toolWorkspaceId, kind);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    sendJson(response, 404, { error: 'Not found' });
     return;
   }
 
@@ -119,12 +377,13 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       scheduledFor: row.scheduledFor,
       ownerName: row.ownerUserId === null ? null : (ownerNames.get(row.ownerUserId) ?? null),
     }));
+    const toolRecords = (await context.workspaceTools?.list(workspaceId)) ?? [];
     sendJson(response, 200, {
       id: workspace.id,
       name: workspace.name,
       readOnly: false,
       people,
-      tools: [],
+      tools: toolStatuses(toolRecords),
       meetings,
       counts: { meetings: meetings.length, todos: 0, records: 0 },
     });

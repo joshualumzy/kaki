@@ -17,6 +17,7 @@ import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
 import type { MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
+import type { WorkspaceToolStore } from '../workspace/tools';
 import type { AttemptLimiter } from './attemptLimiter';
 import type { Principal, Route } from './access';
 
@@ -32,6 +33,8 @@ export interface RequestContext {
   tasks: TaskStore;
   memory: MeetingMemoryEntry[];
   fullScenario: Scenario;
+  /** The workspace this route's meeting belongs to; routes that only serve the sample check it. */
+  workspaceId: string;
   /** A fixed agenda order from KAKI_AGENDA_PICK, used instead of the random draw. */
   pickedAgenda?: Scenario['agenda'];
   devRoutes: boolean;
@@ -40,6 +43,8 @@ export interface RequestContext {
   authStore?: AuthStore;
   /** The meetings table, for the server-wide meetings API. */
   meetings?: MeetingStore;
+  /** The workspace tool table, for the workspace tools API. */
+  workspaceTools?: WorkspaceToolStore;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
   /**

@@ -4,6 +4,7 @@ import type { MeetingPersistence } from '../persist/persistence';
 import type { SavedMeetingDetails } from '../persist/state';
 import type { MeetingSession, MeetingSessionResetOptions } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
+import type { WorkspaceTools } from '../workspace/tools';
 
 /** Everything a plug-in module may use while the meeting runs. */
 export interface KakiContext {
@@ -20,6 +21,8 @@ export interface KakiContext {
   meetingId(): string;
   /** The workspace this meeting belongs to; the sample workspace for the legacy practice meeting. */
   workspaceId(): string;
+  /** The workspace's tool connections, read fresh when an action drafts or runs. */
+  tools?(): Promise<WorkspaceTools>;
   /** Reset the meeting through the one meeting session and admission queue; resolves with the new meeting id. */
   resetMeeting?(options?: MeetingSessionResetOptions): Promise<string>;
   /**

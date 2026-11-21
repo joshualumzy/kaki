@@ -1,6 +1,7 @@
 import { errorMessage, type ActionDraft, type ActionKind, type MeetingMemoryEntry, type Scenario, type Task, type TaskStatus } from '@kaki/shared';
 import type { KakiContext, KakiModule } from '../core/modules';
 import type { TaskStore } from '../meeting/tasks';
+import type { WorkspaceTools } from '../workspace/tools';
 import { withActionFooter } from './footer';
 
 /** An expected action failure whose message can go straight onto the task. */
@@ -10,10 +11,26 @@ export class ActionError extends Error {}
 interface ActionModuleOptions {
   name: string;
   kind: ActionKind;
-  /** Why this tool cannot run (with the missing env variable names), when its configuration is absent. */
-  unconfiguredReason?: string;
-  draft(task: Task, signal: AbortSignal, scenario: Scenario, visitorName?: string, memory?: readonly MeetingMemoryEntry[]): Promise<ActionDraft>;
-  run(task: Task, signal: AbortSignal, scenario: Scenario, visitorName?: string): Promise<string>;
+  /**
+   * Why this tool cannot run for this workspace, when its connection is absent. A function reads
+   * the workspace's tools; a string is the fixed reason used by tests and the sample.
+   */
+  unconfiguredReason?: string | ((tools: WorkspaceTools | undefined) => string | undefined);
+  draft(
+    task: Task,
+    signal: AbortSignal,
+    scenario: Scenario,
+    visitorName?: string,
+    memory?: readonly MeetingMemoryEntry[],
+    tools?: WorkspaceTools,
+  ): Promise<ActionDraft>;
+  run(
+    task: Task,
+    signal: AbortSignal,
+    scenario: Scenario,
+    visitorName?: string,
+    tools?: WorkspaceTools,
+  ): Promise<string>;
 }
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
@@ -48,7 +65,8 @@ export function factsForTask(
 export function createActionModule({ name, kind, unconfiguredReason, draft, run }: ActionModuleOptions): KakiModule {
   return {
     name,
-    start({ hub, tasks, activeScenario, memory, draftOnly }: KakiContext) {
+    start(ctx: KakiContext) {
+      const { hub, tasks, activeScenario, memory, draftOnly } = ctx;
       const shutdown = new AbortController();
       let stopped = false;
       const visitorNameByRole = new Map<string, string>();
@@ -111,11 +129,43 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
         return task.assignmentEvidence?.speaker;
       }
 
+      /** The person the artifact is posted for: the visitor's own name, else the seat's person. */
+      function approverName(task: Task): string {
+        const visitor = visitorFor(task);
+        if (visitor !== undefined && visitor.trim() !== '') return visitor.trim();
+        const roleId = task.assignee ?? task.suggestedAssignee;
+        const scenario = activeScenario();
+        const attendee = roleId === undefined ? undefined : scenario.attendees.find((entry) => entry.role === roleId);
+        if (attendee !== undefined && attendee.name.trim() !== '') return attendee.name.trim();
+        const role = roleId === undefined ? undefined : scenario.roles.find((entry) => entry.id === roleId);
+        return role?.label ?? 'the team';
+      }
+
+      async function workspaceTools(): Promise<WorkspaceTools | undefined> {
+        return ctx.tools === undefined ? undefined : ctx.tools();
+      }
+
+      function configReason(tools: WorkspaceTools | undefined): string | undefined {
+        return typeof unconfiguredReason === 'function' ? unconfiguredReason(tools) : unconfiguredReason;
+      }
+
       function draftAction(task: Task): void {
         background('drafting the action', async () => {
+          let tools: WorkspaceTools | undefined;
+          try {
+            tools = await workspaceTools();
+          } catch (error) {
+            fail(task, errorMessage(error));
+            return;
+          }
+          const reason = configReason(tools);
+          if (reason !== undefined) {
+            fail(task, reason);
+            return;
+          }
           let result: ActionDraft;
           try {
-            result = await draft(task, shutdown.signal, activeScenario(), visitorFor(task), memory);
+            result = await draft(task, shutdown.signal, activeScenario(), visitorFor(task), memory, tools);
           } catch (error) {
             fail(task, errorMessage(error));
             return;
@@ -134,19 +184,42 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           return;
         }
         background('running the action', async () => {
+          let tools: WorkspaceTools | undefined;
+          try {
+            tools = await workspaceTools();
+          } catch (error) {
+            fail(task, errorMessage(error));
+            return;
+          }
+          const reason = configReason(tools);
+          if (reason !== undefined) {
+            fail(task, reason);
+            return;
+          }
           let artifactUrl: string;
           const draft = task.draft;
           if (draft !== undefined && task.sourceSeconds === undefined && !warnedNoSourceTime.has(task.id)) {
             warnedNoSourceTime.add(task.id);
             console.warn(`[action] card ${task.id} has no source time`);
           }
-          // Every artifact ends with where in the meeting it came from, whatever the tool writes.
+          // Every artifact ends with who it is for and which meeting approved it.
           const runnable =
             draft === undefined
               ? task
-              : { ...task, draft: { ...draft, body: withActionFooter(draft.body, task, activeScenario().meetingTitle) } };
+              : {
+                  ...task,
+                  draft: {
+                    ...draft,
+                    body: withActionFooter(
+                      draft.body,
+                      task,
+                      activeScenario().meetingTitle,
+                      approverName(task),
+                    ),
+                  },
+                };
           try {
-            artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task));
+            artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task), tools);
           } catch (error) {
             fail(task, errorMessage(error));
             return;
@@ -161,11 +234,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
         if (task.status === 'CLAIMED') {
           // A task that already carries a draft (the end-of-meeting minutes) is never re-drafted by the LLM.
           if (task.draft !== undefined) return;
-          if (unconfiguredReason !== undefined) {
-            fail(task, unconfiguredReason);
-          } else {
-            draftAction(task);
-          }
+          draftAction(task);
         } else if (task.status === 'RUNNING') {
           runAction(task);
         }

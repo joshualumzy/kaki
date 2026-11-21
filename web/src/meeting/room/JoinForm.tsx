@@ -209,7 +209,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
             <span className="kd-join-systems-label">Company systems (login: <code>demo</code> / <code>demo</code>):</span>
             <a href={`http://${host}:8081/en/home`} target="_blank" rel="noreferrer">Wiki</a>
             <a href={`http://${host}:8082/kopitiam/kopitiam-pos/issues`} target="_blank" rel="noreferrer">Gitea</a>
-            <a href={resolveArtifactUrl(`http://${host}:8083/kopitiam/channels/kopitiam-launch`)} target="_blank" rel="noreferrer">Mattermost</a>
+            <a href={resolveArtifactUrl(`http://${host}:8083/kopitiam/channels/kopitiam-launch`, 'mattermost_post')} target="_blank" rel="noreferrer">Mattermost</a>
             <a href={`http://${host}:8084`} target="_blank" rel="noreferrer">Mailpit</a>
             <a href="/api/calendar/seed-sfa-inspection" target="_blank" rel="noreferrer">Calendar</a>
           </nav>

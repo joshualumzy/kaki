@@ -1,6 +1,7 @@
-import { errorMessage, isObject, speakerName } from '@kaki/shared';
+import { errorMessage, isObject } from '@kaki/shared';
 import type { ChatMessage, LlmClient } from '../services/llm';
 import type { KakiModule } from '../core/modules';
+import type { WorkspaceTools } from '../workspace/tools';
 import { draftString, parseDraftObject } from './draft';
 import { acceptedDecisionBlock, draftSourceText, memorySourceBlock, unsupportedDraftDetails } from './draftGrounding';
 import { DEFAULT_PROBE_TIMEOUT_MS, probeFailed, probeFetch, probeOk, responseProblem, type ToolProbeResult } from './probe';
@@ -29,7 +30,7 @@ interface IssueDraft {
   body: string;
 }
 
-const CONFIG_MESSAGE = 'Gitea is not configured: set GITEA_URL, GITEA_TOKEN, GITEA_ORG and GITEA_REPO';
+const CONFIG_MESSAGE = 'Gitea is not connected for this workspace.';
 
 // Strictly one JSON object with a non-empty title and body; anything else is unusable.
 function parseDraft(reply: string): IssueDraft | undefined {
@@ -74,21 +75,6 @@ export async function probeGitea(
   return probeOk(`Gitea accepted the token for ${body.login}.`);
 }
 
-function giteaUsernameFor(
-  scenario: Parameters<Parameters<typeof createActionModule>[0]['run']>[2],
-  roleId: string | undefined,
-  speaker?: string,
-): { username: string; visitorName?: string } | undefined {
-  if (roleId === undefined) return undefined;
-  const attendee = scenario.attendees.find((candidate) => candidate.role === roleId);
-  if (attendee === undefined || !scenario.roles.some((r) => r.id === roleId && r.card !== undefined)) return undefined;
-  const cleanSpeaker = speaker === undefined ? undefined : speakerName(speaker);
-  if (cleanSpeaker !== undefined && cleanSpeaker !== '' && cleanSpeaker.toLowerCase() !== attendee.name.toLowerCase()) {
-    return { username: 'demo', visitorName: cleanSpeaker };
-  }
-  return { username: attendee.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') };
-}
-
 /** Create the module that drafts Gitea issues and posts them once the assignee approves. */
 export function createGiteaModule({
   llm,
@@ -96,12 +82,22 @@ export function createGiteaModule({
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: GiteaModuleOptions = {}): KakiModule {
+  function settingsFrom(tools: WorkspaceTools | undefined): GiteaSettings | undefined {
+    return gitea ?? tools?.gitea;
+  }
+
+  function requireSettings(tools: WorkspaceTools | undefined): GiteaSettings {
+    const settings = settingsFrom(tools);
+    if (settings === undefined) throw new ActionError(CONFIG_MESSAGE);
+    return settings;
+  }
+
   return createActionModule({
     name: 'action-gitea',
     kind: 'gitea_issue',
-    unconfiguredReason: gitea === undefined ? CONFIG_MESSAGE : undefined,
-    async draft(task, signal, scenario, _visitorName, memory) {
-      if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
+    unconfiguredReason: (tools) => (settingsFrom(tools) === undefined ? CONFIG_MESSAGE : undefined),
+    async draft(task, signal, scenario, _visitorName, memory, tools) {
+      const settings = requireSettings(tools);
       if (llm === undefined) {
         throw new ActionError('The LLM is not configured, so the issue cannot be drafted');
       }
@@ -149,37 +145,24 @@ export function createGiteaModule({
           `The draft adds details the task does not support: ${unsupported.join('; ')}. Edit the task or retry.`,
         );
       }
-      return { target: `${gitea.owner}/${gitea.repo}`, subject: draft.title, body: draft.body };
+      return { target: `${settings.owner}/${settings.repo}`, subject: draft.title, body: draft.body };
     },
-    async run(task, signal, scenario, visitorName) {
-      if (gitea === undefined) throw new ActionError(CONFIG_MESSAGE);
+    async run(task, signal, _scenario, _visitorName, tools) {
+      const settings = requireSettings(tools);
       const draft = task.draft;
       if (draft === undefined) throw new ActionError('The task has no draft to post');
 
-      const sudoTarget = giteaUsernameFor(
-        scenario,
-        task.assignee ?? task.suggestedAssignee,
-        visitorName ?? task.assignmentEvidence?.speaker,
-      );
-      if (sudoTarget?.visitorName !== undefined) {
-        await fetchImpl(`${gitea.url.replace(/\/+$/, '')}/api/v1/admin/users/demo`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json', authorization: `token ${gitea.token}` },
-          body: JSON.stringify({ full_name: sudoTarget.visitorName, login_name: 'demo' }),
-          signal,
-        }).catch(() => undefined);
-      }
+      // Every issue is created by the workspace's one bot connection.
       const headers: Record<string, string> = {
         'content-type': 'application/json',
-        authorization: `token ${gitea.token}`,
-        ...(sudoTarget === undefined ? {} : { Sudo: sudoTarget.username }),
+        authorization: `token ${settings.token}`,
       };
 
       const timeout = AbortSignal.timeout(timeoutMs);
       const requestSignal = AbortSignal.any([timeout, signal]);
       let response: Response;
       try {
-        response = await fetchImpl(issueEndpoint(gitea), {
+        response = await fetchImpl(issueEndpoint(settings), {
           method: 'POST',
           headers,
           body: JSON.stringify({ title: draft.subject, body: draft.body }),
@@ -199,7 +182,7 @@ export function createGiteaModule({
           response.status === 401
             ? 'Gitea rejected the token: bad credentials (HTTP 401)'
             : response.status === 403
-              ? `Gitea token lacks permission to create issues in ${gitea.owner}/${gitea.repo} (HTTP 403)`
+              ? `Gitea token lacks permission to create issues in ${settings.owner}/${settings.repo} (HTTP 403)`
               : `Gitea returned HTTP ${response.status}${detail === '' ? '' : `: ${detail}`}`,
         );
       }

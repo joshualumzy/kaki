@@ -8,12 +8,15 @@ import { loadScenario } from './core/loadScenario';
 import { createMeetingCodeSource } from './meeting/meetingCode';
 import { createMeetingPersistenceFromEnv } from './persist/persistence';
 import { Pool } from 'pg';
-import { ensureMeetingsSchema } from './auth/schema';
+import { ensureMeetingsSchema, ensureWorkspaceToolsSchema } from './auth/schema';
 import { createPostgresMeetingStore, type MeetingStore } from './meeting/registry';
 import type { MeetingPersistence } from './persist/persistence';
 import { createWingmanModules } from './wingman';
+import { logMissingSecretKey } from './workspace/secrets';
+import { createPostgresWorkspaceToolStore, type WorkspaceToolStore } from './workspace/tools';
 
 logMissingActionConfig();
+logMissingSecretKey();
 
 const rawPort = process.env.PORT ?? '3001';
 const port = Number(rawPort);
@@ -28,10 +31,13 @@ const postgresUrl = process.env.POSTGRES_URL?.trim();
 let meetings: MeetingStore | undefined;
 let persistenceFor: ((id: string) => Promise<MeetingPersistence | undefined>) | undefined;
 let meetingsPool: Pool | undefined;
+let workspaceTools: WorkspaceToolStore | undefined;
 if (postgresUrl !== undefined && postgresUrl !== '') {
   meetingsPool = new Pool({ connectionString: postgresUrl });
   meetingsPool.on('error', (error) => console.error('kaki meetings: database error', error));
   await ensureMeetingsSchema(meetingsPool);
+  await ensureWorkspaceToolsSchema(meetingsPool);
+  workspaceTools = createPostgresWorkspaceToolStore(meetingsPool);
   const store = createPostgresMeetingStore(meetingsPool);
   meetings = {
     ...store,
@@ -64,6 +70,7 @@ try {
     persistence,
     meetingCode,
     ...(meetings === undefined ? {} : { meetings }),
+    ...(workspaceTools === undefined ? {} : { workspaceTools }),
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
   });
 } catch (error) {

@@ -37,6 +37,7 @@ import { audienceRole, type ClientAudience } from '../core/audience';
 import { CommandError, createHub, type MeetingHub } from '../core/hub';
 import type { IdleTracker } from '../core/idle';
 import type { KakiModule } from '../core/modules';
+import type { WorkspaceTools } from '../workspace/tools';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
@@ -92,6 +93,8 @@ export interface MeetingInstanceDeps {
   scenario: Scenario;
   /** Fresh modules for this instance; started once and stopped on dispose. */
   modules: KakiModule[];
+  /** The workspace's tool connections, read by Action and never from the environment. */
+  tools?: () => Promise<WorkspaceTools>;
   /** This meeting's route table (full /api/... paths). */
   routes: readonly RoutedRoute[];
   devRoutes: boolean;
@@ -126,6 +129,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     legacy,
     scenario,
     modules,
+    tools,
     routes,
     devRoutes,
     persistence,
@@ -1426,6 +1430,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       tasks,
       memory,
       fullScenario,
+      workspaceId,
       ...(pickedAgenda === undefined ? {} : { pickedAgenda }),
       devRoutes,
       ...(auth === undefined ? {} : { auth }),
@@ -1478,6 +1483,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         ...(persistence === undefined ? {} : { persistence }),
         meetingId: () => meeting.id,
         workspaceId: () => workspaceId,
+        ...(tools === undefined ? {} : { tools }),
         resetMeeting: (options) => admit(async () => session.reset(options)),
         serializeChange: (task) => admit(async () => task()),
         onReset: session.onReset,
