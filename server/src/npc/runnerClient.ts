@@ -35,6 +35,11 @@ interface RunnerClient {
 
 interface RunnerClientOptions {
   baseUrl: string;
+  /**
+   * The meeting's API prefix: empty for the legacy meeting (today's `/api/runner/...`), or
+   * `/api/meetings/<id>` for a real meeting.
+   */
+  apiPrefix?: string;
   serviceToken?: string | undefined;
   fetch?: typeof fetch;
   log?: (message: string) => void;
@@ -49,6 +54,7 @@ interface RunnerClientOptions {
 /** Builds the HTTP client the runner uses to post human lines and follow-ups to the server. */
 export function createRunnerClient({
   baseUrl,
+  apiPrefix = '',
   serviceToken,
   fetch: fetchImpl = fetch,
   log = () => undefined,
@@ -93,7 +99,7 @@ export function createRunnerClient({
     let attempt = 1;
     for (;;) {
       try {
-        const response = await postJson('/api/runner/human-line', line);
+        const response = await postJson(`${apiPrefix}/api/runner/human-line`, line);
         if (response.ok || attempt >= humanLineAttempts || !(await isRetryableConflict(response))) {
           return response;
         }
@@ -108,15 +114,15 @@ export function createRunnerClient({
   }
 
   return {
-    emit: (event) => postJson('/api/runner/emit', event),
+    emit: (event) => postJson(`${apiPrefix}/api/runner/emit`, event),
     postHumanLine,
-    suggestTask: (input) => postJson('/api/runner/suggest-task', input),
+    suggestTask: (input) => postJson(`${apiPrefix}/api/runner/suggest-task`, input),
     postMeetingMemory: (entries) =>
-      postMeetingMemory(request, `${base}/api/runner/meeting-memory`, entries, log),
+      postMeetingMemory(request, `${base}${apiPrefix}/api/runner/meeting-memory`, entries, log),
     postSettledTopic: (followUp, reopened = false) =>
-      postSettledTopic(request, `${base}/api/runner/settle-topic`, followUp, log, reopened),
+      postSettledTopic(request, `${base}${apiPrefix}/api/runner/settle-topic`, followUp, log, reopened),
     async fetchMeetingState() {
-      const response = await request(`${base}/api/runner/meeting-state`);
+      const response = await request(`${base}${apiPrefix}/api/runner/meeting-state`);
       if (!response.ok) throw new Error(`meeting state fetch returned HTTP ${response.status}`);
       const state: unknown = await response.json().catch(() => undefined);
       if (!isRunnerMeetingSnapshot(state)) {
@@ -125,7 +131,7 @@ export function createRunnerClient({
       return state;
     },
     async fetchScenario() {
-      const response = await request(`${base}/api/scenario/full`);
+      const response = await request(`${base}${apiPrefix}/api/scenario/full`);
       if (!response.ok) {
         throw new Error(
           `Scenario fetch returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`,

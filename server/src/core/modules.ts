@@ -17,7 +17,9 @@ export interface KakiContext {
   /** Keeps the meeting across a restart; absent when no Postgres is configured. */
   persistence?: MeetingPersistence;
   /** The server-owned identity of the current meeting, saved with it so a restart resumes the same one. */
-  meetingId?(): string;
+  meetingId(): string;
+  /** The workspace this meeting belongs to; the sample workspace for the legacy practice meeting. */
+  workspaceId(): string;
   /** Reset the meeting through the one meeting session and admission queue; resolves with the new meeting id. */
   resetMeeting?(options?: MeetingSessionResetOptions): Promise<string>;
   /**

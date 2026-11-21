@@ -37,4 +37,25 @@ export async function ensureAuthSchema(pool: Pool): Promise<void> {
       primary key (meeting_id, role)
     )
   `);
+
+  await ensureMeetingsSchema(pool);
+}
+
+/**
+ * Create the meetings table if it is missing. Workspaces arrive in steps 3/4, so the workspace
+ * and owner ids are plain text for now: the sample workspace is built into code, not a row.
+ */
+export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
+  await pool.query(`
+    create table if not exists meetings (
+      id text primary key,
+      workspace_id text not null,
+      owner_user_id text,
+      title text not null,
+      kind text not null default 'real',
+      scheduled_for timestamptz,
+      created_at timestamptz not null default now(),
+      ended_at timestamptz
+    )
+  `);
 }

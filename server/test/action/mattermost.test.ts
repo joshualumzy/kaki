@@ -48,7 +48,7 @@ function quietHub(): Hub {
 function setup(options: MattermostModuleOptions, scenario = testScenario): TaskStore {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario });
-  const stop = createMattermostModule(options).start({ hub, tasks, activeScenario: () => scenario });
+  const stop = createMattermostModule(options).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub, tasks, activeScenario: () => scenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }

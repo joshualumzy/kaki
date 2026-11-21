@@ -37,10 +37,13 @@ type AuthDecision =
 export interface Auth {
   /** Handle an auth or join request; false means the path belongs to another route. */
   handleHttp(request: IncomingMessage, response: ServerResponse): Promise<boolean>;
-  /** Allow or reject a `/ws?role=` or `/ws?audience=` upgrade for the requested audience. */
-  authorize(request: IncomingMessage, audience: ClientAudience): Promise<AuthDecision>;
+  /**
+   * Allow or reject a `/ws?role=` or `/ws?audience=` upgrade for the requested audience. When a
+   * meeting id is given, a phone session must belong to exactly that meeting, never another one.
+   */
+  authorize(request: IncomingMessage, audience: ClientAudience, meetingId?: string): Promise<AuthDecision>;
   /** The resolved host or seat principal behind a request; undefined otherwise. */
-  resolvePrincipal(request: IncomingMessage): Promise<Principal | undefined>;
+  resolvePrincipal(request: IncomingMessage, meetingId?: string): Promise<Principal | undefined>;
   /**
    * Atomically take a seat and start the session that holds it. `/api/join` and the LiveKit token
    * route share this one record: a visitor gets a participant session, while the signed-in host
@@ -469,13 +472,14 @@ export function createAuth({
    */
   async function resolveRequest(
     request: IncomingMessage,
+    expectedMeetingId?: string,
   ): Promise<
     | { ok: true; session: SessionRecord; principal: Principal }
     | { ok: false; ended: boolean }
   > {
     const session = await currentSession(request);
     if (session === undefined) return { ok: false, ended: false };
-    const meetingId = currentMeetingId();
+    const meetingId = expectedMeetingId ?? currentMeetingId();
     if (session.kind === 'participant') {
       const ended = session.meetingCode !== meetingCode.value || session.meetingId !== meetingId;
       if (ended) return { ok: false, ended: true };
@@ -517,8 +521,8 @@ export function createAuth({
       sessionEndedHandlers.add(handler);
     },
 
-    async resolvePrincipal(request) {
-      const resolved = await resolveRequest(request);
+    async resolvePrincipal(request, meetingId) {
+      const resolved = await resolveRequest(request, meetingId);
       return resolved.ok ? resolved.principal : undefined;
     },
 
@@ -544,8 +548,8 @@ export function createAuth({
       return false;
     },
 
-    async authorize(request, audience) {
-      const resolved = await resolveRequest(request);
+    async authorize(request, audience, meetingId) {
+      const resolved = await resolveRequest(request, meetingId);
       if (!resolved.ok) {
         return { ok: false, message: resolved.ended ? MEETING_ENDED_MESSAGE : 'Sign in required' };
       }

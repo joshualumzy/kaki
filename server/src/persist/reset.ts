@@ -5,6 +5,9 @@ import { Pool } from 'pg';
 import { ensureMeetingStateSchema } from './postgres';
 import { MEETING_STATE_ID } from './state';
 
+// Optional first argument: the meeting row to discard. Legacy is 'meeting'.
+const meetingId = process.argv[2]?.trim() || MEETING_STATE_ID;
+
 const connectionString = process.env.POSTGRES_URL?.trim();
 if (connectionString === undefined || connectionString === '') {
   throw new Error(
@@ -18,7 +21,7 @@ try {
   await ensureMeetingStateSchema(pool);
   const result = await pool.query<{ started_at: Date | string; saved_at: Date | string }>(
     'delete from meeting_state where id = $1 returning started_at, saved_at',
-    [MEETING_STATE_ID],
+    [meetingId],
   );
   const row = result.rows[0];
   if (row === undefined) {

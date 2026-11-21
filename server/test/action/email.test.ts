@@ -51,7 +51,7 @@ function quietHub(): Hub {
 function setup(options: EmailModuleOptions): TaskStore {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createEmailModule(options).start({ hub, tasks, activeScenario: () => testScenario });
+  const stop = createEmailModule(options).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub, tasks, activeScenario: () => testScenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }

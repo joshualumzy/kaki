@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   codeProblem,
-  demoRoomName,
   humanAttendeeForRole,
   isHumanParticipant,
   isKakiListener,
@@ -180,12 +179,22 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
       // existing practice capability may reclaim the visitor's own reservation.
       const hasPracticeCapability =
         wantsPractice && context.practicePrincipal(request) !== undefined;
+      // Practice runs one visitor at a time. A different visitor arriving while it is starting or
+      // running waits, and is told when it frees up, instead of being left to guess.
+      if (wantsPractice && !hasPracticeCapability && context.practiceBusy()) {
+        sendJson(response, 409, {
+          error: 'practice-busy',
+          message:
+            'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
+        });
+        return;
+      }
       // Admission reads the pack, not the sealed cast: a seat an AI once had stays a reserved name.
       const npcNames = (context.fullScenario.npcs ?? []).map((npc) => npc.attendee);
       const reservedNames = [...npcNames, KAKI_LISTENER_IDENTITY];
       const joiningName = participantName.toLowerCase();
       // The room the decision is about is the one people are actually in right now.
-      const rosterRoom = demoRoomName(context.session.active(), context.meeting.id);
+      const rosterRoom = context.roomName();
       const roster = await context.roomRoster(rosterRoom);
       if (roster === undefined) {
         sendJson(response, 503, {
@@ -462,7 +471,7 @@ export async function handleLivekitToken(call: RouteCall): Promise<void> {
           retryable: true,
         });
       };
-      const roomName = demoRoomName(context.session.active(), committedMeetingId);
+      const roomName = context.roomNameFor(committedMeetingId);
       const token = await createRoomToken(
         { roomName, participantName, participantRole: seatId },
         reservedNames,

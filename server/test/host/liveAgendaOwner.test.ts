@@ -26,7 +26,7 @@ it('does not let the live notetaker move the agenda from a model guess', async (
   const scenario = { ...testScenario, agenda: [...testScenario.agenda,
     { title: 'Second topic', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: testScenario.agenda[0]!.ownerRole }] };
   const llm = createFakeLlm(() => JSON.stringify({ agendaIndex: 1, newQuestions: [], answeredQuestionIds: [], answeredQuestions: [], newTasks: [], revisions: [] }));
-  const stop = createMeetingModule({ llm, notetakerIntervalMs: 5 }).start({ hub, tasks, activeScenario: () => scenario });
+  const stop = createMeetingModule({ llm, notetakerIntervalMs: 5 }).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub, tasks, activeScenario: () => scenario });
   hub.publish({ type: 'MEETING_STARTED', audience: { kind: 'all' }, payload: { meetingId: 'meeting-1', startedAt: new Date().toISOString() } });
   hub.publish({ type: 'TRANSCRIPT_CHUNK', audience: { kind: 'screen' }, payload: {
     speaker: testScenario.attendees[0]!.displayName, text: 'Let us discuss the second topic early.', timestamp: new Date().toISOString(),

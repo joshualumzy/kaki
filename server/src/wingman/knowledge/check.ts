@@ -135,7 +135,7 @@ async function checkAudience(): Promise<void> {
       { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' },
     ],
   });
-  const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
+  const stop = module.start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
   try {
     fake.hub.publish({
       type: 'MEETING_RECORD_UPDATED',

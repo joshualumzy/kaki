@@ -28,28 +28,33 @@ export function logMissingActionConfig(env: NodeJS.ProcessEnv = process.env): vo
   );
 }
 
-const llm = llmFromEnv();
-
-/** The action modules the server runs, one per tool, built from the environment. */
-export const actionModules: KakiModule[] = [
-  createGiteaModule({
-    llm,
-    gitea: giteaFromEnv(),
-  }),
-  createMattermostModule({
-    llm,
-    mattermost: mattermostFromEnv(),
-  }),
-  createEmailModule({
-    llm,
-    email: emailFromEnv(),
-  }),
-  createWikiModule({
-    llm,
-    wiki: wikiFromEnv(),
-  }),
-  createCalendarModule({
-    llm,
-    calendar: calendarFromEnv(),
-  }),
-];
+/**
+ * Fresh Action modules for one meeting instance, one per tool, built from the environment. Each
+ * call builds new module objects, so two meetings can never share the state a module creates when
+ * it starts.
+ */
+export function createActionModules(): KakiModule[] {
+  const llm = llmFromEnv();
+  return [
+    createGiteaModule({
+      llm,
+      gitea: giteaFromEnv(),
+    }),
+    createMattermostModule({
+      llm,
+      mattermost: mattermostFromEnv(),
+    }),
+    createEmailModule({
+      llm,
+      email: emailFromEnv(),
+    }),
+    createWikiModule({
+      llm,
+      wiki: wikiFromEnv(),
+    }),
+    createCalendarModule({
+      llm,
+      calendar: calendarFromEnv(),
+    }),
+  ];
+}

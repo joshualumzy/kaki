@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import {
   isKakiCommand,
@@ -55,6 +56,8 @@ interface HubOptions {
   closeUnknownRoleAfterUpgrade?: boolean;
   /** True when a person currently holds this role, so the runner's token may not act as it. */
   isHumanSeat?(role: string): boolean;
+  /** The app routes upgrades itself (one HTTP server, many meeting hubs) instead of attaching here. */
+  noServer?: boolean;
   /** Called when a person's socket registers; sockets opened with the runner's token never count. */
   onPersonConnected?(): void;
   /** Called once when a person's socket is gone. */
@@ -111,10 +114,19 @@ export interface Hub {
 export interface MeetingHub extends Hub {
   /** The only way to publish a MEETING_RESET; `publish` refuses that event. */
   publishMeetingReset(event: KakiEvent): void;
+  /**
+   * Accept an HTTP upgrade this hub owns. The app checks the path and meeting id, then hands the
+   * raw socket here; authorization still runs through `authorize` and `verifyClient`.
+   */
+  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
 }
 
 /** Create the `/ws` hub attached to an existing HTTP server; the scenario is read through a getter. */
-export function createHub(httpServer: Server, activeScenario: () => Scenario, options: HubOptions = {}): MeetingHub {
+export function createHub(
+  httpServer: Server | null,
+  activeScenario: () => Scenario,
+  options: HubOptions = {},
+): MeetingHub {
   const authorize = options.authorize;
   const isHumanSeat = options.isHumanSeat ?? (() => false);
   /** The roles an AI profile currently voices; Start narrows this to the sealed AI seats. */
@@ -152,59 +164,56 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       seat?: string;
     }
   >();
-  const wss = new WebSocketServer(
-    verified
-      ? { server: httpServer, path: '/ws', maxPayload: MAX_PAYLOAD_BYTES }
-      : {
-          server: httpServer,
-          path: '/ws',
-          maxPayload: MAX_PAYLOAD_BYTES,
-          verifyClient: (info, done) => {
-            const url = new URL(info.req.url ?? '/ws', 'http://localhost');
-            const audience = audienceFor(activeScenario(), url);
-            if (audience === undefined) {
-              if (options.closeUnknownRoleAfterUpgrade === true) { done(true); return; }
-              done(false, 401, 'Unknown role');
-              return;
-            }
-            if (authorize === undefined) {
-              done(true);
-              return;
-            }
-            const generation = revocationGeneration;
-            void authorize(info.req, audience)
-              .then((decision) => {
-                if (decision.ok) {
-                  const principal = decision.principal;
-                  const seat =
-                    decision.seat ??
-                    (principal?.kind === 'seat'
-                      ? principal.role
-                      : principal?.kind === 'host'
-                        ? principal.seat
-                        : undefined);
-                  pendingAuthorizations.set(info.req, {
-                    generation,
-                    participant: decision.participant === true || principal?.kind === 'seat',
-                    runner: decision.runner === true,
-                    practice: principal?.kind === 'practice',
-                    ...(seat === undefined ? {} : { seat }),
-                    ...(decision.sessionTokenHash === undefined
-                      ? {}
-                      : { sessionTokenHash: decision.sessionTokenHash }),
-                  });
-                  done(true);
-                } else {
-                  done(false, 401, decision.message);
-                }
-              })
-              .catch((error: unknown) => {
-                console.error('kaki hub: WebSocket authorization failed', error);
-                done(false, 500, 'Authorization failed');
-              });
-          },
-        },
-  );
+  const verifyClient = (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, message?: string) => void): void => {
+    const url = new URL(info.req.url ?? '/ws', 'http://localhost');
+    const audience = audienceFor(activeScenario(), url);
+    if (audience === undefined) {
+      if (options.closeUnknownRoleAfterUpgrade === true) { done(true); return; }
+      done(false, 401, 'Unknown role');
+      return;
+    }
+    if (authorize === undefined) {
+      done(true);
+      return;
+    }
+    const generation = revocationGeneration;
+    void authorize(info.req, audience)
+      .then((decision) => {
+        if (decision.ok) {
+          const principal = decision.principal;
+          const seat =
+            decision.seat ??
+            (principal?.kind === 'seat'
+              ? principal.role
+              : principal?.kind === 'host'
+                ? principal.seat
+                : undefined);
+          pendingAuthorizations.set(info.req, {
+            generation,
+            participant: decision.participant === true || principal?.kind === 'seat',
+            runner: decision.runner === true,
+            practice: principal?.kind === 'practice',
+            ...(seat === undefined ? {} : { seat }),
+            ...(decision.sessionTokenHash === undefined
+              ? {}
+              : { sessionTokenHash: decision.sessionTokenHash }),
+          });
+          done(true);
+        } else {
+          done(false, 401, decision.message);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error('kaki hub: WebSocket authorization failed', error);
+        done(false, 500, 'Authorization failed');
+      });
+  };
+  const wssOptions = options.noServer === true
+    ? { noServer: true, maxPayload: MAX_PAYLOAD_BYTES, ...(verified ? {} : { verifyClient }) }
+    : verified
+      ? { server: httpServer!, path: '/ws', maxPayload: MAX_PAYLOAD_BYTES }
+      : { server: httpServer!, path: '/ws', maxPayload: MAX_PAYLOAD_BYTES, verifyClient };
+  const wss = new WebSocketServer(wssOptions);
   // ws re-emits the HTTP server's errors here; without a listener a port clash crashes the process
   // instead of letting listen() in createApp reject.
   wss.on('error', (error) => console.error('kaki hub: server error', error));
@@ -634,6 +643,11 @@ export function createHub(httpServer: Server, activeScenario: () => Scenario, op
       for (const [socket, session] of [...socketSessions]) {
         if (session === sessionTokenHash) revokeSocket(socket, 4001, 'Signed in again elsewhere');
       }
+    },
+    handleUpgrade(request, socket, head) {
+      wss.handleUpgrade(request, socket, head, (websocket) => {
+        wss.emit('connection', websocket, request);
+      });
     },
     close() {
       for (const socket of clients.keys()) socket.terminate();

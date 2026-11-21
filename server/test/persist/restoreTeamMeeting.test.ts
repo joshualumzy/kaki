@@ -332,7 +332,7 @@ describe.skipIf(connectionString === undefined)('restoring a team meeting from P
     const postgres = await createPostgresTestSchema(connectionString);
     try {
       await ensureMeetingStateSchema(postgres.pool);
-      const store = createPostgresMeetingStateStore(postgres.pool);
+      const store = createPostgresMeetingStateStore(postgres.pool, 'meeting');
       const first = createMeetingPersistence({ store, log: () => undefined });
       const app1 = await startApp(first);
       await createMeeting(app1, teamSetup());

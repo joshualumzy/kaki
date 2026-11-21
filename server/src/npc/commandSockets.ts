@@ -33,6 +33,8 @@ export interface CommandSocketsOptions {
   reconnectDelayMs?(attempt: number): number;
   /** The meeting the runner is in now, used to fence queued commands from older meetings. */
   currentMeetingId?(): string | undefined;
+  /** A real meeting's registry id; its command sockets carry `meeting=<id>` (legacy omits it). */
+  meetingId?: string;
 }
 
 interface CommandSockets {
@@ -72,6 +74,10 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   const maxAttempts = options.maxReconnectAttempts ?? 5;
   const reconnectDelay = options.reconnectDelayMs ?? defaultReconnectDelayMs;
   const currentMeetingId = options.currentMeetingId ?? (() => undefined);
+  const meetingQuery =
+    options.meetingId === undefined || options.meetingId === ''
+      ? ''
+      : `&meeting=${encodeURIComponent(options.meetingId)}`;
   const createSocket =
     options.createSocket ?? ((url, init) => new WebSocket(url, init));
   const socketOptions =
@@ -191,7 +197,7 @@ export function createCommandSockets(options: CommandSocketsOptions): CommandSoc
   function connect(entry: Entry, role: CommandAudience): void {
     if (entry.closing || entry.socket !== undefined) return;
     entry.attempts += 1;
-    const socket = createSocket(`${wsBase}/ws?role=${encodeURIComponent(role)}`, socketOptions);
+    const socket = createSocket(`${wsBase}/ws?role=${encodeURIComponent(role)}${meetingQuery}`, socketOptions);
     entry.socket = socket;
     socket.on('open', () => {
       if (entry.socket !== socket || entry.closing) return;

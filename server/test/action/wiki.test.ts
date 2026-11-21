@@ -46,7 +46,7 @@ function setup(
   const scenario = context.scenario ?? testScenario;
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario });
-  const stop = createWikiModule(options).start({
+  const stop = createWikiModule(options).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi',
     hub,
     tasks,
     activeScenario: () => context.activeScenario ?? scenario,

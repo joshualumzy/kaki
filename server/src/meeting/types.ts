@@ -1,0 +1,14 @@
+/** One row of the `meetings` table. Workspace and owner ids are plain text for now. */
+export interface MeetingRow {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string | null;
+  title: string;
+  kind: 'real';
+  scheduledFor: string | null;
+  createdAt: string;
+  endedAt: string | null;
+}
+
+/** How a meeting is opened at the runner: the practice instance runs everything, a real one listens. */
+export type RunnerMeetingKind = 'real' | 'practice';

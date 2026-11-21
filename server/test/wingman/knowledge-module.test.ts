@@ -128,7 +128,7 @@ function start(
   packFree?: () => boolean,
 ): () => void {
   const module = createKnowledgeModule({ search, env: {}, ...(now === undefined ? {} : { now }) });
-  const stop = module.start({
+  const stop = module.start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi',
     hub,
     tasks: {} as TaskStore,
     activeScenario: () => activeScenario,
@@ -373,7 +373,7 @@ describe('knowledge module', () => {
     const module = createKnowledgeModule({ env: {} });
 
     try {
-      const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
+      const stop = module.start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
       expect(stop).toBeUndefined();
       expect(fake.subscribed()).toBe(0);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('company search disabled'));

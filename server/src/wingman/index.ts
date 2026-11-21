@@ -1,6 +1,11 @@
 import type { KakiModule } from '../core/modules';
-import { knowledgeModule } from './knowledge/module';
-import { nudgeModule } from './nudges/module';
+import { createKnowledgeModule } from './knowledge/module';
+import { createNudgeModule } from './nudges/module';
 
-/** Modules the Wingman team plugs into the meeting server. */
-export const wingmanModules: KakiModule[] = [knowledgeModule, nudgeModule];
+/**
+ * Fresh Wingman modules for one meeting instance. Each call builds new module objects, so two
+ * meetings can never share the state a module creates when it starts.
+ */
+export function createWingmanModules(): KakiModule[] {
+  return [createKnowledgeModule(), createNudgeModule()];
+}

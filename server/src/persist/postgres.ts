@@ -1,6 +1,5 @@
 import type { Pool } from 'pg';
 import {
-  MEETING_STATE_ID,
   type MeetingStateStore,
   type SavedMeetingPhase,
   type SavedMeetingState,
@@ -65,7 +64,7 @@ interface MeetingStateRow {
 }
 
 /** The Postgres-backed store the running server uses. */
-export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
+export function createPostgresMeetingStateStore(pool: Pool, id: string): MeetingStateStore {
   return {
     async load() {
       const result = await pool.query<MeetingStateRow>(
@@ -73,7 +72,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
                 draft_touched, draft_edited_since_seal, meeting_code, holders, seats,
                 lobby_agenda, abandoned, kind, sealed_kind
            from meeting_state where id = $1`,
-        [MEETING_STATE_ID],
+        [id],
       );
       const row = result.rows[0];
       if (row === undefined) return undefined;
@@ -125,7 +124,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
            kind = excluded.kind,
            sealed_kind = excluded.sealed_kind`,
         [
-          MEETING_STATE_ID,
+          id,
           meeting.schemaVersion,
           meeting.savedAt,
           meeting.startedAt ?? null,
@@ -147,7 +146,7 @@ export function createPostgresMeetingStateStore(pool: Pool): MeetingStateStore {
     },
 
     async clear() {
-      await pool.query('delete from meeting_state where id = $1', [MEETING_STATE_ID]);
+      await pool.query('delete from meeting_state where id = $1', [id]);
     },
   };
 }

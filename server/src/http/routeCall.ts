@@ -34,6 +34,11 @@ export interface RequestContext {
   pickedAgenda?: Scenario['agenda'];
   devRoutes: boolean;
   auth?: Auth;
+  /**
+   * The meeting a session must belong to, when this is not the legacy meeting. A phone session
+   * for meeting A resolves to nobody on meeting B's routes.
+   */
+  authMeetingId?: string;
   /** The AI runner's shared secret, compared in the access layer; absent means no service channel. */
   serviceToken?: string;
   /** Every route the access layer knows; anything not listed here is a 404. */
@@ -64,6 +69,17 @@ export interface RequestContext {
   admit: <T>(task: () => Promise<T>) => Promise<T>;
   /** Remember the room someone joined and start watching it for the meeting's next empty spell. */
   watchRoom: (roomName: string) => void;
+  /** The LiveKit room this meeting uses right now: `kaki-<id>`, or the legacy demo room. */
+  roomName(): string;
+  /** The room a meeting generation uses, so a committed reset names its new room exactly. */
+  roomNameFor(meetingId: string): string;
+  /**
+   * True when the legacy practice meeting cannot take another visitor: it is starting/running, or
+   * a practice visitor is seated. Always false for a meeting that is not the legacy instance.
+   */
+  practiceBusy(): boolean;
+  /** A person used this meeting; the registry keeps such an instance loaded. */
+  onActivity?(): void;
   /** Seconds since the meeting started, read when a settled card is created or revised. */
   meetingElapsedSeconds?: () => number | undefined;
   /** The live agenda item, for a reconnecting runner. */

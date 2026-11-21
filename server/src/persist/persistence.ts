@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { createPostgresMeetingStateStore, ensureMeetingStateSchema } from './postgres';
 import {
   assertCompatibleSavedMeeting,
+  MEETING_STATE_ID,
   MEETING_STATE_SCHEMA_VERSION,
   type MeetingSnapshot,
   type MeetingStateStore,
@@ -290,9 +291,12 @@ export function createMeetingPersistence({
  * startup with a clear message, the same way sign-in does.
  */
 export async function createMeetingPersistenceFromEnv({
+  id = MEETING_STATE_ID,
   env = process.env,
   log = (message) => console.log(message),
 }: {
+  /** The meeting_state row this persistence reads and writes; legacy is 'meeting'. */
+  id?: string;
   env?: NodeJS.ProcessEnv;
   log?: (message: string) => void;
 } = {}): Promise<MeetingPersistence | undefined> {
@@ -314,7 +318,7 @@ export async function createMeetingPersistenceFromEnv({
     });
   }
 
-  const store = createPostgresMeetingStateStore(pool);
+  const store = createPostgresMeetingStateStore(pool, id);
   let saved: StoredMeeting | undefined;
   try {
     saved = await store.load();

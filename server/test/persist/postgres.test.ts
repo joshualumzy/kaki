@@ -85,7 +85,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting state store', 
     postgres = await createPostgresTestSchema(connectionString);
     await ensureMeetingStateSchema(postgres.pool);
     await ensureMeetingStateSchema(postgres.pool);
-    store = createPostgresMeetingStateStore(postgres.pool);
+    store = createPostgresMeetingStateStore(postgres.pool, 'meeting');
   });
 
   afterAll(async () => {
@@ -113,7 +113,7 @@ describe.skipIf(connectionString === undefined)('postgres meeting persistence th
     let app: KakiApp | undefined;
     try {
       await ensureMeetingStateSchema(postgres.pool);
-      const store = createPostgresMeetingStateStore(postgres.pool);
+      const store = createPostgresMeetingStateStore(postgres.pool, 'meeting');
       const persistence = createMeetingPersistence({ store, saved: await store.load(), log: () => undefined });
       app = await createApp({
         speechRecognition: 'browser',
