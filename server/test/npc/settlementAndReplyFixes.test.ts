@@ -102,6 +102,7 @@ function harness(options: {
   reviewNudgeMs?: number;
   reviewWindowMs?: number;
   responseDelayMs?: number;
+  sentenceGapMs?: number;
   reader?: (input: GuestReaderInput) => Promise<GuestReading>;
 } = {}) {
   const readings = [...(options.readings ?? [])];
@@ -124,7 +125,7 @@ function harness(options: {
       if (reply !== undefined) yield reply;
     },
     async synthesize(utterance) { return utterance; },
-    play(speaker, clip) {
+    play(speaker, clip, signal) {
       const still = playing.find((entry) => !entry.finished);
       if (still !== undefined) overlaps.push([still.text, clip.text]);
       return new Promise<void>((resolve) => {
@@ -133,6 +134,8 @@ function harness(options: {
           finish: () => ((entry.finished = true), resolve()),
         };
         playing.push(entry);
+        // Stopped sound is silent at once, as in the browser.
+        signal.addEventListener('abort', () => entry.finish(), { once: true });
       });
     },
     emitTranscript(speaker, text) { spoken.push([speaker, text]); },
@@ -147,7 +150,7 @@ function harness(options: {
     scenario,
     responseDelayMs: options.responseDelayMs ?? 0,
     speakerGapMs: 0,
-    sentenceGapMs: 0,
+    sentenceGapMs: options.sentenceGapMs ?? 0,
     observeDelayMs: 60_000,
     silencePromptMs: 60_000,
     openLiveGraceMs: 1,
@@ -549,6 +552,77 @@ describe('turn-taking (#66, #67, #68)', () => {
     await finishPlaying(h);
     await flush();
     expect(h.settle).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it("keeps the offer live while Sam asks again after a failed read, so the next yes settles (#68)", async () => {
+    const failed: GuestReading = { ...reading({ kind: 'unsure' }), failed: true };
+    const queue: GuestReading[] = [];
+    const h = harness({
+      replies: [
+        'Sam: The choice is how we cover the counter.',
+        'Sam: Pick the one that feels workable.',
+        "Sam: Sorry, I missed that. Is that your call?",
+      ],
+      reader: async () => queue.shift() ?? reading(),
+    });
+    queue.push(reading({ kind: 'unsure' }), reading({ kind: 'unsure' }), reading({ kind: 'unsure' }));
+    await reachChoiceOffer(h);
+
+    queue.push(failed, failed);
+    await say(h, "Yeah, that's my call.");
+    await finishPlaying(h);
+    // Sam's re-ask is actually heard this time, and hearing it must not clear the offer.
+    expect(h.playing.some((entry) => entry.text.includes('Is that your call'))).toBe(true);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('no longer live'));
+
+    queue.push(reading({ kind: 'agree' }));
+    await say(h, 'Yes, that one.');
+    await finishPlaying(h);
+    await flush();
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('does not start the next sentence if the guest starts talking during the gap before it (#67)', async () => {
+    const h = harness({
+      sentenceGapMs: 400,
+      readings: [reading({ kind: 'question', addressee: 'Ada' })],
+      replies: ['Ada: The eggs are the problem. Ada: We need a second supplier.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 20; i += 1) await flush();
+    const first = h.playing.find((entry) => entry.text.includes('eggs'));
+    expect(first).toBeDefined();
+    first!.finish();
+    await flush();
+
+    // The guest starts talking inside the 400 ms gap, before the second sentence.
+    await vi.advanceTimersByTimeAsync(200);
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(h.playing.some((entry) => entry.text.includes('second supplier'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('stops a line still playing after the floor wait instead of talking over it (#66)', async () => {
+    const h = harness();
+    // A scripted Sam line starts and its audio never ends.
+    h.conversation.announce('Sam', 'Quick note before we go on.');
+    for (let i = 0; i < 5; i += 1) await flush();
+    const stuck = h.playing.find((entry) => entry.text.includes('Quick note'));
+    expect(stuck?.finished).toBe(false);
+
+    // The next planned step waits for the floor. Public paths rarely reach the timeout (typing interrupts, a held
+    // guest line waits for playback), so the wait is driven directly.
+    const floor = (h.conversation as unknown as { waitForFloor(signal: AbortSignal): Promise<void> })
+      .waitForFloor(new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(16_000);
+    await floor;
+
+    // The old line was stopped, not left sounding under the next one.
+    expect(stuck?.finished).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining('interrupted: another line took the floor'));
     h.conversation.close();
   });
 });

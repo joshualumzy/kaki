@@ -365,6 +365,8 @@ function mergeReadings(readings: readonly GuestReading[]): GuestReading | undefi
   const kind = order.find((candidate) => readings.some((reading) => reading.kind === candidate)) ?? readings[0]!.kind;
   const addressee = readings.find((reading) => reading.addressee !== undefined)?.addressee;
   const chosenOption = [...readings].reverse().find((reading) => reading.chosenOption !== undefined)?.chosenOption;
+  // The turn's meaning is only a stand-in when every line that gave it was a failed read (#68).
+  const failed = readings.every((reading) => reading.kind !== kind || reading.failed === true);
   const mergedSlot = (slot: 'action' | 'catchAddressed' | 'practical') =>
     readings.find((reading) => reading.readiness[slot].covered)?.readiness[slot] ?? { covered: false };
   return {
@@ -379,6 +381,7 @@ function mergeReadings(readings: readonly GuestReading[]): GuestReading | undefi
       practical: mergedSlot('practical'),
     },
     ...(chosenOption === undefined ? {} : { chosenOption }),
+    ...(failed ? { failed: true as const } : {}),
   };
 }
 
@@ -2986,6 +2989,8 @@ export class NpcConversation<Clip> {
       done: Promise.resolve(),
       startedAt: prefetched?.startedAt ?? Date.now(),
       planned: { kind: run.kind, factIds, ...(decision.catchId === undefined ? {} : { catchId: decision.catchId }) },
+      // Re-asking a confirmation or offer whose answer could not be read keeps that gate live (#68).
+      ...(decision.gateReask === true ? { gateReask: true } : {}),
     };
     // One voice at a time: a line already playing (a scripted cue, or the previous step) finishes first (#66).
     await this.waitForFloor(abort.signal);
@@ -3829,7 +3834,7 @@ export class NpcConversation<Clip> {
         }
         this.ports.log?.(`[reply] ${decision.speaker} (${decision.purpose}) could not be heard; ending this reply`);
         this.finishReplyRun(run);
-        this.recoverFromFailedReply();
+        this.recoverFromFailedReply(decision.gateReask === true);
         return;
       }
       if (decision.whichOne === true) this.meetingState.noteWhichOneAsked();
@@ -4158,11 +4163,20 @@ export class NpcConversation<Clip> {
   }
 
   /** Both writes for one reply failed: say honestly that the room is still working on it, not that it missed the guest. */
-  private recoverFromFailedReply(): void {
+  private recoverFromFailedReply(gateReask = false): void {
     if (this.closed || this.concluded || this.paused || this.recoveryCueSpoken) return;
     const host = this.facilitatorOrCoHost();
     if (host === undefined) return;
     this.recoveryCueSpoken = true;
+    if (gateReask) {
+      // The lost line was a re-ask of a live confirmation or offer: say that question again in its scripted form,
+      // and keep the gate live while it is heard (#68).
+      const view = this.meetingState.view(Date.now());
+      const line = (view.confirmationAsked ? view.confirmationSpoken : undefined) ?? this.liveGateReask()?.line ??
+        'Sorry, give me a second on that.';
+      this.announce(host, line, DEFAULT_ANNOUNCE_GIVE_UP_MS, () => this.scheduleSilencePrompt(), undefined, { gateReask: true });
+      return;
+    }
     this.announce(host, 'Sorry, give me a second on that.', DEFAULT_ANNOUNCE_GIVE_UP_MS, () => this.scheduleSilencePrompt());
   }
 
@@ -5319,10 +5333,9 @@ export class NpcConversation<Clip> {
     }
   }
 
-  /** Wait `ms`, resolving early (and without a stray timer) when the turn aborts. */
   /**
-   * Wait until no other turn is playing, so two AI lines never sound at once. A held turn (cut off and waiting on
-   * the guest) is not waited for forever: after FLOOR_WAIT_MAX_MS the new line goes ahead, as it did before.
+   * Wait until no other turn is playing, so two AI lines never sound at once. The old line is not waited for
+   * forever: after FLOOR_WAIT_MAX_MS it is stopped (keeping what was heard) and the new line goes ahead.
    */
   private async waitForFloor(signal: AbortSignal): Promise<void> {
     const deadline = Date.now() + FLOOR_WAIT_MAX_MS;
@@ -5331,7 +5344,9 @@ export class NpcConversation<Clip> {
       const current = this.turn;
       if (current === undefined || current.finalized) return;
       if (Date.now() >= deadline) {
-        this.ports.log?.('[floor] another line is still holding the floor; speaking anyway');
+        // Stop the old line rather than play over it: once `this.turn` is replaced, nothing could cut it off (#66).
+        this.ports.log?.('[floor] another line is still holding the floor; stopping it');
+        this.interrupt('another line took the floor');
         return;
       }
       if (!logged) {
@@ -5434,6 +5449,8 @@ export class NpcConversation<Clip> {
           await this.wait(gapMs, turn.soundAbort.signal);
           if (turn.abort.signal.aborted) return;
           if (this.isTurnHeld(turn)) continue;
+          // The guest may have started talking during the gap; the check above then waits for them (#67).
+          if (this.humanTalking) continue;
         }
         previousSpeaker = utterance.speaker;
 

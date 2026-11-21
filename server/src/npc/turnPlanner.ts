@@ -26,6 +26,8 @@ export interface SpeakDecision {
   followUp?: boolean;
   /** This clarify line asks which of two offered options the guest means; it is not a new offer. */
   whichOne?: boolean;
+  /** This clarify line re-asks a live confirmation or offer, so saying it must not clear that gate (#68). */
+  gateReask?: boolean;
   reason: string;
 }
 
@@ -425,8 +427,11 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
   // The guest answered a confirmation or offer, but their line could not be read: ask again rather than
   // guess, so a "yes" lost to a slow model is not taken as a "no" (#68).
   if (reading.failed === true && (view.confirmationAsked || view.offerAsked) && host !== undefined) {
-    return speak(host, 'clarify', line.eventId, "the guest's answer could not be read; ask for it again", undefined, undefined,
-      'You did not catch their answer. In one short line, ask again whether that is their call. Do not restate the call in full.');
+    return {
+      ...speak(host, 'clarify', line.eventId, "the guest's answer could not be read; ask for it again", undefined, undefined,
+        'You did not catch their answer. In one short line, ask again whether that is their call. Do not restate the call in full.'),
+      gateReask: true,
+    };
   }
 
   const confirmationCall = view.confirmationCall ?? mergedReadiness(view).action.evidence;
