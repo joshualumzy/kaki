@@ -4,10 +4,10 @@ A video-call style meeting where one person talks to AI attendees. One LLM (the 
 scenario profiles and decides who speaks, one at a time. The person can talk over them and they stop. Every accepted line goes
 to Kaki as an ordinary transcript line, so the host, wingman and action agents work from the same conversation.
 
-Quick start: `cp .env.example .env` and fill the required keys, then `npm start`, then open http://localhost:5173/demo?mode=live in Chrome or Edge.
+Quick start: `cp .env.example .env` and fill the required keys, then `npm start`, then open http://localhost:5173/demo in Chrome or Edge.
 `npm stop` stops the server, web app and AI attendees; `npm stop -- --stack` also stops Docker.
 (Or run `npm run stack:up`, `npm run dev`, and `npm run npc` separately.)
-Settings are in `.env.example`. Terms are in `CONTEXT.md`.
+The required keys are in `.env.example`. Terms are in `CONTEXT.md`.
 
 The Azure VM runs Kaki as systemd services instead; `npm start` is the laptop path.
 
@@ -21,19 +21,19 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 
 ## A visit, start to finish
 
-1. **Join.** The visitor picks a name and a role (any role no AI plays) and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, 2 minutes per item) tailored to that role.
-2. **Briefing.** The stage shows "Read your briefing first" (`web/src/meeting/room/StartPrompt.tsx`). The AI attendees are in the room but
-   silent, and anything the visitor says or types is ignored. The role card and situation are in the unified Kaki Wingman dock on the right.
-   A visitor in the facilitator's seat skips this: they open the meeting themselves.
-3. **Start.** Pressing the button sends `{ kind: 'start' }` on the `kaki.control` data topic. Only then does the host speak the welcome, which
-   names the visitor's role and responsibility, the first agenda item, and hands over by name to that item's owner
-   (`server/src/host/opening.ts`).
+1. **Join.** The visitor picks a name, a seat and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, each item with its scenario minutes, 5 in Kopitiam) tailored to that role.
+2. **Briefing.** The stage shows a two-step briefing (`web/src/meeting/room/StartPrompt.tsx`): the visitor's role and today's calls, then
+   how to play. The AI attendees are in the room but silent, and anything the visitor says or types is ignored. The role card and situation
+   are also in the unified Kaki Wingman dock on the right.
+3. **Start.** Pressing the button posts `/api/meeting/start`. The server prepares the cast and marks the meeting started; only then does Sam,
+   the facilitator-seat AI attendee, speak the welcome, which names the visitor's role and responsibility, the first agenda item, and hands
+   over by name to that item's owner (`server/src/host/opening.ts`).
 4. **The item.** If the item is not the visitor's, the characters talk it through for a newcomer unless the visitor speaks first.
-   If it is, the host asks them for their call. If it is contested, two characters argue and the host asks the visitor to decide (`itemMode` in
+   If it is, Sam asks them for their call. If it is contested, two characters argue and Sam asks the visitor to decide (`itemMode` in
    `shared/src/demo.ts`).
 5. **Tasks.** The notetaker spots action items; the host dispatches them, an AI colleague accepts or declines in their own words (or the visitor accepts/approves their own task in the Wingman dock),
    and accepted drafts are executed against Gitea, Mattermost, Mailpit, Wiki.js, or Radicale CalDAV (`taskResponder.ts`, `NPC_APPROVE_DELAY_MS`).
-6. **Wrap-up & Wiki minutes for approval.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` creates a **Publish meeting minutes to the team wiki** card with the full Markdown minutes already drafted. It is assigned to a person in the meeting (the owner's seat when they hold it, otherwise the visitor), never an AI seat, so the draft waits for their approval. Nothing is written yet: the person reviews and can edit the draft, then taps **Approve & publish**. Only then does Wiki.js get the page, surfacing the **Open meeting minutes in Wiki ↗** link in the dock.
+6. **Wrap-up & Wiki minutes for approval.** After the final agenda item is settled, the host concludes the meeting and `server/src/action/wiki.ts` creates a **Publish meeting minutes to the team wiki** card with the full Markdown minutes already drafted. It is assigned to the visitor, never an AI seat, so the draft waits for their approval. Nothing is written yet: the person reviews and can edit the draft, then taps **Approve & publish**. Only then does Wiki.js get the page, surfacing the **Open meeting minutes in Wiki ↗** link in the dock.
 
 ## How it is built
 
@@ -48,7 +48,7 @@ first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-r
 | LiveKit wiring, who is in the room, the start gate | `server/src/npc/runner.ts`, `main.ts` |
 | Join form, start prompt, stage, captions, type bar | `web/src/meeting/room/` |
 
-Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (typed text, "typing", Stop, Start).
+Data topics (`shared/src/demo.ts`): `kaki.npc-state` (what the AI attendees are doing) and `kaki.control` (typed text, "typing", Stop, Resume and Lock). Start is a server call.
 
 ## How interruption works
 

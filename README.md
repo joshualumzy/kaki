@@ -7,7 +7,7 @@ A meeting assistant that gives every seat a private wingman.
 ![Kaki meeting room](docs/images/meeting-room.png)
 *A practice meeting. Kaki Wingman has just handed the Operations Director a private fact for the question on the table.*
 
-Kaki helps a small team run a meeting and finish the work it creates. The owner sets an agenda and opens a room, and people join from a laptop or phone, by speaking or typing. During the call, each person gets private facts and prompts for the seat they hold, while a neutral host keeps the clock and watches the conversation. Follow-ups then become a ticket, post, email, wiki page or calendar event, and the minutes go to the team wiki, each only after a person approves the draft.
+Kaki helps a small team run a meeting and finish the work it creates. The owner sets an agenda and opens a room, and people join from a laptop or phone, by speaking or typing. During the call, each person gets private facts and prompts for the seat they hold, while a neutral host keeps the clock and watches the conversation. Follow-ups then become a ticket, post, email, wiki page or calendar event, and the minutes go to the team wiki, each as a draft for a person to approve.
 
 ## Highlights
 
@@ -88,9 +88,9 @@ npm run cloud:down     # Deallocate kaki-vm ($0/hr compute billing)
 
 A meeting host has to present, watch the clock, keep the agenda, draw out quiet experts, answer factual questions and record who agreed to do what. In a hybrid meeting this is harder because side conversations and body language are lost. Meetings overrun. A question stays open because the person who knows the answer is not speaking. A spoken action item is forgotten because nothing turns it into a ticket, a post or an email.
 
-Most meeting assistants record and summarise after the call. Some answer questions during it as one shared assistant for the room. The difficult work is deciding when to stay silent, who needs which fact, and how to write in another system without surprising anyone. Kaki splits that work across a neutral host, a private wingman for each participant, and an action agent that waits for the person's approval before it writes anything.
+Most meeting assistants record and summarise after the call. Some answer questions during it as one shared assistant for the room. The difficult work is deciding when to stay silent, who needs which fact, and how to write in another system without surprising anyone. Kaki gives each of those jobs its own agent: a neutral host, a private wingman for each participant, and an action agent that writes into the team's own tools.
 
-The problem lasts. In two years, live and personal help during a meeting will be as expected as the recap afterwards. In five years, teams will expect a meeting to produce finished work: the issue opened, the post published, the email sent. In ten years, the assistant will be part of how a team operates, and the hard questions will be trust, permissions and knowing when not to speak. Kaki works on those questions now: every private card is addressed to one seat, and every write waits for a person's approval.
+In two years, live and personal help during a meeting should feel as ordinary as the recap does now. Five years on, a team will expect the meeting itself to leave finished work behind, with the issue opened and the email sent. Within a decade the assistant will sit inside how the team operates, and the open questions will be trust, permissions and knowing when not to speak.
 
 ## How it works
 
@@ -130,9 +130,9 @@ Here is the path of one follow-up. Someone in the meeting says, "I'll email the 
 
 Meeting assistants today mostly work for the room as a whole: one transcript, one summary, one chat box. Kaki works for each seat.
 
-**Private help, chosen by role and topic.** Every seat has a role card with the facts that role holds, and Kaki Wingman knows which role owns the current agenda item. When that item comes up, or its owner has gone quiet, the nudge goes to that one person's screen. Company answers come from the team's own wiki, issues, chat and email, and every fact carries its source and date.
+**Private help, chosen by role and topic.** Every seat has a role card with the facts that role holds, and Kaki Wingman knows which role owns the current agenda item. When that item comes up, or its owner has gone quiet, the nudge goes to that one person's screen. Company answers come from the team's own wiki, issues, chat and email, and every fact carries its source and date. The owner sets the nudge pace before the meeting, so prompts arrive at a rate the team chose.
 
-**An assistant that stays out of the conversation.** Kaki never talks over people. Kaki Host works in the side panel: it keeps the agenda clock, flags an item that runs over, and hands out follow-ups. The owner sets the nudge pace before the meeting, so the prompts arrive at a rate the team chose.
+**An assistant that works in the side panel.** Kaki Host has no voice of its own. It keeps the agenda clock, flags an item that runs over and hands out follow-ups on screen. When an AI colleague chairs the meeting, that colleague speaks the host's welcome, hand-overs and close in their own words. When a person chairs, the same cues reach them as on-screen suggestions. Any AI colleague stops when someone talks over it.
 
 **Approval is the boundary.** Kaki can open a Gitea issue, post to Mattermost, send an email, book a calendar slot or publish minutes to the wiki. Each one starts as a draft for the person who owns the task. The draft is checked against what was actually said, and nothing is written until that person approves it.
 
@@ -194,7 +194,7 @@ The web app is one React and Vite application with seven routes: landing, practi
 
 ### Invite and join
 
-- The lobby, starting, running and ended lifecycle lives in one meeting session. Meeting-code admission and LiveKit tokens take a seat through the same record. `server/src/meeting/session.ts`, `server/src/auth/module.ts`, `server/src/services/livekit.ts`, `server/src/http/routes/meeting.ts`
+- Meeting-code admission and LiveKit tokens take a seat through the same meeting record. `server/src/auth/module.ts`, `server/src/services/livekit.ts`, `server/src/http/routes/meeting.ts`, `server/src/meeting/session.ts`
 
 ### During the meeting
 
@@ -218,10 +218,8 @@ The web app is one React and Vite application with seven routes: landing, practi
 | React idea | Where Kaki uses it | Why |
 | --- | --- | --- |
 | Components and typed props | `MeetingGrid`, `CaptionedTile`, `RoleCard`, `Dock` in `web/src/meeting/room/` | Stage tiles and dock cards take explicit props, so the same card renders for an owner, a participant or a practice visitor. |
-| State with `useState` | `JoinForm`, `SetupEditor`, `MeetingGrid` | Form fields, validation messages, caption clocks and dock state stay local to the screen that owns them. |
 | Side effects with `useEffect` | `web/src/kaki/useKaki.ts`, `web/src/meeting/room/Meeting.tsx` | The WebSocket reconnects and the LiveKit connection and rejoin flow start and stop with the page. |
 | Refs with `useRef` | `web/src/kaki/useKaki.ts`, `web/src/kaki/ScenarioContext.tsx` | Socket handles, pending typed lines and load ordering must survive renders without causing another render. |
-| Memoisation with `useMemo` and `useCallback` | `web/src/setup/SetupPage.tsx`, `web/src/meeting/MeetingOverlays.tsx`, `web/src/meeting/room/MeetingGrid.tsx` | Expensive derived values and callbacks stay stable while the rest of the page updates. |
 | Custom hooks | `useKaki` (`web/src/kaki/useKaki.ts`), `useScenario` and `useRefreshScenario` (`web/src/kaki/ScenarioContext.tsx`), `useMe` (`web/src/auth/useMe.ts`) | Each hook packages one piece of shared behaviour: live events, the active scenario and the sign-in check. |
 | Context with `createContext` | `web/src/kaki/ScenarioContext.tsx` | Every page reads the same scenario without passing it through each component. |
 | Routing with React Router 7 | `web/src/App.tsx`, `useNavigate` in `LandingPage`, `LoginPage` and `SetupPage`, `useSearchParams` in `LoginPage` and `ParticipantJoinPage` | The seven routes cover the landing, join, setup, sign-in and meeting flows, and the invite code travels in the URL. |
@@ -247,17 +245,11 @@ The IT5007 stack pairs React with GraphQL and MongoDB. Kaki keeps React and choo
 
 ## Engineering quality
 
-The repository is a TypeScript workspace with three packages: `shared/`, `server/` and `web/`. `shared/` holds the protocol and the rules both sides must agree on, including events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `persist`, `services`). The web app is split by page and feature (`landing`, `auth`, `setup`, `meeting`, `kaki`, `ui`, `net`), with shared buttons, cards, labels and artifact links in `web/src/ui/`.
+The repository is a TypeScript workspace with three packages: `shared/`, `server/` and `web/`. `shared/` holds the protocol and the rules both sides must agree on, including events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `persist`, `services`). The web app is split by page and feature (`landing`, `auth`, `setup`, `meeting`, `kaki`, `ui`, `net`), with shared buttons, cards, labels and artifact links in `web/src/ui/`. Every exported function, component and type carries a short comment.
 
 Input is checked on both sides. The setup parser checks the plan before it is saved, and the server re-checks every setup write. Commands from a socket are validated against the scenario before the hub accepts them. The action connectors reject a draft that adds details its source does not support.
 
-Every exported function, component and type has a short comment stating what it does, for example `server/src/core/hub.ts` and `shared/src/events.ts`.
-
-Tests sit with the code and are mirrored under `server/test/`. `npm test` runs the Vitest suite for `shared/`, `server/`, `web/`, `scripts/` and the seed code, including unit tests and integration tests that drive the HTTP and WebSocket API. `npm run typecheck` checks the whole workspace. There are 156 test files:
-
-```bash
-find . -type d -name node_modules -prune -o -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) -print | wc -l
-```
+Tests sit with the code and are mirrored under `server/test/`. `npm test` runs the Vitest suite for `shared/`, `server/`, `web/`, `scripts/` and the seed code, including unit tests and integration tests that drive the HTTP and WebSocket API. `npm run typecheck` checks the whole workspace.
 
 Playwright drives the real app in installed Google Chrome:
 
@@ -309,8 +301,6 @@ When a person joins with their name, Kaki updates the `demo` profile display nam
 ```bash
 npm start                 # One-command local demo: checks, Docker, seed, index, server + web + AI, preflight
 npm stop                  # Stop local server, web app and AI attendees (add -- --stack for Docker)
-npm run live:up           # Same as npm start
-npm run live:down         # Same as npm stop
 npm run cloud:up          # Start the Azure VM and wait for the live site
 npm run cloud:down        # Deallocate the Azure VM ($0/hr compute billing)
 npm run cloud:status      # Check the VM state and live HTTPS health
@@ -369,7 +359,7 @@ Checked on 1 November 2026. Every source below is vendor-authored, either a pres
 | Fireflies.ai | Transcription and summaries; Live Assist for real-time suggestions, coaching and answers; speaker talk-time analytics; AI Skills for follow-up work; Voice Agents | Follow-up work runs through AI Skills and integrations | [fireflies.ai](https://fireflies.ai/) |
 | Read.ai | Ask Read actions: update a CRM deal, send email, create calendar events, scheduled email updates | A draft email is reviewed and then sent on the user's command; other actions run from Ask Read | [Read Help Center](https://support.read.ai/hc/en-us/articles/48863788829971-Using-Ask-Read-actions) |
 
-Several competitors offer private in-meeting tips and write-back to connected tools. Kaki's concrete mechanisms are a host that speaks at fixed agenda points, nudges pushed to one role without a prompt, fact cards that carry a source and date, and a per-draft approval step before a write into the team's own self-hosted tools. Competitors are stronger in meeting-platform coverage, transcription at scale, the number of ready-made integrations and enterprise security certification.
+Several competitors offer private in-meeting tips and write-back to connected tools. Kaki's own mechanisms are nudges that reach one role without anyone asking, fact cards that carry a source and date, and an approval step on each draft before Kaki writes into the team's own self-hosted tools. Competitors are stronger in meeting-platform coverage, transcription at scale, the number of ready-made integrations and enterprise security certification. Kaki is aimed at small teams that already self-host their issue tracker, chat and wiki.
 
 ## Legal and open source
 
@@ -417,7 +407,7 @@ External services and APIs:
 | LiveKit | WebRTC audio room for the meeting and the NPC runner |
 | Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets |
 
-A search for "adapted from", "based on" and "source:" comments found no copied code snippets. The reciprocal rank fusion in `server/src/wingman/knowledge/search.ts` follows the published RRF formula with `k = 60`; it is an implementation of the method, not copied code.
+The reciprocal rank fusion in `server/src/wingman/knowledge/search.ts` implements the published RRF formula with `k = 60`.
 
 Kaki was built for IT5007 at the National University of Singapore.
 
