@@ -498,6 +498,12 @@ describe('checkpoint 4: reading, readiness and the card transaction', () => {
     await finishPlaying(h);
     await vi.advanceTimersByTimeAsync(20);
     await finishPlaying(h);
+    // Sam's offer is waiting for an answer, so time-up holds the close for a grace (#67).
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(61_000);
+    await finishPlaying(h);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await finishPlaying(h);
 
     expect(h.settle).not.toHaveBeenCalled();
     expect(h.advanced).toContain('next');

@@ -85,6 +85,12 @@ export const MAX_FOLLOW_UPS = 2;
 const DEFAULT_ANNOUNCE_GIVE_UP_MS = 40_000;
 /** The longest a planned line waits for another line to stop playing before it speaks anyway. */
 const FLOOR_WAIT_MAX_MS = 15_000;
+/** How long a topic's time-up close may wait for the guest to finish answering. */
+const TIME_UP_GRACE_MS = 60_000;
+/** How often a held time-up close checks whether the guest has finished. */
+const TIME_UP_RECHECK_MS = 1_000;
+/** How often a line that is ready to play checks whether the guest has stopped talking. */
+const HUMAN_TALKING_RECHECK_MS = 100;
 
 
 /** The host asks when the agenda moves on; if that never happens, after this many lines from the person. */
@@ -653,6 +659,10 @@ export class NpcConversation<Clip> {
   private lastLockAskAt = -Infinity;
   private budgetTimer: ReturnType<typeof setTimeout> | undefined;
   private topicBudgetTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Re-checks a time-up close that was held because the guest was answering (#67). */
+  private timeUpTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When the current topic's time-up close was first held. */
+  private timeUpGrace: { title: string | undefined; since: number; logged: boolean } | undefined;
   private reviewTimer: ReturnType<typeof setTimeout> | undefined;
   private graceTimer: ReturnType<typeof setTimeout> | undefined;
   private reviewNudged = false;
@@ -985,6 +995,8 @@ export class NpcConversation<Clip> {
       : undefined;
     this.clearDeferredFollowUpTimer();
     if (this.topicBudgetTimer !== undefined) clearTimeout(this.topicBudgetTimer);
+    if (this.timeUpTimer !== undefined) clearTimeout(this.timeUpTimer);
+    this.timeUpTimer = undefined;
     this.topicBudgetTimer = undefined;
     this.clearBudgetTimer();
     this.clearReviewTimer();
@@ -1911,6 +1923,8 @@ export class NpcConversation<Clip> {
     this.clearBudgetTimer();
     this.clearReviewTimer();
     if (this.topicBudgetTimer !== undefined) clearTimeout(this.topicBudgetTimer);
+    if (this.timeUpTimer !== undefined) clearTimeout(this.timeUpTimer);
+    this.timeUpTimer = undefined;
     this.topicBudgetTimer = undefined;
     this.interrupt('the meeting ended');
   }
@@ -2117,6 +2131,8 @@ export class NpcConversation<Clip> {
     this.clearReviewTimer();
     this.clearDeferredFollowUpTimer();
     if (this.topicBudgetTimer !== undefined) clearTimeout(this.topicBudgetTimer);
+    if (this.timeUpTimer !== undefined) clearTimeout(this.timeUpTimer);
+    this.timeUpTimer = undefined;
     this.topicBudgetTimer = undefined;
     // A budget ask owed to the topic being closed must never fire on the next one.
     this.budgetRecoveryPending = false;
@@ -2284,9 +2300,54 @@ export class NpcConversation<Clip> {
     this.budgetTimer = undefined;
   }
 
+  /** Why closing the topic on time would cut across the guest right now, if it would. */
+  private timeUpBusyReason(): string | undefined {
+    if (this.humanTalking) return 'the guest is talking';
+    if (this.recognizingSpeech) return "the guest's words are still being recognised";
+    if (this.replyRun !== undefined) return 'a reply to the guest is still running';
+    // Only a line already sounding counts; a turn still waiting to start (a held nudge) does not.
+    if (this.turn !== undefined && !this.turn.finalized && this.turn.spoken.some((entry) => !entry.complete)) {
+      return 'a line is still playing';
+    }
+    const view = this.meetingState.view(Date.now());
+    if (view.confirmationAsked || view.offerAsked) return "Sam is waiting for the guest's answer";
+    return undefined;
+  }
+
+  /**
+   * When the topic's time is up while the guest is answering (or Sam is waiting for an answer), hold the close
+   * and check again shortly, for at most TIME_UP_GRACE_MS on this topic. True when the close was deferred (#67).
+   */
+  private deferTimeUp(): boolean {
+    const reason = this.timeUpBusyReason();
+    if (reason === undefined) return false;
+    const title = this.currentItem()?.title;
+    const grace = this.timeUpGrace?.title === title && this.timeUpGrace !== undefined
+      ? this.timeUpGrace
+      : { title, since: Date.now(), logged: false };
+    this.timeUpGrace = grace;
+    if (Date.now() - grace.since >= TIME_UP_GRACE_MS) {
+      this.ports.log?.(`[lock] time is up and the grace is spent (${reason}); closing anyway`);
+      return false;
+    }
+    if (!grace.logged) {
+      grace.logged = true;
+      this.ports.log?.(`[lock] time is up, but ${reason}; holding the close`);
+    }
+    if (this.timeUpTimer !== undefined) clearTimeout(this.timeUpTimer);
+    this.timeUpTimer = setTimeout(() => {
+      this.timeUpTimer = undefined;
+      if (this.closed || this.currentItem()?.title !== title) return;
+      this.offerBudgetLock(true);
+    }, TIME_UP_RECHECK_MS);
+    this.timeUpTimer.unref?.();
+    return true;
+  }
+
   private offerBudgetLock(timeUp = false): void {
     if (this.budgetOffered || this.humanSettledOnCurrentItem) return;
     if (timeUp && this.readinessApplies()) {
+      if (this.deferTimeUp()) return;
       this.ports.log?.('[lock] time is up; closing the topic honestly rather than inventing a call');
       this.resolveUnresolved();
       return;
@@ -2635,6 +2696,8 @@ export class NpcConversation<Clip> {
     this.clearReviewTimer();
     this.clearDeferredFollowUpTimer();
     if (this.topicBudgetTimer !== undefined) clearTimeout(this.topicBudgetTimer);
+    if (this.timeUpTimer !== undefined) clearTimeout(this.timeUpTimer);
+    this.timeUpTimer = undefined;
     this.topicBudgetTimer = setTimeout(() => this.offerBudgetLock(true),
       this.options.topicTimeBudgetMs ?? DEFAULT_TOPIC_TIME_BUDGET_MS).unref();
     this.ports.emitState(this.idleState());
@@ -5344,6 +5407,17 @@ export class NpcConversation<Clip> {
         }
       }
       const textOnly = audio === undefined;
+
+      if (!restarting && this.humanTalking) {
+        // Never start a line over someone who is already talking (#67): wait for them to stop, then let the
+        // existing hold and interrupt rules decide what happens to this line.
+        this.ports.log?.(`[floor] ${utterance.speaker} waits: the guest is talking`);
+        while (this.humanTalking && !turn.soundAbort.signal.aborted && !this.closed) {
+          await this.wait(HUMAN_TALKING_RECHECK_MS, turn.soundAbort.signal);
+        }
+        if (turn.abort.signal.aborted || this.closed) return;
+        continue;
+      }
 
       if (!restarting) {
         const gapMs = previousSpeaker === undefined ? 0 : previousSpeaker === utterance.speaker ? this.sentenceGapMs : this.speakerGapMs;

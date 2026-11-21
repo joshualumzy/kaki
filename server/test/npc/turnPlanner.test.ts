@@ -95,6 +95,16 @@ describe('turn planner', () => {
     });
   });
 
+  it('lets the host answer a question put to the host by name, not a colleague (#67)', () => {
+    const state = make();
+    const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Sam, do you have any solution to this?' });
+    const value = record(state, 'josh-1', reading({ kind: 'question', addressee: 'Sam', relevantFactIds: ['0:1'] }));
+
+    expect(next(state.view(1), { kind: 'heard', line: guest, reading: value })).toMatchObject({
+      kind: 'Speak', speaker: 'Sam', purpose: 'answer', respondsTo: 'josh-1',
+    });
+  });
+
   it('drops an addressee who is not in the room', () => {
     const state = make();
     const guest = heard(state, { id: 'josh-1', speaker: 'Josh', text: 'Ask Arjun about it.' });

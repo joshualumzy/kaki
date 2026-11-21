@@ -297,6 +297,9 @@ describe('checkpoint 4 review fixes', () => {
     await flush();
 
     await vi.advanceTimersByTimeAsync(100);
+    // The guest's line is still being read, so time-up holds the close for a grace (#67), then closes.
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(61_000);
     expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
 
     resolveReading?.(readyReading('Use the window bar'));
@@ -488,5 +491,40 @@ describe('turn-taking (#66, #67, #68)', () => {
     expect(h.overlaps).toEqual([]);
     h.conversation.close();
   });
-});
+  it('never starts a line while the guest is already talking; it waits for them to stop (#67)', async () => {
+    let resolveReading: ((value: GuestReading) => void) | undefined;
+    const h = harness({
+      reader: () => new Promise<GuestReading>((resolve) => { resolveReading = resolve; }),
+      replies: ['Ada: The eggs are the problem.', 'Ada: The eggs are the problem.', 'Ada: The eggs are the problem.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 5; i += 1) await flush();
 
+    resolveReading?.(reading({ kind: 'question', addressee: 'Ada' }));
+    h.conversation.humanSpeech(true);
+    for (let i = 0; i < 20; i += 1) await flush();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.playing.filter((entry) => entry.speaker === 'Ada')).toEqual([]);
+
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(500);
+    for (let i = 0; i < 20; i += 1) await flush();
+    await finishPlaying(h);
+    expect(h.playing.some((entry) => entry.speaker === 'Ada')).toBe(true);
+    h.conversation.close();
+  });
+
+  it('holds the time-up close while the guest is talking, then closes once they stop (#67)', async () => {
+    const h = harness({ topicTimeBudgetMs: 100, budgetSilenceMs: 10 });
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('the guest is talking; holding the close'));
+
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await finishPlaying(h);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
+    h.conversation.close();
+  });
+});
