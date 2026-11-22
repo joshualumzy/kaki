@@ -1239,6 +1239,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     const start = { id: `fake-speech-${fakeSpeechCount}`, startedAt: now };
     speechLines.begin(start);
     log(`fake speech from ${identity}`);
+    // Real speech reaches the recogniser only after the voice detector heard it start and stop. The speech gate
+    // refuses words with no voice behind them while the AI is (or just was) talking, as echo would be, so the fake
+    // line carries the same short voice first.
+    if (meetingOpen() && !offTheRecord) {
+      talking.add(identity);
+      conversation?.humanSpeech(true);
+      talking.delete(identity);
+      conversation?.humanSpeech(talking.size > 0);
+    }
     acceptRecognisedText(identity, text, { ...start, endedAt: now });
   }
 
