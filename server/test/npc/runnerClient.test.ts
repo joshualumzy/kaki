@@ -149,4 +149,25 @@ describe('the AI runner HTTP client', () => {
     await expect(anonymous.fetchMeetingState()).rejects.toThrow(/HTTP 401/);
     await expect(anonymous.fetchScenario()).rejects.toThrow(/HTTP 401/);
   });
+  it('calls a real meeting through /api/meetings/<id>/runner/..., not /api/meetings/<id>/api/runner/...', async () => {
+    const urls: string[] = [];
+    const fakeFetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    const client = createRunnerClient({
+      baseUrl: 'http://kaki.test',
+      apiPrefix: '/api/meetings/m1',
+      serviceToken: SERVICE_TOKEN,
+      fetch: fakeFetch,
+    });
+    await client.emit(transcript);
+    await client.fetchMeetingState().catch(() => undefined);
+    await client.fetchScenario().catch(() => undefined);
+    expect(urls).toEqual([
+      'http://kaki.test/api/meetings/m1/runner/emit',
+      'http://kaki.test/api/meetings/m1/runner/meeting-state',
+      'http://kaki.test/api/meetings/m1/scenario/full',
+    ]);
+  });
 });
