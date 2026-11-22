@@ -24,7 +24,7 @@ describe('MediaPreview', () => {
   });
 
   it('keeps the practice hint when the practice form asks for it', () => {
-    renderPreview('Microphone off: you will type to the AI attendees');
-    expect(screen.getByText('Microphone off: you will type to the AI attendees')).toBeTruthy();
+    renderPreview('Microphone off: turn it on in the meeting to speak');
+    expect(screen.getByText('Microphone off: turn it on in the meeting to speak')).toBeTruthy();
   });
 });
