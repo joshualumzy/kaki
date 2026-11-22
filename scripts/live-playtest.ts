@@ -35,6 +35,10 @@ export type Line = {
   gate?: 'lock-offer';
 };
 type UiLine = { at: string; source: string; text: string; topicTitle?: string };
+type WingmanNoteSeen = {
+  id: string; at: string; agendaIndex: number; kind: string; urgency: string;
+  title: string; text: string; questionText?: string;
+};
 
 type PlaytestOptions = { role?: string; maxMinutes: number; phone: boolean; shots?: boolean; act?: boolean };
 /** What the guest is told before it answers: the scenario, its seat, the topic and the transcript so far. */
@@ -74,6 +78,10 @@ const topicMarkers: Array<{ matches: RegExp; markers: RegExp }> = [
 
 function lineKey(line: Line): string { return `${line.sourceTime}|${line.speaker}|${line.text}`; }
 
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 /**
  * The transcript speaker for this run's own seat. The server writes a person's line under the
  * setup's seat display name, not the name typed at join, so reading the transcript must follow it.
@@ -92,6 +100,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   const checks: Check[] = [];
   const transcript: Line[] = [];
   const uiLines: UiLine[] = [];
+  const wingmanNotesSeen: WingmanNoteSeen[] = [];
   const tasks = new Map<string, Task>();
   const taskHistory: string[] = [];
   /** Set when the minutes card reaches DRAFT_READY, so an early approval still counts as the card having appeared. */
@@ -194,6 +203,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       transcript.length = 0;
       seenLines.clear();
       tasks.clear();
+      wingmanNotesSeen.length = 0;
+      minutesReachedDraft = false;
       settled.clear();
       reacted.clear();
       agendaIndex = 0;
@@ -223,6 +234,25 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         taskHistory.push(`${stamp()} ${event.payload.task.id} ${event.payload.task.agendaItemTitle ?? '(no agenda item)'} ${event.payload.task.actionKind ?? '(no kind)'} ${event.payload.task.status} ${event.payload.task.title}`);
       }
       if (previous?.status !== event.payload.task.status) lastProgressAt = now;
+    } else if (event.type === 'WINGMAN_NOTE') {
+      const note = event.payload;
+      const index = wingmanNotesSeen.findIndex((seen) => seen.id === note.id);
+      if (note.clears === true) {
+        if (index >= 0) wingmanNotesSeen.splice(index, 1);
+        return;
+      }
+      const seen: WingmanNoteSeen = {
+        id: note.id,
+        at: stamp(),
+        agendaIndex,
+        kind: note.kind,
+        urgency: note.urgency,
+        title: note.title,
+        text: note.text,
+        ...(note.questionText === undefined ? {} : { questionText: note.questionText }),
+      };
+      if (index >= 0) wingmanNotesSeen[index] = seen;
+      else wingmanNotesSeen.push(seen);
     } else if (event.type === 'TOPIC_SETTLED') {
       settled.add(event.payload.title);
       lastProgressAt = now;
@@ -503,6 +533,63 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   /** True once the end-of-meeting minutes card has been ready for a person to approve, even if they already approved it. */
   function minutesCardReady(): boolean {
     return minutesReachedDraft;
+  }
+
+  function topicTitleAt(index: number): string {
+    return scenario?.agenda[index]?.title ?? 'unknown topic';
+  }
+
+  function topicItemNumber(title: string | undefined): number {
+    if (title === undefined) return 0;
+    const index = scenario?.agenda.findIndex((item) => item.title === title) ?? -1;
+    return index < 0 ? 0 : index + 1;
+  }
+
+  function ownerLabel(role: string | undefined): string {
+    if (role === undefined) return 'unassigned';
+    const label = scenario?.roles.find((item) => item.id === role)?.label ?? role;
+    const attendee = scenario?.attendees.find((item) => item.role === role);
+    const name = attendee?.displayName ?? attendee?.name;
+    return name === undefined ? label : `${name} (${label})`;
+  }
+
+  function fitText(task: Task): string {
+    if (task.fit === undefined) return 'not checked';
+    return task.fit.kind === undefined ? task.fit.status : `${task.fit.status} (${task.fit.kind})`;
+  }
+
+  function notetakerOutputLines(): string[] {
+    const active = [...tasks.values()].filter((task) => task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED');
+    const order = (title: string | undefined): number => {
+      const item = topicItemNumber(title);
+      return item === 0 ? Number.MAX_SAFE_INTEGER : item;
+    };
+    const decisions = new Map<string, { topic: string; topicNumber: number; text: string }>();
+    for (const task of active) {
+      if (task.decisionSource === undefined) continue;
+      const topic = task.agendaItemTitle ?? '(no agenda item)';
+      const key = `${topic}|${task.decisionSource}`;
+      if (!decisions.has(key)) decisions.set(key, { topic, topicNumber: topicItemNumber(task.agendaItemTitle), text: task.decisionSource });
+    }
+    const todos = active
+      .filter((task) => task.purpose === undefined)
+      .sort((left, right) => order(left.agendaItemTitle) - order(right.agendaItemTitle) || left.title.localeCompare(right.title));
+    const minutes = active.find((task) => task.purpose === 'meeting_minutes');
+    const lines = ['### Decisions', ''];
+    if (decisions.size === 0) lines.push('- (none)');
+    else for (const item of decisions.values()) lines.push(`- [item ${item.topicNumber} · ${item.topic}] ${oneLine(item.text)}`);
+    lines.push('', '### To-dos', '');
+    if (todos.length === 0) lines.push('- (none)');
+    else for (const task of todos) lines.push(`- [item ${topicItemNumber(task.agendaItemTitle)} · ${task.agendaItemTitle ?? '(no agenda item)'}] ${oneLine(task.title)} · owner ${ownerLabel(task.assignee ?? task.suggestedAssignee)} · action ${task.actionKind ?? 'none'} · fit ${fitText(task)} · status ${task.status}`);
+    lines.push('', '### Minutes', '');
+    if (minutes === undefined) {
+      lines.push('- (none)');
+    } else {
+      const body = minutes.draft?.body ?? '';
+      lines.push(`- present: ${oneLine(minutes.title)} (${minutes.status})`);
+      if (body.trim() !== '') lines.push('```markdown', ...body.split('\n'), '```');
+    }
+    return lines;
   }
 
   /** Click Approve & publish for a card whose draft is on screen, waiting for the draft to appear first. */
@@ -1017,13 +1104,14 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     await check('Meeting reached wrap-up', closing, closing ? 'HOST_SPEECH_TRIGGERED CLOSING received' : 'No closing event');
     await checkPhoneLayout('at wrap-up');
     await keepShot('at wrap-up');
+    const minutesReady = await waitFor('Minutes card ready', minutesCardReady, 20_000, false);
     if (parsed.act === true) {
-      // The minutes card is created a moment after the closing cue; approve it like any other guest card.
-      const minutesReady = await waitFor('Minutes card for approval', minutesCardReady, 30_000, false);
       await check('Minutes card for approval', minutesReady,
-        minutesReady ? 'Minutes card reached DRAFT_READY for approval' : 'No end-of-meeting minutes card appeared within 30 s');
+        minutesReady ? 'Minutes card reached DRAFT_READY for approval' : 'No end-of-meeting minutes card appeared within 20 s');
       await actOnRobotTasks();
       await finishActedCards();
+    } else if (!minutesReady) {
+      await check('Minutes card ready', false, 'No end-of-meeting minutes card appeared within 20 s', 'warn');
     }
     const storedUiLines = await page.evaluate('window.__playtestLines ?? []') as UiLine[];
     uiLines.push(...storedUiLines);
@@ -1114,7 +1202,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       '',
       '## Full API transcript',
       '',
-      ...(transcript.length ? transcript.map((line) => `- ${line.at} (source ${line.sourceTime}, item ${line.agendaIndex + 1}) **${line.speaker}:** ${line.text}`) : ['(none)']),
+      ...(transcript.length ? transcript.map((line) => `- ${line.at} (source ${line.sourceTime}, item ${line.agendaIndex + 1}) [${topicTitleAt(line.agendaIndex)}] **${line.speaker}:** ${line.text}`) : ['(none)']),
       '',
       '## UI captions and transcript lines seen',
       '',
@@ -1128,6 +1216,16 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       '',
       ...(taskHistory.length ? taskHistory.map((item) => `- ${item}`) : ['(no task updates)']),
       ...uiTaskCards.map((item) => `- UI: ${item.trim()}`),
+      '',
+      '## Wingman notes seen',
+      '',
+      ...(wingmanNotesSeen.length
+        ? wingmanNotesSeen.map((note) => `- ${note.at} · item ${note.agendaIndex + 1} · ${topicTitleAt(note.agendaIndex)} · ${note.kind}/${note.urgency} · ${oneLine(note.title)} — ${oneLine(note.text)}${note.questionText === undefined ? '' : ` (asked: ${oneLine(note.questionText)})`}`)
+        : ['(none)']),
+      '',
+      '## Notetaker output',
+      '',
+      ...notetakerOutputLines(),
       '',
       '## Errors',
       '',
