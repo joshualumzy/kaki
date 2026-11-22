@@ -25,10 +25,6 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 <table>
   <tr>
     <td align="center"><img src="docs/images/landing.png" alt="Kaki landing page" width="420"><br><sub>Choose a team meeting or a practice meeting.</sub></td>
-    <td align="center"><img src="docs/images/setup.png" alt="Kaki setup editor" width="420"><br><sub>The legacy setup editor checks the plan before anyone joins.</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/owner-lobby.png" alt="Kaki owner lobby" width="420"><br><sub>The legacy owner lobby shares the link, code and QR code.</sub></td>
     <td align="center"><img src="docs/images/phone-join.png" alt="Kaki join screen on a phone" width="260"><br><sub>The join screen on a phone.</sub></td>
   </tr>
   <tr>
@@ -164,7 +160,7 @@ In a practice meeting, one person sits with four AI colleagues who speak in thei
 
 ## Front-end features
 
-The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). The practice pages still work: `/practice` and `/demo` open the practice meeting. `/` is the landing page, and `/join`, `/meeting`, `/login` and `/setup` are the legacy team-meeting pages. Any other path redirects to `/`.
+The web app is one React and Vite application. The product pages are `/signin` (Google sign-in), `/new` (new meeting), `/workspaces/:id` (workspace and tools), `/workspaces/:id/meetings/:meetingId` (meeting history), `/m/:id` (guest join) and `/m/:id/room` (real meeting room) (`web/src/product/`, `web/src/App.tsx`). The practice pages still work: `/practice` and `/demo` open the practice meeting. `/` is the landing page: it leads to Google sign-in and a new meeting, to the practice meeting, or to a real meeting's join page when someone types its meeting code. Any other path redirects to `/`.
 
 The design uses shared colour and type tokens in `web/src/ui/tokens.css` and shared components in `web/src/ui` (`Button`, `Card`, `StatusPill`). The meeting stage takes the most space, private cards sit in the dock beside it, and on a narrow screen the stage stacks above the dock.
 
@@ -176,21 +172,19 @@ Screen map:
 - `/workspaces/:id` lists the workspace's meetings and tools. An admin can connect, test and disconnect tools.
 - `/workspaces/:id/meetings/:meetingId` shows the minutes and to-dos of an ended meeting, with Copy and Download.
 - `/m/:id` is the guest join page, and `/m/:id/room` is the real meeting room.
-- `/practice` and `/demo` open the practice meeting; `/join`, `/meeting`, `/login` and `/setup` are the legacy team-meeting pages.
-- Any other path redirects to `/`.
+- `/practice` and `/demo` open the practice meeting. Any other path redirects to `/`.
 
 ### Plan the meeting (front end)
 
 - A signed-in person creates a meeting at `/new`: choose a workspace, type the title and agenda, describe the meeting to Tell Kaki for a draft, or import the agenda from the calendar, then press Start now or Schedule for later. Field errors appear next to the input. `web/src/product/NewMeetingPage.tsx`, `web/src/product/api.ts`, `server/src/http/routes/agenda.ts`
 - The workspace page lists its meetings and each connected tool, with connect, save, test and disconnect controls for an admin. `web/src/product/WorkspacePage.tsx`, `web/src/product/ToolSection.tsx`
-- The legacy setup page still edits the Kopitiam plan, checks the plan and imports the demo calendar invite. `web/src/setup/SetupPage.tsx`, `web/src/setup/SetupEditor.tsx`, `shared/src/setupParse.ts`
 
 ### Invite and join (front end)
 
 - The real meeting bar shares the invite link and a QR code, copies the link, and lists who has joined. `web/src/meeting/room/RealMeetingBar.tsx`
 - A guest opens the link, enters a name and joins without an account. A scheduled meeting can be joined early. `web/src/product/JoinPage.tsx`
 - A reload or a dropped connection restores the same name and seat while the grace window is open. `web/src/meeting/room/rejoinSession.ts`
-- The legacy owner lobby shows the invite link, the six-character code and a QR code, and the legacy join form takes a name and a seat with a microphone and camera check. `web/src/meeting/MeetingOverlays.tsx`, `web/src/meeting/room/JoinForm.tsx`, `web/src/meeting/TeamJoinForm.tsx`
+- The practice join form takes a name and a seat with a microphone and camera check. `web/src/meeting/room/JoinForm.tsx`
 
 ### During the meeting (front end)
 
@@ -233,12 +227,11 @@ Screen map:
 - A guest joins one meeting through its link with a name and no account, and the guest session is bound to that meeting. `server/src/auth/module.ts`, `server/src/http/access.ts`
 - Each workspace stores its tool logins encrypted with AES-256-GCM under `KAKI_SECRET_KEY`; the API returns only the non-secret settings, and an admin can test a connection with the Test button. `server/src/workspace/secrets.ts`, `server/src/workspace/tools.ts`, `server/src/http/routes/workspaces.ts`
 - The built-in Nanyang Kopi sample workspace is read-only, is never a row, and uses the hosted services. `server/src/workspace/sample.ts`
-- The legacy password host remains for the legacy owner pages: `npm run host:create` adds an account, and `KAKI_HOST_EMAIL` and `KAKI_HOST_PASSWORD` create one at startup. `server/src/auth/cli.ts`, `server/src/index.ts`
 
 ### Plan the meeting (back end)
 
 - The product creates a real meeting from a workspace, a title and an agenda that was typed, drafted by Tell Kaki or taken from the calendar. The title and every agenda item are checked before the row is written, and a future start time marks the meeting scheduled. `server/src/http/routes/meetings.ts`, `server/src/http/routes/agenda.ts`, `server/src/meeting/agenda.ts`
-- The setup parser runs in the browser and again on the server for the legacy pages. It checks role ids, unique labels, agenda owners, seat kinds, nudge pace and required fields. `shared/src/setupParse.ts`, `shared/src/setupScenario.ts`, `server/src/http/routes/setup.ts`
+- The setup parser checks role ids, unique labels, agenda owners, seat kinds, nudge pace and required fields. `shared/src/setupParse.ts`, `shared/src/setupScenario.ts`
 
 ### Invite and join (back end)
 
@@ -276,7 +269,7 @@ Screen map:
 | Custom hooks | `useKaki` (`web/src/kaki/useKaki.ts`), `useScenario` and `useRefreshScenario` (`web/src/kaki/ScenarioContext.tsx`), `useMe` (`web/src/auth/useMe.ts`) | Each hook packages one piece of shared behaviour: live events, the active scenario and the sign-in check. |
 | Context with `createContext` | `web/src/kaki/ScenarioContext.tsx` | Every page reads the same scenario without passing it through each component. |
 | Routing with React Router 7 | `web/src/App.tsx`, `useNavigate` in `LandingPage`, `JoinPage`, `LoginPage` and `SetupPage`, `useSearchParams` in `JoinPage`, `SignInPage`, `LoginPage` and `ParticipantJoinPage` | The routes cover the landing, sign-in, new-meeting, workspace, join and meeting flows, and the invite code travels in the URL. |
-| Controlled forms and validation | `web/src/meeting/room/JoinForm.tsx`, `web/src/setup/SetupEditor.tsx` | Submit stays disabled until required fields are valid, and the server's refusal appears next to the form. |
+| Controlled forms and validation | `web/src/meeting/room/JoinForm.tsx`, `web/src/product/NewMeetingPage.tsx` | Submit stays disabled until required fields are valid, and the server's refusal appears next to the form. |
 | Error boundary | `web/src/meeting/room/ErrorBoundary.tsx`, used in `Dock` | A broken card shows an error instead of taking down the meeting page. |
 | LiveKit React components | `LiveKitRoom`, `useTracks`, `ParticipantTile`, `RoomAudioRenderer`, `useRoomContext` from `@livekit/components-react` | The room, tiles and audio renderer come from the LiveKit React package. |
 | Plain CSS | `web/src/ui/tokens.css`, `web/src/ui/ui.css`, `web/src/meeting/room/demo.css`, `web/src/product/product.css` | Shared colour and type tokens keep the pages uniform, and media queries restack the meeting room on a phone. |
@@ -304,14 +297,12 @@ Kaki uses React with React Router and plain CSS on the front end, a Node and Typ
 
 The repository is a TypeScript workspace with three packages: `shared/`, `server/` and `web/`. `shared/` holds the protocol and the rules both sides must agree on, including events, commands, task states, scenario parsing and setup parsing. The server is split by responsibility (`core`, `http`, `meeting`, `host`, `wingman`, `action`, `npc`, `auth`, `workspace`, `persist`, `services`). The web app is split by page and feature (`product`, `landing`, `auth`, `setup`, `meeting`, `kaki`, `ui`, `net`), with shared buttons, cards, labels and artifact links in `web/src/ui/`. Every exported function, component and type carries a short comment.
 
-Input is checked on both sides. The product checks the meeting title, agenda and tools before a write, and the setup parser checks the legacy plan before it is saved and again on the server. Commands from a socket are validated against the scenario before the hub accepts them. The action connectors reject a draft that adds details its source does not support.
+Input is checked on both sides. The product checks the meeting title, agenda and tools before a write, and the setup parser checks a plan before it is used. Commands from a socket are validated against the scenario before the hub accepts them. The action connectors reject a draft that adds details its source does not support.
 
 Web tests sit next to their components. The server, shared and seed tests live in their own test folders (`server/test/`, `shared/test/`, `docker/seed/`), and the playtest helpers are tested in `scripts/`. `npm test` runs the Vitest suite for all of them, including unit tests and integration tests that drive the HTTP and WebSocket API. `npm run typecheck` checks the whole workspace.
 
 Playwright drives the real app in installed Google Chrome:
 
-- `npm run playtest:team` runs a typed three-person meeting, including the lobby, meeting code, private cards, follow-up approval and minutes published to the wiki.
-- `npm run playtest:team -- --voice` runs the same meeting with generated speech through a fake microphone.
 - `npm run playtest:live` runs one visitor through the practice meeting with the AI colleagues.
 - `npm run playtest:ai` lets a language model play the visitor in one of nine styles, then a second model judges the meeting.
 - The click-through journeys in `scripts/clickthrough/` drive the real product: the sign-in page, a signed-in workspace tool test, a start-now meeting with a guest, off the record, End and the minutes, a scheduled meeting, the sample workspace, the practice page and a phone layout. Each run writes screenshots and a findings report to `.live-logs/clickthrough/`.
@@ -346,7 +337,6 @@ Open `http://localhost:5173` in Chrome. The practice meeting is at `/practice` a
 
 To use the product pages locally, set `KAKI_AUTH=1`, `KAKI_GOOGLE_CLIENT_ID`, `KAKI_GOOGLE_CLIENT_SECRET` and `KAKI_PUBLIC_URL` (the address Google returns to), set `KAKI_SERVICE_TOKEN` so the AI runner can reach the meeting, and set `KAKI_SECRET_KEY` to 32 random bytes, base64-encoded, so a workspace can store tool logins. `KAKI_MAX_OPEN_MEETINGS` caps how many meetings run at once (default 10). `npm start` wires `POSTGRES_URL` from `docker/.env`.
 
-The legacy team-meeting pages use a password host. Set `KAKI_HOST_EMAIL` and `KAKI_HOST_PASSWORD` together in `.env` (see `.env.example` lines 70 to 73), or add an account with `npm run host:create -- you@example.com` (`server/src/auth/cli.ts`), which reads a password and needs `POSTGRES_URL` set in the shell. Without `KAKI_AUTH=1`, sign-in is off and the legacy owner screens open directly (`server/src/index.ts`).
 
 ```bash
 npm stop              # Stop the Kaki server, web app and AI runner
@@ -384,7 +374,6 @@ npm run seed:verify       # Run the automated health and content checks against 
 npm run index:knowledge   # Embed and index seeded company records into pgvector
 npm run knowledge:check   # Verify live pgvector search and role-filtered facts
 npm run npc               # Run the AI runner against a local stack
-npm run playtest:team     # Typed three-person Playwright meeting
 npm run playtest:live     # One visitor through the practice meeting
 npm run typecheck         # Type-check all workspaces
 npm test                  # Run the full Vitest suite
@@ -509,14 +498,13 @@ No code was copied from other projects, tutorials or repositories. We wrote the 
 │   ├── src/workspace/      # Workspaces, per-workspace tools and encrypted tool secrets
 │   └── test/               # Integration tests and fixtures
 ├── web/
-│   ├── src/auth/           # Sign-in check hook, session API and the legacy sign-in page
+│   ├── src/auth/           # Sign-in check hook and session API
 │   ├── src/kaki/           # Scenario context, WebSocket hook and topic speech
 │   ├── src/landing/        # Public landing page
-│   ├── src/meeting/        # Legacy owner and participant meeting routes
+│   ├── src/meeting/        # Shared meeting overlays
 │   ├── src/meeting/room/   # Meeting stage, dock, captions, real-meeting bar, task cards and phone layout
 │   ├── src/net/            # Fetch timeout helper
 │   ├── src/product/        # Sign-in, new meeting, workspace, join, real room and meeting history
-│   ├── src/setup/          # Legacy pre-meeting setup editor and tool checks
 │   └── src/ui/             # Shared buttons, cards, labels and artifact links
 ├── scenarios/kopitiam/     # Nanyang Kopi & Toast scenario, seed data and replay fixtures
 ├── docker/                 # Docker Compose stack and idempotent multi-service seed scripts

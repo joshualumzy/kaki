@@ -16,8 +16,6 @@ These drive the real app in installed Google Chrome through Playwright, against 
 
 | Command | What it checks |
 | --- | --- |
-| `npm run playtest:team` | A three-person team meeting (owner plus two teammates, each in their own window): lobby and meeting code, private Wingman cards reaching only the right person, follow-up approval, minutes approved by the owner and published to the wiki, and the room released afterwards. |
-| `npm run playtest:team -- --voice` | The same meeting spoken aloud: generated speech goes through a fake microphone, so speech recognition, transcript and minutes are tested end to end. |
 | `npm run playtest:live` | One visitor in the practice meeting with the AI colleagues, from joining to the end of the agenda. |
 | `npm run playtest:ai` | A language model plays the visitor in one of nine styles (hesitant, terse, off-topic, interrupter, silent and others), then a second model judges the meeting for natural talk, contradictions and made-up facts. |
 | `npm run playtest:dialogue` | The conversation engine on its own, without a browser, across every agenda item. |
