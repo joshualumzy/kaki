@@ -34,7 +34,8 @@ export type Principal =
   | { kind: 'anonymous' }
   /** A host may also hold a seat they took; they keep every host power either way. */
   | { kind: 'host'; seat?: string; userId?: string; name?: string }
-  | { kind: 'seat'; role: string }
+  /** A seat holder; `guest` marks a visitor with no signed-in account behind the seat. */
+  | { kind: 'seat'; role: string; guest?: boolean; userId?: string }
   /** A signed-in product user; only a meeting's owner or workspace admin becomes its host. */
   | { kind: 'user'; userId: string; name: string }
   /** A visitor bound to exactly one meeting; never a member of its workspace. */

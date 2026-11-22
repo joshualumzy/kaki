@@ -1,4 +1,4 @@
-import type { MeetingMemoryEntry, Scenario } from '@kaki/shared';
+import type { MeetingMemoryEntry, Role, Scenario } from '@kaki/shared';
 import type { Hub } from './hub';
 import type { MeetingPersistence } from '../persist/persistence';
 import type { SavedMeetingDetails } from '../persist/state';
@@ -42,6 +42,11 @@ export interface KakiContext {
   notesPaused?(text: string | null): void;
   /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
   meetingDetails?(): SavedMeetingDetails;
+  /**
+   * True when the person holding this seat is a guest with no signed-in account; undefined when
+   * the server does not know. A module that reads the workspace must fail closed on undefined.
+   */
+  seatIsGuest?(role: Role): boolean | undefined;
   /**
    * Keep Kaki's own copy of the end-of-meeting minutes and to-dos with the meeting, so the
    * workspace history still has them after the meeting is unloaded and whatever tools are connected.

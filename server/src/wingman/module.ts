@@ -222,6 +222,25 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         search !== undefined &&
         !(ctx.packFree?.() === true && workspaceId === SAMPLE_WORKSPACE_ID);
 
+      let unknownGuestWarned = false;
+      /**
+       * A guest in a real meeting gets answers and notes from this meeting only: nothing the
+       * workspace holds may reach them. Practice and the legacy demo keep their sample workspace.
+       * An unknown identity fails closed as a guest, loudly once.
+       */
+      const isGuest = (role: Role): boolean => {
+        if (ctx.meetingKind?.() !== 'real') return false;
+        const guest = ctx.seatIsGuest?.(role);
+        if (guest !== undefined) return guest;
+        if (!unknownGuestWarned) {
+          unknownGuestWarned = true;
+          console.warn(
+            'kaki wingman: the seat holder is unknown, so they are treated as a guest and workspace records stay private',
+          );
+        }
+        return true;
+      };
+
       function publishNote(role: Role, payload: WingmanNotePayload, retainKey: string): void {
         ctx.hub.publish(
           { type: 'WINGMAN_NOTE', audience: { kind: 'role', role }, payload },
@@ -339,7 +358,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         role: Role,
         limit: number,
       ): Promise<Fact[]> {
-        if (search === undefined || !searchEnabled()) return [];
+        if (search === undefined || !searchEnabled() || isGuest(role)) return [];
         try {
           const facts = await search(question, role);
           return facts.slice(0, limit);
@@ -355,11 +374,13 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         lastRecordLineCount = transcript.length;
         const latest = transcript[transcript.length - 1];
         if (latest === undefined || isAiHostLine(ctx.activeScenario(), latest)) return;
-        for (const person of peopleInMeeting(ctx)) void judgeRecord(person);
+        for (const person of peopleInMeeting(ctx)) {
+          if (!isGuest(person.role)) void judgeRecord(person);
+        }
       }
 
       async function judgeRecord(person: Person): Promise<void> {
-        if (stopped || llm === undefined) return;
+        if (stopped || llm === undefined || isGuest(person.role)) return;
         if (recordRunning.has(person.role)) return;
         const previous = recordCheckedAt.get(person.role);
         if (previous !== undefined && now() - previous < recordRateLimitMs) return;
@@ -455,7 +476,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
 
         let facts: Fact[] = [];
         let searchFailed = false;
-        if (search !== undefined && searchEnabled()) {
+        if (search !== undefined && searchEnabled() && !isGuest(person.role)) {
           try {
             facts = (await search(question, person.role)).slice(0, MAX_RECORD_FACTS);
           } catch (error) {

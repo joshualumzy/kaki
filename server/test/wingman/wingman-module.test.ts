@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   defaultMeetingSetup,
   type Fact,
@@ -150,6 +150,8 @@ function start(
     tasks?: Task[];
     now?: () => number;
     recordRateLimitMs?: number;
+    meetingKind?: 'real' | 'practice';
+    seatIsGuest?: (role: Role) => boolean | undefined;
   },
 ): () => void {
   const tasks = options.tasks ?? [];
@@ -175,6 +177,8 @@ function start(
           { name: 'Bao', seat: 'cashier' },
         ],
       ),
+    ...(options.meetingKind === undefined ? {} : { meetingKind: () => options.meetingKind }),
+    ...(options.seatIsGuest === undefined ? {} : { seatIsGuest: options.seatIsGuest }),
   });
   if (typeof stop !== 'function') throw new Error('Expected a cleanup function');
   return stop;
@@ -217,6 +221,142 @@ describe('wingman module', () => {
       expect(note?.payload.sources?.[0]).toContain('2026-11-22T10:00:00.000Z');
       expect(note?.payload.facts).toBeUndefined();
     } finally {
+      stop();
+    }
+  });
+
+  it('answers a guest in a real meeting from the meeting only, never the workspace', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() =>
+      JSON.stringify({
+        parts: [{ text: 'You missed the prep decision.', evidence: 'We agreed to prep early.', taskId: null }],
+      }),
+    );
+    const search = vi.fn<SearchCompanyData>(async () => [factA]);
+    const stop = start({
+      hub: fake,
+      llm,
+      search,
+      meetingKind: 'real',
+      seatIsGuest: (role) => role === 'chef',
+    });
+    try {
+      fake.emit(transcriptLine('We agreed to prep early.'));
+      await fake.runCommand({ type: 'ASK_WINGMAN', question: 'What did I miss?' }, roleAudience('chef'));
+
+      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'answer');
+      expect(note?.payload.text).toBe('You missed the prep decision.');
+      expect(note?.payload.facts).toBeUndefined();
+      expect(note?.payload.sources?.some((source) => source.includes('Wiki: Delivery'))).not.toBe(true);
+      expect(search).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  it('uses the workspace for a member in a real meeting', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() => JSON.stringify({ parts: [] }));
+    const search = vi.fn<SearchCompanyData>(async () => [factA]);
+    const stop = start({
+      hub: fake,
+      llm,
+      search,
+      meetingKind: 'real',
+      seatIsGuest: () => false,
+    });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?'));
+      await fake.runCommand(
+        { type: 'ASK_WINGMAN', question: 'What is the delivery window?' },
+        roleAudience('chef'),
+      );
+
+      const note = wingmanNotes(fake.published).find((event) => event.payload.kind === 'answer');
+      expect(search).toHaveBeenCalledWith('What is the delivery window?', 'chef');
+      expect(note?.payload.facts).toEqual([factA]);
+      expect(note?.payload.sources).toEqual(['Wiki: Delivery (2026-11-01)']);
+    } finally {
+      stop();
+    }
+  });
+
+  it('keeps the practice meeting on its sample workspace', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() => JSON.stringify({ parts: [] }));
+    const search = vi.fn<SearchCompanyData>(async () => [factA]);
+    const stop = start({
+      hub: fake,
+      llm,
+      search,
+      meetingKind: 'practice',
+      seatIsGuest: () => true,
+    });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?'));
+      await fake.runCommand(
+        { type: 'ASK_WINGMAN', question: 'What is the delivery window?' },
+        roleAudience('chef'),
+      );
+
+      expect(search).toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  it('never gives a guest a record note from the workspace', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() =>
+      JSON.stringify({ verdict: 'answers', snippet: factA.text, source: factA.source }),
+    );
+    const search = vi.fn<SearchCompanyData>(async () => [factA]);
+    const stop = start({
+      hub: fake,
+      llm,
+      search,
+      meetingKind: 'real',
+      seatIsGuest: () => true,
+    });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?', { speaker: 'Bao', role: 'cashier' }));
+      fake.emit(recordUpdate());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(wingmanNotes(fake.published).filter((event) => event.payload.kind === 'record')).toHaveLength(0);
+      expect(search).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  it('treats an unknown identity as a guest and says so once', async () => {
+    const fake = fakeHub();
+    const llm = createFakeLlm(() => JSON.stringify({ parts: [] }));
+    const search = vi.fn<SearchCompanyData>(async () => [factA]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const stop = start({
+      hub: fake,
+      llm,
+      search,
+      meetingKind: 'real',
+      seatIsGuest: () => undefined,
+    });
+    try {
+      fake.emit(transcriptLine('What is the delivery window?'));
+      await fake.runCommand(
+        { type: 'ASK_WINGMAN', question: 'What is the delivery window?' },
+        roleAudience('chef'),
+      );
+      await fake.runCommand(
+        { type: 'ASK_WINGMAN', question: 'And the refund window?' },
+        roleAudience('cashier'),
+      );
+
+      expect(search).not.toHaveBeenCalled();
+      expect(warn.mock.calls.filter((call) => String(call[0]).includes('treated as a guest'))).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
       stop();
     }
   });

@@ -409,12 +409,17 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   };
   const isHumanSeat = (role: string): boolean =>
     session.holders().some((holder) => holder.seat === role);
+  /**
+   * Whether the person in each seat is a guest, learned from the principal that authorized their
+   * socket. A seat's own ask always arrives over such a socket, so the map is current when read.
+   */
+  const seatGuests = new Map<string, boolean>();
   const runnerMayUseAudience = (audience: ClientAudience): boolean => {
     const role = audienceRole(audience);
     return role !== undefined && aiVoiceRoles().has(role) && !isHumanSeat(role);
   };
   /** One WebSocket authorization path: the runner token first, then the same session principal as HTTP. */
-  const authorizeUpgrade = async (
+  const authorizeUpgradeBase = async (
     request: IncomingMessage,
     audience: ClientAudience,
   ): Promise<Awaited<ReturnType<Auth['authorize']>>> => {
@@ -475,6 +480,43 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       return { ok: false, message: 'Practice access belongs to its practice meeting only' };
     }
     return auth.authorize(request, audience, legacy ? undefined : id);
+  };
+  const authorizeUpgrade = async (
+    request: IncomingMessage,
+    audience: ClientAudience,
+  ): Promise<Awaited<ReturnType<Auth['authorize']>>> => {
+    const decision = await authorizeUpgradeBase(request, audience);
+    if (decision.ok) {
+      const principal = decision.principal;
+      const seat =
+        audienceRole(audience) ??
+        decision.seat ??
+        (principal?.kind === 'seat' ? principal.role : undefined) ??
+        (principal?.kind === 'host' ? principal.seat : undefined);
+      if (seat !== undefined) {
+        if (principal?.kind === 'seat' && principal.guest !== true) {
+          // A seat without an account, or a signed-in person outside this workspace, is never a
+          // workspace member. A failure to check membership fails closed as a guest.
+          const userId = principal.userId;
+          let guest = userId === undefined;
+          if (userId !== undefined && auth !== undefined) {
+            try {
+              guest =
+                (await auth.store.getMembership({ workspaceId, userId })) ===
+                undefined;
+            } catch (error) {
+              console.warn(`kaki meetings: could not read a seat holder's workspace membership`, error);
+              guest = true;
+            }
+          }
+          seatGuests.set(seat, guest);
+        } else {
+          // A guest principal is a guest; a host seat and every other kind is not.
+          seatGuests.set(seat, principal?.kind === 'guest');
+        }
+      }
+    }
+    return decision;
   };
   const hub = createHub(null, () => session.active(), {
     noServer: true,
@@ -1608,6 +1650,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         },
         packFree,
         meetingDetails: () => session.snapshot(),
+        seatIsGuest: (role) => seatGuests.get(role),
         ...(onMinutes === undefined
           ? {}
           : {

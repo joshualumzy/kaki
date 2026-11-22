@@ -147,7 +147,15 @@ function principalFor(session: SessionRecord, meetingId: string): Principal {
     const seat = session.role !== null && session.meetingId === meetingId ? session.role : undefined;
     return seat === undefined ? { kind: 'host' } : { kind: 'host', seat };
   }
-  return { kind: 'seat', role: session.role ?? '' };
+  // A guest session becomes a participant when it takes a seat, but it carries no user id:
+  // that is the one mark that separates a visitor from a signed-in member behind the same seat.
+  return {
+    kind: 'seat',
+    role: session.role ?? '',
+    ...(session.userId === null || session.userId === undefined
+      ? { guest: true }
+      : { userId: session.userId }),
+  };
 }
 
 /** Create the auth feature: endpoints, session cookies and WebSocket gating. */
