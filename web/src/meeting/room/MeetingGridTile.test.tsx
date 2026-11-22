@@ -44,7 +44,6 @@ vi.mock('../../kaki', () => ({
     connected: true,
   }),
 }));
-vi.mock('./TypeBar', () => ({ ConnectedTypeBar: () => null }));
 vi.mock('./Orb', () => ({ Orb: () => null, orbPalette: () => ['--c'] }));
 
 beforeEach(() => {
@@ -86,14 +85,14 @@ describe('meeting tiles', () => {
     expect(screen.queryByText('⏳ Transcribing…')).toBeNull();
   });
 
-  it('shows the speaker their own recognition failure with a typing fallback', () => {
+  it('shows the speaker their own recognition failure and asks them to say it again', () => {
     mocks.tile = { identity: 'Owner', name: 'Owner', metadata: 'role_1' };
     mocks.localIdentity = 'Owner';
     render(<MeetingGrid role="role_1" />);
 
-    speechStatus({ Owner: { state: 'failed', message: 'Kaki could not hear that. Please repeat it, or type it instead.' } });
+    speechStatus({ Owner: { state: 'failed', message: 'Kaki could not hear that. Please say it again.' } });
     expect(screen.getByRole('alert').textContent).toContain('Kaki could not hear that');
-    expect(screen.getByRole('button', { name: 'Type it instead' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /type/i })).toBeNull();
   });
 
   it('shows a lasting recognition outage to everyone in the room', () => {
@@ -101,7 +100,7 @@ describe('meeting tiles', () => {
     mocks.localIdentity = 'Owner';
     render(<MeetingGrid role="role_1" />);
 
-    speechStatus({ Ana: { state: 'failed' } }, { message: 'Speech recognition is not working. Type your lines instead.' });
+    speechStatus({ Ana: { state: 'failed' } }, { message: 'Speech recognition is not working.' });
     expect(screen.getByRole('alert').textContent).toContain('Speech recognition is not working');
   });
 
