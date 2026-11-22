@@ -527,7 +527,8 @@ export async function createApp({
       actionTools,
       roomRoster,
       draftOnly,
-      meetingCode: createMeetingCodeSource(),
+      // Every real meeting gets its own random code; only the practice meeting honours a pinned one.
+      meetingCode: createMeetingCodeSource(''),
       meetingCodeAttempts: createAttemptLimiter({
         limit: MEETING_CODE_FAILURE_LIMIT,
         windowMs: MEETING_CODE_WINDOW_MS,
