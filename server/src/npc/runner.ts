@@ -1450,8 +1450,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         }
         log(`${participant.identity} pressed resume`);
         releaseLocalStop();
-      } else if (message.kind === 'lock') {
-        if (openedLocally || hostIsHuman()) conversation?.lockDecision();
       } else if (!openedLocally && !hostIsHuman()) {
         log('ignored typed text: the meeting has not started');
       } else {

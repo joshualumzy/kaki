@@ -9,8 +9,8 @@ const withAi: Scenario = {
 };
 
 describe('demo meeting helpers', () => {
-  it('accepts the explicit decision lock control', () => {
-    expect(parseControlMessage({ kind: 'lock' })).toEqual({ kind: 'lock' });
+  it('refuses the removed decision lock control', () => {
+    expect(parseControlMessage({ kind: 'lock' })).toBeUndefined();
   });
   it('names the room after the scenario and the meeting identity', () => {
     expect(demoRoomName(testScenario, 'meeting-1')).toBe('kaki-demo-test-kitchen-meeting-1');
