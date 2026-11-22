@@ -174,6 +174,25 @@ describe('ScenarioProvider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('says plainly when no meeting has the link', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'meeting-not-found' }),
+    } as unknown as Response)));
+
+    render(
+      <ScenarioProvider meetingId="nope">
+        <p>Meeting ready</p>
+      </ScenarioProvider>,
+    );
+    await flush();
+
+    expect(screen.getByText("This meeting link doesn't exist")).toBeTruthy();
+    expect(screen.queryByText(/meeting-not-found/)).toBeNull();
+    expect(screen.queryByText('Try again')).toBeNull();
+  });
+
   it('aborts a request that never answers so the 90 s limit is enforced', async () => {
     const fetchMock = vi.fn(
       (_url: string, init?: RequestInit) =>

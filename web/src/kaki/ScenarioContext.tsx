@@ -16,7 +16,10 @@ import { scenarioRevision, subscribeScenarioRevision } from './scenarioRevision'
 type ScenarioState =
   | { status: 'loading' }
   | { status: 'ready'; scenario: Scenario }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; notFound: boolean };
+
+/** The server's final answer that no meeting has this link. */
+class MeetingNotFoundError extends Error {}
 
 /**
  * Which scenario a page needs: the practice page follows the pack, independent of the owner's
@@ -76,6 +79,7 @@ async function attemptScenario(
     } catch {
       // Not a JSON answer: treat it as the proxy still starting.
     }
+    if (payload?.error === 'meeting-not-found') throw new MeetingNotFoundError(payload.error);
     if (typeof payload?.error === 'string') {
       throw new Error(
         typeof payload.message === 'string' && payload.message.trim() !== ''
@@ -183,6 +187,7 @@ export function ScenarioProvider({
         setState({
           status: 'error',
           message: error instanceof Error ? error.message : 'Could not load the scenario',
+          notFound: error instanceof MeetingNotFoundError,
         });
       });
     return () => {
@@ -196,6 +201,19 @@ export function ScenarioProvider({
         <p className="empty-state">
           {starting ? 'Starting up… this can take a few seconds.' : 'Loading scenario…'}
         </p>
+      </main>
+    );
+  }
+
+  if (state.status === 'error' && state.notFound) {
+    return (
+      <main className="page">
+        <Card title="This meeting link doesn't exist">
+          <p>Check the link you were given, or ask the person who invited you for a new one.</p>
+          <div className="setup-tool-actions">
+            <a href="/">Go to Kaki</a>
+          </div>
+        </Card>
       </main>
     );
   }
