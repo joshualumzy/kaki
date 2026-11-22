@@ -1,3 +1,4 @@
+import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
@@ -176,7 +177,7 @@ export function WorkspacePage() {
         {loadError === null ? null : (
           <Card title="Could not load this workspace">
             <p className="connection-banner" role="alert">
-              {loadError}
+              <ErrorText text={loadError} />
             </p>
             <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
               Try again
@@ -253,7 +254,7 @@ export function WorkspacePage() {
 
             {renameError === null ? null : (
               <p className="product-error" role="alert">
-                {renameError}
+                <ErrorText text={renameError} />
               </p>
             )}
 

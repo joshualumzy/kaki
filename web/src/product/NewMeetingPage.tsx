@@ -1,3 +1,4 @@
+import { ErrorText } from './ErrorText';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
@@ -368,7 +369,7 @@ export function NewMeetingPage() {
         {loadError === null ? null : (
           <Card title="Could not load your workspaces">
             <p className="connection-banner" role="alert">
-              {loadError}
+              <ErrorText text={loadError} />
             </p>
             <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
               Try again
@@ -465,7 +466,7 @@ export function NewMeetingPage() {
                 </div>
                 {createError === null ? null : (
                   <p className="product-error" role="alert">
-                    {createError}
+                    <ErrorText text={createError} />
                   </p>
                 )}
               </form>
@@ -641,7 +642,7 @@ export function NewMeetingPage() {
 
                 {error === null ? null : (
                   <p className="product-error" role="alert">
-                    {error}
+                    <ErrorText text={error} />
                   </p>
                 )}
                 {note === null ? null : (

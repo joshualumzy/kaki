@@ -1,3 +1,4 @@
+import { plainFailureMessage, plainServerText, SERVER_TROUBLE } from '../net/plainFailure';
 import { fetchWithTimeout } from '../net/withTimeout';
 
 export type WorkspaceKind = 'personal' | 'team' | 'sample';
@@ -123,30 +124,28 @@ async function readJsonArray(response: Response): Promise<unknown[] | null> {
   }
 }
 
-async function failure(response: Response, fallback: string): Promise<ProductApiError> {
+async function failure(response: Response): Promise<ProductApiError> {
   const body = await readJson(response);
-  const message =
-    typeof body?.error === 'string' ? body.error : `${fallback} (HTTP ${response.status})`;
-  return new ProductApiError(message, response.status);
+  const serverText = plainServerText(body?.message) ?? plainServerText(body?.error);
+  return new ProductApiError(plainFailureMessage(response.status, serverText), response.status);
 }
 
-function networkFailure(subject: string): ProductApiError {
-  return new ProductApiError(`Could not reach the server to ${subject}.`, 0);
+function networkFailure(error: unknown): ProductApiError {
+  console.error('kaki web: a request did not reach the server', error);
+  return new ProductApiError(SERVER_TROUBLE, 0);
 }
 
 async function request(
   input: RequestInfo | URL,
   init: RequestInit,
-  subject: string,
-  fallback: string,
 ): Promise<Response> {
   let response: Response;
   try {
     response = await fetchWithTimeout(input, init);
-  } catch {
-    throw networkFailure(subject);
+  } catch (error) {
+    throw networkFailure(error);
   }
-  if (!response.ok) throw await failure(response, fallback);
+  if (!response.ok) throw await failure(response);
   return response;
 }
 
@@ -242,7 +241,7 @@ function detailFrom(body: Record<string, unknown> | null): WorkspaceDetail {
 }
 
 export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
-  const response = await request('/api/workspaces', {}, 'load your workspaces', 'Could not load your workspaces');
+  const response = await request('/api/workspaces', {});
   const body = await readJsonArray(response);
   if (body === null) {
     throw new ProductApiError('Could not load your workspaces. The server sent no list.', 502);
@@ -262,8 +261,6 @@ export async function createWorkspace(name: string): Promise<WorkspaceSummary> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name }),
     },
-    'create the workspace',
-    'Could not create the workspace',
   );
   const workspace = summaryFrom(await readJson(response));
   if (workspace === undefined) {
@@ -276,8 +273,6 @@ export async function getWorkspace(id: string): Promise<WorkspaceDetail> {
   const response = await request(
     `/api/workspaces/${encodeURIComponent(id)}`,
     {},
-    'load this workspace',
-    'Could not load this workspace',
   );
   return detailFrom(await readJson(response));
 }
@@ -290,8 +285,6 @@ export async function renameWorkspace(id: string, name: string): Promise<Workspa
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name }),
     },
-    'rename this workspace',
-    'Could not rename this workspace',
   );
   const workspace = summaryFrom(await readJson(response));
   if (workspace === undefined) {
@@ -323,8 +316,6 @@ export async function testTool(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ settings, ...(token === undefined ? {} : { token }) }),
     },
-    'test the connection',
-    'Could not test the connection',
   );
   return testResult(await readJson(response), 'Could not test the connection.');
 }
@@ -342,8 +333,6 @@ export async function saveTool(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ settings, ...(token === undefined ? {} : { token }) }),
     },
-    'save the connection',
-    'Could not save the connection',
   );
   const tool = toolStatusFrom(await readJson(response));
   if (tool === undefined) {
@@ -356,8 +345,6 @@ export async function disconnectTool(workspaceId: string, kind: string): Promise
   await request(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/tools/${encodeURIComponent(kind)}`,
     { method: 'DELETE' },
-    'disconnect the tool',
-    'Could not disconnect the tool',
   );
 }
 
@@ -369,8 +356,6 @@ export async function createMeeting(input: CreateMeetingInput): Promise<MeetingC
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
     },
-    'create the meeting',
-    'Could not create the meeting',
   );
   const body = await readJson(response);
   if (body === null || typeof body.id !== 'string' || typeof body.link !== 'string') {
@@ -387,8 +372,6 @@ export async function tellKaki(text: string): Promise<{ title: string | null; ag
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text }),
     },
-    'ask Kaki to draft the agenda',
-    'Could not ask Kaki to draft the agenda',
   );
   const body = await readJson(response);
   if (body === null || !Array.isArray(body.agenda)) {
@@ -414,8 +397,6 @@ export async function agendaFromCalendar(): Promise<{ title: string; agenda: Age
   const response = await request(
     '/api/agenda/from-calendar',
     { method: 'POST' },
-    'read your calendar',
-    'Could not read your calendar',
   );
   const body = await readJson(response);
   if (body === null || typeof body.title !== 'string' || !Array.isArray(body.agenda)) {
@@ -441,8 +422,6 @@ export async function getMeetingInfo(id: string): Promise<MeetingInfo> {
   const response = await request(
     `/api/meetings/${encodeURIComponent(id)}/info`,
     {},
-    'load this meeting',
-    'Could not load this meeting',
   );
   const body = await readJson(response);
   if (body === null || typeof body.title !== 'string') {
@@ -468,15 +447,13 @@ export async function joinMeeting(id: string, name?: string): Promise<{ name: st
         ? {}
         : { headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }),
     },
-    'join this meeting',
-    'Could not join this meeting',
   );
   const body = await readJson(response);
   return { name: typeof body?.name === 'string' ? body.name : (name ?? '') };
 }
 
 export async function logout(): Promise<void> {
-  await request('/api/auth/logout', { method: 'POST' }, 'sign out', 'Could not sign out');
+  await request('/api/auth/logout', { method: 'POST' });
 }
 
 
@@ -509,8 +486,6 @@ export async function listMeetingHistory(workspaceId: string): Promise<MeetingHi
   const response = await request(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings`,
     {},
-    'load the past meetings',
-    'Could not load the past meetings',
   );
   const body = await readJsonArray(response);
   if (body === null) {
@@ -526,8 +501,6 @@ export async function getMeetingMinutes(
   const response = await request(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/minutes`,
     {},
-    'load these minutes',
-    'Could not load these minutes',
   );
   const body = await readJson(response);
   if (body === null || typeof body.id !== 'string' || typeof body.title !== 'string') {
@@ -561,8 +534,6 @@ export async function setMeetingTodoDone(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ done }),
     },
-    'save the to-do',
-    'Could not save the to-do',
   );
   const body = await readJson(response);
   if (body === null || !Array.isArray(body.todos)) {

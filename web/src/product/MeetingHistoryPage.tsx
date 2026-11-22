@@ -1,3 +1,4 @@
+import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
@@ -161,7 +162,7 @@ export function MeetingHistoryPage() {
         {error === null ? null : (
           <Card title="Could not load these minutes">
             <p className="connection-banner" role="alert">
-              {error}
+              <ErrorText text={error} />
             </p>
           </Card>
         )}
@@ -218,7 +219,7 @@ export function MeetingHistoryPage() {
                 )}
                 {todoError === null ? null : (
                   <p className="product-error" role="alert">
-                    {todoError}
+                    <ErrorText text={todoError} />
                   </p>
                 )}
               </section>

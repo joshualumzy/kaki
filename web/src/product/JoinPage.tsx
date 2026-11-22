@@ -1,3 +1,4 @@
+import { ErrorText } from './ErrorText';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
@@ -109,7 +110,7 @@ export function JoinPage() {
       {loadError === null ? null : (
         <Card title="Could not load this meeting">
           <p className="connection-banner" role="alert">
-            {loadError}
+            <ErrorText text={loadError} />
           </p>
           <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
             Try again
@@ -175,7 +176,7 @@ export function JoinPage() {
                 </label>
                 {joinError === null ? null : (
                   <p className="product-error" role="alert">
-                    {joinError}
+                    <ErrorText text={joinError} />
                   </p>
                 )}
                 <Button type="submit" disabled={joining}>
@@ -185,7 +186,7 @@ export function JoinPage() {
             )}
             {signedIn && joinError !== null ? (
               <p className="product-error" role="alert">
-                {joinError}
+                <ErrorText text={joinError} />
               </p>
             ) : null}
           </section>

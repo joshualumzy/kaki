@@ -1,3 +1,4 @@
+import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Button } from '../ui';
 import {
@@ -292,7 +293,7 @@ function ToolRow({
           )}
           {error === null ? null : (
             <p className="product-error" role="alert">
-              {error}
+              <ErrorText text={error} />
             </p>
           )}
           <div className="product-row-actions">
@@ -311,7 +312,7 @@ function ToolRow({
 
       {error !== null && !open ? (
         <p className="product-error" role="alert">
-          {error}
+          <ErrorText text={error} />
         </p>
       ) : null}
     </li>

@@ -16,7 +16,7 @@ Kaki (Singlish for "buddy" or "one of us") helps a small team run a meeting and 
 - Start a meeting now or schedule it for later, describe it to Tell Kaki for a drafted agenda, or take the agenda from the calendar. Invite people by link or QR code, and guests join by link without an account.
 - Many meetings can run at once. Each has its own notes, transcript and cards, and an open-meeting cap returns a plain busy message.
 - Every person has their own seat and a private wingman that answers "what did I miss?" from the meeting first, then the workspace records with sources and dates. Guests get answers from the meeting only.
-- A to-do card can be done for you: the owner presses Do it for me (tool), reviews the draft and approves it. At End, Send the notes posts to chat or emails the people who joined.
+- A to-do card can be done for you: the owner presses Do it for me (tool), reviews the draft and approves it. At End, Send the notes posts to chat or emails the people who joined. Every post Kaki makes is signed "Posted by Kaki for <name>, approved in <meeting title>".
 - After the meeting, the workspace keeps the minutes and to-dos, with Copy, Download and a tick for each to-do.
 - A practice meeting with AI colleagues still runs at `/practice` and `/demo`, with the stage above the dock on narrow screens.
 
@@ -84,7 +84,7 @@ Sign in with Google to open your workspace. The account menu lists your personal
 | Mailpit inbox | [Port 8084](http://kaki.southeastasia.cloudapp.azure.com:8084) | No login |
 | Radicale calendar | [Port 5232](http://kaki.southeastasia.cloudapp.azure.com:5232) | `demo` / `demo` |
 
-In a real meeting, each person has their own seat under their own name and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting, the AI colleagues take the other seats and the visitor can speak or type.
+In a real meeting, each person has their own seat under their own name (two people called Sam show as "Sam" and "Sam (2)") and no AI colleagues join. The room can go off the record, and anyone can leave and rejoin. The owner or an admin can end the meeting for everyone. In a practice meeting, the AI colleagues take the other seats and the visitor can speak or type.
 
 The VM switches itself off after 60 minutes with nobody connected, or after 2 hours with nobody speaking, typing or clicking (a forgotten open tab). A meeting cut off this way is saved and comes back when the VM wakes. The waking page is in `wake/` and the switch-off check in `deploy/idle/`. You can also run Kaki locally with `npm start` (see [Run locally](#run-locally)).
 
@@ -261,7 +261,7 @@ Screen map:
 
 - The task store is the only code that changes task state. It enforces `SUGGESTED`, `DISPATCHED`, `CLAIMED`, `DRAFT_READY`, `RUNNING`, `COMPLETED`, `FAILED` and `SYNCED`, and only the assignee can approve. `server/src/meeting/tasks.ts`
 - Kaki Action drafts the artifact for an accepted task, either after Do it for me or when the assignee claims it, and checks the draft against its source before it runs. `server/src/action/runner.ts`, `server/src/action/draft.ts`, `server/src/action/draftGrounding.ts`
-- Five connectors write to Gitea issues, Mattermost posts, Mailpit email, Wiki.js pages and Radicale calendar events. `server/src/action/gitea.ts`, `server/src/action/mattermost.ts`, `server/src/action/email.ts`, `server/src/action/wiki.ts`, `server/src/action/calendar.ts`
+- Five connectors write to Gitea issues, Mattermost posts, Mailpit email, Wiki.js pages (through its GraphQL API) and Radicale calendar events. Each post or email ends with "Posted by Kaki for <name>, approved in <meeting title>". `server/src/action/footer.ts` `server/src/action/gitea.ts`, `server/src/action/mattermost.ts`, `server/src/action/email.ts`, `server/src/action/wiki.ts`, `server/src/action/calendar.ts`
 - On the closing signal, Kaki builds Markdown minutes from the record, tasks and transcript, including any off-the-record span, assigns the card to a person in the room, and writes to Wiki.js only after that person approves. It also offers Send the notes to a Mattermost channel or by email to the people who joined. `server/src/action/wiki.ts`
 - Kaki keeps its own copy of the minutes and to-dos with the meeting row, so the workspace history can show them and tick to-dos done. `server/src/meeting/registry.ts`, `server/src/http/routes/workspaces.ts`
 - The knowledge indexer reads Wiki.js, Gitea, Mattermost, Mailpit and Postgres, chunks the records and writes 1024-dimension `bge-m3` embeddings. `server/src/wingman/knowledge/indexer.ts`, `server/src/wingman/knowledge/cli.ts`
@@ -279,18 +279,22 @@ Screen map:
 | Controlled forms and validation | `web/src/meeting/room/JoinForm.tsx`, `web/src/setup/SetupEditor.tsx` | Submit stays disabled until required fields are valid, and the server's refusal appears next to the form. |
 | Error boundary | `web/src/meeting/room/ErrorBoundary.tsx`, used in `Dock` | A broken card shows an error instead of taking down the meeting page. |
 | LiveKit React components | `LiveKitRoom`, `useTracks`, `ParticipantTile`, `RoomAudioRenderer`, `useRoomContext` from `@livekit/components-react` | The room, tiles and audio renderer come from the LiveKit React package. |
+| Plain CSS | `web/src/ui/tokens.css`, `web/src/ui/ui.css`, `web/src/meeting/room/demo.css`, `web/src/product/product.css` | Shared colour and type tokens keep the pages uniform, and media queries restack the meeting room on a phone. |
 | Vite dev server with proxy | `web/vite.config.ts` | `/api`, `/health`, `/ws` and `/dev` reach the Kaki server during development, and only this machine may call `/dev`. |
 
 Kaki uses React 19, React Router 7 and Vite 8.
 
 ## Technology choices
 
-The IT5007 stack pairs React with GraphQL and MongoDB. Kaki keeps React and chooses a different API and database, because a live meeting has different needs from a page of records.
+Kaki uses React with React Router and plain CSS on the front end, a Node and TypeScript server, and GraphQL as a client of Wiki.js. It does not use MongoDB or React Native; the reasons are in the table.
 
 | Choice | What Kaki uses | Why |
 | --- | --- | --- |
+| Front end | React 19, React Router 7, Vite and plain CSS (`web/src/**/*.css`, shared tokens in `web/src/ui/tokens.css`) | One single-page app serves the landing page, the product pages and the meeting room, with no CSS framework to learn or override. |
+| Phones | A responsive web app, not React Native | Guests join from a phone by link or QR code with no install. The same React pages and the same LiveKit WebRTC client run in a phone browser, so there is one code base to test. |
+| GraphQL | Client of the Wiki.js GraphQL API | Wiki.js only exposes pages through GraphQL, so Kaki logs in, reads, searches and writes minutes with GraphQL queries and mutations (`server/src/action/wiki.ts`, `server/src/workspace/connectors/wiki.ts`, `server/src/wingman/knowledge/indexer.ts`). Kaki's own API is not GraphQL. |
 | Live API | REST routes plus a WebSocket hub | Setup, sign-in, meeting codes and approvals are request/response calls, so REST keeps each one small and direct. The meeting also needs live pushes to one seat, so one WebSocket stream carries events with an audience and the server routes each one. GraphQL subscriptions would add a query layer over the same push path. |
-| Database | PostgreSQL with pgvector | Company records, meeting state, sessions and 1024-dimension embeddings live in one transactional database. Hybrid vector and full-text search runs in the same place, so a search sees the same records the meeting uses. A self-hosted MongoDB would need a separate vector index for that search (MongoDB Atlas has vector search built in). |
+| Database | PostgreSQL with pgvector, not MongoDB | Company records, meeting state, sessions and 1024-dimension embeddings live in one transactional database. Hybrid vector and full-text search runs in the same place, so a search sees the same records the meeting uses. Users, workspaces and meetings are related rows, which suit SQL. A self-hosted MongoDB would need a separate vector index for that search (MongoDB Atlas has vector search built in). |
 | Language | TypeScript end to end with a shared protocol package | `shared/` holds events, commands, task states and parsers that both the server and the web app compile against. |
 | Real-time audio | LiveKit | The meeting room, room tokens and WebRTC audio come from one self-hosted server. |
 | Speech | Azure Speech | Recognition runs server-side for meeting speech, and multi-voice synthesis runs for the AI colleagues in a practice meeting. |
@@ -392,7 +396,7 @@ See [The live demo meeting](docs/live-demo.md) for the practice meeting flow and
 
 Work was tracked in GitHub issues for `IT5007-2610/it5007-courseproject-group-14`, read and updated with the `gh` CLI. The labels follow five triage roles: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human` and `wontfix`.
 
-The repository has 493 commits from 21 October to 21 November 2026 (`git rev-list --count HEAD`).
+The repository has 581 commits from 21 October to 22 November 2026 (`git rev-list --count HEAD`).
 
 The plan ran in phases: the core stack and protocol first, then the three agents, then the live meeting and demo, then the submission clean-up. Each phase closed with review rounds on architecture, security and how real people use the demo; their findings became issues and fix commits. Notes from people testing the demo became issues and then automated playtests, described in [How we tested Kaki](docs/testing.md).
 
@@ -476,7 +480,7 @@ External services and APIs:
 | `bge-m3` embeddings through the same gateway | 1024-dimension company-record vectors for pgvector |
 | Azure Speech | Server-side speech recognition for meeting speech and multi-voice text-to-speech for the AI colleagues in a practice meeting |
 | LiveKit | WebRTC audio room for the meeting and the NPC runner |
-| Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets |
+| Wiki.js, Gitea, Mattermost, Mailpit, Radicale | Self-hosted company systems used as search sources and action targets; Wiki.js is reached through its GraphQL API |
 
 The notetaker evaluation uses meetings from the [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (Carletta et al., 2005), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The transcripts in `scenarios/ami-eval/meetings/` are converted from the corpus word files, with speakers named by their role.
 
