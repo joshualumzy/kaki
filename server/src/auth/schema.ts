@@ -131,11 +131,13 @@ export async function ensureMeetingsSchema(pool: Pool): Promise<void> {
       title text not null,
       kind text not null default 'real',
       scheduled_for timestamptz,
+      agenda jsonb,
       created_at timestamptz not null default now(),
       ended_at timestamptz
     )
   `);
   await pool.query('alter table meetings add column if not exists status text');
+  await pool.query('alter table meetings add column if not exists agenda jsonb');
   // Step-2 rows had no status; an open meeting is the truthful default for them.
   await pool.query("update meetings set status = 'open' where status is null");
   await pool.query("alter table meetings alter column status set default 'open'");

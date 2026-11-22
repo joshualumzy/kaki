@@ -25,6 +25,8 @@ interface ParseMeetingInviteOptions {
   uid?: string;
   /** Role ids and labels from the demo pack, so an owner can be a role as well as an attendee. */
   knownOwners?: readonly string[];
+  /** Read the title and agenda without checking who owns each item. */
+  ignoreOwners?: boolean;
 }
 
 type MeetingInviteParseResult =
@@ -84,6 +86,7 @@ function readAgenda(
   rawDescription: string | undefined,
   people: string[],
   knownOwners: readonly string[],
+  ignoreOwners: boolean,
   errors: SetupFieldError[],
 ): MeetingInviteAgendaItem[] {
   if (rawDescription === undefined) {
@@ -126,13 +129,21 @@ function readAgenda(
       );
     }
 
-    if (owner === '') {
-      error(errors, `${field}.owner`, 'Enter who owns this agenda item.');
-    } else if (!known.has(owner.toLowerCase())) {
-      error(errors, `${field}.owner`, `"${owner}" is not an attendee in the invite or a role in the demo pack.`);
+    if (!ignoreOwners) {
+      if (owner === '') {
+        error(errors, `${field}.owner`, 'Enter who owns this agenda item.');
+      } else if (!known.has(owner.toLowerCase())) {
+        error(errors, `${field}.owner`, `"${owner}" is not an attendee in the invite or a role in the demo pack.`);
+      }
     }
 
-    if (title !== '' && Number.isInteger(minutes) && minutes > 0 && minutes <= MAX_AGENDA_MINUTES && owner !== '') {
+    if (
+      title !== '' &&
+      Number.isInteger(minutes) &&
+      minutes > 0 &&
+      minutes <= MAX_AGENDA_MINUTES &&
+      (ignoreOwners || owner !== '')
+    ) {
       agenda.push({ title, minutes, owner });
     }
     index += 1;
@@ -171,7 +182,13 @@ export function parseMeetingInvite(
   const title = unescapeIcalText(event.fields.get('SUMMARY') ?? '').trim();
   if (title === '') error(errors, 'title', 'The invite has no title.');
 
-  const agenda = readAgenda(event.fields.get('DESCRIPTION'), event.people, options.knownOwners ?? [], errors);
+  const agenda = readAgenda(
+    event.fields.get('DESCRIPTION'),
+    event.people,
+    options.knownOwners ?? [],
+    options.ignoreOwners === true,
+    errors,
+  );
 
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, value: { uid: event.uid, title, agenda, people: event.people } };

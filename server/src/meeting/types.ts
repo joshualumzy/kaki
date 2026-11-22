@@ -1,3 +1,7 @@
+import type { AgendaItem } from './agenda';
+
+export type { AgendaItem } from './agenda';
+
 /** The lifecycle state of a real meeting. */
 export type MeetingStatus = 'scheduled' | 'open' | 'ended';
 
@@ -10,6 +14,7 @@ export interface MeetingRow {
   kind: 'real';
   status: MeetingStatus;
   scheduledFor: string | null;
+  agenda: AgendaItem[];
   createdAt: string;
   endedAt: string | null;
 }

@@ -2,7 +2,8 @@ import { isObject } from '@kaki/shared';
 import { clientAddress } from '../access';
 import { readJsonBody, sendJson } from '../http';
 import type { RouteCall } from '../routeCall';
-import type { MeetingStatus } from '../../meeting/types';
+import { parseAgendaInput } from '../../meeting/agenda';
+import type { AgendaItem, MeetingStatus } from '../../meeting/types';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { SAMPLE_WORKSPACE } from '../../workspace/sample';
 
@@ -63,6 +64,15 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     sendJson(response, 400, { error: 'A meeting title must be 1-120 characters.' });
     return;
   }
+  let agenda: AgendaItem[] = [];
+  if (parsed.value.agenda !== undefined) {
+    const parsedAgenda = parseAgendaInput(parsed.value.agenda);
+    if (!parsedAgenda.ok) {
+      sendJson(response, 400, { error: parsedAgenda.error });
+      return;
+    }
+    agenda = parsedAgenda.agenda;
+  }
   const rawScheduledFor = parsed.value.scheduledFor;
   let scheduledFor: string | undefined;
   if (rawScheduledFor !== undefined && rawScheduledFor !== null) {
@@ -89,6 +99,7 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     ownerUserId: principal.userId,
     title,
     status,
+    agenda,
     ...(scheduledFor === undefined ? {} : { scheduledFor }),
   });
   sendJson(response, 200, { id: meeting.id, link: `/m/${meeting.id}` });

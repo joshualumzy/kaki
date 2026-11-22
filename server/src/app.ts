@@ -37,6 +37,7 @@ import type { RequestContext, RoutedRoute } from './http/routeCall';
 import { handleAuthRoutes } from './http/routes/auth';
 import { handleIdle } from './http/routes/idle';
 import { handleHealth } from './http/routes/meeting';
+import { handleAgendaFromCalendar, handleTellKaki } from './http/routes/agenda';
 import { handleCreateMeeting, handleMeetingInfo, handleMeetingJoin } from './http/routes/meetings';
 import { handleWorkspaces } from './http/routes/workspaces';
 import { createMeetingInstance, type MeetingInstance } from './meeting/instance';
@@ -60,6 +61,7 @@ import {
   type WorkspaceTools,
 } from './workspace/tools';
 import { createMeetingModules, type MeetingModules } from './modules';
+import { llmFromEnv, type LlmClient } from './services/llm';
 import { createWorkspaceIndexScheduler } from './meeting/indexScheduler';
 import { indexSampleKnowledge, indexWorkspaceSource } from './wingman/knowledge/indexer';
 
@@ -118,6 +120,8 @@ export interface CreateAppOptions {
   persistenceFor?: (id: string) => Promise<MeetingPersistence | undefined>;
   /** The meetings table; absent uses an in-memory store (tests, and a database-less server). */
   meetings?: MeetingStore;
+  /** The model server-wide helpers use; defaults to the one built from the environment. */
+  llm?: LlmClient;
   /** Fresh modules for a new meeting's instance; defaults to this pack's Host, Wingman and Action modules. */
   meetingModules?: (meeting: MeetingRow) => MeetingModules;
   /** How many meetings may be open at once; defaults to KAKI_MAX_OPEN_MEETINGS or 10. */
@@ -196,6 +200,8 @@ function buildServerRouteTable({ auth }: { auth: Auth | undefined }): RoutedRout
     { method: 'PUT', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
     { method: 'DELETE', path: '/api/workspaces/:id/tools/:kind', access: 'user', handle: handleWorkspaces },
     { method: 'POST', path: '/api/meetings', access: 'user', handle: handleCreateMeeting },
+    { method: 'POST', path: '/api/tell-kaki', access: 'user', handle: handleTellKaki },
+    { method: 'POST', path: '/api/agenda/from-calendar', access: 'user', handle: handleAgendaFromCalendar },
     { method: 'GET', path: '/api/meetings/:id/info', access: 'public', handle: handleMeetingInfo },
     { method: 'POST', path: '/api/meetings/:id/join', access: 'public', handle: handleMeetingJoin },
   );
@@ -337,6 +343,7 @@ export async function createApp({
   persistence,
   persistenceFor,
   meetings = createMemoryMeetingStore(),
+  llm: llmOption,
   meetingModules,
   maxOpenMeetings,
   meetingUnloadMs,
@@ -359,6 +366,7 @@ export async function createApp({
     );
   }
   const idle = createIdleTracker(idleClock);
+  const llm = llmOption ?? llmFromEnv();
   const workspaceTools = workspaceToolsOption ?? createMemoryWorkspaceToolStore();
   const toolSource = createWorkspaceToolSource(workspaceTools, actionTools.env);
   const requirePostgresUrl = (): string => {
@@ -517,6 +525,9 @@ export async function createApp({
     auth,
     authStore: auth?.store,
     meetings,
+    llm,
+    calendar,
+    calendarFetch,
     workspaceTools,
     toolSource,
     indexWorkspaceTool,

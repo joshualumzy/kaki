@@ -17,6 +17,7 @@ import type { MeetingSession } from '../meeting/session';
 import type { TaskStore } from '../meeting/tasks';
 import type { MeetingStore } from '../meeting/registry';
 import type { RoomRoster, SeatReservations } from '../services/livekit';
+import type { LlmClient } from '../services/llm';
 import type {
   WorkspaceToolKind,
   WorkspaceToolSource,
@@ -48,6 +49,8 @@ export interface RequestContext {
   authStore?: AuthStore;
   /** The meetings table, for the server-wide meetings API. */
   meetings?: MeetingStore;
+  /** The model server-wide helpers use; absent means they answer with their setup message. */
+  llm?: LlmClient;
   /** The workspace tool table, for the workspace tools API. */
   workspaceTools?: WorkspaceToolStore;
   /** The tool source, so a just-connected tool can be read for indexing. */

@@ -1,11 +1,32 @@
 import type { MeetingEnded } from '@kaki/shared';
 import { fetchWithTimeout } from '../net/withTimeout';
 
+/** Who a Google sign-in says this browser belongs to. */
+export interface MeUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
 /** What GET /api/auth/me says about this browser's cookie. */
 export type Me =
   | { authEnabled: false }
+  | { authEnabled: true; kind: 'user'; user: MeUser }
   | { authEnabled: true; kind: 'host' | 'participant'; role?: string }
   | ({ authEnabled: true; kind: null; reason?: string } & Partial<MeetingEnded>);
+
+function meUser(value: unknown): MeUser | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.id !== 'string' ||
+    typeof record.name !== 'string' ||
+    typeof record.email !== 'string'
+  ) {
+    return undefined;
+  }
+  return { id: record.id, name: record.name, email: record.email };
+}
 
 type Outcome = { ok: true } | { ok: false; message: string };
 
@@ -22,6 +43,13 @@ export async function fetchMe(signal?: AbortSignal): Promise<Me> {
   if (body?.authEnabled === false) return { authEnabled: false };
   if (body?.authEnabled === true) {
     if (response.ok) {
+      if (body.kind === 'user') {
+        const user = meUser(body.user);
+        if (user === undefined) {
+          throw new Error(`Could not read the signed-in user (${response.status}).`);
+        }
+        return { authEnabled: true, kind: 'user', user };
+      }
       if (body.kind === 'host') return { authEnabled: true, kind: 'host' };
       if (body.kind === 'participant') {
         return typeof body.role === 'string'

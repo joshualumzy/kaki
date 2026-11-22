@@ -393,6 +393,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       title: row.title,
       status: row.status,
       scheduledFor: row.scheduledFor,
+      agenda: row.agenda,
       ownerName: row.ownerUserId === null ? null : (ownerNames.get(row.ownerUserId) ?? null),
     }));
     const toolRecords = (await context.workspaceTools?.list(workspaceId)) ?? [];

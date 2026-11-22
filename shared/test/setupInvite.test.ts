@@ -116,4 +116,18 @@ describe('meeting invite parser', () => {
     if (parsed.ok) return;
     expect(parsed.errors).toContainEqual(expect.objectContaining({ field: 'agenda[0].owner' }));
   });
+
+  it('ignores unknown owners when only the title and agenda are wanted', () => {
+    const parsed = parseMeetingInvite(
+      manualIcs({
+        summary: 'Known agenda, unknown owner',
+        description: 'Agenda\\n- Prep | 5 min | Nobody',
+        attendees: ['Ada'],
+      }),
+      { ignoreOwners: true },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.agenda).toEqual([{ title: 'Prep', minutes: 5, owner: 'Nobody' }]);
+  });
 });
