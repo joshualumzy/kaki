@@ -33,21 +33,30 @@ export function createFakeSpeaker(env: NodeJS.ProcessEnv = process.env): FakeSpe
   const { key, secret } = livekitCredentials();
   const client = new RoomServiceClient(livekitHttpUrl(env.LIVEKIT_URL || 'ws://127.0.0.1:7880'), key, secret);
 
-  async function find(name: string): Promise<{ room: string; identity: string }> {
+  /**
+   * The one room where `name` sits with the Kaki listener. Two such rooms (say, two playtests on one
+   * LiveKit) is an error rather than a guess, so a line never lands in the wrong meeting.
+   */
+  async function findSpeakerRoom(name: string): Promise<{ room: string; identity: string }> {
     const wanted = name.trim().toLowerCase();
+    const matches: Array<{ room: string; identity: string }> = [];
     for (const room of await client.listRooms()) {
       const people = await client.listParticipants(room.name);
       const listening = people.some((person) => person.identity === KAKI_LISTENER_IDENTITY);
       const person = people.find((candidate) =>
         candidate.name.trim().toLowerCase() === wanted || candidate.identity.trim().toLowerCase() === wanted);
-      if (person !== undefined && listening) return { room: room.name, identity: person.identity };
+      if (person !== undefined && listening) matches.push({ room: room.name, identity: person.identity });
     }
-    throw new Error(`fake speech: no LiveKit room has both "${name}" and the Kaki listener`);
+    if (matches.length === 0) throw new Error(`fake speech: no LiveKit room has both "${name}" and the Kaki listener`);
+    if (matches.length > 1) {
+      throw new Error(`fake speech: "${name}" is in more than one meeting (${matches.map((match) => match.room).join(', ')}); run one scripted meeting at a time or use a unique name`);
+    }
+    return matches[0]!;
   }
 
   return {
     async say(name, text) {
-      const { room, identity } = await find(name);
+      const { room, identity } = await findSpeakerRoom(name);
       const message: FakeSpeechMessage = { identity, text };
       await client.sendData(room, new TextEncoder().encode(JSON.stringify(message)), DataPacket_Kind.RELIABLE, {
         topic: FAKE_STT_TOPIC,
