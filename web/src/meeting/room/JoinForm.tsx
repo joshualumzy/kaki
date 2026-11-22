@@ -77,7 +77,7 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           value={media}
           onChange={setMedia}
           onProblem={setProblem}
-          typingHint="Microphone off: you will type to the AI attendees"
+          typingHint="Microphone off: turn it on in the meeting to speak"
         />
 
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
@@ -190,10 +190,10 @@ export function JoinForm({ meetingTitle, roles, agenda, busy = false, error, ask
           )}
 
           <button type="submit" className="kd-go" disabled={!ready}>
-            {busy ? 'Joining…' : media.microphone ? 'Join with mic' : 'Join to type'}
+            {busy ? 'Joining…' : media.microphone ? 'Join with mic' : 'Join with mic off'}
           </button>
           <p className="kd-hint">
-            Headphones work best. Tap the microphone to speak; with it off you can type to the AI attendees.
+            Headphones work best. You take part by speaking: turn the microphone on here or in the meeting.
           </p>
         </div>
       </form>
