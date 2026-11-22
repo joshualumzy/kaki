@@ -156,12 +156,17 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
       return;
     }
-    if (historyWorkspaceId === SAMPLE_WORKSPACE_ID) {
+    // The sample workspace is built in and read-only: it has no members and no list, but a person
+    // may read the minutes of a real meeting they own there.
+    const isSample = historyWorkspaceId === SAMPLE_WORKSPACE_ID;
+    if (isSample && (method !== 'GET' || meetingId === undefined || todoId !== undefined)) {
       sendJson(response, 403, { error: "The sample workspace's meetings are built in" });
       return;
     }
-    const membership = await store.getMembership({ workspaceId: historyWorkspaceId, userId: userId });
-    if (membership === undefined) {
+    const membership = isSample
+      ? undefined
+      : await store.getMembership({ workspaceId: historyWorkspaceId, userId: userId });
+    if (!isSample && membership === undefined) {
       sendJson(response, 404, { error: 'Workspace not found' });
       return;
     }
@@ -188,7 +193,11 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       return;
     }
     const meeting = await meetings.get(meetingId);
-    if (meeting === undefined || meeting.workspaceId !== historyWorkspaceId) {
+    if (
+      meeting === undefined ||
+      meeting.workspaceId !== historyWorkspaceId ||
+      (isSample && meeting.ownerUserId !== userId)
+    ) {
       sendJson(response, 404, { error: 'Meeting not found' });
       return;
     }
@@ -196,7 +205,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 409, { error: 'This meeting has not ended yet.' });
       return;
     }
-    const canEdit = meeting.ownerUserId === userId || membership === 'admin';
+    const canEdit = !isSample && (meeting.ownerUserId === userId || membership === 'admin');
 
     if (method === 'GET' && todoId === undefined && path.endsWith('/minutes')) {
       sendJson(response, 200, {
