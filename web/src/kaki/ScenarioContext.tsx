@@ -65,11 +65,35 @@ async function attemptScenario(
     return { status: 'starting', error };
   }
   if (!response.ok) {
+    // A real meeting can answer with a plain, final reason while the reverse proxy is merely
+    // starting. A JSON error is the server saying something definite; show it at once.
+    let payload: Record<string, unknown> | null = null;
+    try {
+      const body = (await response.json()) as unknown;
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        payload = body as Record<string, unknown>;
+      }
+    } catch {
+      // Not a JSON answer: treat it as the proxy still starting.
+    }
+    if (typeof payload?.error === 'string') {
+      throw new Error(
+        typeof payload.message === 'string' && payload.message.trim() !== ''
+          ? payload.message
+          : payload.error,
+      );
+    }
     const error = new Error(`GET ${scenarioUrl(view, meetingId)} failed (${response.status})`);
     if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
     throw error;
   }
-  return { status: 'ready', scenario: parseScenario(await response.json(), { requireOrganisation: false }) };
+  return {
+    status: 'ready',
+    scenario: parseScenario(await response.json(), {
+      requireOrganisation: false,
+      ...(meetingId === undefined ? {} : { allowEmptyAgenda: true, allowEmptyRoles: true }),
+    }),
+  };
 }
 
 async function fetchScenario(

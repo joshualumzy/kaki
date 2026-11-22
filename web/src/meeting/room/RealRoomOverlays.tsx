@@ -54,12 +54,18 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
         { method: 'POST' },
         15_000,
       );
-      const body = (await response.json().catch(() => ({}))) as { error?: unknown; started?: unknown };
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: unknown;
+        message?: unknown;
+        started?: unknown;
+      };
       if (!response.ok || body.started !== true) {
         throw new Error(
-          typeof body.error === 'string'
-            ? body.error
-            : `Could not start the meeting (HTTP ${response.status}).`,
+          typeof body.message === 'string' && body.message.trim() !== ''
+            ? body.message
+            : typeof body.error === 'string'
+              ? body.error
+              : `Could not start the meeting (HTTP ${response.status}).`,
         );
       }
     } catch (error) {

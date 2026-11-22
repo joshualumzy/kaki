@@ -169,8 +169,12 @@ describe('NewMeetingPage', () => {
     expect((tell as HTMLTextAreaElement).value).toBe('Sync with Lucie about the demo');
   });
 
-  it('replaces the form with a practice note when the sample workspace is picked', async () => {
-    installFetch(baseRoutes());
+  it('keeps the form when the sample workspace is picked, with a link to practice', async () => {
+    installFetch(
+      baseRoutes({
+        'POST /api/meetings': () => reply({ id: 'mtg-sample', link: '/m/mtg-sample' }),
+      }),
+    );
     renderPage();
 
     await screen.findByLabelText('Meeting title');
@@ -178,10 +182,36 @@ describe('NewMeetingPage', () => {
       target: { value: 'sample-nanyang-kopi' },
     });
 
-    expect(screen.getByText('The sample workspace is for practice')).toBeTruthy();
+    expect(
+      screen.getByText('The sample workspace can hold this meeting; practice is one click away.'),
+    ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Try a practice meeting' }).getAttribute('href')).toBe(
       '/practice',
     );
-    expect(screen.queryByLabelText('Meeting title')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Meeting title'), {
+      target: { value: 'Nanyang sync' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start now' }));
+    expect(await screen.findByRole('link', { name: /\/m\/mtg-sample/ })).toBeTruthy();
+  });
+
+  it('shows the form when the saved draft chose the sample workspace', async () => {
+    window.localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        workspaceId: 'sample-nanyang-kopi',
+        title: 'Saved sample meeting',
+        agenda: [{ id: 'agenda-1', title: 'Opening', minutes: '5' }],
+      }),
+    );
+    installFetch(baseRoutes());
+    renderPage();
+
+    const title = (await screen.findByLabelText('Meeting title')) as HTMLInputElement;
+    expect(title.value).toBe('Saved sample meeting');
+    expect(screen.getByLabelText('Workspace')).toHaveProperty('value', 'sample-nanyang-kopi');
+    expect(
+      screen.getByText('The sample workspace can hold this meeting; practice is one click away.'),
+    ).toBeTruthy();
   });
 });

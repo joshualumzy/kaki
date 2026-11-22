@@ -148,6 +148,32 @@ describe('ScenarioProvider', () => {
     expect(screen.getByRole('alert').textContent).toContain('excludedPairs');
   });
 
+  it('shows a real meeting\'s busy message at once instead of starting up forever', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        error: 'busy',
+        message: 'Kaki is running as many meetings as it can right now. Try again in a few minutes.',
+      }),
+    } as unknown as Response));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ScenarioProvider meetingId="mtg-1">
+        <p>Meeting ready</p>
+      </ScenarioProvider>,
+    );
+    await flush();
+
+    expect(screen.getByText('Could not load the scenario')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Kaki is running as many meetings as it can right now. Try again in a few minutes.',
+    );
+    await advance(10_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('aborts a request that never answers so the 90 s limit is enforced', async () => {
     const fetchMock = vi.fn(
       (_url: string, init?: RequestInit) =>

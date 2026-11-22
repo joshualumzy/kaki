@@ -473,13 +473,16 @@ export function NewMeetingPage() {
 
             {isSample ? (
               <div className="product-sample">
-                <p className="product-sample-title">The sample workspace is for practice</p>
+                <p className="product-sample-title">
+                  The sample workspace can hold this meeting; practice is one click away.
+                </p>
                 <Link className="product-open" to="/practice">
                   Try a practice meeting
                 </Link>
               </div>
-            ) : (
-              <form
+            ) : null}
+
+            <form
                 className="product-form"
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -660,7 +663,6 @@ export function NewMeetingPage() {
                   </Button>
                 </div>
               </form>
-            )}
           </section>
         ) : null}
       </main>

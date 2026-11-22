@@ -221,12 +221,10 @@ export default function Meeting({
     if (!real || left || session !== undefined || realAutoAttempted.current) return;
     if (hostCheck === 'checking' || auth.status === 'loading') return;
     if (effectiveRealName === undefined || effectiveRealName.trim() === '') return;
-    const seat = roles[0]?.id;
-    if (seat === undefined) return;
     realAutoAttempted.current = true;
     void join(
       effectiveRealName.trim(),
-      seat,
+      roles[0]?.id ?? '',
       { microphone: false, camera: false },
       effectiveRealCode,
       { real: true },
@@ -282,7 +280,7 @@ export default function Meeting({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               participantName: name,
-              participantRole: seat,
+              ...(seat === '' ? {} : { participantRole: seat }),
               ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }),
               ...(!realJoin && practice ? { kind: 'practice' } : {}),
             }),
@@ -293,11 +291,18 @@ export default function Meeting({
         if (body.needsCode === true) setNeedsCode(true);
         if (body.realInProgress === true) setRealInProgress(true);
         if (response.ok && typeof body.token === 'string') {
-          joined = { body, role: seat };
+          joined = {
+            body,
+            role: typeof body.participantRole === 'string' ? body.participantRole : seat,
+          };
           break;
         }
         lastProblem =
-          typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`;
+          typeof body.message === 'string' && body.message.trim() !== ''
+            ? body.message
+            : typeof body.error === 'string'
+              ? body.error
+              : `Could not join (HTTP ${response.status}).`;
         const canTryAnotherSeat =
           realJoin &&
           seats.length > 1 &&
@@ -429,12 +434,9 @@ export default function Meeting({
           setRealNameEntry(trimmed);
           if (realMeetingId !== undefined) storeRealJoinName(realMeetingId, trimmed);
           realAutoAttempted.current = false;
-          const seat = roles[0]?.id;
-          if (seat !== undefined) {
-            void join(trimmed, seat, { microphone: false, camera: false }, effectiveRealCode, {
-              real: true,
-            });
-          }
+          void join(trimmed, roles[0]?.id ?? '', { microphone: false, camera: false }, effectiveRealCode, {
+            real: true,
+          });
           return;
         }
         const trimmed = value.trim();
@@ -443,11 +445,14 @@ export default function Meeting({
         setNeedsCode(false);
         if (realMeetingId !== undefined) storeRealMeetingCode(realMeetingId, trimmed);
         realAutoAttempted.current = false;
-        const seat = roles[0]?.id;
-        if (seat !== undefined && effectiveRealName !== undefined) {
-          void join(effectiveRealName.trim(), seat, { microphone: false, camera: false }, trimmed, {
-            real: true,
-          });
+        if (effectiveRealName !== undefined) {
+          void join(
+            effectiveRealName.trim(),
+            roles[0]?.id ?? '',
+            { microphone: false, camera: false },
+            trimmed,
+            { real: true },
+          );
         }
       };
       return (
@@ -460,11 +465,10 @@ export default function Meeting({
           onSubmit={submitEntry}
           onRetry={() => {
             realAutoAttempted.current = false;
-            const seat = roles[0]?.id;
-            if (seat !== undefined && effectiveRealName !== undefined) {
+            if (effectiveRealName !== undefined) {
               void join(
                 effectiveRealName.trim(),
-                seat,
+                roles[0]?.id ?? '',
                 { microphone: false, camera: false },
                 effectiveRealCode,
                 { real: true },

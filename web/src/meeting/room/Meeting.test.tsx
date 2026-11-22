@@ -324,6 +324,34 @@ describe('Meeting rejoin', () => {
     expect(window.sessionStorage.getItem(storedKey)).toBeNull();
   });
 
+  it('shows a plain sentence when practice is busy, never the raw code', async () => {
+    window.sessionStorage.setItem(
+      'kaki.join.practice',
+      JSON.stringify({
+        name: 'Ana',
+        role: 'operations_director',
+        media: { microphone: false, camera: false },
+        meetingCode: 'ABCD',
+      }),
+    );
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'practice-busy',
+        message:
+          'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
+      }),
+    })));
+
+    render(<Meeting />);
+
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
+    );
+  });
+
   it('lets the person rejoin by hand after the automatic attempt fails', async () => {
     rememberSeat();
     let refuse = true;

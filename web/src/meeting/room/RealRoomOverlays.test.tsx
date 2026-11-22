@@ -83,6 +83,27 @@ describe('real meeting notices', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/meetings/mtg-1/meeting/start');
   });
 
+  it('shows the server\'s busy message when a meeting cannot open', async () => {
+    mocks.isHost = true;
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: 'busy',
+          message: 'Kaki is running as many meetings as it can right now. Try again in a few minutes.',
+        }),
+        { status: 503, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(<RealWaitingOverlay meetingId="mtg-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start the meeting' }));
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Kaki is running as many meetings as it can right now. Try again in a few minutes.',
+    );
+  });
+
   it('says nothing while the meeting is running', () => {
     mocks.meetingState.waitingForOwner = false;
     const { container } = render(<RealWaitingOverlay meetingId="mtg-1" />);
