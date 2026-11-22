@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { Button, Card } from '../ui';
 import './landing.css';
@@ -16,12 +16,17 @@ export function LandingPage() {
       ? '/login?return=/setup'
       : '/setup';
 
+  const signedIn =
+    auth.status === 'ready' && auth.me.authEnabled && auth.me.kind === 'user';
+
   function enterCode(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const trimmed = code.trim().toUpperCase();
     if (trimmed === '') return;
     navigate(`/join?code=${encodeURIComponent(trimmed)}`);
   }
+
+  if (signedIn) return <Navigate to="/new" replace />;
 
   return (
     <main className="landing">
@@ -31,6 +36,11 @@ export function LandingPage() {
         <p className="landing-sub">
           A meeting assistant that keeps the agenda, coaches each person privately, hands out follow-up
           tasks and drafts the minutes.
+        </p>
+        <p className="landing-signin-row">
+          <Link className="landing-signin" to="/signin">
+            Sign in
+          </Link>
         </p>
       </header>
 

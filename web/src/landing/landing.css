@@ -151,3 +151,14 @@
   display: block;
   margin: 0 auto 4px;
 }
+
+.landing-signin-row {
+  margin: 12px 0 0;
+}
+
+.landing-signin {
+  color: var(--color-accent-strong);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
