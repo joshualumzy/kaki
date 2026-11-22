@@ -564,3 +564,33 @@ describe('findHandover', () => {
     expect(findHandover([], names)).toBeUndefined();
   });
 });
+
+describe('fragments with no word to say', () => {
+  it('drops a line like ",br" instead of speaking it', () => {
+    const { lines, logs } = parseWithLogs(['Ada: ,br\n']);
+    expect(lines).toEqual([]);
+    expect(logs).toContainEqual(expect.stringContaining('[unspeakable] dropped a fragment'));
+  });
+
+  it('strips leaked markup and keeps the words around it', () => {
+    expect(parse(['Ada: Right,<br> let us start.\n'])).toEqual([{ speaker: 'Ada', text: 'Right, let us start.' }]);
+  });
+
+  it('keeps consonant-only words such as acronyms and "Hmm"', () => {
+    expect(parse(['Ada: GST?\nBao: HDB.\nAda: CPF.\nBao: MOM.\nAda: Hmm.\n'])).toEqual([
+      { speaker: 'Ada', text: 'GST?' },
+      { speaker: 'Bao', text: 'HDB.' },
+      { speaker: 'Ada', text: 'CPF.' },
+      { speaker: 'Bao', text: 'MOM.' },
+      { speaker: 'Ada', text: 'Hmm.' },
+    ]);
+  });
+
+  it('keeps short real lines and numbers', () => {
+    expect(parse(['Ada: Yes.\nBao: 8.\nAda: OK.\n'])).toEqual([
+      { speaker: 'Ada', text: 'Yes.' },
+      { speaker: 'Bao', text: '8.' },
+      { speaker: 'Ada', text: 'OK.' },
+    ]);
+  });
+});

@@ -1019,7 +1019,8 @@ describe('one-speaker replies to the guest', () => {
     await vi.advanceTimersByTimeAsync(1000);
     await h.flush();
     expect(h.logs).not.toContainEqual(expect.stringContaining('skipped the review nudge while a question to the guest is open'));
-    expect(h.transcript.some(([, text]) => /the follow-up's on your screen/i.test(text))).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining("Kaki's pop-up points at the card, Sam says nothing"));
+    expect(h.transcript.some(([, text]) => /on your (?:screen|card)/i.test(text))).toBe(false);
     h.conversation.close();
   });
 
@@ -1045,7 +1046,7 @@ describe('one-speaker replies to the guest', () => {
     h.conversation.close();
   });
 
-  it('points at a card that arrives while the no-card wrap-up is still queued', async () => {
+  it('marks a card that arrives while the no-card wrap-up is still queued, without speaking it', async () => {
     const h = harness(scenario, 0, () => readyFor('Old price only on the small cup'),
       { reviewNudgeMs: 1000, reviewWindowMs: 3000, silencePromptMs: 600_000, topicTimeBudgetMs: 600_000 });
     h.conversation.setHuman({ name: 'Josh', role: 'chef' });
@@ -1071,7 +1072,8 @@ describe('one-speaker replies to the guest', () => {
     await vi.advanceTimersByTimeAsync(1000);
     await finishPlaying(h);
 
-    expect(h.transcript.some(([, text]) => /the follow-up's on your screen/i.test(text))).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining("Kaki's pop-up points at the card, Sam says nothing"));
+    expect(h.transcript.some(([, text]) => /on your (?:screen|card)/i.test(text))).toBe(false);
     expect(advanceAgenda).not.toHaveBeenCalled();
     h.conversation.close();
   });

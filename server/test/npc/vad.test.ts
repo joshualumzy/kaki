@@ -36,6 +36,31 @@ describe('EnergyVad', () => {
     for (let elapsed = 0; elapsed < ms; elapsed += 10) vad.push(tone(amplitude, elapsed * 16), RATE);
   }
 
+  it('ends speech when a steady hum under the bar follows it, instead of holding the floor with no words', () => {
+    // The live case: the bar was 0.020, so quiet meant under 0.010, and a room hum of about 0.011 never counted as quiet.
+    vad.close();
+    vad = new EnergyVad((speaking) => changes.push(speaking), { hangoverMs: 1500 });
+    const HUM = 510; // RMS about 0.011: between half the bar and the bar
+    feed(ROOM, 500);
+    feed(SPEECH, 1000);
+    expect(changes).toEqual([true]);
+    feed(HUM, 2900);
+    expect(changes).toEqual([true]);
+    feed(HUM, 200);
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('keeps a 1.5 s pause over the same hum inside one stretch of speech', () => {
+    vad.close();
+    vad = new EnergyVad((speaking) => changes.push(speaking), { hangoverMs: 1500 });
+    const HUM = 510;
+    feed(ROOM, 500);
+    feed(SPEECH, 600);
+    feed(HUM, 1500);
+    feed(SPEECH, 600);
+    expect(changes).toEqual([true]);
+  });
+
   it('stays quiet in a silent room', () => {
     feed(ROOM, 3000);
     expect(changes).toEqual([]);

@@ -96,7 +96,7 @@
     {
       "title": "One counter staff short for the opening rush",
       "spoken": "the staffing gap",
-      "minutes": 5,
+      "minutes": 10,
       "canWait": false,
       "deadline": "before doors open at 8",
       "ownerRole": "operations_director",
@@ -215,7 +215,7 @@
     {
       "title": "Old regulars and the new kopi prices",
       "spoken": "the kopi prices",
-      "minutes": 5,
+      "minutes": 10,
       "canWait": false,
       "deadline": "before doors open at 8",
       "ownerRole": "menu_store_lead",
@@ -331,7 +331,7 @@
     {
       "title": "Laptop campers and the breakfast seat crunch",
       "spoken": "the laptop campers",
-      "minutes": 5,
+      "minutes": 10,
       "canWait": false,
       "deadline": "before doors open at 8",
       "ownerRole": "tech_pos_lead",
@@ -448,7 +448,7 @@
       "title": "Food safety complaint before the 9 AM inspection",
       "spoken": "food safety and the 9 o'clock routine check",
       "sensitive": true,
-      "minutes": 5,
+      "minutes": 10,
       "canWait": false,
       "deadline": "before doors open at 8",
       "ownerRole": "operations_director",
@@ -564,7 +564,7 @@
     {
       "title": "Delivery app commission squeeze",
       "spoken": "the delivery app commission",
-      "minutes": 5,
+      "minutes": 10,
       "canWait": true,
       "deadline": "after the lunch rush",
       "ownerRole": "marketing_lead",

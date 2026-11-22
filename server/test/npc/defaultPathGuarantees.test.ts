@@ -460,7 +460,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
   });
 
   describe('the card review window', () => {
-    it('nudges the visitor towards their card at 20 s without moving on', async () => {
+    it('marks the card at 20 s without Sam speaking or moving on', async () => {
       const h = harness({
         optionOverrides: { reviewNudgeMs: 20_000, reviewWindowMs: 45_000 },
       });
@@ -470,7 +470,8 @@ describe('default-path guarantees ported from the legacy tests', () => {
       expect(h.transcript.some(([, line]) => line.includes("the follow-up's on your screen"))).toBe(false);
       await vi.advanceTimersByTimeAsync(1_000);
       await h.finishPlaying();
-      expect(h.transcript.filter(([, line]) => line.includes("the follow-up's on your screen"))).toHaveLength(1);
+      expect(h.logs.filter((line) => line.includes('[card] review nudge on'))).toHaveLength(1);
+      expect(h.transcript.some(([, line]) => /on your (?:screen|card)/i.test(line))).toBe(false);
       expect(h.transcript.some(([, line]) => line.includes("Let's leave"))).toBe(false);
       expect(h.agendaIndex()).toBe(0);
       h.conversation.close();
@@ -505,7 +506,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       await h.finishPlaying();
       await vi.advanceTimersByTimeAsync(24_999);
       await h.finishPlaying();
-      expect(h.transcript.filter(([, line]) => line.includes("the follow-up's on your screen"))).toHaveLength(1);
+      expect(h.logs.filter((line) => line.includes('[card] review nudge on'))).toHaveLength(1);
       h.conversation.close();
     });
 
@@ -517,7 +518,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.addCard();
       await vi.advanceTimersByTimeAsync(20_000);
       await h.finishPlaying();
-      expect(h.transcript.filter(([, line]) => line.includes("the follow-up's on your screen"))).toHaveLength(1);
+      expect(h.logs.filter((line) => line.includes('[card] review nudge on'))).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(10_000);
       h.conversation.taskStatus('task-0', 'Prep', 'DISPATCHED', true);
       await vi.advanceTimersByTimeAsync(15_000);
@@ -526,7 +527,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       expect(h.agendaIndex()).toBe(0);
       await vi.advanceTimersByTimeAsync(20_000);
       await h.finishPlaying();
-      expect(h.transcript.filter(([, line]) => line.includes("the follow-up's on your screen"))).toHaveLength(1);
+      expect(h.logs.filter((line) => line.includes('[card] review nudge on'))).toHaveLength(1);
       expect(h.logs.some((line) => line.includes('skipped the card nudge'))).toBe(true);
       h.conversation.close();
     });
@@ -552,7 +553,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.close();
     });
 
-    it('holds the card pointer while a question is open and points once it is answered', async () => {
+    it('holds the card nudge while a question is open and marks it once it is answered', async () => {
       const h = harness({
         optionOverrides: { reviewNudgeMs: 1_000, reviewWindowMs: 3_000 },
       });
@@ -577,7 +578,8 @@ describe('default-path guarantees ported from the legacy tests', () => {
       await h.finishPlaying();
       await vi.advanceTimersByTimeAsync(1_000);
       await h.finishPlaying();
-      expect(h.transcript.some(([, line]) => /the follow-up's on your screen/i.test(line)), h.logs.join('\n')).toBe(true);
+      expect(h.logs.some((line) => line.includes('[card] review nudge on')), h.logs.join('\n')).toBe(true);
+      expect(h.transcript.some(([, line]) => /on your (?:screen|card)/i.test(line))).toBe(false);
       h.conversation.close();
     });
   });

@@ -57,6 +57,11 @@ interface VadDeps {
 const NOISE_FLOOR_START = 0.005;
 const NOISE_FLOOR_MIN = 0.001;
 const NOISE_FLOOR_MAX = 0.05;
+/**
+ * Speech also ends when nothing reaches the start bar for this many hangovers. A steady room noise between half the
+ * bar and the bar never counts as quiet, so without this a fan or a hum keeps the person "talking" with no words.
+ */
+const NO_SPEECH_HANGOVERS = 2;
 /** How fast the noise floor follows the room; small, so speech never drags it up. */
 const NOISE_FLOOR_RATE = 0.05;
 
@@ -108,6 +113,8 @@ export class EnergyVad {
   /** The last stretch of frames, newest last: how long each was and whether it was loud enough. */
   private window: Array<{ ms: number; loud: boolean }> = [];
   private quietMs = 0;
+  /** While speaking: how long since a frame last reached the start bar. */
+  private sinceLoudMs = 0;
   private silenceTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly options: VadOptions;
   private readonly reference: LeakReference | undefined;
@@ -201,7 +208,9 @@ export class EnergyVad {
 
     if (this.speaking) {
       this.quietMs = level < threshold * 0.5 ? this.quietMs + frameMs : 0;
-      if (this.quietMs >= this.options.hangoverMs) this.end();
+      this.sinceLoudMs = level >= threshold ? 0 : this.sinceLoudMs + frameMs;
+      if (this.quietMs >= this.options.hangoverMs ||
+          this.sinceLoudMs >= this.options.hangoverMs * NO_SPEECH_HANGOVERS) this.end();
       else this.armSilenceTimer();
       return;
     }
@@ -219,6 +228,7 @@ export class EnergyVad {
     if (loudMs >= startMs) {
       this.speaking = true;
       this.quietMs = 0;
+      this.sinceLoudMs = 0;
       this.armSilenceTimer();
       this.onChange(true);
     }

@@ -102,7 +102,10 @@ function harness(options: {
   reviewNudgeMs?: number;
   reviewWindowMs?: number;
   responseDelayMs?: number;
+  sentenceGapMs?: number;
   reader?: (input: GuestReaderInput) => Promise<GuestReading>;
+  /** The first model call writes nothing until this settles, like a slow model. */
+  firstStreamWaitsFor?: Promise<void>;
 } = {}) {
   const readings = [...(options.readings ?? [])];
   const replies = [...(options.replies ?? [])];
@@ -114,21 +117,31 @@ function harness(options: {
   const settle = vi.fn((_followUp: SuggestInput) => undefined);
   const advanced: string[] = [];
   const readerInputs: GuestReaderInput[] = [];
+  /** Lines that started while another line was still playing: two voices at once. */
+  const overlaps: Array<[string, string]> = [];
 
   const ports: NpcPorts<Utterance> = {
-    async *stream(messages) {
+    async *stream(messages, signal) {
       calls.push(messages);
+      if (calls.length === 1 && options.firstStreamWaitsFor !== undefined) {
+        await options.firstStreamWaitsFor;
+        if (signal?.aborted) return;
+      }
       const reply = replies.shift();
       if (reply !== undefined) yield reply;
     },
     async synthesize(utterance) { return utterance; },
-    play(speaker, clip) {
+    play(speaker, clip, signal) {
+      const still = playing.find((entry) => !entry.finished);
+      if (still !== undefined) overlaps.push([still.text, clip.text]);
       return new Promise<void>((resolve) => {
         const entry: Playing = {
           speaker, text: clip.text, finished: false,
           finish: () => ((entry.finished = true), resolve()),
         };
         playing.push(entry);
+        // Stopped sound is silent at once, as in the browser.
+        signal.addEventListener('abort', () => entry.finish(), { once: true });
       });
     },
     emitTranscript(speaker, text) { spoken.push([speaker, text]); },
@@ -143,7 +156,7 @@ function harness(options: {
     scenario,
     responseDelayMs: options.responseDelayMs ?? 0,
     speakerGapMs: 0,
-    sentenceGapMs: 0,
+    sentenceGapMs: options.sentenceGapMs ?? 0,
     observeDelayMs: 60_000,
     silencePromptMs: 60_000,
     openLiveGraceMs: 1,
@@ -166,7 +179,7 @@ function harness(options: {
   conversation.setHuman({ name: 'Josh', role: 'chef' });
   conversation.agendaMoved('Prep');
 
-  return { conversation, readings, replies, calls, playing, spoken, logs, states, settle, advanced, readerInputs };
+  return { conversation, readings, replies, calls, playing, spoken, logs, states, settle, advanced, readerInputs, overlaps };
 }
 
 const flush = async (): Promise<void> => { await vi.advanceTimersByTimeAsync(0); };
@@ -293,6 +306,9 @@ describe('checkpoint 4 review fixes', () => {
     await flush();
 
     await vi.advanceTimersByTimeAsync(100);
+    // The guest's line is still being read, so time-up holds the close for a grace (#67), then closes.
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(61_000);
     expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
 
     resolveReading?.(readyReading('Use the window bar'));
@@ -452,6 +468,345 @@ describe('checkpoint 4 review fixes', () => {
     expect(h.logs).toContainEqual(expect.stringContaining('deferred to its later slot'));
     expect(h.advanced).toContain('next');
     expect(h.settle).not.toHaveBeenCalled();
+    h.conversation.close();
+  });
+});
+
+describe('turn-taking (#66, #67, #68)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('holds a scripted cue while a reply is still reading the guest, so two lines never play at once (#66)', async () => {
+    let resolveReading: ((value: GuestReading) => void) | undefined;
+    const h = harness({
+      reader: () => new Promise<GuestReading>((resolve) => { resolveReading = resolve; }),
+      replies: ['Ada: The eggs are the problem.', 'Ada: The eggs are the problem.', 'Ada: The eggs are the problem.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 5; i += 1) await flush();
+
+    h.conversation.announce('Sam', "Okay, we'll leave prep open for now.");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+
+    resolveReading?.(reading({ kind: 'question', addressee: 'Ada' }));
+    for (let i = 0; i < 20; i += 1) await flush();
+    await finishPlaying(h);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await finishPlaying(h);
+
+    expect(h.playing.some((entry) => entry.speaker === 'Ada')).toBe(true);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
+    expect(h.overlaps).toEqual([]);
+    h.conversation.close();
+  });
+  it('never starts a line while the guest is already talking; it waits for them to stop (#67)', async () => {
+    let resolveReading: ((value: GuestReading) => void) | undefined;
+    const h = harness({
+      reader: () => new Promise<GuestReading>((resolve) => { resolveReading = resolve; }),
+      replies: ['Ada: The eggs are the problem.', 'Ada: The eggs are the problem.', 'Ada: The eggs are the problem.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 5; i += 1) await flush();
+
+    resolveReading?.(reading({ kind: 'question', addressee: 'Ada' }));
+    h.conversation.humanSpeech(true);
+    for (let i = 0; i < 20; i += 1) await flush();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.playing.filter((entry) => entry.speaker === 'Ada')).toEqual([]);
+
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(500);
+    for (let i = 0; i < 20; i += 1) await flush();
+    await finishPlaying(h);
+    expect(h.playing.some((entry) => entry.speaker === 'Ada')).toBe(true);
+    h.conversation.close();
+  });
+
+  it('holds the time-up close while the guest is talking, then closes once they stop (#67)', async () => {
+    const h = harness({ topicTimeBudgetMs: 100, budgetSilenceMs: 10 });
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(false);
+    expect(h.logs).toContainEqual(expect.stringContaining('the guest is talking; holding the close'));
+
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await finishPlaying(h);
+    expect(h.playing.some((entry) => entry.text.includes('open for now'))).toBe(true);
+    h.conversation.close();
+  });
+  it('keeps an offer live when the read of the answer fails, so the repeated yes still settles (#68)', async () => {
+    const failed: GuestReading = { ...reading({ kind: 'unsure' }), failed: true };
+    const queue: GuestReading[] = [];
+    const h = harness({
+      replies: ['Sam: The choice is how we cover the counter.', 'Sam: Pick the one that feels workable.'],
+      reader: async () => queue.shift() ?? reading(),
+    });
+    queue.push(reading({ kind: 'unsure' }), reading({ kind: 'unsure' }), reading({ kind: 'unsure' }));
+    await reachChoiceOffer(h);
+
+    // The first answer is lost: the read and its one retry both fail.
+    queue.push(failed, failed);
+    await say(h, "Yeah, that's my call.");
+    await finishPlaying(h);
+    expect(h.logs).toContainEqual(expect.stringContaining('reading the line once more'));
+    expect(h.logs).not.toContainEqual(expect.stringContaining('the offer is no longer live'));
+
+    queue.push(reading({ kind: 'agree' }));
+    await say(h, 'Yes, that one.');
+    await finishPlaying(h);
+    await flush();
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it("keeps the offer live while Sam asks again after a failed read, so the next yes settles (#68)", async () => {
+    const failed: GuestReading = { ...reading({ kind: 'unsure' }), failed: true };
+    const queue: GuestReading[] = [];
+    const h = harness({
+      replies: [
+        'Sam: The choice is how we cover the counter.',
+        'Sam: Pick the one that feels workable.',
+        "Sam: Sorry, I missed that. Is that your call?",
+      ],
+      reader: async () => queue.shift() ?? reading(),
+    });
+    queue.push(reading({ kind: 'unsure' }), reading({ kind: 'unsure' }), reading({ kind: 'unsure' }));
+    await reachChoiceOffer(h);
+
+    queue.push(failed, failed);
+    await say(h, "Yeah, that's my call.");
+    await finishPlaying(h);
+    // Sam's re-ask is actually heard this time, and hearing it must not clear the offer.
+    expect(h.playing.some((entry) => entry.text.includes('Is that your call'))).toBe(true);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('no longer live'));
+
+    queue.push(reading({ kind: 'agree' }));
+    await say(h, 'Yes, that one.');
+    await finishPlaying(h);
+    await flush();
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    h.conversation.close();
+  });
+
+  it('does not start the next sentence if the guest starts talking during the gap before it (#67)', async () => {
+    const h = harness({
+      sentenceGapMs: 400,
+      readings: [reading({ kind: 'question', addressee: 'Ada' })],
+      replies: ['Ada: The eggs are the problem. Ada: We need a second supplier.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 20; i += 1) await flush();
+    const first = h.playing.find((entry) => entry.text.includes('eggs'));
+    expect(first).toBeDefined();
+    first!.finish();
+    await flush();
+
+    // The guest starts talking inside the 400 ms gap, before the second sentence.
+    await vi.advanceTimersByTimeAsync(200);
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(h.playing.some((entry) => entry.text.includes('second supplier'))).toBe(false);
+    h.conversation.close();
+  });
+
+  it('stops a line still playing after the floor wait instead of talking over it (#66)', async () => {
+    const h = harness();
+    // A scripted Sam line starts and its audio never ends.
+    h.conversation.announce('Sam', 'Quick note before we go on.');
+    for (let i = 0; i < 5; i += 1) await flush();
+    const stuck = h.playing.find((entry) => entry.text.includes('Quick note'));
+    expect(stuck?.finished).toBe(false);
+
+    // The next planned step waits for the floor. Public paths rarely reach the timeout (typing interrupts, a held
+    // guest line waits for playback), so the wait is driven directly.
+    const floor = (h.conversation as unknown as { waitForFloor(signal: AbortSignal): Promise<void> })
+      .waitForFloor(new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(16_000);
+    await floor;
+
+    // The old line was stopped, not left sounding under the next one.
+    expect(stuck?.finished).toBe(true);
+    expect(h.logs).toContainEqual(expect.stringContaining('interrupted: another line took the floor'));
+    h.conversation.close();
+  });
+});
+
+describe('PR #69 review fixes', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('waits for a planned reply that holds the floor instead of cutting it off', async () => {
+    const h = harness({
+      readings: [reading({ kind: 'question', addressee: 'Ada' })],
+      replies: ['Ada: The eggs are the problem.'],
+    });
+    h.conversation.humanTyped('Ada, what went wrong?');
+    for (let i = 0; i < 20; i += 1) await flush();
+    const answer = h.playing.find((entry) => entry.text.includes('eggs'));
+    expect(answer?.finished).toBe(false);
+
+    // The planned step's `done` must still be pending while its line plays.
+    const held = (h.conversation as unknown as { turn?: { done: Promise<void> } }).turn;
+    expect(held).toBeDefined();
+    const PENDING = Symbol('pending');
+    expect(await Promise.race([held!.done, Promise.resolve(PENDING)])).toBe(PENDING);
+
+    let floorFree = false;
+    void (h.conversation as unknown as { waitForFloor(signal: AbortSignal): Promise<void> })
+      .waitForFloor(new AbortController().signal)
+      .then(() => { floorFree = true; });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(floorFree).toBe(false);
+
+    answer!.finish();
+    for (let i = 0; i < 20; i += 1) await flush();
+    expect(floorFree).toBe(true);
+    expect(h.logs).not.toContainEqual(expect.stringContaining('another line took the floor'));
+    h.conversation.close();
+  });
+
+  it('forgets the speech stop of a line the gate rejected, so the next line on a new topic is answered', async () => {
+    const h = harness();
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    h.conversation.humanSpeech(false);
+    // The recognised words are rejected (as the AI's own echo would be).
+    const gate = (h.conversation as unknown as { gate: { check(text: string): unknown } }).gate;
+    const check = vi.spyOn(gate, 'check').mockReturnValueOnce({ ok: false, reason: 'echo' });
+    expect(h.conversation.humanText('Quick note before we go on.')).toBeUndefined();
+    check.mockRestore();
+
+    await vi.advanceTimersByTimeAsync(50);
+    h.conversation.agendaMoved('Delivery app commission squeeze');
+    await flush();
+    // A later line with no voice stop of its own (typed in the browser, or missed by the voice detector).
+    h.conversation.humanText('Raise the app price.');
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.logs).not.toContainEqual(expect.stringContaining('was said before'));
+    expect(h.readerInputs.some((input) => JSON.stringify(input).includes('Raise the app price'))).toBe(true);
+    h.conversation.close();
+  });
+});
+
+describe('topic time follows the agenda', () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it('closes a topic at its agenda minutes, not at a fixed three minutes', async () => {
+    const h = harness();
+    // "Prep" is a five-minute agenda item.
+    await vi.advanceTimersByTimeAsync(180_000);
+    await finishPlaying(h);
+    expect(h.logs.some((line) => line.includes('time is up'))).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await finishPlaying(h);
+    expect(h.logs).toContainEqual(expect.stringContaining('[lock] time is up'));
+    h.conversation.close();
+  });
+
+  it('leaves the clock\'s overtime cue to Sam\'s own time-up while he runs an unsettled topic', () => {
+    const h = harness();
+    expect(h.conversation.shouldSkipOvertimeCue()).toBe(true);
+    h.conversation.close();
+  });
+});
+
+describe('a line said before the topic opened', () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it('is shown but not read as the new topic\'s first guest line, so the opening is not cut short', async () => {
+    const h = harness();
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    h.conversation.humanSpeech(false);
+    await vi.advanceTimersByTimeAsync(50);
+    // The agenda moves on while the recogniser is still finishing the line.
+    h.conversation.agendaMoved('Delivery app commission squeeze');
+    await flush();
+    const before = h.readerInputs.length;
+    h.conversation.humanText("Let's move on to the next agenda.");
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.spoken).toContainEqual(['Josh', "Let's move on to the next agenda."]);
+    expect(h.readerInputs.length).toBe(before);
+    expect(h.logs).toContainEqual(expect.stringContaining('was said before "Delivery app commission squeeze" opened'));
+    h.conversation.close();
+  });
+
+  it('still reads a line the person finished after the topic opened', async () => {
+    const h = harness();
+    h.conversation.agendaMoved('Delivery app commission squeeze');
+    await vi.advanceTimersByTimeAsync(50);
+    h.conversation.humanSpeech(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    h.conversation.humanSpeech(false);
+    h.conversation.humanText('Raise the app price.');
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.readerInputs.some((input) => JSON.stringify(input).includes('Raise the app price'))).toBe(true);
+    h.conversation.close();
+  });
+});
+
+describe('a line said while the reply is still being written', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('is answered even though nothing of the cancelled reply was ever heard', async () => {
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => { release = resolve; });
+    const h = harness({ firstStreamWaitsFor: slow, replies: ['Ada: Two trays, ready by 8.'] });
+    await say(h, 'So what do you think?', reading({ kind: 'question' }));
+    expect(h.calls).toHaveLength(1);
+    expect(h.playing).toHaveLength(0);
+
+    h.conversation.humanText('Hello, what do you think?');
+    for (let i = 0; i < 20; i += 1) await flush();
+    release();
+    for (let i = 0; i < 20; i += 1) await flush();
+
+    expect(h.logs).toContain('[reply] cancelled: the guest spoke');
+    expect(h.calls.length).toBeGreaterThanOrEqual(2);
+    expect(h.playing.map((entry) => entry.text)).toContain('Two trays, ready by 8.');
+    h.conversation.close();
+  });
+});
+
+describe('a colleague called on by name', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('answers the line even when the reader could not tell what it was (seen live)', async () => {
+    const h = harness({ replies: ['Bao: The listing drops a place, but nothing breaks before 8.'] });
+    await say(h, 'Bao, what happens to our listing if we raise the price?', reading({ kind: 'unsure', addressee: 'Bao' }));
+    await finishPlaying(h);
+    expect(h.playing.map((entry) => entry.speaker)).toContain('Bao');
+    h.conversation.close();
+  });
+});
+
+describe('moving on after the call is made', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('takes "let\'s move on" on a decided topic as moving on, not as parking it (seen live)', async () => {
+    const h = harness({
+      replies: ['Sam: The choice is how we cover the counter.', 'Sam: Pick the one that feels workable.', 'Sam: Noted, that one is parked.'],
+    });
+    await reachChoiceOffer(h);
+    await say(h, 'Yes.', reading({ kind: 'agree' }));
+    await finishPlaying(h);
+    expect(h.settle).toHaveBeenCalledTimes(1);
+    expect(h.advanced).toHaveLength(0);
+
+    await say(h, "Let's move on to the next agenda.", reading({ kind: 'park' }));
+    await finishPlaying(h);
+
+    expect(h.advanced).toHaveLength(1);
+    expect(h.playing.map((entry) => entry.text).join(' ')).not.toMatch(/parked/i);
     h.conversation.close();
   });
 });

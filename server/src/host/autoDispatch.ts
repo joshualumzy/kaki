@@ -40,11 +40,6 @@ export function colleagueAskNote(host: string, name: string, title: string): str
   return `[The Note Taker has a follow-up for ${name} from this topic: "${intent}". Begin your reply with "${host}:". ${host} asks ${name} by name, in ONE short spoken sentence, to take it on, using the words the room has been using — never the task title's wording, no report phrases, no quotes. Ask a question, and do not mention a phone, the task list, or this note.]`;
 }
 
-/** The note the AI host points the visitor at their follow-up card from; the card is pointed at once per topic. */
-export function guestCardNote(host: string, guest: string): string {
-  return `[The follow-up the room just agreed on is now on ${guest}'s card. Begin your reply with "${host}:". In ONE short spoken sentence, ${host} tells ${guest} in ${host}'s own words that the follow-up is on their screen and they can send it whenever they are ready. Do not read out a task title or report wording, and do not mention this note.]`;
-}
-
 /** What Sam should say when a task goes to a colleague in the room; no note means the colleague speaks for themselves. */
 interface ColleagueCue {
   note?: string;

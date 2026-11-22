@@ -37,7 +37,6 @@ import {
 import { OPENING_PREFIX, liveNextItemLine, liveOpeningLine, openingLine, spokenAgendaName } from '../host/opening';
 import type { ChatMessage } from '../services/llm';
 import { createRoomToken } from '../services/livekit';
-import { visitorDispatchLine } from './cardPointer';
 import { NpcConversation } from './conversation';
 import { MeetingMemory } from './meetingMemory';
 import { createRunnerMeeting } from './runnerMeeting';
@@ -246,16 +245,8 @@ export interface NpcRunner {
       onDone?: (spoken: boolean) => void;
     },
   ): void;
-  /** Sam points the visitor at their follow-up card from `note`, once per topic. */
-  pointAtCard(
-    note: string,
-    options?: {
-      /** The task title the spoken line must never carry. */
-      forbiddenText?: string;
-      shouldStillSpeak?: () => boolean;
-      onDone?: (spoken: boolean) => void;
-    },
-  ): void;
+  /** Marks the visitor's follow-up card as pointed out, once per topic. Kaki's pop-up points at it; Sam says nothing. */
+  markCardShown(options?: { onDone?: (claimed: boolean) => void }): void;
   /**
    * The server's Start: open the meeting once, whoever asked. A second call is a no-op.
    * Resolves only after the cast and first topic are ready (or rejects if opening failed), so the
@@ -294,7 +285,6 @@ export interface NpcRunner {
   resetMeeting(meetingId?: string): void;
 }
 
-export { visitorDispatchLine } from './cardPointer';
 
 interface Character {
   room: Room;
@@ -543,12 +533,10 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
   /** The welcome is spoken once per visit: when the person arrives, not when they first speak. */
   let welcomed = false;
   /** How many task dispatches have been voiced to the visitor on this topic, so the first pointer is plain and later ones are brief. */
-  let visitorTaskDispatches = 0;
   let visitorDispatchTopic: string | undefined;
   const resetDispatchCountOn = (title: string | undefined): void => {
     if (title === undefined || title === visitorDispatchTopic) return;
     visitorDispatchTopic = title;
-    visitorTaskDispatches = 0;
   };
   /**
    * The person has read their briefing and pressed Start. Until then the AI attendees are in the room but silent, and
@@ -741,7 +729,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     conversation = undefined;
     conversationKey = '';
     welcomed = false;
-    visitorTaskDispatches = 0;
     visitorDispatchTopic = undefined;
     openedLocally = false;
     startInitialized = false;
@@ -1555,22 +1542,11 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       spoken = spoken.replace(new RegExp(`\\b${escapedSeat}\\b`, 'g'), visitor.name);
     }
     const isTaskDispatch = /\b(?:Accept or decline it on your phone|Have a look on your phone and accept or decline|It's on your phone)\./i.test(spoken);
-    let releaseCardClaimIfDropped = false;
     if (isTaskDispatch) {
-      // Every path that points at the card claims the topic first, so a host cue and the review timer
-      // can race without Sam saying the same thing twice.
-      if (conversation?.claimCardPointerOnCurrentTopic() === false) {
-        log(`skipped ${hostName}'s card cue "${spoken}": the visitor was already pointed to their card`);
-        return;
-      }
-      visitorTaskDispatches += 1;
-      releaseCardClaimIfDropped = true;
-      const dispatchedName = visitor?.name?.trim() || /^([^,]+),/.exec(text)?.[1]?.trim();
-      const topicTitle = conversation?.currentTopicTitle();
-      const topicIndex = topicTitle === undefined
-        ? undefined
-        : meeting.agenda().findIndex((item) => item.title === topicTitle);
-      spoken = visitorDispatchLine(dispatchedName, 1, topicIndex === undefined || topicIndex < 0 ? undefined : topicIndex);
+      // Kaki's pop-up on the visitor's screen points at the follow-up; Sam is a colleague, not Kaki, so he says nothing.
+      log(`${hostName} stays quiet on the card cue: Kaki's pop-up shows the follow-up`);
+      conversation?.markCardShown({ onDone: (claimed) => onDone?.(claimed) });
+      return;
     }
     const timeoutMatch =
       /^Time is up on (.+?)\. Keep going, or move on to (.+?)\?$/i.exec(spoken.trim()) ??
@@ -1587,21 +1563,15 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
     }
     if (isWelcome) welcomed = true;
     // After the welcome, the first agenda item begins: the person is asked, or the characters start talking it through.
-    const finalOnDone = releaseCardClaimIfDropped
-      ? (spokenNow: boolean) => {
-          if (!spokenNow) conversation?.releaseCardPointerOnCurrentTopic();
-          onDone?.(spokenNow);
-        }
-      : onDone;
     if (isNextUp && nextTitle !== undefined) {
-      conversation.announceNextTopic(hostName, nextTitle, spoken, finalOnDone);
+      conversation.announceNextTopic(hostName, nextTitle, spoken, onDone);
       return;
     }
     conversation.announce(
       hostName,
       spoken,
       undefined,
-      finalOnDone,
+      onDone,
       timeoutMatch === null ? shouldStillSpeak : () =>
         conversation?.shouldSkipOvertimeCue() !== true && (shouldStillSpeak?.() ?? true),
     );
@@ -1696,12 +1666,12 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
       }
       conversation.askColleague(target, note, options);
     },
-    pointAtCard(note, options) {
+    markCardShown(options) {
       if (endedTerminal || conversation === undefined) {
         options?.onDone?.(false);
         return;
       }
-      conversation.pointAtCard(note, options);
+      conversation.markCardShown(options);
     },
     pause() {
       clearStopGate();
