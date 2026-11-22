@@ -406,6 +406,13 @@ describe('real meeting controls', () => {
 
     await waitFor(() => lookup?.(ownerJoin.seat) === false, 'the signed-in seat identity');
     await waitFor(() => lookup?.(guest.seat) === true, 'the guest seat identity');
+
+    // A guest who reconnects now carries a seat principal; it must stay a guest, never a member.
+    guestSocket.ws.close();
+    const again = await connect(built.port, meetingId, { role: guest.seat }, guest.cookie);
+    sockets.push(again);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(lookup?.(guest.seat)).toBe(true);
   });
 
   it('refuses End from a guest and lets the owner end the meeting for everyone', async () => {

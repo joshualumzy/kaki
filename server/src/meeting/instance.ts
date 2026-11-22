@@ -510,9 +510,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         (principal?.kind === 'seat' ? principal.role : undefined) ??
         (principal?.kind === 'host' ? principal.seat : undefined);
       if (seat !== undefined) {
-        if (principal?.kind === 'seat' && principal.guest !== true) {
-          // A seat without an account, or a signed-in person outside this workspace, is never a
-          // workspace member. A failure to check membership fails closed as a guest.
+        if (principal?.kind === 'seat') {
+          // A seat without an account (including a guest session that took a seat), or a signed-in
+          // person outside this workspace, is never a workspace member. A failure to check membership fails closed as a guest.
           const userId = principal.userId;
           let guest = userId === undefined;
           if (userId !== undefined && auth !== undefined) {
