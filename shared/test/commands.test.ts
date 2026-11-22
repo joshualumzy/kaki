@@ -6,6 +6,7 @@ describe('isKakiCommand', () => {
   it('accepts every command for the scenario', () => {
     expect(isKakiCommand({ type: 'DISPATCH_TASK', taskId: 't1', assignee: 'chef' }, testScenario)).toBe(true);
     expect(isKakiCommand({ type: 'DISMISS_TASK', taskId: 't1' }, testScenario)).toBe(true);
+    expect(isKakiCommand({ type: 'DECLINE_TASK', taskId: 't1' }, testScenario)).toBe(true);
     expect(isKakiCommand({ type: 'CLAIM_TASK', taskId: 't1', mode: 'ACTION_AGENT' }, testScenario)).toBe(true);
     expect(isKakiCommand({ type: 'CLAIM_TASK', taskId: 't1', mode: 'MANUAL' }, testScenario)).toBe(true);
     expect(

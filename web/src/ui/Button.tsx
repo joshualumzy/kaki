@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes } from 'react';
 
-/** Shared button used across the shared screen and phone app. */
+/** Shared button used across the web app. */
 export function Button({
   variant = 'primary',
   type = 'button',

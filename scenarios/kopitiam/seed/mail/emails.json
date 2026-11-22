@@ -1,0 +1,128 @@
+{
+  "emails": [
+    {
+      "from": {
+        "name": "Priya Nair",
+        "address": "priya.nair@example.com"
+      },
+      "to": [
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        },
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Today's breakfast at your Raffles Place shop",
+      "date": "2026-11-10T21:40:00+08:00",
+      "messageId": "<customer-complaint-20261110@example.com>",
+      "text": "Dear Nanyang Kopi & Toast team,\n\nI ate Set A at your Raffles Place shop during today's trial and was sick afterwards. I saw a doctor, and the clinic bill came to $85. I am recovering at home now.\n\nI am not writing to make a scene. I liked the shop, and I would like to know what happened and what you are doing about it. I plan to post a review tomorrow night after I have heard from you.\n\nRegards,\nPriya Nair"
+    },
+    {
+      "from": {
+        "name": "Lion City Insurance",
+        "address": "claims@lioncityinsurance.example"
+      },
+      "to": [
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Goodwill payment cover for the Raffles Place opening",
+      "date": "2026-11-11T06:50:00+08:00",
+      "messageId": "<goodwill-cover-20261111@lioncityinsurance.example>",
+      "text": "Dear Wei Ling,\n\nFor the customer who reported feeling unwell after the trial, your policy allows a goodwill payment of up to $3,000 without any admission of fault. Keep the signed disposal log and the fridge log with the claim.\n\nRegards,\nLion City Insurance Claims"
+    },
+    {
+      "from": {
+        "name": "Raffles Place Community Page",
+        "address": "moderator@rafflesplacecommunity.example"
+      },
+      "to": [
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Post about Nanyang Kopi & Toast is being shared",
+      "date": "2026-11-11T06:20:00+08:00",
+      "messageId": "<facebook-post-20261111@rafflesplacecommunity.example>",
+      "text": "Hi Daniel,\n\nOne of the old regulars' nephews posted that Nanyang has forgotten its roots after seeing the new kopi prices. The post has been shared a few hundred times since last night, about 300 shares, and it is still moving in the local groups.\n\nWe thought you should know before the shop opens.\n\nRaffles Place Community Page"
+    },
+    {
+      "from": {
+        "name": "One Raffles Place Offices",
+        "address": "office.managers@onerafflesplace.example"
+      },
+      "to": [
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Direct order code for our offices",
+      "date": "2026-11-10T17:15:00+08:00",
+      "messageId": "<office-direct-code-20261110@onerafflesplace.example>",
+      "text": "Hi Daniel,\n\n12 office managers in the building have asked for a direct order code so our teams can collect breakfast without going through the delivery app. Most of our orders are for five sets or more.\n\nPlease let us know what you decide for opening day.\n\nOne Raffles Place Offices"
+    },
+    {
+      "from": {
+        "name": "Food Agency Central Regional Office",
+        "address": "inspections@foodagency.gov.example"
+      },
+      "to": [
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        },
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Notice of routine food hygiene inspection - Raffles Place (11 November, 9:00 AM)",
+      "date": "2026-11-11T06:30:00+08:00",
+      "messageId": "<food-agency-inspection-20261110@foodagency.gov.example>",
+      "text": "Dear Licensee (Nanyang Kopi & Toast - Raffles Place),\n\nThis is your routine opening-day kitchen inspection, booked on 21 October 2026 as part of the standard licensing schedule. It is not a response to any customer report. An officer will conduct the on-site inspection on 11 November at 9:00 AM.\n\nThe officer will ask for the signed disposal log, the fridge temperature log, and the order details for the replacement eggs and kaya.\n\nRegards,\nFood Agency Central Regional Inspection Team"
+    },
+    {
+      "from": {
+        "name": "Jia Hui Food Journal",
+        "address": "hello@jiahui-food.example"
+      },
+      "to": [
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Confirmed: visit at 10:30 on 11 November",
+      "date": "2026-11-10T18:00:00+08:00",
+      "messageId": "<blogger-booking-20261110@jiahui-food.example>",
+      "text": "Hi Daniel,\n\nConfirmed for 10:30 tomorrow morning at the Raffles Place shop. I would like to photograph Set A, the kopi bar and the breakfast crowd. I read the local Facebook groups, so I have seen the post about the old regulars; I will ask about it.\n\nSee you at 10:30,\nJia Hui"
+    },
+    {
+      "from": {
+        "name": "GrabFood Merchant Partnerships SG",
+        "address": "merchants@grabfood.example"
+      },
+      "to": [
+        {
+          "name": "Daniel",
+          "address": "daniel@nanyangkopitiam.example"
+        },
+        {
+          "name": "Wei Ling",
+          "address": "wei.ling@nanyangkopitiam.example"
+        }
+      ],
+      "subject": "Launch deal: featured banner while the full menu is live",
+      "date": "2026-11-10T19:10:00+08:00",
+      "messageId": "<grabfood-launch-deal-20261110@grabfood.example>",
+      "text": "Dear Nanyang Kopi & Toast team,\n\nYour opening-day launch deal includes a featured banner on the breakfast page. The banner stays only while the full menu is live.\n\nGrabFood's promo rate on its cut for all our shops ended today, so commission from 11 November is 32%. A $10 set delivered returns $6.80 before the $7.30 cost of making and packing it. Please also note that GrabFood hides shops that charge more on the app than at the counter; five-set platters are treated as a separate catering item.\n\nGrabFood Key Accounts Singapore"
+    }
+  ]
+}

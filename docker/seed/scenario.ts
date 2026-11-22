@@ -4,6 +4,7 @@ import { REPO_ROOT } from './env';
 
 const SCENARIO_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+/** One wiki page: its path and title plus the content file the seed reads. */
 export interface WikiPageSeed {
   path: string;
   title: string;
@@ -12,12 +13,13 @@ export interface WikiPageSeed {
   content: string;
 }
 
-export interface GiteaLabelSeed {
+interface GiteaLabelSeed {
   name: string;
   color: string;
   description?: string;
 }
 
+/** One seeded issue with its labels, body and creation and close dates. */
 export interface GiteaIssueSeed {
   title: string;
   state: 'open' | 'closed';
@@ -28,12 +30,14 @@ export interface GiteaIssueSeed {
   date: string;
 }
 
+/** Everything the Gitea seeder creates: the repository, labels and issues. */
 export interface GiteaSeed {
   repository: { name: string; description: string; private: boolean };
   labels: GiteaLabelSeed[];
   issues: GiteaIssueSeed[];
 }
 
+/** One Mattermost account to create, with the profile fields the seed supplies. */
 export interface MattermostUserSeed {
   username: string;
   email: string;
@@ -42,12 +46,13 @@ export interface MattermostUserSeed {
   admin?: boolean;
 }
 
-export interface MattermostChannelSeed {
+interface MattermostChannelSeed {
   name: string;
   display_name: string;
   purpose: string;
 }
 
+/** One seeded post; key and replyToKey wire a reply to an earlier post. */
 export interface MattermostPostSeed {
   key?: string;
   channel: string;
@@ -57,6 +62,7 @@ export interface MattermostPostSeed {
   text: string;
 }
 
+/** Everything the Mattermost seeder creates: team, users, channels and posts. */
 export interface MattermostSeed {
   team: { name: string; display_name: string };
   users: MattermostUserSeed[];
@@ -64,11 +70,12 @@ export interface MattermostSeed {
   posts: MattermostPostSeed[];
 }
 
-export interface MailAddressSeed {
+interface MailAddressSeed {
   name: string;
   address: string;
 }
 
+/** One email to deliver to Mailpit, with its addresses, dates and plain text. */
 export interface MailMessageSeed {
   from: MailAddressSeed;
   to: MailAddressSeed[];
@@ -78,8 +85,18 @@ export interface MailMessageSeed {
   text: string;
 }
 
+interface ScenarioMeetingSeed {
+  title: string;
+  roles: Array<{ id: string; label: string }>;
+  attendees: Array<{ name: string; role: string }>;
+  agenda: Array<{ title: string; minutes: number; ownerRole: string }>;
+}
+
+/** A whole scenario loaded from disk, ready to hand to each service seeder. */
 export interface ScenarioSeed {
   name: string;
+  organisation: string;
+  meeting: ScenarioMeetingSeed;
   pages: WikiPageSeed[];
   gitea: GiteaSeed;
   mattermost: MattermostSeed;
@@ -121,6 +138,13 @@ function plainStringAt(value: unknown, file: string, where: string): string {
   return value;
 }
 
+function positiveIntegerAt(value: unknown, file: string, where: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    fail(file, `${where} must be a whole number of minutes greater than 0`);
+  }
+  return value;
+}
+
 function isoDateAt(value: unknown, file: string, where: string): string {
   const text = stringAt(value, file, where);
   if (Number.isNaN(Date.parse(text))) fail(file, `${where} must be an ISO date`);
@@ -143,6 +167,7 @@ function parseAddress(value: unknown, file: string, where: string): MailAddressS
   };
 }
 
+/** Checks the wiki page manifest and returns its pages without content; paths must stay inside the wiki. */
 export function parseWikiManifest(value: unknown, file = 'wiki/pages.json'): { pages: Array<Omit<WikiPageSeed, 'content'>> } {
   const manifest = objectAt(value, file, 'root');
   const pages = arrayAt(manifest.pages, file, 'pages').map((entry, index) => {
@@ -166,6 +191,7 @@ export function parseWikiManifest(value: unknown, file = 'wiki/pages.json'): { p
   return { pages };
 }
 
+/** Checks the Gitea seed file and returns its repository, labels and issues. */
 export function parseGiteaSeed(value: unknown, file = 'gitea/issues.json'): GiteaSeed {
   const root = objectAt(value, file, 'root');
   const repository = objectAt(root.repository, file, 'repository');
@@ -208,6 +234,7 @@ export function parseGiteaSeed(value: unknown, file = 'gitea/issues.json'): Gite
   };
 }
 
+/** Checks the Mattermost seed file and returns its team, users, channels and posts. */
 export function parseMattermostSeed(value: unknown, file = 'mattermost/seed.json'): MattermostSeed {
   const root = objectAt(value, file, 'root');
   const team = objectAt(root.team, file, 'team');
@@ -269,6 +296,7 @@ export function parseMattermostSeed(value: unknown, file = 'mattermost/seed.json
   };
 }
 
+/** Checks the mail seed file and returns its messages. */
 export function parseMailSeed(value: unknown, file = 'mail/emails.json'): MailMessageSeed[] {
   const root = objectAt(value, file, 'root');
   const emails = arrayAt(root.emails, file, 'emails').map((entry, index) => {
@@ -316,10 +344,54 @@ function readText(file: string): string {
   }
 }
 
-export function loadScenarioSeed(name = process.env.SCENARIO ?? 'pixel-kampung'): ScenarioSeed {
+function parseMeetingSeed(scenario: JsonObject, file: string): ScenarioMeetingSeed {
+  const roles = arrayAt(scenario.roles, file, 'roles').map((entry, index) => {
+    const role = objectAt(entry, file, `roles[${index}]`);
+    return {
+      id: stringAt(role.id, file, `roles[${index}].id`),
+      label: stringAt(role.label, file, `roles[${index}].label`),
+    };
+  });
+  const roleIds = new Set(roles.map((role) => role.id));
+
+  const attendees = arrayAt(scenario.attendees, file, 'attendees').map((entry, index) => {
+    const attendee = objectAt(entry, file, `attendees[${index}]`);
+    const role = stringAt(attendee.role, file, `attendees[${index}].role`);
+    if (!roleIds.has(role)) fail(file, `attendees[${index}].role "${role}" is not defined in roles`);
+    return {
+      name: stringAt(attendee.name, file, `attendees[${index}].name`),
+      role,
+    };
+  });
+
+  const agenda = arrayAt(scenario.agenda, file, 'agenda').map((entry, index) => {
+    const item = objectAt(entry, file, `agenda[${index}]`);
+    const ownerRole = stringAt(item.ownerRole, file, `agenda[${index}].ownerRole`);
+    if (!roleIds.has(ownerRole)) fail(file, `agenda[${index}].ownerRole "${ownerRole}" is not defined in roles`);
+    return {
+      title: stringAt(item.title, file, `agenda[${index}].title`),
+      minutes: positiveIntegerAt(item.minutes, file, `agenda[${index}].minutes`),
+      ownerRole,
+    };
+  });
+  if (agenda.length === 0) fail(file, 'agenda must not be empty');
+
+  return {
+    title: stringAt(scenario.meetingTitle, file, 'meetingTitle'),
+    roles,
+    attendees,
+    agenda,
+  };
+}
+
+/** Loads a scenario folder meeting, wiki pages, Gitea, Mattermost, mail and SQL seed files. */
+export function loadScenarioSeed(name = process.env.SCENARIO ?? 'kopitiam'): ScenarioSeed {
   if (!SCENARIO_PATTERN.test(name)) {
-    throw new Error(`Invalid SCENARIO "${name}": expected a folder name such as "pixel-kampung"`);
+    throw new Error(`Invalid SCENARIO "${name}": expected a folder name such as "kopitiam"`);
   }
+  const scenarioFile = path.join(REPO_ROOT, 'scenarios', name, 'scenario.json');
+  const scenario = objectAt(readJson(scenarioFile), scenarioFile, 'scenario');
+  const organisation = stringAt(scenario.organisation, scenarioFile, 'organisation');
   const seedDir = path.join(REPO_ROOT, 'scenarios', name, 'seed');
   const wikiFile = path.join(seedDir, 'wiki', 'pages.json');
   const wikiManifest = parseWikiManifest(readJson(wikiFile), wikiFile);
@@ -330,6 +402,8 @@ export function loadScenarioSeed(name = process.env.SCENARIO ?? 'pixel-kampung')
 
   return {
     name,
+    organisation,
+    meeting: parseMeetingSeed(scenario, scenarioFile),
     pages,
     gitea: parseGiteaSeed(readJson(path.join(seedDir, 'gitea', 'issues.json'))),
     mattermost: parseMattermostSeed(readJson(path.join(seedDir, 'mattermost', 'seed.json'))),

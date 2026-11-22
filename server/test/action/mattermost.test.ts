@@ -5,16 +5,16 @@ import {
   type MattermostModuleOptions,
   type MattermostSettings,
 } from '../../src/action/mattermost';
-import type { Hub } from '../../src/hub';
-import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import { createFakeLlm, LlmError, type LlmClient } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { settle, waitFor } from '../helpers';
 
 const settings: MattermostSettings = {
   url: 'http://mattermost.test',
   token: 'secret-token',
-  team: 'pixel-kampung',
+  team: 'kopitiam',
   channel: 'launch',
 };
 
@@ -28,6 +28,7 @@ const stops: Array<() => void> = [];
 afterEach(() => {
   stopAll();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 function stopAll(): void {
@@ -39,25 +40,30 @@ function quietHub(): Hub {
     publish: (_event: KakiEvent) => {},
     subscribe: () => () => {},
     onCommand: () => {},
+    clearRetained: () => {},
     close: () => {},
   };
 }
 
-function setup(options: MattermostModuleOptions): TaskStore {
+function setup(options: MattermostModuleOptions, scenario = testScenario): TaskStore {
   const hub = quietHub();
-  const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createMattermostModule(options).start({ hub, tasks, scenario: testScenario });
+  const tasks = createTaskStore({ hub, scenario });
+  const stop = createMattermostModule(options).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub, tasks, activeScenario: () => scenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }
 
-function startTask(tasks: TaskStore, actionKind: ActionKind = 'mattermost_post'): Task {
-  const task = tasks.suggest({
-    title: 'Fix the oven',
-    context: 'The oven trips the fuse after ten minutes.',
-    suggestedAssignee: 'chef',
-    actionKind,
-  });
+function startTask(tasks: TaskStore, actionKind: ActionKind = 'mattermost_post', sourceSeconds?: number): Task {
+  const task = tasks.suggest(
+    {
+      title: 'Fix the oven',
+      context: 'The oven trips the fuse after ten minutes.',
+      suggestedAssignee: 'chef',
+      actionKind,
+    },
+    undefined,
+    sourceSeconds,
+  );
   tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
   return task;
 }
@@ -91,7 +97,7 @@ function okFetch(channel = 'launch') {
     const method = init?.method ?? 'GET';
     if (
       method === 'GET' &&
-      url === `http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/${channel}`
+      url === `http://mattermost.test/api/v4/teams/name/kopitiam/channels/name/${channel}`
     ) {
       return jsonResponse({ id: channelId });
     }
@@ -131,16 +137,38 @@ describe('mattermost action module', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('refuses a draft that invents a time the task does not support', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() => JSON.stringify({ message: 'The booth rule runs from 8 PM to 10:30 PM.' })),
+      mattermost: settings,
+      fetchImpl: okFetch(),
+    });
+    const task = tasks.suggest({
+      title: 'Post the booth rule',
+      context: 'The booth rule runs from 8 to 10:30 every morning.',
+      suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    expect(failed.error).toMatch(/8 PM/);
+    expect(failed.error).toMatch(/does not support/);
+    expect(failed.draft).toBeUndefined();
+  });
+
   it('posts the approved draft on run and records the post URL', async () => {
     const fetchImpl = okFetch();
     const tasks = setup({ llm: createFakeLlm(() => messageReply), mattermost: settings, fetchImpl });
-    const task = startTask(tasks);
+    const task = startTask(tasks, 'mattermost_post', 930);
     const ready = await claim(tasks, task);
 
     tasks.transition(ready.id, 'RUNNING');
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
 
-    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/kopitiam/pl/post-456');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
 
     const [lookupCall, postCall] = fetchImpl.mock.calls;
@@ -148,7 +176,7 @@ describe('mattermost action module', () => {
 
     const [lookupUrl, lookupInit] = lookupCall;
     expect(String(lookupUrl)).toBe(
-      'http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/launch',
+      'http://mattermost.test/api/v4/teams/name/kopitiam/channels/name/launch',
     );
     expect(lookupInit?.method).toBe('GET');
     expect(lookupInit?.headers).toMatchObject({ authorization: 'Bearer secret-token' });
@@ -162,7 +190,7 @@ describe('mattermost action module', () => {
     });
     expect(JSON.parse(String(postInit?.body))).toEqual({
       channel_id: channelId,
-      message: 'The oven is fixed.',
+      message: 'The oven is fixed.\n\nPosted by Kaki for Ada, approved in Lunch service readiness.',
     });
   });
 
@@ -179,15 +207,15 @@ describe('mattermost action module', () => {
     tasks.transition(ready.id, 'RUNNING', { draft: { ...ready.draft, target } });
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
 
-    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/kopitiam/pl/post-456');
     const [lookupCall, postCall] = fetchImpl.mock.calls;
     if (lookupCall === undefined || postCall === undefined) throw new Error('Expected two Mattermost requests');
     expect(String(lookupCall[0])).toBe(
-      'http://mattermost.test/api/v4/teams/name/pixel-kampung/channels/name/ops',
+      'http://mattermost.test/api/v4/teams/name/kopitiam/channels/name/ops',
     );
     expect(JSON.parse(String(postCall[1]?.body))).toEqual({
       channel_id: channelId,
-      message: 'The oven is fixed.',
+      message: 'The oven is fixed.\n\nPosted by Kaki for Ada, approved in Lunch service readiness.',
     });
   });
 
@@ -231,7 +259,7 @@ describe('mattermost action module', () => {
 
     tasks.transition(failed.id, 'RUNNING');
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
-    expect(completed.artifactUrl).toBe('http://mattermost.test/pixel-kampung/pl/post-456');
+    expect(completed.artifactUrl).toBe('http://mattermost.test/kopitiam/pl/post-456');
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
@@ -321,7 +349,7 @@ describe('mattermost action module', () => {
 
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
-    expect(failed.error).toMatch(/could not reach Mattermost/i);
+    expect(failed.error).toMatch(/Couldn't reach Mattermost/);
   });
 
   it('fails when Mattermost replies without a post id', async () => {
@@ -372,11 +400,11 @@ describe('mattermost action module', () => {
 
     tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
     const failed = await waitForStatus(tasks, task.id, 'FAILED');
-    expect(failed.error).toMatch(/Mattermost is not configured/);
+    expect(failed.error).toMatch(/Mattermost is not connected for this workspace/);
 
     tasks.transition(failed.id, 'RUNNING');
     const retried = await waitForStatus(tasks, task.id, 'FAILED');
-    expect(retried.error).toMatch(/Mattermost is not configured/);
+    expect(retried.error).toMatch(/Mattermost is not connected for this workspace/);
   });
 
   it('fails loudly when the LLM is not configured', async () => {
@@ -403,6 +431,53 @@ describe('mattermost action module', () => {
     expect(current?.status).toBe('FAILED');
     expect(current?.error).toBe('changed elsewhere');
     expect(current?.draft).toBeUndefined();
+  });
+
+  it('keeps the visitor in the decision source without naming the default scenario seat as the sender', async () => {
+    const scenarioWithFacts = {
+      ...testScenario,
+      roles: testScenario.roles.map((role) =>
+        role.id === 'chef'
+          ? {
+              ...role,
+              card: {
+                youAre: 'You run the kitchen.',
+                facts: ['The booth demo runs on generator power.', 'The pastry oven needs a new fuse.'],
+                responsibility: 'Kitchen readiness.',
+              },
+            }
+          : role,
+      ),
+      agenda: [
+        { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', seatFacts: { chef: 'The booth demo runs on generator power.' } },
+        { title: 'Oven', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef', seatFacts: { chef: 'The pastry oven needs a new fuse.' } },
+      ],
+    };
+    const decision = 'Booth Playtest approved the booth demo: it runs from 9 to 11 AM and the Chef owns setup.';
+    const llm = createFakeLlm(() => messageReply);
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm, mattermost: settings, fetchImpl }, scenarioWithFacts);
+    const task = tasks.suggest({
+      title: 'Announce the booth demo decision',
+      context: 'Booth Playtest approved the booth demo plan for the launch.',
+      suggestedAssignee: 'chef',
+      actionKind: 'mattermost_post',
+      decisionSource: decision,
+      agendaItemTitle: 'Prep',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    const ready = await claim(tasks, task);
+    expect(ready.status).toBe('DRAFT_READY');
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    const prompt = llm.calls[0]?.map((message) => message.content).join('\n') ?? '';
+    expect(prompt).toContain(decision);
+    expect(prompt).toContain('The booth demo runs on generator power.');
+    expect(prompt).not.toContain('The pastry oven needs a new fuse.');
+    expect(prompt).toContain('Chef');
+    expect(prompt).not.toContain('Sender: Ada');
+    expect(prompt).not.toContain('Known facts from Ada');
   });
 
   it('ignores other action kinds and manual tasks', async () => {

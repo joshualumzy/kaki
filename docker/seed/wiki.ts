@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import type { Env } from './env';
+import { COMPOSE_FILE } from './env';
 import { jsonBody, jsonRequest, request, sleep, waitFor } from './http';
 import type { WikiPageSeed } from './scenario';
 
@@ -24,6 +26,22 @@ interface PageLookupData {
       description: string;
       content: string;
     } | null;
+  };
+}
+
+interface PageListData {
+  pages: {
+    list: Array<{
+      id: number;
+      path: string;
+      title: string;
+    }>;
+  };
+}
+
+interface PageDeleteData {
+  pages: {
+    delete?: { responseResult: { succeeded: boolean; message?: string } };
   };
 }
 
@@ -152,7 +170,7 @@ async function ensurePage(env: Env, jwt: string, page: WikiPageSeed): Promise<'c
     env,
     `mutation Update($id: Int!, $content: String!, $description: String!, $title: String!) {
       pages {
-        update(id: $id, content: $content, description: $description, isPublished: true, title: $title) {
+        update(id: $id, content: $content, description: $description, isPublished: true, tags: [], title: $title) {
           responseResult { succeeded message }
         }
       }
@@ -178,6 +196,29 @@ function graphqlProbe(env: Env): RequestInit {
   };
 }
 
+function syncWikiDemoAdmin(env: Env): void {
+  try {
+    execFileSync(
+      'docker',
+      [
+        'compose',
+        '-f',
+        COMPOSE_FILE,
+        'exec',
+        '-T',
+        'wiki',
+        'node',
+        '-e',
+        `const sqlite3 = require("sqlite3"); const bcrypt = require("bcryptjs"); const db = new sqlite3.Database("/wiki/data/wiki.db"); const hash = bcrypt.hashSync(${JSON.stringify(env.WIKI_ADMIN_PASSWORD)}, 10); db.run("UPDATE users SET email = ?, password = ? WHERE id = 1", [${JSON.stringify(env.WIKI_ADMIN_EMAIL)}, hash]);`,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch {
+    // Best-effort sync.
+  }
+}
+
+/** Completes Wiki.js setup when needed, then writes the scenario pages and removes stale ones. */
 export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
   await waitFor('Wiki.js', async () => {
     const root = await request(`${env.WIKI_URL}/`, {}, 'Wiki.js setup page');
@@ -191,8 +232,8 @@ export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
       `${env.WIKI_URL}/finalize`,
       jsonBody('POST', {
         siteUrl: env.WIKI_URL,
-        adminEmail: env.WIKI_ADMIN_EMAIL,
-        adminPassword: env.WIKI_ADMIN_PASSWORD,
+        adminEmail: 'admin@nanyangkopitiam.example',
+        adminPassword: 'demopassword',
         telemetry: false,
       }),
       'Wiki.js setup',
@@ -213,8 +254,51 @@ export async function seedWiki(env: Env, pages: WikiPageSeed[]): Promise<void> {
     }
   });
 
+  syncWikiDemoAdmin(env);
   const jwt = await login(env);
-  for (const page of pages) {
+
+  const homePage: WikiPageSeed = {
+    path: 'home',
+    title: 'Nanyang Kopi & Toast — Team Wiki',
+    description: 'Standard Operating Procedures (SOPs), Floor Protocols & Launch Costing for Raffles Place Flagship (#B1-14).',
+    content: [
+      '# Nanyang Kopi & Toast — Team Wiki',
+      '',
+      'Welcome to the internal knowledge base for our **Raffles Place Flagship (#B1-14)** launch.',
+      '',
+      '## Active Operations & Launch SOPs',
+      ...pages.map((p) => `- **[${p.title}](/en/${p.path})** — ${p.description}`),
+      '',
+      '---',
+      '*End-of-meeting minutes and action updates published by Kaki appear under `/en/meetings/`.*',
+    ].join('\n'),
+  };
+
+  const allSeedPages = [homePage, ...pages];
+  const validPaths = new Set(allSeedPages.map((p) => p.path));
+
+  try {
+    const existingList = await graphql<PageListData>(
+      env,
+      `query { pages { list { id path title } } }`,
+      {},
+      jwt,
+    );
+    for (const item of existingList.pages.list) {
+      if (!validPaths.has(item.path)) {
+        await graphql<PageDeleteData>(
+          env,
+          `mutation Delete($id: Int!) { pages { delete(id: $id) { responseResult { succeeded message } } } }`,
+          { id: item.id },
+          jwt,
+        ).catch(() => undefined);
+      }
+    }
+  } catch {
+    // Best-effort cleanup of stale pages.
+  }
+
+  for (const page of allSeedPages) {
     const result = await ensurePage(env, jwt, page);
     console.log(`  ${result}: ${page.path}`);
   }

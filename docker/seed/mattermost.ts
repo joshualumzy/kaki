@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import type { Env } from './env';
+import { COMPOSE_FILE } from './env';
 import { jsonBody, jsonRequest, jsonResponse, request, waitFor } from './http';
 import type { MattermostPostSeed, MattermostSeed, MattermostUserSeed } from './scenario';
 
@@ -27,11 +29,85 @@ interface MmToken {
   token?: string;
 }
 
-interface MmPost {
+/** A post as Mattermost returns it, used to spot posts the seed already made. */
+export interface MmPost {
   id: string;
   message: string;
+  user_id: string;
   root_id?: string;
   props?: Record<string, string>;
+}
+
+interface PostPlanEntry {
+  post: MattermostPostSeed;
+  existing?: MmPost;
+}
+
+interface PostPlan {
+  entries: PostPlanEntry[];
+  deleteIds: string[];
+}
+
+type Parent = { kind: 'root' } | { kind: 'existing'; id: string } | { kind: 'new' };
+
+/** Works out which seeded posts already exist and which stale posts to delete. */
+export function planPosts(
+  existingByChannel: Map<string, MmPost[]>,
+  posts: MattermostPostSeed[],
+  authorIds: Map<string, string>,
+): PostPlan {
+  const available = new Map<string, MmPost[]>();
+  for (const [channel, existing] of existingByChannel) {
+    available.set(channel, [...existing]);
+  }
+
+  const used = new Set<string>();
+  const resolved = new Map<string, { id?: string }>();
+  const entries: PostPlanEntry[] = [];
+
+  const takeExisting = (channel: string, text: string, userId: string, parent: Parent): MmPost | undefined => {
+    const expectedRoot = parent.kind === 'root' ? '' : parent.kind === 'existing' ? parent.id : undefined;
+    if (expectedRoot === undefined) return undefined;
+    const candidates = available.get(channel);
+    if (!candidates) return undefined;
+    const index = candidates.findIndex(
+      (candidate) =>
+        !used.has(candidate.id) &&
+        candidate.message === text &&
+        candidate.user_id === userId &&
+        (candidate.root_id ?? '') === expectedRoot,
+    );
+    if (index === -1) return undefined;
+    const [claimed] = candidates.splice(index, 1);
+    if (!claimed) return undefined;
+    used.add(claimed.id);
+    return claimed;
+  };
+
+  for (const post of posts) {
+    const userId = authorIds.get(post.author);
+    if (!userId) throw new Error(`Unknown author "${post.author}"`);
+
+    let parent: Parent = { kind: 'root' };
+    if (post.replyToKey) {
+      const root = resolved.get(post.replyToKey);
+      if (!root) throw new Error(`Post reply references "${post.replyToKey}" before the root post was resolved`);
+      parent = root.id ? { kind: 'existing', id: root.id } : { kind: 'new' };
+    }
+
+    const existing = takeExisting(post.channel, post.text, userId, parent);
+    entries.push({ post, existing });
+    if (post.key) resolved.set(post.key, { id: existing?.id });
+  }
+
+  const deleteIds: string[] = [];
+  for (const existing of existingByChannel.values()) {
+    for (const post of existing) {
+      if (!used.has(post.id)) deleteIds.push(post.id);
+    }
+  }
+
+  return { entries, deleteIds };
 }
 
 interface MmPostList {
@@ -87,12 +163,13 @@ async function login(env: Env, username: string): Promise<Session | undefined> {
 }
 
 async function signup(env: Env, user: MattermostUserSeed): Promise<MmUser> {
+  const safePassword = env.MATTERMOST_PASSWORD.length >= 8 ? env.MATTERMOST_PASSWORD : 'demopassword';
   const response = await request(
     `${env.MATTERMOST_URL}/api/v4/users`,
     jsonBody('POST', {
       email: user.email,
       username: user.username,
-      password: env.MATTERMOST_PASSWORD,
+      password: safePassword,
       first_name: user.first_name,
       last_name: user.last_name,
     }),
@@ -101,20 +178,35 @@ async function signup(env: Env, user: MattermostUserSeed): Promise<MmUser> {
   return jsonResponse<MmUser>(response, `Mattermost signup for ${user.username}`);
 }
 
-async function findUser(env: Env, token: string, username: string): Promise<MmUser | undefined> {
+async function findUser(env: Env, token: string, username: string, email?: string): Promise<MmUser | undefined> {
   const response = await mmRequest(env, `/users/username/${encodeURIComponent(username)}`, token);
-  if (response.status === 404) return undefined;
-  return jsonResponse<MmUser>(response, `Mattermost user ${username}`);
+  if (response.ok) return jsonResponse<MmUser>(response, `Mattermost user ${username}`);
+  if (email !== undefined) {
+    const byEmail = await mmRequest(env, `/users/email/${encodeURIComponent(email)}`, token);
+    if (byEmail.ok) return jsonResponse<MmUser>(byEmail, `Mattermost user ${email}`);
+  }
+  return undefined;
 }
 
 async function ensureUser(env: Env, token: string, user: MattermostUserSeed): Promise<MmUser> {
-  const existing = await findUser(env, token, user.username);
-  if (existing) return existing;
+  const existing = await findUser(env, token, user.username, user.email);
+  if (existing) {
+    if (existing.username !== user.username) {
+      await mmRequest(
+        env,
+        `/users/${existing.id}/patch`,
+        token,
+        jsonBody('PUT', { username: user.username, first_name: user.first_name, last_name: user.last_name }),
+      ).catch(() => undefined);
+    }
+    return { ...existing, username: user.username };
+  }
   console.log(`  creating the Mattermost user ${user.username}`);
+  const safePassword = env.MATTERMOST_PASSWORD.length >= 8 ? env.MATTERMOST_PASSWORD : 'demopassword';
   const response = await mmRequest(env, '/users', token, jsonBody('POST', {
     email: user.email,
     username: user.username,
-    password: env.MATTERMOST_PASSWORD,
+    password: safePassword,
     first_name: user.first_name,
     last_name: user.last_name,
   }));
@@ -150,7 +242,16 @@ async function ensureTeamMember(env: Env, token: string, teamId: string, userId:
 
 async function ensureChannel(env: Env, token: string, teamId: string, channel: MattermostSeed['channels'][number]): Promise<MmChannel> {
   const response = await mmRequest(env, `/teams/${teamId}/channels/name/${encodeURIComponent(channel.name)}`, token);
-  if (response.ok) return jsonResponse<MmChannel>(response, 'Mattermost channel');
+  if (response.ok) {
+    const existing = await jsonResponse<MmChannel>(response, 'Mattermost channel');
+    await mmRequest(
+      env,
+      `/channels/${existing.id}/patch`,
+      token,
+      jsonBody('PUT', { display_name: channel.display_name, purpose: channel.purpose }),
+    ).catch(() => undefined);
+    return existing;
+  }
   if (response.status !== 404) throw new Error(`Could not read Mattermost channel "${channel.name}" (HTTP ${response.status})`);
   console.log(`  creating the Mattermost channel #${channel.name}`);
   return mmJson<MmChannel>(
@@ -199,21 +300,28 @@ async function ensurePosts(
   sessions: Map<string, Session>,
   posts: MattermostPostSeed[],
 ): Promise<void> {
-  const existingByChannel = new Map<string, Map<string, MmPost>>();
-  for (const channel of channels.values()) {
-    const postsInChannel = await channelPosts(env, adminToken, channel.id);
-    existingByChannel.set(channel.name, new Map(postsInChannel.map((post) => [post.message, post])));
-  }
-
-  const keyed = new Map<string, MmPost>();
+  const authorIds = new Map<string, string>();
   for (const post of posts) {
-    const channel = channels.get(post.channel);
-    if (!channel) throw new Error(`Unknown channel "${post.channel}"`);
     const session = sessions.get(post.author);
     if (!session) throw new Error(`Unknown author "${post.author}"`);
-    const existing = existingByChannel.get(post.channel)?.get(post.text);
+    authorIds.set(post.author, session.user.id);
+  }
 
-    if (existing) {
+  const existingByChannel = new Map<string, MmPost[]>();
+  for (const channel of channels.values()) {
+    existingByChannel.set(channel.name, await channelPosts(env, adminToken, channel.id));
+  }
+
+  const plan = planPosts(existingByChannel, posts, authorIds);
+
+  const keyed = new Map<string, MmPost>();
+  for (const entry of plan.entries) {
+    const post = entry.post;
+    const channel = channels.get(post.channel);
+    if (!channel) throw new Error(`Unknown channel "${post.channel}"`);
+
+    if (entry.existing) {
+      const existing = entry.existing;
       if (existing.props?.sent_at !== post.at) {
         await mmJson(
           env,
@@ -234,6 +342,9 @@ async function ensurePosts(
       rootId = root.id;
     }
 
+    const session = sessions.get(post.author);
+    if (!session) throw new Error(`Unknown author "${post.author}"`);
+
     const created = await mmJson<MmPost>(
       env,
       '/posts',
@@ -246,8 +357,14 @@ async function ensurePosts(
       }),
       `Mattermost create post in #${post.channel}`,
     );
-    existingByChannel.get(post.channel)?.set(post.text, created);
     if (post.key) keyed.set(post.key, created);
+  }
+
+  for (const id of plan.deleteIds) {
+    const response = await mmRequest(env, `/posts/${id}`, adminToken, { method: 'DELETE' });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Could not delete the Mattermost post ${id} (HTTP ${response.status})`);
+    }
   }
 }
 
@@ -273,11 +390,47 @@ async function ensureToken(env: Env, session: Session): Promise<string> {
   return created.token;
 }
 
+async function syncDemoPasswords(env: Env, token?: string): Promise<void> {
+  try {
+    execFileSync(
+      'docker',
+      [
+        'compose',
+        '-f',
+        COMPOSE_FILE,
+        'exec',
+        '-T',
+        'postgres',
+        'psql',
+        '-U',
+        'mmuser',
+        '-d',
+        'mattermost',
+        '-c',
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto; UPDATE users SET password = crypt('demo', gen_salt('bf', 10)) WHERE username IN ('demo', 'weiling', 'arjun', 'mei', 'daniel') OR email = 'demo@nanyangkopitiam.example';",
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const authToken = token || env.MATTERMOST_TOKEN;
+    if (authToken) {
+      await fetch(`${env.MATTERMOST_URL}/api/v4/caches/invalidate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => undefined);
+    }
+  } catch {
+    // Best-effort password sync.
+  }
+}
+
+/** Creates the team, users, channels and posts, returning the admin token other seeders use. */
 export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<string> {
   await waitFor('Mattermost', async () => {
     const response = await request(`${env.MATTERMOST_URL}/api/v4/system/ping`, {}, 'Mattermost ping');
     if (!response.ok) throw new Error(`ping returned HTTP ${response.status}`);
   });
+
+  await syncDemoPasswords(env);
 
   const adminSeed = seed.users.find((user) => user.username === env.MATTERMOST_ADMIN_USER);
   if (!adminSeed) throw new Error(`Mattermost admin "${env.MATTERMOST_ADMIN_USER}" is not listed in the seed users`);
@@ -285,7 +438,8 @@ export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<st
   let adminSession = await login(env, adminSeed.username);
   if (!adminSession) {
     console.log(`  creating the Mattermost admin user ${adminSeed.username}`);
-    await signup(env, adminSeed);
+    await signup(env, { ...adminSeed });
+    await syncDemoPasswords(env);
     adminSession = await login(env, adminSeed.username);
   }
   if (!adminSession) throw new Error(`Could not log in to Mattermost as "${adminSeed.username}"`);
@@ -293,13 +447,34 @@ export async function seedMattermost(env: Env, seed: MattermostSeed): Promise<st
     throw new Error(`Mattermost user "${adminSeed.username}" is not a system admin; reset the stack volumes and seed again`);
   }
 
+  await mmRequest(
+    env,
+    '/config/patch',
+    adminSession.token,
+    jsonBody('PUT', { TeamSettings: { TeammateNameDisplay: 'full_name', LockTeammateNameDisplay: true } }),
+  ).catch(() => undefined);
+
   const sessions = new Map<string, Session>([[adminSeed.username, adminSession]]);
   const users = new Map<string, MmUser>([[adminSeed.username, adminSession.user]]);
 
-  for (const user of seed.users) {
+  const allUsers: MattermostUserSeed[] = [
+    ...seed.users,
+    ...(seed.users.some((u) => u.username === 'demo')
+      ? []
+      : [{ username: 'demo', email: 'demo@nanyangkopitiam.example', first_name: 'Demo', last_name: 'Visitor', admin: true }]),
+  ];
+
+  for (const user of allUsers) {
     if (user.username === adminSeed.username) continue;
-    const created = await ensureUser(env, adminSession.token, user);
+    const created = await ensureUser(env, adminSession.token, {
+      ...user,
+    });
     users.set(user.username, created);
+  }
+  await syncDemoPasswords(env, adminSession.token);
+
+  for (const user of allUsers) {
+    if (user.username === adminSeed.username) continue;
     const session = await login(env, user.username);
     if (!session) throw new Error(`Could not log in to Mattermost as "${user.username}"`);
     sessions.set(user.username, session);

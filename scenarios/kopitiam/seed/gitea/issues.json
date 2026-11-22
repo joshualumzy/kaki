@@ -1,0 +1,109 @@
+{
+  "repository": {
+    "name": "kopitiam-pos",
+    "description": "Nanyang Kopi & Toast - Till, Self-Order Kiosk & Kitchen Tickets",
+    "private": false
+  },
+  "labels": [
+    {
+      "name": "bug",
+      "color": "d73a4a",
+      "description": "App or kiosk bug"
+    },
+    {
+      "name": "pos",
+      "color": "b60205",
+      "description": "Till and kitchen tickets"
+    },
+    {
+      "name": "kiosk",
+      "color": "fbca04",
+      "description": "Self-order kiosk"
+    },
+    {
+      "name": "promo",
+      "color": "5319e7",
+      "description": "Launch promotions"
+    },
+    {
+      "name": "marketing",
+      "color": "0e8a16",
+      "description": "Public posts and the delivery app"
+    },
+    {
+      "name": "ops",
+      "color": "006b75",
+      "description": "Seating, hygiene and outlet operations"
+    }
+  ],
+  "issues": [
+    {
+      "title": "Regulars' price button on the till needs an eligibility rule",
+      "date": "2026-11-10",
+      "state": "open",
+      "labels": [
+        "pos",
+        "ops"
+      ],
+      "createdAt": "2026-11-10T15:10:00+08:00",
+      "body": "At the trial a few regulars saw the new kopi price and walked out. The till can take a regulars' price button in about 10 minutes, but it needs a clear rule for who gets it. No eligibility rule has been agreed."
+    },
+    {
+      "title": "Fridge temperature alert requested last month is still open",
+      "date": "2026-11-10",
+      "state": "open",
+      "labels": [
+        "pos",
+        "ops"
+      ],
+      "createdAt": "2026-11-10T16:05:00+08:00",
+      "body": "The prep fridge has no alarm. A temperature alert on the POS takes about 10 minutes to wire up. It was requested last month and has not been built. A lockable socket cover costs $15."
+    },
+    {
+      "title": "Till login for new staff takes 15 minutes",
+      "date": "2026-11-10",
+      "state": "open",
+      "labels": [
+        "pos",
+        "ops"
+      ],
+      "createdAt": "2026-11-10T14:20:00+08:00",
+      "body": "Any new person on the till needs a login before they can take an order. Creating one takes Arjun about 15 minutes before 8. No new login has been requested yet."
+    },
+    {
+      "title": "Delivery app menu change takes 15 minutes to go live",
+      "date": "2026-11-10",
+      "state": "open",
+      "labels": [
+        "pos",
+        "marketing"
+      ],
+      "createdAt": "2026-11-10T17:30:00+08:00",
+      "body": "Any app menu change takes about 15 minutes to go live and comes out of Arjun's hour before opening. GrabFood hides shops that charge more on the app than at the counter. No opening-day menu change has been submitted."
+    },
+    {
+      "title": "PayNow SGQR dynamic timeout on kiosk during concurrent checkout",
+      "date": "2026-11-08",
+      "state": "closed",
+      "labels": [
+        "bug",
+        "pos"
+      ],
+      "createdAt": "2026-11-08T11:20:00+08:00",
+      "closedAt": "2026-11-09T15:40:00+08:00",
+      "body": "When two customers scanned PayNow SGQR within 3 seconds on two kiosks, webhook callback acknowledgements collided on the local gateway.\n\nResolution: keyed the payment webhook listener by terminal id and order sequence. Verified across 50 test transactions with no dropped receipts."
+    },
+    {
+      "title": "Opening-day checklist: counter drawer, card terminal, receipt rolls",
+      "date": "2026-11-09",
+      "state": "closed",
+      "labels": [
+        "ops",
+        "pos"
+      ],
+      "createdAt": "2026-11-09T14:00:00+08:00",
+      "closedAt": "2026-11-10T17:10:00+08:00",
+      "body": "Counted the counter drawer, seated the card terminal, loaded receipt rolls at both tills and the kiosk, and left the opening-day checklist at the counter."
+    }
+  ]
+}

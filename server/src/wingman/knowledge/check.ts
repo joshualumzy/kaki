@@ -1,34 +1,15 @@
-import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/shared';
+// Must stay first: loads root .env before reading gateway credentials.
+import '../../env';
+import type { Fact, Role, SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import { loadEnv } from '../../../../docker/seed/env';
-import type { TaskStore } from '../../tasks';
-import type { ClientAudience, Hub } from '../../hub';
+import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { chatComplete, embedText, gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
-import { createKnowledgeModule } from './module';
 import {
   createSearchCompanyData,
   retrieveFromPostgres,
   type RetrievedChunk,
 } from './search';
-
-const scenario: Scenario = {
-  id: 'pixel-kampung',
-  organisation: 'Pixel Kampung',
-  meetingTitle: 'Hawker Heroes launch readiness',
-  roles: [
-    { id: 'producer', label: 'Producer' },
-    { id: 'lead_programmer', label: 'Lead Programmer' },
-    { id: 'game_designer', label: 'Game Designer' },
-    { id: 'marketing_lead', label: 'Marketing Lead' },
-  ],
-  attendees: [
-    { name: 'Wei Ling', role: 'producer', zoomDisplayName: 'Wei Ling' },
-    { name: 'Arjun', role: 'lead_programmer', zoomDisplayName: 'Arjun' },
-    { name: 'Mei', role: 'game_designer', zoomDisplayName: 'Mei' },
-    { name: 'Daniel', role: 'marketing_lead', zoomDisplayName: 'Daniel' },
-  ],
-  agenda: [{ title: 'Launch', minutes: 10, ownerRole: 'producer' }],
-};
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -44,112 +25,13 @@ function tracedSearch(pool: Pool, gateway: NonNullable<ReturnType<typeof gateway
   const search = createSearchCompanyData({
     embed: (text) => embedText(gateway, text),
     chat: (prompt) => chatComplete(gateway, prompt),
-    retrieve: (embedding, limit) => retrieveFromPostgres(pool, embedding, limit),
+    retrieve: (embedding, question, limit) =>
+      retrieveFromPostgres(pool, SAMPLE_WORKSPACE_ID, embedding, question, limit),
     onRetrieved: (chunks) => {
       top = chunks.slice(0, 3);
     },
   });
   return { search, top: () => top };
-}
-
-function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
-  return (
-    event.audience.kind === 'all' ||
-    (event.audience.kind === 'screen' && audience === 'screen') ||
-    (event.audience.kind === 'role' && audience === event.audience.role)
-  );
-}
-
-interface InMemoryHub {
-  hub: Hub;
-  received(audience: ClientAudience): KakiEvent[];
-}
-
-function inMemoryHub(audiences: ClientAudience[]): InMemoryHub {
-  const handlers = new Set<(event: KakiEvent) => void>();
-  const delivered = new Map<ClientAudience, KakiEvent[]>(
-    audiences.map((audience) => [audience, []]),
-  );
-  const hub: Hub = {
-    publish(event) {
-      for (const [audience, events] of delivered) {
-        if (wantsEvent(event, audience)) events.push(event);
-      }
-      for (const handler of handlers) handler(event);
-    },
-    subscribe(handler) {
-      handlers.add(handler);
-      return () => {
-        handlers.delete(handler);
-      };
-    },
-    onCommand() {
-      throw new Error('The check hub does not accept commands');
-    },
-    close() {
-      handlers.clear();
-      delivered.clear();
-    },
-  };
-  return {
-    hub,
-    received: (audience) => delivered.get(audience) ?? [],
-  };
-}
-
-async function waitFor(check: () => boolean, label: string, timeoutMs = 4_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
-
-async function checkAudience(): Promise<void> {
-  const fake = inMemoryHub(['screen', 'producer', 'lead_programmer', 'game_designer', 'marketing_lead']);
-  const module = createKnowledgeModule({
-    env: {},
-    search: async (): Promise<Fact[]> => [
-      { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' },
-    ],
-  });
-  const stop = module.start({ hub: fake.hub, tasks: {} as TaskStore, scenario });
-  try {
-    fake.hub.publish({
-      type: 'MEETING_RECORD_UPDATED',
-      audience: { kind: 'all' },
-      payload: {
-        agendaIndex: 1,
-        openQuestions: [
-          { id: 'q-quit', text: 'Where do players quit?', forRole: 'game_designer' },
-        ],
-        elapsedSeconds: 10,
-        speakerTalkSeconds: {},
-      },
-    });
-    await waitFor(
-      () => fake.received('game_designer').some((event) => event.type === 'FACT_FOUND'),
-      'the game designer card',
-    );
-    assert(
-      fake.received('producer').every((event) => event.type !== 'FACT_FOUND'),
-      'the producer received a FACT_FOUND card',
-    );
-    assert(
-      fake.received('lead_programmer').every((event) => event.type !== 'FACT_FOUND'),
-      'the lead programmer received a FACT_FOUND card',
-    );
-    assert(
-      fake.received('marketing_lead').every((event) => event.type !== 'FACT_FOUND'),
-      'the marketing lead received a FACT_FOUND card',
-    );
-    const card = fake.received('game_designer').find((event) => event.type === 'FACT_FOUND');
-    assert(card?.audience.kind === 'role' && card.audience.role === 'game_designer', 'the card audience is wrong');
-    console.log('PASS hub check: FACT_FOUND went only to game_designer');
-  } finally {
-    if (typeof stop === 'function') stop();
-  }
 }
 
 async function main(): Promise<void> {
@@ -168,31 +50,23 @@ async function main(): Promise<void> {
       check: (facts: Fact[]) => void;
     }> = [
       {
-        role: 'game_designer',
-        text: 'Where do players quit?',
-        expectedRef: /^playtest_quit_stats\/level-5$/,
+        role: 'menu_store_lead',
+        text: 'What do the records say about the old regulars and the new kopi prices?',
+        expectedRef: /regulars_pricing\/|kopi-pricing|kopi-prices/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/level\s*5/i.test(text), `designer facts do not mention level 5: ${text}`);
-          assert(
-            /(65\.5|65\.52|19\s*(of|\/)\s*29|14\s*(of|\/)\s*20)/i.test(text),
-            `designer facts do not mention the quit rate: ${text}`,
-          );
+          assert(/kopi|regular/i.test(text), `designer facts do not mention the regulars or kopi: ${text}`);
+          assert(/1\.30|2\.40|1\.60/i.test(text), `designer facts do not mention the prices: ${text}`);
         },
       },
       {
-        role: 'producer',
-        text: 'When does Starfruit need the final build?',
-        expectedRef: /starfruit-build-date-20261116/,
+        role: 'operations_director',
+        text: 'What is the delivery commission margin and the food-safety goodwill limit?',
+        expectedRef: /delivery_commission_tiers\/|food_safety_incident\/|delivery-pricing/,
         check: (facts) => {
           const text = facts.map((fact) => fact.text).join('\n');
-          assert(/\b17\b/.test(text), `producer facts do not mention the 17th: ${text}`);
-          assert(/starfruit/i.test(text), `producer facts do not name Starfruit: ${text}`);
-          assert(/wiki|contract/i.test(text), `producer facts do not name the wiki contract: ${text}`);
-          assert(
-            /newer|newest|supersed|latest|wins/i.test(text),
-            `producer facts do not say the email is newer: ${text}`,
-          );
+          assert(/32%|0\.50|2,?400/i.test(text), `operations_director facts do not mention the delivery commission: ${text}`);
+          assert(/3,?000|goodwill/i.test(text), `operations_director facts do not mention the goodwill limit: ${text}`);
         },
       },
     ];
@@ -223,7 +97,6 @@ async function main(): Promise<void> {
       console.log(`PASS ${question.role}`);
     }
 
-    await checkAudience();
     console.log('\nAll company search checks passed.');
   } finally {
     await pool.end();

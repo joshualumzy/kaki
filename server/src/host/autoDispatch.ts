@@ -1,0 +1,287 @@
+import { ACTION_KIND_LABELS, roleLabel, type ActionKind, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import type { Hub } from '../core/hub';
+import type { TaskStore } from '../meeting/tasks';
+
+/** First name of whoever sits in a role in this scenario, else the role's label. */
+function addressee(scenario: Scenario, task: Task): string {
+  const attendee = scenario.attendees.find((candidate) => candidate.role === task.suggestedAssignee);
+  return attendee?.name ?? roleLabel(scenario, task.suggestedAssignee);
+}
+
+/** Lowercases a leading verb/capital letter unless the title starts with an acronym or a proper noun. */
+function inlineTitle(title: string): string {
+  const trimmed = title.trim().replace(/\.$/, '');
+  if (trimmed.length < 2) return trimmed;
+  const [first, second] = trimmed.split(/\s+/);
+  const looksProper =
+    /^[A-Z]{2,}\b/.test(trimmed) ||
+    (first !== undefined && (/[a-z][A-Z]/.test(first) || (second !== undefined && /^[A-Z]/.test(second)))) ||
+    /^(?:Friday|Saturday|Sunday|Monday|Tuesday|Wednesday|Thursday)\b/.test(trimmed);
+  if (looksProper) return trimmed;
+  return `${trimmed[0]!.toLowerCase()}${trimmed.slice(1)}`;
+}
+
+/** Sam's dispatch line for the text path (a person hosting reads it as a suggestion); it varies so it does not sound canned. */
+export function dispatchLine(name: string, title: string, count: number): string {
+  const lines = [
+    `${name}, I've sent you a task: ${title}. Accept or decline it on your phone.`,
+    `${name}, this one is yours: ${title}. Have a look on your phone and accept or decline.`,
+    `${name}, can you take on "${inlineTitle(title)}"? It's on your phone.`,
+  ];
+  return lines[count % lines.length]!;
+}
+
+/**
+ * The note the AI host writes his request to a colleague from. The task title is context, never a line to read:
+ * Sam puts it in the room's own words, in one short spoken question.
+ */
+export function colleagueAskNote(host: string, name: string, title: string): string {
+  const intent = title.trim().replace(/[.!?]+$/, '');
+  return `[The Note Taker has a follow-up for ${name} from this topic: "${intent}". Begin your reply with "${host}:". ${host} asks ${name} by name, in ONE short spoken sentence, to take it on, using the words the room has been using — never the task title's wording, no report phrases, no quotes. Ask a question, and do not mention a phone, the task list, or this note.]`;
+}
+
+/** What Sam should say when a task goes to a colleague in the room; no note means the colleague speaks for themselves. */
+interface ColleagueCue {
+  note?: string;
+  /** Set when Sam stays quiet because the colleague already has it. */
+  quietBecause?: 'volunteered' | 'was asked';
+}
+
+/**
+ * Sam asks the colleague only while nobody has put the task to them yet. If they just volunteered, or the visitor
+ * already gave it to them, he says nothing and the colleague answers in their own words.
+ */
+export function colleagueCue(
+  host: string,
+  name: string,
+  title: string,
+  already: { volunteered: boolean; assignedByGuest: boolean },
+): ColleagueCue {
+  if (already.volunteered) return { quietBecause: 'volunteered' };
+  if (already.assignedByGuest) return { quietBecause: 'was asked' };
+  return { note: colleagueAskNote(host, name, title) };
+}
+
+/**
+ * True while a queued request to a colleague is still worth saying: the task has not moved on from DISPATCHED,
+ * and the topic it came from is still the one the meeting is on. With neither status nor topic known, keep it.
+ */
+export function shouldStillAskColleague(
+  status: string | undefined,
+  topic: string | undefined,
+  onCurrentAgenda: (title: string | undefined) => boolean,
+): boolean {
+  if (status !== undefined && status !== 'DISPATCHED') return false;
+  return topic === undefined || onCurrentAgenda(topic);
+}
+
+/**
+ * Sam (the host) hands each newly suggested task straight to the role the notetaker named, and says so aloud.
+ * The recipient is the human step: they accept it (claim) or decline it, which puts it back on the shared screen.
+ * In the live NPC meeting, suggestions wait until the Director locks or closes their topic.
+ * A task is left for a person to dispatch from the screen when nobody present can own it: the facilitator's role
+ * (Sam himself) or a role nobody in this meeting plays. A role played by an AI attendee has no phone: the NPC process
+ * (`npc/taskResponder.ts`) answers for them, aloud, and sends their Accept or Decline.
+ */
+export function installAutoDispatch({
+  hub,
+  tasks,
+  scenario: activeScenario,
+  hostIsHuman = () => false,
+  holdUntilSettled = () => false,
+  speaks = () => true,
+  agendaIndex,
+  connected,
+}: {
+  hub: Hub;
+  tasks: TaskStore;
+  /** The meeting's scenario, read through a getter because a Start commit or reset replaces it. */
+  scenario: () => Scenario;
+  /** True while a person plays the host: then every task stays SUGGESTED for them to dispatch or dismiss. */
+  hostIsHuman?: () => boolean;
+  /** False for a real meeting: tasks still move, but Kaki never says a cue aloud. */
+  speaks?: () => boolean;
+  /**
+   * The server's authoritative agenda position (the agenda clock), not the Note Taker's record.
+   * Read when a NEXT_AGENDA_ITEM arrives, which still names the topic being left. Omitted by
+   * callers that have no clock: then the shared record's index is the only source.
+   */
+  agendaIndex?: () => number | undefined;
+  /**
+   * Whether suggestions wait for TOPIC_SETTLED. Read for every new suggestion, because the active
+   * cast can change at Start: no AI cast means no Director will ever publish a settlement.
+   * A plain boolean is accepted for callers that own the decision themselves.
+   */
+  holdUntilSettled?: boolean | (() => boolean);
+  /**
+   * Whether a tool kind is connected in this meeting's workspace. A task whose tool is not
+   * connected never looks sent: it stays SUGGESTED with the reason on its card. Omitted by
+   * callers that do not have a workspace (tests, the replay harness).
+   */
+  connected?: (kind: ActionKind) => Promise<boolean>;
+}): () => void {
+  let sent = 0;
+  let active = true;
+  const holdsSuggestions = (): boolean =>
+    typeof holdUntilSettled === 'function' ? holdUntilSettled() : holdUntilSettled;
+  const settledTopics = new Set<string>();
+  const held = new Map<string, Task>();
+  const checking = new Set<string>();
+  /** The agenda item the meeting is on when no clock is supplied, learned from the shared record. */
+  let recordAgendaIndex = 0;
+  const currentAgendaIndex = (): number => agendaIndex?.() ?? recordAgendaIndex;
+  const canDispatch = (task: Task): boolean => {
+    if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return false;
+    // Server-owned meeting cards (the minutes and the notes send-out) already wait on a person; never offer them as a new task.
+    if (task.purpose !== undefined) return false;
+    const scenario = activeScenario();
+    const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
+    const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
+    return role !== undefined && role.facilitator !== true && present;
+  };
+  const performDispatch = (task: Task): void => {
+    if (!canDispatch(task)) return;
+    const scenario = activeScenario();
+    tasks.transition(task.id, 'DISPATCHED', { assignee: task.suggestedAssignee });
+    if (speaks()) {
+      const cue: KakiEvent = {
+        type: 'HOST_SPEECH_TRIGGERED', audience: { kind: 'screen' },
+        payload: { kind: 'DISPATCH', text: dispatchLine(addressee(scenario, task), task.title, sent),
+          assignee: addressee(scenario, task), title: task.title, taskId: task.id },
+      };
+      hub.publish(cue);
+    }
+    sent += 1;
+  };
+  const markUnavailable = (task: Task, reason: string): void => {
+    const current = tasks.get(task.id);
+    if (current === undefined || current.status !== 'SUGGESTED') return;
+    tasks.setActionFit(current.id, { status: 'none', reason, toolMissing: true }, current.updatedAt);
+    console.warn(`kaki auto-dispatch: "${current.title}" stays a plain to-do: ${reason}`);
+  };
+  const dispatch = (task: Task): void => {
+    if (!canDispatch(task)) return;
+    const kind = task.actionKind;
+    if (kind === undefined || connected === undefined) {
+      performDispatch(task);
+      return;
+    }
+    if (checking.has(task.id)) return;
+    checking.add(task.id);
+    void connected(kind)
+      .then((isConnected) => {
+        if (!active) return;
+        const current = tasks.get(task.id);
+        if (current === undefined || current.status !== 'SUGGESTED') return;
+        if (!isConnected) {
+          markUnavailable(current, `No ${ACTION_KIND_LABELS[kind]} connected in this workspace. Connect one so Kaki can send this.`);
+          return;
+        }
+        performDispatch(current);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        console.error(`kaki auto-dispatch: could not check whether ${kind} is connected`, error);
+        const current = tasks.get(task.id);
+        if (current === undefined || current.status !== 'SUGGESTED') return;
+        tasks.setActionFit(
+          current.id,
+          {
+            status: 'error',
+            reason: `Kaki could not read this workspace's tools: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          current.updatedAt,
+        );
+      })
+      .finally(() => checking.delete(task.id));
+  };
+  const release = (title?: string, priorityId?: string): void => {
+    const candidates = [...held.values()].filter((task) => title === undefined || task.agendaItemTitle === title);
+    candidates.sort((left, right) => Number(right.id === priorityId) - Number(left.id === priorityId));
+    const released: Task[] = [];
+    const sentByKind = new Map<string, Task[]>();
+    for (const task of candidates) {
+      held.delete(task.id);
+      const current = tasks.get(task.id);
+      if (current?.status !== 'SUGGESTED') continue;
+      // A topic that moved on without settling was closed unresolved: its held card must never be dispatched.
+      if (current.agendaItemTitle === undefined || !settledTopics.has(current.agendaItemTitle)) {
+        tasks.transition(current.id, 'DISMISSED');
+        continue;
+      }
+      if (released.some((earlier) => earlier.agendaItemTitle === task.agendaItemTitle &&
+          earlier.suggestedAssignee === current.suggestedAssignee && earlier.actionKind === current.actionKind &&
+          earlier.title.trim().toLowerCase() === current.title.trim().toLowerCase())) {
+        tasks.transition(task.id, 'DISMISSED');
+        continue;
+      }
+      dispatch(current);
+      released.push(current);
+      const kindKey = `${current.suggestedAssignee ?? ''}\u0000${current.actionKind ?? ''}`;
+      const sameKind = sentByKind.get(kindKey) ?? [];
+      sameKind.push(current);
+      sentByKind.set(kindKey, sameKind);
+    }
+    // Two cards of the same kind to the same person on one topic can be two copies of one follow-up,
+    // especially when a settlement named no card and left the old ones in place. Never send them silently.
+    if (title !== undefined) {
+      for (const group of sentByKind.values()) {
+        if (group.length < 2) continue;
+        const first = group[0];
+        console.warn(
+          `kaki auto-dispatch: sent ${group.length} held cards for "${title}" to ${first?.suggestedAssignee ?? 'a role'} ` +
+            `(${first?.actionKind ?? 'unknown kind'}); they may duplicate one follow-up`,
+        );
+      }
+    }
+  };
+  const titleAt = (index: number): string | undefined => activeScenario().agenda[index]?.title;
+  /** Move past the topics between two agenda indexes, releasing each one's own held cards only. */
+  const leaveTopics = (fromIndex: number, toIndex: number): void => {
+    for (let index = fromIndex; index < toIndex; index += 1) {
+      const title = titleAt(index);
+      if (title !== undefined) release(title);
+    }
+  };
+  const unsubscribeReset = hub.subscribe((event) => {
+    if (event.type === 'MEETING_RESET') {
+      sent = 0;
+      recordAgendaIndex = 0;
+      settledTopics.clear();
+      held.clear();
+    } else if (event.type === 'TOPIC_SETTLED') {
+      settledTopics.add(event.payload.title);
+      release(event.payload.title, event.payload.taskId);
+    } else if (event.type === 'MEETING_RECORD_UPDATED' && agendaIndex === undefined) {
+      // Without a clock the shared record is the only source; with one it may lag behind the server.
+      const next = event.payload.agendaIndex;
+      if (next > recordAgendaIndex) leaveTopics(recordAgendaIndex, next);
+      recordAgendaIndex = next;
+    }
+  });
+  hub.onCommand((command, sender) => {
+    if (!active || sender.kind !== 'screen') return;
+    if (command.type === 'NEXT_AGENDA_ITEM') {
+      // Only the topic being left has moved on; a held card for a later topic has not had its turn yet.
+      const leaving = currentAgendaIndex();
+      const title = titleAt(leaving);
+      if (title === undefined) console.warn(`kaki auto-dispatch: no agenda item at index ${leaving}; held cards wait for the record`);
+      else release(title);
+    } else if (command.type === 'END_MEETING') {
+      release();
+    }
+  });
+  const unsubscribeTasks = tasks.onChange((task, previous) => {
+    if (!active || previous !== undefined || task.status !== 'SUGGESTED' || hostIsHuman()) return;
+    if (holdsSuggestions() && task.agendaItemTitle !== undefined && !settledTopics.has(task.agendaItemTitle)) {
+      held.set(task.id, task);
+      return;
+    }
+    dispatch(task);
+  });
+  return () => {
+    active = false;
+    unsubscribeReset();
+    unsubscribeTasks();
+  };
+}

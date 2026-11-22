@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { roleForZoomName, type Scenario } from '@kaki/shared';
-import type { Hub } from '../hub';
-import { scenarioDir } from '../loadScenario';
+import { isObject, roleForDisplayName, type Scenario } from '@kaki/shared';
+import type { Hub } from '../core/hub';
+import { scenarioDir } from '../core/loadScenario';
 
 /**
  * One scripted transcript line, `at` seconds after the meeting starts. `agendaIndex` marks the
@@ -13,10 +13,6 @@ export interface ReplayLine {
   speaker: string;
   text: string;
   agendaIndex?: number;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -42,8 +38,8 @@ export function parseReplay(value: unknown, scenario: Scenario): ReplayLine[] {
       return { at: 0, speaker: '', text: '' };
     }
     if (line.at < previousAt) problems.push(`lines[${index}].at goes back in time`);
-    if (roleForZoomName(scenario, line.speaker) === undefined) {
-      problems.push(`lines[${index}].speaker "${line.speaker}" is not an attendee's Zoom name`);
+    if (roleForDisplayName(scenario, line.speaker) === undefined) {
+      problems.push(`lines[${index}].speaker "${line.speaker}" is not an attendee's display name`);
     }
     previousAt = line.at;
     if (line.agendaIndex === undefined) return { at: line.at, speaker: line.speaker, text: line.text };
@@ -77,7 +73,7 @@ export async function loadReplay(scenario: Scenario, folder: string): Promise<Re
 }
 
 /** Options for playing a replay into the hub. */
-export interface ReplayOptions {
+interface ReplayOptions {
   lines: ReplayLine[];
   hub: Hub;
   /** 2 plays twice as fast as the script's timings. */

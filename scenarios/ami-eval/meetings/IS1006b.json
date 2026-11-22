@@ -1,0 +1,1650 @@
+{
+  "meeting": "IS1006b",
+  "source": "AMI Meeting Corpus, CC BY 4.0",
+  "lines": [
+    {
+      "at": 0,
+      "speaker": "Project Manager",
+      "text": "So I hope you're ready for this uh functional design meeting."
+    },
+    {
+      "at": 1.6,
+      "speaker": "Marketing Expert",
+      "text": "So"
+    },
+    {
+      "at": 7.39,
+      "speaker": "Marketing Expert",
+      "text": "Of course."
+    },
+    {
+      "at": 10.16,
+      "speaker": "Project Manager",
+      "text": "Um so I will take the minutes you mm you three are going to do presentation. Um uh we want to know to at the end to know the new project's requirement so we need uh to know the the user uh needs that we want to fulfil to fulfil the from the technical part we want to know how it going to work and um third part uh I don't remember which is not very good."
+    },
+    {
+      "at": 55.15,
+      "speaker": "Project Manager",
+      "text": "Ah of course, how to to design this uh this yeah."
+    },
+    {
+      "at": 59.72,
+      "speaker": "Marketing Expert",
+      "text": "Nice stuff"
+    },
+    {
+      "at": 63.26,
+      "speaker": "Project Manager",
+      "text": "So um let's go for the three presentations, so first um Marketing Expert. So wait a minute. Mm."
+    },
+    {
+      "at": 68.76,
+      "speaker": "Marketing Expert",
+      "text": "Who starts? Oh. Ha. okay. So I dunno if I can do that like this? Yeah?"
+    },
+    {
+      "at": 80.21,
+      "speaker": "Marketing Expert",
+      "text": "So it's being modified. Do you want yeah, open. Read only. I hope I saved it. So, um yeah, this is my name. So as you know, you I think you already know me, Sammy Benjo. I am the expert in marketing and I want to tell you about what people uh s want and uh like and dislike in remote controls, and I hope this is going to help you to to design it correctly. So next please. Uh-oh."
+    },
+    {
+      "at": 90.44,
+      "speaker": "User Interface Designer",
+      "text": "Sammy Benjo. I know this name uh. We met before."
+    },
+    {
+      "at": 94.61,
+      "speaker": "Project Manager",
+      "text": "Sounds uh"
+    },
+    {
+      "at": 115.92,
+      "speaker": "Project Manager",
+      "text": "Mm uh."
+    },
+    {
+      "at": 116.94,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, it is put F_ five."
+    },
+    {
+      "at": 119.76,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 120.43,
+      "speaker": "Marketing Expert",
+      "text": "Hmm."
+    },
+    {
+      "at": 121.13,
+      "speaker": "Industrial Designer",
+      "text": "The full page presentation, yep. Yeah. Yep."
+    },
+    {
+      "at": 123.01,
+      "speaker": "Marketing Expert",
+      "text": "Yeah maybe in the full page because i I spent lots of time doing this presentation, so. Uh-huh hmm okay."
+    },
+    {
+      "at": 124.36,
+      "speaker": "User Interface Designer",
+      "text": "F_ F_ five."
+    },
+    {
+      "at": 124.6,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 127.04,
+      "speaker": "Project Manager",
+      "text": "F_ five."
+    },
+    {
+      "at": 128.43,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 130.67,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. Mm."
+    },
+    {
+      "at": 133.11,
+      "speaker": "Marketing Expert",
+      "text": "So basically uh what I suggest is that uh instead of deciding ourself what what could be and what should be a good uh remote control, let's ask people who are users of remote controls how they feel about w the current remote controls, what they like, what they don't like and um and what they do with them by the way because they are supposed to be useful. Don't forget about that. So we've we've conducted a a survey on on the use of uh remote controls and I'd like to show you some of the results we found on this survey. And next please. Yeah, so basically what we found was that uh there are several things that the user don't like in remote controls. First of all, they find it very ugly. Current remote controls as you know they're the same as this one uh they're not nice colour, not nice shape, I mean they're all the same, and they're not l good looking."
+    },
+    {
+      "at": 202.21,
+      "speaker": "Marketing Expert",
+      "text": "Um what is interesting is that in fact it seems that they were people are ready to pay for nice and look and fancy looking uh remote control, so I think we should probably spend lots of time in and effort in that um. And the other thing is that uh the the current remote controls are not so easy to use and it it the the current uh facilities that they offer do not match what people really want to use their remote controls. For instance uh we see that uh they zap very often so I think this is a very uh important uh functionality that it should be easy for them to to zap uh in one way or another. And most of the buttons uh on uh current remote controls are not used, so I think we should design something where some of the buttons which are those that are used should be easier to see and use than others that only a couple of people are using. Um next please. Now people are very frustrated w with their remote controls and they for instance uh they don't even find it it's it's often lost somewhere in the in the in your home and nobody knows where it is. Maybe if we have something where we could ask the remote control please, where are you? Like uh something to to like t I think phones. Some of the phones have some of this kind of s functionality. Uh of course phone you can always phone your phone but you can't phone your your remote control. But why not? Yeah. And because of the fact that there are so many buttons in these remote controls that nobody use, in fact they don't even know how to use them, so most of the the people say they they don't know how to they to use properly their r remote controls. And uh they are bad for R_S_I_ but uh I don't remember what is R_S_I_. So I think they are bad. Mm-hmm. Mm nobody has any idea about that? Well I'll check uh with my Oh, okay, I think it's a technical thing which our Okay. So, it seems that it's a lot of people for a concept that we don't know but we have to take this into account."
+    },
+    {
+      "at": 284.57,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 285.32,
+      "speaker": "User Interface Designer",
+      "text": "Agree."
+    },
+    {
+      "at": 290.67,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 302.96,
+      "speaker": "Industrial Designer",
+      "text": "You can you are."
+    },
+    {
+      "at": 304.21,
+      "speaker": "Project Manager",
+      "text": "Why not?"
+    },
+    {
+      "at": 312.51,
+      "speaker": "Industrial Designer",
+      "text": "Hmm."
+    },
+    {
+      "at": 331.72,
+      "speaker": "Project Manager",
+      "text": "Okay uh tha that's look great."
+    },
+    {
+      "at": 333.88,
+      "speaker": "User Interface Designer",
+      "text": "R_S_I_ mm-hmm."
+    },
+    {
+      "at": 341.29,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, it's electromagnetic waves or something kind of maybe uh effect. Yeah, because infrared uses some electromagnetic technology, and those waves have high"
+    },
+    {
+      "at": 344.61,
+      "speaker": "User Interface Designer",
+      "text": "No, I don't think so."
+    },
+    {
+      "at": 350.1,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. Okay."
+    },
+    {
+      "at": 351.54,
+      "speaker": "User Interface Designer",
+      "text": "Okay. But twenty six percent, do you know Twenty five. Every fourth, you know. Every four some of us knows."
+    },
+    {
+      "at": 354.94,
+      "speaker": "Industrial Designer",
+      "text": "Uh."
+    },
+    {
+      "at": 356.71,
+      "speaker": "Project Manager",
+      "text": "Or something we don't know. Mm-hmm."
+    },
+    {
+      "at": 358.85,
+      "speaker": "Industrial Designer",
+      "text": "Uh."
+    },
+    {
+      "at": 361.57,
+      "speaker": "Industrial Designer",
+      "text": "Yeah it's People really"
+    },
+    {
+      "at": 366.21,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 366.97,
+      "speaker": "Marketing Expert",
+      "text": "So anyway that's for what the biggest frustration uh of the user and um what else do I have? Next slide? Ah yeah. So we've listed a couple of uh s uh functions that may be uh used by u the user in the current uh available uh remote controls and uh well the tables look very nice to read but what is important is to understand that the power button is not used often because in general you use it only once per session, but it is very relevant. People want to have a power button. Channel selection is uh o often used very often used and indeed uh very relevant."
+    },
+    {
+      "at": 367.59,
+      "speaker": "User Interface Designer",
+      "text": "One of us"
+    },
+    {
+      "at": 372.31,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 376.87,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 379.9,
+      "speaker": "User Interface Designer",
+      "text": "Functions."
+    },
+    {
+      "at": 423.29,
+      "speaker": "Marketing Expert",
+      "text": "Ah now I remember what is R_S_I_ it's repetitivity stress injury."
+    },
+    {
+      "at": 434.24,
+      "speaker": "Marketing Expert",
+      "text": "We have to be careful with that word but uh anyway I continue my presentation so yeah, channel selection is um very important, very often used. Volume is not often used but people uh want to have control on volume and that makes sense of course. And n then you have things which are very much less often used like the settings. Audio settings, screen settings, even teletext and channel settings. All of them. they're not often used and they are s more or less relevant. It seems that people find teletext teletext uh relevant, even if I personally never use it but seems that it's average relevant at least, so."
+    },
+    {
+      "at": 436.21,
+      "speaker": "Industrial Designer",
+      "text": "Uh."
+    },
+    {
+      "at": 476.31,
+      "speaker": "Project Manager",
+      "text": "I have been told that we uh don't consider teletext, that it's out of date now because of internet."
+    },
+    {
+      "at": 484.88,
+      "speaker": "Marketing Expert",
+      "text": "I can tell you that uh in a l in a scale between one and ten relevant uh not relevant to relevant people scored a six on this, which is not as uh these these two one were had I think ten I think. But but if you compare with these ones, uh I think they scored a one or two. Not very relevant, so if if there are good reason not to put teletext it's okay but just know that people find it somehow relevant."
+    },
+    {
+      "at": 497.58,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 503.44,
+      "speaker": "Industrial Designer",
+      "text": "Hmm."
+    },
+    {
+      "at": 512.64,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm"
+    },
+    {
+      "at": 512.77,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 514.77,
+      "speaker": "Marketing Expert",
+      "text": "That's for the main functions I think and uh then we can ask uh ourself uh what people don't have that may be useful. For instance I think net next slide."
+    },
+    {
+      "at": 527.02,
+      "speaker": "Marketing Expert",
+      "text": "One of the thing the trend uh that uh you are probably aware of is the possibility the eventual possibility of having speech recognition in your remote control, so you wouldn't have to tap tap in your buttons but just tell your remote control or whatever you need you have what you want. So we've conducted a survey about uh whether people would like or not to have uh this kind of uh functionality in their remote control and as we can see it really depends on the age. Young people, probably because it's a buzz word, find it very relevant. And uh as the age goes up the the relevance goes down. So now it really depends on the kind of uh targeting uh wha who are we targeting with this remote control? I think if we are targeting young people then uh it's probably something we have to consider. If we are targeting you very old people this is something they really don't know why they this should be so now this is of course, depends on that. And um I don't have any conclusion, I didn't have time the meeting was very tight, so that's basically my findings. And uh, if you have any question?"
+    },
+    {
+      "at": 568.08,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 576.23,
+      "speaker": "Industrial Designer",
+      "text": "'Cause"
+    },
+    {
+      "at": 586.75,
+      "speaker": "Project Manager",
+      "text": "Mm-mm. Okay."
+    },
+    {
+      "at": 600.7,
+      "speaker": "Project Manager",
+      "text": "Mm I think it's good, okay. You done a good review."
+    },
+    {
+      "at": 603.69,
+      "speaker": "User Interface Designer",
+      "text": "I got one question, uh you are a Market Expert so should we aim at the young people or not?"
+    },
+    {
+      "at": 603.72,
+      "speaker": "Marketing Expert",
+      "text": "I can go back. Yeah one question, yeah?"
+    },
+    {
+      "at": 604.28,
+      "speaker": "Industrial Designer",
+      "text": "Thank you."
+    },
+    {
+      "at": 608.08,
+      "speaker": "Marketing Expert",
+      "text": "I am. I think we should aim at the young people. But uh I think they are they are those uh who might be more interested in a in a new device. In general the the early adopters of a new device are young people, less than more than Then teletext is useless for them I think, yeah. Because they they have other means of finding their information. Yeah. But yeah. Nope. 'Kay?"
+    },
+    {
+      "at": 620.81,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 626.39,
+      "speaker": "User Interface Designer",
+      "text": "Okay, then teletext is used less."
+    },
+    {
+      "at": 627.1,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 629.15,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 631.17,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 634.37,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm. Mm-hmm."
+    },
+    {
+      "at": 634.73,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm mm mm. Okay. That's good point. Okay."
+    },
+    {
+      "at": 637.81,
+      "speaker": "Industrial Designer",
+      "text": "Mm, yep."
+    },
+    {
+      "at": 638.46,
+      "speaker": "User Interface Designer",
+      "text": "Mm. Okay."
+    },
+    {
+      "at": 640.8,
+      "speaker": "Industrial Designer",
+      "text": "Thank you."
+    },
+    {
+      "at": 645.56,
+      "speaker": "Project Manager",
+      "text": "So um now I think it's the turn of the the I'm not sure um"
+    },
+    {
+      "at": 663.28,
+      "speaker": "Project Manager",
+      "text": "Of the technical function, so uh"
+    },
+    {
+      "at": 667.92,
+      "speaker": "Marketing Expert",
+      "text": "So I think it's you, huh? No? No, user requiremen"
+    },
+    {
+      "at": 669.05,
+      "speaker": "Industrial Designer",
+      "text": "Uh it's"
+    },
+    {
+      "at": 672.38,
+      "speaker": "User Interface Designer",
+      "text": "That's me."
+    },
+    {
+      "at": 672.45,
+      "speaker": "Industrial Designer",
+      "text": "techni function of Yeah."
+    },
+    {
+      "at": 672.83,
+      "speaker": "Project Manager",
+      "text": "what effect"
+    },
+    {
+      "at": 676.61,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 678.75,
+      "speaker": "Project Manager",
+      "text": "Wait a second. Argh."
+    },
+    {
+      "at": 679.85,
+      "speaker": "Industrial Designer",
+      "text": "I have to do working design so uh."
+    },
+    {
+      "at": 683.29,
+      "speaker": "Project Manager",
+      "text": "So you're"
+    },
+    {
+      "at": 683.38,
+      "speaker": "User Interface Designer",
+      "text": "That's but this but number three, yes."
+    },
+    {
+      "at": 691.41,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 696.51,
+      "speaker": "User Interface Designer",
+      "text": "So, my name is Mark Dwight, and um I am responsible for User Interface Design. However, uh mm Project Manager asked me to give you some presentation about technical functions design. Uh, as I'm a more an artist that's gonna be less technical functions but more User Interface and current intentions and everything which is linked with this. So next slide please. And uh a general method which is seems to be very useful for our task is not to forget about uh Occam razor. We should never complicate things too much. We should only make a remote control, nothing more. Nothing more than this, just a remote control. 'Cause current remote controls they are never easy enough to use."
+    },
+    {
+      "at": 724.69,
+      "speaker": "Project Manager",
+      "text": "Okay. Let's go."
+    },
+    {
+      "at": 729.66,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 746.54,
+      "speaker": "Marketing Expert",
+      "text": "Makes sense."
+    },
+    {
+      "at": 752.86,
+      "speaker": "User Interface Designer",
+      "text": "So, make a click, please. So here is this remote control."
+    },
+    {
+      "at": 760.55,
+      "speaker": "User Interface Designer",
+      "text": "It's quite a standard one, but it's not from a T_V_, it's from a much easier device like air conditioning or something. But you know, we can use it for a T_V_ easily. Only buttons we need is on off, volume, channels and maybe some options or something else, and please make a click, compared to this one"
+    },
+    {
+      "at": 794.08,
+      "speaker": "User Interface Designer",
+      "text": "which one would you prefer? I guess this."
+    },
+    {
+      "at": 794.11,
+      "speaker": "Industrial Designer",
+      "text": "It's Yeah, yeah."
+    },
+    {
+      "at": 797.33,
+      "speaker": "Marketing Expert",
+      "text": "I would say the simplest one as long as there are the uh I find the buttons that I need every time I need a button."
+    },
+    {
+      "at": 803.31,
+      "speaker": "User Interface Designer",
+      "text": "Sure, sure."
+    },
+    {
+      "at": 803.65,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Maybe it can be yeah middle of like, between those two li"
+    },
+    {
+      "at": 807.09,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, and our method is going to be, provide simple simple desires into simple actions."
+    },
+    {
+      "at": 811.99,
+      "speaker": "Project Manager",
+      "text": "Oh sorry."
+    },
+    {
+      "at": 817.27,
+      "speaker": "Marketing Expert",
+      "text": "Nice. Nice sentence."
+    },
+    {
+      "at": 822.14,
+      "speaker": "User Interface Designer",
+      "text": "Findings."
+    },
+    {
+      "at": 823.74,
+      "speaker": "Project Manager",
+      "text": "Okay. Oh sorry."
+    },
+    {
+      "at": 825.34,
+      "speaker": "User Interface Designer",
+      "text": "Our question of the style, we should remember that our company puts fashion into electronics"
+    },
+    {
+      "at": 837.28,
+      "speaker": "User Interface Designer",
+      "text": "and we should never forget about it."
+    },
+    {
+      "at": 842.89,
+      "speaker": "User Interface Designer",
+      "text": "Concept. Be simple. Be simple and you'll lean on this market. Market is a of remote controls you know it better, it's very well, it's it's not an easy field to to play, you know?"
+    },
+    {
+      "at": 844.14,
+      "speaker": "Industrial Designer",
+      "text": "S you should yeah."
+    },
+    {
+      "at": 853.19,
+      "speaker": "Marketing Expert",
+      "text": "Mm."
+    },
+    {
+      "at": 863.89,
+      "speaker": "User Interface Designer",
+      "text": "So be simple. For personal preferences I think that to make a baby-proof remote control it got to be a titanium."
+    },
+    {
+      "at": 877.13,
+      "speaker": "User Interface Designer",
+      "text": "It's a really good style, it going to be look like like this. It is unbreakable and it is very universal."
+    },
+    {
+      "at": 890.42,
+      "speaker": "User Interface Designer",
+      "text": "W we'll have a screen with a back light which can change colours, and we can put all the options into this screen. We'll need only few buttons. All the other things can be controlled through the screen."
+    },
+    {
+      "at": 895.13,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 907.85,
+      "speaker": "User Interface Designer",
+      "text": "And all these buttons should be easy to find and to click, 'cause when you watch a movie and you want to change something, you always try to find a good button and click it, but you should do it by touching it and finding it easily just by touch. So"
+    },
+    {
+      "at": 926.81,
+      "speaker": "User Interface Designer",
+      "text": "Press"
+    },
+    {
+      "at": 931.04,
+      "speaker": "User Interface Designer",
+      "text": "I would propose this concept for design, just few buttons, a screen with a back light which can change colours, titanium I think, and uh what else? I got just very few and good ideas. We need power and volume. And let us include two nice features into this device, first, power on and off can be made fully automatic. When you go to the sofa, take your control and point it to the T_V_,"
+    },
+    {
+      "at": 935.12,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 966.02,
+      "speaker": "Project Manager",
+      "text": "It's off. It's on."
+    },
+    {
+      "at": 966.16,
+      "speaker": "Marketing Expert",
+      "text": "Hmm."
+    },
+    {
+      "at": 967.93,
+      "speaker": "User Interface Designer",
+      "text": "the T_V_ turns on."
+    },
+    {
+      "at": 969.72,
+      "speaker": "Marketing Expert",
+      "text": "And when does it turn off?"
+    },
+    {
+      "at": 971.97,
+      "speaker": "User Interface Designer",
+      "text": "When you don't touch the control but you go out of the For for enough time like uh you"
+    },
+    {
+      "at": 975.64,
+      "speaker": "Marketing Expert",
+      "text": "Oh so you have a sensing sensor machine that uh knows Tech"
+    },
+    {
+      "at": 981.09,
+      "speaker": "User Interface Designer",
+      "text": "It's a question to our technical design, our two engineers. And another nice feature that I would like to implement is uh volume control. Suppose you set u you set up some volume and then you move out or you move to the other corner of the room and take your control with you. Like, you want to to change the chair or you want to move to the armchair from the sofa or something, and then the volume changes. It's easy to do, you just control the According to the distance. Yeah yeah yeah. So"
+    },
+    {
+      "at": 1008.78,
+      "speaker": "Project Manager",
+      "text": "Or you want to go to the kitchen."
+    },
+    {
+      "at": 1012.54,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1015.42,
+      "speaker": "Marketing Expert",
+      "text": "According to your distance to and the angle maybe, if you have a stereo system. Uh I'm not sure about the screen, wha what is the use usefulness of the screen? Uh is it a touch screen by the way?"
+    },
+    {
+      "at": 1016.33,
+      "speaker": "Industrial Designer",
+      "text": "Distance."
+    },
+    {
+      "at": 1029.48,
+      "speaker": "User Interface Designer",
+      "text": "I think it can be just a menu which can be controlled with a left, right, up, down and enter."
+    },
+    {
+      "at": 1034.62,
+      "speaker": "Marketing Expert",
+      "text": "So it gives instructions but uh it has to be with an back light somehow."
+    },
+    {
+      "at": 1035.1,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1039.37,
+      "speaker": "User Interface Designer",
+      "text": "So, its main purpose in fact is a back light, which change colours, which makes it easier to find, and each can it can respond for your voice, like it can turn on the light for you just to f find it easily, yeah?"
+    },
+    {
+      "at": 1044.27,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1045.05,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1063.64,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1063.83,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1064.94,
+      "speaker": "User Interface Designer",
+      "text": "So basically that's it."
+    },
+    {
+      "at": 1067.1,
+      "speaker": "Project Manager",
+      "text": "Um I see that you target uh several s application not only T_V_ but i like we talk about um universal uh remote control. Yeah."
+    },
+    {
+      "at": 1076.73,
+      "speaker": "User Interface Designer",
+      "text": "Can be easily done, 'cause you got simple designs, y we should put it to simple actions. Let it be universal, so you want to use it for your hi-fi system. You want to change tracks and you want to adjust volume. Just few actions, a few actions for everything. All the rest, we sh we'll put it into this menu on the screen."
+    },
+    {
+      "at": 1083.76,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 1092.96,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1094.15,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 1097.38,
+      "speaker": "Project Manager",
+      "text": "Hmm. S"
+    },
+    {
+      "at": 1102.65,
+      "speaker": "Project Manager",
+      "text": "Mm. Since we were targeting a really soon uh uh date for the the the um i issuing of this uh remote control I think we will only concentrate on T_V_ for the moment and then maybe m make it more generalised yeah."
+    },
+    {
+      "at": 1116.16,
+      "speaker": "Industrial Designer",
+      "text": "Mm. Yeah and it mm. Mm."
+    },
+    {
+      "at": 1116.38,
+      "speaker": "User Interface Designer",
+      "text": "Okay, okay. Okay, but it's quite universal you know. We can just extend it to any device."
+    },
+    {
+      "at": 1122.63,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 1122.71,
+      "speaker": "Marketing Expert",
+      "text": "So for instance if I want to go to directly to channel twenty five, how would I do can I do that with this? Yeah mm let's say I am uh on channel eight now. You know these days we have hundreds of channels, that's not so easy to go just next next next when you have hundreds of channels. Or is it?"
+    },
+    {
+      "at": 1128.97,
+      "speaker": "User Interface Designer",
+      "text": "Uh twenty five."
+    },
+    {
+      "at": 1134.99,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1139.5,
+      "speaker": "User Interface Designer",
+      "text": "In fact I would propose another solution. Basically you use just four or five channels, right? Yeah. So uh set up your T_V_ set like channels that you use they're one, two, three and five, and you will never have to go to a twenty fives channel."
+    },
+    {
+      "at": 1145.02,
+      "speaker": "Marketing Expert",
+      "text": "Most people yeah."
+    },
+    {
+      "at": 1159.15,
+      "speaker": "Marketing Expert",
+      "text": "In fact in in one uh remote control that I've seen, instead of doing that d you could just say these are the cha ch channel three, twenty eight, forty eight and uh sixty four are those that I want to by cycled with my next button. I uh B yeah."
+    },
+    {
+      "at": 1175.21,
+      "speaker": "Project Manager",
+      "text": "Yeah it's it's the same solution, I think. Hmm."
+    },
+    {
+      "at": 1176.27,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1178.68,
+      "speaker": "Industrial Designer",
+      "text": "But even we can have some uh L_C_D_ display, like you can uh de you can just button the number and then it go t because"
+    },
+    {
+      "at": 1183.3,
+      "speaker": "Marketing Expert",
+      "text": "Go to channel twenty five. One thing is that as I said in my presentation people really do like to z zap. So even if they are only watching four or five channels, I think they want to zap out of the one hundred channels, just because this is one kind of thing they do, zapping. And it's only next. Yeah so but you have to Okay."
+    },
+    {
+      "at": 1190.8,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1194.22,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1194.56,
+      "speaker": "Industrial Designer",
+      "text": "But still"
+    },
+    {
+      "at": 1197.47,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1200.41,
+      "speaker": "Project Manager",
+      "text": "Yeah uh on zap it's only next next next next next, yeah. Mm-hmm."
+    },
+    {
+      "at": 1201.31,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 1204.45,
+      "speaker": "User Interface Designer",
+      "text": "Mm. We got these buttons here. Next next. Or say this can be back."
+    },
+    {
+      "at": 1208.3,
+      "speaker": "Industrial Designer",
+      "text": "Yeah.."
+    },
+    {
+      "at": 1211.12,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. But otherwise like we can put some display on numbers and then they can just press suppose two five they just press two and five and then Yeah."
+    },
+    {
+      "at": 1217.49,
+      "speaker": "Marketing Expert",
+      "text": "So it would be"
+    },
+    {
+      "at": 1220.19,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1221.74,
+      "speaker": "Project Manager",
+      "text": "Maybe we can make uh different modes for each button and you can change mode zapping mode or uh current chan"
+    },
+    {
+      "at": 1226.25,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah, yeah."
+    },
+    {
+      "at": 1228.74,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm. Alright. Listening more."
+    },
+    {
+      "at": 1230.31,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, yeah. Yeah but since we are focusing only on T_V_ remote controls so we can have more functions for T_V_ uh if you want to go for a universal then we ought to limit for functions for each of our devices."
+    },
+    {
+      "at": 1234.93,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 1235.82,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1244.29,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1244.38,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1246.01,
+      "speaker": "User Interface Designer",
+      "text": "Could we carry out some research if we w really need this, like how many people really need to go to channel number twenty five and then to sixty four?"
+    },
+    {
+      "at": 1255.5,
+      "speaker": "Marketing Expert",
+      "text": "Well I could could uh have a look at that maybe. I'll check in my department if there's someone specialist in that. Although I don't know."
+    },
+    {
+      "at": 1258.25,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 1259.97,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 1264.01,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 1267.06,
+      "speaker": "Project Manager",
+      "text": "Okay. Uh you're finish? Okay. So now the technical aspects of this new device. Mm."
+    },
+    {
+      "at": 1267.06,
+      "speaker": "User Interface Designer",
+      "text": "Alright? Thanks for your attention."
+    },
+    {
+      "at": 1287.81,
+      "speaker": "Industrial Designer",
+      "text": "Two."
+    },
+    {
+      "at": 1293.96,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, if"
+    },
+    {
+      "at": 1299.86,
+      "speaker": "Industrial Designer",
+      "text": "Sorry. Yeah. Uh as you know, I am mister Ramaro. I am an expert in uh industrial design of all electronic devices and I previously devised many uh like digital calculators and electronic calculators. So now I'll briefly describe the working design of our remote control."
+    },
+    {
+      "at": 1300.01,
+      "speaker": "Project Manager",
+      "text": "You prefer it."
+    },
+    {
+      "at": 1328.14,
+      "speaker": "Industrial Designer",
+      "text": "Well, as you know the basic function of remote control is sending some message to the the device, like T_V_ or V_C_R_ or D_V_D_ player etcetera. So we will have a p portable device which will send message to the the main device like T_V_. So we need to have some energy source to do what to do the functions, what we want on this portable device. And usually this so to do these functions we need an interface, which basically some kind of pressing buttons or keys or like moving jack or something like that. And then these messages these key buttons can be transferred into some kind of message and then it will process by the chip and then it will generate some information to the main device. It's generally in the form of infrared or some kind of s sensor information. Then we will have the main control in the main device to do the particular action what we want."
+    },
+    {
+      "at": 1403.73,
+      "speaker": "Industrial Designer",
+      "text": "So, basically we need uh since we are focusing on our interface device remote control we need few components, mainly the energy source like the battery and then we have user interface like uh the keypad and you know buttons we want, and then we have some chip, it's mainly digital signal processing chip because since we are I am one doing mostly digital uh devices we ought to have some kind of processor which take care of all these functions and put it in some digital format. And then we'll have the infrared L_E_D_ source which sends the information to the main device. Then we'll have switch in our main uh um device to do particular operations, and we ought to do different codes for different T_V_s, so some T_V_s will have different encryption codes for doing s s uh channel changing and these things."
+    },
+    {
+      "at": 1458.25,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1464.6,
+      "speaker": "Project Manager",
+      "text": "Okay. To make it quite uh an universal uh device uh."
+    },
+    {
+      "at": 1468.65,
+      "speaker": "Industrial Designer",
+      "text": "Yeah yeah, because the people don't use one particular brand so or at least we have more more than five brands, which are really good. So we need to check their specifications and do their uh encryption that's passing information to the T_V_ device. So we need to have particular encryption codes."
+    },
+    {
+      "at": 1472.74,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1476.17,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1488.73,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1490.45,
+      "speaker": "Industrial Designer",
+      "text": "Then, components, so we have the main uh energy source and then we will have some buttons and then we will have infrared uh source and then we have some inside some chip in in the device. Uh since I don't have much time so I'll input the connections to all this components. And since I also want to know feedback from our Marketing Expert and User Interface, so if you want to add some more components we can incorporate them. Yeah."
+    },
+    {
+      "at": 1520.6,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1524.23,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. And from from the discussion we had do you can you make it on the whiteboard, or mm."
+    },
+    {
+      "at": 1530.97,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, I'm sure, because since our User Interface speech recognition and also Marketing Expert for the speech recognition is really handy, so we can have another, like uh s simple speech recogniser on our D_S_B_ chip. Since we have some kind of uh energy this is our this normal battery, so this battery, once you s switch on it will take power and we can have some speech recognition and in our g generally small digital signal processing chip so that and we will put uh the small uh simple speech recogniser and we can also train the speech recogniser for particular user so you just yeah, so that we just use simple recog no but but Yeah. No, even in you can find even simple mobile device like any mobile brand you can have these voice dialers or these things, yeah."
+    },
+    {
+      "at": 1541.08,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1544.87,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1544.88,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1551.49,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1576.2,
+      "speaker": "Project Manager",
+      "text": "On"
+    },
+    {
+      "at": 1582.25,
+      "speaker": "Project Manager",
+      "text": "Uh train it, okay. Mm-hmm."
+    },
+    {
+      "at": 1583.8,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1586.32,
+      "speaker": "User Interface Designer",
+      "text": "Too complex."
+    },
+    {
+      "at": 1589.22,
+      "speaker": "Marketing Expert",
+      "text": "But uh very very good to sell."
+    },
+    {
+      "at": 1599.23,
+      "speaker": "Marketing Expert",
+      "text": "Think of a all these young people who would love to say that this remote control only works for them, and ha ha you cannot use my remote control, because it's targeted to me. Whatever."
+    },
+    {
+      "at": 1599.96,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 1605.33,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 1605.46,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1607.62,
+      "speaker": "Project Manager",
+      "text": "Mm. And what about the price of this component?"
+    },
+    {
+      "at": 1608.12,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1610.55,
+      "speaker": "Industrial Designer",
+      "text": "So"
+    },
+    {
+      "at": 1613.2,
+      "speaker": "Industrial Designer",
+      "text": "Uh maybe we can make uh it in five Euros and even less than that, because we want to have uh millions and in bulk, so we can make really simp and we want to make really simple device because we have only very few words like like power, switch on or some like then we'll have something like this um we'll have volume and then we will have s particular channel, so users can listen."
+    },
+    {
+      "at": 1615.29,
+      "speaker": "Project Manager",
+      "text": "It mm okay."
+    },
+    {
+      "at": 1617.67,
+      "speaker": "Marketing Expert",
+      "text": "Hmm. Cheap. Millions."
+    },
+    {
+      "at": 1621.17,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1624.71,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1624.83,
+      "speaker": "Marketing Expert",
+      "text": "Cheap."
+    },
+    {
+      "at": 1631.95,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1645.63,
+      "speaker": "Marketing Expert",
+      "text": "The user uh will just be able to say uh please can you uh pump up the vo pump up the volume or or it will be something like volume, up, down."
+    },
+    {
+      "at": 1646.17,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1652.08,
+      "speaker": "Industrial Designer",
+      "text": "Ye No, yeah, a user can use any kind of sender but they should have this prompt volume and then yeah volume and decrease or increase, so we try to only recognise those words and and because we can't really say user to say same wording then it become more mechanical and yeah. And then we can have channel they can say, okay I want eight, because we don't know like users have different programmes, I mean they don't really follow same channels strict uh so we just want channel number, we don't want like B_B_C_ or C_N_N_ or something else because it will be complicated so we'll have only these three uh main basic uh anyway volume is not really speech recognition problem, it's it it will be take care of our main mm."
+    },
+    {
+      "at": 1659.96,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1660.49,
+      "speaker": "Project Manager",
+      "text": "With a keywords and yeah."
+    },
+    {
+      "at": 1663.93,
+      "speaker": "Marketing Expert",
+      "text": "Okay. Couple of words."
+    },
+    {
+      "at": 1666.14,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm mm."
+    },
+    {
+      "at": 1670.7,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. Okay."
+    },
+    {
+      "at": 1672.13,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1672.99,
+      "speaker": "User Interface Designer",
+      "text": "Um."
+    },
+    {
+      "at": 1688.31,
+      "speaker": "Marketing Expert",
+      "text": "Of course uh it has to be"
+    },
+    {
+      "at": 1688.76,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1689.59,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 1695.26,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 1701.83,
+      "speaker": "User Interface Designer",
+      "text": "No you know it's a conceptual question, 'cause now I see th this the picture in front of my eyes like a user taking his remote control and shouting into it, volume up, volume up, and and he's coming you know, he's really annoyed with this, down, up, down."
+    },
+    {
+      "at": 1713.1,
+      "speaker": "Marketing Expert",
+      "text": "But then I think you"
+    },
+    {
+      "at": 1716.29,
+      "speaker": "Marketing Expert",
+      "text": "you"
+    },
+    {
+      "at": 1719.21,
+      "speaker": "Marketing Expert",
+      "text": "First of all I I think this is not uh functionality that it is going to be instead of using the buttons. It's on top of using the button."
+    },
+    {
+      "at": 1724.44,
+      "speaker": "Project Manager",
+      "text": "No, in no not only speech, yeah. I it's an option."
+    },
+    {
+      "at": 1727.9,
+      "speaker": "User Interface Designer",
+      "text": "Okay, for this budget like twelve Euros."
+    },
+    {
+      "at": 1731.02,
+      "speaker": "Marketing Expert",
+      "text": "Well, I dunno."
+    },
+    {
+      "at": 1732.23,
+      "speaker": "Industrial Designer",
+      "text": "Yeah actually we we can have one switch to like uh switch on, on and off, this processor and This really, suppose like here we have our main chip which controls power, volume and this part and this D_S_P_s. Again, this to have some interaction like suppose people use D_S_P_ then it particularly sends some information to the chip like in some form, like volume and like this key. So it may not be like very expensive, because since we are only focusing on T_V_ remote control so and we have only few things here"
+    },
+    {
+      "at": 1745.21,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1759.51,
+      "speaker": "User Interface Designer",
+      "text": "Okay.."
+    },
+    {
+      "at": 1763.79,
+      "speaker": "Marketing Expert",
+      "text": "T_V_."
+    },
+    {
+      "at": 1765.25,
+      "speaker": "Project Manager",
+      "text": "Okay. Sho to to train, okay."
+    },
+    {
+      "at": 1765.47,
+      "speaker": "User Interface Designer",
+      "text": "Mm-hmm, mm-hmm."
+    },
+    {
+      "at": 1770.3,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1770.71,
+      "speaker": "User Interface Designer",
+      "text": "Did you consider the r gest uh gesture recognition? Like, if I want to put volume up I like do mm I take my remote control do like something like roll 'em up or roll 'em down."
+    },
+    {
+      "at": 1780.63,
+      "speaker": "Industrial Designer",
+      "text": "Um uh uh this point we didn't consider because it's it's very expensive because v our target is only like twelve point five Euros and"
+    },
+    {
+      "at": 1782.55,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1784.96,
+      "speaker": "Marketing Expert",
+      "text": "Very expensive, no?"
+    },
+    {
+      "at": 1789.29,
+      "speaker": "Project Manager",
+      "text": "And well, what about the idea of automatic on off on the button, yeah."
+    },
+    {
+      "at": 1790.65,
+      "speaker": "User Interface Designer",
+      "text": "Mm why? That's just"
+    },
+    {
+      "at": 1793.93,
+      "speaker": "Marketing Expert",
+      "text": "And volume control."
+    },
+    {
+      "at": 1794.25,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, even automatic on off is also a bit problematic, because it different criteria for different people like so suppose people are really uh they just uh they don't touch the remote and mm y you don't know how much time you need to switch on or switch off and"
+    },
+    {
+      "at": 1806.98,
+      "speaker": "Marketing Expert",
+      "text": "So but uh"
+    },
+    {
+      "at": 1811.23,
+      "speaker": "Marketing Expert",
+      "text": "Sh should we target a a user personalised uh uh remote control? So in in a given room there might be more than one remote control. We would uh have each one and uh with our own personal uh settings."
+    },
+    {
+      "at": 1821.79,
+      "speaker": "Industrial Designer",
+      "text": "Yay yeah."
+    },
+    {
+      "at": 1825.73,
+      "speaker": "Industrial Designer",
+      "text": "Yeah that can be possible, especially for power settings, so user can say okay, suppose they're watching a tennis match or something then they can say okay uh after one hour I They can make"
+    },
+    {
+      "at": 1835.08,
+      "speaker": "Marketing Expert",
+      "text": "Hmm."
+    },
+    {
+      "at": 1836.85,
+      "speaker": "Project Manager",
+      "text": "Wouldn't that make uh arguments? I want uh"
+    },
+    {
+      "at": 1840.09,
+      "speaker": "Marketing Expert",
+      "text": "Yeah, of course. That's no problem, we will sell more. Yeah exactly."
+    },
+    {
+      "at": 1847.05,
+      "speaker": "Industrial Designer",
+      "text": "Yeah we can have"
+    },
+    {
+      "at": 1847.61,
+      "speaker": "Project Manager",
+      "text": "And we can increase this the strength y you can buy one with"
+    },
+    {
+      "at": 1848.46,
+      "speaker": "User Interface Designer",
+      "text": "We got a really good Market Expert. Let's send more, let's sell more. Okay."
+    },
+    {
+      "at": 1854.05,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1858.71,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. Okay. You have mm something else to say? Uh. No. Okay, thanks."
+    },
+    {
+      "at": 1863.87,
+      "speaker": "Industrial Designer",
+      "text": "Uh, not very much, like yeah. Thank you. Yep. Thank you. Can you just yeah."
+    },
+    {
+      "at": 1865.88,
+      "speaker": "Marketing Expert",
+      "text": "Okay. Thanks."
+    },
+    {
+      "at": 1873.59,
+      "speaker": "Project Manager",
+      "text": "So mm mm I think, okay, we're just on time. Um mm mm."
+    },
+    {
+      "at": 1888.48,
+      "speaker": "Project Manager",
+      "text": "So, we're now going to l have the lunch break."
+    },
+    {
+      "at": 1893.21,
+      "speaker": "Marketing Expert",
+      "text": "Mm great."
+    },
+    {
+      "at": 1895.3,
+      "speaker": "Project Manager",
+      "text": "Then we will work again for thirty minutes individual work, and um we will uh meet again for the next meeting, and uh in this one want to to be more focused on the individual actions the um on the components so uh"
+    },
+    {
+      "at": 1928.19,
+      "speaker": "Project Manager",
+      "text": "you will focus on the component concept um"
+    },
+    {
+      "at": 1930.75,
+      "speaker": "Industrial Designer",
+      "text": "Yeah yeah."
+    },
+    {
+      "at": 1934.9,
+      "speaker": "Project Manager",
+      "text": "uh of course the U_I_D_ Mark will be uh focused on the user interface concept and uh our m Market Expert Sammy Benjo uh on the trend watching. So um of course like before specific instruction will be sent to you by your personal personal coach. Well I think that's all. And we have um maybe we have to we say, only for T_V_, not teletext? Uh I think automatic on off control uh it's not possible."
+    },
+    {
+      "at": 1935.97,
+      "speaker": "Industrial Designer",
+      "text": "Mark will"
+    },
+    {
+      "at": 1978.13,
+      "speaker": "Industrial Designer",
+      "text": "Uh it's in current price, yeah. Yeah."
+    },
+    {
+      "at": 1979.15,
+      "speaker": "Marketing Expert",
+      "text": "Difficult."
+    },
+    {
+      "at": 1980.34,
+      "speaker": "Project Manager",
+      "text": "Yeah, maybe in the next uh step if we make it work um. Yeah, implemented. O okay, we can think about that. And um do you see something else?"
+    },
+    {
+      "at": 1987.58,
+      "speaker": "Industrial Designer",
+      "text": "But speech recogniser can be possible."
+    },
+    {
+      "at": 1991.14,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1998.87,
+      "speaker": "Marketing Expert",
+      "text": "No."
+    },
+    {
+      "at": 2001.6,
+      "speaker": "User Interface Designer",
+      "text": "Uh, should it be equipped with the uh, with uh speakers? Like, you want to find it, you shout control, and it answers is I'm here? Or"
+    },
+    {
+      "at": 2011.94,
+      "speaker": "Marketing Expert",
+      "text": "Speakers in the remote cont Oh yeah."
+    },
+    {
+      "at": 2016.37,
+      "speaker": "Project Manager",
+      "text": "Uh yeah that's"
+    },
+    {
+      "at": 2021.3,
+      "speaker": "Marketing Expert",
+      "text": "It just beeps. That would be enough. Something very cheap. But that's ex that's expensive. Uh."
+    },
+    {
+      "at": 2023.33,
+      "speaker": "User Interface Designer",
+      "text": "Just beeps?"
+    },
+    {
+      "at": 2023.93,
+      "speaker": "Project Manager",
+      "text": "Or maybe you want to phone him. Since now all yeah? Think"
+    },
+    {
+      "at": 2026.97,
+      "speaker": "Industrial Designer",
+      "text": "Yeah yeah yeah."
+    },
+    {
+      "at": 2030.46,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, especially the power, it really consumes because it should be all the time on and"
+    },
+    {
+      "at": 2033.52,
+      "speaker": "Project Manager",
+      "text": "Uh-huh."
+    },
+    {
+      "at": 2036.13,
+      "speaker": "Marketing Expert",
+      "text": "Well I I heard of devices where you just uh whistle them and and they because of the the frequency they they just answer to that. You can't whistle. Uh-huh. Or a clap. You can clap. Can you? Clap is good. Tak"
+    },
+    {
+      "at": 2036.51,
+      "speaker": "Project Manager",
+      "text": "And uh"
+    },
+    {
+      "at": 2040.17,
+      "speaker": "Project Manager",
+      "text": "And it's answered."
+    },
+    {
+      "at": 2041.13,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 2043.42,
+      "speaker": "User Interface Designer",
+      "text": "I can't whistle. No, no, I can't."
+    },
+    {
+      "at": 2048.94,
+      "speaker": "User Interface Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 2049.07,
+      "speaker": "Project Manager",
+      "text": "Clap clap clap it's a good I I think it's universal."
+    },
+    {
+      "at": 2049.98,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 2057.5,
+      "speaker": "Marketing Expert",
+      "text": "Just a suggestion. With only one hand? These are not our target people."
+    },
+    {
+      "at": 2057.98,
+      "speaker": "Project Manager",
+      "text": "What about people without hand? Yeah."
+    },
+    {
+      "at": 2058.48,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 2062.93,
+      "speaker": "Industrial Designer",
+      "text": "Yeah I think it's good."
+    },
+    {
+      "at": 2064.49,
+      "speaker": "Project Manager",
+      "text": "Mm uh okay."
+    },
+    {
+      "at": 2066.27,
+      "speaker": "Industrial Designer",
+      "text": "But it's a good feature I guess yeah we need to think about more how to incorporate it."
+    },
+    {
+      "at": 2068.58,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm. Okay."
+    },
+    {
+      "at": 2072.17,
+      "speaker": "User Interface Designer",
+      "text": "Just don't interfere with other devices like 'cause like all these people do that their lights are turning on with clapping."
+    },
+    {
+      "at": 2076.25,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 2081.94,
+      "speaker": "Marketing Expert",
+      "text": "Oh that's e that already exists okay okay. Oh yeah, you do have. Wow. You're trendy."
+    },
+    {
+      "at": 2082.42,
+      "speaker": "Industrial Designer",
+      "text": "Oh."
+    },
+    {
+      "at": 2083.85,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, I got it at my home, like. Oops."
+    },
+    {
+      "at": 2085.21,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 2087.22,
+      "speaker": "Industrial Designer",
+      "text": "Ah it's"
+    },
+    {
+      "at": 2088.22,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm, so let's to think s so that yeah. I think that could be in the component uh concept uh. It yes."
+    },
+    {
+      "at": 2091.87,
+      "speaker": "Marketing Expert",
+      "text": "Think about it. Yeah, okay."
+    },
+    {
+      "at": 2096.21,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 2099.88,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 2100.85,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 2104.82,
+      "speaker": "Marketing Expert",
+      "text": "Good we're done? Right, thanks."
+    },
+    {
+      "at": 2106.59,
+      "speaker": "Project Manager",
+      "text": "So, yeah, let's go to lunch."
+    },
+    {
+      "at": 2107.12,
+      "speaker": "Industrial Designer",
+      "text": "Yeah. Thank you, thank you very much."
+    }
+  ],
+  "gold": {
+    "actions": [
+      "The industrial designer will focus on the components concept.",
+      "The user interface designer will focus on the user interface concept.",
+      "The marketing expert will work on trend watching"
+    ],
+    "decisions": [
+      "The team will not work with teletext.",
+      "The team will concentrate on making a remote only for televisions and then make their product more generalized later.",
+      "An automatic on/off feature will not be used."
+    ],
+    "problems": [
+      "Making the remote universal.",
+      "Users habits in jumping from channel to channel.",
+      "How speech recognition commands work.",
+      "Allowing users in the same household to have their own remotes with personal settings.",
+      "How to locate a remote when misplaced."
+    ]
+  }
+}

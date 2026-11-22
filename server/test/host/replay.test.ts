@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent } from '@kaki/shared';
-import type { Hub } from '../../src/hub';
+import type { Hub } from '../../src/core/hub';
 import { loadReplay, parseReplay, startReplay, type ReplayLine } from '../../src/host/replay';
-import { loadScenario } from '../../src/loadScenario';
+import { loadScenario } from '../../src/core/loadScenario';
 import { testScenario } from '../fixtures/scenario';
 
 function recordingHub(): Hub & { published: KakiEvent[] } {
@@ -12,6 +12,7 @@ function recordingHub(): Hub & { published: KakiEvent[] } {
     publish: (event) => published.push(event),
     subscribe: () => () => {},
     onCommand: () => {},
+    clearRetained: () => {},
     close: () => {},
   };
 }
@@ -28,11 +29,11 @@ afterEach(() => {
 });
 
 describe('replay script', () => {
-  it('ships a valid Pixel Kampung replay', async () => {
-    const scenario = await loadScenario('pixel-kampung');
-    const loaded = await loadReplay(scenario, 'pixel-kampung');
+  it('ships a valid Kopitiam replay', async () => {
+    const scenario = await loadScenario('kopitiam');
+    const loaded = await loadReplay(scenario, 'kopitiam');
     expect(loaded.length).toBeGreaterThan(20);
-    expect(loaded.flatMap((line) => line.agendaIndex ?? [])).toEqual([1, 2, 3]);
+    expect(loaded.flatMap((line) => line.agendaIndex ?? [])).toEqual([1, 2, 3, 4]);
   });
 
   it('rejects unknown speakers, lines out of order and empty text', () => {
@@ -53,7 +54,7 @@ describe('replay script', () => {
   });
 
   it('only accepts agenda markers that move forward through the agenda', () => {
-    const twoItems = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, ownerRole: 'cashier' }] };
+    const twoItems = { ...testScenario, agenda: [...testScenario.agenda, { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] };
     const line = (agendaIndex: unknown) => ({ at: 0, speaker: 'Ada (Chef)', text: 'Next.', agendaIndex });
 
     expect(parseReplay({ lines: [line(1)] }, twoItems)[0]).toMatchObject({ agendaIndex: 1 });

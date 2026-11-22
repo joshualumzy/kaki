@@ -1,0 +1,1435 @@
+{
+  "meeting": "ES2013b",
+  "source": "AMI Meeting Corpus, CC BY 4.0",
+  "lines": [
+    {
+      "at": 0,
+      "speaker": "Project Manager",
+      "text": "Uh it fell off."
+    },
+    {
+      "at": 8.13,
+      "speaker": "Project Manager",
+      "text": "One, two, three, four, yeah, we're ready."
+    },
+    {
+      "at": 15.54,
+      "speaker": "Project Manager",
+      "text": "Okay. Welcome to this second meeting. Um it's now quarter after twelve and we're given forty minutes um for this meeting. This is a meeting on functional design. Um and I wanna welcome you all and thank you all for doing some research in between. Um I did took the minutes from the first meeting and I'll show them to you in a moment. Um I know each of you have a presentation and um in thinking about the forty minutes, I thought it would take only like three minutes for the previous minutes, um each of you having about seven minutes or maybe a little more, maybe a little less for your pre presentations and a little discussion, because there's I happen to have been told there were some new project requirements and we have to make some uh decision on what functions it will have. Okay? Is this ap everybody agree with this? Okay. Um and after the meeting there'll be things to be done and as you can see it says we get to get lunch, um and then some more individual work and then putting minutes away and individual actions. Um but uh now for the minutes of the first meeting. And go to that one. Um as you can see it was this earlier today. Um Kate, Steph, Sarah and myself in our four capacities were present. I opened the meeting, the product was developed uh and reviewed, and we talked about the financial end of it. Um and it had some implications, um the four million sales target and new ideas of not too many buttons, bright colours and some of the influence of the Japanese. And we closed early so you could then proceed with your research and getting your reports together for tod this meeting Anybody have any questions on those minutes? Are they complete, did they discuss everything that we covered last time?"
+    },
+    {
+      "at": 74.72,
+      "speaker": "User Interface Designer",
+      "text": "Yes."
+    },
+    {
+      "at": 75.02,
+      "speaker": "Industrial Designer",
+      "text": "Oops."
+    },
+    {
+      "at": 77.38,
+      "speaker": "Marketing Expert",
+      "text": "Yes."
+    },
+    {
+      "at": 159.74,
+      "speaker": "Project Manager",
+      "text": "'Kay."
+    },
+    {
+      "at": 161.48,
+      "speaker": "Industrial Designer",
+      "text": "Uh I think so, we we we talked about the the individual roles that we each had as well."
+    },
+    {
+      "at": 162.51,
+      "speaker": "Project Manager",
+      "text": "Did I miss something?"
+    },
+    {
+      "at": 167.73,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 168.26,
+      "speaker": "Project Manager",
+      "text": "Yeah. I'm afraid I incorporated that when I said who was present, but yes, we did, and we did a little bit of uh team building of uh of making the pictures, but I didn't think those were appropriate to the minutes necessarily. So um as a group I think we've are they're accepting the minutes."
+    },
+    {
+      "at": 173.09,
+      "speaker": "Industrial Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 191.22,
+      "speaker": "Marketing Expert",
+      "text": "Okay, I accept the minutes. Is that what we're supposed to say?"
+    },
+    {
+      "at": 191.97,
+      "speaker": "Project Manager",
+      "text": "And uh okay. Yeah. Good. Um, then we'll move to the three presentations. Okay?"
+    },
+    {
+      "at": 197.2,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, I do."
+    },
+    {
+      "at": 207.12,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 208.63,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 212.25,
+      "speaker": "Project Manager",
+      "text": "Mm we need to move this. Who wants to go f first?"
+    },
+    {
+      "at": 220.45,
+      "speaker": "Project Manager",
+      "text": "That's as far as it goes."
+    },
+    {
+      "at": 225.08,
+      "speaker": "User Interface Designer",
+      "text": "Uh not really meant to touch those microphones. Oh it doesn't have any on, does it? That's fine."
+    },
+    {
+      "at": 233.64,
+      "speaker": "Marketing Expert",
+      "text": "Excellent, thank you."
+    },
+    {
+      "at": 234.4,
+      "speaker": "Industrial Designer",
+      "text": "Oy, big loop under the table."
+    },
+    {
+      "at": 258.1,
+      "speaker": "Project Manager",
+      "text": "She said we didn't need to screw it in."
+    },
+    {
+      "at": 260.17,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 263.44,
+      "speaker": "Marketing Expert",
+      "text": "Okay, that looks good."
+    },
+    {
+      "at": 265.67,
+      "speaker": "Project Manager",
+      "text": "It's doing its thing. There we are."
+    },
+    {
+      "at": 268.62,
+      "speaker": "Marketing Expert",
+      "text": "Alright. Thank you very much. Um. One of the the biggest issues I found about um from last meeting was the fact that we need to sell four million of these um remote controls and I think that this is an opportunity to really take Real Reaction in the direction of of similar of handheld tools that have been used and are used by many of us and to kind of bring the remote control into the si same realm as an accessible um useful electronic device, as opposed to something that is lost in the couch and what have you. So um my main goal here is to re-envision the remote control in in this context and to think about menu functionality and current technology and the fact that it could be interactive with other tools. Um some of the research uh in the market has shown that people really are not happy with remote controls as they are now, and um that means we do need to make some decisions about what what keys or or buttons on the on the remote control to perhaps keep and and what ones to discard. And if we devote some energy into this, I think the um recent productions of Real Reaction, the I go everywhere power and the high definition D_V_D_ players although it makes immediate sense to have our remote control interact with these, I think we can also use this as a platform to make it interact with other tools. And um in fact I think the high definition D_V_D_ players and all of this will come along in the uh will only benefit from the positive feedback from our well designed tool. So again, most uh users really dislike the current look and feel of remote controls. Um fifty percent I think of all these uh numbers the most important is fifty percent of user say they only use ten percent of the buttons. And eighty percent of users, and if we think about this there are a lot of uh television, D_V_D_, stereo remote control users out there, eighty percent would spend more money on a remote control that looks fancy."
+    },
+    {
+      "at": 417.2,
+      "speaker": "Industrial Designer",
+      "text": "Could can I ask where these figures come from, is this market research we've"
+    },
+    {
+      "at": 419.5,
+      "speaker": "Marketing Expert",
+      "text": "Um it was market research and there were a hundred people in the room, so eighty out of a hundred said they would spend more money."
+    },
+    {
+      "at": 426.69,
+      "speaker": "Project Manager",
+      "text": "Now in between, as the Project Manager, they sent me an email from the powers that be um that teletext is outdated um and the internet is coming in as important, but that they want this remote control to only be for T_V_ um with incorporating the corporate image, colour and slogan."
+    },
+    {
+      "at": 426.86,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 432.62,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 448.16,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm. Well I think we can I I think we can really focus on this remote and and again bring the Real Reaction um brand in in and and get some positive marketing for our other tools, even if we directly don't um advertise for the I go everywhere line. So an interesting um element was the would you pay more for speech recognition question. So these market research uh uh questionnaires looked into your your uh concern about technology and s specifically wanted to find out information about speech recognition. Now the early adopters, those of us who grew up with technology and uh luck lucky for us have the uh cash to to pay for it, the young age group without the mortgages and responsibilities, ninety one percent of them would pay more for speech recognition in a remote control. Very interesting, I I leave this up to the group to decide if we wanna use this uh if and you know, the the designers, but ninety one percent, fifteen to twenty five Well, I I I think especially in terms of growth, I think this would be a very smart group to target. I mean s three quarters of the next age group, twenty five to thirty five are interested, and uh with the technologies improving, if we can get these uh Yeah."
+    },
+    {
+      "at": 475.11,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 485.97,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 500.16,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 532.23,
+      "speaker": "Project Manager",
+      "text": "Mm. Is that a large enough target market to target it?"
+    },
+    {
+      "at": 554.37,
+      "speaker": "Project Manager",
+      "text": "In real numbers, does the ninety one percent and the seventy six percent translate to ex in excess of the four million? Or eight million."
+    },
+    {
+      "at": 560.41,
+      "speaker": "Marketing Expert",
+      "text": "To Um yes. Yes. But would you pay more and does it work and is it approachable and and did I know that it was it was an that's a that's a very good question. I don't know if speech recognition should be um should be included, but I think it's an interesting I think that maybe shows more about uh being open to technology."
+    },
+    {
+      "at": 572.4,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 575.42,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 575.53,
+      "speaker": "Industrial Designer",
+      "text": "Um"
+    },
+    {
+      "at": 580.46,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 587.43,
+      "speaker": "User Interface Designer",
+      "text": "Uh it definitely needs uh a lot more research on like how much more it would be and any, you know, existing examples, and what reactions to them have been, and that sort of thing."
+    },
+    {
+      "at": 587.76,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 589.74,
+      "speaker": "Marketing Expert",
+      "text": "Shall I go back?"
+    },
+    {
+      "at": 593.97,
+      "speaker": "Marketing Expert",
+      "text": "Yeah, yeah."
+    },
+    {
+      "at": 599.92,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 600.55,
+      "speaker": "Industrial Designer",
+      "text": "How d I'm wondering how how ou how our target price compares with the the typical price of these things. I expect an Industrial Designer should know that, but if we're aiming to to build this thing for twelve Euros fifty, um is that a lot or a little?"
+    },
+    {
+      "at": 616.37,
+      "speaker": "Marketing Expert",
+      "text": "Exactly. I mean I I I uh did not receive any information on that, but I think the competition, sussing out what other people are doing and what's in the pipeline is very very important, because um there is a question about do you want an L_C_D_ screen and and that wasn't responded to, but uh some of the larger remotes do have screens where you can navigate, you know, so it turns into something uh perhaps you all have seen uh the Osbournes where Ozzy Osbourne is is attempting to manage his super entertainment system with something that looks like a uh a small tray. You know, it's I a and I think, you know"
+    },
+    {
+      "at": 660.48,
+      "speaker": "Industrial Designer",
+      "text": "Sh surely he's in the wrong age group. He must be w one of a s small population."
+    },
+    {
+      "at": 664.86,
+      "speaker": "Marketing Expert",
+      "text": "No, no, you Kate, you're exactly right there. But I think the key is to get the early adopters, people who are familiar with technology and and uh they'll be Uh, mm. Exactly. I yes, and I'm making and I'm making the the uh uh leap that people who are familiar younger people are l are more familiar with technology than than older people. Or comfortable, you know, um so"
+    },
+    {
+      "at": 665.45,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 674.21,
+      "speaker": "Project Manager",
+      "text": "But we're not looking at whether they're early adopters on that screen, that's looking at age groups."
+    },
+    {
+      "at": 683.84,
+      "speaker": "Project Manager",
+      "text": "Leap."
+    },
+    {
+      "at": 690.78,
+      "speaker": "Project Manager",
+      "text": "Hmm. Mm. Okay, you had the other power channel."
+    },
+    {
+      "at": 697.8,
+      "speaker": "Marketing Expert",
+      "text": "I think the most important thing is an attractive streamlined remote control and to be extraordinarily reductionist, power, channel, volume and everything else is is uh up to the designers. And this is this is also supported by the market research."
+    },
+    {
+      "at": 720.06,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 722.48,
+      "speaker": "Marketing Expert",
+      "text": "Thank you. That's my contribution."
+    },
+    {
+      "at": 724.94,
+      "speaker": "Project Manager",
+      "text": "Alright. And we'll turn to the next presentation."
+    },
+    {
+      "at": 742.27,
+      "speaker": "Project Manager",
+      "text": "I think she said we don't need to screw it in, just stick it in. And then press, what? F F_N_ and F_ eight. Next to the control button on the bottom, and then F_ eight at the top. And then w be patient."
+    },
+    {
+      "at": 759.09,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, press them."
+    },
+    {
+      "at": 764.55,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, here we go."
+    },
+    {
+      "at": 766.42,
+      "speaker": "Project Manager",
+      "text": "Tada."
+    },
+    {
+      "at": 768.89,
+      "speaker": "Industrial Designer",
+      "text": "And if you want it to go into slide show mode, it's that little button there."
+    },
+    {
+      "at": 773.36,
+      "speaker": "User Interface Designer",
+      "text": "Can I not just uh do each one in order?"
+    },
+    {
+      "at": 778.53,
+      "speaker": "Industrial Designer",
+      "text": "I you can if you like, it it that that just sets it up to do a p a p no that one, that one there. Left, left a bit, left a bit, that one, yep. And then you just press the click when you wanna go on."
+    },
+    {
+      "at": 782.53,
+      "speaker": "Project Manager",
+      "text": "There we are. Yay."
+    },
+    {
+      "at": 782.65,
+      "speaker": "User Interface Designer",
+      "text": "That? That? That?"
+    },
+    {
+      "at": 792.05,
+      "speaker": "User Interface Designer",
+      "text": "Right, technical functions design."
+    },
+    {
+      "at": 797,
+      "speaker": "User Interface Designer",
+      "text": "Uh well I think first off, basically I do agree with what Sarah has defined as as uh your personal preferences,yeah. I think we need uh a more streamlined volume with no extraneous functions."
+    },
+    {
+      "at": 816.98,
+      "speaker": "User Interface Designer",
+      "text": "So my method was to look at the existing remotes and what functions they have. And what we all need to discuss is whether we want these functions uh pretty much the same as what existing remotes have. If we can build on this with the speech recognition, that's not something I'd thought about at all, but it's also something we can discuss."
+    },
+    {
+      "at": 839.91,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 840.62,
+      "speaker": "User Interface Designer",
+      "text": "Um and and I presume we can miss out the functions really to to a video or D_V_D_ remote control, if this is only gonna be a, you know, satellite, cable, T_V_ remote control. So these are two models of existing remote controls. Uh the one on the left seems to be a fairly uh standard universal remote control. It has fast-forward, stop, play, all relating to movies. It also has seems to have channel up and channel down, which is which is more what you'd expect from a, you know, like a Sky or cable remote control where you've got hundreds of channels instead of a merely terrestrial one. Uh but I think we should be looking more along the lines of the one on the right, which has it also has play, stop and pause and everything, I don't think we need them at all. I think we just need channel selection, volume up, volume down and"
+    },
+    {
+      "at": 850.19,
+      "speaker": "Project Manager",
+      "text": "T_V_ only."
+    },
+    {
+      "at": 862.24,
+      "speaker": "Project Manager",
+      "text": "Ugh."
+    },
+    {
+      "at": 883.19,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 910.5,
+      "speaker": "User Interface Designer",
+      "text": "I think an an enter function where you can access it's not like teletext, but along the same lines, access things on the screen. Uh not related to the internet one that you mentioned, because that'd be far outside our budget and what we want this to do."
+    },
+    {
+      "at": 929.37,
+      "speaker": "Project Manager",
+      "text": "Mm. And exceed the requirements they're expecting of us."
+    },
+    {
+      "at": 931.57,
+      "speaker": "User Interface Designer",
+      "text": "So it really exceed the requirements, 'cause the requirements really are just want to be able to change channels and functions, which is more a text on the screen thing than uh than actual buttons o I was thinking something some smooth, sleek, little remote control with big user-friendly buttons and uh a menu that you can access. Uh but then I do think we need to discuss the speech um recognition possibility."
+    },
+    {
+      "at": 947.58,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 955.61,
+      "speaker": "Project Manager",
+      "text": "Alright."
+    },
+    {
+      "at": 972.8,
+      "speaker": "Project Manager",
+      "text": "Okay. Any uh thing else you wanna add? Okay."
+    },
+    {
+      "at": 975.9,
+      "speaker": "User Interface Designer",
+      "text": "No."
+    },
+    {
+      "at": 978.54,
+      "speaker": "User Interface Designer",
+      "text": "But we could go back to the pictures of the uh, what're they called?"
+    },
+    {
+      "at": 985.86,
+      "speaker": "User Interface Designer",
+      "text": "The pictures of the remote controls and possibly discuss what we think about them, but maybe should hear what Kate has to say first."
+    },
+    {
+      "at": 992.56,
+      "speaker": "Marketing Expert",
+      "text": "Or if"
+    },
+    {
+      "at": 995.83,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 996.93,
+      "speaker": "Project Manager",
+      "text": "Yeah. Let's hear what Kate has to say."
+    },
+    {
+      "at": 999.74,
+      "speaker": "User Interface Designer",
+      "text": "Okay then."
+    },
+    {
+      "at": 999.77,
+      "speaker": "Marketing Expert",
+      "text": "Maybe afterwards we could do a uh whiteboard with that your the one on the right as a as a basis. Whiteboard session."
+    },
+    {
+      "at": 1010.59,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 1014.44,
+      "speaker": "Project Manager",
+      "text": "I think the white that one on the right is, as well as less cluttered,"
+    },
+    {
+      "at": 1019.06,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1019.7,
+      "speaker": "User Interface Designer",
+      "text": "Definitely less cluttered and I mean but still it's Sorry I was just I'll just uh resume something else I was gonna say. The the style of these is terrible. I I I really think we need to uh not only possibly even materials, like the type of plastic used, but everything including size and shape of buttons, positioning of buttons, the actual shape of the hand-held device, colours, just every e yeah, everything to do with this has to be revolutionised. But"
+    },
+    {
+      "at": 1025.11,
+      "speaker": "Project Manager",
+      "text": "It's there but it's"
+    },
+    {
+      "at": 1031.5,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 1050.3,
+      "speaker": "Marketing Expert",
+      "text": "The ergonomics, the way it fits in your"
+    },
+    {
+      "at": 1052.15,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 1055.6,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 1064.59,
+      "speaker": "User Interface Designer",
+      "text": "So that's that for now."
+    },
+    {
+      "at": 1067.44,
+      "speaker": "Industrial Designer",
+      "text": "Cheers."
+    },
+    {
+      "at": 1095.22,
+      "speaker": "Industrial Designer",
+      "text": "Mm, I haven't actually got a display on my screen. Still, I'll do without that. Okay um, now I wanna bring us down to earth again I'm afraid and talk about the actual practicalities of how the thing needs to work."
+    },
+    {
+      "at": 1097.43,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1112.81,
+      "speaker": "Industrial Designer",
+      "text": "Um oh and this is the methodology I used in preparing for this meeting. Um basically I've been doing a little bit of web-based research, and if I had a design team, I would've been discussing my ideas with 'em. But the the net result is that I've come up with a first cut for the working design that I'd like to discuss with you."
+    },
+    {
+      "at": 1137.81,
+      "speaker": "Industrial Designer",
+      "text": "So, let's go back to what the basic function of a remote control is. It's for sending a message, um typically um via infrared. And the the basic components we've got to build in for our twelve Euros fifty are um an energy source, the user interface and which will um in incorporate um an integrated circuit that actually composes the message um based on what the which buttons the user presses, we turn that into a message, um and then we need a sending mechanism to send it to the receiver. Now I would have hoped I think that's my only slide actually, yeah. I would have have hoped to um"
+    },
+    {
+      "at": 1188.34,
+      "speaker": "Industrial Designer",
+      "text": "do you a pretty PowerPoint slide of um my first cut design, but unfortunately the technology defeated me, so if you'll bear with me I'll do it on the whiteboard."
+    },
+    {
+      "at": 1203.25,
+      "speaker": "Industrial Designer",
+      "text": "So we want an energy source"
+    },
+    {
+      "at": 1208.43,
+      "speaker": "Industrial Designer",
+      "text": "which is there."
+    },
+    {
+      "at": 1212.56,
+      "speaker": "Industrial Designer",
+      "text": "And we've got to think about what that might be. Uh we obviously don't want wires on this thing. Uh typically it would be a battery, but I'm open to suggestions. Um and"
+    },
+    {
+      "at": 1215.25,
+      "speaker": "Project Manager",
+      "text": "Hmm-mm."
+    },
+    {
+      "at": 1230.48,
+      "speaker": "Industrial Designer",
+      "text": "then we have the the user interface."
+    },
+    {
+      "at": 1235.79,
+      "speaker": "Industrial Designer",
+      "text": "Oops."
+    },
+    {
+      "at": 1242.31,
+      "speaker": "Industrial Designer",
+      "text": "And the main components in there are the"
+    },
+    {
+      "at": 1253.69,
+      "speaker": "Industrial Designer",
+      "text": "the th the chip that actually has the intelligence of the machine that translates button presses into a message, which it then"
+    },
+    {
+      "at": 1265.85,
+      "speaker": "Industrial Designer",
+      "text": "transfers to some sending mechanism, which encodes it"
+    },
+    {
+      "at": 1282.16,
+      "speaker": "Industrial Designer",
+      "text": "and sends the message to the receiver. So those are the basic things that we've got to get in for our twelve Euros fifty. Thank you."
+    },
+    {
+      "at": 1291.54,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 1294.95,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1299.2,
+      "speaker": "Project Manager",
+      "text": "Right. But those things as long as we can get those components, the block, that that rectangle for the user interface, is where the user comes in of what what does it look like? What do the buttons look like? Uh what does it feel like? That's where the user interface is really coming into its own. The technical end is what's actually gonna be in there, but also it has to be easy enough to change or repair if something goes wrong. For example the battery energy source or um what if the chip, for whatever reason, breaks down after a certain amount of time, do you just replace it? Um is there any um because it may be in the same area with several other user interfaces, like for D_V_D_s, movies, whatever. Um does it have to have a"
+    },
+    {
+      "at": 1325.91,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1369.51,
+      "speaker": "Project Manager",
+      "text": "a way of being segregated from the others, in a different frequency or something?"
+    },
+    {
+      "at": 1376.58,
+      "speaker": "Industrial Designer",
+      "text": "Well I may be wrong here, but I'd been thinking of this device as being a a cheap mass-produced device. We're trying to sell four million of 'em, um that's that's, you know, that's almost one in every tenth household or whatever it is. Um and I hadn't thought of it as being a reparable thing, you just if it goes wrong you chuck it out, and that's why I'm a bit concerned. I like the idea of speech recognition, that's a great idea, but I'm not convinced we can put it into this box for the price that we need gonna need to hit."
+    },
+    {
+      "at": 1384.28,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1394.98,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1405.81,
+      "speaker": "Marketing Expert",
+      "text": "Do we have um ki some idea of how much it would cost to create a device that has these basic elements? Because then"
+    },
+    {
+      "at": 1405.9,
+      "speaker": "User Interface Designer",
+      "text": "Whoop."
+    },
+    {
+      "at": 1406.19,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1417.58,
+      "speaker": "User Interface Designer",
+      "text": "Isn't that your job?"
+    },
+    {
+      "at": 1419.5,
+      "speaker": "Marketing Expert",
+      "text": "No, the chip composer marketing. Oh no, the chip composer sender. I I don't believe I know, um."
+    },
+    {
+      "at": 1419.58,
+      "speaker": "Project Manager",
+      "text": "Oh."
+    },
+    {
+      "at": 1420.96,
+      "speaker": "User Interface Designer",
+      "text": "Oh right."
+    },
+    {
+      "at": 1424.3,
+      "speaker": "Project Manager",
+      "text": "Mm. What they cost."
+    },
+    {
+      "at": 1425.5,
+      "speaker": "Industrial Designer",
+      "text": "Um, I'm I'm I'm hoping that my personal coach is gonna give me some advice on that, if you're asking me, but"
+    },
+    {
+      "at": 1430.9,
+      "speaker": "Marketing Expert",
+      "text": "Okay. Be because then we would ha ha figure out how much we had to play with in terms of user interface and this look and feel idea."
+    },
+    {
+      "at": 1432.35,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1436.45,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1437.07,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1437.45,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1440.45,
+      "speaker": "User Interface Designer",
+      "text": "It does it does seem as if we're just to do something really simple and mass-produced, the which is pretty much the same as these existing models, just maybe a little bit more inspired, but basically just the same. Although what what uh suddenly came into my head is, you know how they always take two A_A_ batteries which which is really not very efficient at all. Could it be possible to have uh, you know, like a rechargeable internal battery, like, well, like an M_P_ three player does? With that you could jus or a mobile phone or whatever. You could you know, you just plug into a power source for a couple of hours, and then it's recharged for ages and ages and ages, and you don't have to worry with replacing A_A_ batteries, which are"
+    },
+    {
+      "at": 1444.34,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1449.97,
+      "speaker": "Marketing Expert",
+      "text": "Inspired?"
+    },
+    {
+      "at": 1453.84,
+      "speaker": "Marketing Expert",
+      "text": "Mm."
+    },
+    {
+      "at": 1473.67,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1479.05,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1489.33,
+      "speaker": "Marketing Expert",
+      "text": "Well that has another element, which is if every time you're done using the remote you put it on a charger, then you then it has a place. Yeah, but it also has a place, so exactly."
+    },
+    {
+      "at": 1496.25,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1497.41,
+      "speaker": "User Interface Designer",
+      "text": "You'd never need uh batteries would y uh yeah. And it's not stuck down the back of the sofa. But then again I d I don't know if this is within our price range or not."
+    },
+    {
+      "at": 1503.27,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1507.81,
+      "speaker": "Marketing Expert",
+      "text": "That's a really good idea."
+    },
+    {
+      "at": 1508.55,
+      "speaker": "Industrial Designer",
+      "text": "Well I uh think that's a very interesting idea, but um I'm not a very good industrial designer and I don't know much about what these things cost. I'll do some research for the next meeting."
+    },
+    {
+      "at": 1517.58,
+      "speaker": "Marketing Expert",
+      "text": "Well it's better than my idea about solar, probably. Yeah, yeah. Depen"
+    },
+    {
+      "at": 1517.62,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1520.87,
+      "speaker": "Project Manager",
+      "text": "Uh yeah."
+    },
+    {
+      "at": 1522.44,
+      "speaker": "Industrial Designer",
+      "text": "Well solar may not be so good when you're watching T_V_ in the night, but"
+    },
+    {
+      "at": 1525.84,
+      "speaker": "Project Manager",
+      "text": "Mm. It would have to sor store up the energy and then use it. Solar can do that. M yeah, that would be too heavy and it'd cost too much."
+    },
+    {
+      "at": 1526.89,
+      "speaker": "User Interface Designer",
+      "text": "Well it is just so annoying how"
+    },
+    {
+      "at": 1529.65,
+      "speaker": "Marketing Expert",
+      "text": "Mm. Yeah."
+    },
+    {
+      "at": 1530.43,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, I guess. We may be talking quite heavy then."
+    },
+    {
+      "at": 1534.86,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 1537.73,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1538.47,
+      "speaker": "User Interface Designer",
+      "text": "No, but just a rechargeable internal battery would probably I mean it might cost more to at first to develop and to install, but for long-term use it'll be so much more convenient and economic than fiddling around trying to replace chunky A_A_ batteries and not having any in your kitchen drawer and you know f"
+    },
+    {
+      "at": 1546.12,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm"
+    },
+    {
+      "at": 1558.19,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1561.69,
+      "speaker": "Industrial Designer",
+      "text": "So do you think we might make that a selling point if it was something that we found we could afford to develop?"
+    },
+    {
+      "at": 1566.5,
+      "speaker": "Marketing Expert",
+      "text": "Definitely, 'cause I'm thinking in terms of um uh the"
+    },
+    {
+      "at": 1567.46,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1574.21,
+      "speaker": "Marketing Expert",
+      "text": "loss and breakage of um remotes, how much of that is is to do with it not really having a uh a home, a um a nest, a place to live, exactly. So if you can dock it, um you know, you could s argue that this is Exactly."
+    },
+    {
+      "at": 1582.64,
+      "speaker": "User Interface Designer",
+      "text": "Mm. Sort of have its little dock that you could put it in."
+    },
+    {
+      "at": 1583.4,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1586.48,
+      "speaker": "Project Manager",
+      "text": "Yeah."
+    },
+    {
+      "at": 1590.26,
+      "speaker": "Project Manager",
+      "text": "And the dock could look very fancy and that could be your inspiration of having it looking decent."
+    },
+    {
+      "at": 1594.51,
+      "speaker": "User Interface Designer",
+      "text": "Still I don't know if it's quite within our price range."
+    },
+    {
+      "at": 1598.44,
+      "speaker": "Marketing Expert",
+      "text": "Mm. 'Cause you are talking about another component, like another piece of hardware. Mm."
+    },
+    {
+      "at": 1598.53,
+      "speaker": "Project Manager",
+      "text": "Hmm."
+    },
+    {
+      "at": 1601.69,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1602.45,
+      "speaker": "Project Manager",
+      "text": "Yeah. Okay. Are we agreed as to what our target group is though?"
+    },
+    {
+      "at": 1610.02,
+      "speaker": "Project Manager",
+      "text": "Pretty much, so that we'd be looking for the younger end."
+    },
+    {
+      "at": 1610.59,
+      "speaker": "Marketing Expert",
+      "text": "Well I I brought up some exactly, but I think you raised some good questions about are there enough of these people out there, or are they making purchasing decisions? You know, these are the"
+    },
+    {
+      "at": 1617.75,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 1620.05,
+      "speaker": "Industrial Designer",
+      "text": "Yeah, I was wondering that, because I ag I agree that there there're people with uh how can I put it, more money than sense and who are liable to buy something new, but"
+    },
+    {
+      "at": 1620.23,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1626.53,
+      "speaker": "Marketing Expert",
+      "text": "Yeah, exactly."
+    },
+    {
+      "at": 1626.74,
+      "speaker": "Project Manager",
+      "text": "I I s usually put more money than brains."
+    },
+    {
+      "at": 1630.51,
+      "speaker": "Marketing Expert",
+      "text": "Oh oh oh I'll make a note of that, Kate. Good, good comment."
+    },
+    {
+      "at": 1633.32,
+      "speaker": "Industrial Designer",
+      "text": "Bu but what I was gonna say was, although they they may be buying um, you know, personal music devices and all that, are they necessarily buying T_V_ remote controls? Because they probably live in a household that has a T_V_ if they're at the lower end of the age range, I don't know."
+    },
+    {
+      "at": 1645.56,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 1648.52,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1648.8,
+      "speaker": "Marketing Expert",
+      "text": "It might be good to know um uh who, you know, who's actually buying televisions and are we in a uh uh s region where people have more than one television in a home?"
+    },
+    {
+      "at": 1661.71,
+      "speaker": "Industrial Designer",
+      "text": "Mm. I think we've got a big hill to climb here, haven't we? I mean we've gotta persuade people who've got a remote control 'cause it came with the telly that they should buy our product instead."
+    },
+    {
+      "at": 1664.69,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 1668.12,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1670.59,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 1670.86,
+      "speaker": "Project Manager",
+      "text": "Yeah. Or do we s make sure that it goes to the man through the manufacturer? We sell to the manufacturer as the remote that goes with it."
+    },
+    {
+      "at": 1675.84,
+      "speaker": "Industrial Designer",
+      "text": "Right, good point. Yeah, yeah okay, yeah. Yeah. Yeah, good point."
+    },
+    {
+      "at": 1677.82,
+      "speaker": "Marketing Expert",
+      "text": "Yeah. Yeah."
+    },
+    {
+      "at": 1678.22,
+      "speaker": "User Interface Designer",
+      "text": "Yeah. That's probably more what it is."
+    },
+    {
+      "at": 1681.55,
+      "speaker": "Project Manager",
+      "text": "What would be a more efficient way of doing it?"
+    },
+    {
+      "at": 1683.99,
+      "speaker": "Marketing Expert",
+      "text": "Yeah, and and some of our D_V_D_ players incidentally have them, because we have the relationship with our own department, but moreover we need to to go for the the manufacturers."
+    },
+    {
+      "at": 1692.81,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1696.17,
+      "speaker": "Project Manager",
+      "text": "Okay. Right."
+    },
+    {
+      "at": 1697.71,
+      "speaker": "User Interface Designer",
+      "text": "We're not gonna get any resolutions by the end of the day, are we?"
+    },
+    {
+      "at": 1700.86,
+      "speaker": "Project Manager",
+      "text": "Probably not. Um the other thing that we're supposed to do is make decision on our functions. Our functions, we've so far decided, I think, that power, channel, volume make it attractive. Um it has to have an enter key and of course the number keys. It has to have big user-friendly buttons and sh n definitely we wanna be inspired that the current styles are just plain awful."
+    },
+    {
+      "at": 1701.07,
+      "speaker": "Marketing Expert",
+      "text": "Mm."
+    },
+    {
+      "at": 1740.58,
+      "speaker": "User Interface Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 1741.68,
+      "speaker": "Marketing Expert",
+      "text": "Do we need um let me"
+    },
+    {
+      "at": 1745.82,
+      "speaker": "Project Manager",
+      "text": "Is that agreeable to everyone?"
+    },
+    {
+      "at": 1746.38,
+      "speaker": "Marketing Expert",
+      "text": "Br actually, um the enter key I have a chart here that I didn't include. Um yeah, which might"
+    },
+    {
+      "at": 1747.26,
+      "speaker": "Industrial Designer",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1752.65,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 1754.91,
+      "speaker": "Industrial Designer",
+      "text": "Do you want the gizmo?"
+    },
+    {
+      "at": 1760.35,
+      "speaker": "Project Manager",
+      "text": "Throw some light on that."
+    },
+    {
+      "at": 1761.18,
+      "speaker": "Marketing Expert",
+      "text": "Th yeah, th those are"
+    },
+    {
+      "at": 1767.59,
+      "speaker": "Marketing Expert",
+      "text": "felt like had a lot of charts."
+    },
+    {
+      "at": 1770.26,
+      "speaker": "Project Manager",
+      "text": "Um actually we're, you know, we are almost a half hour out of the forty minutes, so we have to get close to finishing."
+    },
+    {
+      "at": 1776.63,
+      "speaker": "Marketing Expert",
+      "text": "Okay, I I my only comment is I think maybe um we could somehow include an enter key in like a power key if power power was enter and pow that was my only just really in terms of streamlining."
+    },
+    {
+      "at": 1786.1,
+      "speaker": "Project Manager",
+      "text": "Ah. Mm-hmm. Okay."
+    },
+    {
+      "at": 1793.59,
+      "speaker": "Marketing Expert",
+      "text": "Um"
+    },
+    {
+      "at": 1793.84,
+      "speaker": "Project Manager",
+      "text": "Enter, power as a s oh um a sum simultaneous key. Is that okay with you?"
+    },
+    {
+      "at": 1797.84,
+      "speaker": "Marketing Expert",
+      "text": "Exactly. Again, you know, thinking of menus or"
+    },
+    {
+      "at": 1802.27,
+      "speaker": "User Interface Designer",
+      "text": "Sorry, I was miles away. I was re I was reading the chart to be honest."
+    },
+    {
+      "at": 1802.94,
+      "speaker": "Project Manager",
+      "text": "Would that uh-huh."
+    },
+    {
+      "at": 1803.12,
+      "speaker": "Industrial Designer",
+      "text": "H how does that work? How so so how does that work, how do you avoid switching the thing off when you actually wanna press enter?"
+    },
+    {
+      "at": 1809.98,
+      "speaker": "Marketing Expert",
+      "text": "Um well if you're pressing enter, the the thing would already be on, and so maybe um when you press power, initially it turns it on, press power again and use that as an enter um so you press power after you've um well I was thinking maybe you to turn it off you'd have to press power twice in succession, and maybe power follows something like a channel up channel down power, and then that would make that choice."
+    },
+    {
+      "at": 1825.05,
+      "speaker": "Project Manager",
+      "text": "Then you'd have to have an off te off key."
+    },
+    {
+      "at": 1832.16,
+      "speaker": "Industrial Designer",
+      "text": "Okay, yep, mm-hmm."
+    },
+    {
+      "at": 1833.77,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1840.62,
+      "speaker": "Industrial Designer",
+      "text": "It's not getting a bit complicated? Could granny do this, or are we just not aiming at granny?"
+    },
+    {
+      "at": 1842.87,
+      "speaker": "Marketing Expert",
+      "text": "Well"
+    },
+    {
+      "at": 1845.42,
+      "speaker": "Marketing Expert",
+      "text": "Or y yeah. Or something that has a a turning dial, where at the far end is on or off. Yeah, I don't um I wish. Anyway, uh that was the only comment about um some of the the decisions people have made, what's most important. It's definitely channel, volume, power."
+    },
+    {
+      "at": 1851.76,
+      "speaker": "User Interface Designer",
+      "text": "Who's got an iPod then?"
+    },
+    {
+      "at": 1854.51,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1859.36,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1864.59,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1866.51,
+      "speaker": "User Interface Designer",
+      "text": "Yeah, things like screen settings and audio settings, I would generally do them on the actual television itself, like here you have a you know, a little flap th with a little control panel on the actual box itself. I I wouldn't know how to do it using a remote control, so um I would say that they are definitely less relevant."
+    },
+    {
+      "at": 1873.57,
+      "speaker": "Marketing Expert",
+      "text": "Exactly."
+    },
+    {
+      "at": 1879.1,
+      "speaker": "Marketing Expert",
+      "text": "Exactly."
+    },
+    {
+      "at": 1884,
+      "speaker": "Marketing Expert",
+      "text": "Yeah."
+    },
+    {
+      "at": 1890.79,
+      "speaker": "Marketing Expert",
+      "text": "Okay, well. Thanks for looking at that."
+    },
+    {
+      "at": 1890.94,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 1900.35,
+      "speaker": "Project Manager",
+      "text": "So I guess easy to use is the other thing that we want 'em to be able to do. As you said, you know, don't make it too hard for the granny. I just joined that set last week. Um first grandchild arrived. Um so are we agreed then of those things? And let's go back to agenda and hook me up."
+    },
+    {
+      "at": 1903.03,
+      "speaker": "Marketing Expert",
+      "text": "Mm-hmm. We don't wanna outsmart"
+    },
+    {
+      "at": 1912.1,
+      "speaker": "Marketing Expert",
+      "text": "Hmm."
+    },
+    {
+      "at": 1914.26,
+      "speaker": "Marketing Expert",
+      "text": "Congratulations."
+    },
+    {
+      "at": 1914.9,
+      "speaker": "Industrial Designer",
+      "text": "Mm."
+    },
+    {
+      "at": 1918.54,
+      "speaker": "Industrial Designer",
+      "text": "Uh."
+    },
+    {
+      "at": 1926.15,
+      "speaker": "Marketing Expert",
+      "text": "D"
+    },
+    {
+      "at": 1935.38,
+      "speaker": "Project Manager",
+      "text": "Mm. This oughta be fun. It probably won't go the first time, it'll probably be like a g mess."
+    },
+    {
+      "at": 1947.55,
+      "speaker": "Project Manager",
+      "text": "Come on."
+    },
+    {
+      "at": 1953.04,
+      "speaker": "Project Manager",
+      "text": "Uh it lost it off here. Uh"
+    },
+    {
+      "at": 1955.19,
+      "speaker": "Marketing Expert",
+      "text": "Oh you're fine."
+    },
+    {
+      "at": 1958.76,
+      "speaker": "Marketing Expert",
+      "text": "It's fine."
+    },
+    {
+      "at": 1960.18,
+      "speaker": "Project Manager",
+      "text": "No, it was up there, but I couldn't see it down here."
+    },
+    {
+      "at": 1975.51,
+      "speaker": "Project Manager",
+      "text": "Mm."
+    },
+    {
+      "at": 1981.63,
+      "speaker": "Project Manager",
+      "text": "This time it should be both. There we go."
+    },
+    {
+      "at": 1986.01,
+      "speaker": "Industrial Designer",
+      "text": "How do you do that? How do you make it do both?"
+    },
+    {
+      "at": 1991.43,
+      "speaker": "Project Manager",
+      "text": "Um you have to keep doing the financi the the F_N_ and F_ eight to five minutes to finish, thank you a lot for telling me. Um right, we're ready to close. Um will be completed q questionnaire, um then we'll have some time for individual work to continue our research um and I'll put some minutes of this meeting together. Um your individual assignments are for um Kate to do the components, for you, Steph, to do the user interface and for you the trend-watching. Um and each of us will get help from our coach. Are we agreed to get ourselves together and then have lunch? Okay. Then that's the end of this meeting. And I hope that's good enough for her to tell her that's the end. Okay?"
+    },
+    {
+      "at": 1998.05,
+      "speaker": "Industrial Designer",
+      "text": "Ah okay, it toggles through, yeah."
+    },
+    {
+      "at": 2001.57,
+      "speaker": "Marketing Expert",
+      "text": "I think you have to cycle through."
+    },
+    {
+      "at": 2003.21,
+      "speaker": "Industrial Designer",
+      "text": "Yeah."
+    },
+    {
+      "at": 2048.36,
+      "speaker": "User Interface Designer",
+      "text": "Yes."
+    },
+    {
+      "at": 2049.47,
+      "speaker": "Industrial Designer",
+      "text": "Sounds good."
+    },
+    {
+      "at": 2057.7,
+      "speaker": "Industrial Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 2059.02,
+      "speaker": "User Interface Designer",
+      "text": "We didn't come to any sort of decision on the functions though."
+    },
+    {
+      "at": 2062.42,
+      "speaker": "Project Manager",
+      "text": "Well I think I went over the functions and wrote them down and marked them. Um that's what I went over and nobody was objecting to them."
+    },
+    {
+      "at": 2067.18,
+      "speaker": "User Interface Designer",
+      "text": "Alright, well that's fine then."
+    },
+    {
+      "at": 2071.35,
+      "speaker": "Marketing Expert",
+      "text": "Okay. Um and you'd mentioned I I was just gonna say, could you reiterate the new project requirements, because it they were it has to be for a T_V_, just to keep myself"
+    },
+    {
+      "at": 2079.28,
+      "speaker": "Project Manager",
+      "text": "Okay."
+    },
+    {
+      "at": 2082.59,
+      "speaker": "Project Manager",
+      "text": "Um the teletext is outdated, the internet is important, it's only to be for a T_V_ and it must include the corporate image, colour and slogan um which I think is more in the user uh range, with Steph."
+    },
+    {
+      "at": 2085.97,
+      "speaker": "Industrial Designer",
+      "text": "So we're still in meeting, aren't we?"
+    },
+    {
+      "at": 2087.18,
+      "speaker": "Marketing Expert",
+      "text": "Yeah, I think I've"
+    },
+    {
+      "at": 2097.39,
+      "speaker": "Marketing Expert",
+      "text": "Okay."
+    },
+    {
+      "at": 2100.69,
+      "speaker": "User Interface Designer",
+      "text": "Mm. Sorry, what what actually are these is that the yellow and black?"
+    },
+    {
+      "at": 2105.92,
+      "speaker": "Project Manager",
+      "text": "It doesn't tell me."
+    },
+    {
+      "at": 2108.55,
+      "speaker": "Marketing Expert",
+      "text": "Mm."
+    },
+    {
+      "at": 2110.35,
+      "speaker": "User Interface Designer",
+      "text": "From their I'll just use it from their website."
+    },
+    {
+      "at": 2112.49,
+      "speaker": "Project Manager",
+      "text": "Mm-hmm."
+    },
+    {
+      "at": 2117.12,
+      "speaker": "Project Manager",
+      "text": "Okay?"
+    },
+    {
+      "at": 2117.99,
+      "speaker": "User Interface Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 2118.53,
+      "speaker": "Industrial Designer",
+      "text": "Okay."
+    },
+    {
+      "at": 2118.9,
+      "speaker": "Marketing Expert",
+      "text": "Right. Thank you."
+    }
+  ],
+  "gold": {
+    "actions": [
+      "The industrial designer will work on the components.",
+      "The user interface designer will work on the user interface.",
+      "The marketing expert will work on trend watching"
+    ],
+    "decisions": [
+      "The team will not work with teletext.",
+      "The remote will only be for televisions.",
+      "The team must incorporate the corporate image, color, and slogan in the design of the remote.",
+      "The user target group will be younger consumers.",
+      "The remote will have functions for power, channels, and volume.",
+      "The remote will have an enter button and number buttons.",
+      "The remote will have large buttons."
+    ],
+    "problems": [
+      "Whether the intended target group will result in the sale of at least 4 million remotes.",
+      "How much the components inside a remote cost.",
+      "Whether to use solar power.",
+      "The cost of a rechargeable base.",
+      "Whether younger consumers are actually buying remote controls.",
+      "Combining the power button and enter button into one button."
+    ]
+  }
+}

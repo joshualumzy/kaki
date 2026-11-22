@@ -1,3 +1,4 @@
+import { seedCalendar } from './calendar';
 import { loadEnv, saveEnv } from './env';
 import { seedGitea } from './gitea';
 import { seedMail } from './mail';
@@ -7,7 +8,7 @@ import { loadScenarioSeed } from './scenario';
 import { seedWiki } from './wiki';
 
 async function main(): Promise<void> {
-  const scenarioName = process.env.SCENARIO ?? 'pixel-kampung';
+  const scenarioName = process.env.SCENARIO ?? 'kopitiam';
   const seed = loadScenarioSeed(scenarioName);
   const env = loadEnv();
   env.SCENARIO = scenarioName;
@@ -22,17 +23,22 @@ async function main(): Promise<void> {
   await seedWiki(env, seed.pages);
 
   console.log('Gitea');
-  const gitea = await seedGitea(env, seed.gitea);
+  const gitea = await seedGitea(env, seed.gitea, seed.organisation);
   env.GITEA_REPO = gitea.repo;
   env.GITEA_TOKEN = gitea.token;
   saveEnv(env);
 
   console.log('Mattermost');
+  env.MATTERMOST_TEAM = seed.mattermost.team.name;
   env.MATTERMOST_TOKEN = await seedMattermost(env, seed.mattermost);
   saveEnv(env);
 
   console.log('Mailpit');
   await seedMail(env, seed.emails);
+
+  console.log('Radicale Calendar');
+  await seedCalendar(seed);
+  console.log('  seeded the Kopitiam calendar events and meeting invite');
 
   console.log('\nSeed complete. Credentials and URLs are in docker/.env.');
 }

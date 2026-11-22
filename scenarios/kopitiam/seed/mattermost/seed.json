@@ -1,0 +1,122 @@
+{
+  "team": {
+    "name": "kopitiam",
+    "display_name": "Nanyang Kopi & Toast"
+  },
+  "users": [
+    {
+      "username": "weiling",
+      "email": "wei.ling@nanyangkopitiam.example",
+      "first_name": "Wei Ling",
+      "last_name": "",
+      "admin": true
+    },
+    {
+      "username": "arjun",
+      "email": "arjun@nanyangkopitiam.example",
+      "first_name": "Arjun",
+      "last_name": ""
+    },
+    {
+      "username": "mei",
+      "email": "mei@nanyangkopitiam.example",
+      "first_name": "Mei",
+      "last_name": ""
+    },
+    {
+      "username": "daniel",
+      "email": "daniel@nanyangkopitiam.example",
+      "first_name": "Daniel",
+      "last_name": ""
+    }
+  ],
+  "channels": [
+    {
+      "name": "shop-floor",
+      "display_name": "Shop Floor",
+      "purpose": "Counter cover, seating, the till and everything the shop floor needs for opening."
+    },
+    {
+      "name": "opening-day",
+      "display_name": "Opening Day",
+      "purpose": "Opening-morning notes, food safety and the first rush."
+    },
+    {
+      "name": "kopitiam-launch",
+      "display_name": "Delivery & Launch",
+      "purpose": "Delivery app margins, office orders and opening-day public posts."
+    }
+  ],
+  "posts": [
+    {
+      "key": "trial1",
+      "channel": "opening-day",
+      "author": "weiling",
+      "at": "2026-11-11T06:50:00+08:00",
+      "text": "Morning all. Siti texted at quarter to seven: her kid is in hospital, so she is out for a family emergency and we are one short on the counter for the 8 to 10 rush. Auntie Mary is on her rest day. Daniel's free-kopi flyers went out to about 200 offices for 8 to 9, so the crowd is coming either way. How we cover the counter is open for the meeting."
+    },
+    {
+      "channel": "opening-day",
+      "author": "daniel",
+      "replyToKey": "trial1",
+      "at": "2026-11-11T06:54:00+08:00",
+      "text": "The flyers went to every office in the building, about 200 of them, and the first crowd will be at the door for 8. I would rather not go quiet on the free kopi this morning."
+    },
+    {
+      "key": "trial2",
+      "channel": "shop-floor",
+      "author": "mei",
+      "at": "2026-11-11T06:10:00+08:00",
+      "text": "Notes from yesterday's trial. At the old shop kopi was $1.30; the new menu is $2.40, and a few of the uncles saw the new price and walked out. One of their nephews posted on Facebook that Nanyang has forgotten its roots, and the post has about 300 shares since last night. We put photos of the old regulars up on the wall, so the prices sit right under them."
+    },
+    {
+      "channel": "shop-floor",
+      "author": "weiling",
+      "replyToKey": "trial2",
+      "at": "2026-11-11T06:12:00+08:00",
+      "text": "On this rent a cup costs us about $1.60, so the old price loses money on every cup. We have not decided what we do for the regulars. Uncle Lim at the kopi bar knows them by name."
+    },
+    {
+      "key": "trial3",
+      "channel": "shop-floor",
+      "author": "arjun",
+      "at": "2026-11-10T10:05:00+08:00",
+      "text": "Seating notes: laptop users held 16 of our 28 seats for about two hours on one kopi at the trial. Breakfast customers with trays walked out, and the blocked seats cost about $420 in lost breakfast sales. One of the floor staff got shouted at for asking someone to move. The booth sockets share one timer switch, and a Wi-Fi code can last 45 minutes."
+    },
+    {
+      "channel": "shop-floor",
+      "author": "daniel",
+      "replyToKey": "trial3",
+      "at": "2026-11-10T10:12:00+08:00",
+      "text": "More than half of the laptop users wore lanyards from the offices upstairs, 9 of 16, and two of those offices have asked about bulk orders. We have 10 window-bar stools in the storeroom and no agreed rule yet."
+    },
+    {
+      "key": "safety1",
+      "channel": "opening-day",
+      "author": "weiling",
+      "at": "2026-11-11T06:25:00+08:00",
+      "text": "Food safety note before the meeting. The night cleaner unplugged the prep fridge after the trial and it was off about three hours last night. The head chef found it at 6:10, threw out everything in it and signed the disposal log. The eggs and kaya are gone until the 10 o'clock delivery. The food agency officer's routine check, booked weeks ago, is at 9. Set A is about 40% of breakfast sales."
+    },
+    {
+      "channel": "opening-day",
+      "author": "daniel",
+      "replyToKey": "safety1",
+      "at": "2026-11-11T06:31:00+08:00",
+      "text": "The customer from the trial emailed last night. She ate Set A at the trial, before the fridge failed overnight, and she was sick afterwards and saw a doctor. She is recovering at home and her clinic bill is $85. The email is polite but she says she will post her review tonight, and the food blogger is booked for 10:30. We have not agreed what we tell her or the officer."
+    },
+    {
+      "key": "delivery1",
+      "channel": "kopitiam-launch",
+      "author": "daniel",
+      "at": "2026-11-11T06:40:00+08:00",
+      "text": "GrabFood's promo rate on its cut for all our shops ended today, so commission is 32% from now on. A $10 set delivered loses $0.50 after packaging, and across a full morning those single-set losses add up to about $120. We have 12 office managers asking for a direct order code, and about 60% of office orders are five sets or more."
+    },
+    {
+      "channel": "kopitiam-launch",
+      "author": "weiling",
+      "replyToKey": "delivery1",
+      "at": "2026-11-11T06:44:00+08:00",
+      "text": "A five-set Office Platter at $50 costs $29 with shared packaging and makes $5 profit. We have 30 large trays. Nothing is decided yet."
+    }
+  ]
+}

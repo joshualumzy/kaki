@@ -1,61 +1,40 @@
-import { llmFromEnv } from '../llm';
-import type { KakiModule } from '../modules';
-import { createEmailModule, type EmailSettings } from './email';
-import { createGiteaModule, type GiteaSettings } from './gitea';
-import { createMattermostModule, type MattermostSettings } from './mattermost';
+import type { ActionKind } from '@kaki/shared';
+import { llmFromEnv } from '../services/llm';
+import type { KakiModule } from '../core/modules';
+import { createCalendarModule } from './calendar';
+import { createEmailModule } from './email';
+import { createFitModule } from './fit';
+import { createGiteaModule } from './gitea';
+import { createMattermostModule } from './mattermost';
+import { missingActionEnv } from './tools';
+import { createWikiModule } from './wiki';
 
-function requiredEnv(name: string): string | undefined {
-  const value = process.env[name];
-  return value === undefined || value === '' ? undefined : value;
+export { calendarFromEnv, missingActionEnv } from './tools';
+
+/** Logs at startup which sample-workspace tools are unconfigured and what they are missing. */
+export function logMissingActionConfig(env: NodeJS.ProcessEnv = process.env): void {
+  const entries = Object.entries(missingActionEnv(env)) as Array<[ActionKind, string[]]>;
+  if (entries.length === 0) return;
+  console.error(
+    `kaki action: sample workspace tools are not configured: ${entries
+      .map(([kind, names]) => `${kind} (missing ${names.join(', ')})`)
+      .join('; ')}. Tasks that need them will fail at draft time instead of drafting.`,
+  );
 }
 
-function giteaFromEnv(): GiteaSettings | undefined {
-  const url = requiredEnv('GITEA_URL');
-  const token = requiredEnv('GITEA_TOKEN');
-  const owner = requiredEnv('GITEA_ORG');
-  const repo = requiredEnv('GITEA_REPO');
-  if (url === undefined || token === undefined || owner === undefined || repo === undefined) return undefined;
-  return { url, token, owner, repo };
+/**
+ * Fresh Action modules for one meeting instance, one per tool. The modules read the meeting's
+ * workspace tools through `ctx.tools()`, so two meetings never share a connection and no module
+ * reads the environment itself.
+ */
+export function createActionModules(): KakiModule[] {
+  const llm = llmFromEnv();
+  return [
+    createFitModule({ llm }),
+    createGiteaModule({ llm }),
+    createMattermostModule({ llm }),
+    createEmailModule({ llm }),
+    createWikiModule({ llm }),
+    createCalendarModule({ llm }),
+  ];
 }
-
-function mattermostFromEnv(): MattermostSettings | undefined {
-  const url = requiredEnv('MATTERMOST_URL');
-  const token = requiredEnv('MATTERMOST_TOKEN');
-  const team = requiredEnv('MATTERMOST_TEAM');
-  const channel = requiredEnv('MATTERMOST_CHANNEL');
-  if (url === undefined || token === undefined || team === undefined || channel === undefined) return undefined;
-  return { url, token, team, channel };
-}
-
-function emailFromEnv(): EmailSettings | undefined {
-  const smtpHost = requiredEnv('MAILPIT_SMTP_HOST');
-  const rawPort = requiredEnv('MAILPIT_SMTP_PORT');
-  const mailpitUrl = requiredEnv('MAILPIT_URL');
-  const from = requiredEnv('EMAIL_FROM');
-  if (smtpHost === undefined || rawPort === undefined || mailpitUrl === undefined || from === undefined) {
-    return undefined;
-  }
-  const smtpPort = Number(rawPort);
-  if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-    throw new Error(`Invalid MAILPIT_SMTP_PORT: ${rawPort}`);
-  }
-  return { smtpHost, smtpPort, from, mailpitUrl };
-}
-
-const llm = llmFromEnv();
-
-/** Modules that run the team's approved actions in the outside world. */
-export const actionModules: KakiModule[] = [
-  createGiteaModule({
-    llm,
-    gitea: giteaFromEnv(),
-  }),
-  createMattermostModule({
-    llm,
-    mattermost: mattermostFromEnv(),
-  }),
-  createEmailModule({
-    llm,
-    email: emailFromEnv(),
-  }),
-];

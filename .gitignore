@@ -6,3 +6,18 @@ dist/
 !.env.example
 *.log
 .vite/
+
+# Recordings of what the server heard (NPC_DEBUG_AUDIO_DIR), which contain a person's voice
+npc-audio/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Local live-stack logs and local archive backup
+.live-logs/
+.local-backup/
+
+# AI coding-assistant instructions (kept locally, not part of the submission)
+AGENTS.md
+CLAUDE.md
+docs/agents/

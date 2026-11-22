@@ -1,20 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionKind, KakiEvent, Task } from '@kaki/shared';
 import { createGiteaModule, type GiteaModuleOptions, type GiteaSettings } from '../../src/action/gitea';
-import type { Hub } from '../../src/hub';
-import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import { roleAudience } from '../../src/core/audience';
+import type { Hub } from '../../src/core/hub';
+import { createFakeLlm, LlmError, type LlmClient } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { settle, waitFor } from '../helpers';
 
 const settings: GiteaSettings = {
   url: 'http://gitea.test',
   token: 'secret-token',
-  owner: 'pixel-kampung',
-  repo: 'hawker-heroes',
+  owner: 'kopitiam',
+  repo: 'kopitiam-pos',
 };
 
-const issueUrl = 'http://gitea.test/pixel-kampung/hawker-heroes/issues/7';
+const issueUrl = 'http://gitea.test/kopitiam/kopitiam-pos/issues/7';
 
 const issueReply = JSON.stringify({
   title: 'Fix the oven',
@@ -37,6 +38,7 @@ function quietHub(): Hub {
     publish: (_event: KakiEvent) => {},
     subscribe: () => () => {},
     onCommand: () => {},
+    clearRetained: () => {},
     close: () => {},
   };
 }
@@ -44,18 +46,22 @@ function quietHub(): Hub {
 function setup(options: GiteaModuleOptions): TaskStore {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createGiteaModule(options).start({ hub, tasks, scenario: testScenario });
+  const stop = createGiteaModule(options).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub, tasks, activeScenario: () => testScenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }
 
-function startTask(tasks: TaskStore, actionKind: ActionKind = 'gitea_issue'): Task {
-  const task = tasks.suggest({
-    title: 'Fix the oven',
-    context: 'The oven trips the fuse after ten minutes.',
-    suggestedAssignee: 'chef',
-    actionKind,
-  });
+function startTask(tasks: TaskStore, actionKind: ActionKind = 'gitea_issue', sourceSeconds?: number): Task {
+  const task = tasks.suggest(
+    {
+      title: 'Fix the oven',
+      context: 'The oven trips the fuse after ten minutes.',
+      suggestedAssignee: 'chef',
+      actionKind,
+    },
+    undefined,
+    sourceSeconds,
+  );
   tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
   return task;
 }
@@ -103,7 +109,7 @@ describe('gitea action module', () => {
     const ready = await claim(tasks, task);
 
     expect(ready.draft).toEqual({
-      target: 'pixel-kampung/hawker-heroes',
+      target: 'kopitiam/kopitiam-pos',
       subject: 'Fix the oven',
       body: 'The oven trips the fuse after ten minutes.',
     });
@@ -124,6 +130,33 @@ describe('gitea action module', () => {
     expect(ready.draft?.subject).toBe('Fix the oven');
   });
 
+  it('refuses an issue that invents a time the task does not support', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() =>
+        JSON.stringify({
+          title: 'The booth rule',
+          body: 'The booth rule runs from 8 PM to 10:30 PM.',
+        }),
+      ),
+      gitea: settings,
+      fetchImpl: okFetch(),
+    });
+    const task = tasks.suggest({
+      title: 'File the booth rule',
+      context: 'The booth rule runs from 8 to 10:30 every morning.',
+      suggestedAssignee: 'chef',
+      actionKind: 'gitea_issue',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    expect(failed.error).toMatch(/8 PM/);
+    expect(failed.error).toMatch(/does not support/);
+    expect(failed.draft).toBeUndefined();
+  });
+
   it('drafts again after a failed draft when the task is retried', async () => {
     const llm = createFakeLlm((_messages, call) => {
       if (call === 0) throw new LlmError('gateway down');
@@ -136,7 +169,7 @@ describe('gitea action module', () => {
     const failed = await waitForStatus(tasks, task.id, 'FAILED');
     expect(failed.draft).toBeUndefined();
 
-    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: failed.id }, 'chef');
+    tasks.handleCommand({ type: 'RETRY_ACTION', taskId: failed.id }, roleAudience('chef'));
     const ready = await waitForStatus(tasks, failed.id, 'DRAFT_READY');
     expect(ready.draft?.subject).toBe('Fix the oven');
 
@@ -162,7 +195,7 @@ describe('gitea action module', () => {
   it('sends the configured repo, auth header and approved title and body', async () => {
     const fetchImpl = okFetch();
     const tasks = setup({ llm: createFakeLlm(() => issueReply), gitea: settings, fetchImpl });
-    const task = startTask(tasks);
+    const task = startTask(tasks, 'gitea_issue', 930);
     const ready = await claim(tasks, task);
 
     tasks.transition(ready.id, 'RUNNING');
@@ -172,13 +205,37 @@ describe('gitea action module', () => {
     const call = fetchImpl.mock.calls[0];
     if (call === undefined) throw new Error('Expected a Gitea request');
     const [url, init] = call;
-    expect(String(url)).toBe('http://gitea.test/api/v1/repos/pixel-kampung/hawker-heroes/issues');
+    expect(String(url)).toBe('http://gitea.test/api/v1/repos/kopitiam/kopitiam-pos/issues');
     expect(init?.method).toBe('POST');
     expect(init?.headers).toMatchObject({ authorization: 'token secret-token' });
     expect(JSON.parse(String(init?.body))).toEqual({
       title: 'Fix the oven',
-      body: 'The oven trips the fuse after ten minutes.',
+      body:
+        'The oven trips the fuse after ten minutes.\n\n' +
+        'Posted by Kaki for Ada, approved in Lunch service readiness.',
     });
+  });
+
+  it('ends the issue body without a time and warns once when the card has no source time', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = okFetch();
+    const tasks = setup({ llm: createFakeLlm(() => issueReply), gitea: settings, fetchImpl });
+    const task = startTask(tasks);
+    const ready = await claim(tasks, task);
+
+    tasks.transition(ready.id, 'RUNNING');
+    await waitForStatus(tasks, ready.id, 'COMPLETED');
+
+    const call = fetchImpl.mock.calls[0];
+    if (call === undefined) throw new Error('Expected a Gitea request');
+    expect(JSON.parse(String(call[1]?.body))).toEqual({
+      title: 'Fix the oven',
+      body: 'The oven trips the fuse after ten minutes.\n\nPosted by Kaki for Ada, approved in Lunch service readiness.',
+    });
+    const warnings = warn.mock.calls
+      .map(([message]) => String(message))
+      .filter((message) => message === `[action] card ${task.id} has no source time`);
+    expect(warnings).toHaveLength(1);
   });
 
   it('posts an edited draft and ignores draft.target', async () => {
@@ -195,8 +252,11 @@ describe('gitea action module', () => {
     const call = fetchImpl.mock.calls[0];
     if (call === undefined) throw new Error('Expected a Gitea request');
     const [url, init] = call;
-    expect(String(url)).toBe('http://gitea.test/api/v1/repos/pixel-kampung/hawker-heroes/issues');
-    expect(JSON.parse(String(init?.body))).toEqual({ title: 'Edited title', body: 'Edited body' });
+    expect(String(url)).toBe('http://gitea.test/api/v1/repos/kopitiam/kopitiam-pos/issues');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      title: 'Edited title',
+      body: 'Edited body\n\nPosted by Kaki for Ada, approved in Lunch service readiness.',
+    });
   });
 
   it('fails on bad credentials, then completes a retry with the same draft', async () => {
@@ -232,7 +292,7 @@ describe('gitea action module', () => {
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
     expect(failed.error).toBe(
-      'Gitea token lacks permission to create issues in pixel-kampung/hawker-heroes (HTTP 403)',
+      'Gitea token lacks permission to create issues in kopitiam/kopitiam-pos (HTTP 403)',
     );
   });
 
@@ -276,7 +336,7 @@ describe('gitea action module', () => {
 
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
-    expect(failed.error).toMatch(/could not reach Gitea/i);
+    expect(failed.error).toMatch(/Couldn't reach Gitea/);
   });
 
   it('fails when Gitea replies without an issue URL', async () => {
@@ -324,11 +384,11 @@ describe('gitea action module', () => {
 
     tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
     const failed = await waitForStatus(tasks, task.id, 'FAILED');
-    expect(failed.error).toMatch(/Gitea is not configured/);
+    expect(failed.error).toMatch(/Gitea is not connected for this workspace/);
 
     tasks.transition(failed.id, 'RUNNING');
     const retried = await waitForStatus(tasks, task.id, 'FAILED');
-    expect(retried.error).toMatch(/Gitea is not configured/);
+    expect(retried.error).toMatch(/Gitea is not connected for this workspace/);
   });
 
   it('fails loudly when the LLM is not configured', async () => {

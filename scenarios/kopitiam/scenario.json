@@ -1,0 +1,911 @@
+{
+  "id": "kopitiam",
+  "organisation": "Nanyang Kopi & Toast",
+  "meetingTitle": "Raffles Place Flagship Opening Day",
+  "practiceBriefing": {
+    "heroArt": "/scenario/kopitiam-hero.svg",
+    "badge": "Nanyang Kopi & Toast · Opening day",
+    "intro": "Our renovated **Nanyang Kopi & Toast** flagship at **Raffles Place** opens this morning. You’re opening-day lead: the team has {minutes} minutes, and the calls are yours."
+  },
+  "speechRegister": "Use warm, casual Singapore or British phrasing (\"shop\", \"queue\", \"counter\", \"steady\", \"can\", \"fair point\"). Avoid Americanisms and office buzzwords: \"awesome\", \"super excited\", \"totally\", \"gotten\", \"touch base\", \"kudos\", \"math\", \"store clerk\", \"line up\", \"friction points\", \"bandwidth\", \"alignment\", \"deep dive\". Each colleague sounds like their own speech style, temperament and stake.",
+  "roles": [
+    {
+      "id": "operations_director",
+      "label": "Operations Director",
+      "stance": "Guards staff, hygiene & margins",
+      "card": {
+        "youAre": "You are Wei Ling, Operations Director. You look after the floor team and watch the money.",
+        "facts": [],
+        "responsibility": "Make sure the floor team can cope and the numbers work this morning."
+      }
+    },
+    {
+      "id": "tech_pos_lead",
+      "label": "Tech & POS Lead",
+      "stance": "Keeps POS & kiosks simple",
+      "card": {
+        "youAre": "You are Arjun, Tech & POS Lead. Doors open at eight, so any change now leaves almost no time to test.",
+        "facts": [],
+        "responsibility": "Keep the till, kiosk, power and Wi-Fi working for opening, and flag how long any change takes."
+      }
+    },
+    {
+      "id": "menu_store_lead",
+      "label": "Menu & Store Experience Lead",
+      "stance": "Protects Kopi & Toast craft",
+      "card": {
+        "youAre": "You are Mei, Menu & Store Experience Lead. You built the new menu and fought to keep the old shop's name and regulars in it.",
+        "facts": [],
+        "responsibility": "Look after the menu, the store feel and the old shop's regulars."
+      }
+    },
+    {
+      "id": "marketing_lead",
+      "label": "Marketing Lead",
+      "stance": "Watches TikTok & PR buzz",
+      "card": {
+        "youAre": "You are Daniel, Marketing Lead. You made the opening-day promises to customers and the offices nearby.",
+        "facts": [],
+        "responsibility": "Keep customer trust and the office crowd without promising what the shop cannot deliver."
+      }
+    },
+    {
+      "id": "general_manager",
+      "label": "General Manager",
+      "facilitator": true,
+      "stance": "Chairs the meeting",
+      "card": {
+        "youAre": "You are Sam, General Manager chairing the huddle.",
+        "facts": [],
+        "responsibility": "Chair the huddle, keep time, and sum up each decision in one sentence."
+      }
+    }
+  ],
+  "attendees": [
+    {
+      "name": "Wei Ling",
+      "role": "operations_director",
+      "displayName": "Wei Ling",
+      "spokenJob": "who looks after the floor team and the money"
+    },
+    {
+      "name": "Arjun",
+      "role": "tech_pos_lead",
+      "displayName": "Arjun",
+      "spokenJob": "on tills and tech"
+    },
+    {
+      "name": "Mei",
+      "role": "menu_store_lead",
+      "displayName": "Mei",
+      "spokenJob": "on the menu and the store"
+    },
+    {
+      "name": "Daniel",
+      "role": "marketing_lead",
+      "displayName": "Daniel",
+      "spokenJob": "on marketing"
+    },
+    {
+      "name": "Sam",
+      "role": "general_manager",
+      "displayName": "Sam"
+    }
+  ],
+  "agenda": [
+    {
+      "title": "One counter staff short for the opening rush",
+      "spoken": "the staffing gap",
+      "minutes": 10,
+      "canWait": false,
+      "deadline": "before doors open at 8",
+      "ownerRole": "operations_director",
+      "contested": true,
+      "briefing": [
+        {
+          "text": "Siti texted at quarter to seven, her kid's in hospital, so we're one short at the counter for the rush at 8.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "you got the text this morning"
+            },
+            {
+              "attendee": "Mei",
+              "why": "you've been setting up the counter"
+            }
+          ]
+        },
+        {
+          "text": "We sent free-kopi flyers to every office in the building, about 200 of them.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "you sent the flyers out"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "you know the crowd it brings"
+            }
+          ]
+        }
+      ],
+      "decision": "how do we cover the counter from 8 to 10 one person short?",
+      "directions": [
+        "Ask Auntie Mary to come in. Rest-day work is double pay and she can say no. If asked, she answers once, in character: she may agree, refuse, or agree with a condition such as only from 9. Decide her answer from how the guest asks.",
+        "An agency temp needs notice and a till login from Arjun, which takes about 15 minutes before opening; the temp does not know the menu.",
+        "A manager covers the counter. Whoever it is drops their own opening-day job.",
+        "Cut the counter menu to drinks and toast only, or push ordering to the kiosk.",
+        "Scale back the free-kopi offer."
+      ],
+      "background": [
+        "The free-kopi crowd is expected from 8 to 9, and the counter has two staff before anyone is added."
+      ],
+      "offScreen": {
+        "name": "Auntie Mary",
+        "role": "floor staff",
+        "howTheyAnswer": "Auntie Mary answers once, in character. She may agree, refuse, or agree with a condition such as starting at 9. A warm, fair ask is more likely to get a yes; decide her answer from how the guest asks."
+      },
+      "seatFacts": {
+        "operations_director": "I signed off on today's roster. Auntie Mary is on her rest day, so calling her in means double pay, and she's free to say no.",
+        "tech_pos_lead": "Setting up a till login for someone new takes me about 15 minutes before opening.",
+        "menu_store_lead": "Toast sets are what slow the counter down; drinks ordered on the kiosk barely touch the counter.",
+        "marketing_lead": "Our free-kopi flyers went to every office in the building, about 200 of them."
+      },
+      "links": [
+        {
+          "with": "Old regulars and the new kopi prices",
+          "effect": "An old-price hour or a regulars' queue hits a counter that is already one person short."
+        },
+        {
+          "with": "Laptop campers and the breakfast seat crunch",
+          "effect": "With nobody spare to walk the floor, any seat rule has to work on its own."
+        }
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Wei Ling",
+            "angle": "the roster and what covering the counter costs"
+          },
+          {
+            "attendee": "Daniel",
+            "angle": "the free-kopi promise to the whole building and how it looks on day one"
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Wei Ling",
+            "role": "operations_director",
+            "idea": "Call Auntie Mary in",
+            "tradeOff": "It's her rest day though. Double pay, and she's allowed to say no.",
+            "question": "Who is actually going to stand on that counter with them from 8?"
+          },
+          {
+            "attendee": "Arjun",
+            "role": "tech_pos_lead",
+            "idea": "Agency temp",
+            "tradeOff": "A temp needs a till login, that's fifteen minutes of mine. And they won't know the menu.",
+            "question": "What do you want me to set up for a temp before eight?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "operations_director",
+            "idea": "A manager covers the counter",
+            "tradeOff": "Then whoever it is drops their own job this morning.",
+            "question": "Which job do we drop if a manager takes the counter?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "menu_store_lead",
+            "idea": "Cut to drinks and toast",
+            "tradeOff": "Then there are no breakfast sets on opening day.",
+            "question": "What do we tell people who came for a breakfast set?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "Scale back the free kopi",
+            "tradeOff": "That flyer went to the whole building. Pull it now and day one starts with a broken promise.",
+            "question": "How do we get through the 8 o'clock rush without pulling the free kopi we promised?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-counter.svg"
+    },
+    {
+      "title": "Old regulars and the new kopi prices",
+      "spoken": "the kopi prices",
+      "minutes": 10,
+      "canWait": false,
+      "deadline": "before doors open at 8",
+      "ownerRole": "menu_store_lead",
+      "contested": true,
+      "briefing": [
+        {
+          "text": "Kopi's gone from $1.30 to $2.40, and some of the old uncles saw that yesterday and just walked out.",
+          "knownBy": [
+            {
+              "attendee": "Mei",
+              "why": "you were there when the regulars walked out"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "you saw them leave"
+            }
+          ]
+        },
+        {
+          "text": "One of their nephews posted on Facebook that we've forgotten our roots, and it has a few hundred shares already.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "you saw the Facebook post"
+            },
+            {
+              "attendee": "Mei",
+              "why": "the post is about our menu"
+            }
+          ]
+        }
+      ],
+      "decision": "what do we do for the old regulars without losing money on every cup?",
+      "directions": [
+        "An old-price hour for kopi before the rush: it loses money per cup and keeps the counter busy.",
+        "A regulars' card or a regulars' price on the till. Arjun can add a price button in about 10 minutes, but may not have time to test it before opening. Someone must decide who counts as a regular. If the guest proposes a list of names, a colleague may offer to ask Uncle Lim, who answers once after that ask: he may offer to vouch for them, or say he will not be the one turning people away.",
+        "A seniors' discount checked against a seniors' card: simple to check, but not every regular is a senior, and office workers' parents qualify too.",
+        "Hold the price and explain it: a note at the counter, a reply on Facebook, a free first kopi for regulars this week."
+      ],
+      "background": [
+        "This flagship is the refurbished old Nanyang shop; many morning regulars have come here for years, and photos of the old regulars hang on the wall.",
+        "Uncle Lim has run the kopi bar since the old shop."
+      ],
+      "offScreen": {
+        "name": "Uncle Lim",
+        "role": "kopi bar",
+        "howTheyAnswer": "Uncle Lim answers once, in character. He may offer to vouch for the regulars, or say he will not be the one turning people away. Decide his answer from how the guest asks."
+      },
+      "seatFacts": {
+        "operations_director": "Kopi costs us about $1.60 a cup to serve here. Going back to the old $1.30 loses money on every cup.",
+        "tech_pos_lead": "I can add a regulars' price button on the till in about 10 minutes, but we need a clear rule on who gets it.",
+        "menu_store_lead": "Kopi was $1.30 at the old shop and it's $2.40 on the new menu, right under the photos of the old regulars on our wall.",
+        "marketing_lead": "The nephew's Facebook post has been shared a few hundred times since last night. The food blogger reads those local groups."
+      },
+      "links": [
+        {
+          "with": "One counter staff short for the opening rush",
+          "effect": "An old-price hour or a regulars' queue hits a counter that is already one person short."
+        },
+        {
+          "with": "Food safety complaint before the 9 AM inspection",
+          "effect": "With the nephew's Facebook post already up, a bad hygiene review tonight would be our second public hit on day one."
+        }
+      ],
+      "sayExactly": [
+        "$1.30",
+        "$2.40"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Mei",
+            "angle": "the old shop's regulars and the photos on the wall"
+          },
+          {
+            "attendee": "Wei Ling",
+            "angle": "the rent and what each cup costs to serve"
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Wei Ling",
+            "role": "operations_director",
+            "idea": "Old price / old-price hour",
+            "tradeOff": "A cup costs us about $1.60 to make here. At $1.30, we lose money on every one.",
+            "question": "How do we do right by the uncles without selling kopi at a loss?"
+          },
+          {
+            "attendee": "Arjun",
+            "role": "tech_pos_lead",
+            "idea": "Regulars' price on the till",
+            "tradeOff": "I can add the button in ten minutes. But who decides who's a regular? The cashier?",
+            "question": "How do we decide who gets the regulars' price at the till?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "menu_store_lead",
+            "idea": "Seniors' discount",
+            "tradeOff": "Not all our regulars are seniors. And half the office workers' parents would qualify.",
+            "question": "How do we look after the old regulars who aren't seniors?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "menu_store_lead",
+            "idea": "Keep the price and explain",
+            "tradeOff": "We put the uncles' photos on the wall, then priced them out. A note at the counter won't fix that.",
+            "question": "How do we look after the old regulars without gutting the new menu?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-regulars.svg"
+    },
+    {
+      "title": "Laptop campers and the breakfast seat crunch",
+      "spoken": "the laptop campers",
+      "minutes": 10,
+      "canWait": false,
+      "deadline": "before doors open at 8",
+      "ownerRole": "tech_pos_lead",
+      "contested": true,
+      "briefing": [
+        {
+          "text": "Yesterday the laptop crowd took about half our seats, two hours each, on one kopi.",
+          "knownBy": [
+            {
+              "attendee": "Mei",
+              "why": "you were on the floor at the trial"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "your crew was on the floor"
+            }
+          ]
+        },
+        {
+          "text": "Breakfast customers walked out holding their trays, and one of my floor staff got shouted at for asking someone to move.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "it was your crew who got shouted at"
+            },
+            {
+              "attendee": "Mei",
+              "why": "you saw the breakfast crowd leave"
+            }
+          ]
+        }
+      ],
+      "decision": "how do we keep seats turning for the breakfast crowd without putting floor staff in a fight?",
+      "directions": [
+        "Booth power off and Wi-Fi limited from 8 to 10: the socket timer and Wi-Fi codes take about 10 minutes to change, with little time to test before opening. Many of the laptop users work upstairs.",
+        "A laptop zone on the 10 window-bar stools with power, and breakfast-table signs on the booths.",
+        "A minimum spend per hour for laptop seats, shown on a time-stamped receipt, so staff have to check.",
+        "A deal for the offices upstairs, which is Daniel's angle."
+      ],
+      "background": [
+        "Many laptop users work in the offices upstairs."
+      ],
+      "seatFacts": {
+        "operations_director": "Losing those tables cost us about $420 in breakfast sales yesterday, and our floor crew shouldn't be getting yelled at over seats.",
+        "tech_pos_lead": "The booth sockets are all on one timer switch, and I can set the Wi-Fi to print a 45-minute code on each receipt in about 10 minutes.",
+        "menu_store_lead": "Most morning customers come in alone with a hot tray, and we have ten window-bar stools in the storeroom we can put out.",
+        "marketing_lead": "Over half the laptop crowd wore lanyards from the offices upstairs, and a couple of those offices have asked about bulk orders."
+      },
+      "links": [
+        {
+          "with": "One counter staff short for the opening rush",
+          "effect": "With nobody spare to walk the floor, any seat rule has to work on its own."
+        },
+        {
+          "with": "Delivery app commission squeeze",
+          "effect": "How we treat the laptop crowd from upstairs affects whether their offices take up a direct order code."
+        }
+      ],
+      "sayExactly": [
+        "about $420"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Arjun",
+            "angle": "can change the booth plugs and Wi-Fi before eight, but needs to know the goal first"
+          },
+          {
+            "attendee": "Daniel",
+            "angle": "the laptop crowd works upstairs and their offices might order in bulk"
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Arjun",
+            "role": "tech_pos_lead",
+            "idea": "Cut plugs or Wi-Fi",
+            "tradeOff": "I can, the plugs are on one timer. But it's ten minutes, and I can't test it before 8.",
+            "question": "What do you want me to change before eight, if anything?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "menu_store_lead",
+            "idea": "Laptop zone at window bar",
+            "tradeOff": "The window bar's only got ten stools. That won't hold half the shop.",
+            "question": "What do we do when the window bar fills up?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "operations_director",
+            "idea": "Minimum spend",
+            "tradeOff": "Then my floor staff are checking receipts. That's exactly the fight we had yesterday.",
+            "question": "How do we enforce a minimum spend without a fight at the counter?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "operations_director",
+            "idea": "Deal for offices upstairs",
+            "tradeOff": "A deal doesn't free up a seat by 8.",
+            "question": "How does a deal upstairs free a seat down here by eight?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "push laptop users out",
+            "tradeOff": "Those are the offices I've spent weeks winning over. Push their people out and the bulk orders go with them.",
+            "question": "How do we free up the breakfast booths without chasing away the office crowd upstairs?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-laptop.svg"
+    },
+    {
+      "title": "Food safety complaint before the 9 AM inspection",
+      "spoken": "food safety and the 9 o'clock routine check",
+      "sensitive": true,
+      "minutes": 10,
+      "canWait": false,
+      "deadline": "before doors open at 8",
+      "ownerRole": "operations_director",
+      "contested": true,
+      "briefing": [
+        {
+          "text": "The fridge was off three hours last night, the chef threw out all the eggs and kaya, and there's no Set A till the 10 o'clock delivery, which is our best seller.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "you went through the fridge log"
+            },
+            {
+              "attendee": "Mei",
+              "why": "the head chef told you when you checked the eggs and kaya this morning"
+            }
+          ]
+        },
+        {
+          "text": "A customer who ate here yesterday, before the fridge went off, emailed to say she got sick and had to see a doctor.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "her email came to you"
+            },
+            {
+              "attendee": "Wei Ling",
+              "why": "it came across your desk"
+            }
+          ]
+        }
+      ],
+      "decision": "do we open at 8, and what do we tell the customer and the inspector?",
+      "directions": [
+        "Open at 8 without Set A until the 10 o'clock delivery.",
+        "Open at 10 after the inspection, with a big loss of morning sales and the free-kopi crowd.",
+        "Open with an honest note at the counter.",
+        "For the customer: apology and refund, and cover her clinic bill, which is $85, or offer something more.",
+        "A socket cover and a fridge temperature alert, which take about 10 minutes to set up before opening."
+      ],
+      "background": [
+        "The night cleaner unplugged the fridge to use the socket.",
+        "The head chef found it at 6:10, threw out everything in it and signed a disposal log.",
+        "The customer is recovering at home. Nobody is being fired; the cleaner gets retraining and the socket gets a cover.",
+        "The eggs and kaya are gone until the 10 o'clock delivery.",
+        "If Set A is off until 10, it comes off the kiosk and the till too, which costs Arjun minutes.",
+        "The food agency officer's visit at 9 is a routine opening-day check booked weeks ago; it is not a response to the complaint.",
+        "The customer ate Set A at yesterday's trial, before the fridge was unplugged overnight, so the fridge is probably not the cause."
+      ],
+      "seatFacts": {
+        "operations_director": "I signed the hygiene sign-off for HQ. The chef signed the disposal log, and the fridge log shows the three-hour gap last night. The officer will ask for both. Our insurer allows a goodwill payment without admitting fault.",
+        "tech_pos_lead": "The fridge has no alarm. I was asked for a POS temperature alert last month; it takes about ten minutes. I can also remove Set A from the till and kiosk.",
+        "menu_store_lead": "I designed Set A. It's our biggest breakfast seller, and it needs eggs and kaya. We have no fresh stock until the 10 o'clock delivery.",
+        "marketing_lead": "Her email is polite, but she says she'll post a review tonight. The food blogger is booked for later this morning."
+      },
+      "links": [
+        {
+          "with": "Old regulars and the new kopi prices",
+          "effect": "With the nephew's Facebook post already up, a bad hygiene review tonight would be our second public hit on day one."
+        },
+        {
+          "with": "Delivery app commission squeeze",
+          "effect": "With Set A off until 10, we cannot send Set A out on GrabFood or in office platters before 10 either."
+        }
+      ],
+      "sayExactly": [
+        "$85"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Arjun",
+            "angle": "getting Set A off the till and kiosk before opening"
+          },
+          {
+            "attendee": "Daniel",
+            "angle": "the crowd at the door and the review tonight"
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Arjun",
+            "role": "tech_pos_lead",
+            "idea": "Open at 8 without Set A",
+            "tradeOff": "Then I've got to pull Set A off the kiosk and the till. That's time I'm not testing anything else.",
+            "question": "What do you want me to pull before opening?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "Open at 10",
+            "tradeOff": "We'd miss the whole free-kopi crowd. The building turns up to a closed door.",
+            "question": "What do we tell the customer and the crowd at the door?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "Apology + refund",
+            "tradeOff": "She's posting a review tonight. A refund on its own might read like we're brushing her off.",
+            "question": "What do we say to her beyond an apology?"
+          },
+          {
+            "attendee": "Arjun",
+            "role": "tech_pos_lead",
+            "idea": "Socket cover + fridge alarm",
+            "tradeOff": "The alarm's ten minutes. Fine, but that's ten minutes less for everything else.",
+            "question": "What do you want me to fix before the inspector arrives?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-food-safety.svg"
+    },
+    {
+      "title": "Delivery app commission squeeze",
+      "spoken": "the delivery app commission",
+      "minutes": 10,
+      "canWait": true,
+      "deadline": "after the lunch rush",
+      "ownerRole": "marketing_lead",
+      "contested": true,
+      "briefing": [
+        {
+          "text": "GrabFood's promo rate on their cut ended today for all our shops, so every breakfast set we deliver from here now loses us 50 cents.",
+          "knownBy": [
+            {
+              "attendee": "Wei Ling",
+              "why": "you've run the numbers"
+            },
+            {
+              "attendee": "Daniel",
+              "why": "you watch the app orders"
+            }
+          ]
+        },
+        {
+          "text": "And most of those orders come from the offices in this building.",
+          "knownBy": [
+            {
+              "attendee": "Daniel",
+              "why": "you've been watching the app orders"
+            },
+            {
+              "attendee": "Arjun",
+              "why": "you saw the app traffic"
+            }
+          ]
+        }
+      ],
+      "decision": "how do we stop losing 50 cents on every delivered set without losing the office orders?",
+      "directions": [
+        "Raise the app price. GrabFood hides shops that charge more on the app than at the counter.",
+        "Office Platters for five or more, limited by the large trays.",
+        "A direct pickup code for offices. Someone has to come down; a pickup shelf sits by the side door.",
+        "Pause single sets on the app from 8 to 10. Daniel's launch deal gives a featured banner only while the full menu is live.",
+        "Any app menu change takes 15 minutes to go live and leaves less time for Arjun to test other changes before opening."
+      ],
+      "background": [
+        "GrabFood's promo rate on its cut for all our shops ended today.",
+        "Commission is 32%: $10.00 less 32% leaves $6.80, and a delivered set costs $7.30 to make and pack, so the loss is $0.50 per set.",
+        "A five-set Office Platter at $50 costs $29 with shared packaging, keeps $34 and makes $5 profit.",
+        "Direct pickup with 10% off takes $9.00 in, costs $7.00 with no delivery packaging, and makes $2 profit."
+      ],
+      "seatFacts": {
+        "operations_director": "A single delivered set costs us $7.30 to make and pack, so we lose 50 cents a set, and on a full morning that adds up to about $120. A five-set platter at $50 shares packaging and makes $5.",
+        "tech_pos_lead": "GrabFood hides shops that charge more on the app than at the counter, and any app menu change takes me about 15 minutes to push live before 8.",
+        "menu_store_lead": "Each five-set platter needs one of our large trays, and we only have 30 of those trays in the shop.",
+        "marketing_lead": "A dozen office managers have asked me for a direct order code, and most office orders are for several sets. We keep the GrabFood launch banner only while the full menu is live."
+      },
+      "links": [
+        {
+          "with": "Laptop campers and the breakfast seat crunch",
+          "effect": "How we treat the laptop crowd from upstairs affects whether their offices take up a direct order code."
+        },
+        {
+          "with": "Food safety complaint before the 9 AM inspection",
+          "effect": "With Set A off until 10, we cannot send Set A out on GrabFood or in office platters before 10 either."
+        }
+      ],
+      "sayExactly": [
+        "50 cents",
+        "10%"
+      ],
+      "discussion": {
+        "openingViews": [
+          {
+            "attendee": "Daniel",
+            "angle": "the app orders, the office managers and the launch banner"
+          },
+          {
+            "attendee": "Wei Ling",
+            "angle": "the numbers: 50 cents lost on a set and the platter that makes $5"
+          }
+        ],
+        "tradeOffs": [
+          {
+            "attendee": "Arjun",
+            "role": "tech_pos_lead",
+            "idea": "Raise app price",
+            "tradeOff": "GrabFood hides shops that charge more on the app than at the counter. We'd just disappear.",
+            "question": "What happens to our listing if we raise the app price?"
+          },
+          {
+            "attendee": "Mei",
+            "role": "menu_store_lead",
+            "idea": "Office platters",
+            "tradeOff": "Each platter needs a big tray, and we've only got 30.",
+            "question": "How many platters can we actually make this morning?"
+          },
+          {
+            "attendee": "Wei Ling",
+            "role": "operations_director",
+            "idea": "Direct order code",
+            "tradeOff": "Someone has to come down to pick it up. At 8 in the morning, will they?",
+            "question": "How do we make a direct pickup code work at 8 in the morning?"
+          },
+          {
+            "attendee": "Daniel",
+            "role": "marketing_lead",
+            "idea": "Pause single sets",
+            "tradeOff": "Pull anything off GrabFood and we lose our launch banner, the free ad at the top of the app.",
+            "question": "How do we keep the office orders without losing our GrabFood launch banner?"
+          }
+        ]
+      },
+      "art": "/scenario/crisis-delivery.svg"
+    }
+  ],
+  "situation": "It's 7 AM on opening day at our refurbished Raffles Place flagship, and doors open at 8. Yesterday's trial day and this morning have left us a few things to sort out first.",
+  "background": [
+    "The shop has booths and tables, a kiosk, a kopi bar and a kitchen. The team has an hour before doors open.",
+    "The till, kiosk, power sockets and Wi-Fi all need Arjun for changes. Nothing he changes this morning has been tested yet.",
+    "The offices upstairs are customers. The shop has worked with a staffing agency before.",
+    "People in the rush, Arjun's time before opening and the menu are shared resources."
+  ],
+  "excludedPairs": [
+    [
+      "One counter staff short for the opening rush",
+      "Food safety complaint before the 9 AM inspection"
+    ],
+    [
+      "Laptop campers and the breakfast seat crunch",
+      "Old regulars and the new kopi prices"
+    ]
+  ],
+  "glossary": {
+    "Kopi": "coffee brewed the Nanyang way, usually with condensed milk unless you ask otherwise",
+    "Kopi O Kosong": "black coffee with no sugar and no milk",
+    "Set A": "kaya butter toast with two soft-boiled eggs and a hot kopi or tea",
+    "kiosk": "the self-order screen with 24 drinks at the front of the shop",
+    "POS": "point-of-sale system (the till, the kiosk and the kitchen tickets)",
+    "kopi bar": "the counter where Uncle Lim pulls kopi and knows the regulars by name"
+  },
+  "vocabulary": [
+    "Kopi",
+    "Kopi O Kosong",
+    "Siew Dai",
+    "Teh C",
+    "Kaya Toast",
+    "Raffles Place",
+    "food agency",
+    "GrabFood",
+    "kiosk",
+    "POS",
+    "Gitea",
+    "Mattermost",
+    "Kaki",
+    "Arjun",
+    "Mei",
+    "Daniel",
+    "Wei Ling",
+    "Sam"
+  ],
+  "hostBrief": {
+    "goal": "Settle the two opening-day topics the team brings this morning, with the visitor as opening-day lead.",
+    "decision": "Each topic ends with one clear call, owned by the person who has to make it happen."
+  },
+  "npcs": [
+    {
+      "attendee": "Arjun",
+      "voice": "en-IN-ArjunNeural?rate=-8%",
+      "role": "participant",
+      "playable": true,
+      "personality": "Tech & POS Lead. Dry, gives way easily on people questions, stubborn about untested changes to the till or kiosk.",
+      "speechStyle": "Crisp, practical and dry. Uses plain words and explains the time a proposed system change would take when it matters.",
+      "temperament": "Dry, gives way easily on people questions, stubborn about untested changes to the till or kiosk.",
+      "stake": "Doors open at eight, and each new system change leaves less time to test it.",
+      "hiddenGoal": "Protect the systems from untested changes before opening.",
+      "agenda": "Keep shop systems dependable and explain what any change asks of the time before opening.",
+      "concerns": [
+        "Untested changes to the till or kiosk close to opening."
+      ],
+      "knows": [],
+      "withRoles": {
+        "operations_director": "Your boss on operations. Explain system constraints and time clearly.",
+        "menu_store_lead": "Respect her care for customers and say what a change asks of the till or kiosk.",
+        "marketing_lead": "Hear his case for the offices and explain what the systems can support.",
+        "general_manager": "The host keeping time. Flag technical catches briefly."
+      },
+      "tensions": [
+        {
+          "with": "Mei",
+          "about": "how much the customer experience should ask of systems that may not support the change"
+        },
+        {
+          "with": "Wei Ling",
+          "about": "a reliable opening versus time to check any system change"
+        },
+        {
+          "with": "Daniel",
+          "about": "keeping office customers versus the work that puts on shop systems"
+        }
+      ],
+      "soundsLike": [
+        "Archer",
+        "Audrey",
+        "Arjan",
+        "Argon",
+        "Arjin"
+      ]
+    },
+    {
+      "attendee": "Mei",
+      "voice": "zh-CN-Xiaochen:DragonHDLatestNeural?rate=-8%",
+      "role": "participant",
+      "playable": true,
+      "personality": "Menu & Store Experience Lead. Warm and quick to feel; gives way if customers are looked after, resists cutting signature items.",
+      "speechStyle": "Warm, quick and concrete. Talks about what a customer sees and how the menu feels.",
+      "temperament": "Warm and quick to feel; gives way if customers are looked after, resists cutting signature items.",
+      "stake": "She designed the new menu and fought to keep the old shop's heritage in the brand.",
+      "hiddenGoal": "Keep the menu and the old shop's heritage while customers are looked after.",
+      "agenda": "Protect the menu, the customer experience and the old shop's character.",
+      "concerns": [
+        "Customers being left out or made uncomfortable.",
+        "Cutting the shop's signature food too readily."
+      ],
+      "knows": [],
+      "withRoles": {
+        "operations_director": "Your operations partner. Speak for customers and the shop's character.",
+        "tech_pos_lead": "Ask how system changes will feel to customers.",
+        "marketing_lead": "Keep customer experience in the picture.",
+        "general_manager": "The host. Share customer and menu concerns plainly."
+      },
+      "tensions": [
+        {
+          "with": "Arjun",
+          "about": "a smooth customer experience versus leaving untested systems alone"
+        },
+        {
+          "with": "Wei Ling",
+          "about": "protecting the menu and the old shop's heritage versus what it costs"
+        },
+        {
+          "with": "Daniel",
+          "about": "which customers come first, though both care how the shop is seen"
+        }
+      ],
+      "soundsLike": [
+        "Maya",
+        "Mae"
+      ]
+    },
+    {
+      "attendee": "Wei Ling",
+      "voice": "th-TH-Premwadee:DragonLatestNeural?lang=en-US",
+      "role": "participant",
+      "playable": true,
+      "personality": "Operations Director. Protective of floor staff, counts every dollar, and holds her ground until she hears a costed plan, then gives way cleanly.",
+      "speechStyle": "Direct and practical. Uses short sentences, weighs costs, and asks who will carry out a rule.",
+      "temperament": "Holds her ground until she hears a costed plan, then gives way cleanly. Protective of floor staff, counts every dollar.",
+      "stake": "She is answerable to HQ for the opening-day operation.",
+      "hiddenGoal": "Get through opening with the floor supported and the operation sound.",
+      "agenda": "Keep the opening practical for floor staff and financially sound.",
+      "concerns": [
+        "Leaving floor staff without workable cover.",
+        "Making a promise that the shop cannot afford or uphold."
+      ],
+      "knows": [],
+      "withRoles": {
+        "operations_director": "The floor and the money are yours. Ask for a costed plan, then decide cleanly.",
+        "tech_pos_lead": "Rely on him for systems and ask what a change needs.",
+        "menu_store_lead": "Back her on customers and heritage when the cost works.",
+        "marketing_lead": "Hold him to promises the shop can keep.",
+        "general_manager": "Back the host by keeping every call practical and owned."
+      },
+      "tensions": [
+        {
+          "with": "Daniel",
+          "about": "public promises versus whether the shop can afford and deliver them"
+        },
+        {
+          "with": "Mei",
+          "about": "how far to go for customers once the cost is counted"
+        }
+      ],
+      "soundsLike": [
+        "Way Ling",
+        "Wailing",
+        "Wayling"
+      ]
+    },
+    {
+      "attendee": "Daniel",
+      "voice": "ko-KR-Junho:MAI-Voice-2.1?lang=en-US",
+      "role": "participant",
+      "playable": true,
+      "personality": "Marketing Lead. Agrees fast, then worries out loud a beat later.",
+      "speechStyle": "Fast, warm and persuasive. Thinks about customers and public promises, then doubles back to the worry.",
+      "temperament": "Agrees fast, then worries out loud a beat later.",
+      "stake": "He is answerable for opening-day customer promises and publicity.",
+      "hiddenGoal": "Keep customer trust and opening-day goodwill.",
+      "agenda": "Protect customer trust and the shop's opening-day reputation.",
+      "concerns": [
+        "Losing customer trust on opening day.",
+        "Public promises the shop cannot keep."
+      ],
+      "knows": [],
+      "withRoles": {
+        "operations_director": "Your budget and ops boss. Make the customer case, then listen to the cost.",
+        "tech_pos_lead": "Work with him on what the shop systems can support.",
+        "menu_store_lead": "Work with her on the shop's warmth and customers.",
+        "general_manager": "The host. Protect the shop's public reputation without overpromising."
+      },
+      "tensions": [
+        {
+          "with": "Wei Ling",
+          "about": "customer trust versus cost and what the floor can handle"
+        },
+        {
+          "with": "Arjun",
+          "about": "keeping customer promises versus the time system changes need"
+        }
+      ],
+      "soundsLike": [
+        "Daniela",
+        "Danny",
+        "Daniels"
+      ]
+    },
+    {
+      "attendee": "Sam",
+      "voice": "zh-CN-Bo:MAI-Voice-2.1?lang=en-US",
+      "role": "host",
+      "playable": false,
+      "personality": "General Manager and meeting host. Calm, brief, keeps time, and sums up each decision in one sentence.",
+      "speechStyle": "Calm, brief and even. Opens plainly, sums decisions briefly, and steadies the room when people disagree.",
+      "temperament": "Calm, brief, keeps time, sums up decisions in one sentence.",
+      "stake": "Wants the doors open on time with a team that still likes each other.",
+      "hiddenGoal": "Get the doors open on time with the team intact.",
+      "agenda": "Chair the meeting, keep time, and help the team land a clear call on each item.",
+      "concerns": [],
+      "knows": [],
+      "withRoles": {
+        "operations_director": "Ask for the cost and the owner behind each call.",
+        "tech_pos_lead": "Keep him on what can be done before 8.",
+        "menu_store_lead": "Help her balance customers, the menu and time.",
+        "marketing_lead": "Pin him down on what the shop can actually deliver."
+      }
+    }
+  ]
+}

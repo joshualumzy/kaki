@@ -1,3 +1,5 @@
+// Must stay first: loads root .env before reading gateway credentials.
+import '../../env';
 import { loadEnv } from '../../../../docker/seed/env';
 import { indexKnowledge, probeServices } from './indexer';
 

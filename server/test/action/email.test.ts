@@ -6,16 +6,16 @@ import {
   type EmailSettings,
   type SendMail,
 } from '../../src/action/email';
-import type { Hub } from '../../src/hub';
-import { createFakeLlm, LlmError, type LlmClient } from '../../src/llm';
-import { createTaskStore, type TaskStore } from '../../src/tasks';
+import type { Hub } from '../../src/core/hub';
+import { createFakeLlm, LlmError, type LlmClient } from '../../src/services/llm';
+import { createTaskStore, type TaskStore } from '../../src/meeting/tasks';
 import { testScenario } from '../fixtures/scenario';
 import { settle, waitFor } from '../helpers';
 
 const settings: EmailSettings = {
   smtpHost: '127.0.0.1',
   smtpPort: 1025,
-  from: 'kaki@pixelkampung.example',
+  from: 'kaki@nanyangkopitiam.example',
   mailpitUrl: 'http://mailpit.test',
 };
 
@@ -43,6 +43,7 @@ function quietHub(): Hub {
     publish: (_event: KakiEvent) => {},
     subscribe: () => () => {},
     onCommand: () => {},
+    clearRetained: () => {},
     close: () => {},
   };
 }
@@ -50,18 +51,22 @@ function quietHub(): Hub {
 function setup(options: EmailModuleOptions): TaskStore {
   const hub = quietHub();
   const tasks = createTaskStore({ hub, scenario: testScenario });
-  const stop = createEmailModule(options).start({ hub, tasks, scenario: testScenario });
+  const stop = createEmailModule(options).start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub, tasks, activeScenario: () => testScenario });
   if (stop !== undefined) stops.push(stop);
   return tasks;
 }
 
-function startTask(tasks: TaskStore, actionKind: ActionKind = 'email'): Task {
-  const task = tasks.suggest({
-    title: 'Fix the oven',
-    context: 'The oven trips the fuse after ten minutes.',
-    suggestedAssignee: 'chef',
-    actionKind,
-  });
+function startTask(tasks: TaskStore, actionKind: ActionKind = 'email', sourceSeconds?: number): Task {
+  const task = tasks.suggest(
+    {
+      title: 'Fix the oven',
+      context: 'The oven trips the fuse after ten minutes.',
+      suggestedAssignee: 'chef',
+      actionKind,
+    },
+    undefined,
+    sourceSeconds,
+  );
   tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
   return task;
 }
@@ -150,11 +155,40 @@ describe('email action module', () => {
     expect(ready.draft?.body).toBe('The oven is fixed.');
   });
 
+  it('refuses a draft that invents a time the task does not support', async () => {
+    const tasks = setup({
+      llm: createFakeLlm(() =>
+        JSON.stringify({
+          to: 'supplier@example.com',
+          subject: 'The booth rule',
+          body: 'The booth rule runs from 8 PM to 10:30 PM.',
+        }),
+      ),
+      email: settings,
+      sendMail: okSend(),
+      fetchImpl: okFetch(),
+    });
+    const task = tasks.suggest({
+      title: 'Email the supplier the booth rule',
+      context: 'The booth rule runs from 8 to 10:30 every morning.',
+      suggestedAssignee: 'chef',
+      actionKind: 'email',
+    });
+    tasks.transition(task.id, 'DISPATCHED', { assignee: 'chef' });
+
+    tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+    const failed = await waitForStatus(tasks, task.id, 'FAILED');
+
+    expect(failed.error).toMatch(/8 PM/);
+    expect(failed.error).toMatch(/does not support/);
+    expect(failed.draft).toBeUndefined();
+  });
+
   it('sends the approved draft on run and links to the Mailpit view', async () => {
     const sendMail = okSend();
     const fetchImpl = okFetch();
     const tasks = setup({ llm: createFakeLlm(() => draftReply), email: settings, sendMail, fetchImpl });
-    const task = startTask(tasks);
+    const task = startTask(tasks, 'email', 930);
     const ready = await claim(tasks, task);
 
     tasks.transition(ready.id, 'RUNNING');
@@ -167,10 +201,12 @@ describe('email action module', () => {
     if (sendCall === undefined) throw new Error('Expected the email to be sent');
     const message = sendCall[0];
     expect(message).toEqual({
-      from: 'kaki@pixelkampung.example',
+      from: 'kaki@nanyangkopitiam.example',
       to: ['supplier@example.com'],
       subject: 'Fix the oven',
-      text: 'The oven trips the fuse after ten minutes.',
+      text:
+        'The oven trips the fuse after ten minutes.\n\n' +
+        'Posted by Kaki for Ada, approved in Lunch service readiness.',
       messageId: expect.stringMatching(/^<kaki-[0-9a-f-]{36}@kaki\.local>$/),
     });
 
@@ -262,7 +298,9 @@ describe('email action module', () => {
 
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
-    expect(failed.error).toBe('could not send the email: connect ECONNREFUSED 127.0.0.1:1025');
+    expect(failed.error).toBe(
+      "Couldn't reach the mail server. Nothing was sent. Press Retry.",
+    );
 
     tasks.transition(failed.id, 'RUNNING');
     const completed = await waitForStatus(tasks, ready.id, 'COMPLETED');
@@ -333,11 +371,11 @@ describe('email action module', () => {
 
     tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
     const failed = await waitForStatus(tasks, task.id, 'FAILED');
-    expect(failed.error).toMatch(/Email is not configured/);
+    expect(failed.error).toMatch(/Email is not connected for this workspace/);
 
     tasks.transition(failed.id, 'RUNNING');
     const retried = await waitForStatus(tasks, task.id, 'FAILED');
-    expect(retried.error).toMatch(/Email is not configured/);
+    expect(retried.error).toMatch(/Email is not connected for this workspace/);
   });
 
   it('accepts an LLM reply wrapped in a code fence', async () => {

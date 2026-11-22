@@ -3,7 +3,7 @@ import type { KakiCommand, KakiEvent, Task } from '@kaki/shared';
 import { createEmailModule, type EmailMessage } from '../src/action/email';
 import { createGiteaModule } from '../src/action/gitea';
 import { createMattermostModule } from '../src/action/mattermost';
-import { createFakeLlm } from '../src/llm';
+import { createFakeLlm } from '../src/services/llm';
 import {
   connectClient,
   createTestApp,
@@ -47,8 +47,8 @@ describe('task flows', () => {
           gitea: {
             url: 'http://localhost/gitea',
             token: 'test-token',
-            owner: 'pixel-kampung',
-            repo: 'hawker-heroes',
+            owner: 'kopitiam',
+            repo: 'kopitiam-pos',
           },
           fetchImpl: async () =>
             new Response(JSON.stringify({ html_url: 'http://localhost/gitea/issues/1' }), {
@@ -61,7 +61,7 @@ describe('task flows', () => {
           mattermost: {
             url: 'http://localhost/mattermost',
             token: 'test-token',
-            team: 'pixel-kampung',
+            team: 'kopitiam',
             channel: 'launch',
           },
           fetchImpl: async () => {
@@ -79,7 +79,7 @@ describe('task flows', () => {
           email: {
             smtpHost: '127.0.0.1',
             smtpPort: 1025,
-            from: 'kaki@pixelkampung.example',
+            from: 'kaki@nanyangkopitiam.example',
             mailpitUrl: 'http://localhost/mailpit',
           },
           sendMail: async (message) => {
@@ -277,7 +277,7 @@ describe('task flows', () => {
       draft: { ...draft, body: 'Please FAIL on purpose.' },
     });
     const failed = await waitForEvent(chef, isStatus(task.id, 'FAILED'), 'failure', 5_000);
-    expect(taskOf(failed).error).toMatch(/could not send the email/i);
+    expect(taskOf(failed).error).toMatch(/mail server.*Nothing was sent/i);
 
     send(chef, {
       type: 'RETRY_ACTION',

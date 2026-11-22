@@ -1,14 +1,43 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card } from '../ui';
 import { signIn } from './api';
 import { useMe } from './useMe';
 import './auth.css';
 
-/** Host sign-in page; a signed-in host goes straight to the shared screen. */
+/** Every route this app serves; a return path must name one of them. */
+const APP_ROUTES = new Set(['/', '/practice', '/demo', '/join', '/meeting', '/login', '/setup']);
+
+/**
+ * Only a parsed same-origin path that names a real page is a safe place to return to after
+ * sign-in. Anything else (an external URL, a slash-backslash trick, a control character) falls
+ * back to the owner's meeting room instead of handing the router an unparseable target.
+ */
+function returnPath(value: string | null | undefined): string {
+  if (value === null || value === undefined) return '/meeting';
+  let parsed: URL;
+  try {
+    parsed = new URL(value, window.location.origin);
+  } catch {
+    return '/meeting';
+  }
+  if (parsed.origin !== window.location.origin || !APP_ROUTES.has(parsed.pathname)) {
+    return '/meeting';
+  }
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+/** Host sign-in page; a signed-in host goes straight to the page that asked for sign-in. */
 export function LoginPage() {
-  const auth = useMe();
+  const [reloadKey, setReloadKey] = useState(0);
+  const auth = useMe(reloadKey);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [search] = useSearchParams();
+  const fromState = (location.state as { from?: unknown } | null)?.from;
+  const destination = returnPath(
+    typeof fromState === 'string' ? fromState : search.get('return'),
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,13 +58,16 @@ export function LoginPage() {
           <p className="connection-banner" role="alert">
             {auth.message}
           </p>
+          <Button variant="ghost" onClick={() => setReloadKey((key) => key + 1)}>
+            Try again
+          </Button>
         </Card>
       </main>
     );
   }
 
   if (!auth.me.authEnabled || auth.me.kind === 'host') {
-    return <Navigate to="/screen" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -59,7 +91,7 @@ export function LoginPage() {
       setPending(false);
       return;
     }
-    navigate('/screen', { replace: true });
+    navigate(destination, { replace: true });
   }
 
   return (
@@ -67,7 +99,7 @@ export function LoginPage() {
       <header className="page-header">
         <p className="eyebrow">Kaki · Host</p>
         <h1>Sign in to start the meeting</h1>
-        <p className="page-subtitle">The shared screen is only visible to the host.</p>
+        <p className="page-subtitle">The meeting room is only visible to the host.</p>
       </header>
 
       <Card title="Host sign-in">

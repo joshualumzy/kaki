@@ -1,0 +1,16 @@
+{
+  "tasks": [
+    { "name": "regulars' note", "assignee": "menu_store_lead", "keywords": ["regulars", "note"] },
+    { "name": "booth socket timer", "assignee": "tech_pos_lead", "keywords": ["socket", "timer"] },
+    { "name": "customer email and logs", "assignee": "operations_director", "keywords": ["customer", "logs"] },
+    { "name": "GrabFood platter email", "assignee": "marketing_lead", "keywords": ["grabfood", "platter"] }
+  ],
+  "acceptedTasks": [],
+  "questions": [
+    { "name": "who covers the counter if Auntie Mary says no", "keywords": ["auntie", "counter"] },
+    { "name": "who counts as a regular", "keywords": ["regular", "rule"] },
+    { "name": "customer clinic bill", "keywords": ["clinic", "bill"] },
+    { "name": "which office orders move to direct pickup", "keywords": ["office", "pickup"] }
+  ],
+  "quietRoles": []
+}

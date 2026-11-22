@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <title>Kaki — Meeting Assistant</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main class="landing">
+      <header class="landing-head">
+        <!-- Same cup as web/public/kaki-cup.svg, inline so a kopi pot can fill it while Kaki wakes. -->
+        <svg class="landing-mark cup" id="cup" data-state="checking" viewBox="0 0 96 96" width="120" height="120" aria-hidden="true">
+          <defs>
+            <clipPath id="cup-inside">
+              <path d="M22 38h48v20c0 13-10 22-24 22s-24-9-24-22V38z" />
+            </clipPath>
+          </defs>
+          <path class="cup-steam" d="M38 30c-4-5 4-8 0-14" />
+          <path class="cup-steam cup-steam-2" d="M52 30c-4-5 4-8 0-14" />
+          <path class="cup-stream" d="M64.8 3.3C58 12 54 24 53 70" />
+          <path class="cup-stream-shine" d="M64.8 3.3C58 12 54 24 53 70" />
+          <g class="cup-pot">
+            <!-- A kopi pot drawn upright, then tipped so its spout (local -14,4) sits at 64.8,3.3 over the cup. -->
+            <g transform="translate(74 -8) rotate(-35)">
+              <path d="M3 20C-6 18-11 12-14 4" fill="none" stroke="#7b8a96" stroke-width="4" stroke-linecap="round" />
+              <path d="M4 0h22c3 0 5 2 5 5v15c0 5-4 8-9 8H8c-5 0-9-3-9-8V5c0-3 2-5 5-5z" fill="#eef2f5" stroke="#7b8a96" stroke-width="3" stroke-linejoin="round" />
+              <path d="M31 6c7 0 9 3 9 8s-3 8-9 8" fill="none" stroke="#7b8a96" stroke-width="3" stroke-linecap="round" />
+              <ellipse cx="15" cy="0" rx="10" ry="3" fill="#dfe6eb" stroke="#7b8a96" stroke-width="3" />
+              <circle cx="15" cy="-5" r="2.5" fill="#7b8a96" />
+            </g>
+          </g>
+          <ellipse cx="46" cy="80" rx="32" ry="6" fill="#ead7c3" />
+          <path d="M22 38h48v20c0 13-10 22-24 22s-24-9-24-22V38z" fill="#f6e3cf" />
+          <g clip-path="url(#cup-inside)">
+            <rect class="cup-fill" id="cup-fill" x="20" y="36" width="52" height="46" fill="#c8956a" />
+          </g>
+          <path d="M22 38h48v20c0 13-10 22-24 22s-24-9-24-22V38z" fill="none" stroke="#8a5a3b" stroke-width="3.5" stroke-linejoin="round" />
+          <path d="M70 44h4a9 9 0 0 1 0 18h-5" fill="none" stroke="#8a5a3b" stroke-width="3.5" stroke-linecap="round" />
+          <ellipse class="cup-top" cx="46" cy="38" rx="24" ry="4.5" stroke="#8a5a3b" stroke-width="3.5" />
+          <circle cx="37" cy="56" r="2.6" fill="#5b3a26" />
+          <circle cx="55" cy="56" r="2.6" fill="#5b3a26" />
+          <path d="M41 63q5 4 10 0" fill="none" stroke="#5b3a26" stroke-width="2.6" stroke-linecap="round" />
+          <circle cx="31" cy="62" r="3.2" fill="#f3a7a0" opacity="0.7" />
+          <circle cx="61" cy="62" r="3.2" fill="#f3a7a0" opacity="0.7" />
+        </svg>
+        <h1>Kaki</h1>
+        <p class="landing-sub">
+          A meeting assistant that keeps the agenda, coaches each person privately, hands out follow-up
+          tasks and drafts the minutes.
+        </p>
+      </header>
+
+      <div class="landing-paths">
+        <section class="landing-card" aria-label="Run a team meeting">
+          <p class="eyebrow">For the meeting owner</p>
+          <h2>Run a team meeting</h2>
+          <p>Set the agenda, invite your people, and let Kaki keep the meeting on track.</p>
+          <button type="button" class="landing-go" data-path="/setup">Run a team meeting</button>
+        </section>
+
+        <section class="landing-card" aria-label="Try a practice meeting">
+          <p class="eyebrow">On your own</p>
+          <h2>Try a practice meeting</h2>
+          <p>You join alone; AI colleagues play the rest of the team.</p>
+          <button type="button" class="landing-go landing-go-secondary" data-path="/practice">
+            Try a practice meeting
+          </button>
+        </section>
+      </div>
+
+      <form class="landing-invite" id="invite-form" aria-label="Enter a meeting code">
+        <label for="invite-code">Got an invite? Enter the meeting code</label>
+        <div class="landing-invite-row">
+          <input
+            id="invite-code"
+            class="kd-field"
+            type="text"
+            placeholder="ABCD"
+            maxlength="8"
+            autocapitalize="characters"
+            autocomplete="off"
+          />
+          <button type="submit" class="landing-code-go" id="invite-go" disabled>Join</button>
+        </div>
+      </form>
+
+      <div class="wake" id="wake">
+        <p class="wake-text" id="wake-status" role="status">Checking Kaki…</p>
+        <p class="wake-detail" id="wake-detail" hidden></p>
+        <p class="wake-elapsed" id="wake-elapsed" aria-hidden="true" hidden></p>
+        <button type="button" class="wake-retry" id="wake-retry" hidden>Try again</button>
+      </div>
+
+      <footer class="landing-foot"><a href="/privacy.html">Privacy policy</a></footer>
+    </main>
+  </body>
+</html>

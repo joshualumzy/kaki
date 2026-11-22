@@ -49,6 +49,7 @@ services:
       GITEA__server__SSH_LISTEN_PORT: 22
       GITEA__service__DISABLE_REGISTRATION: "true"
       GITEA__security__INSTALL_LOCK: "true"
+      GITEA__security__MIN_PASSWORD_LENGTH: "4"
       GITEA__openid__ENABLE_OPENID_SIGNIN: "false"
       GITEA__openid__ENABLE_OPENID_SIGNUP: "false"
     ports:
@@ -77,6 +78,8 @@ services:
       MM_SERVICESETTINGS_ENABLEOPENSERVER: "true"
       MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
       MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_TEAMSETTINGS_TEAMMATENAMEDISPLAY: "full_name"
+      MM_TEAMSETTINGS_LOCKTEAMMATENAMEDISPLAY: "true"
       MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
       MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
       MM_FILESETTINGS_MAXFILESIZE: "52428800"
@@ -99,6 +102,17 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  caldav:
+    image: tomsquest/docker-radicale:3.2.3.0
+    environment:
+      - TAKE_FILE_OWNERSHIP=false
+      - RADICALE_CONFIG_AUTH_TYPE=none
+    ports:
+      - "127.0.0.1:5232:5232"
+    volumes:
+      - caldav-data:/data
+    restart: unless-stopped
+
   mailpit:
     image: axllent/mailpit:v1.21.7
     environment:
@@ -114,7 +128,20 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Local WebRTC server for the live demo meeting (`/demo`). `--dev` uses the key pair
+  # devkey/secret, which the Kaki server and the NPC runner default to. The image has no shell,
+  # so there is no healthcheck.
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1"]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    restart: unless-stopped
+
 volumes:
+  caldav-data:
   postgres-data:
   wiki-data:
   gitea-data:

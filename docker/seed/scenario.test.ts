@@ -39,14 +39,14 @@ describe('seed manifests', () => {
   it('accepts a valid wiki manifest', () => {
     expect(
       parseWikiManifest({
-        pages: [{ path: 'hawker-heroes/game-design', title: 'Design', description: 'Doc', file: 'design.md' }],
+        pages: [{ path: 'kopitiam/kopi-pricing', title: 'Design', description: 'Doc', file: 'design.md' }],
       }).pages,
     ).toHaveLength(1);
   });
 
   it('rejects Mattermost posts with unknown authors or duplicate keys', () => {
     const base = {
-      team: { name: 'pixel-kampung', display_name: 'Pixel Kampung' },
+      team: { name: 'kopitiam', display_name: 'Nanyang Kopi & Toast' },
       users: [
         {
           username: 'mei',
@@ -78,7 +78,7 @@ describe('seed manifests', () => {
 
   it('parses Gitea issues and requires a state', () => {
     const seed = parseGiteaSeed({
-      repository: { name: 'hawker-heroes', description: 'Game', private: false },
+      repository: { name: 'kopitiam-pos', description: 'Kopitiam POS', private: false },
       labels: [{ name: 'bug', color: 'd73a4a' }],
       issues: [
         {
@@ -105,7 +105,7 @@ describe('seed manifests', () => {
   it('parses emails and rejects an invalid date', () => {
     const email = {
       from: { name: 'Priya', address: 'priya@starfruit.example' },
-      to: [{ name: 'Wei Ling', address: 'wei.ling@pixelkampung.example' }],
+      to: [{ name: 'Wei Ling', address: 'wei.ling@nanyangkopitiam.example' }],
       subject: 'Build date',
       date: '2026-11-16T09:12:00+08:00',
       messageId: '<one@starfruit.example>',

@@ -1,0 +1,258 @@
+{
+  "lines": [
+    {
+      "at": 0,
+      "speaker": "Sam",
+      "text": "Opening day. You're opening-day lead this morning, so the calls are yours."
+    },
+    {
+      "at": 20,
+      "speaker": "Wei Ling",
+      "text": "First topic: Siti texted at quarter to seven, her kid's in hospital, so we're one short for the 8 to 10 rush."
+    },
+    {
+      "at": 40,
+      "speaker": "Daniel",
+      "text": "The free-kopi flyers went to every office in the building, about 200 of them, so the whole building is coming at 8."
+    },
+    {
+      "at": 60,
+      "speaker": "Wei Ling",
+      "text": "Auntie Mary is on her rest day. Asking her in means double pay, and she can say no."
+    },
+    {
+      "at": 80,
+      "speaker": "Arjun",
+      "text": "Anyone new on the till needs a login, and that takes me about 15 minutes before 8."
+    },
+    {
+      "at": 100,
+      "speaker": "Sam",
+      "text": "So how do we run the counter from 8 to 10 one person short?"
+    },
+    {
+      "at": 120,
+      "speaker": "Wei Ling",
+      "text": "A manager could cover, but whoever it is drops their own opening-day job."
+    },
+    {
+      "at": 140,
+      "speaker": "Daniel",
+      "text": "Going quiet on the free kopi now would be worse. The whole building has the flyer."
+    },
+    {
+      "at": 160,
+      "speaker": "Sam",
+      "text": "Noted. Who covers the counter if Auntie Mary says no?"
+    },
+    {
+      "at": 400,
+      "agendaIndex": 1,
+      "speaker": "Sam",
+      "text": "Next topic: the old regulars and the new kopi prices."
+    },
+    {
+      "at": 420,
+      "speaker": "Mei",
+      "text": "Kopi was $1.30 here and the new menu charges $2.40. Photos of the old regulars hang on the wall."
+    },
+    {
+      "at": 440,
+      "speaker": "Wei Ling",
+      "text": "On this rent a cup costs us about $1.60, so the old price loses money on every cup."
+    },
+    {
+      "at": 460,
+      "speaker": "Daniel",
+      "text": "The nephew's post has about 300 shares, and the food blogger reads the local Facebook groups."
+    },
+    {
+      "at": 480,
+      "speaker": "Arjun",
+      "text": "The till can take a regulars' price button in about 10 minutes, but it needs a rule for who gets it."
+    },
+    {
+      "at": 500,
+      "speaker": "Sam",
+      "text": "What do we do for the old regulars without losing money on every cup?"
+    },
+    {
+      "at": 520,
+      "speaker": "Mei",
+      "text": "We could hold the price and explain it at the counter, with a reply on Facebook."
+    },
+    {
+      "at": 540,
+      "speaker": "Wei Ling",
+      "text": "Then someone has to decide who counts as a regular before the till button means anything."
+    },
+    {
+      "at": 560,
+      "speaker": "Sam",
+      "text": "Mei, can you draft the regulars' note for the counter and Facebook?"
+    },
+    {
+      "at": 580,
+      "speaker": "Mei",
+      "text": "Yes, I'll draft the regulars' note, and we can settle the rule for the till button."
+    },
+    {
+      "at": 900,
+      "agendaIndex": 2,
+      "speaker": "Sam",
+      "text": "Next: laptop campers and the breakfast seat crunch."
+    },
+    {
+      "at": 920,
+      "speaker": "Arjun",
+      "text": "The booth sockets share one timer switch, and the Wi-Fi can give each receipt a code that lasts 45 minutes."
+    },
+    {
+      "at": 940,
+      "speaker": "Wei Ling",
+      "text": "The blocked seats cost us real breakfast sales at the trial, about $420."
+    },
+    {
+      "at": 960,
+      "speaker": "Mei",
+      "text": "Most morning customers come alone with a hot tray, and we have 10 window-bar stools in the storeroom."
+    },
+    {
+      "at": 980,
+      "speaker": "Daniel",
+      "text": "9 of 16 laptop users wore upstairs lanyards, and two of those offices have asked about bulk orders."
+    },
+    {
+      "at": 1000,
+      "speaker": "Sam",
+      "text": "How do we free up seats without anyone having to confront customers?"
+    },
+    {
+      "at": 1020,
+      "speaker": "Arjun",
+      "text": "A laptop zone on the window stools and breakfast-table signs would do it without staff stepping in."
+    },
+    {
+      "at": 1040,
+      "speaker": "Sam",
+      "text": "Arjun, can you set the booth socket timer before 8?"
+    },
+    {
+      "at": 1060,
+      "speaker": "Arjun",
+      "text": "Yes, I'll set the booth socket timer, and I'll test the Wi-Fi codes before opening."
+    },
+    {
+      "at": 1400,
+      "agendaIndex": 3,
+      "speaker": "Sam",
+      "text": "Next: food safety. The inspector's routine check is at 9."
+    },
+    {
+      "at": 1420,
+      "speaker": "Wei Ling",
+      "text": "The night cleaner unplugged the prep fridge after the trial and it was off about three hours last night. The head chef found it at 6:10 and signed the disposal log."
+    },
+    {
+      "at": 1440,
+      "speaker": "Mei",
+      "text": "The eggs and kaya are gone until the 10 o'clock delivery, and Set A is about 40% of breakfast sales."
+    },
+    {
+      "at": 1460,
+      "speaker": "Daniel",
+      "text": "The customer's email is polite, but she says she will post her review tonight. The blogger comes at 10:30."
+    },
+    {
+      "at": 1480,
+      "speaker": "Arjun",
+      "text": "The fridge has no alarm. A temperature alert on the POS takes me 10 minutes, and I was asked for one last month."
+    },
+    {
+      "at": 1500,
+      "speaker": "Sam",
+      "text": "Do we open at 8, and what do we tell the customer and the inspector?"
+    },
+    {
+      "at": 1520,
+      "speaker": "Wei Ling",
+      "text": "We open at 8 without Set A until the delivery, and we give the officer both logs."
+    },
+    {
+      "at": 1540,
+      "speaker": "Daniel",
+      "text": "I'll answer the customer before her review goes up."
+    },
+    {
+      "at": 1560,
+      "speaker": "Sam",
+      "text": "Wei Ling, can you email the customer and attach both logs?"
+    },
+    {
+      "at": 1580,
+      "speaker": "Wei Ling",
+      "text": "Yes, I'll email the customer and attach both logs, and cover the $85 clinic bill."
+    },
+    {
+      "at": 1900,
+      "agendaIndex": 4,
+      "speaker": "Sam",
+      "text": "Last topic: the delivery app commission squeeze."
+    },
+    {
+      "at": 1920,
+      "speaker": "Daniel",
+      "text": "GrabFood's promo rate on its cut for all our shops ended today, and we lose about 50 cents on each $10 breakfast set delivered."
+    },
+    {
+      "at": 1940,
+      "speaker": "Wei Ling",
+      "text": "A delivered set costs $7.30, while a five-set platter costs only $29 because the packaging is shared."
+    },
+    {
+      "at": 1960,
+      "speaker": "Arjun",
+      "text": "GrabFood hides shops that charge more on the app than at the counter, and an app menu change takes 15 minutes."
+    },
+    {
+      "at": 1980,
+      "speaker": "Mei",
+      "text": "Platters need the large trays, and we have 30."
+    },
+    {
+      "at": 2000,
+      "speaker": "Sam",
+      "text": "How do we stop losing money on delivery without losing the office customers?"
+    },
+    {
+      "at": 2020,
+      "speaker": "Daniel",
+      "text": "Most office orders are five sets or more, and 12 office managers have asked for a direct code."
+    },
+    {
+      "at": 2040,
+      "speaker": "Wei Ling",
+      "text": "Then the platters and the pickup code are worth pricing properly before the rush."
+    },
+    {
+      "at": 2060,
+      "speaker": "Sam",
+      "text": "Daniel, can you email GrabFood to confirm the platter listing and the pickup code?"
+    },
+    {
+      "at": 2080,
+      "speaker": "Daniel",
+      "text": "Yes, I'll email GrabFood to confirm the platter listing, and I'll send the pickup code to the offices."
+    },
+    {
+      "at": 2095,
+      "speaker": "Wei Ling",
+      "text": "I'll post the final plan in the team channel once we settle the pickup code."
+    },
+    {
+      "at": 2110,
+      "speaker": "Sam",
+      "text": "That's both topics settled. Thanks all, and let's open the doors."
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+import { describe, expect, it } from 'vitest';
+import { SpeechGate } from '../../src/npc/speechGate';
+
+function setup() {
+  let time = 100_000;
+  const gate = new SpeechGate({ now: () => time });
+  return { gate, advance: (ms: number) => void (time += ms) };
+}
+
+describe('SpeechGate', () => {
+  it('accepts anything while the AI has been quiet for a while', () => {
+    const { gate } = setup();
+    expect(gate.check('hello there')).toEqual({ ok: true });
+  });
+
+  it('rejects the AI echoing back while it talks and the person\'s microphone is quiet', () => {
+    const { gate, advance } = setup();
+    gate.aiSaid('The game crashes after ten customers in a row.');
+    gate.setAiAudible(true);
+    advance(500);
+    expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: false, reason: 'echo' });
+    expect(gate.check('Game crashes after ten customers')).toEqual({ ok: false, reason: 'echo' });
+  });
+
+  it('lets a person repeat the AI\'s wording when their own voice is behind it', () => {
+    const { gate, advance } = setup();
+    gate.aiSaid('The game crashes after ten customers in a row.');
+    gate.setAiAudible(true);
+    advance(500);
+    gate.setHumanTalking(true);
+    expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: true });
+    gate.setHumanTalking(false);
+    advance(1000);
+    expect(gate.check('the game crashes after ten customers in a row')).toEqual({ ok: true });
+  });
+
+  it('rejects the AI\'s last words heard after a barge-in, because the person stopped before them', () => {
+    const { gate, advance } = setup();
+    const said = 'We should delay the launch until the tills are tested again.';
+    gate.aiSaid(said);
+    gate.setAiAudible(true);
+    advance(500);
+    // The person barges in with "wait—", then stops; the next recognised words are the AI's tail.
+    gate.setHumanTalking(true);
+    advance(300);
+    gate.setHumanTalking(false);
+    advance(100);
+    gate.setAiAudible(false);
+    advance(400);
+    expect(gate.check(said)).toEqual({ ok: false, reason: 'echo' });
+  });
+
+  it('lets a person repeat the AI\'s wording once the AI has been quiet past the tail', () => {
+    const { gate, advance } = setup();
+    gate.aiSaid('So we are meeting Tuesday morning then.');
+    gate.setAiAudible(true);
+    gate.setAiAudible(false);
+    advance(3000);
+    expect(gate.check('so we are meeting Tuesday morning then')).toEqual({ ok: true });
+  });
+
+  it('does not mistake a short reply for echo', () => {
+    const { gate } = setup();
+    gate.aiSaid('Do you want to delay the launch or disable the store?');
+    expect(gate.check('the store')).toEqual({ ok: true });
+    expect(gate.check('disable the store')).toEqual({ ok: true });
+  });
+
+  it('does not call a long, different answer echo just because it shares a few words', () => {
+    const { gate } = setup();
+    gate.aiSaid('Do you want to delay the launch or disable the store?');
+    expect(gate.check('I think we should delay the launch by a week and fix it properly')).toEqual({ ok: true });
+  });
+
+  it('while the AI talks, needs speech on the human microphone behind the text', () => {
+    const { gate, advance } = setup();
+    gate.setAiAudible(true);
+    expect(gate.check('what about the budget')).toEqual({ ok: false, reason: 'no-voice' });
+
+    gate.setHumanTalking(true);
+    expect(gate.check('what about the budget')).toEqual({ ok: true });
+
+    gate.setHumanTalking(false);
+    advance(1000);
+    expect(gate.check('what about the budget')).toEqual({ ok: true });
+  });
+
+  it('does not let the previous sentence vouch for text heard during the AI\'s next answer', () => {
+    const { gate, advance } = setup();
+    gate.setHumanTalking(true);
+    gate.setHumanTalking(false);
+    advance(900);
+    gate.setAiAudible(true); // the AI answers: a new stretch of talking begins after the person spoke
+    advance(500);
+    expect(gate.check('what about the budget')).toEqual({ ok: false, reason: 'no-voice' });
+
+    // The AI pausing between sentences does not start a new stretch, and speaking over it counts.
+    gate.setAiAudible(false);
+    gate.setAiAudible(true);
+    gate.setHumanTalking(true);
+    gate.setHumanTalking(false);
+    expect(gate.check('what about the budget')).toEqual({ ok: true });
+  });
+
+  it('keeps the voice requirement for a moment after the AI stops, since recognition lags', () => {
+    const { gate, advance } = setup();
+    gate.setAiAudible(true);
+    gate.setAiAudible(false);
+    advance(1000);
+    expect(gate.check('late echo of something')).toEqual({ ok: false, reason: 'no-voice' });
+    advance(2000);
+    expect(gate.check('a fresh remark')).toEqual({ ok: true });
+  });
+
+  it('forgets old AI sentences', () => {
+    const { gate, advance } = setup();
+    gate.aiSaid('We need a decision on the launch today please.');
+    advance(30_000);
+    expect(gate.check('we need a decision on the launch today please')).toEqual({ ok: true });
+  });
+
+  describe('when the recognizer mixes the AI with the person', () => {
+    const said = 'They are quitting because they cannot afford stall upgrades and it feels unfair.';
+
+    it("keeps the person's words and cuts out the AI's", () => {
+      const { gate } = setup();
+      gate.setHumanTalking(true);
+      gate.aiSaid(said);
+      gate.setAiAudible(true);
+      expect(gate.check('they are quitting because they cannot afford stall upgrades and it feels unfair okay can we end the meeting now')).toEqual({
+        ok: true,
+        text: 'okay can we end the meeting now',
+        removed: 'they are quitting because they cannot afford stall upgrades and it feels unfair',
+      });
+    });
+
+    it('also keeps words the person said first, talking over the AI', () => {
+      const { gate, advance } = setup();
+      gate.aiSaid(said);
+      gate.setAiAudible(true);
+      advance(500);
+      gate.setHumanTalking(true);
+      expect(gate.check('wait stop they are quitting because they cannot afford stall upgrades')).toMatchObject({
+        ok: true,
+        text: 'wait stop',
+      });
+    });
+
+    it('still needs a voice behind the remainder while the AI talks', () => {
+      const { gate } = setup();
+      gate.aiSaid(said);
+      gate.setAiAudible(true);
+      expect(gate.check('they are quitting because they cannot afford stall upgrades okay can we end the meeting')).toEqual({
+        ok: false,
+        reason: 'no-voice',
+      });
+    });
+
+    it('does not take one or two stray mis-heard words in the middle of the echo for the person', () => {
+      const { gate, advance } = setup();
+      gate.aiSaid(said);
+      gate.setAiAudible(true);
+      advance(500);
+      expect(gate.check('they are quitting because they cannot afford stall up grades and it feels unfair')).toEqual({
+        ok: false,
+        reason: 'echo',
+      });
+    });
+
+    it('leaves a sentence that merely reuses a few of the AI\'s words alone', () => {
+      const { gate } = setup();
+      gate.aiSaid(said);
+      expect(gate.check('so you are saying players cannot afford the stall upgrades, is that right?')).toEqual({ ok: true });
+    });
+  });
+});

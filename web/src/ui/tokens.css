@@ -1,30 +1,71 @@
 :root {
-  --color-bg: #f4f2ec;
+  color-scheme: light;
+  /* Kaki Lumen: cool pearl and glass. Teal = Wingman and live, orange = Host and action, red = stop. */
+  --color-bg: #e9ecf2;
+  --bg-glow-a: rgba(0, 190, 170, 0.22);
+  --bg-glow-b: rgba(255, 90, 31, 0.16);
+  --color-bg-raised: #dfe3ea;
+  --panel: rgba(255, 255, 255, 0.72);
   --color-surface: #ffffff;
-  --color-text: #1f2724;
-  --color-muted: #61706a;
-  --color-border: #e3e0d7;
-  --color-accent: #1f6f5c;
-  --color-accent-strong: #185548;
-  --color-accent-soft: #e6f1ec;
-  --color-danger: #a52a22;
-  --color-danger-soft: #fbe9e7;
-  --color-warning: #8a5a00;
-  --color-warning-soft: #fbf1dc;
-  --color-info: #2c5d87;
-  --color-info-soft: #e7f0f8;
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  --color-surface-strong: #ffffff;
+  --stage: #f6f7fb;
+  --color-text: #0d1117;
+  --color-muted: #5a6472;
+  --color-faint: #8d96a4;
+  --color-border: rgba(13, 17, 23, 0.09);
+  --color-border-strong: rgba(13, 17, 23, 0.18);
+  --color-ink: #0d1117;
+  --color-accent: #00a58e;
+  --color-accent-strong: #007f6d;
+  --color-accent-soft: rgba(0, 165, 142, 0.12);
+  --color-accent-bright: #00a58e;
+  --color-host: #ff5a1f;
+  --color-host-text: #d9440c;
+  --color-host-soft: rgba(255, 90, 31, 0.12);
+  --color-violet: #5865ff;
+  --on-accent: #ffffff;
+  --color-danger: #e5334b;
+  --color-danger-soft: rgba(229, 51, 75, 0.1);
+  --color-warning: #b45309;
+  --color-warning-soft: rgba(255, 90, 31, 0.12);
+  --color-info: #3b4cd6;
+  --color-info-soft: rgba(88, 101, 255, 0.12);
+  --orb-a: #00c2a8; --orb-b: #ff5a1f; --orb-c: #5865ff; --orb-d: #ff3d81; --orb-e: #0ea5e9;
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 20px 50px -22px rgba(30, 40, 70, 0.28);
+  --font-sans: "Geist", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Geist", "Inter", system-ui, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-5: 1.5rem;
   --space-6: 2rem;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
+  --radius-sm: 0.55rem;
+  --radius-md: 0.85rem;
+  --radius-lg: 1.2rem;
   --radius-pill: 999px;
-  --shadow-card: 0 1px 2px rgba(31, 39, 36, 0.06), 0 8px 24px rgba(31, 39, 36, 0.04);
   --content-width: 44rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0c0f14; --bg-glow-a: rgba(0, 190, 170, 0.16); --bg-glow-b: rgba(255, 90, 31, 0.14); --color-bg-raised: #171c25;
+    --panel: rgba(255, 255, 255, 0.055); --color-surface: #151a22; --color-surface-strong: #1b212b; --stage: #11151c;
+    --color-text: #f1f4f9; --color-muted: #98a2b3; --color-faint: #667085; --color-border: rgba(255, 255, 255, 0.09); --color-border-strong: rgba(255, 255, 255, 0.2);
+    --color-ink: #f1f4f9; --color-accent: #2fe0c4; --color-accent-strong: #7ff0dc; --color-accent-soft: rgba(47, 224, 196, 0.14); --color-accent-bright: #2fe0c4;
+    --color-host-text: #ff8a5c; --color-host-soft: rgba(255, 90, 31, 0.18); --color-violet: #8d98ff; --on-accent: #06201b;
+    --color-danger: #ff6b7e; --color-danger-soft: rgba(255, 107, 126, 0.14); --color-warning: #ffb089; --color-info: #aab3ff;
+    --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px -24px rgba(0, 0, 0, 0.7);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0c0f14; --bg-glow-a: rgba(0, 190, 170, 0.16); --bg-glow-b: rgba(255, 90, 31, 0.14); --color-bg-raised: #171c25;
+  --panel: rgba(255, 255, 255, 0.055); --color-surface: #151a22; --color-surface-strong: #1b212b; --stage: #11151c;
+  --color-text: #f1f4f9; --color-muted: #98a2b3; --color-faint: #667085; --color-border: rgba(255, 255, 255, 0.09); --color-border-strong: rgba(255, 255, 255, 0.2);
+  --color-ink: #f1f4f9; --color-accent: #2fe0c4; --color-accent-strong: #7ff0dc; --color-accent-soft: rgba(47, 224, 196, 0.14); --color-accent-bright: #2fe0c4;
+  --color-host-text: #ff8a5c; --color-host-soft: rgba(255, 90, 31, 0.18); --color-violet: #8d98ff; --on-accent: #06201b;
+  --color-danger: #ff6b7e; --color-danger-soft: rgba(255, 107, 126, 0.14); --color-warning: #ffb089; --color-info: #aab3ff;
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px -24px rgba(0, 0, 0, 0.7);
 }

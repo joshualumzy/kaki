@@ -1,10 +1,17 @@
 # Scenarios
 
-Each scenario lives in its own folder.
+Kaki is scenario-agnostic: every role, attendee, NPC personality, agenda item, and company dataset is loaded from `scenarios/<id>/`.
 
-- `scenario.json` (required) — roles, attendees and agenda. Validated at startup.
-- `demo-events.json` — sample events and tasks for `npm run emit-demo`.
-- `seed/` — later: fake company data for Wingman.
-- `replay/transcript.json` — scripted, speaker-tagged transcript (`at` = seconds from the start, `speaker` = an attendee's Zoom name). Play it with `KAKI_REPLAY=1` (and `KAKI_REPLAY_SPEED=10` to speed it up).
+The shipped scenario is `SCENARIO=kopitiam` (`scenarios/kopitiam/`): **Nanyang Kopi & Toast** reopening its Raffles Place flagship tomorrow morning (Operations Director, Tech & POS Lead, Menu & Store Experience Lead, Marketing Lead, General Manager; role ids `operations_director`, `tech_pos_lead`, `menu_store_lead`, `marketing_lead`, `general_manager`).
 
-Switch scenarios by setting `SCENARIO=<folder>` (default: `pixel-kampung`).
+## Scenario Folder Layout
+
+- `scenario.json` (required) — Roles (with private `card` briefings), attendees, AI `npcs` (Azure TTS voice, personality, agenda, concerns), and the pool of agenda items.
+  - In live `/demo` booth meetings, Kaki selects a crisp **2-item agenda** (`KAKI_AGENDA_ITEMS`, default `2`, 2 minutes per item) tailored to the visitor's chosen role so every session completes in ~3–4 minutes.
+- `seed/` — Company records loaded by `npm run seed` and indexed by `npm run index:knowledge`:
+  - `seed/gitea/issues.json` — Open and closed Gitea issues
+  - `seed/mattermost/seed.json` — Channels and team threads
+  - `seed/mail/emails.json` — Inbox messages in Mailpit
+  - `seed/postgres/schema.sql` & `data.sql` — Structured SQL metrics
+  - `seed/wiki/pages.json` & `*.md` — Team wiki pages
+- `replay/` — Scripted transcript (`transcript.json`) and expected extraction benchmark (`expected.json`).

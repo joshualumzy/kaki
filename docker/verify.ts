@@ -145,11 +145,17 @@ async function mailMessages(): Promise<MailMessage[]> {
 
 async function mattermostPosts(): Promise<MattermostPost[]> {
   const team = await mattermost<MattermostTeam>(`/teams/name/${encodeURIComponent(env.MATTERMOST_TEAM)}`);
-  const channel = await mattermost<MattermostChannel>(
-    `/teams/${team.id}/channels/name/playtest-feedback`,
-  );
-  const posts = await mattermost<MattermostPosts>(`/channels/${channel.id}/posts?per_page=200&page=0`);
-  return Object.values(posts.posts);
+  const posts: MattermostPost[] = [];
+  for (const channelSeed of seed.mattermost.channels) {
+    const channel = await mattermost<MattermostChannel>(
+      `/teams/${team.id}/channels/name/${encodeURIComponent(channelSeed.name)}`,
+    );
+    const channelPosts = await mattermost<MattermostPosts>(
+      `/channels/${channel.id}/posts?per_page=200&page=0`,
+    );
+    posts.push(...Object.values(channelPosts.posts));
+  }
+  return posts;
 }
 
 async function postgresData() {
@@ -166,9 +172,6 @@ async function postgresData() {
     const extension = await client.query<{ extname: string }>(
       "SELECT extname FROM pg_extension WHERE extname = 'vector'",
     );
-    const stats = await client.query<{ level: number; quit_rate: string }>(
-      'SELECT level, quit_rate FROM playtest_quit_stats ORDER BY level',
-    );
     const chunks = await client.query<{ count: number }>('SELECT count(*)::int AS count FROM knowledge_chunks');
     const embedding = await client.query<{ udt_name: string }>(
       "SELECT udt_name FROM information_schema.columns WHERE table_name = 'knowledge_chunks' AND column_name = 'embedding'",
@@ -176,22 +179,26 @@ async function postgresData() {
     const chunkColumns = await client.query<{ column_name: string; is_nullable: string }>(
       "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'knowledge_chunks'",
     );
-    const seedDates = await client.query<{ table_name: string; count: number }>(
-      `SELECT 'playtest_quit_stats' AS table_name, count(*) FILTER (WHERE updated_on IS NOT NULL)::int AS count FROM playtest_quit_stats
-       UNION ALL
-       SELECT 'launch_budget', count(*) FILTER (WHERE updated_on IS NOT NULL)::int FROM launch_budget`,
+    const pricing = await client.query<{
+      old_kopi_price_sgd: string;
+      new_kopi_price_sgd: string;
+      cost_per_cup_sgd: string;
+      regulars_most_mornings: number;
+    }>('SELECT old_kopi_price_sgd, new_kopi_price_sgd, cost_per_cup_sgd, regulars_most_mornings FROM regulars_pricing ORDER BY effective_on DESC LIMIT 1');
+    const counts = await client.query<{ table_name: string; count: number }>(
+      `SELECT 'regulars_pricing' AS table_name, count(*)::int AS count FROM regulars_pricing
+       UNION ALL SELECT 'floor_morning_counts', count(*)::int FROM floor_morning_counts
+       UNION ALL SELECT 'food_safety_incident', count(*)::int FROM food_safety_incident
+       UNION ALL SELECT 'delivery_commission_tiers', count(*)::int FROM delivery_commission_tiers
+       UNION ALL SELECT 'launch_budget', count(*)::int FROM launch_budget`,
     );
-    const wishlists = await client.query<{ count: number }>('SELECT count(*)::int AS count FROM wishlist_counts');
-    const budget = await client.query<{ count: number }>('SELECT count(*)::int AS count FROM launch_budget');
     return {
       extensions: extension.rows.map((row) => row.extname),
-      stats: stats.rows.map((row) => ({ level: row.level, quitRate: Number(row.quit_rate) })),
       chunkCount: chunks.rows[0]?.count ?? -1,
       embeddingType: embedding.rows[0]?.udt_name ?? 'missing',
       chunkColumns: chunkColumns.rows,
-      seedDates: seedDates.rows,
-      wishlistRows: wishlists.rows[0]?.count ?? -1,
-      budgetRows: budget.rows[0]?.count ?? -1,
+      pricing: pricing.rows[0],
+      tableCounts: Object.fromEntries(counts.rows.map((row) => [row.table_name, row.count])),
     };
   } finally {
     await client.end();
@@ -208,12 +215,14 @@ check('Gitea API answers with the seed token', async () => {
   return `logged in as ${user.login}`;
 });
 
-check('Gitea has the closed save-file corruption bug', async () => {
+check('Gitea has every seeded issue in the right state', async () => {
   const issues = await once('gitea-issues', giteaIssues);
-  const bug = issues.find((issue) => /save-file corruption/i.test(issue.title));
-  assert(bug, 'save-file corruption issue is missing');
-  assert(bug.state === 'closed', `save-file corruption issue is ${bug.state}`);
-  return `issue #${bug.number}, ${issues.length} issues in total`;
+  for (const seeded of seed.gitea.issues) {
+    const found = issues.find((issue) => issue.title === seeded.title);
+    assert(found, `issue "${seeded.title}" is missing`);
+    assert(found.state === seeded.state, `issue "${seeded.title}" is ${found.state}, expected ${seeded.state}`);
+  }
+  return `${seed.gitea.issues.length} issues in ${issues.length} total`;
 });
 
 check('Mattermost API answers with the PAT', async () => {
@@ -258,80 +267,76 @@ check('Postgres has the knowledge_chunks table with a vector(1024) column and pu
   return `vector column and published_at present, ${data.chunkCount} rows`;
 });
 
-check('Postgres seed rows carry reliable dates', async () => {
+check('Postgres has the seeded company tables', async () => {
   const data = await once('postgres', postgresData);
-  const stats = data.seedDates.find((row) => row.table_name === 'playtest_quit_stats');
-  const budget = data.seedDates.find((row) => row.table_name === 'launch_budget');
-  assert(stats && stats.count === 10, `playtest_quit_stats has ${stats?.count ?? 0} dated rows`);
-  assert(budget && budget.count === 5, `launch_budget has ${budget?.count ?? 0} dated rows`);
-  return '10 quit rows, 5 budget rows dated';
+  for (const table of ['regulars_pricing', 'floor_morning_counts', 'food_safety_incident', 'delivery_commission_tiers', 'launch_budget']) {
+    assert((data.tableCounts[table] ?? 0) > 0, `${table} has no rows`);
+  }
+  return `${Object.values(data.tableCounts).reduce((sum, count) => sum + count, 0)} rows`;
 });
 
-check('Postgres shows the level 5 quit spike', async () => {
+check('Postgres shows the old and new kopi prices and the cost per cup', async () => {
   const data = await once('postgres', postgresData);
-  const level5 = data.stats.find((row) => row.level === 5);
-  assert(level5, 'level 5 row is missing');
-  const otherMax = Math.max(...data.stats.filter((row) => row.level !== 5).map((row) => row.quitRate));
-  assert(level5.quitRate > 50 && level5.quitRate > otherMax, `level 5 quit rate ${level5.quitRate}% is not the spike`);
-  return `level 5 ${level5.quitRate}%, next highest ${otherMax}%`;
+  assert(data.pricing, 'regulars pricing row is missing');
+  assert(Number(data.pricing.old_kopi_price_sgd) === 1.3, `old kopi price is ${data.pricing.old_kopi_price_sgd}`);
+  assert(Number(data.pricing.new_kopi_price_sgd) === 2.4, `new kopi price is ${data.pricing.new_kopi_price_sgd}`);
+  assert(Number(data.pricing.cost_per_cup_sgd) === 1.6, `cost per cup is ${data.pricing.cost_per_cup_sgd}`);
+  return `${data.pricing.regulars_most_mornings} regulars, $1.30 to $2.40`;
 });
 
-check('Postgres has wishlist and budget data', async () => {
-  const data = await once('postgres', postgresData);
-  assert(data.wishlistRows >= 3, `wishlist_counts has ${data.wishlistRows} rows`);
-  assert(data.budgetRows >= 4, `launch_budget has ${data.budgetRows} rows`);
-  return `${data.wishlistRows} wishlist rows, ${data.budgetRows} budget rows`;
-});
-
-check('Wiki contract says the final build is due on 20 November 2026', async () => {
+check('Wiki staffing page carries the counter cover and rest-day rule', async () => {
   const pages = await once('wiki', wikiPages);
-  const contract = pages.get('hawker-heroes/publisher-contract');
-  assert(contract, 'publisher contract page is missing');
-  assert(/20 November 2026/.test(contract), 'the contract page does not show 20 November 2026');
-  return 'wiki page shows the 20th';
+  const page = pages.get('kopitiam/staffing-plan');
+  assert(page, 'staffing page is missing');
+  assert(/two counter staff/i.test(page) && /double pay/i.test(page), 'the counter cover or rest-day rule is missing');
+  assert(/Siti/.test(page) && /family emergency/i.test(page), 'Siti or the family emergency is missing');
+  assert(/Auntie Mary/.test(page) && /15 minutes/.test(page), 'Auntie Mary or the till login is missing');
+  return 'staffing page present';
 });
 
-check('Wiki contract has the late-delivery penalty clause', async () => {
+check('Wiki seating page carries the seat crunch and laptop facts', async () => {
   const pages = await once('wiki', wikiPages);
-  const contract = pages.get('hawker-heroes/publisher-contract');
-  assert(contract, 'publisher contract page is missing');
-  assert(/5% of the\s+milestone payment/.test(contract), 'the 5% penalty clause is missing');
-  return 'clause 4.2 present';
+  const page = pages.get('kopitiam/seating-house-rules');
+  assert(page, 'seating page is missing');
+  assert(/28 seats/.test(page) && /16 of the 28/.test(page) && /420/.test(page), 'the seat crunch numbers are missing');
+  assert(/10 window-bar stools/.test(page) && /45 minutes/.test(page), 'the stools or Wi-Fi code is missing');
+  return 'seating page present';
 });
 
-check('Wiki booth rules still say 3m x 3m', async () => {
+check('Wiki delivery page carries the 32% commission, margins and tray stock', async () => {
   const pages = await once('wiki', wikiPages);
-  const booth = pages.get('hawker-heroes/booth-rules');
-  assert(booth, 'booth rules page is missing');
-  assert(/3m x 3m/.test(booth), 'the stale 3m x 3m booth size is missing');
-  return 'stale wiki size present';
+  const page = pages.get('kopitiam/delivery-pricing');
+  assert(page, 'delivery page is missing');
+  assert(/32%/.test(page) && /0\.50/.test(page) && /120/.test(page), 'the delivery commission numbers are missing');
+  assert(/\$5 profit/.test(page) && /30 large trays/.test(page), 'the platter margin or tray stock is missing');
+  assert(/charge more on the app than at the counter/i.test(page), 'the app price rule is missing');
+  return 'delivery page present';
 });
 
-check('Starfruit email says the final build is due on 17 November 2026', async () => {
+check('Food-agency email carries the 9:00 AM inspection and the logs', async () => {
   const messages = await once('mail', mailMessages);
-  const email = messages.find((message) => /final build date moved up/i.test(message.Subject));
-  assert(email, 'Starfruit build date email is missing');
-  assert(/17 November 2026/.test(email.Text), 'the Starfruit email does not show 17 November 2026');
-  return 'email shows the 17th';
+  const email = messages.find((message) => /Food Hygiene Inspection/i.test(message.Subject));
+  assert(email, 'inspection email is missing');
+  assert(/9:00 AM/.test(email.Text) && /disposal log/i.test(email.Text), 'the inspection time or disposal log is missing');
+  return 'inspection email present';
 });
 
-check('Indie Arcade email says the booth is 3m x 2m', async () => {
+check('GrabFood email carries the 32% commission and launch banner terms', async () => {
   const messages = await once('mail', mailMessages);
-  const email = messages.find((message) => /booth allocation/i.test(message.Subject));
-  assert(email, 'booth allocation email is missing');
-  assert(/3m x 2m/.test(email.Text), 'the organiser email does not show 3m x 2m');
-  return 'organiser email shows the smaller booth';
+  const email = messages.find((message) => /featured banner/i.test(message.Subject));
+  assert(email, 'GrabFood launch email is missing');
+  assert(/32%/.test(email.Text) && /charge more on the app than at the counter/i.test(email.Text), 'the commission or price rule is missing');
+  return 'GrabFood launch email present';
 });
 
-check('Mattermost has the undecided level 5 thread', async () => {
+check('Mattermost has the undecided opening-morning thread', async () => {
   const posts = await once('mattermost-posts', mattermostPosts);
-  const root = posts.find((post) => !post.root_id && /level 5/i.test(post.message));
-  assert(root, 'level 5 root post is missing');
+  const root = posts.find((post) => !post.root_id && /Siti texted at quarter to seven/i.test(post.message));
+  assert(root, 'opening-morning root post is missing');
   const replies = posts.filter((post) => post.root_id === root.id);
-  assert(replies.length >= 2, `level 5 thread has only ${replies.length} replies`);
+  assert(replies.length >= 1, `opening-morning thread has only ${replies.length} replies`);
   const text = replies.map((post) => post.message).join('\n');
-  assert(/that's the point/i.test(text), "the thread is missing Mei's \"that's the point\" reply");
-  assert(/park it/i.test(text) || /no decision/i.test(text), 'the thread does not look undecided');
+  assert(/free kopi|200/i.test(text), 'the opening-morning thread does not carry the flyer fact');
   return `${replies.length} replies, no decision`;
 });
 

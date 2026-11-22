@@ -12,7 +12,7 @@ export interface TestClient {
 
 /** Create a listening app with the test-kitchen scenario unless told otherwise. */
 export function createTestApp(options: Omit<CreateAppOptions, 'scenario'> = {}): Promise<KakiApp> {
-  return createApp({ ...options, scenario: testScenario });
+  return createApp({ speechRecognition: 'browser', ...options, scenario: testScenario });
 }
 
 /** Read the OS-assigned port from a listening test server. */

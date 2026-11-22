@@ -3,8 +3,8 @@ import type { AgendaItem } from '@kaki/shared';
 import { createAgendaClock } from '../../src/host/clock';
 
 const agenda: AgendaItem[] = [
-  { title: 'Prep', minutes: 5, ownerRole: 'chef' },
-  { title: 'Till', minutes: 2, ownerRole: 'cashier' },
+  { title: 'Prep', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'chef' },
+  { title: 'Till', minutes: 2, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' },
 ];
 
 function fakeTime(start = 1_000_000) {
@@ -102,5 +102,81 @@ describe('agenda clock', () => {
     time.advance(30);
     expect(clock.snapshot()).toMatchObject({ itemElapsedSeconds: 300, overrun: true });
     expect(() => createAgendaClock({ agenda, speed: 0 })).toThrow(/positive/);
+  });
+
+  it('reset returns to an unstarted meeting on item 0 with overruns armed again', () => {
+    const time = fakeTime();
+    const clock = createAgendaClock({ agenda, now: time.now });
+    let overruns = 0;
+    clock.onOverrun(() => (overruns += 1));
+    clock.start();
+    clock.advanceTo(1);
+    time.advance(200);
+    clock.tick();
+    clock.end();
+    expect(overruns).toBe(1);
+
+    clock.reset();
+    expect(clock.snapshot()).toMatchObject({ started: false, ended: false, agendaIndex: 0, meetingElapsedSeconds: 0 });
+
+    clock.start();
+    clock.advanceTo(1);
+    time.advance(200);
+    clock.tick();
+    expect(overruns).toBe(2);
+  });
+
+  it('freezes elapsed time and suppresses overruns while paused, then resumes from the exact second', () => {
+    const time = fakeTime();
+    const clock = createAgendaClock({ agenda, now: time.now });
+    const overruns: number[] = [];
+    clock.onOverrun((index) => overruns.push(index));
+
+    clock.start();
+    time.advance(150);
+    clock.pause();
+    expect(clock.snapshot()).toMatchObject({ paused: true, itemElapsedSeconds: 150, meetingElapsedSeconds: 150 });
+
+    time.advance(500);
+    clock.tick();
+    expect(clock.snapshot()).toMatchObject({ paused: true, itemElapsedSeconds: 150, meetingElapsedSeconds: 150, overrun: false });
+    expect(overruns).toEqual([]);
+
+    clock.resume();
+    expect(clock.snapshot()).toMatchObject({ paused: false, itemElapsedSeconds: 150, meetingElapsedSeconds: 150 });
+    time.advance(40);
+    expect(clock.snapshot()).toMatchObject({ paused: false, itemElapsedSeconds: 190, meetingElapsedSeconds: 190 });
+  });
+
+  it('remembers why it was paused, so a restart can resume an empty-room pause but not a person\'s Stop', () => {
+    const time = fakeTime();
+    const clock = createAgendaClock({ agenda, now: time.now });
+    clock.start();
+    time.advance(10);
+    clock.pause('empty-room');
+    expect(clock.snapshot()).toMatchObject({ paused: true, pauseKind: 'empty-room' });
+
+    const restored = createAgendaClock({ agenda, now: time.now });
+    restored.restore({
+      started: true,
+      ended: false,
+      paused: true,
+      pauseKind: 'empty-room',
+      agendaIndex: 0,
+      itemElapsedSeconds: 10,
+      meetingElapsedSeconds: 10,
+    });
+    expect(restored.snapshot()).toMatchObject({ paused: true, pauseKind: 'empty-room' });
+
+    const older = createAgendaClock({ agenda, now: time.now });
+    older.restore({
+      started: true,
+      ended: false,
+      paused: true,
+      agendaIndex: 0,
+      itemElapsedSeconds: 10,
+      meetingElapsedSeconds: 10,
+    });
+    expect(older.snapshot()).toMatchObject({ paused: true, pauseKind: 'person' });
   });
 });

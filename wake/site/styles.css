@@ -1,0 +1,424 @@
+/* Copied from web/src/ui/tokens.css, ui.css and landing.css so this page
+   looks like the real Kaki front door without needing the web build. */
+:root {
+  color-scheme: light;
+  --color-bg: #e9ecf2;
+  --bg-glow-a: rgba(0, 190, 170, 0.22);
+  --bg-glow-b: rgba(255, 90, 31, 0.16);
+  --panel: rgba(255, 255, 255, 0.72);
+  --color-surface: #ffffff;
+  --color-text: #0d1117;
+  --color-muted: #5a6472;
+  --color-faint: #8d96a4;
+  --color-border: rgba(13, 17, 23, 0.09);
+  --color-border-strong: rgba(13, 17, 23, 0.18);
+  --color-ink: #0d1117;
+  --color-accent: #00a58e;
+  --color-accent-soft: rgba(0, 165, 142, 0.12);
+  --color-danger: #e5334b;
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 20px 50px -22px rgba(30, 40, 70, 0.28);
+  --font-sans: "Geist", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  position: relative;
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 560px at 8% -5%, var(--bg-glow-a), transparent 60%),
+    radial-gradient(800px 560px at 100% 105%, var(--bg-glow-b), transparent 60%);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.kd-field {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 12px;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: box-shadow 140ms, border-color 140ms;
+}
+
+.kd-field:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-accent-soft);
+}
+
+.landing {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 32px max(16px, env(safe-area-inset-left, 0px));
+  font-family: var(--font-sans);
+  color: var(--color-text);
+}
+
+.landing-head {
+  max-width: 640px;
+  text-align: center;
+}
+
+.landing-head h1 {
+  margin: 6px 0 10px;
+  font-size: clamp(40px, 7vw, 64px);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+
+.landing-sub {
+  margin: 0 auto;
+  max-width: 560px;
+  color: var(--color-muted);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.landing-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  width: min(760px, 100%);
+}
+
+.landing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  border-radius: 20px;
+  background: var(--panel);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+}
+
+.landing-card h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.landing-card p {
+  margin: 0 0 8px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.landing-go {
+  display: block;
+  width: 100%;
+  margin-top: auto;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--color-ink);
+  color: var(--color-bg);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 160ms;
+}
+
+.landing-go:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.landing-go-secondary {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.landing-go:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  transform: none;
+}
+
+.landing-invite {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  border: 1px solid var(--color-border);
+}
+
+.landing-invite label {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.landing-invite-row {
+  display: flex;
+  gap: 8px;
+}
+
+.landing-invite-row .kd-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.landing-code-go {
+  flex: none;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-ink);
+  color: var(--color-bg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.landing-code-go:disabled {
+  background: var(--color-border);
+  color: var(--color-faint);
+  cursor: not-allowed;
+}
+
+.landing-go:focus-visible,
+.landing-code-go:focus-visible,
+.wake-retry:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.wake {
+  width: min(420px, 100%);
+  min-height: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.wake-text {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.wake[data-state="failed"] .wake-text {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.wake-detail {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.wake-elapsed {
+  margin: 0;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wake-retry {
+  margin-top: 4px;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .landing-paths {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Warm kopi-coloured wash and a friendly cup above the name. */
+.landing {
+  background:
+    radial-gradient(720px 480px at 50% 0%, rgba(246, 210, 170, 0.45), transparent 70%),
+    radial-gradient(640px 420px at 100% 100%, rgba(240, 170, 140, 0.22), transparent 65%);
+}
+
+.landing-mark {
+  display: block;
+  margin: 0 auto 4px;
+}
+
+/* Asleep: an empty cup. Waking: a kopi pot pours and the cup fills. Ready: full and steaming. */
+@keyframes cup-steam-rise {
+  0% { opacity: 0; transform: translateY(6px); }
+  40% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+@keyframes cup-pour {
+  to { stroke-dashoffset: -18; }
+}
+
+.cup {
+  overflow: visible;
+  /* Room above the cup for the pot, so it is never cut off at the top of a short window. */
+  margin-top: 32px;
+}
+
+.cup-steam {
+  fill: none;
+  stroke: #c9a27e;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.cup[data-state="ready"] .cup-steam {
+  animation: cup-steam-rise 2.8s ease-out infinite;
+}
+
+.cup[data-state="ready"] .cup-steam-2 {
+  animation-delay: 1.4s;
+}
+
+.cup-pot {
+  opacity: 0;
+  transform: translate(14px, -10px);
+  transition: opacity 400ms ease, transform 500ms ease;
+}
+
+.cup-stream,
+.cup-stream-shine {
+  fill: none;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.cup-stream {
+  stroke: #9b6a47;
+  stroke-width: 4.5;
+}
+
+.cup-stream-shine {
+  stroke: #e2b58c;
+  stroke-width: 1.6;
+  stroke-dasharray: 5 13;
+}
+
+.cup[data-state="waking"] .cup-pot {
+  opacity: 1;
+  transform: none;
+}
+
+.cup[data-state="waking"] .cup-stream,
+.cup[data-state="waking"] .cup-stream-shine {
+  opacity: 1;
+}
+
+.cup[data-state="waking"] .cup-stream-shine {
+  animation: cup-pour 0.5s linear infinite;
+}
+
+.cup-fill {
+  /* Empty until the script knows whether Kaki is awake. */
+  transform: translateY(46px);
+  transition: transform 600ms ease-out;
+}
+
+/* The last top-up when Kaki answers is a gentle pour, not a snap. */
+.cup[data-state="ready"] .cup-fill {
+  transition-duration: 1000ms;
+}
+
+.cup-top {
+  fill: #f6e3cf;
+  transition: fill 300ms;
+}
+
+.cup[data-state="ready"] .cup-top {
+  fill: #9b6a47;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cup[data-state="ready"] .cup-steam { animation: none; opacity: 0.6; }
+  .cup[data-state="waking"] .cup-stream-shine { animation: none; }
+  .cup-fill, .cup-top, .cup-pot, .cup-stream, .cup-stream-shine { transition: none; }
+}
+
+/* Privacy policy page (privacy.html). */
+.policy {
+  align-items: flex-start;
+}
+.policy-card {
+  max-width: 680px;
+  margin: 48px auto;
+  padding: 32px 36px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  line-height: 1.6;
+  text-align: left;
+}
+.policy-card h1 {
+  margin: 8px 0 4px;
+}
+.policy-card h2 {
+  margin-top: 28px;
+  font-size: 1.1rem;
+}
+.policy-card a {
+  color: var(--color-accent);
+}
+.policy-date {
+  color: var(--color-muted);
+  margin-top: 0;
+}
+.landing-foot {
+  font-size: 0.85rem;
+}
+.landing-foot a {
+  color: var(--color-muted);
+}

@@ -1,0 +1,31 @@
+import type { Task } from '@kaki/shared';
+
+/** Meeting time as `MM:SS`, or `H:MM:SS` once past one hour. */
+export function formatMeetingTime(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  const hours = Math.floor(seconds / 3600);
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(remainder).padStart(2, '0');
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** The one line every action artifact ends with: who it is for and which meeting approved it. */
+export function actionFooter(
+  _task: Pick<Task, 'sourceSeconds'>,
+  meetingTitle: string,
+  name: string,
+): string {
+  return `Posted by Kaki for ${name}, approved in ${meetingTitle}.`;
+}
+
+/** Append the footer as the last line of an artifact body. */
+export function withActionFooter(
+  body: string,
+  task: Pick<Task, 'sourceSeconds'>,
+  meetingTitle: string,
+  name: string,
+): string {
+  return `${body.trimEnd()}\n\n${actionFooter(task, meetingTitle, name)}`;
+}

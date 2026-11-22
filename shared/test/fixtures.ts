@@ -1,4 +1,4 @@
-import type { Scenario } from '../src/scenario';
+import type { Scenario } from '../src/scenarioTypes';
 
 /** A small scenario with roles that do not come from any shipped scenario. */
 export const testScenario: Scenario = {
@@ -10,8 +10,8 @@ export const testScenario: Scenario = {
     { id: 'cashier', label: 'Cashier' },
   ],
   attendees: [
-    { name: 'Ada', role: 'chef', zoomDisplayName: 'Ada (Chef)' },
-    { name: 'Bao', role: 'cashier', zoomDisplayName: 'Bao (Cashier)' },
+    { name: 'Ada', role: 'chef', displayName: 'Ada (Chef)' },
+    { name: 'Bao', role: 'cashier', displayName: 'Bao (Cashier)' },
   ],
-  agenda: [{ title: 'Prep', minutes: 5, ownerRole: 'chef' }],
+  agenda: [{ title: 'Prep', minutes: 5, canWait: false, deadline: 'before service', ownerRole: 'chef' }],
 };

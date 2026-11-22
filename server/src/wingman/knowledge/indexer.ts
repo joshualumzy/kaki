@@ -1,38 +1,62 @@
-import { Client } from 'pg';
+import { Client, type Pool, type PoolClient } from 'pg';
 import { loadEnv, type Env } from '../../../../docker/seed/env';
 import { jsonRequest, request, sleep } from '../../../../docker/seed/http';
 import { loadScenarioSeed } from '../../../../docker/seed/scenario';
+import type { EmailSettings } from '../../action/email';
+import type { GiteaSettings } from '../../action/gitea';
+import type { MattermostSettings } from '../../action/mattermost';
+import type { WikiSettings } from '../../action/wiki';
+import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
+import {
+  createMemoryWorkspaceToolStore,
+  createWorkspaceToolSource,
+  knowledgeSourceFor,
+  type WorkspaceToolKind,
+  type WorkspaceTools,
+} from '../../workspace/tools';
 import { isoDay, parseLongDay, shortDay } from './dates';
-import { embedTexts, gatewayConfigFromEnv, missingGatewayEnv, type GatewayConfig } from './gateway';
+import { embedText, embedTexts, gatewayConfigFromEnv, missingGatewayEnv, type GatewayConfig } from './gateway';
+
+/** Every stored kind of searchable record; `meeting` holds an ended meeting's minutes and to-dos. */
+export type KnowledgeSource = 'wiki' | 'gitea' | 'mattermost' | 'mail' | 'postgres' | 'meeting';
 
 /** One row of the searchable company knowledge. */
-export interface KnowledgeChunk {
-  source: 'wiki' | 'gitea' | 'mattermost' | 'mail' | 'postgres';
+interface KnowledgeChunk {
+  source: KnowledgeSource;
   ref: string;
   text: string;
   publishedAt: string;
+  /** The channel, repository, page path or table the record came from, when the tool has one. */
+  location?: string;
 }
 
-export interface IndexSummary {
+/** Anything that can run a query: a pool, a client or a transaction client. */
+export type Queryable = Pool | Client | PoolClient;
+
+interface IndexSummary {
   chunks: number;
   sources: Record<string, number>;
 }
 
-export interface WikiPageInput {
+interface WikiPageInput {
   path: string;
   title: string;
   content: string;
+  /** The page's own update time from the tool; the seed instead writes it into the content. */
+  updatedAt?: string | Date;
 }
 
-export interface GiteaIssueInput {
+interface GiteaIssueInput {
   number: number;
   title: string;
   state: string;
   labels: string[];
   body: string;
+  /** The issue's own update time from the tool; the seed instead writes "Opened:" into the body. */
+  date?: string;
 }
 
-export interface MattermostPostInput {
+interface MattermostPostInput {
   id: string;
   root_id?: string;
   user_id: string;
@@ -42,7 +66,7 @@ export interface MattermostPostInput {
   type?: string;
 }
 
-export interface MailMessageInput {
+interface MailMessageInput {
   messageId: string;
   subject: string;
   from: string;
@@ -51,26 +75,9 @@ export interface MailMessageInput {
   text: string;
 }
 
-export interface QuitStatRow {
-  level: number;
-  players_started: number;
-  players_quit: number;
-  quit_rate: string | number;
-  notes: string | null;
-  updated_on: string | Date;
-}
-
-export interface WishlistRow {
-  captured_on: string | Date;
-  wishlists: number;
-}
-
-export interface BudgetRow {
-  item: string;
-  planned_sgd: string | number;
-  spent_sgd: string | number;
-  notes: string | null;
-  updated_on: string | Date;
+/** One row from any seeded Postgres company table. */
+interface PostgresRow {
+  [column: string]: unknown;
 }
 
 interface WikiSection {
@@ -148,27 +155,40 @@ function slug(value: string): string {
     .replace(/^-|-$/g, '');
 }
 
+/** The seed date written into a Mattermost post; real posts use their create_at instead. */
+function seedMattermostDate(post: MattermostPostInput): string {
+  return parseMattermostSentAt(post.props, `Mattermost post ${post.id}`);
+}
+
 /** Make one chunk per wiki page section, with the page date in every header. */
 export function wikiChunks(page: WikiPageInput): KnowledgeChunk[] {
-  const updatedAt = parseWikiUpdatedAt(page.content, `Wiki page "${page.path}"`);
+  const updatedAt =
+    page.updatedAt === undefined
+      ? parseWikiUpdatedAt(page.content, `Wiki page "${page.path}"`)
+      : isoDay(page.updatedAt);
   const header = `[Wiki: ${page.title}, updated ${shortDay(updatedAt)}]`;
   return splitWikiSections(page.content).map((section, index) => ({
     source: 'wiki',
     ref: `${page.path}#${index + 1}-${slug(section.heading)}`,
     text: `${header}\n\n${section.heading}\n\n${section.body}`,
     publishedAt: updatedAt,
+    location: page.path,
   }));
 }
 
 /** Make one chunk per Gitea issue. */
-export function giteaChunk(issue: GiteaIssueInput, repo: string): KnowledgeChunk {
-  const openedAt = parseIssueOpenedAt(issue.body, `Gitea issue #${issue.number}`);
+export function giteaChunk(issue: GiteaIssueInput, repo: string, openedOverride?: string): KnowledgeChunk {
+  const openedAt =
+    openedOverride === undefined
+      ? parseIssueOpenedAt(issue.body, `Gitea issue #${issue.number}`)
+      : isoDay(openedOverride);
   const labels = issue.labels.length > 0 ? `Labels: ${issue.labels.join(', ')}` : 'Labels: none';
   return {
     source: 'gitea',
     ref: `#${issue.number}`,
     text: `[Gitea: ${repo} #${issue.number} "${issue.title}", opened ${shortDay(openedAt)}]\n\n${issue.title}\nState: ${issue.state}\n${labels}\n\n${issue.body}`,
     publishedAt: openedAt,
+    location: repo,
   };
 }
 
@@ -178,17 +198,16 @@ export function mattermostThreadChunk(
   root: MattermostPostInput,
   replies: MattermostPostInput[],
   usernames: Map<string, string>,
+  dateOf: (post: MattermostPostInput) => string = seedMattermostDate,
 ): KnowledgeChunk {
   const posts = [root, ...replies].sort((a, b) => {
-    const aDate = parseMattermostSentAt(a.props, `Mattermost post ${a.id}`).localeCompare(
-      parseMattermostSentAt(b.props, `Mattermost post ${b.id}`),
-    );
+    const aDate = dateOf(a).localeCompare(dateOf(b));
     return aDate === 0 ? a.create_at - b.create_at : aDate;
   });
   const latest = posts[posts.length - 1] as MattermostPostInput;
-  const latestDate = parseMattermostSentAt(latest.props, `Mattermost post ${latest.id}`);
+  const latestDate = dateOf(latest);
   const lines = posts.map((post) => {
-    const sentAt = parseMattermostSentAt(post.props, `Mattermost post ${post.id}`);
+    const sentAt = dateOf(post);
     const author = usernames.get(post.user_id) ?? post.user_id;
     return `[${sentAt}] ${author}: ${post.message}`;
   });
@@ -197,6 +216,7 @@ export function mattermostThreadChunk(
     ref: `#${channelName}/${root.id}`,
     text: `[Mattermost: #${channelName} thread, ${shortDay(latestDate)}]\n\n${lines.join('\n\n')}`,
     publishedAt: latestDate,
+    location: `#${channelName}`,
   };
 }
 
@@ -214,46 +234,25 @@ export function mailChunk(email: MailMessageInput): KnowledgeChunk {
     ref: email.messageId,
     text: `[Mail from ${mailOrganisation(email.fromAddress)}: ${email.subject}, ${shortDay(date)}]\n\nFrom: ${email.from}\nSubject: ${email.subject}\nDate: ${isoDay(date)}\n\n${email.text}`,
     publishedAt: date,
+    location: email.fromAddress,
   };
 }
 
-/** Make one chunk per playtest level. */
-export function quitStatChunk(row: QuitStatRow): KnowledgeChunk {
-  const updatedAt = isoDay(row.updated_on);
-  const notes = row.notes === null ? '' : `\nNotes: ${row.notes}`;
+/** Make one chunk for a row from a seeded Postgres company table. */
+export function postgresRowChunk(table: string, row: PostgresRow, dateColumn: string): KnowledgeChunk {
+  const updatedAt = isoDay(row[dateColumn] as string | Date);
+  const id = row.id;
+  const fallback = Object.values(row).find((value) => typeof value === 'string') ?? table;
+  const ref = `${table}/${id === undefined ? slug(String(fallback)) : String(id)}`;
+  const lines = Object.entries(row)
+    .filter(([column]) => column !== 'embedding')
+    .map(([column, value]) => `${column}: ${String(value)}`);
   return {
     source: 'postgres',
-    ref: `playtest_quit_stats/level-${row.level}`,
-    text: `[Postgres: playtest quit stats, level ${row.level}, updated ${shortDay(updatedAt)}]\n\nLevel ${row.level} quit rate: ${row.quit_rate}% (${row.players_quit} of ${row.players_started} players quit).${notes}`,
+    ref,
+    text: `[Postgres: ${table}, updated ${shortDay(updatedAt)}]\n\n${lines.join('\n')}`,
     publishedAt: updatedAt,
-  };
-}
-
-/** Make one chunk for all wishlist counts. */
-export function wishlistChunk(rows: WishlistRow[]): KnowledgeChunk {
-  if (rows.length === 0) throw new Error('Postgres wishlist_counts is empty');
-  const latest = rows.reduce((newest, row) =>
-    isoDay(row.captured_on) > isoDay(newest.captured_on) ? row : newest,
-  );
-  const latestDate = isoDay(latest.captured_on);
-  const lines = rows.map((row) => `- ${isoDay(row.captured_on)}: ${row.wishlists} wishlists`);
-  return {
-    source: 'postgres',
-    ref: 'wishlist_counts',
-    text: `[Postgres: wishlist counts, updated ${shortDay(latestDate)}]\n\n${lines.join('\n')}`,
-    publishedAt: latestDate,
-  };
-}
-
-/** Make one chunk per launch budget line. */
-export function budgetChunk(row: BudgetRow): KnowledgeChunk {
-  const updatedAt = isoDay(row.updated_on);
-  const notes = row.notes === null ? '' : `\nNotes: ${row.notes}`;
-  return {
-    source: 'postgres',
-    ref: `launch_budget/${slug(row.item)}`,
-    text: `[Postgres: launch budget - ${row.item}, updated ${shortDay(updatedAt)}]\n\nItem: ${row.item}\nPlanned: SGD ${row.planned_sgd}\nSpent: SGD ${row.spent_sgd}${notes}`,
-    publishedAt: updatedAt,
+    location: table,
   };
 }
 
@@ -263,7 +262,7 @@ interface GraphQlResponse<T> {
 }
 
 async function wikiGraphQl<T>(
-  env: Env,
+  baseUrl: string,
   query: string,
   variables: Record<string, unknown>,
   jwt?: string,
@@ -271,7 +270,7 @@ async function wikiGraphQl<T>(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
   const result = await jsonRequest<GraphQlResponse<T>>(
-    `${env.WIKI_URL}/graphql`,
+    `${baseUrl}/graphql`,
     { method: 'POST', headers, body: JSON.stringify({ query, variables }) },
     'Wiki.js GraphQL',
   );
@@ -282,13 +281,13 @@ async function wikiGraphQl<T>(
   return result.data;
 }
 
-async function wikiLogin(env: Env): Promise<string> {
+async function wikiLogin(settings: WikiSettings): Promise<string> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const login = await wikiGraphQl<{
         authentication: { login: { jwt?: string; responseResult: { succeeded: boolean; message?: string } } };
       }>(
-        env,
+        settings.url,
         `mutation Login($username: String!, $password: String!, $strategy: String!) {
           authentication {
             login(username: $username, password: $password, strategy: $strategy) {
@@ -297,7 +296,7 @@ async function wikiLogin(env: Env): Promise<string> {
             }
           }
         }`,
-        { username: env.WIKI_ADMIN_EMAIL, password: env.WIKI_ADMIN_PASSWORD, strategy: 'local' },
+        { username: settings.email, password: settings.password, strategy: 'local' },
       );
       const result = login.authentication.login;
       if (!result.responseResult.succeeded || !result.jwt) {
@@ -314,20 +313,25 @@ async function wikiLogin(env: Env): Promise<string> {
   throw new Error('Wiki.js login failed');
 }
 
-async function fetchWikiPages(env: Env): Promise<WikiPageInput[]> {
-  const jwt = await wikiLogin(env);
+/**
+ * Read the wiki's pages. A sample index only keeps the pages its scenario seeded; a workspace
+ * index reads every page the connected wiki offers.
+ */
+async function fetchWikiPages(settings: WikiSettings, seededPaths?: Set<string>): Promise<WikiPageInput[]> {
+  const jwt = await wikiLogin(settings);
 
-  const list = await wikiGraphQl<{ pages: { list: Array<{ path: string; title: string }> } }>(
-    env,
-    `query { pages { list { path title } } }`,
+  const list = await wikiGraphQl<{ pages: { list: Array<{ path: string; title: string; updatedAt?: string }> } }>(
+    settings.url,
+    `query { pages { list { path title updatedAt } } }`,
     {},
     jwt,
   );
 
   const pages: WikiPageInput[] = [];
   for (const page of list.pages.list) {
+    if (seededPaths !== undefined && !seededPaths.has(page.path)) continue;
     const detail = await wikiGraphQl<{ pages: { singleByPath: { content: string } | null } }>(
-      env,
+      settings.url,
       `query Page($path: String!, $locale: String!) {
         pages { singleByPath(path: $path, locale: $locale) { content } }
       }`,
@@ -336,7 +340,13 @@ async function fetchWikiPages(env: Env): Promise<WikiPageInput[]> {
     );
     const content = detail.pages.singleByPath?.content;
     if (content === undefined) throw new Error(`Wiki.js page "${page.path}" returned no content`);
-    pages.push({ path: page.path, title: page.title, content });
+    pages.push({
+      path: page.path,
+      title: page.title,
+      content,
+      // A sample page carries its own "Last updated" line; a real page uses the wiki's timestamp.
+      ...(seededPaths === undefined && page.updatedAt !== undefined ? { updatedAt: page.updatedAt } : {}),
+    });
   }
   return pages;
 }
@@ -347,21 +357,30 @@ interface GiteaIssueResponse {
   state: string;
   body: string;
   labels: Array<{ name: string }>;
+  created_at?: string;
+  updated_at?: string;
 }
 
-async function fetchGiteaIssues(env: Env): Promise<GiteaIssueInput[]> {
+/** Read the repository's issues; a sample index keeps only the seeded titles. */
+async function fetchGiteaIssues(settings: GiteaSettings, seededTitles?: Set<string>): Promise<GiteaIssueInput[]> {
   const issues = await jsonRequest<GiteaIssueResponse[]>(
-    `${env.GITEA_URL}/api/v1/repos/${env.GITEA_ORG}/${env.GITEA_REPO}/issues?state=all&type=issues&limit=100`,
-    { headers: { Authorization: `token ${env.GITEA_TOKEN}` } },
+    `${settings.url}/api/v1/repos/${encodeURIComponent(settings.owner)}/${encodeURIComponent(settings.repo)}/issues?state=all&type=issues&limit=100`,
+    { headers: { Authorization: `token ${settings.token}` } },
     'Gitea issues',
   );
-  return issues.map((issue) => ({
-    number: issue.number,
-    title: issue.title,
-    state: issue.state,
-    labels: issue.labels.map((label) => label.name),
-    body: issue.body,
-  }));
+  return issues
+    .filter((issue) => seededTitles === undefined || seededTitles.has(issue.title))
+    .map((issue) => {
+      const date = issue.updated_at ?? issue.created_at;
+      return {
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        labels: issue.labels.map((label) => label.name),
+        body: issue.body,
+        ...(date === undefined ? {} : { date }),
+      };
+    });
 }
 
 interface MattermostTeam {
@@ -387,41 +406,64 @@ interface MattermostPostList {
   posts: Record<string, MattermostPostInput>;
 }
 
-async function mattermostJson<T>(env: Env, path: string): Promise<T> {
+async function mattermostJson<T>(settings: MattermostSettings, path: string): Promise<T> {
   return jsonRequest<T>(
-    `${env.MATTERMOST_URL}/api/v4${path}`,
-    { headers: { Authorization: `Bearer ${env.MATTERMOST_TOKEN}` } },
+    `${settings.url}/api/v4${path}`,
+    { headers: { Authorization: `Bearer ${settings.token}` } },
     `Mattermost ${path}`,
   );
 }
 
+type MattermostThread = {
+  channel: string;
+  root: MattermostPostInput;
+  replies: MattermostPostInput[];
+  usernames: Map<string, string>;
+};
+
+/**
+ * Read Mattermost threads. A sample index reads every seeded channel and requires the seed date;
+ * a workspace index reads only the channel its connection posts into and dates posts by create_at.
+ */
 async function fetchMattermostThreads(
-  env: Env,
-): Promise<Array<{ channel: string; root: MattermostPostInput; replies: MattermostPostInput[]; usernames: Map<string, string> }>> {
-  const seededChannels = new Set(
-    loadScenarioSeed(env.SCENARIO).mattermost.channels.map((channel) => channel.name),
-  );
+  settings: MattermostSettings,
+  seededChannels?: Set<string>,
+): Promise<MattermostThread[]> {
   const team = await mattermostJson<MattermostTeam>(
-    env,
-    `/teams/name/${encodeURIComponent(env.MATTERMOST_TEAM)}`,
+    settings,
+    `/teams/name/${encodeURIComponent(settings.team)}`,
   );
   const [channels, members] = await Promise.all([
-    mattermostJson<MattermostChannel[]>(env, `/teams/${team.id}/channels`),
-    mattermostJson<MattermostMember[]>(env, `/teams/${team.id}/members?per_page=200`),
+    mattermostJson<MattermostChannel[]>(settings, `/teams/${team.id}/channels`),
+    mattermostJson<MattermostMember[]>(settings, `/teams/${team.id}/members?per_page=200`),
   ]);
   const users = await Promise.all(
-    members.map((member) => mattermostJson<MattermostUser>(env, `/users/${member.user_id}`)),
+    members.map((member) => mattermostJson<MattermostUser>(settings, `/users/${member.user_id}`)),
   );
   const usernames = new Map(users.map((user) => [user.id, user.username]));
 
-  const threads: Array<{ channel: string; root: MattermostPostInput; replies: MattermostPostInput[]; usernames: Map<string, string> }> = [];
-  for (const channel of channels) {
-    if (!seededChannels.has(channel.name)) continue;
+  let wanted = channels;
+  if (seededChannels !== undefined) {
+    wanted = channels.filter((channel) => seededChannels.has(channel.name));
+  } else {
+    const configured = settings.channel;
+    wanted = channels.filter((channel) => channel.name === configured);
+    if (wanted.length === 0) {
+      throw new Error(`Mattermost has no channel named "${configured}" to index`);
+    }
+  }
+
+  const threads: MattermostThread[] = [];
+  for (const channel of wanted) {
     const list = await mattermostJson<MattermostPostList>(
-      env,
+      settings,
       `/channels/${channel.id}/posts?per_page=200&page=0`,
     );
-    const posts = Object.values(list.posts).filter((post) => !post.type);
+    const posts = Object.values(list.posts).filter((post) => {
+      if (post.type || post.message.trim() === '') return false;
+      if (seededChannels === undefined) return true;
+      return typeof post.props?.sent_at === 'string' && post.props.sent_at.trim() !== '';
+    });
     const replies = new Map<string, MattermostPostInput[]>();
     const roots: MattermostPostInput[] = [];
     for (const post of posts) {
@@ -456,16 +498,16 @@ interface MailMessage {
   Text: string;
 }
 
-async function fetchEmails(env: Env): Promise<MailMessageInput[]> {
+async function fetchEmails(settings: EmailSettings): Promise<MailMessageInput[]> {
   const list = await jsonRequest<{ messages: MailSummary[] }>(
-    `${env.MAILPIT_URL}/api/v1/messages`,
+    `${settings.mailpitUrl}/api/v1/messages`,
     {},
     'Mailpit messages',
   );
   const messages = await Promise.all(
     list.messages.map((summary) =>
       jsonRequest<MailMessage>(
-        `${env.MAILPIT_URL}/api/v1/message/${encodeURIComponent(summary.ID)}`,
+        `${settings.mailpitUrl}/api/v1/message/${encodeURIComponent(summary.ID)}`,
         {},
         'Mailpit message',
       ),
@@ -481,60 +523,152 @@ async function fetchEmails(env: Env): Promise<MailMessageInput[]> {
   }));
 }
 
-async function fetchPostgresChunks(env: Env): Promise<KnowledgeChunk[]> {
-  const client = new Client({ connectionString: env.POSTGRES_URL, connectionTimeoutMillis: 5_000 });
+/** Read the seeded company tables; only the sample workspace's records live in this database. */
+async function fetchPostgresChunks(postgresUrl: string): Promise<KnowledgeChunk[]> {
+  const client = new Client({ connectionString: postgresUrl, connectionTimeoutMillis: 5_000 });
   await client.connect();
   try {
-    const quitStats = await client.query<QuitStatRow>(
-      'SELECT level, players_started, players_quit, quit_rate, notes, updated_on FROM playtest_quit_stats ORDER BY level',
+    const tables = await client.query<{ table_name: string }>(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'knowledge_chunks' ORDER BY table_name",
     );
-    const wishlists = await client.query<WishlistRow>(
-      'SELECT captured_on, wishlists FROM wishlist_counts ORDER BY captured_on',
-    );
-    const budget = await client.query<BudgetRow>(
-      'SELECT item, planned_sgd, spent_sgd, notes, updated_on FROM launch_budget ORDER BY item',
-    );
-    return [
-      ...quitStats.rows.map(quitStatChunk),
-      wishlistChunk(wishlists.rows),
-      ...budget.rows.map(budgetChunk),
-    ];
+    const chunks: KnowledgeChunk[] = [];
+    for (const { table_name: table } of tables.rows) {
+      const columns = await client.query<{ column_name: string }>(
+        'SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2',
+        ['public', table],
+      );
+      const names = columns.rows.map((column) => column.column_name);
+      const dateColumn = ['updated_on', 'captured_on', 'trial_date', 'published_at', 'date'].find((column) =>
+        names.includes(column),
+      );
+      if (dateColumn === undefined) {
+        console.warn(`kaki indexer: skipping Postgres table "${table}" because it has no company date column`);
+        continue;
+      }
+      const rows = await client.query<PostgresRow>(`SELECT * FROM ${quoteIdentifier(table)}`);
+      for (const row of rows.rows) chunks.push(postgresRowChunk(table, row, dateColumn));
+    }
+    return chunks;
   } finally {
     await client.end();
   }
 }
 
-async function writeChunks(env: Env, chunks: KnowledgeChunk[], embeddings: number[][]): Promise<void> {
-  const client = new Client({ connectionString: env.POSTGRES_URL, connectionTimeoutMillis: 5_000 });
+function quoteIdentifier(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Bring an existing chunks table up to the workspace-scoped shape: a workspace on every row, an
+ * optional location, the full-text column, and a unique key that includes the workspace so two
+ * workspaces may use the same source and ref without colliding.
+ */
+export async function ensureKnowledgeSchema(db: Queryable): Promise<void> {
+  await db.query(
+    `ALTER TABLE knowledge_chunks
+       ADD COLUMN IF NOT EXISTS workspace_id text NOT NULL DEFAULT '${SAMPLE_WORKSPACE_ID}'`,
+  );
+  await db.query('ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS location text');
+  // The seeded table had UNIQUE (source, ref); that would stop a second workspace indexing its own
+  // copy of the same record. Replace it with the workspace-scoped key and index.
+  await db.query('ALTER TABLE knowledge_chunks DROP CONSTRAINT IF EXISTS knowledge_chunks_source_ref_key');
+  await db.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_chunks_workspace_source_ref_uidx
+       ON knowledge_chunks (workspace_id, source, ref)`,
+  );
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS knowledge_chunks_workspace_source_idx ON knowledge_chunks (workspace_id, source)',
+  );
+  await db.query(
+    `ALTER TABLE knowledge_chunks
+       ADD COLUMN IF NOT EXISTS text_tsv tsvector
+       GENERATED ALWAYS AS (to_tsvector('english', text)) STORED`,
+  );
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS knowledge_chunks_text_tsv_idx ON knowledge_chunks USING GIN (text_tsv)',
+  );
+}
+
+/** Delete one workspace's source chunks whose refs are no longer present. */
+export async function pruneWorkspaceSource(
+  db: Queryable,
+  workspaceId: string,
+  source: KnowledgeSource,
+  refs: string[],
+): Promise<void> {
+  await db.query(
+    'DELETE FROM knowledge_chunks WHERE workspace_id = $1 AND source = $2 AND NOT (ref = ANY($3::text[]))',
+    [workspaceId, source, refs],
+  );
+}
+
+/**
+ * Upsert chunks for one workspace and drop the stale refs of every source present in this batch.
+ * The upsert and the delete both name the workspace, so one workspace's reindex can never touch
+ * another's rows.
+ */
+export async function writeWorkspaceChunks(
+  db: Queryable,
+  workspaceId: string,
+  chunks: KnowledgeChunk[],
+  embeddings: number[][],
+  options: { prune?: boolean } = {},
+): Promise<void> {
+  await ensureKnowledgeSchema(db);
+  for (const [index, chunk] of chunks.entries()) {
+    const embedding = embeddings[index];
+    if (embedding === undefined) throw new Error(`No embedding for chunk ${chunk.source}:${chunk.ref}`);
+    await db.query(
+      `INSERT INTO knowledge_chunks (workspace_id, source, ref, text, published_at, embedding, location)
+       VALUES ($1, $2, $3, $4, $5::timestamptz, $6::vector, $7)
+       ON CONFLICT (workspace_id, source, ref) DO UPDATE
+         SET text = EXCLUDED.text,
+             published_at = EXCLUDED.published_at,
+             embedding = EXCLUDED.embedding,
+             location = EXCLUDED.location`,
+      [
+        workspaceId,
+        chunk.source,
+        chunk.ref,
+        chunk.text,
+        chunk.publishedAt,
+        `[${embedding.join(',')}]`,
+        chunk.location ?? null,
+      ],
+    );
+  }
+
+  if (options.prune === false) return;
+  const bySource = new Map<KnowledgeSource, string[]>();
+  for (const chunk of chunks) {
+    const refs = bySource.get(chunk.source) ?? [];
+    refs.push(chunk.ref);
+    bySource.set(chunk.source, refs);
+  }
+  for (const [source, refs] of bySource) {
+    await pruneWorkspaceSource(db, workspaceId, source, refs);
+  }
+}
+
+/** Replace one workspace's source chunks in one transaction. */
+async function writeSourceChunks(
+  postgresUrl: string,
+  workspaceId: string,
+  source: KnowledgeSource,
+  chunks: KnowledgeChunk[],
+  embeddings: number[][],
+): Promise<void> {
+  const client = new Client({ connectionString: postgresUrl, connectionTimeoutMillis: 5_000 });
   await client.connect();
   try {
     await client.query('BEGIN');
-    for (const [index, chunk] of chunks.entries()) {
-      const embedding = embeddings[index];
-      if (embedding === undefined) throw new Error(`No embedding for chunk ${chunk.source}:${chunk.ref}`);
-      await client.query(
-        `INSERT INTO knowledge_chunks (source, ref, text, published_at, embedding)
-         VALUES ($1, $2, $3, $4::timestamptz, $5::vector)
-         ON CONFLICT (source, ref) DO UPDATE
-           SET text = EXCLUDED.text,
-               published_at = EXCLUDED.published_at,
-               embedding = EXCLUDED.embedding`,
-        [chunk.source, chunk.ref, chunk.text, chunk.publishedAt, `[${embedding.join(',')}]`],
-      );
-    }
-
-    const bySource = new Map<string, string[]>();
-    for (const chunk of chunks) {
-      const refs = bySource.get(chunk.source) ?? [];
-      refs.push(chunk.ref);
-      bySource.set(chunk.source, refs);
-    }
-    for (const [source, refs] of bySource) {
-      await client.query(
-        'DELETE FROM knowledge_chunks WHERE source = $1 AND NOT (ref = ANY($2::text[]))',
-        [source, refs],
-      );
-    }
+    await writeWorkspaceChunks(client, workspaceId, chunks, embeddings, { prune: false });
+    await pruneWorkspaceSource(
+      client,
+      workspaceId,
+      source,
+      chunks.map((chunk) => chunk.ref),
+    );
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);
@@ -544,49 +678,194 @@ async function writeChunks(env: Env, chunks: KnowledgeChunk[], embeddings: numbe
   }
 }
 
-/** Read every fake-company service and replace the knowledge chunks with fresh embeddings. */
-export async function indexKnowledge(options: {
-  env?: Env;
-  gateway?: GatewayConfig;
-  log?: (message: string) => void;
-} = {}): Promise<IndexSummary> {
-  const env = options.env ?? loadEnv();
-  const log = options.log ?? ((message: string) => console.log(message));
-  const gateway = options.gateway ?? gatewayConfigFromEnv();
-  if (gateway === undefined) {
-    throw new Error(`Indexing needs ${missingGatewayEnv().join(' and ')}`);
+interface ReadContext {
+  tools: WorkspaceTools;
+  /** Set only for the sample workspace: read just the scenario's seeded records. */
+  scenario?: string;
+  postgresUrl?: string;
+}
+
+/** Read one source's records for a workspace, or the sample's seeded records. */
+async function readSource(source: KnowledgeSource, context: ReadContext): Promise<KnowledgeChunk[]> {
+  const scenario = context.scenario;
+  switch (source) {
+    case 'wiki': {
+      const settings = context.tools.wiki;
+      if (settings === undefined) throw new Error('The wiki is not connected for this workspace');
+      const seededPaths =
+        scenario === undefined
+          ? undefined
+          : new Set(loadScenarioSeed(scenario).pages.map((page) => page.path));
+      return (await fetchWikiPages(settings, seededPaths)).flatMap(wikiChunks);
+    }
+    case 'gitea': {
+      const settings = context.tools.gitea;
+      if (settings === undefined) throw new Error('Gitea is not connected for this workspace');
+      const seededTitles =
+        scenario === undefined
+          ? undefined
+          : new Set(loadScenarioSeed(scenario).gitea.issues.map((issue) => issue.title));
+      const issues = await fetchGiteaIssues(settings, seededTitles);
+      return issues.map((issue) =>
+        giteaChunk(issue, settings.repo, scenario === undefined ? issue.date : undefined),
+      );
+    }
+    case 'mattermost': {
+      const settings = context.tools.mattermost;
+      if (settings === undefined) throw new Error('Mattermost is not connected for this workspace');
+      const seededChannels =
+        scenario === undefined
+          ? undefined
+          : new Set(loadScenarioSeed(scenario).mattermost.channels.map((channel) => channel.name));
+      const threads = await fetchMattermostThreads(settings, seededChannels);
+      const dateOf =
+        scenario === undefined
+          ? (post: MattermostPostInput) => isoDay(new Date(post.create_at))
+          : undefined;
+      return threads.map((thread) =>
+        mattermostThreadChunk(thread.channel, thread.root, thread.replies, thread.usernames, dateOf),
+      );
+    }
+    case 'mail': {
+      const settings = context.tools.email;
+      if (settings === undefined) throw new Error('Email is not connected for this workspace');
+      return (await fetchEmails(settings)).map(mailChunk);
+    }
+    case 'postgres': {
+      if (context.postgresUrl === undefined) throw new Error('Postgres company records need POSTGRES_URL');
+      return fetchPostgresChunks(context.postgresUrl);
+    }
+    case 'meeting':
+      throw new Error('Meeting records are indexed from the meeting itself, not from a tool');
   }
+}
 
-  const wikiPages = await fetchWikiPages(env);
-  log(`  wiki: ${wikiPages.length} pages`);
-  const issues = await fetchGiteaIssues(env);
-  log(`  gitea: ${issues.length} issues`);
-  const threads = await fetchMattermostThreads(env);
-  log(`  mattermost: ${threads.length} threads`);
-  const emails = await fetchEmails(env);
-  log(`  mail: ${emails.length} emails`);
-  const postgresChunks = await fetchPostgresChunks(env);
-  log(`  postgres: ${postgresChunks.length} chunks`);
-
-  const chunks: KnowledgeChunk[] = [
-    ...wikiPages.flatMap(wikiChunks),
-    ...issues.map((issue) => giteaChunk(issue, env.GITEA_REPO)),
-    ...threads.map((thread) => mattermostThreadChunk(thread.channel, thread.root, thread.replies, thread.usernames)),
-    ...emails.map(mailChunk),
-    ...postgresChunks,
-  ];
-  if (chunks.length === 0) throw new Error('Indexing found no company data');
-
-  log(`  embedding ${chunks.length} chunks with ${gateway.embedModel}`);
-  const embeddings = await embedTexts(
-    gateway,
-    chunks.map((chunk) => chunk.text),
-  );
-  await writeChunks(env, chunks, embeddings);
-
+function indexSummary(chunks: KnowledgeChunk[]): IndexSummary {
   const sources: Record<string, number> = {};
   for (const chunk of chunks) sources[chunk.source] = (sources[chunk.source] ?? 0) + 1;
   return { chunks: chunks.length, sources };
+}
+
+function requireGateway(gateway: GatewayConfig | undefined, env: NodeJS.ProcessEnv): GatewayConfig {
+  if (gateway !== undefined) return gateway;
+  const config = gatewayConfigFromEnv(env);
+  if (config === undefined) {
+    throw new Error(`Indexing needs ${missingGatewayEnv(env).join(' and ')}`);
+  }
+  return config;
+}
+
+export interface IndexWorkspaceSourceOptions {
+  workspaceId: string;
+  kind: WorkspaceToolKind;
+  tools: WorkspaceTools;
+  postgresUrl: string;
+  gateway?: GatewayConfig;
+  env?: NodeJS.ProcessEnv;
+  log?: (message: string) => void;
+}
+
+/** Refresh one connected tool's records for one workspace. */
+export async function indexWorkspaceSource(options: IndexWorkspaceSourceOptions): Promise<IndexSummary> {
+  const log = options.log ?? ((message: string) => console.log(message));
+  if (options.kind === 'calendar') {
+    log(`  calendar: no searchable records`);
+    return { chunks: 0, sources: {} };
+  }
+  const source = knowledgeSourceFor(options.kind) as KnowledgeSource;
+  const env = options.env ?? process.env;
+  const gateway = requireGateway(options.gateway, env);
+  const chunks = await readSource(source, { tools: options.tools, postgresUrl: options.postgresUrl });
+  const embeddings =
+    chunks.length === 0 ? [] : await embedTexts(gateway, chunks.map((chunk) => chunk.text));
+  await writeSourceChunks(options.postgresUrl, options.workspaceId, source, chunks, embeddings);
+  log(`  ${source}: ${chunks.length} chunks for workspace ${options.workspaceId}`);
+  return indexSummary(chunks);
+}
+
+/** Index the built-in sample workspace exactly as `npm run index:knowledge` always has. */
+export async function indexSampleKnowledge(
+  options: {
+    env?: Env;
+    gateway?: GatewayConfig;
+    log?: (message: string) => void;
+  } = {},
+): Promise<IndexSummary> {
+  const env = options.env ?? loadEnv();
+  const log = options.log ?? ((message: string) => console.log(message));
+  // The gateway credentials live in the process environment; `env` only carries the stack's URLs.
+  const gateway = requireGateway(options.gateway, process.env);
+  // The stack's URLs and tokens win; the rest (e.g. the Mattermost post channel) comes from the process.
+  const tools = await createWorkspaceToolSource(createMemoryWorkspaceToolStore(), {
+    ...process.env,
+    ...env,
+  }).toolsFor(SAMPLE_WORKSPACE_ID);
+
+  const sources: KnowledgeSource[] = ['wiki', 'gitea', 'mattermost', 'mail', 'postgres'];
+  const totals: Record<string, number> = {};
+  let total = 0;
+  for (const source of sources) {
+    const chunks = await readSource(source, {
+      tools,
+      scenario: env.SCENARIO,
+      postgresUrl: env.POSTGRES_URL,
+    });
+    log(`  ${source}: ${chunks.length} chunks`);
+    const embeddings =
+      chunks.length === 0 ? [] : await embedTexts(gateway, chunks.map((chunk) => chunk.text));
+    await writeSourceChunks(env.POSTGRES_URL, SAMPLE_WORKSPACE_ID, source, chunks, embeddings);
+    if (chunks.length > 0) {
+      totals[source] = chunks.length;
+      total += chunks.length;
+    }
+  }
+  if (total === 0) throw new Error('Indexing found no company data');
+  return { chunks: total, sources: totals };
+}
+
+/** Read every fake-company service and replace the sample workspace's chunks with fresh embeddings. */
+export async function indexKnowledge(
+  options: {
+    env?: Env;
+    gateway?: GatewayConfig;
+    log?: (message: string) => void;
+  } = {},
+): Promise<IndexSummary> {
+  return indexSampleKnowledge(options);
+}
+
+/**
+ * Index an ended meeting's minutes and to-dos as one `meeting` chunk in its own workspace. The ref
+ * is the meeting id, so re-indexing the same meeting replaces its record and never touches another
+ * meeting's.
+ */
+export async function indexMeetingRecord(options: {
+  db: Queryable;
+  workspaceId: string;
+  meetingId: string;
+  title: string;
+  text: string;
+  publishedAt: string;
+  gateway?: GatewayConfig;
+  env?: NodeJS.ProcessEnv;
+}): Promise<void> {
+  const gateway = requireGateway(options.gateway, options.env ?? process.env);
+  const embedding = await embedText(gateway, options.text);
+  await writeWorkspaceChunks(
+    options.db,
+    options.workspaceId,
+    [
+      {
+        source: 'meeting',
+        ref: `meeting:${options.meetingId}`,
+        text: options.text,
+        publishedAt: options.publishedAt,
+        location: options.title,
+      },
+    ],
+    [embedding],
+    { prune: false },
+  );
 }
 
 /** A small health probe so a failed service names itself before indexing starts. */

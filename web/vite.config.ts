@@ -9,6 +9,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': { target: 'http://localhost:3001' },
+      '/health': { target: 'http://localhost:3001' },
       '/ws': { target: 'ws://localhost:3001', ws: true },
       // Phones on the Wi-Fi get the app but not the dev routes: only this machine may call them.
       '/dev': {
