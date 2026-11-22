@@ -215,6 +215,38 @@ describe('workspace tools API', () => {
     expect(await workspaceTools.get(workspaceId, 'mattermost')).toBeUndefined();
   });
 
+  it('never sends the saved token to a different address', async () => {
+    process.env.KAKI_SECRET_KEY = newKey();
+    const store = createMemoryAuthStore();
+    const workspaceTools = createMemoryWorkspaceToolStore();
+    const { base } = await buildApp(store, workspaceTools);
+    const ada = await signIn(store, 'Ada');
+    const workspaceId = await createTeam(base, ada.cookie);
+    const mattermost = await mattermostServer();
+    const settings = { url: mattermost.url, team: 'kopitiam', channel: 'launch' };
+    const path = `/api/workspaces/${workspaceId}/tools/mattermost`;
+    const saved = await request(base, path, { method: 'PUT', cookie: ada.cookie, body: { settings, token: 'bot-token' } });
+    expect(saved.status).toBe(200);
+
+    const other = await mattermostServer();
+    for (const [method, url] of [['POST', `${path}/test`], ['PUT', path]] as const) {
+      const moved = await request(base, url, {
+        method,
+        cookie: ada.cookie,
+        body: { settings: { ...settings, url: other.url } },
+      });
+      expect(moved.status).toBe(400);
+    }
+    expect(other.auth).toEqual([]);
+
+    const same = await request(base, `${path}/test`, {
+      method: 'POST',
+      cookie: ada.cookie,
+      body: { settings: { ...settings, channel: 'launch' } },
+    });
+    expect(same.status).toBe(200);
+  });
+
   it('starts indexing a just-connected tool in the background', async () => {
     process.env.KAKI_SECRET_KEY = newKey();
     const store = createMemoryAuthStore();

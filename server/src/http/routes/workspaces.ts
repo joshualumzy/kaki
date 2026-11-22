@@ -111,6 +111,10 @@ async function readToolTest(
       if (saved === undefined) {
         return { error: 'Connect this tool first, or send its token with the test.', status: 400 };
       }
+      // The saved token only ever goes to the address it was saved for.
+      if (normalized.settings.url !== saved.settings.url) {
+        return { error: 'A new address needs its token. Enter the token again.', status: 400 };
+      }
       try {
         token = decryptSecret(saved, parseSecretKey(env.KAKI_SECRET_KEY));
       } catch (error) {
