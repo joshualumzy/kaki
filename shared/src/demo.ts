@@ -43,7 +43,6 @@ export type ControlMessage =
   | { kind: 'text'; text: string }
   /** Keys are being pressed: a short sound in the microphone is probably the keyboard, not speech. */
   | { kind: 'typing' }
-  | { kind: 'lock' }
   /** The person wants the AI attendees to pause or stop talking now. */
   | { kind: 'stop' }
   /** The person wants the AI attendees to resume after being paused. */
@@ -58,7 +57,7 @@ export type ControlMessage =
 export function parseControlMessage(raw: unknown): ControlMessage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const message = raw as { kind?: unknown; text?: unknown; requestId?: unknown; session?: unknown };
-  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume' || message.kind === 'lock') {
+  if (message.kind === 'typing' || message.kind === 'stop' || message.kind === 'resume') {
     return { kind: message.kind };
   }
   if (message.kind === 'start') {

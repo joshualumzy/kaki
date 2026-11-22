@@ -2128,7 +2128,7 @@ describe('per-person speech status', () => {
         expect(latest?.participants['visitor-1']?.state).toBe('failed');
       });
       expect(statusMessages().at(-1)?.outage).toBeUndefined();
-      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/repeat it, or type it/i);
+      expect(statusMessages().at(-1)?.participants['visitor-1']?.message).toMatch(/Please say it again/);
 
       audio.frames.push(...frames(10, 20_000), ...frames(10, 0));
       rooms[0]!.emit('trackSubscribed', { kind: 1 }, undefined, visitor);
