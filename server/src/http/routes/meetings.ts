@@ -161,6 +161,10 @@ export async function handleMeetingJoin(call: RouteCall): Promise<void> {
     sendJson(response, 404, { error: 'meeting-not-found' });
     return;
   }
+  if (row.status === 'ended') {
+    sendJson(response, 409, { error: 'This meeting has ended' });
+    return;
+  }
 
   if (accountUserId(principal) !== undefined) {
     // Signed-in people join under their Google name; joining never adds them to the workspace.
