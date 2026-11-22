@@ -110,7 +110,7 @@ export async function embedTexts(
     const response = await postJson<EmbeddingResponse>(
       embedConfig,
       '/embeddings',
-      { model: config.embedModel, input: batch },
+      { model: config.embedModel, input: batch, dimensions: 1024 },
       'Company search embeddings',
       EMBED_TIMEOUT_MS,
     );
