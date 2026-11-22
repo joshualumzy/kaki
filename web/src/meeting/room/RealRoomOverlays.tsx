@@ -17,8 +17,20 @@ export function RealRoomBanners() {
   if (room === null) return null;
   const { meetingState, send } = room;
   const offTheRecord = meetingState?.offTheRecord ?? null;
+  // A newcomer who starts a meeting is usually alone at first: point at Invite until someone joins.
+  const alone =
+    meetingState !== undefined &&
+    meetingState.phase === 'running' &&
+    !meetingState.waitingForOwner &&
+    meetingState.participants.length <= 1;
   return (
     <div className="kd-real-banners">
+      {alone ? (
+        <div className="kd-real-banner" data-tone="solo" role="status">
+          You&apos;re the only one here — tap Invite to share the link or QR code, so someone can
+          join from a phone.
+        </div>
+      ) : null}
       {offTheRecord === null ? null : (
         <div className="kd-real-banner" data-tone="off-record" role="status">
           <span>
