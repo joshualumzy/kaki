@@ -1012,6 +1012,49 @@ describe('setup edits before Start', () => {
 });
 
 describe('an ended meeting on reconnect', () => {
+  it('starts the next practice meeting fresh when the same id is live again', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
+      );
+      expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
+
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-2',
+        snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, version: 4 }),
+      });
+      await runner.markStarted({ meetingId: 'meeting-1' });
+
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(2));
+      expect(log.some((line) => line.includes('live again'))).toBe(true);
+    } finally {
+      await runner.stop();
+    }
+  });
+
   it('stops the conversation and never speaks the closing line on catch-up', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
