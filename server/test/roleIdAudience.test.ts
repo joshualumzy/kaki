@@ -102,16 +102,22 @@ describe('a role id that spells a projection audience', () => {
     const socket = await openRoleSocket(port, 'participant');
     socket.on('message', (data) => messages.push(JSON.parse(data.toString()) as KakiEvent));
 
-    const nudge: KakiEvent = {
-      type: 'NUDGE',
+    const note: KakiEvent = {
+      type: 'WINGMAN_NOTE',
       audience: { kind: 'role', role: 'participant' },
-      payload: { text: 'Prep starts in one minute.', agendaIndex: 0 },
+      payload: {
+        id: 'answer:participant',
+        kind: 'answer',
+        urgency: 'quiet',
+        title: 'Wingman',
+        text: 'Prep starts in one minute.',
+      },
     };
-    app.hub.publish(nudge);
+    app.hub.publish(note);
 
     const received = await waitFor(
-      () => messages.find((event) => event.type === 'NUDGE'),
-      'the participant role to receive its own nudge',
+      () => messages.find((event) => event.type === 'WINGMAN_NOTE'),
+      'the participant role to receive its own private note',
     );
     expect(received.audience).toEqual({ kind: 'role', role: 'participant' });
   });

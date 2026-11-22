@@ -1,13 +1,14 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { KAKI_LISTENER_IDENTITY, type KakiEvent, type Scenario, type Task, type WingmanNotePayload } from '@kaki/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MeetingGrid } from './MeetingGrid';
-import { activeStageTaskFor, cardFactForItem, colleagueStance, reactionForColleague, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
+import { activeStageTaskFor, colleagueStance, reactionForColleague, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 
 const mocks = vi.hoisted(() => ({
   screenEvents: [] as KakiEvent[],
   roleEvents: [] as KakiEvent[],
+  roleNotes: [] as WingmanNotePayload[],
   screenTasks: new Map<string, Task>(),
   latestRecord: null as KakiEvent | null,
   typeBarProps: [] as Array<{ paused?: boolean; pauseRejection?: unknown }>,
@@ -33,7 +34,15 @@ vi.mock('../../kaki', async () => {
     }),
     useKaki: (audience: { kind: string }) => {
       if (audience.kind !== 'screen') {
-        return { tasks: [], events: mocks.roleEvents, latestRecord: undefined, speechByTopic: new Map() };
+        return {
+          tasks: [],
+          events: mocks.roleEvents,
+          latestRecord: undefined,
+          speechByTopic: new Map(),
+          wingmanNotes: mocks.roleNotes,
+          send: vi.fn(),
+          rejection: null,
+        };
       }
       const latestRecord = mocks.latestRecord
         ?? [...mocks.screenEvents].reverse().find((event) => event.type === 'MEETING_RECORD_UPDATED');
@@ -92,24 +101,12 @@ function line(
   };
 }
 
-function fact(agendaIndex: number, text: string): KakiEvent {
-  return {
-    type: 'FACT_FOUND',
-    audience: { kind: 'role', role: 'chef' },
-    payload: {
-      questionId: `q-${agendaIndex}`,
-      question: `Question on agenda item ${agendaIndex + 1}`,
-      facts: [{ text, source: 'Store records', date: '2026-11-13' }],
-      agendaIndex,
-    },
-  };
-}
-
 beforeEach(() => {
   mocks.screenTasks.clear();
   mocks.latestRecord = null;
   mocks.typeBarProps.splice(0, mocks.typeBarProps.length);
   mocks.roleEvents.splice(0, mocks.roleEvents.length);
+  mocks.roleNotes.splice(0, mocks.roleNotes.length);
   mocks.screenEvents.splice(0, mocks.screenEvents.length,
     line('Sam', 'What is your decision?'),
     line('Visitor', 'Use fresh stock.'),
@@ -229,20 +226,23 @@ describe('MeetingGrid starter ideas', () => {
     expect(screen.queryByRole('button', { name: /What happened to the old regulars\?/ })).toBeNull();
   });
 
-  it('shows only the fact for the active agenda item, not an older topic fact', () => {
-    mocks.screenEvents.splice(0, mocks.screenEvents.length,
-      record(1),
-      line('Sam', 'What do you think about stock?'),
-      line('Chef', 'We should order more.'),
-    );
-    mocks.roleEvents.splice(0, mocks.roleEvents.length,
-      fact(0, 'Ten stools are in the storeroom.'),
-      fact(1, 'The storeroom is inspected every morning.'),
-    );
+  it('shows an asked-you note in the middle of the stage and hides it on Close', () => {
+    mocks.roleNotes.splice(0, mocks.roleNotes.length, {
+      id: 'asked:chef',
+      kind: 'asked_you',
+      urgency: 'act_now',
+      title: 'Alex asked you',
+      text: 'Alex asked you: What is the plan for the morning rush?',
+      facts: [{ text: 'The rush starts at 8.', source: 'Store records', date: '2026-11-13' }],
+      sources: ['Store records (2026-11-13)'],
+    });
     render(<MeetingGrid role="chef" />);
 
-    expect(screen.getByText('The storeroom is inspected every morning.')).toBeTruthy();
-    expect(screen.queryByText('Ten stools are in the storeroom.')).toBeNull();
+    const card = screen.getByRole('alertdialog', { name: 'Wingman asks you now' });
+    expect(within(card).getByText('Alex asked you: What is the plan for the morning rush?')).toBeTruthy();
+    expect(within(card).getByText('The rush starts at 8.')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('alertdialog', { name: 'Wingman asks you now' })).toBeNull();
   });
 });
 
@@ -292,23 +292,6 @@ describe('activeStageTaskFor', () => {
       id: 'other', status: 'DISPATCHED', updatedAt: '2026-11-13T10:08:00.000Z', suggestedAssignee: 'host',
     });
     expect(activeStageTaskFor([done, otherRole], 'chef', 'Prep')).toBeUndefined();
-  });
-});
-
-describe('cardFactForItem', () => {
-  it('shows exactly the seat fact the current topic gives that seat', () => {
-    const item = {
-      title: 'Laptop campers and the breakfast seat crunch',
-      minutes: 5,
-      canWait: false,
-      deadline: 'before doors open at 8',
-      ownerRole: 'tech_pos_lead',
-      seatFacts: { operations_director: 'The blocked seats cost about $420.', tech_pos_lead: 'The booth sockets share one timer switch.' },
-    };
-    expect(cardFactForItem(item, 'operations_director')).toBe('The blocked seats cost about $420.');
-    expect(cardFactForItem(item, 'tech_pos_lead')).toBe('The booth sockets share one timer switch.');
-    expect(cardFactForItem(item, 'marketing_lead')).toBeUndefined();
-    expect(cardFactForItem(undefined, 'operations_director')).toBeUndefined();
   });
 });
 

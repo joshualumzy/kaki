@@ -173,29 +173,19 @@ describe('participant projection', () => {
     );
     app.hub.publish(
       {
-        type: 'FACT_FOUND',
+        type: 'WINGMAN_NOTE',
         audience: { kind: 'role', role: 'chef' },
-        payload: {
-          questionId: 'own-question',
-          question: 'Own question',
-          facts: [{ text: 'OWN FACT', source: 'handbook', date: '2026-01-01' }],
-          agendaIndex: 0,
-        },
+        payload: { id: 'own-note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'OWN NOTE' },
       },
-      { retainKey: 'fact:chef' },
+      { retainKey: 'note:chef' },
     );
     app.hub.publish(
       {
-        type: 'FACT_FOUND',
+        type: 'WINGMAN_NOTE',
         audience: { kind: 'role', role: 'cashier' },
-        payload: {
-          questionId: 'other-question',
-          question: 'Other question',
-          facts: [{ text: 'OTHER FACT', source: 'handbook', date: '2026-01-01' }],
-          agendaIndex: 0,
-        },
+        payload: { id: 'other-note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'OTHER NOTE' },
       },
-      { retainKey: 'fact:cashier' },
+      { retainKey: 'note:cashier' },
     );
 
     // A participant may not read the owner's screen at all; their projection is the only shared feed.
@@ -218,14 +208,12 @@ describe('participant projection', () => {
     ).toBe(true);
     expect(
       participant.messages.some(
-        (event) =>
-          event.type === 'FACT_FOUND' && event.payload.facts.some((fact) => fact.text === 'OWN FACT'),
+        (event) => event.type === 'WINGMAN_NOTE' && event.payload.text === 'OWN NOTE',
       ),
     ).toBe(true);
     expect(
       participant.messages.some(
-        (event) =>
-          event.type === 'FACT_FOUND' && event.payload.facts.some((fact) => fact.text === 'OTHER FACT'),
+        (event) => event.type === 'WINGMAN_NOTE' && event.payload.text === 'OTHER NOTE',
       ),
     ).toBe(false);
 
@@ -235,16 +223,11 @@ describe('participant projection', () => {
     expect(seen.get(other.id)?.draft).toBeUndefined();
     expect(seen.has(minutes.id)).toBe(false);
 
-    // The owner keeps the full screen: every fact and every task draft.
+    // The owner keeps the full screen: every task draft, but never another seat's private note.
     const ownerSeen = tasksById(ownerScreen.messages);
     expect(ownerSeen.get(other.id)).toMatchObject({ context: 'OTHER CONTEXT', draft: { body: 'OTHER DRAFT' } });
     expect(ownerSeen.get(minutes.id)).toMatchObject({ context: 'MINUTES CONTEXT', draft: { body: 'SECRET MINUTES' } });
-    expect(
-      ownerScreen.messages.some(
-        (event) =>
-          event.type === 'FACT_FOUND' && event.payload.facts.some((fact) => fact.text === 'OTHER FACT'),
-      ),
-    ).toBe(true);
+    expect(ownerScreen.messages.some((event) => event.type === 'WINGMAN_NOTE')).toBe(false);
 
     // Live delivery uses the same rule: an update to another seat's draft stays redacted.
     app.tasks.transition(other.id, 'RUNNING', {
@@ -301,29 +284,19 @@ describe('participant projection', () => {
 
     app.hub.publish(
       {
-        type: 'FACT_FOUND',
+        type: 'WINGMAN_NOTE',
         audience: { kind: 'role', role: 'chef' },
-        payload: {
-          questionId: 'practice-own-question',
-          question: 'Practice own question',
-          facts: [{ text: 'PRACTICE OWN FACT', source: 'handbook', date: '2026-01-01' }],
-          agendaIndex: 0,
-        },
+        payload: { id: 'practice-own-note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'PRACTICE OWN NOTE' },
       },
-      { retainKey: 'fact:practice:chef' },
+      { retainKey: 'note:practice:chef' },
     );
     app.hub.publish(
       {
-        type: 'FACT_FOUND',
+        type: 'WINGMAN_NOTE',
         audience: { kind: 'role', role: 'cashier' },
-        payload: {
-          questionId: 'practice-other-question',
-          question: 'Practice other question',
-          facts: [{ text: 'PRACTICE OTHER FACT', source: 'handbook', date: '2026-01-01' }],
-          agendaIndex: 0,
-        },
+        payload: { id: 'practice-other-note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'PRACTICE OTHER NOTE' },
       },
-      { retainKey: 'fact:practice:cashier' },
+      { retainKey: 'note:practice:cashier' },
     );
 
     const own = taskWithDraft(app, {
@@ -354,20 +327,16 @@ describe('participant projection', () => {
     expect(seen.get(other.id)).toMatchObject({ title: 'Practice other job', context: '' });
     expect(seen.get(other.id)?.draft).toBeUndefined();
 
-    // The Kaki panel reads the practice screen, so the visitor's own facts must arrive there;
-    // another seat's facts must not.
+    // The Kaki panel reads the practice screen, so the visitor's own notes must arrive there;
+    // another seat's notes must not.
     expect(
       screen.messages.some(
-        (event) =>
-          event.type === 'FACT_FOUND' &&
-          event.payload.facts.some((fact) => fact.text === 'PRACTICE OWN FACT'),
+        (event) => event.type === 'WINGMAN_NOTE' && event.payload.text === 'PRACTICE OWN NOTE',
       ),
     ).toBe(true);
     expect(
       screen.messages.some(
-        (event) =>
-          event.type === 'FACT_FOUND' &&
-          event.payload.facts.some((fact) => fact.text === 'PRACTICE OTHER FACT'),
+        (event) => event.type === 'WINGMAN_NOTE' && event.payload.text === 'PRACTICE OTHER NOTE',
       ),
     ).toBe(false);
   });

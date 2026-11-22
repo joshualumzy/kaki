@@ -28,8 +28,9 @@ import { RealMeetingBar } from './RealMeetingBar';
 import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
-import { activeStageTaskFor, cardFactForItem, newClientLineId, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
+import { activeStageTaskFor, newClientLineId, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 import { textOnlyNote, transcriptChunks } from './captions';
+import { WingmanActNow } from './WingmanPanel';
 
 /** The meeting stage: one tile per participant with live captions, and the AI attendees' status. */
 export function MeetingGrid({
@@ -59,7 +60,7 @@ export function MeetingGrid({
   const meetingState = realRoom?.meetingState;
   const offTheRecord = real && meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const { isMicrophoneEnabled, localParticipant } = useLocalParticipant();
-  const { events, send: sendToServer, rejection: commandRejection } = useKaki({ kind: 'role', role });
+  const { events, send: sendToServer, rejection: commandRejection, wingmanNotes } = useKaki({ kind: 'role', role });
   const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   // One path for every line the person produces: the server writes it whether or not an AI runner is up.
   const sendHumanLine = useCallback(
@@ -205,36 +206,11 @@ export function MeetingGrid({
     npcState.kind === 'idle' && npcState.yourTurn !== undefined && hasColleagueBriefed;
   const idleAfterBriefing = npcState.kind === 'idle' && hasColleagueBriefed;
   const [showStarterIdeas, setShowStarterIdeas] = useState(false);
-  const [turnWaitStartAt, setTurnWaitStartAt] = useState<number | null>(null);
-  const [dismissedWingmanGlideKey, setDismissedWingmanGlideKey] = useState<string>('');
-  const [latchedSemanticWingmanIdx, setLatchedSemanticWingmanIdx] = useState<number | null>(null);
-  const [latchedWaitWingmanIdx, setLatchedWaitWingmanIdx] = useState<number | null>(null);
 
   useEffect(() => {
     setShowStarterIdeas(false);
-    setLatchedSemanticWingmanIdx(null);
-    setLatchedWaitWingmanIdx(null);
   }, [activeAgendaIndex]);
 
-  useEffect(() => {
-    if ('wingmanHint' in npcState && npcState.wingmanHint === true) {
-      setLatchedSemanticWingmanIdx(activeAgendaIndex);
-    }
-  }, [npcState, activeAgendaIndex]);
-
-  useEffect(() => {
-    if (!idleAfterBriefing) {
-      setTurnWaitStartAt(null);
-    } else {
-      setTurnWaitStartAt((prev) => prev ?? Date.now());
-    }
-  }, [idleAfterBriefing]);
-
-  useEffect(() => {
-    if (idleAfterBriefing && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) {
-      setLatchedWaitWingmanIdx(activeAgendaIndex);
-    }
-  }, [idleAfterBriefing, turnWaitStartAt, now, activeAgendaIndex]);
   const activeItem = scenario.agenda[activeAgendaIndex];
   const activeOwnerRole = activeItem?.ownerRole ?? role;
   const stage = useMemo(
@@ -244,24 +220,6 @@ export function MeetingGrid({
     }),
     [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord],
   );
-
-  const wingmanFactPreview = useMemo(() => {
-    const seatFact = cardFactForItem(activeItem, role);
-    if (seatFact !== undefined) return seatFact;
-    let latestFactText: string | undefined;
-    for (const event of events) {
-      if (
-        event.type === 'FACT_FOUND' &&
-        event.payload.facts.length > 0 &&
-        event.payload.agendaIndex === activeAgendaIndex
-      ) {
-        const text = event.payload.facts[0]?.text;
-        if (text !== undefined) latestFactText = text;
-      }
-    }
-    if (latestFactText !== undefined) return latestFactText;
-    return undefined;
-  }, [events, role, activeItem, activeAgendaIndex]);
 
   const starterChips = useMemo(() => {
     const viewerSeatName = scenario.attendees.find((a) => a.role === role)?.name;
@@ -298,44 +256,6 @@ export function MeetingGrid({
     onKakiBadgeChange?.(actionableMyTasksCount);
   }, [actionableMyTasksCount, onKakiBadgeChange]);
 
-  const wingmanGlideNudge = useMemo(() => {
-    if (wingmanFactPreview === undefined) return undefined;
-    const semanticWingmanHint =
-      ('wingmanHint' in npcState && npcState.wingmanHint === true) ||
-      latchedSemanticWingmanIdx === activeAgendaIndex;
-    let hasSemanticFactOrNudgeOnTopic = false;
-    for (const event of events) {
-      if (
-        (event.type === 'FACT_FOUND' || event.type === 'NUDGE') &&
-        event.payload.agendaIndex === activeAgendaIndex &&
-        hasColleagueBriefed
-      ) {
-        hasSemanticFactOrNudgeOnTopic = true;
-      }
-    }
-    const waitedLongEnough =
-      (idleAfterBriefing && turnWaitStartAt !== null && now - turnWaitStartAt >= 10_000) ||
-      latchedWaitWingmanIdx === activeAgendaIndex;
-    if (!semanticWingmanHint && !hasSemanticFactOrNudgeOnTopic && !waitedLongEnough) return undefined;
-    const key = semanticWingmanHint
-      ? `glide-semantic:${activeAgendaIndex}`
-      : hasSemanticFactOrNudgeOnTopic
-        ? `glide-fact:${activeAgendaIndex}`
-        : `glide-wait:${activeAgendaIndex}`;
-    const proposalChip = /^Consider proposing:\s*/i.test(wingmanFactPreview)
-      ? wingmanFactPreview.replace(/^Consider proposing:\s*/i, '').trim()
-      : undefined;
-    return {
-      key,
-      reason: semanticWingmanHint || hasSemanticFactOrNudgeOnTopic
-        ? '✨ Kaki Wingman · Store fact for this question'
-        : '✨ Kaki Wingman · Quick tip for your turn',
-      fact: wingmanFactPreview,
-      chip: proposalChip ?? starterChips[0],
-      isDirectProposal: proposalChip !== undefined,
-    };
-  }, [wingmanFactPreview, npcState, latchedSemanticWingmanIdx, latchedWaitWingmanIdx, events, activeAgendaIndex, hasColleagueBriefed, idleAfterBriefing, turnWaitStartAt, now, starterChips]);
-
   const activeStageToast = useMemo(() => {
     const allTasks = [...screenTasks.values()];
     const myTask = activeStageTaskFor(allTasks, role, activeItem?.title);
@@ -365,26 +285,8 @@ export function MeetingGrid({
         text: `"${publishedTask.title}" is live. Open it in Kaki →`,
       };
     }
-    let latestFactOnCurrentTopic: Extract<typeof events[number], { type: 'FACT_FOUND' }> | undefined;
-    for (const event of events) {
-      if (
-        event.type === 'FACT_FOUND' &&
-        event.payload.facts.length > 0 &&
-        event.payload.agendaIndex === activeAgendaIndex
-      ) {
-        latestFactOnCurrentTopic = event;
-      }
-    }
-    if (latestFactOnCurrentTopic !== undefined && hasColleagueBriefed) {
-      const key = `fact:${activeAgendaIndex}:${latestFactOnCurrentTopic.payload.question}`;
-      return {
-        key,
-        badge: 'Kaki Wingman · Record Found',
-        text: `${latestFactOnCurrentTopic.payload.facts[0]?.text ?? latestFactOnCurrentTopic.payload.question} (open Kaki →)`,
-      };
-    }
     return undefined;
-  }, [screenTasks, events, role, hasColleagueBriefed, activeAgendaIndex, activeItem, narrow]);
+  }, [screenTasks, role, activeItem, narrow]);
 
   const speakingSpeaker = npcState.kind === 'speaking' ? npcState.speaker : undefined;
   const gridTracks = useMemo(
@@ -402,19 +304,12 @@ export function MeetingGrid({
       (task) => task.agendaItemTitle === title && task.status !== 'SUGGESTED',
     );
   }, [screenTasks, activeItem]);
-  const wingmanBannerVisible =
-    wingmanGlideNudge !== undefined &&
-    wingmanGlideNudge.key !== dismissedWingmanGlideKey &&
-    !meetingWrappedUp &&
-    !topicSettled &&
-    !(narrow && activeStageToast !== undefined);
   const stageToastVisible =
     activeStageToast !== undefined &&
     activeStageToast.key !== dismissedToastKey &&
     !meetingWrappedUp &&
     (!topicSettled || activeStageToast.key.startsWith('task:') || activeStageToast.key.startsWith('published:')) &&
-    !(!narrow && activeStageToast.key.startsWith('task:') && actionableMyTasksCount > 0) &&
-    (wingmanBannerVisible ? activeStageToast.key.startsWith('task:') : true);
+    !(!narrow && activeStageToast.key.startsWith('task:') && actionableMyTasksCount > 0);
 
   return (
     <StageContext.Provider value={stage}>
@@ -447,68 +342,11 @@ export function MeetingGrid({
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.
           </div>
         )}
-        {!offTheRecord && wingmanBannerVisible && wingmanGlideNudge !== undefined && (
-          <div
-            className="kd-wingman-glide"
-            role="status"
-            aria-live="polite"
-          >
-            <div
-              className="kd-wingman-glide-main"
-              onClick={() => {
-                onOpenKaki?.();
-                document.querySelector('.kd-topic-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-              }}
-              style={{ cursor: 'pointer' }}
-            >
-              <span className="kd-wingman-glide-badge">{wingmanGlideNudge.reason}</span>
-              <p className="kd-wingman-glide-fact">{wingmanGlideNudge.fact}</p>
-            </div>
-            <div className="kd-wingman-glide-actions">
-              {wingmanGlideNudge.isDirectProposal && wingmanGlideNudge.chip !== undefined ? (
-                <button
-                  type="button"
-                  className="kd-wingman-glide-btn kd-wingman-glide-btn-say"
-                  onClick={() => {
-                    sendQuickLine(wingmanGlideNudge.chip!);
-                    setDismissedWingmanGlideKey(wingmanGlideNudge.key);
-                  }}
-                >
-                  💬 Say this proposal
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="kd-wingman-glide-btn kd-wingman-glide-btn-say"
-                  onClick={() => {
-                    setShowStarterIdeas(true);
-                    setDismissedWingmanGlideKey(wingmanGlideNudge.key);
-                  }}
-                >
-                  💡 See what to say
-                </button>
-              )}
-              <button
-                type="button"
-                className="kd-wingman-glide-btn"
-                onClick={() => {
-                  onOpenKaki?.();
-                  document.querySelector('.kd-topic-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                  setDismissedWingmanGlideKey(wingmanGlideNudge.key);
-                }}
-              >
-                Open Kaki panel →
-              </button>
-              <button
-                type="button"
-                className="kd-stage-toast-close"
-                aria-label="Dismiss Wingman tip"
-                onClick={() => setDismissedWingmanGlideKey(wingmanGlideNudge.key)}
-              >
-                ✕
-              </button>
-            </div>
-          </div>
+        {!offTheRecord && (
+          <WingmanActNow
+            notes={wingmanNotes}
+            onDismiss={(id) => sendToServer({ type: 'DISMISS_WINGMAN_NOTE', id })}
+          />
         )}
         {!offTheRecord && stageToastVisible && activeStageToast !== undefined && (
           <div

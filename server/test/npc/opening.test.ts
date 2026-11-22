@@ -1161,7 +1161,7 @@ describe('one-speaker topic opening', () => {
     expect(offer).toContain('do not offer an either/or choice');
   });
 
-  it('lets a reply control line carry reopen, reactions and wingman tips, not only settle or park', () => {
+  it('lets a reply control line carry reopen and reactions, not only settle or park', () => {
     const messages = replySpeakerMessages({
       scenario: KOPITIAM,
       speaker: 'Sam',
@@ -1173,7 +1173,7 @@ describe('one-speaker topic opening', () => {
     });
     const text = messages.map((message) => message.content).join('\n');
     expect(text).toContain('"reactions"');
-    expect(text).toContain('"wingmanTip"');
+    expect(text).not.toContain('"wingmanTip"');
     expect(text).toContain('"reopen"');
     expect(text).toContain('Use "open" when the guest reopens an earlier item');
   });

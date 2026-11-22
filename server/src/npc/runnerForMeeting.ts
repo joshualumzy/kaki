@@ -331,26 +331,6 @@ const runner = await startNpcRunner({
   onEndMeeting: () => {
     if (!runner.hostIsHuman()) sendAs('screen', { type: 'END_MEETING' });
   },
-  onWingmanTip: (tip, title, agendaIndex) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const role = runner.visitorRole();
-    if (role === undefined) return;
-    runnerClient
-      .emit({
-        type: 'FACT_FOUND',
-        audience: { kind: 'role', role },
-        payload: {
-          questionId: `live-${Date.now()}`,
-          question: `Live Wingman Brief · ${title}`,
-          facts: [{ text: tip, source: 'Live Wingman', date: today }],
-          agendaIndex,
-        },
-      })
-      .then((response) => {
-        if (!response.ok) log(`Wingman tip rejected (HTTP ${response.status})`);
-      })
-      .catch((error: unknown) => log(`Wingman tip failed: ${String(error)}`));
-  },
   onMemoryChange: (entries) => {
     memorySync = memorySync.catch(() => undefined).then(() =>
       runnerClient.postMeetingMemory(entries));

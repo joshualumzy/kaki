@@ -231,22 +231,22 @@ describe('phone and screen seat authority', () => {
     cashier.ws.on('message', (data) => cashierEvents.push(JSON.parse(data.toString()) as KakiEvent));
 
     app.hub.publish({
-      type: 'NUDGE',
+      type: 'WINGMAN_NOTE',
       audience: { kind: 'role', role: 'chef' },
-      payload: { text: 'Chef only', agendaIndex: 0 },
+      payload: { id: 'answer:chef', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'Chef only' },
     });
-    await waitFor(() => chefEvents.find((event) => event.type === 'NUDGE'), 'the chef nudge');
+    await waitFor(() => chefEvents.find((event) => event.type === 'WINGMAN_NOTE'), 'the chef private note');
     await settle();
-    expect(cashierEvents.some((event) => event.type === 'NUDGE')).toBe(false);
+    expect(cashierEvents.some((event) => event.type === 'WINGMAN_NOTE')).toBe(false);
 
     app.hub.publish({
-      type: 'NUDGE',
+      type: 'WINGMAN_NOTE',
       audience: { kind: 'role', role: 'cashier' },
-      payload: { text: 'Cashier only', agendaIndex: 0 },
+      payload: { id: 'answer:cashier', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'Cashier only' },
     });
-    await waitFor(() => cashierEvents.find((event) => event.type === 'NUDGE'), 'the cashier nudge');
+    await waitFor(() => cashierEvents.find((event) => event.type === 'WINGMAN_NOTE'), 'the cashier private note');
     await settle();
-    expect(chefEvents.filter((event) => event.type === 'NUDGE')).toHaveLength(1);
+    expect(chefEvents.filter((event) => event.type === 'WINGMAN_NOTE')).toHaveLength(1);
   });
 
   it('refuses a role an AI stand-in plays', async () => {

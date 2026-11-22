@@ -147,6 +147,7 @@ export default function Meeting({
   const [needsCode, setNeedsCode] = useState(false);
   const [pane, setPane] = useState<'meeting' | 'kaki'>(() => hotData?.pane ?? 'meeting');
   const [kakiBadgeCount, setKakiBadgeCount] = useState(0);
+  const [wingmanBadgeCount, setWingmanBadgeCount] = useState(0);
   // The AI attendees stay silent until the person has read their briefing and pressed Start.
   const [started, setStarted] = useState<boolean>(() => hotData?.started ?? false);
   useEffect(() => {
@@ -603,6 +604,7 @@ export default function Meeting({
         sharedAudience={sharedAudience}
         started={!needsStart}
         practice={practice}
+        onWingmanBadgeChange={setWingmanBadgeCount}
         viewer={{
           name: session.name,
           seatName: scenario.attendees.find((attendee) => attendee.role === session.role)?.displayName,
@@ -617,6 +619,14 @@ export default function Meeting({
           {kakiBadgeCount > 0 && pane !== 'kaki' && (
             <span className="kd-pane-badge" aria-label={`${kakiBadgeCount} action item waiting`}>
               {kakiBadgeCount}
+            </span>
+          )}
+          {wingmanBadgeCount > 0 && pane !== 'kaki' && (
+            <span
+              className="kd-pane-badge kd-pane-badge-wingman"
+              aria-label={`${wingmanBadgeCount} private Wingman ${wingmanBadgeCount === 1 ? 'note' : 'notes'}`}
+            >
+              {wingmanBadgeCount}
             </span>
           )}
         </button>

@@ -123,13 +123,19 @@ describe('app', () => {
     const screen = await connect('screen');
 
     app.hub.publish({
-      type: 'NUDGE',
+      type: 'WINGMAN_NOTE',
       audience: { kind: 'role', role: 'chef' },
-      payload: { text: 'Prep starts now.', agendaIndex: 0 },
+      payload: {
+        id: 'answer:chef',
+        kind: 'answer',
+        urgency: 'quiet',
+        title: 'Wingman',
+        text: 'Prep starts now.',
+      },
     });
     await settle();
 
-    expect(chef.messages.some((event) => event.type === 'NUDGE')).toBe(true);
+    expect(chef.messages.some((event) => event.type === 'WINGMAN_NOTE')).toBe(true);
     expect(screen.messages).toEqual([]);
   });
 
@@ -186,7 +192,11 @@ describe('app', () => {
 
   it('rejects an invalid dev event or malformed JSON with 400', async () => {
     const screen = await connect('screen');
-    const invalid = { type: 'NUDGE', audience: { kind: 'role', role: 'waiter' }, payload: { text: 'x' } };
+    const invalid = {
+      type: 'WINGMAN_NOTE',
+      audience: { kind: 'role', role: 'waiter' },
+      payload: { id: 'note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'x' },
+    };
 
     const rejected = await fetch(`http://127.0.0.1:${port}/dev/emit`, {
       method: 'POST',

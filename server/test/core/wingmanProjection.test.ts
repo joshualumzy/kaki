@@ -42,13 +42,7 @@ describe('Wingman note projection', () => {
     expect(wantsPracticeEvent(note, undefined)).toBe(false);
   });
 
-  it('still lets the owner screen see the old room-wide fact cards', () => {
-    const fact: KakiEvent = {
-      type: 'FACT_FOUND',
-      audience: { kind: 'role', role: 'chef' },
-      payload: { questionId: 'q-1', question: 'Q?', facts: [], agendaIndex: 0 },
-    };
-    expect(wantsEvent(fact, { kind: 'screen' })).toBe(true);
+  it('never lets the owner screen see a private note meant for a seat', () => {
     expect(wantsEvent(note, { kind: 'screen' })).toBe(false);
   });
 });

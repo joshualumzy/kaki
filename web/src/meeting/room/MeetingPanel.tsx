@@ -10,10 +10,11 @@ import { useKaki, useScenario } from '../../kaki';
 import { clearAllStoredJoins } from './rejoinSession';
 import { Avatar, artifactLinkText, resolveArtifactUrl, taskStatusText } from '../../ui';
 import { MeetingRecordCard, isRecord, type RecordEvent } from './MeetingRecordCard';
-import { CurrentTopicCard, type FactEvent } from './CurrentTopicCard';
+import { CurrentTopicCard } from './CurrentTopicCard';
 import { HostBrief } from './HostBrief';
 import { HostCueCard } from './HostCueCard';
 import { TaskControls } from './TaskControls';
+import { WingmanPanel } from './WingmanPanel';
 import type { TranscriptViewer } from './captions';
 import { entryForEvent, entryForTask, type TimelineEntry } from './timeline';
 
@@ -29,6 +30,7 @@ export function MeetingPanel({
   started = false,
   sharedAudience = 'screen',
   practice = false,
+  onWingmanBadgeChange,
 }: {
   viewer: TranscriptViewer;
   role?: ScenarioRole;
@@ -37,13 +39,26 @@ export function MeetingPanel({
   sharedAudience?: 'screen' | 'participant';
   /** A practice meeting keeps the pack's host story; a team meeting briefs on its own plan. */
   practice?: boolean;
+  /** Reports the quiet Wingman note count so the room can show it on the Wingman button. */
+  onWingmanBadgeChange?(count: number): void;
 }) {
   const scenario = useScenario();
   /** Practice meetings have AI colleagues; a team meeting is people only, so its briefing must stay silent. */
   const hasAiColleagues = (scenario.npcs ?? []).length > 0;
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
   // needs auth off or a signed-in host (the page cannot connect otherwise).
-  const { events, tasks, connected, rejection, send, speechByTopic, meetingState } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
+  const {
+    events,
+    tasks,
+    connected,
+    rejection,
+    rejections,
+    send,
+    speechByTopic,
+    meetingState,
+    wingmanNotes,
+    askWingman,
+  } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   // Only the person the server authorises to drive the shared screen may advance or end the meeting.
   // Everyone else gets no controls at all, rather than controls the server refuses.
   const canControlMeeting = sharedAudience === 'screen';
@@ -118,34 +133,10 @@ export function MeetingPanel({
     return false;
   }, [speechByTopic, facilitatorRole, facilitatorName, record]);
 
-  const { currentFact, liveWingmanBrief } = useMemo<{
-    currentFact: FactEvent | undefined;
-    liveWingmanBrief: string | undefined;
-  }>(() => {
-    if (record === undefined || !topicBriefingStarted) {
-      return { currentFact: undefined, liveWingmanBrief: undefined };
-    }
-    let latestRecordFact: { event: FactEvent; agendaIndex: number } | undefined;
-    let latestWingmanTip: { text: string; agendaIndex: number } | undefined;
-    for (const event of events) {
-      if (event.type === 'FACT_FOUND' && event.payload.facts.length > 0) {
-        if (event.payload.question.startsWith('Live Wingman Brief')) {
-          const tip = event.payload.facts[0]?.text;
-          if (tip !== undefined && tip.trim() !== '') {
-            latestWingmanTip = { text: tip, agendaIndex: event.payload.agendaIndex };
-          }
-        } else {
-          latestRecordFact = { event, agendaIndex: event.payload.agendaIndex };
-        }
-      }
-    }
-    return {
-      currentFact:
-        latestRecordFact?.agendaIndex === record.payload.agendaIndex ? latestRecordFact.event : undefined,
-      liveWingmanBrief:
-        latestWingmanTip?.agendaIndex === record.payload.agendaIndex ? latestWingmanTip.text : undefined,
-    };
-  }, [events, record, topicBriefingStarted]);
+  const askRejection = useMemo(
+    () => [...rejections].reverse().find((item) => item.commandType === 'ASK_WINGMAN') ?? null,
+    [rejections],
+  );
 
   useEffect(() => {
     const added: TimelineEntry[] = [];
@@ -263,10 +254,19 @@ export function MeetingPanel({
     <div className="page kd-host kd-meeting-panel">
       {!connected && <p className="connection-banner">Reconnecting…</p>}
       {isHost && <HostBrief scenario={scenario} practice={practice} />}
-      {rejection !== null && (
+      {rejection !== null && rejection.commandType !== 'ASK_WINGMAN' && (
         <p className="connection-banner" role="alert">
           {rejection.commandType}: {rejection.reason}
         </p>
+      )}
+      {role !== undefined && (
+        <WingmanPanel
+          notes={wingmanNotes}
+          onAsk={askWingman}
+          onDismiss={(id) => send({ type: 'DISMISS_WINGMAN_NOTE', id })}
+          askRejection={askRejection}
+          {...(onWingmanBadgeChange === undefined ? {} : { onQuietCountChange: onWingmanBadgeChange })}
+        />
       )}
       {canControlMeeting && (
         <div className="kd-host-controls">
@@ -378,7 +378,7 @@ export function MeetingPanel({
           )}
           {!meetingEnded && hasAiColleagues && !topicBriefingStarted && (
             <p className="empty-state" style={{ margin: '6px 0', fontSize: 12.5 }}>
-              🎧 Colleagues are sharing their opening stances — your Wingman fact &amp; starter lines will appear in a moment.
+              🎧 Colleagues are sharing their opening stances — the discussion will appear in a moment.
             </p>
           )}
           {!meetingEnded && topicBriefingStarted && (
@@ -387,8 +387,6 @@ export function MeetingPanel({
               scenario={scenario}
               role={role}
               viewer={viewer}
-              companyFact={currentFact}
-              liveWingmanBrief={liveWingmanBrief}
               events={events}
               agendaIndex={record.payload.agendaIndex}
             />

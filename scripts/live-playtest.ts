@@ -1029,7 +1029,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     uiLines.push(...storedUiLines);
     uiTaskCards = await page.locator('.kd-task-card, .kd-role-active .card-title').allTextContents();
     const control = [...transcript.map((line) => ({ at: line.at, text: line.text, source: 'API transcript' })), ...uiLines]
-      .filter((line) => /KAKI_CONTROL|\{\s*"state"\s*:|\{\s*"(?:kind|followUp|wingmanNeeded)"\s*:|^\s*\{\s*"[^"\n]+"\s*:|```(?:json)?/i.test(line.text));
+      .filter((line) => /KAKI_CONTROL|\{\s*"state"\s*:|\{\s*"(?:kind|followUp)"\s*:|^\s*\{\s*"[^"\n]+"\s*:|```(?:json)?/i.test(line.text));
     await check('No control text leaked', control.length === 0, control.length ? control.map((line) => `${line.at} ${line.source}: ${line.text}`).join(' / ') : 'No control or JSON text in captions/transcript');
     const duplicates = new Map<string, string[]>();
     for (const task of tasks.values()) {

@@ -174,8 +174,6 @@ interface RunnerOptions {
   traceVad?: boolean;
   /** The server's snapshot already known at boot (used when the pack had no AI cast yet). */
   initialMeeting?: RunnerMeetingSnapshot;
-  /** Emit a live 1-sentence Wingman coaching brief for the current agenda item when the visitor's turn updates the discussion state. */
-  onWingmanTip?(tip: string, title: string, agendaIndex: number): void;
   /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
   onTopicSettled?(followUp: SuggestInput, reopened?: boolean): void | Promise<void>;
   onMemoryChange?(entries: MeetingMemoryEntry[]): void;
@@ -512,7 +510,6 @@ export async function startNpcRunner(options: RunnerOptions): Promise<NpcRunner>
         },
         advanceAgenda: options.onAdvanceAgenda,
         endMeeting: options.onEndMeeting,
-        onWingmanTip: options.onWingmanTip,
         settleTopic: options.onTopicSettled,
         onReaction: options.onReaction,
       },

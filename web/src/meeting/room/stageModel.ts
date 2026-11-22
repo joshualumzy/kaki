@@ -1,6 +1,5 @@
 import {
   isKakiListener,
-  type AgendaItem,
   type KakiEvent,
   type Scenario,
   type Task,
@@ -86,14 +85,6 @@ export function tracksWithSpeakerFirst<T extends { participant: { identity: stri
   const [speaking] = reordered.splice(index, 1);
   if (speaking !== undefined) reordered.unshift(speaking);
   return reordered;
-}
-
-/**
- * The fact this seat holds for this topic, when the scenario gives each seat one. This is the
- * source of truth for the Wingman card.
- */
-export function cardFactForItem(item: AgendaItem | undefined, role: string): string | undefined {
-  return item?.seatFacts?.[role];
 }
 
 /**

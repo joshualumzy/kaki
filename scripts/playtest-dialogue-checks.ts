@@ -1,5 +1,5 @@
-/** Pure dialogue and Wingman checks for scripts/playtest-dialogue.ts. */
-import { catchPosition, type AgendaItem } from '@kaki/shared';
+/** Pure dialogue and pacing checks for scripts/playtest-dialogue.ts. */
+import type { AgendaItem } from '@kaki/shared';
 import { spokenTopicLead } from '../server/src/host/opening';
 
 /** One transcript utterance and the catch id when it raises a scenario catch. */
@@ -15,20 +15,6 @@ interface VisitorSeat {
   role: string;
   /** The scenario seat the visitor took, when it differs from the name typed at join. */
   seat?: string;
-}
-
-/** One Wingman tip as the dialogue check sees it. */
-export interface WingmanTip {
-  tip: string;
-  title: string;
-  agendaIndex: number;
-}
-
-/** A catch the transcript shows was said aloud. */
-export interface EmittedCatch {
-  speaker: string;
-  text: string;
-  catchId: string;
 }
 
 // Helpers for quality checks
@@ -138,62 +124,4 @@ export function checkTranscriptQuality(
   return failures;
 }
 
-/** True when a trade-off belongs to the visitor's own seat, which the Wingman must never show back to them. */
-export function isVisitorTradeOff(
-  tradeOff: { attendee: string; role: string },
-  visitor: VisitorSeat,
-): boolean {
-  const attendee = tradeOff.attendee.toLowerCase();
-  return tradeOff.role === visitor.role ||
-    attendee === visitor.name.toLowerCase() ||
-    (visitor.seat !== undefined && attendee === visitor.seat.toLowerCase());
-}
 
-/**
- * Check the Wingman output the room actually emitted for this topic: raised catches must name a real
- * scenario trade-off, must belong to this topic, and must never expose the visitor's own seat.
- */
-export function checkWingmanOutput(
-  item: AgendaItem,
-  agendaIndex: number,
-  visitor: VisitorSeat,
-  tips: readonly WingmanTip[],
-  catches: readonly EmittedCatch[],
-): string[] {
-  const failures: string[] = [];
-  const tradeOffs = item.discussion?.tradeOffs ?? [];
-  if (tradeOffs.length === 0) return ['No tradeOffs defined in scenario'];
-
-  if (tips.length === 0 && catches.length === 0) {
-    failures.push('No Wingman output was emitted for this topic (no live tip and no raised catch), so seat exclusion was not exercised');
-  }
-
-  for (const tip of tips) {
-    if (tip.tip.trim() === '') failures.push('Wingman emitted an empty live tip');
-    if (tip.agendaIndex !== agendaIndex || tip.title !== item.title) {
-      failures.push(`Wingman live tip was for "${tip.title}" (item ${tip.agendaIndex + 1}), not "${item.title}" (item ${agendaIndex + 1})`);
-    }
-  }
-
-  for (const emitted of catches) {
-    const position = catchPosition(emitted.catchId);
-    if (position === undefined) {
-      failures.push(`Wingman catch "${emitted.text}" has an unusable catch id "${emitted.catchId}"`);
-      continue;
-    }
-    if (position.agendaIndex !== agendaIndex) {
-      failures.push(`Wingman catch "${emitted.text}" belongs to item ${position.agendaIndex + 1}, not ${agendaIndex + 1}`);
-      continue;
-    }
-    const tradeOff = tradeOffs[position.tradeOffIndex];
-    if (tradeOff === undefined) {
-      failures.push(`Wingman catch "${emitted.text}" names trade-off ${position.tradeOffIndex}, which does not exist`);
-      continue;
-    }
-    if (isVisitorTradeOff(tradeOff, visitor)) {
-      failures.push(`Wingman exposed the visitor's own seat (${tradeOff.attendee}) catch: "${emitted.text}"`);
-    }
-  }
-
-  return failures;
-}

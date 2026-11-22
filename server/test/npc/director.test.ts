@@ -73,7 +73,6 @@ describe('meeting carry-over prompt', () => {
     const memory = [{ kind: 'decision' as const, item: 'Prep', text: 'Use one person on setup.' }];
     const linked = buildSystemPrompt(scenario, undefined, 'Service', false, false, [], memory);
     expect(linked).toContain('Decision on Prep: Use one person on setup.');
-    expect(linked).toContain('fact from the scenario or meeting memory');
     expect(linked).toContain('Prep: The earlier call reduces available staff.');
     const unlinked = buildSystemPrompt({ ...scenario, agenda: [scenario.agenda[0]!,
       { title: 'Service', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier' }] }, undefined, 'Service', false, false, [], memory);

@@ -14,20 +14,16 @@ const task = {
   updatedAt: '2026-10-23T09:00:00.000Z',
 };
 
-const nudge = {
-  type: 'NUDGE',
-  audience: { kind: 'role', role: 'chef' },
-  payload: { text: 'Prep starts in one minute.', agendaIndex: 0 },
-};
-
-const factFound = {
-  type: 'FACT_FOUND',
+const wingmanNote = {
+  type: 'WINGMAN_NOTE',
   audience: { kind: 'role', role: 'chef' },
   payload: {
-    questionId: 'q-oven',
-    question: 'When was the oven last serviced?',
+    id: 'answer:chef',
+    kind: 'answer',
+    urgency: 'quiet',
+    title: 'Wingman',
+    text: 'Last serviced in May.',
     facts: [{ text: 'Last serviced in May.', source: 'Service log', date: '2026-05-02' }],
-    agendaIndex: 0,
   },
 };
 
@@ -52,8 +48,7 @@ describe('isKakiEvent', () => {
     expect(isKakiEvent({ ...reaction, payload: { ...reaction.payload, who: 'Visitor' } }, scenario)).toBe(false);
   });
   it('accepts well-formed events for the scenario', () => {
-    expect(isKakiEvent(nudge, testScenario)).toBe(true);
-    expect(isKakiEvent(factFound, testScenario)).toBe(true);
+    expect(isKakiEvent(wingmanNote, testScenario)).toBe(true);
     expect(isKakiEvent(recordUpdate, testScenario)).toBe(true);
     expect(
       isKakiEvent(
@@ -175,25 +170,18 @@ describe('isKakiEvent', () => {
     ).toBe(false);
   });
 
-  it('requires NUDGE and FACT_FOUND to use a role audience', () => {
-    expect(isKakiEvent({ ...nudge, audience: { kind: 'screen' } }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...nudge, audience: { kind: 'all' } }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...factFound, audience: { kind: 'screen' } }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...factFound, audience: { kind: 'all' } }, testScenario)).toBe(false);
+  it('requires a private Wingman note to use a role audience', () => {
+    expect(isKakiEvent({ ...wingmanNote, audience: { kind: 'screen' } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, audience: { kind: 'all' } }, testScenario)).toBe(false);
   });
 
-  it('requires a whole, non-negative agenda index on NUDGE and FACT_FOUND', () => {
-    expect(isKakiEvent({ ...nudge, payload: { ...nudge.payload, agendaIndex: 2 } }, testScenario)).toBe(true);
-    expect(isKakiEvent({ ...nudge, payload: { text: nudge.payload.text } }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...nudge, payload: { ...nudge.payload, agendaIndex: -1 } }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...nudge, payload: { ...nudge.payload, agendaIndex: 1.5 } }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...factFound, payload: { ...factFound.payload, agendaIndex: '0' } }, testScenario)).toBe(false);
-    expect(
-      isKakiEvent(
-        { ...factFound, payload: { ...factFound.payload, agendaIndex: undefined } },
-        testScenario,
-      ),
-    ).toBe(false);
+  it('requires every private Wingman note to name its kind, urgency, title and text', () => {
+    expect(isKakiEvent({ ...wingmanNote, payload: { ...wingmanNote.payload, id: '' } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, payload: { ...wingmanNote.payload, kind: 'rumour' } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, payload: { ...wingmanNote.payload, urgency: 'loud' } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, payload: { ...wingmanNote.payload, title: undefined } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, payload: { ...wingmanNote.payload, text: undefined } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, payload: { ...wingmanNote.payload, sources: ['line at 09:31'] } }, testScenario)).toBe(true);
   });
 
   it('requires a whole, non-negative agenda index on every open question', () => {
@@ -211,7 +199,7 @@ describe('isKakiEvent', () => {
   });
 
   it('rejects unknown roles in every place', () => {
-    expect(isKakiEvent({ ...nudge, audience: { kind: 'role', role: 'waiter' } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, audience: { kind: 'role', role: 'waiter' } }, testScenario)).toBe(false);
     expect(
       isKakiEvent(
         { ...recordUpdate, payload: { ...recordUpdate.payload, speakerTalkSeconds: { waiter: 10 } } },
@@ -274,12 +262,11 @@ describe('isKakiEvent', () => {
   });
 
   it('rejects old event types and malformed payloads', () => {
-    expect(isKakiEvent({ ...nudge, type: 'TASK_DISPATCHED' }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...nudge, type: 'ACTION_STATUS_CHANGED' }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...nudge, payload: {} }, testScenario)).toBe(false);
-    expect(isKakiEvent({ ...factFound, payload: { questionId: 'q', question: 'Q' } }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, type: 'TASK_DISPATCHED' }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, type: 'ACTION_STATUS_CHANGED' }, testScenario)).toBe(false);
+    expect(isKakiEvent({ ...wingmanNote, payload: {} }, testScenario)).toBe(false);
     expect(isKakiEvent({ type: 'COMMAND_REJECTED', audience: { kind: 'screen' }, payload: { commandType: 'SYNC_TASK' } }, testScenario)).toBe(false);
     expect(isKakiEvent(null, testScenario)).toBe(false);
-    expect(isKakiEvent('NUDGE', testScenario)).toBe(false);
+    expect(isKakiEvent('NOT_A_TYPE', testScenario)).toBe(false);
   });
 });

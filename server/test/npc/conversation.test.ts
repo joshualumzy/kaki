@@ -399,7 +399,7 @@ describe('one-speaker replies to the guest', () => {
     h.ports.settleTopic = settleTopic;
 
     await h.say('Do the double pay plan.');
-    await reply(h, 'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: Fine, we will pay the double pay.');
+    await reply(h, 'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"}}\nAda: Fine, we will pay the double pay.');
 
     expect(settleTopic).not.toHaveBeenCalled();
     expect(h.logs).toContainEqual(expect.stringContaining('[control] ignored model settle; readiness decides'));
@@ -1142,7 +1142,7 @@ describe('one-speaker replies to the guest', () => {
     h.ports.settleTopic = vi.fn().mockResolvedValue(undefined);
 
     await h.say('We should do something.');
-    await reply(h, 'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"},"wingmanNeeded":false}\nAda: Let us look at the counter first.');
+    await reply(h, 'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"Share the plan"}}\nAda: Let us look at the counter first.');
     await h.say('Old price only on the small cup.');
     await finishPlaying(h);
 
@@ -1443,7 +1443,7 @@ describe('one-speaker replies to the guest', () => {
 
     h.conversation.agendaMoved('Service');
     await h.say('Actually, change the Prep plan.');
-    await reply(h, 'KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\nAda: Changing that means extra setup.');
+    await reply(h, 'KAKI_CONTROL {"state":"open","reopen":"Prep"}\nAda: Changing that means extra setup.');
     expect(h.conversation.onCurrentAgenda('Prep')).toBe(true);
 
     h.conversation.humanTyped('Use the revised plan.');
@@ -1456,7 +1456,7 @@ describe('one-speaker replies to the guest', () => {
     await h.say('Actually, change Prep again.');
     const reopenedAgain = await waitForCall(h, beforeAgain);
     const callsAfterAgain = h.calls.length;
-    reopenedAgain.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\nAda: I will change it again.');
+    reopenedAgain.push('KAKI_CONTROL {"state":"open","reopen":"Prep"}\nAda: I will change it again.');
     reopenedAgain.end();
     for (let i = 0; i < 12 && !h.playing.some((entry) => entry.text === "Let's keep going with Service."); i += 1) {
       await h.flush();

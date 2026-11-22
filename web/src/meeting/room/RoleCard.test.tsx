@@ -16,8 +16,6 @@ describe('RoleCard', () => {
           label: 'Producer',
           card: { youAre: 'You are Wei Ling.', facts: ['The build crashes.', 'The deadline moved.'], responsibility: 'You decide what ships.' },
         }}
-        agenda={[{ title: 'Build', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'operations_director', seatFacts: { operations_director: 'The build crashes.' } },
-          { title: 'Deadline', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'operations_director', seatFacts: { operations_director: 'The deadline moved.' } }]}
       />,
     );
     expect(screen.getByLabelText('Your role: Producer')).toBeTruthy();
@@ -46,22 +44,18 @@ describe('RoleCard', () => {
     expect(screen.getByText('You are Yoo, the operations_director.')).toBeTruthy();
   });
 
-  it('shows only seat facts from the selected meeting items', () => {
-    render(<RoleCard
-      role={{ id: 'operations_director', label: 'Director', card: {
-        youAre: 'You lead operations.', responsibility: 'Keep the floor running.', facts: ['Foreign topic fact'],
-      } }}
-      agenda={[{ title: 'Current', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'operations_director',
-        seatFacts: { operations_director: 'Current seat fact' } }]}
-    />);
-    expect(screen.getByText('Current seat fact')).toBeTruthy();
-    expect(screen.queryByText('Foreign topic fact')).toBeNull();
+  it('shows the role card own facts and no agenda-driven facts', () => {
+    render(<RoleCard role={{ id: 'operations_director', label: 'Director', card: {
+      youAre: 'You lead operations.', responsibility: 'Keep the floor running.', facts: ['The build crashes.'],
+    } }} />);
+    expect(screen.getByText('The build crashes.')).toBeTruthy();
+    expect(screen.getByText(/You lead operations/)).toBeTruthy();
   });
 
-  it('does not show a role-card fact when the selected items have no fact for that role', () => {
+  it('shows no facts list when the role card has none', () => {
     render(<RoleCard role={{ id: 'operations_director', label: 'Director', card: {
-      youAre: 'You lead operations.', responsibility: 'Keep the floor running.', facts: ['Foreign topic fact'],
-    } }} agenda={[{ title: 'Current', minutes: 5, canWait: false, deadline: 'before doors open at 8', ownerRole: 'cashier', seatFacts: { cashier: 'Another fact' } }]} />);
-    expect(screen.queryByText('Foreign topic fact')).toBeNull();
+      youAre: 'You lead operations.', responsibility: 'Keep the floor running.', facts: [],
+    } }} />);
+    expect(screen.queryByText('What you know')).toBeNull();
   });
 });

@@ -1,12 +1,9 @@
 import { ACTION_KINDS, type ActionKind } from '@kaki/shared';
 
-/** State a reply line can set: open, settled or deferred, plus any card, tip or reactions it carries. */
+/** State a reply line can set: open, settled or deferred, plus any card or reactions it carries. */
 export interface ReplyControl {
   state: 'open' | 'settled' | 'deferred';
   followUp?: { kind: ActionKind; title: string };
-  wingmanNeeded: boolean;
-  /** One fact that helps the visitor right now, shown on their Wingman; never spoken. */
-  wingmanTip?: string;
   newFacts?: string[];
   reactions?: Array<{ who: string; emoji: ReactionEmoji }>;
   reopen?: string;
@@ -15,8 +12,8 @@ export interface ReplyControl {
 const REACTION_EMOJIS = ['👍', '😬', '🤔', '😅', '🙌', '💸', '🤨', '⏰'] as const;
 type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
-/** The control an ordinary reply starts with: open, with no Wingman needed. */
-export const OPEN_REPLY_CONTROL: ReplyControl = { state: 'open', wingmanNeeded: false };
+/** The control an ordinary reply starts with: open. */
+export const OPEN_REPLY_CONTROL: ReplyControl = { state: 'open' };
 const CONTROL_HEADER = /^KAKI_CONTROL(?:\s+|$)/u;
 
 /** True when the trimmed line begins with the control header. */
@@ -39,7 +36,6 @@ export function parseReplyControl(line: string, log: (message: string) => void =
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
     const data = value as Record<string, unknown>;
     if (data.state !== 'open' && data.state !== 'settled' && data.state !== 'deferred') return undefined;
-    if (typeof data.wingmanNeeded !== 'boolean') return undefined;
     let followUp: ReplyControl['followUp'];
     if (data.followUp !== undefined) {
       if (typeof data.followUp !== 'object' || data.followUp === null || Array.isArray(data.followUp)) return undefined;
@@ -48,7 +44,6 @@ export function parseReplyControl(line: string, log: (message: string) => void =
           typeof proposed.title !== 'string' || proposed.title.trim().length === 0) return undefined;
       followUp = { kind: proposed.kind as ActionKind, title: proposed.title.trim() };
     }
-    const wingmanTip = typeof data.wingmanTip === 'string' && data.wingmanTip.trim().length > 0 ? data.wingmanTip.trim() : undefined;
     let newFacts: string[] | undefined;
     if (data.newFacts !== undefined) {
       if (Array.isArray(data.newFacts) && data.newFacts.length <= 2 && data.newFacts.every((fact) =>
@@ -72,9 +67,7 @@ export function parseReplyControl(line: string, log: (message: string) => void =
     }
     return {
       state: data.state,
-      wingmanNeeded: data.wingmanNeeded,
       ...(followUp === undefined ? {} : { followUp }),
-      ...(wingmanTip === undefined ? {} : { wingmanTip }),
       ...(newFacts === undefined ? {} : { newFacts }),
       ...(reactions === undefined ? {} : { reactions }),
       ...(reopen === undefined ? {} : { reopen }),

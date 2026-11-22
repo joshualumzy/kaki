@@ -169,10 +169,10 @@ export function openingSpeakerMessages(request: OpeningSpeakerRequest): Array<{ 
 function controlInstruction(): string {
   return [
     'Begin with one hidden control line exactly like one of these whenever it applies:',
-    'KAKI_CONTROL {"state":"open","wingmanNeeded":false}',
-    'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"short deliverable"},"wingmanNeeded":false}',
-    'Use "open" when the guest reopens an earlier item, or when a reaction, a Wingman tip or a small new fact genuinely applies. Use "settled" only for a clear settled call, and "deferred" only when they chose to park the topic.',
-    'You may add "reactions":[{"who":"a colleague name","emoji":"👍"}], "wingmanTip":"one short helpful fact", "newFacts":["one small new detail"] or "reopen":"exact earlier agenda title" only when they genuinely apply.',
+    'KAKI_CONTROL {"state":"open"}',
+    'KAKI_CONTROL {"state":"settled","followUp":{"kind":"mattermost_post","title":"short deliverable"}}',
+    'Use "open" when the guest reopens an earlier item, or when a reaction or a small new fact genuinely applies. Use "settled" only for a clear settled call, and "deferred" only when they chose to park the topic.',
+    'You may add "reactions":[{"who":"a colleague name","emoji":"👍"}], "newFacts":["one small new detail"] or "reopen":"exact earlier agenda title" only when they genuinely apply.',
     'When none of these apply, put no control line at all. No other line may start with KAKI_CONTROL.',
   ].join(' ');
 }

@@ -3,7 +3,7 @@
  */
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { KakiEvent, Scenario, Task } from '@kaki/shared';
+import type { KakiEvent, Scenario, Task, WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection } from '../../kaki';
 import { speechByTopicFromEvents } from '../../kaki/topicSpeech';
 
@@ -47,9 +47,6 @@ const scenario: Scenario = {
   ],
 };
 
-const duplicateFact = roleFact;
-const distinctFact = 'The shop has $750 left in its launch budget.';
-
 const events: KakiEvent[] = [
   {
     type: 'TRANSCRIPT_CHUNK',
@@ -66,19 +63,6 @@ const events: KakiEvent[] = [
       speakerTalkSeconds: {},
     },
   },
-  {
-    type: 'FACT_FOUND',
-    audience: { kind: 'role', role: 'operations_director' },
-    payload: {
-      questionId: 'q-cash',
-      question: 'How do we take cash?',
-      facts: [
-        { text: duplicateFact, source: 'gitea ticket', date: '2026-11-06' },
-        { text: distinctFact, source: 'wiki SOP', date: '2026-11-06' },
-      ],
-      agendaIndex: 0,
-    },
-  },
 ];
 
 function withSpeech(
@@ -88,10 +72,19 @@ function withSpeech(
     connected: boolean;
     rejection: KakiRejection | null;
     send: () => void;
+    wingmanNotes?: WingmanNotePayload[];
+    rejections?: KakiRejection[];
+    askWingman?: () => boolean;
   },
   initialAgendaIndex = 0,
 ) {
-  return { ...result, speechByTopic: speechByTopicFromEvents(result.events, initialAgendaIndex) };
+  return {
+    ...result,
+    wingmanNotes: result.wingmanNotes ?? [],
+    rejections: result.rejections ?? (result.rejection === null ? [] : [result.rejection]),
+    askWingman: result.askWingman ?? vi.fn(() => true),
+    speechByTopic: speechByTopicFromEvents(result.events, initialAgendaIndex),
+  };
 }
 
 beforeEach(() => {
@@ -192,85 +185,100 @@ describe('MeetingPanel', () => {
     expect(screen.getByText('The build is red …')).toBeTruthy();
   });
 
-  it('uses the active item seat fact instead of a role-card fact from another topic', () => {
-    scenario.agenda[0]!.seatFacts = { operations_director: 'Current topic fact' };
-    mocks.useKaki.mockReturnValue(withSpeech({ events: events.filter((event) => event.type !== 'FACT_FOUND'),
-      tasks: new Map(), connected: true, rejection: null, send: vi.fn() }));
-    try {
-      render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
-      expect(screen.getByText('Current topic fact')).toBeTruthy();
-      expect(within(screen.getByLabelText('Current topic context')).queryByText(roleFact)).toBeNull();
-    } finally {
-      scenario.agenda[0]!.seatFacts = { operations_director: roleFact };
-    }
+  const wingmanNotes: WingmanNotePayload[] = [
+    {
+      id: 'answer:operations_director',
+      kind: 'answer',
+      urgency: 'quiet',
+      title: 'Wingman',
+      text: 'You asked what we decided: the cash box moves.',
+      questionText: 'what did we decide?',
+      facts: [{ text: 'The shop still has launch budget left.', source: 'wiki SOP', date: '2026-11-06' }],
+      sources: ['wiki SOP (2026-11-06)'],
+    },
+    {
+      id: 'given:operations_director:task-1',
+      kind: 'given',
+      urgency: 'quiet',
+      title: 'You were given a to-do',
+      text: 'You were given: Post the cash box decision. Accept or change it on the card.',
+    },
+    {
+      id: 'asked:operations_director',
+      kind: 'asked_you',
+      urgency: 'act_now',
+      title: 'Ravi asked you',
+      text: 'Ravi asked you: What should the kiosk do at 8?',
+    },
+    {
+      id: 'record:operations_director:1',
+      kind: 'record',
+      urgency: 'quiet',
+      title: 'Records on this',
+      text: 'This record answers what you are discussing: the kiosk accepts notes.',
+      facts: [{ text: 'The kiosk accepts notes.', source: 'Gitea ticket', date: '2026-11-05' }],
+      sources: ['Gitea ticket (2026-11-05)'],
+    },
+  ];
+
+  it("renders this seat's private Wingman notes with their facts and sources", () => {
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+      wingmanNotes,
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
+
+    const panel = within(screen.getByLabelText('Wingman'));
+    expect(panel.getByText('Answer')).toBeTruthy();
+    expect(panel.getByText('You asked what we decided: the cash box moves.')).toBeTruthy();
+    expect(panel.getByText('The shop still has launch budget left.')).toBeTruthy();
+    expect(panel.getByText('(wiki SOP · 2026-11-06)')).toBeTruthy();
+    expect(panel.getByText('You were given')).toBeTruthy();
+    expect(panel.getByText('Asked you')).toBeTruthy();
+    expect(panel.getByText('Record')).toBeTruthy();
   });
 
-  it('shows one current-topic surface and drops the company fact that repeats the role card', () => {
+  it('mounts the same private Wingman panel for a real participant and a practice visitor', () => {
+    const first = render(
+      <MeetingPanel
+        viewer={{ name: 'Joshua', seatName: 'Wei Ling' }}
+        role={scenario.roles[0]}
+        sharedAudience="participant"
+      />,
+    );
+    expect(screen.getByLabelText('Wingman')).toBeTruthy();
+    first.unmount();
+
     render(
       <MeetingPanel
         viewer={{ name: 'Joshua', seatName: 'Wei Ling' }}
         role={scenario.roles[0]}
+        practice
       />,
     );
-
-    expect(screen.getAllByLabelText('Current topic context')).toHaveLength(1);
-    expect(screen.queryByLabelText('From the company records')).toBeNull();
-    expect(screen.getAllByText(duplicateFact)).toHaveLength(1);
-    expect(screen.getByText(distinctFact)).toBeTruthy();
+    expect(screen.getByLabelText('Wingman')).toBeTruthy();
   });
 
-  it('keeps the topic-2 Wingman surface after more than 50 events since the topic changed', () => {
-    const topicFact = 'The third topic fact the visitor can share.';
-    mocks.useScenario.mockReturnValue({
-      ...scenario,
-      agenda: [
-        scenario.agenda[0]!,
-        { title: 'Second topic', minutes: 4, canWait: false, deadline: 'before lunch', ownerRole: 'tech_pos_lead' },
-        {
-          title: 'Third topic',
-          minutes: 4,
-          canWait: false,
-          deadline: 'before close',
-          ownerRole: 'tech_pos_lead',
-          seatFacts: { operations_director: topicFact },
-        },
-      ],
-    });
-
-    const briefingLine = (text: string): KakiEvent => ({
-      type: 'TRANSCRIPT_CHUNK',
-      audience: { kind: 'all' },
-      payload: { speaker: 'Wei Ling', text, timestamp: '2026-11-07T10:05:00Z', speakerRole: 'operations_director' },
-    });
-    const topicTwo: KakiEvent = {
-      type: 'MEETING_RECORD_UPDATED',
-      audience: { kind: 'all' },
-      payload: { agendaIndex: 2, openQuestions: [], elapsedSeconds: 0, speakerTalkSeconds: {} },
-    };
-
+  it('shows a refused ask in the Wingman panel rather than swallowing it', () => {
+    const refusal: KakiRejection = { commandType: 'ASK_WINGMAN', reason: 'Only a person in a seat can ask the Wingman' };
     mocks.useKaki.mockReturnValue(withSpeech({
-      events: [topicTwo, briefingLine('Here is my stance on the third topic.')],
-      tasks: new Map(), connected: true, rejection: null, send: vi.fn(),
+      events,
+      tasks: new Map(),
+      connected: true,
+      rejection: refusal,
+      rejections: [refusal],
+      send: vi.fn(),
+      wingmanNotes,
     }));
-    const view = render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
-    expect(screen.getByLabelText('Current topic context')).toBeTruthy();
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
 
-    const laterEvents: KakiEvent[] = [
-      ...Array.from({ length: 60 }, (_, index): KakiEvent => ({
-        type: 'TRANSCRIPT_CHUNK',
-        audience: { kind: 'all' },
-        payload: { speaker: 'Arjun', text: `filler ${index}`, timestamp: '2026-11-07T10:06:00Z' },
-      })),
-      briefingLine('Still speaking on the same topic.'),
-    ];
-    mocks.useKaki.mockReturnValue(withSpeech({
-      events: laterEvents,
-      tasks: new Map(), connected: true, rejection: null, send: vi.fn(),
-    }, 2));
-    view.rerender(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} />);
-
-    expect(screen.getByLabelText('Current topic context')).toBeTruthy();
-    expect(screen.getByText(topicFact)).toBeTruthy();
+    expect(within(screen.getByLabelText('Wingman')).getByRole('alert').textContent).toContain(
+      'Only a person in a seat can ask the Wingman',
+    );
   });
 
   it('shows the accepted decision on a task card', () => {

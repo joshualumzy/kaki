@@ -53,8 +53,6 @@ export interface NpcPorts<Clip> {
   advanceAgenda?(): void;
   /** Wrap up the meeting once the final agenda item is complete. */
   endMeeting?(): void;
-  /** A fact the Director picked to help the visitor right now, for their Wingman, on the agenda item it belongs to. */
-  onWingmanTip?(tip: string, title: string, agendaIndex: number): void;
   /** The visitor's decision on the current item is locked; `followUp` is the task that announces it. */
   settleTopic?(followUp: SuggestInput, reopened?: boolean): void | Promise<void>;
   onMemoryChange?(entries: MeetingMemoryEntry[]): void;
@@ -853,7 +851,6 @@ export class NpcConversation<Clip> {
    */
   private pendingTranscriptRestore: { lineId: string; key: string } | undefined;
   private transcriptLineSeq = 0;
-  private wingmanHintActive = false;
 
   private transcriptLineId(utterance: Utterance): string {
     const existing = this.transcriptLineIds.get(utterance);
@@ -866,8 +863,7 @@ export class NpcConversation<Clip> {
 
   private idleState(): NpcUiState {
     const line = this.lastSpoken.trim();
-    const hint = { ...(this.wingmanHintActive ? { wingmanHint: true } : {}),
-      canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem };
+    const hint = { canLock: this.decisionLines.length > 0 && !this.humanSettledOnCurrentItem };
     return line.endsWith('?') ? { kind: 'idle', yourTurn: line, ...hint } : { kind: 'idle', ...hint };
   }
 
@@ -2186,7 +2182,6 @@ export class NpcConversation<Clip> {
     this.closeTopicTurn(`the topic "${item.title}" was settled`);
     // The visitor's call answers whatever was still being asked of them on this topic.
     this.answerTopicQuestion();
-    this.wingmanHintActive = false;
     this.clearSilenceTimer();
     this.clearBudgetTimer();
     const chosen = followUp ?? (item.followUp === undefined ? undefined : {
@@ -2620,7 +2615,6 @@ export class NpcConversation<Clip> {
     this.questionBeforeGuestLine = undefined;
     this.startTopic(this.currentItem()?.title);
     this.cardWaitLoggedFor = undefined;
-    this.wingmanHintActive = false;
     this.decisionLines = [];
     this.topicOpenedAt = Date.now();
     this.budgetOffered = false;
@@ -4804,7 +4798,7 @@ export class NpcConversation<Clip> {
     return true;
   }
 
-  /** Apply one model control line to the topic: settle, park, wingman, reactions, reopen. */
+  /** Apply one model control line to the topic: settle, park, reactions, reopen. */
   private applyReplyControl(
     turn: Turn,
     control: ReplyControl,
@@ -4856,14 +4850,6 @@ export class NpcConversation<Clip> {
     if (topic !== undefined) {
       if (control.state === 'deferred') this.parkedTopics.add(topic);
       else if (control.state === 'settled') this.parkedTopics.delete(topic);
-    }
-    const item = this.currentItem();
-    if (control.wingmanNeeded) {
-      this.wingmanHintActive = true;
-      if (control.wingmanTip !== undefined && item !== undefined) {
-        const agendaIndex = this.options.scenario.agenda.indexOf(item);
-        this.ports.onWingmanTip?.(control.wingmanTip, item.title, agendaIndex);
-      }
     }
     return { control, refuseSpeech: false };
   }

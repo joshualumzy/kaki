@@ -747,7 +747,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       await h.flushTimes(5);
       const reopen = await h.waitForCallMatching((call) =>
         call.messages.some((message) => message.content.includes('Actually, change the Prep plan.')));
-      reopen.push(`KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reopen":"Prep"}\n${h.expectedSpeaker(reopen)}: Changing that means extra setup.`);
+      reopen.push(`KAKI_CONTROL {"state":"open","reopen":"Prep"}\n${h.expectedSpeaker(reopen)}: Changing that means extra setup.`);
       reopen.end();
       await h.flushTimes(5);
       await h.finishPlaying();
@@ -769,7 +769,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.humanTyped('Can we get help?');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
-      call.push(`KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reactions":[{"who":"Ada","emoji":"🙌"}]}\n${h.expectedSpeaker(call)}: It will cost $37.`);
+      call.push(`KAKI_CONTROL {"state":"open","reactions":[{"who":"Ada","emoji":"🙌"}]}\n${h.expectedSpeaker(call)}: It will cost $37.`);
       call.end();
       await h.flushTimes(5);
       expect(h.playing).toHaveLength(1);
@@ -787,7 +787,7 @@ describe('default-path guarantees ported from the legacy tests', () => {
       h.conversation.humanTyped('Can we get help?');
       await h.flushTimes(5);
       const call = await h.waitForCall(0);
-      call.push('KAKI_CONTROL {"state":"open","wingmanNeeded":false,"reactions":[{"who":"Ada","emoji":"🙌"}]}\n');
+      call.push('KAKI_CONTROL {"state":"open","reactions":[{"who":"Ada","emoji":"🙌"}]}\n');
       await h.flushTimes(2);
       h.conversation.humanTyped('Never mind.');
       await h.flushTimes(5);

@@ -57,10 +57,10 @@ export function parseControlMessage(raw: unknown): ControlMessage | undefined {
 
 /** What the AI attendees are doing, sent on {@link NPC_STATE_TOPIC}. */
 export type NpcStateMessage =
-  /** `yourTurn`: the last thing the room said was a question for the person; it is the question. `wingmanHint`: true when the semantic layer detects the visitor is unsure or asking for figures that Kaki Wingman has. */
-  | { kind: 'idle'; yourTurn?: string; wingmanHint?: boolean; canLock?: boolean }
-  | { kind: 'thinking'; wingmanHint?: boolean; canLock?: boolean }
-  | { kind: 'speaking'; speaker: string; wingmanHint?: boolean; canLock?: boolean }
+  /** `yourTurn`: the last thing the room said was a question for the person; it is the question. */
+  | { kind: 'idle'; yourTurn?: string; canLock?: boolean }
+  | { kind: 'thinking'; canLock?: boolean }
+  | { kind: 'speaking'; speaker: string; canLock?: boolean }
   | { kind: 'error'; message: string }
   /** The NPC accepted a Start request: the browser can stop retrying and let the meeting open. */
   | { kind: 'started'; requestId: string; session: string };

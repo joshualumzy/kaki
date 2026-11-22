@@ -1,4 +1,4 @@
-import type { AgendaItem, ScenarioRole } from '@kaki/shared';
+import type { ScenarioRole } from '@kaki/shared';
 import './demo.css';
 
 /** The short briefing for the role a person plays: who they are, what they know, what they answer for. Facts, not a script. */
@@ -6,12 +6,10 @@ export function RoleCard({
   role,
   viewerName,
   seatName,
-  agenda,
 }: {
   role: ScenarioRole | undefined;
   viewerName?: string;
   seatName?: string;
-  agenda?: readonly AgendaItem[];
 }) {
   const card = role?.card;
   if (role === undefined || card === undefined) return null;
@@ -20,7 +18,7 @@ export function RoleCard({
     trimmedName !== undefined && trimmedName.length > 0 && seatName !== undefined && seatName.length > 0
       ? card.youAre.replace(seatName, trimmedName)
       : card.youAre;
-  const facts = agenda?.flatMap((item) => item.seatFacts?.[role.id] === undefined ? [] : [item.seatFacts[role.id]!]) ?? [];
+  const facts = card.facts;
 
   return (
     <section className="kd-role" aria-label={`Your role: ${role.label}`}>

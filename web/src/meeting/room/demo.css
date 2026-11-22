@@ -127,6 +127,41 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-dock .page { padding: 6px 14px 16px; max-width: none; }
 .kd-meeting-panel > .kd-topic-card { margin: 10px 0 6px; }
 
+/* The private Wingman: an ask box and this seat's own notes, quiet by default. */
+.kd-wingman { margin: 10px 0 6px; }
+.kd-wingman-head { display: flex; align-items: center; gap: 8px; }
+.kd-wingman-head .kd-role-eyebrow { margin: 0; }
+.kd-wingman-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent); font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; }
+.kd-wingman-ask { margin: 8px 0 10px; }
+.kd-wingman-ask-row { display: flex; align-items: center; gap: 6px; }
+.kd-wingman-ask-row .kd-field { flex: 1; min-width: 0; }
+.kd-wingman-problem { margin: 0 0 8px; color: var(--color-danger); font-size: 12.5px; font-weight: 600; }
+.kd-wingman-empty { margin: 0; }
+.kd-wingman-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.kd-wingman-note { padding: 10px 12px; border-radius: 12px; background: var(--color-surface-strong, var(--color-surface)); border: 1px solid var(--color-border); }
+.kd-wingman-note[data-urgency='act_now'] { border-color: var(--color-accent); }
+.kd-wingman-note-head { display: flex; align-items: center; gap: 7px; }
+.kd-wingman-note-head b { flex: 1; min-width: 0; font-size: 13px; color: var(--color-text); }
+.kd-wingman-kind { flex: none; padding: 2px 7px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent); font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.kd-wingman-dismiss { flex: none; border: 0; background: transparent; color: var(--color-muted); font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; }
+.kd-wingman-dismiss:hover { background: var(--color-bg-raised); color: var(--color-text); }
+.kd-wingman-question { margin: 6px 0 0; font-size: 11.5px; color: var(--color-muted); }
+.kd-wingman-text { margin: 5px 0 0; font-size: 13px; line-height: 1.45; color: var(--color-text); white-space: pre-line; }
+.kd-wingman-evidence { margin-top: 7px; }
+.kd-wingman-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.kd-wingman-facts li { padding: 6px 8px; border-radius: 9px; background: var(--color-bg-raised); font-size: 12px; line-height: 1.4; color: var(--color-text); }
+.kd-wingman-facts small { display: block; margin-top: 2px; color: var(--color-muted); font-size: 10.5px; }
+.kd-wingman-sources { margin: 5px 0 0; font-size: 10.5px; color: var(--color-muted); }
+.kd-wingman-sources span { font-weight: 700; }
+
+/* The only thing allowed in the middle of the screen: a direct question waiting for this person. */
+.kd-act-now { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; pointer-events: none; }
+.kd-act-now-card { pointer-events: auto; width: min(520px, 100%); padding: 18px; border-radius: 18px; background: var(--color-surface); border: 1.5px solid var(--color-accent); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55), 0 0 0 4px var(--color-accent-soft); }
+.kd-act-now-card .kd-role-eyebrow { margin: 0 0 6px; color: var(--color-accent); }
+.kd-act-now-title { margin: 0 0 6px; font-size: 18px; line-height: 1.3; color: var(--color-text); }
+.kd-act-now-card .kd-chip { margin-top: 12px; }
+.kd-pane-badge-wingman { background: var(--color-accent-soft); color: var(--color-accent); animation: none; box-shadow: none; }
+
 .kd-briefing { margin: 4px 14px 6px; }
 .kd-briefing > .kd-role { margin: 8px 0 0; }
 .kd-briefing-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 14px; border-radius: 12px; font-size: 12px; font-weight: 600; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); cursor: pointer; list-style: none; user-select: none; }
@@ -252,26 +287,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-start-quiet-note { margin: 10px 0 8px !important; font-size: 12px !important; opacity: 0.8; }
 .kd-start-actions { display: flex; gap: 8px; align-items: center; }
 
-/* Gliding Kaki Wingman Banner (glides down from top of stage when visitor needs a nudge or asks for facts) */
-@keyframes kd-wingman-glide-in {
-  from { opacity: 0; transform: translateY(-18px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.kd-wingman-glide { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 10px 0; padding: 11px 15px; border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 18%, var(--color-surface)), var(--color-surface) 80%); border: 1.5px solid var(--color-accent); box-shadow: 0 14px 32px -12px rgba(0, 0, 0, 0.4), 0 0 0 3px var(--color-accent-soft); animation: kd-wingman-glide-in 340ms cubic-bezier(.22, 1, .36, 1) both; z-index: 7; }
-.kd-wingman-glide-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.kd-wingman-glide-badge { align-self: flex-start; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); }
-.kd-wingman-glide-fact { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.38; color: var(--color-text); }
-.kd-wingman-glide-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-.kd-wingman-glide-btn { padding: 6px 11px; border-radius: 999px; border: 1px solid var(--color-accent); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: transform 120ms, background 120ms; }
-.kd-wingman-glide-btn:hover { transform: translateY(-1px); background: var(--color-accent-soft); }
-.kd-wingman-glide-btn-say { background: var(--color-accent); color: var(--on-accent, #081318); }
-.kd-wingman-glide-btn-say:hover { filter: brightness(1.06); background: var(--color-accent); }
-@media (max-width: 700px) {
-  .kd-wingman-glide { flex-direction: column; align-items: stretch; gap: 8px; padding: 9px 11px; margin: 3px 4px 0; }
-  .kd-wingman-glide-fact { font-size: 12.5px; }
-  .kd-wingman-glide-actions { justify-content: flex-end; }
-}
-
 /* Stage Floating Notification Toast (when visitor's eyes are on the video stage) */
 .kd-stage-toast { display: flex; align-items: center; gap: 10px; margin: 4px 10px 0; padding: 10px 14px; border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-accent); box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.35); animation: kd-rise 260ms cubic-bezier(.2,.8,.2,1) both; z-index: 6; }
 .kd-stage-toast-badge { flex: none; padding: 3px 9px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-accent); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -279,9 +294,7 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-stage-toast-close { flex: none; border: 0; background: transparent; color: var(--color-muted); font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 .kd-stage-toast-close:hover { background: var(--color-bg-raised); color: var(--color-text); }
 
-/* Scannable Fact Chips & Live Kaki Action Cards in the Right Dock */
-.kd-fact-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-.kd-fact-chip { padding: 8px 11px; border-radius: 11px; background: var(--color-bg-raised); border: 1px solid var(--color-border); font-size: 12.5px; line-height: 1.4; color: var(--color-text); }
+/* Scannable Kaki Action Cards in the Right Dock */
 .kd-tasks { margin: 12px 0 8px; }
 .kd-task-card { padding: 11px 13px; border-radius: 14px; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .kd-task-card[data-highlight="true"] { border-color: var(--color-accent); background: linear-gradient(145deg, var(--color-accent-soft), transparent 75%), var(--color-surface); }
@@ -328,15 +341,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
 .kd-record-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 6px 9px; border-radius: 10px; background: var(--color-bg-raised); border: 1px solid var(--color-border); font-size: 12.5px; }
 .kd-record-source-pill { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border-strong); font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--color-text); }
 
-/* Progressive Disclosure in Wingman Current Topic Card */
-.kd-fact-chip-hero { font-size: 13.5px; font-weight: 600; line-height: 1.45; border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-bg-raised)); }
-.kd-topic-details { margin-top: 8px; border-top: 1px dashed var(--color-border); padding-top: 6px; }
-.kd-topic-details-summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--color-muted); user-select: none; padding: 3px 0; }
-.kd-topic-details-summary::-webkit-details-marker { display: none; }
-.kd-topic-details-summary:hover { color: var(--color-text); }
-.kd-topic-details[open] .kd-briefing-toggle { color: var(--color-accent); }
-.kd-topic-details-body { margin-top: 4px; }
-
 /* Phone meeting: the stage is sized by its parts. The bars around the tiles never shrink, so nothing overlaps; when
    tips and ideas crowd in, the tiles give up space first, and the Kaki panel below always keeps a usable height. */
 @media (max-width: 700px) {
@@ -344,7 +348,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
   .kd-dock { flex: 1 0 26dvh; }
   .kd-stage-col > * { flex: none; }
   .kd-stage-col > .kd-grid-wrap { flex: 0 1 26dvh; position: relative; min-height: 110px; padding: 4px; }
-  .kd-wingman-glide-fact { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .kd-stage-toast { flex-wrap: wrap; row-gap: 3px; }
   .kd-stage-toast-badge { font-size: 9px; padding: 2px 7px; }
   .kd-stage-toast-close { margin-left: auto; }
@@ -358,7 +361,6 @@ select.kd-field { appearance: none; cursor: pointer; background-image: linear-gr
    listed under "Needs you now" in the Kaki panel below. Tile labels drop the role suffix and wrap instead of
    ending in an ellipsis under the status chip. */
 @media (max-width: 600px) {
-  .kd-wingman-glide ~ .kd-stage-toast { display: none; }
   .kd-tile[data-ai="true"] .kd-who { max-width: calc(100% - 76px); }
   .kd-who-role { display: none; }
   .kd-who-line { white-space: normal; overflow-wrap: anywhere; }

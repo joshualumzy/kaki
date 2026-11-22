@@ -1,9 +1,9 @@
 /**
- * Headless Playtest & Quality Evaluator for Kaki Dialogue & Wingman
+ * Headless Playtest & Quality Evaluator for Kaki Dialogue
  *
  * Runs the live conversation engine against the real LLM for all 4 agenda items,
  * simulating a visitor (e.g. Foo, Operations Director) sitting in the meeting,
- * and asserts against the 6 pillars of natural dialogue, pacing, and Wingman state.
+ * and asserts against the pillars of natural dialogue and pacing.
  *
  * Usage:
  *   npx tsx scripts/playtest-dialogue.ts
@@ -15,7 +15,7 @@ import { NpcConversation } from '../server/src/npc/conversation';
 import { liveNextItemLine } from '../server/src/host/opening';
 import type { AgendaItem, Scenario } from '@kaki/shared';
 import {
-  checkTranscriptQuality, checkWingmanOutput, type EmittedCatch, type UtteranceRecord, type WingmanTip,
+  checkTranscriptQuality, type UtteranceRecord,
 } from './playtest-dialogue-checks';
 
 interface ItemResult {
@@ -23,8 +23,6 @@ interface ItemResult {
   transcript: UtteranceRecord[];
   passed: boolean;
   failures: string[];
-  wingmanPassed: boolean;
-  wingmanFailures: string[];
 }
 
 const llm = llmFromEnv();
@@ -38,8 +36,6 @@ const human = { name: 'Foo', role: 'operations_director', transcriptName: 'Foo',
 async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise<ItemResult> {
   const transcript: UtteranceRecord[] = [];
   const suggestedTasks: string[] = [];
-  const wingmanTips: WingmanTip[] = [];
-  const agendaIndex = scenario.agenda.indexOf(item);
   const cast = scenario.npcs?.filter((npc) => npc.attendee !== 'Wei Ling') ?? [];
 
   const conversation = new NpcConversation<Int16Array>(
@@ -58,7 +54,6 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
       describeMic: () => undefined,
       advanceAgenda: () => {},
       endMeeting: () => {},
-      onWingmanTip: (tip, title, index) => { wingmanTips.push({ tip, title, agendaIndex: index }); },
       settleTopic: (input) => { suggestedTasks.push(input.title); },
     },
     {
@@ -165,17 +160,11 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
 
   conversation.close();
 
-  const catches: EmittedCatch[] = transcript.flatMap((line) =>
-    line.catchId === undefined ? [] : [{ speaker: line.speaker, text: line.text, catchId: line.catchId }]);
-  const wingmanFailures = checkWingmanOutput(item, agendaIndex, human, wingmanTips, catches);
-
   return {
     title: item.title,
     transcript,
     passed: transcriptFailures.length === 0,
     failures: transcriptFailures,
-    wingmanPassed: wingmanFailures.length === 0,
-    wingmanFailures,
   };
 }
 
@@ -199,7 +188,7 @@ async function main() {
     }
     console.log('----------------------------\n');
 
-    if (result.passed && result.wingmanPassed) {
+    if (result.passed) {
       console.log(`✅ [PASS] "${item.title}"`);
     } else {
       allPassed = false;
@@ -208,16 +197,12 @@ async function main() {
         console.log('   Dialogue Quality Failures:');
         for (const f of result.failures) console.log(`     • ${f}`);
       }
-      if (result.wingmanFailures.length > 0) {
-        console.log('   Wingman Dock Failures:');
-        for (const f of result.wingmanFailures) console.log(`     • ${f}`);
-      }
     }
     console.log('\n' + '-'.repeat(63) + '\n');
   }
 
   if (allPassed) {
-    console.log('🎉 ALL AGENDA ITEMS & WINGMAN CHECKS PASSED WITH ZERO FLAWS!');
+    console.log('🎉 ALL AGENDA ITEMS PASSED WITH ZERO DIALOGUE FLAWS!');
     process.exit(0);
   } else {
     console.error('💥 PLAYTEST FAILED ON ONE OR MORE QUALITY GATES.');

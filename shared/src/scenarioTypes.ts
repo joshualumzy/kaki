@@ -10,7 +10,7 @@ export interface ScenarioRole {
    * participant. An AI plays it unless its attendee's npc is `playable`, which makes it the host mode seat.
    */
   facilitator?: boolean;
-  /** What a person playing this role is told on their Wingman: facts, not a script. */
+  /** What a person playing this role is told on their role card: facts, not a script. */
   card?: RoleCard;
   /**
    * A few words for what this seat stands for, shown on the meeting tile. Optional: a scenario

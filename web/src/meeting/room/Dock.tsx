@@ -21,6 +21,7 @@ export function Dock({
   started = false,
   sharedAudience = 'screen',
   practice = false,
+  onWingmanBadgeChange,
 }: {
   role: ScenarioRole | undefined;
   viewer: TranscriptViewer;
@@ -29,6 +30,8 @@ export function Dock({
   sharedAudience?: 'screen' | 'participant';
   /** A practice meeting keeps the pack's host story; a team meeting briefs on its own plan. */
   practice?: boolean;
+  /** Reports the quiet Wingman note count for the room's Wingman badge. */
+  onWingmanBadgeChange?(count: number): void;
 }) {
   const scenario = useScenario();
   const [briefingOpen, setBriefingOpen] = useState(!started);
@@ -66,7 +69,7 @@ export function Dock({
             <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
             <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
           </summary>
-          <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} agenda={scenario.agenda} />
+          <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
           <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
         </details>
         <ErrorBoundary>
@@ -82,6 +85,7 @@ export function Dock({
             started={started}
             sharedAudience={sharedAudience}
             practice={practice}
+            {...(onWingmanBadgeChange === undefined ? {} : { onWingmanBadgeChange })}
           />
         </ErrorBoundary>
       </div>

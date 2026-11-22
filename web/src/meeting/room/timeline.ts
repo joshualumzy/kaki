@@ -1,11 +1,11 @@
 import type { KakiEvent, Scenario, Task } from '@kaki/shared';
 import { cutLineText, speakerLabel, type TranscriptViewer } from './captions';
 
-/** One line of the meeting timeline: something said, a host cue, a nudge, a fact or a change to a task. */
+/** One line of the meeting timeline: something said, a host cue or a change to a task. */
 export interface TimelineEntry {
   /** Stable across reconnects, so a replayed event is not listed twice. */
   key: string;
-  kind: 'said' | 'host' | 'suggest' | 'nudge' | 'fact' | 'task';
+  kind: 'said' | 'host' | 'suggest' | 'task';
   /** Who said it, when someone did. */
   who?: string;
   text: string;
@@ -50,13 +50,6 @@ export function entryForEvent(
       // The AI host says the cue later, when the room is quiet, and that spoken line arrives as a transcript line.
       // Showing the cue as well would list it before it is heard, and twice.
       return undefined;
-    }
-    case 'NUDGE':
-      return { key: `nudge|${event.payload.text}`, kind: 'nudge', text: event.payload.text };
-    case 'FACT_FOUND': {
-      const count = event.payload.facts.length;
-      const text = `Found ${count} fact${count === 1 ? '' : 's'} on “${event.payload.question}”`;
-      return { key: `fact|${event.payload.questionId}|${count}`, kind: 'fact', text };
     }
     default:
       return undefined;

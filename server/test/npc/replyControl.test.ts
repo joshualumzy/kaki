@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseReplyControl } from '../../src/npc/replyControl';
 
-const base = { state: 'open', wingmanNeeded: false };
+const base = { state: 'open' };
 const parse = (fields: Record<string, unknown>, logs: string[]) =>
   parseReplyControl(`KAKI_CONTROL ${JSON.stringify({ ...base, ...fields })}`, (line) => logs.push(line));
 

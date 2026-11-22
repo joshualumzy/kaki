@@ -10,10 +10,16 @@ import {
   type TestClient,
 } from '../helpers';
 
-const nudge: KakiEvent = {
-  type: 'NUDGE',
+const note: KakiEvent = {
+  type: 'WINGMAN_NOTE',
   audience: { kind: 'role', role: 'chef' },
-  payload: { text: 'Prep starts in one minute.', agendaIndex: 0 },
+  payload: {
+    id: 'answer:chef',
+    kind: 'answer',
+    urgency: 'quiet',
+    title: 'Wingman',
+    text: 'Prep starts in one minute.',
+  },
 };
 
 const opening: KakiEvent = {
@@ -69,17 +75,17 @@ describe('hub delivery', () => {
     const cashier = await connect('cashier');
 
     app.hub.publish(recordUpdate);
-    app.hub.publish(nudge);
+    app.hub.publish(note);
     app.hub.publish(opening);
     await settle();
 
     expect(screen.messages).toEqual([recordUpdate, opening]);
-    expect(chef.messages).toEqual([recordUpdate, nudge]);
+    expect(chef.messages).toEqual([recordUpdate, note]);
     expect(cashier.messages).toEqual([recordUpdate]);
   });
 
   it('throws when asked to publish an invalid event', () => {
-    const invalid = { type: 'NUDGE', audience: { kind: 'role', role: 'waiter' }, payload: { text: 'x' } };
+    const invalid = { type: 'WINGMAN_NOTE', audience: { kind: 'role', role: 'waiter' }, payload: { id: 'note', kind: 'answer', urgency: 'quiet', title: 'Wingman', text: 'x' } };
     expect(() => app.hub.publish(invalid as unknown as KakiEvent)).toThrow(/invalid event/);
   });
 
@@ -123,12 +129,12 @@ describe('hub delivery', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     try {
-      expect(() => app.hub.publish(nudge)).not.toThrow();
+      expect(() => app.hub.publish(note)).not.toThrow();
     } finally {
       errorSpy.mockRestore();
       unsubscribe();
     }
 
-    expect(received).toEqual([nudge]);
+    expect(received).toEqual([note]);
   });
 });

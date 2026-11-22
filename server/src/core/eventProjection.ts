@@ -11,23 +11,17 @@ export function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean 
     event.audience.kind === 'all' ||
     (event.audience.kind === 'service' && audience.kind === 'service') ||
     (event.audience.kind === 'screen' && (audience.kind === 'screen' || audience.kind === 'service')) ||
-    (event.audience.kind === 'role' &&
-      (audienceRole(audience) === event.audience.role ||
-        (audience.kind === 'screen' && event.type === 'FACT_FOUND')))
+    (event.audience.kind === 'role' && audienceRole(audience) === event.audience.role)
   );
 }
 
 /**
  * True when a practice screen may see an event. It follows the shared screen, plus its own seat's
- * private events (facts and Wingman notes); another seat's private work never reaches it.
+ * private Wingman notes; another seat's private work never reaches it.
  */
 export function wantsPracticeEvent(event: KakiEvent, seat: string | undefined): boolean {
   if (event.audience.kind === 'role') {
-    return (
-      seat !== undefined &&
-      event.audience.role === seat &&
-      (event.type === 'FACT_FOUND' || event.type === 'WINGMAN_NOTE')
-    );
+    return seat !== undefined && event.audience.role === seat && event.type === 'WINGMAN_NOTE';
   }
   return wantsEvent(event, { kind: 'screen' });
 }
@@ -36,11 +30,11 @@ export function wantsPracticeEvent(event: KakiEvent, seat: string | undefined): 
 export function wantsProjectedEvent(event: KakiEvent, seat: string | undefined): boolean {
   if (seat === undefined) {
     // Sign-in off is the trusted demo: a participant projection behaves like the old shared screen.
-    if (event.audience.kind === 'role') return event.type === 'FACT_FOUND';
+    if (event.audience.kind === 'role') return false;
     return wantsEvent(event, { kind: 'screen' });
   }
   // A participant may read the shared record, transcript and lifecycle, and only their own seat's
-  // facts, coaching and tasks. Another seat's private events never reach them.
+  // Wingman notes and tasks. Another seat's private events never reach them.
   if (event.audience.kind === 'role') return event.audience.role === seat;
   return wantsEvent(event, { kind: 'screen' });
 }
@@ -80,12 +74,12 @@ export function projectedEvent(
   seat: string | undefined,
   practiceScreen: boolean,
 ): KakiEvent | undefined {
-  // A practice screen already filters facts; this also keeps other seats' task drafts out of it.
+  // A practice screen is a projection; this also keeps other seats' task drafts out of it.
   if (practiceScreen) {
-    // The practice visitor's screen may show its own seat's facts and Wingman notes (the Kaki panel
-    // reads this feed), but no other seat's private work.
+    // The practice visitor's screen may show its own seat's Wingman notes (the Kaki panel reads
+    // this feed), but no other seat's private work.
     if (event.audience.kind === 'role') {
-      return (event.type === 'FACT_FOUND' || event.type === 'WINGMAN_NOTE') &&
+      return event.type === 'WINGMAN_NOTE' &&
         seat !== undefined &&
         event.audience.role === seat
         ? event

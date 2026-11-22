@@ -24,6 +24,7 @@ vi.mock('./ScenarioContext', () => ({ useScenario: () => scenarioMock.current })
 
 interface FakeSocketInstance {
   emit(type: string, event?: unknown): void;
+  readonly sent: string[];
 }
 
 const sockets = vi.hoisted(() => [] as FakeSocketInstance[]);
@@ -514,6 +515,54 @@ describe('useKaki lifecycle state', () => {
     expect(sockets.length).toBe(count);
   });
 
+});
+
+describe('useKaki Wingman notes', () => {
+  function noteMessage(id: string, text: string, clears = false): { data: string } {
+    return {
+      data: JSON.stringify({
+        type: 'WINGMAN_NOTE',
+        audience: { kind: 'role', role: 'chef' },
+        payload: {
+          id,
+          kind: 'answer',
+          urgency: 'quiet',
+          title: 'Wingman',
+          text,
+          ...(clears ? { clears: true } : {}),
+        },
+      }),
+    };
+  }
+
+  it("keeps this feed's own notes and removes one when the server clears it", async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki({ kind: 'participant' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.')));
+    await waitFor(() => expect(result.current.wingmanNotes).toHaveLength(1));
+    expect(result.current.wingmanNotes[0]).toMatchObject({ id: 'answer:chef', text: 'A private answer.' });
+
+    act(() => socket.emit('message', noteMessage('answer:chef', 'A private answer.', true)));
+    await waitFor(() => expect(result.current.wingmanNotes).toHaveLength(0));
+  });
+
+  it('sends ASK_WINGMAN to the server for this seat', async () => {
+    const { useKaki } = await import('./useKaki');
+    const { result } = renderHook(() => useKaki({ kind: 'role', role: 'chef' }));
+    const socket = sockets[0]!;
+    act(() => socket.emit('open'));
+
+    act(() => {
+      expect(result.current.askWingman('what did we decide?')).toBe(true);
+    });
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: 'ASK_WINGMAN',
+      question: 'what did we decide?',
+    });
+  });
 });
 
 describe('useKaki topic speech', () => {

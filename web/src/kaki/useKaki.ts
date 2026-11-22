@@ -7,6 +7,7 @@ import {
   type MeetingStateSnapshot,
   type Role,
   type Task,
+  type WingmanNotePayload,
 } from '@kaki/shared';
 import { fetchMe } from '../auth/api';
 import { meetingApiPath, useMeetingScope } from './meetingScope';
@@ -46,6 +47,8 @@ export interface UseKakiResult {
    */
   speechByTopic: ReadonlyMap<number, TopicSpeech>;
   tasks: Map<string, Task>;
+  /** The person's own private Wingman notes, newest last; a cleared note is removed. */
+  wingmanNotes: WingmanNotePayload[];
   rejections: KakiRejection[];
   rejection: KakiRejection | null;
   connected: boolean;
@@ -64,6 +67,8 @@ export interface UseKakiResult {
   ended: string | undefined;
   /** True when the command went out on an open socket; false when it was refused locally. */
   send(command: KakiCommand): boolean;
+  /** Ask this person's private Wingman a question about the meeting. */
+  askWingman(question: string): boolean;
 }
 
 /** Which feed to follow: a role's own seat, or one of the read-only shared feeds. */
@@ -86,6 +91,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
   const [latestRecord, setLatestRecord] = useState<MeetingRecordEvent | undefined>(undefined);
   const [speechByTopic, setSpeechByTopic] = useState<ReadonlyMap<number, TopicSpeech>>(() => new Map());
   const [tasks, setTasks] = useState<Map<string, Task>>(() => new Map());
+  const [wingmanNotes, setWingmanNotes] = useState<WingmanNotePayload[]>([]);
   const [rejections, setRejections] = useState<KakiRejection[]>([]);
   const [connected, setConnected] = useState(false);
   const [restoredAt, setRestoredAt] = useState<string | undefined>(undefined);
@@ -141,6 +147,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     latestRecordRef.current = undefined;
     setSpeechByTopic(new Map());
     setTasks(new Map());
+    setWingmanNotes([]);
     setRejections([]);
     setConnected(false);
     setRestoredAt(undefined);
@@ -207,6 +214,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
         setLatestRecord(undefined);
         latestRecordRef.current = undefined;
         setTasks(new Map());
+        setWingmanNotes([]);
         setRestoredAt(undefined);
         setMeetingIdentity(undefined);
         setMeetingState(undefined);
@@ -284,6 +292,15 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
           return;
         }
 
+        if (parsed.type === 'WINGMAN_NOTE') {
+          const note = parsed.payload;
+          setWingmanNotes((previous) => {
+            const without = previous.filter((candidate) => candidate.id !== note.id);
+            return note.clears === true ? without : [...without, note];
+          });
+          return;
+        }
+
         if (parsed.type === 'MEETING_STARTED') {
           const isNewMeeting = meetingId.current !== parsed.payload.meetingId;
           lifecycleRevision.current += 1;
@@ -329,6 +346,7 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
             return [];
           });
           setTasks(new Map());
+          setWingmanNotes([]);
           setRestoredAt(undefined);
           return;
         }
@@ -473,11 +491,17 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     return true;
   }, [audienceRole]);
 
+  const askWingman = useCallback(
+    (question: string): boolean => send({ type: 'ASK_WINGMAN', question }),
+    [send],
+  );
+
   return {
     events,
     latestRecord,
     speechByTopic,
     tasks,
+    wingmanNotes,
     rejections,
     rejection: rejections[rejections.length - 1] ?? null,
     connected,
@@ -487,5 +511,6 @@ export function useKaki(audience: KakiAudience): UseKakiResult {
     meetingState,
     ended,
     send,
+    askWingman,
   };
 }

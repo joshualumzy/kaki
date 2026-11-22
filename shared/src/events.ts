@@ -72,8 +72,6 @@ type KakiEventType =
   | 'TRANSCRIPT_LINE_UPDATED'
   | 'MEETING_RECORD_UPDATED'
   | 'HOST_SPEECH_TRIGGERED'
-  | 'NUDGE'
-  | 'FACT_FOUND'
   | 'WINGMAN_NOTE'
   | 'TASK_UPDATED'
   | 'MEETING_STARTED'
@@ -164,8 +162,6 @@ export type KakiEvent =
         taskId?: string;
       }
     >
-  | KakiEventOf<'NUDGE', { text: string; agendaIndex: number }>
-  | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[]; agendaIndex: number }>
   /** A private note for one person's seat; never shown on the shared screen or to another seat. */
   | KakiEventOf<'WINGMAN_NOTE', WingmanNotePayload>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
@@ -195,8 +191,6 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'TRANSCRIPT_LINE_UPDATED',
   'MEETING_RECORD_UPDATED',
   'HOST_SPEECH_TRIGGERED',
-  'NUDGE',
-  'FACT_FOUND',
   'WINGMAN_NOTE',
   'TASK_UPDATED',
   'MEETING_STARTED',
@@ -332,13 +326,6 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
       payload.kind === 'DISPATCH') &&
     isString(payload.text) &&
     (payload.taskId === undefined || isNonEmptyString(payload.taskId)),
-  NUDGE: (payload) => isString(payload.text) && isAgendaIndex(payload.agendaIndex),
-  FACT_FOUND: (payload) =>
-    isString(payload.questionId) &&
-    isString(payload.question) &&
-    Array.isArray(payload.facts) &&
-    payload.facts.every(isFact) &&
-    isAgendaIndex(payload.agendaIndex),
   WINGMAN_NOTE: (payload) =>
     isNonEmptyString(payload.id) &&
     isWingmanNoteKind(payload.kind) &&
@@ -377,7 +364,7 @@ export function isKakiEvent(value: unknown, scenario: Scenario): value is KakiEv
   const { type, payload, audience } = value;
   if (!isKnownEventType(type) || !isObject(payload) || !isAudience(audience, scenario)) return false;
   if (!PAYLOAD_CHECKS[type](payload, scenario)) return false;
-  if ((type === 'NUDGE' || type === 'FACT_FOUND' || type === 'WINGMAN_NOTE') && audience.kind !== 'role') {
+  if (type === 'WINGMAN_NOTE' && audience.kind !== 'role') {
     return false;
   }
   if (type === 'COLLEAGUE_REACTION' && audience.kind !== 'all') return false;
