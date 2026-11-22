@@ -795,9 +795,11 @@ export async function indexSampleKnowledge(
   const log = options.log ?? ((message: string) => console.log(message));
   // The gateway credentials live in the process environment; `env` only carries the stack's URLs.
   const gateway = requireGateway(options.gateway, process.env);
-  const tools = await createWorkspaceToolSource(createMemoryWorkspaceToolStore(), env).toolsFor(
-    SAMPLE_WORKSPACE_ID,
-  );
+  // The stack's URLs and tokens win; the rest (e.g. the Mattermost post channel) comes from the process.
+  const tools = await createWorkspaceToolSource(createMemoryWorkspaceToolStore(), {
+    ...process.env,
+    ...env,
+  }).toolsFor(SAMPLE_WORKSPACE_ID);
 
   const sources: KnowledgeSource[] = ['wiki', 'gitea', 'mattermost', 'mail', 'postgres'];
   const totals: Record<string, number> = {};
