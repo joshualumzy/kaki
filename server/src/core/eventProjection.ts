@@ -17,6 +17,21 @@ export function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean 
   );
 }
 
+/**
+ * True when a practice screen may see an event. It follows the shared screen, plus its own seat's
+ * private events (facts and Wingman notes); another seat's private work never reaches it.
+ */
+export function wantsPracticeEvent(event: KakiEvent, seat: string | undefined): boolean {
+  if (event.audience.kind === 'role') {
+    return (
+      seat !== undefined &&
+      event.audience.role === seat &&
+      (event.type === 'FACT_FOUND' || event.type === 'WINGMAN_NOTE')
+    );
+  }
+  return wantsEvent(event, { kind: 'screen' });
+}
+
 /** A participant's view of an event that may carry another seat's private work. */
 export function wantsProjectedEvent(event: KakiEvent, seat: string | undefined): boolean {
   if (seat === undefined) {
@@ -67,10 +82,12 @@ export function projectedEvent(
 ): KakiEvent | undefined {
   // A practice screen already filters facts; this also keeps other seats' task drafts out of it.
   if (practiceScreen) {
-    // The practice visitor's screen may show its own seat's facts (the Kaki panel reads this feed),
-    // but no other seat's private work.
+    // The practice visitor's screen may show its own seat's facts and Wingman notes (the Kaki panel
+    // reads this feed), but no other seat's private work.
     if (event.audience.kind === 'role') {
-      return event.type === 'FACT_FOUND' && seat !== undefined && event.audience.role === seat
+      return (event.type === 'FACT_FOUND' || event.type === 'WINGMAN_NOTE') &&
+        seat !== undefined &&
+        event.audience.role === seat
         ? event
         : undefined;
     }

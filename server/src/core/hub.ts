@@ -11,7 +11,7 @@ import {
 import type { Principal } from '../http/access';
 import { audienceFor, audienceLabel, roleAudience, type ClientAudience } from './audience';
 import { PRACTICE_SCREEN_COMMANDS, rejectionFor, runnerMaySend } from './commandPermissions';
-import { projectedEvent, wantsEvent, wantsProjectedEvent } from './eventProjection';
+import { projectedEvent, wantsEvent, wantsPracticeEvent, wantsProjectedEvent } from './eventProjection';
 import {
   parseServiceMessage,
   rawDataToString,
@@ -300,8 +300,8 @@ export function createHub(
         if (!wantsProjectedEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, false);
       } else if (practiceScreen) {
-        // A practice screen sees its meeting, never another seat's private facts or task drafts.
-        if (!wantsEvent(event, audience)) continue;
+        // A practice screen sees its meeting and its own seat's private notes, never another seat's.
+        if (!wantsPracticeEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, true);
       } else {
         if (!wantsEvent(event, audience)) continue;
@@ -538,9 +538,9 @@ export function createHub(
         if (!wantsProjectedEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, false);
       } else if (practiceScreen) {
-        // A practice screen is a read-only projection: a role's private event is for that seat,
-        // and another seat's task drafts stay private too.
-        if (!wantsEvent(event, audience)) continue;
+        // A practice screen is a read-only projection: its own seat's private notes show, and
+        // another seat's task drafts stay private too.
+        if (!wantsPracticeEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, true);
       } else if (wantsEvent(event, audience)) {
         visible = event;

@@ -15,7 +15,6 @@ import {
 } from './playtest-behaviours';
 import {
   draftOnlyRefusal, isRobotSpeakerName, judgeArtifactReachability, judgeCardCompletion, nextRobotTaskAction,
-  wingmanFactVerdicts,
 } from './playtest-actions';
 import {
   decideRoomReply, roomReplyModelFromEnv, type RoomReplyModel, type RoomReplyOutcome,
@@ -109,7 +108,6 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
   const claimed = new Set<string>();
   const approved = new Set<string>();
   const actedTitles = new Map<string, { title: string; approvedAt: number }>();
-  const factTopics = new Set<number>();
   const reacted = new Set<string>();
   const playedTopics = new Set<number>();
   let extraReportLines: string[] = [];
@@ -198,7 +196,6 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       tasks.clear();
       settled.clear();
       reacted.clear();
-      factTopics.clear();
       agendaIndex = 0;
       lastProgressAt = now;
     } else if (event.type === 'MEETING_RECORD_UPDATED') {
@@ -226,10 +223,6 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         taskHistory.push(`${stamp()} ${event.payload.task.id} ${event.payload.task.agendaItemTitle ?? '(no agenda item)'} ${event.payload.task.actionKind ?? '(no kind)'} ${event.payload.task.status} ${event.payload.task.title}`);
       }
       if (previous?.status !== event.payload.task.status) lastProgressAt = now;
-    } else if (event.type === 'FACT_FOUND') {
-      if (event.audience.kind === 'role' && event.audience.role === visitorRole) {
-        factTopics.add(event.payload.agendaIndex);
-      }
     } else if (event.type === 'TOPIC_SETTLED') {
       settled.add(event.payload.title);
       lastProgressAt = now;
@@ -551,7 +544,7 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     }
   }
 
-  /** --act: wait out each approved card, verify its artifact, then check the facts the wingman surfaced. */
+  /** --act: wait out each approved card and verify its artifact. */
   async function finishActedCards(): Promise<void> {
     for (const [id, acted] of actedTitles) {
       const deadline = acted.approvedAt + 60_000;
@@ -576,12 +569,6 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
         const artifact = judgeArtifactReachability(task.artifactUrl, status, error);
         await check(`Artifact ${task.artifactUrl} reachable`, artifact.ok, artifact.detail);
       }
-    }
-    for (const verdict of wingmanFactVerdicts([...playedTopics], factTopics)) {
-      const title = scenario?.agenda[verdict.topic]?.title;
-      const topic = `topic ${verdict.topic + 1}${title === undefined ? '' : ` (${title})`}`;
-      await check(`Wingman fact for topic ${verdict.topic + 1}`, verdict.ok,
-        verdict.ok ? `FACT_FOUND for ${visitorRole} on ${topic}` : `No FACT_FOUND for ${visitorRole} on ${topic}`, 'warn');
     }
   }
 

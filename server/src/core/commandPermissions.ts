@@ -10,9 +10,15 @@ const RUNNER_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING', 'SET_
 /**
  * The screen commands a practice visitor may send for their own practice meeting. The practice
  * credential is a lower-trust capability than the owner's screen, so it still cannot dispatch,
- * dismiss, reset or pause the room; it may only move its own agenda or end its own practice.
+ * dismiss, reset or pause the room; it may only move its own agenda, end its own practice, and
+ * use its own private Wingman.
  */
-export const PRACTICE_SCREEN_COMMANDS = new Set(['NEXT_AGENDA_ITEM', 'END_MEETING']);
+export const PRACTICE_SCREEN_COMMANDS = new Set([
+  'NEXT_AGENDA_ITEM',
+  'END_MEETING',
+  'ASK_WINGMAN',
+  'DISMISS_WINGMAN_NOTE',
+]);
 const RUNNER_ROLE_COMMANDS = new Set([
   'CLAIM_TASK',
   'DECLINE_TASK',

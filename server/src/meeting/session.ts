@@ -20,6 +20,7 @@ export const MEETING_RETAINED_KEYS = [
   'host:opening',
   'fact:',
   'nudge:',
+  'wingman:',
   'meeting:restored',
   'runner:state',
   'meeting:state',

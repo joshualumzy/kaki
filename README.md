@@ -107,7 +107,7 @@ flowchart LR
   People["Participant and phone browsers"] --> Web
   Web -->|"HTTP + WebSocket /ws"| Server["Kaki server (Node + TypeScript)"]
   Server --> Host["Kaki Host: agenda clock, notetaker, auto-dispatch"]
-  Server --> Wingman["Kaki Wingman: nudges, company search"]
+  Server --> Wingman["Kaki Wingman: private meeting help, workspace search"]
   Server --> Action["Kaki Action: drafts, approval, connectors"]
   Host --> PG[("Postgres + pgvector<br/>vector search inside Postgres")]
   Wingman --> PG
@@ -129,7 +129,7 @@ Company records sit in the same Postgres database, so a question can match a rec
 | Agent | What it does | Code |
 | --- | --- | --- |
 | Kaki Host | Runs the agenda clock, keeps the meeting record, finds open questions and follow-ups, dispatches work to the right role and triggers the closing summary. | `server/src/host/` |
-| Kaki Wingman | Sends private, role-aware nudges when an item is about to start or a role has been quiet. Answers questions from company records with a source and date. | `server/src/wingman/` |
+| Kaki Wingman | A private helper for one person in a meeting. Answers their questions from the meeting first and the workspace second (with sources and dates), notes a to-do given to them, flags a direct question they must answer, and surfaces a record that answers or contradicts the current discussion. | `server/src/wingman/` |
 | Kaki Action | Drafts a concrete issue, post, email, wiki page or calendar event, then runs it after the assignee approves. It also drafts the minutes for a person to approve before the wiki write. | `server/src/action/` |
 | NPC Director and runner | Plays the AI colleagues (NPCs in the code) over LiveKit. One Director speaks for every AI colleague, one at a time. The runner uses Azure Speech, voice-activity detection and barge-in (stops talking when someone talks over it). | `server/src/npc/` |
 
@@ -137,7 +137,7 @@ Here is the path of one follow-up. Someone in the meeting says, "I'll email the 
 
 ## What's new
 
-Every seat has a role card with the facts that role holds, and Kaki Wingman knows which role owns the current agenda item. When that item comes up, or its owner has gone quiet, the nudge goes to that one person's screen. Answers come from the team's own wiki, issues, chat and email, and each fact carries its source and date. The owner sets the nudge pace before the meeting.
+Every seat has its own private Wingman. It answers that person's questions from the meeting first and the team's own wiki, issues, chat and email second, and each part carries its source and date. It quietly notes a to-do they were given, pops a question someone asked them directly, and surfaces a workspace record that answers or contradicts the current discussion. It never speaks aloud and never shows another seat its notes.
 
 Kaki Host has no voice of its own. It keeps the agenda clock, flags an item that runs over and hands out follow-ups on screen. When an AI colleague chairs the meeting, that colleague speaks the host's welcome, hand-overs and close in their own words. When a person chairs, the same cues reach them as on-screen suggestions, and any AI colleague stops when someone talks over it.
 
@@ -226,7 +226,7 @@ Screen map:
 - The agenda clock tracks the current item, elapsed time, overrun, pause and resume, with a replay speed for scripted runs. `server/src/host/clock.ts`
 - The notetaker turns new transcript lines into the meeting record. Separate passes handle questions and tasks, and a verifier judges meaning rather than word overlap. `server/src/host/notetaker.ts`, `server/src/host/notetakerQuestions.ts`, `server/src/host/notetakerTasks.ts`, `server/src/host/notetakerVerifier.ts`, `server/src/host/notetakerPrompt.ts`
 - The host dispatches suggested tasks to their role. A held card waits until its agenda item settles. If a person holds the host seat, the card waits for that person. `server/src/host/autoDispatch.ts`
-- The wingman sends a coming-up nudge before the next item and a quiet-owner nudge during the current item. Each goes only to that role. `server/src/wingman/nudges/module.ts`
+- The Wingman is private to one seat: it answers that person's questions from the transcript, record and to-dos first, then the meeting workspace; notes a to-do they were given; pops a direct question they must answer; and stays silent otherwise. `server/src/wingman/module.ts`, `server/src/wingman/prompts.ts`
 - Company search merges pgvector cosine search with Postgres full-text search using reciprocal rank fusion, then writes a role-aware answer with a source and date for each fact. `server/src/wingman/knowledge/search.ts`, `server/src/wingman/knowledge/gateway.ts`
 - The NPC Director plays every AI colleague from the scenario profiles. The runner joins LiveKit, publishes audio, recognises each person's speech with Azure STT, synthesises with Azure TTS, and stops on barge-in. `server/src/npc/director.ts`, `server/src/npc/conversation.ts`, `server/src/npc/runner.ts`, `server/src/npc/vad.ts`, `server/src/npc/speechGate.ts`
 
@@ -399,7 +399,7 @@ Checked on 1 November 2026. Every source below is vendor-authored, either a pres
 | Fireflies.ai | Transcription and summaries; Live Assist for real-time suggestions, coaching and answers; speaker talk-time analytics; AI Skills for follow-up work; Voice Agents | Follow-up work runs through AI Skills and integrations | [fireflies.ai](https://fireflies.ai/) |
 | Read.ai | Ask Read actions: update a CRM deal, send email, create calendar events, scheduled email updates | A draft email is reviewed and then sent on the user's command; other actions run from Ask Read | [Read Help Center](https://support.read.ai/hc/en-us/articles/48863788829971-Using-Ask-Read-actions) |
 
-Several competitors offer private in-meeting tips and write-back to connected tools. Kaki nudges one role without being asked, attaches a source and date to each fact card, and asks the task owner to approve a draft before anything is written. Competitors are stronger in meeting-platform coverage, transcription at scale, ready-made integrations and enterprise security certification. Kaki aims at small teams that already self-host their issue tracker, chat and wiki.
+Several competitors offer private in-meeting tips and write-back to connected tools. Kaki gives one person private, sourced help without addressing the room, and asks the task owner to approve a draft before anything is written. Competitors are stronger in meeting-platform coverage, transcription at scale, ready-made integrations and enterprise security certification. Kaki aims at small teams that already self-host their issue tracker, chat and wiki.
 
 ## Legal and open source
 
@@ -470,7 +470,7 @@ No code was copied from other projects, tutorials or repositories. We wrote the 
 │   ├── src/npc/            # LiveKit runner, NPC Director, VAD, barge-in, Azure STT/TTS
 │   ├── src/persist/        # Meeting persistence and reset
 │   ├── src/services/       # Shared LiveKit and LLM clients
-│   ├── src/wingman/        # Kaki Wingman (nudges, pgvector search, knowledge indexer)
+│   ├── src/wingman/        # Kaki Wingman (private meeting help, pgvector search, knowledge indexer)
 │   └── test/               # Integration tests and fixtures
 ├── web/
 │   ├── src/auth/           # Host sign-in page and session API

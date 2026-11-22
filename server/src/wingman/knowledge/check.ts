@@ -1,46 +1,15 @@
 // Must stay first: loads root .env before reading gateway credentials.
 import '../../env';
-import type { Fact, KakiEvent, Role, Scenario, SearchCompanyData } from '@kaki/shared';
+import type { Fact, Role, SearchCompanyData } from '@kaki/shared';
 import { Pool } from 'pg';
 import { loadEnv } from '../../../../docker/seed/env';
-import type { TaskStore } from '../../meeting/tasks';
-import { audienceLabel, roleAudience, type ClientAudience } from '../../core/audience';
-import type { Hub } from '../../core/hub';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
 import { chatComplete, embedText, gatewayConfigFromEnv, missingGatewayEnv } from './gateway';
-import { createKnowledgeModule } from './module';
 import {
   createSearchCompanyData,
   retrieveFromPostgres,
   type RetrievedChunk,
 } from './search';
-
-const scenario: Scenario = {
-  id: 'kopitiam',
-  organisation: 'Nanyang Kopi & Toast',
-  meetingTitle: 'Raffles Place Flagship Opening Day',
-  roles: [
-    { id: 'operations_director', label: 'Operations Director' },
-    { id: 'tech_pos_lead', label: 'Tech & POS Lead' },
-    { id: 'menu_store_lead', label: 'Menu & Store Experience Lead' },
-    { id: 'marketing_lead', label: 'Marketing Lead' },
-  ],
-  attendees: [
-    { name: 'Wei Ling', role: 'operations_director', displayName: 'Wei Ling' },
-    { name: 'Arjun', role: 'tech_pos_lead', displayName: 'Arjun' },
-    { name: 'Mei', role: 'menu_store_lead', displayName: 'Mei' },
-    { name: 'Daniel', role: 'marketing_lead', displayName: 'Daniel' },
-  ],
-  agenda: [
-    {
-      title: 'Old regulars and the new kopi prices',
-      minutes: 5,
-      canWait: false,
-      deadline: 'before doors open at 8',
-      ownerRole: 'menu_store_lead',
-    },
-  ],
-};
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -63,110 +32,6 @@ function tracedSearch(pool: Pool, gateway: NonNullable<ReturnType<typeof gateway
     },
   });
   return { search, top: () => top };
-}
-
-function wantsEvent(event: KakiEvent, audience: ClientAudience): boolean {
-  return (
-    event.audience.kind === 'all' ||
-    (event.audience.kind === 'screen' && audience.kind === 'screen') ||
-    (event.audience.kind === 'role' &&
-      audience.kind === 'role' &&
-      audience.role === event.audience.role)
-  );
-}
-
-interface InMemoryHub {
-  hub: Hub;
-  received(audience: ClientAudience): KakiEvent[];
-}
-
-function inMemoryHub(audiences: ClientAudience[]): InMemoryHub {
-  const handlers = new Set<(event: KakiEvent) => void>();
-  const delivered = new Map<string, KakiEvent[]>(
-    audiences.map((audience) => [audienceLabel(audience), []]),
-  );
-  const hub: Hub = {
-    publish(event) {
-      for (const [label, events] of delivered) {
-        const audience = audiences.find((candidate) => audienceLabel(candidate) === label);
-        if (audience !== undefined && wantsEvent(event, audience)) events.push(event);
-      }
-      for (const handler of handlers) handler(event);
-    },
-    subscribe(handler) {
-      handlers.add(handler);
-      return () => {
-        handlers.delete(handler);
-      };
-    },
-    onCommand() {
-      throw new Error('The check hub does not accept commands');
-    },
-    clearRetained() {},
-    close() {
-      handlers.clear();
-      delivered.clear();
-    },
-  };
-  return {
-    hub,
-    received: (audience) => delivered.get(audienceLabel(audience)) ?? [],
-  };
-}
-
-async function waitFor(check: () => boolean, label: string, timeoutMs = 4_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
-
-async function checkAudience(): Promise<void> {
-  const fake = inMemoryHub([
-    { kind: 'screen' },
-    roleAudience('operations_director'),
-    roleAudience('tech_pos_lead'),
-    roleAudience('menu_store_lead'),
-    roleAudience('marketing_lead'),
-  ]);
-  const module = createKnowledgeModule({
-    env: {},
-    search: async (): Promise<Fact[]> => [
-      { text: 'Level 5 has the quit spike.', source: 'postgres', date: '2026-11-10' },
-    ],
-  });
-  const stop = module.start({ meetingId: () => 'meeting', workspaceId: () => 'sample-nanyang-kopi', hub: fake.hub, tasks: {} as TaskStore, activeScenario: () => scenario });
-  try {
-    fake.hub.publish({
-      type: 'MEETING_RECORD_UPDATED',
-      audience: { kind: 'all' },
-      payload: {
-        agendaIndex: 1,
-        openQuestions: [
-          { id: 'q-quit', text: 'Where do players quit?', forRole: 'menu_store_lead', agendaIndex: 1 },
-        ],
-        elapsedSeconds: 10,
-        speakerTalkSeconds: {},
-      },
-    });
-    const questionCards = (audience: ClientAudience): KakiEvent[] =>
-      fake.received(audience).filter(
-        (event): event is Extract<KakiEvent, { type: 'FACT_FOUND' }> =>
-          event.type === 'FACT_FOUND' && event.payload.questionId === 'q-quit',
-      );
-    await waitFor(() => questionCards(roleAudience('menu_store_lead')).length > 0, 'the menu and store experience lead card');
-    assert(questionCards(roleAudience('operations_director')).length === 0, 'the operations_director received the question card');
-    assert(questionCards(roleAudience('tech_pos_lead')).length === 0, 'the tech and POS lead received the question card');
-    assert(questionCards(roleAudience('marketing_lead')).length === 0, 'the marketing lead received the question card');
-    const card = questionCards(roleAudience('menu_store_lead'))[0];
-    assert(card !== undefined, 'the menu and store experience lead did not receive the question card');
-    assert(card.audience.kind === 'role' && card.audience.role === 'menu_store_lead', 'the card audience is wrong');
-    console.log('PASS hub check: the question FACT_FOUND went only to menu_store_lead');
-  } finally {
-    if (typeof stop === 'function') stop();
-  }
 }
 
 async function main(): Promise<void> {
@@ -232,7 +97,6 @@ async function main(): Promise<void> {
       console.log(`PASS ${question.role}`);
     }
 
-    await checkAudience();
     console.log('\nAll company search checks passed.');
   } finally {
     await pool.end();

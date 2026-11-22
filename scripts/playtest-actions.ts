@@ -80,16 +80,3 @@ export function judgeArtifactReachability(url: string, status: number | undefine
   }
   return { ok: false, detail: `Request for ${url} failed${error === undefined ? '' : `: ${error}`}` };
 }
-
-type WingmanFactVerdict = { topic: number; ok: boolean };
-
-/** Every topic the robot played, in order, with whether its role received a FACT_FOUND. */
-export function wingmanFactVerdicts(
-  playedTopics: readonly number[],
-  factTopics: ReadonlySet<number>,
-): WingmanFactVerdict[] {
-  return [...new Set(playedTopics)].sort((left, right) => left - right).map((topic) => ({
-    topic,
-    ok: factTopics.has(topic),
-  }));
-}

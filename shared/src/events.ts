@@ -32,6 +32,29 @@ export type NotetakerStatus = 'waiting' | 'ok' | 'stale' | 'off';
 /** Every notetaker status. */
 export const NOTETAKER_STATUSES: readonly NotetakerStatus[] = ['waiting', 'ok', 'stale', 'off'];
 
+/** The reason one private Wingman note was raised. */
+export type WingmanNoteKind = 'answer' | 'given' | 'asked_you' | 'record';
+
+/** How loudly a private Wingman note should appear: a quiet panel line, or an act-now pop-up. */
+export type WingmanUrgency = 'quiet' | 'act_now';
+
+/** One private note for exactly one person's seat. */
+export interface WingmanNotePayload {
+  id: string;
+  kind: WingmanNoteKind;
+  urgency: WingmanUrgency;
+  title: string;
+  text: string;
+  /** Workspace facts used in the note, each with its source and date. */
+  facts?: Fact[];
+  /** Where each answer part came from: a transcript line time, or a record source and date. */
+  sources?: string[];
+  /** The question this note answers or relays, when there is one. */
+  questionText?: string;
+  /** True when this note retracts the earlier note with the same id. */
+  clears?: boolean;
+}
+
 /**
  * A judgement the notetaker could not make (a reversal, an answer's meaning, or a follow-up assignment)
  * after its one retry. Cards and decisions are left as they were; the room can resolve it later.
@@ -51,6 +74,7 @@ type KakiEventType =
   | 'HOST_SPEECH_TRIGGERED'
   | 'NUDGE'
   | 'FACT_FOUND'
+  | 'WINGMAN_NOTE'
   | 'TASK_UPDATED'
   | 'MEETING_STARTED'
   | 'MEETING_RESET'
@@ -142,6 +166,8 @@ export type KakiEvent =
     >
   | KakiEventOf<'NUDGE', { text: string; agendaIndex: number }>
   | KakiEventOf<'FACT_FOUND', { questionId: string; question: string; facts: Fact[]; agendaIndex: number }>
+  /** A private note for one person's seat; never shown on the shared screen or to another seat. */
+  | KakiEventOf<'WINGMAN_NOTE', WingmanNotePayload>
   | KakiEventOf<'TASK_UPDATED', { task: Task }>
   /**
    * The meeting has started: the agenda clock runs from here and late joiners go straight in.
@@ -171,6 +197,7 @@ const KAKI_EVENT_TYPES: readonly KakiEventType[] = [
   'HOST_SPEECH_TRIGGERED',
   'NUDGE',
   'FACT_FOUND',
+  'WINGMAN_NOTE',
   'TASK_UPDATED',
   'MEETING_STARTED',
   'MEETING_RESET',
@@ -207,6 +234,17 @@ function isNotetakerStatus(value: unknown): value is NotetakerStatus {
 
 function isFact(value: unknown): value is Fact {
   return isObject(value) && isString(value.text) && isString(value.source) && isString(value.date);
+}
+
+const WINGMAN_NOTE_KINDS: readonly WingmanNoteKind[] = ['answer', 'given', 'asked_you', 'record'];
+const WINGMAN_URGENCIES: readonly WingmanUrgency[] = ['quiet', 'act_now'];
+
+function isWingmanNoteKind(value: unknown): value is WingmanNoteKind {
+  return typeof value === 'string' && (WINGMAN_NOTE_KINDS as readonly string[]).includes(value);
+}
+
+function isWingmanUrgency(value: unknown): value is WingmanUrgency {
+  return typeof value === 'string' && (WINGMAN_URGENCIES as readonly string[]).includes(value);
 }
 
 /** True when a saved review issue has the id, text and agenda index the board expects. */
@@ -301,6 +339,18 @@ const PAYLOAD_CHECKS: Record<KakiEventType, PayloadCheck> = {
     Array.isArray(payload.facts) &&
     payload.facts.every(isFact) &&
     isAgendaIndex(payload.agendaIndex),
+  WINGMAN_NOTE: (payload) =>
+    isNonEmptyString(payload.id) &&
+    isWingmanNoteKind(payload.kind) &&
+    isWingmanUrgency(payload.urgency) &&
+    isString(payload.title) &&
+    isString(payload.text) &&
+    (payload.facts === undefined ||
+      (Array.isArray(payload.facts) && payload.facts.every(isFact))) &&
+    (payload.sources === undefined ||
+      (Array.isArray(payload.sources) && payload.sources.every((source) => isString(source)))) &&
+    (payload.questionText === undefined || isString(payload.questionText)) &&
+    (payload.clears === undefined || typeof payload.clears === 'boolean'),
   TASK_UPDATED: (payload, scenario) => isTask(payload.task, scenario),
   MEETING_STARTED: (payload) =>
     isNonEmptyString(payload.meetingId) &&
@@ -327,7 +377,9 @@ export function isKakiEvent(value: unknown, scenario: Scenario): value is KakiEv
   const { type, payload, audience } = value;
   if (!isKnownEventType(type) || !isObject(payload) || !isAudience(audience, scenario)) return false;
   if (!PAYLOAD_CHECKS[type](payload, scenario)) return false;
-  if ((type === 'NUDGE' || type === 'FACT_FOUND') && audience.kind !== 'role') return false;
+  if ((type === 'NUDGE' || type === 'FACT_FOUND' || type === 'WINGMAN_NOTE') && audience.kind !== 'role') {
+    return false;
+  }
   if (type === 'COLLEAGUE_REACTION' && audience.kind !== 'all') return false;
   if (type === 'RUNNER_STATE' && audience.kind !== 'service') return false;
   if (type === 'MEETING_STATE' && audience.kind !== 'all') return false;

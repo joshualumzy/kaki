@@ -19,6 +19,10 @@ export type KakiCommand =
   | { type: 'RETRY_ACTION'; taskId: string; draft?: ActionDraft }
   | { type: 'MARK_DONE'; taskId: string }
   | { type: 'SYNC_TASK'; taskId: string }
+  /** A person in a seat asks their private Wingman; the role comes from the sending socket's seat. */
+  | { type: 'ASK_WINGMAN'; question: string }
+  /** A person closes one of their own private Wingman notes. */
+  | { type: 'DISMISS_WINGMAN_NOTE'; id: string }
   /** Screen only. Ends the meeting; `silent` skips the spoken closing line (nobody is left to hear it). */
   | { type: 'END_MEETING'; silent?: boolean }
   /** Screen only. Throws away the meeting, restored or not, and its saved copy, so the next line starts fresh. */
@@ -63,6 +67,8 @@ const COMMAND_TYPES: readonly KakiCommand['type'][] = [
   'RETRY_ACTION',
   'MARK_DONE',
   'SYNC_TASK',
+  'ASK_WINGMAN',
+  'DISMISS_WINGMAN_NOTE',
   'END_MEETING',
   'NEW_MEETING',
   'NEXT_AGENDA_ITEM',
@@ -95,6 +101,8 @@ export function isKakiCommand(value: unknown, scenario: Scenario): value is Kaki
     );
   }
   if (value.type === 'END_MEETING') return value.silent === undefined || typeof value.silent === 'boolean';
+  if (value.type === 'ASK_WINGMAN') return isString(value.question) && value.question.trim() !== '';
+  if (value.type === 'DISMISS_WINGMAN_NOTE') return isNonEmptyString(value.id);
   if (!isString(value.taskId)) return false;
 
   switch (value.type) {

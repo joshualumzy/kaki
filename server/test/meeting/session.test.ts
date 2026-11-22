@@ -356,6 +356,7 @@ describe('meeting session reset', () => {
       'host:opening',
       'fact:',
       'nudge:',
+      'wingman:',
       'meeting:restored',
       'runner:state',
       'meeting:state',

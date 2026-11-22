@@ -5,7 +5,6 @@ import {
   judgeArtifactReachability,
   judgeCardCompletion,
   nextRobotTaskAction,
-  wingmanFactVerdicts,
   type ActableTask,
 } from './playtest-actions';
 
@@ -86,15 +85,5 @@ describe('artifact reachability', () => {
     expect(judgeArtifactReachability('http://x', 404).ok).toBe(false);
     expect(judgeArtifactReachability('http://x', undefined, 'ECONNREFUSED').detail).toMatch(/ECONNREFUSED/);
     expect(judgeArtifactReachability('http://x', undefined).ok).toBe(false);
-  });
-});
-
-describe('wingman fact verdicts', () => {
-  it('lists each played topic once, in order, marking the ones with a fact', () => {
-    expect(wingmanFactVerdicts([1, 0, 1], new Set([0]))).toEqual([
-      { topic: 0, ok: true },
-      { topic: 1, ok: false },
-    ]);
-    expect(wingmanFactVerdicts([], new Set([0]))).toEqual([]);
   });
 });
