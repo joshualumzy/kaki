@@ -29,6 +29,7 @@ const scenario = await loadScenario();
 const persistence = await createMeetingPersistenceFromEnv();
 const postgresUrl = process.env.POSTGRES_URL?.trim();
 let meetings: MeetingStore | undefined;
+let findSavedIdByCode: ((code: string) => Promise<string | undefined>) | undefined;
 let persistenceFor: ((id: string) => Promise<MeetingPersistence | undefined>) | undefined;
 let meetingsPool: Pool | undefined;
 let workspaceTools: WorkspaceToolStore | undefined;
@@ -46,6 +47,14 @@ if (postgresUrl !== undefined && postgresUrl !== '') {
     },
   };
   persistenceFor = (id: string) => createMeetingPersistenceFromEnv({ id });
+  const codePool = meetingsPool;
+  findSavedIdByCode = async (code: string) => {
+    const result = await codePool.query<{ id: string }>(
+      "select id from meeting_state where meeting_code = $1 and id <> 'meeting' limit 1",
+      [code],
+    );
+    return result.rows[0]?.id;
+  };
 }
 const host = createHostModules(scenario);
 const meetingCode = createMeetingCodeSource();
@@ -72,6 +81,7 @@ try {
     ...(meetings === undefined ? {} : { meetings }),
     ...(workspaceTools === undefined ? {} : { workspaceTools }),
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
+    ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
   });
 } catch (error) {
   await auth?.close().catch(() => undefined);

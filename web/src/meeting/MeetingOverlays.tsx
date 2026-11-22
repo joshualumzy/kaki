@@ -193,7 +193,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
         );
       }
       clearAllStoredJoins();
-      window.location.assign('/setup');
+      window.location.assign('/');
     } catch (error) {
       setStartError(error instanceof Error ? error.message : 'Could not close the room.');
       setClosing(false);

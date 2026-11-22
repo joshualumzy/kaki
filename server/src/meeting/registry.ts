@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { normalizeMeetingCode } from '@kaki/shared';
 import type { Pool } from 'pg';
 import { ensureMeetingsSchema } from '../auth/schema';
 import type { MeetingPersistence } from '../persist/persistence';
@@ -57,6 +58,12 @@ export interface MeetingRegistry {
   /** The practice/owner instance of today, always loaded. */
   legacy(): MeetingInstance;
   list(workspaceId: string): Promise<MeetingRow[]>;
+  /**
+   * The id of the open or scheduled real meeting whose code this is, or undefined. A loaded meeting
+   * is matched on its current code; an unloaded one on the code saved with it. A meeting that was
+   * never opened has no code yet, so it cannot be found this way.
+   */
+  findByCode(code: string): Promise<string | undefined>;
   /** Save and dispose one meeting; its row and saved state stay. */
   unload(id: string): Promise<void>;
   /** Every open meeting, for a runner connecting (or reconnecting) to the control channel. */
@@ -71,6 +78,8 @@ interface MeetingRegistryDeps {
   buildInstance(row: MeetingRow, persistence: MeetingPersistence | undefined): Promise<MeetingInstance>;
   /** Load the meeting's saved state; absent means memory only. */
   persistenceFor?(id: string): Promise<MeetingPersistence | undefined>;
+  /** The id of the meeting whose saved state holds this code; absent means loaded meetings only. */
+  findSavedIdByCode?(code: string): Promise<string | undefined>;
   maxOpen?: number;
   unloadMs?: number;
   sweepMs?: number;
@@ -186,6 +195,26 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       const loadPromise = load(id).finally(() => loading.delete(id));
       loading.set(id, loadPromise);
       return loadPromise;
+    },
+
+    async findByCode(code) {
+      const wanted = normalizeMeetingCode(code);
+      if (wanted === '') return undefined;
+      const isLive = async (id: string): Promise<boolean> => {
+        const row = await deps.store.get(id);
+        return row !== undefined && row.status !== 'ended';
+      };
+      for (const instance of loaded.values()) {
+        if (normalizeMeetingCode(instance.meetingCode()) === wanted && (await isLive(instance.id))) {
+          return instance.id;
+        }
+      }
+      const savedId = await deps.findSavedIdByCode?.(wanted);
+      if (savedId === undefined || savedId === LEGACY_MEETING_ID) return undefined;
+      // A loaded meeting's code is the one it holds now; a stale saved copy must not match.
+      const open = loaded.get(savedId);
+      if (open !== undefined && normalizeMeetingCode(open.meetingCode()) !== wanted) return undefined;
+      return (await isLive(savedId)) ? savedId : undefined;
     },
 
     legacy: () => deps.legacy,

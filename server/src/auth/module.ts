@@ -303,7 +303,9 @@ export function createAuth({
         token,
         kind,
         role,
-        kind === 'host' ? null : meetingCode.value,
+        // Only the practice meeting's seats carry the practice code; a real meeting's seat is
+        // validated by its own meeting id and claim, so the practice code changing cannot end it.
+        kind === 'host' || meetingId !== currentMeetingId() ? null : meetingCode.value,
         meetingId,
         existing?.displayName ?? null,
         existing?.userId ?? null,
@@ -435,8 +437,10 @@ export function createAuth({
       });
       return;
     }
+    // A real meeting's seat carries no practice code; it is held by its own meeting id and claim.
     if (
       session.kind === 'participant' &&
+      session.meetingCode !== null &&
       (session.meetingCode !== meetingCode.value || session.meetingId !== currentMeetingId())
     ) {
       // The phone's meeting is gone: it must join again with the code on the screen.
@@ -622,9 +626,15 @@ export function createAuth({
       }
     }
 
-    const meetingId = expectedMeetingId ?? currentMeetingId();
+    // A real meeting's seat carries no practice code: outside that meeting's own routes (account
+    // pages, say) it still stands for its own meeting, and the claim check below keeps it honest.
+    const realSeat = session.kind === 'participant' && session.meetingCode === null;
+    const meetingId =
+      expectedMeetingId ?? (realSeat ? (session.meetingId ?? currentMeetingId()) : currentMeetingId());
     if (session.kind === 'participant') {
-      const ended = session.meetingCode !== meetingCode.value || session.meetingId !== meetingId;
+      const ended =
+        session.meetingId !== meetingId ||
+        (!realSeat && session.meetingCode !== meetingCode.value);
       if (ended) return { ok: false, ended: true };
     }
     let principal = principalFor(session, meetingId);

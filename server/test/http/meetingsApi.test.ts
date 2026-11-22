@@ -317,4 +317,83 @@ describe('meetings API', () => {
       })).status,
     ).toBe(400);
   });
+
+  it('finds an open meeting by its code, and answers 404 plainly for a wrong or ended one', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const team = await store.createWorkspace({ name: 'Kitchen team', createdBy: ada.user.id });
+    const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Weekly planning');
+
+    const instance = await apps[apps.length - 1]!.registry.get(meeting.id);
+    const code = instance!.meetingCode();
+
+    const found = await request(base, `/api/meetings/by-code/${code.toLowerCase()}`);
+    expect(found.status).toBe(200);
+    expect(await found.json()).toEqual({ id: meeting.id });
+
+    const wrong = await request(base, '/api/meetings/by-code/NOPE22');
+    expect(wrong.status).toBe(404);
+    expect(((await wrong.json()) as { error: string }).error).toBe(
+      "We couldn't find a meeting with that code. Check it, or open the invite link.",
+    );
+
+    await meetings.markEnded?.(meeting.id, new Date().toISOString());
+    expect((await request(base, `/api/meetings/by-code/${code}`)).status).toBe(404);
+  });
+
+  it('gives every real meeting its own code even when a practice code is pinned', async () => {
+    const previous = process.env.KAKI_MEETING_CODE;
+    process.env.KAKI_MEETING_CODE = 'PINNED';
+    try {
+      const { base, store } = await buildApp();
+      const ada = await signIn(store, 'Ada');
+      const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
+      const registry = apps[apps.length - 1]!.registry;
+      const first = await createMeeting(base, ada.cookie, team.workspace.id, 'One');
+      const second = await createMeeting(base, ada.cookie, team.workspace.id, 'Two');
+      const codeOne = (await registry.get(first.id))!.meetingCode();
+      const codeTwo = (await registry.get(second.id))!.meetingCode();
+      expect(codeOne).not.toBe('PINNED');
+      expect(codeOne).not.toBe(codeTwo);
+      const found = await request(base, `/api/meetings/by-code/${codeTwo}`);
+      expect(await found.json()).toEqual({ id: second.id });
+    } finally {
+      if (previous === undefined) delete process.env.KAKI_MEETING_CODE;
+      else process.env.KAKI_MEETING_CODE = previous;
+    }
+  });
+
+  it('lets the owner of an ended sample-workspace meeting read its minutes, and no one else', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const meeting = await createMeeting(base, ada.cookie, SAMPLE_WORKSPACE_ID, 'Sample chat');
+    await meetings.markEnded!(meeting.id, new Date().toISOString());
+    await meetings.saveMinutes!(meeting.id, { minutes: 'We agreed.', todos: [] });
+    const path = `/api/workspaces/${SAMPLE_WORKSPACE_ID}/meetings/${meeting.id}/minutes`;
+
+    const owner = await request(base, path, { cookie: ada.cookie });
+    expect(owner.status).toBe(200);
+    expect(await owner.json()).toMatchObject({ minutes: 'We agreed.', canEdit: false });
+    expect((await request(base, path, { cookie: ben.cookie })).status).toBe(404);
+    // The sample workspace stays read-only otherwise: no list, no to-do edits.
+    expect(
+      (await request(base, `/api/workspaces/${SAMPLE_WORKSPACE_ID}/meetings`, { cookie: ada.cookie })).status,
+    ).toBe(403);
+  });
+
+  it('refuses a guest join for an ended meeting without giving a name cookie', async () => {
+    const { base, store, meetings } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
+    const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Weekly planning');
+    await meetings.markEnded!(meeting.id, new Date().toISOString());
+    const response = await request(base, `/api/meetings/${meeting.id}/join`, {
+      method: 'POST',
+      body: { name: 'Sam' },
+    });
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toBe('This meeting has ended');
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
 });

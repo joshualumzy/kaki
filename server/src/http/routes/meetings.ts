@@ -161,6 +161,10 @@ export async function handleMeetingJoin(call: RouteCall): Promise<void> {
     sendJson(response, 404, { error: 'meeting-not-found' });
     return;
   }
+  if (row.status === 'ended') {
+    sendJson(response, 409, { error: 'This meeting has ended' });
+    return;
+  }
 
   if (accountUserId(principal) !== undefined) {
     // Signed-in people join under their Google name; joining never adds them to the workspace.
@@ -196,4 +200,36 @@ export async function handleMeetingJoin(call: RouteCall): Promise<void> {
   limiter?.recordFailure(key);
   response.setHeader('set-cookie', cookie);
   sendJson(response, 200, { ok: true, name });
+}
+
+/** Resolve a real meeting's code to its id, so an invitee can open its join page. */
+export async function handleMeetingByCode(call: RouteCall): Promise<void> {
+  const { request, response, context, path } = call;
+  const registry = context.registry;
+  if (registry === undefined) {
+    sendJson(response, 404, { error: 'meeting-not-found' });
+    return;
+  }
+  const limiter = context.guestJoinAttempts;
+  const key = clientAddress(request);
+  if (limiter?.isLimited(key) === true) {
+    sendJson(response, 429, { error: 'Too many attempts from this address. Wait a minute and try again.' });
+    return;
+  }
+  const match = /^\/api\/meetings\/by-code\/([^/]+)$/.exec(path);
+  let code = '';
+  try {
+    code = match === null ? '' : decodeURIComponent(match[1] ?? '');
+  } catch {
+    code = '';
+  }
+  const id = await registry.findByCode(code);
+  if (id === undefined) {
+    limiter?.recordFailure(key);
+    sendJson(response, 404, {
+      error: "We couldn't find a meeting with that code. Check it, or open the invite link.",
+    });
+    return;
+  }
+  sendJson(response, 200, { id });
 }

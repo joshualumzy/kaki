@@ -1,11 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { LoginPage } from './auth/LoginPage';
 import { ScenarioProvider, viewForPath } from './kaki';
-import { SetupPage } from './setup/SetupPage';
 import { LandingPage } from './landing/LandingPage';
-import { OwnerMeetingPage } from './meeting/OwnerMeetingPage';
-import { ParticipantJoinPage } from './meeting/ParticipantJoinPage';
 import Meeting from './meeting/room/Meeting';
 import { JoinPage } from './product/JoinPage';
 import { NewMeetingPage } from './product/NewMeetingPage';
@@ -21,17 +17,13 @@ function ScenarioShell({ children }: { children: ReactNode }) {
   return <ScenarioProvider view={viewForPath(location.pathname)}>{children}</ScenarioProvider>;
 }
 
-/** The legacy pages, kept exactly as they were; they still need the scenario. */
+/** The front page and the practice meeting; practice needs the practice scenario. Any other address goes home. */
 function LegacyRoutes() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/practice" element={<Meeting variant="practice" />} />
       <Route path="/demo" element={<Meeting variant="practice" />} />
-      <Route path="/join" element={<ParticipantJoinPage />} />
-      <Route path="/meeting" element={<OwnerMeetingPage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/setup" element={<SetupPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
