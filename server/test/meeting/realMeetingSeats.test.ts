@@ -234,6 +234,29 @@ describe('real meeting seats', () => {
     expect(instance?.session.holders()).toHaveLength(3);
   });
 
+  it('refuses a join with a stale guest cookie instead of seating it by name', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const meeting = await app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.userId,
+      title: 'Weekly planning',
+    });
+    const joined = await request(base, `/api/meetings/${meeting.id}/join`, {
+      method: 'POST',
+      body: { name: 'Sam' },
+    });
+    const oldCookie = cookiePair(setCookies(joined), 'kaki_session');
+    if (oldCookie === undefined) throw new Error('the guest got no cookie');
+    // Taking the seat rotates the cookie, so a second join still sending the old one is stale.
+    const first = await seat(base, meeting.id, oldCookie, 'Sam');
+    expect(first.status).toBe(200);
+    const stale = await seat(base, meeting.id, oldCookie, 'Sam');
+    expect(stale.status).toBe(401);
+    const instance = await app.registry.get(meeting.id);
+    expect(instance?.session.holders()).toHaveLength(1);
+  });
+
   it('gives a refresh or rejoin the same seat back, for the owner and a guest', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');

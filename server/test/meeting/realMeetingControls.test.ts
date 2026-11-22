@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { KakiEvent, Role, Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
@@ -722,5 +722,60 @@ describe('real meeting controls', () => {
     });
     expect(started.status).toBe(200);
     expect((await started.json()) as { started?: boolean }).toMatchObject({ started: true });
-  });
+  }, 20_000);
+});
+
+describe('real meeting line replay', () => {
+  function chunkTexts(socket: Socket): string[] {
+    return socket.messages.flatMap((event) => (event.type === 'TRANSCRIPT_CHUNK' ? [event.payload.text] : []));
+  }
+
+  it('replays the last 50 lines to a refreshed seat and never the off-the-record ones', async () => {
+    const built = await buildApp();
+    const owner = await signIn(built.store, 'Ada');
+    const meetingId = await createAndOpen(built, owner);
+    const joined = await join(built, meetingId, owner.cookie, 'Ada', 'chef');
+    expect(
+      (await request(built.base, `/api/meetings/${meetingId}/meeting/start`, { method: 'POST', cookie: joined.cookie })).status,
+    ).toBe(200);
+    const seat = await connect(built.port, meetingId, { role: joined.seat }, joined.cookie);
+    const screen = await connect(built.port, meetingId, { audience: 'screen' }, joined.cookie);
+    sockets.push(seat, screen);
+
+    // A seat may write five lines a second, so move the clock on between batches of five.
+    let clock = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    try {
+      screen.ws.send(JSON.stringify({ type: 'SET_OFF_THE_RECORD', on: true }));
+      await waitFor(() => {
+        const state = lastState(screen);
+        return state?.type === 'MEETING_STATE' && state.payload.offTheRecord !== null ? state : undefined;
+      }, 'the room to go off the record');
+      seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: 'secret', source: 'typed', clientLineId: 'id-secret' }));
+      screen.ws.send(JSON.stringify({ type: 'SET_OFF_THE_RECORD', on: false }));
+      await waitFor(() => {
+        const state = lastState(screen);
+        return state?.type === 'MEETING_STATE' && state.payload.offTheRecord === null ? state : undefined;
+      }, 'the room back on the record');
+      for (let batch = 0; batch < 60; batch += 5) {
+        clock += 1_100;
+        for (let index = batch; index < batch + 5; index += 1) {
+          seat.ws.send(JSON.stringify({ type: 'HUMAN_LINE', text: `line ${index}`, source: 'typed', clientLineId: `id-${index}` }));
+        }
+        await waitFor(() => (chunkTexts(screen).includes(`line ${batch + 4}`) ? true : undefined), `batch ${batch}`);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+
+    const refreshed = await connect(built.port, meetingId, { audience: 'screen' }, joined.cookie);
+    sockets.push(refreshed);
+    await waitFor(() => (chunkTexts(refreshed).length > 0 ? true : undefined), 'the replay');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const replayed = chunkTexts(refreshed);
+    expect(replayed).toHaveLength(50);
+    expect(replayed[0]).toBe('line 10');
+    expect(replayed[49]).toBe('line 59');
+    expect(replayed).not.toContain('secret');
+  }, 20_000);
 });

@@ -115,6 +115,12 @@ async function handleRealLivekitToken(call: RouteCall): Promise<void> {
     sendJson(response, 409, { error: 'This is a real meeting; practice has its own page.' });
     return;
   }
+  // With sign-in on, a seat follows a signed-in person, a guest cookie or a held seat. A request with
+  // none of them (such as a second join racing a rotated cookie) must not be given a seat by name.
+  if (context.auth !== undefined && principal.kind === 'anonymous') {
+    sendJson(response, 401, { error: 'Your session expired. Open the invite link again to join.' });
+    return;
+  }
   const name = realPersonName(principal, typedName);
   if (name === '') {
     sendJson(response, 400, { error: 'Your name is required to join this meeting.' });
@@ -204,7 +210,7 @@ async function handleRealLivekitToken(call: RouteCall): Promise<void> {
       else context.rejoin.joined();
       context.scheduleSave();
       context.watchRoom(roomName);
-      console.log(`[join] seat=${seatId} room=${roomName} real=true`);
+      console.log(`[join] seat=${seatId} room=${roomName} real=true principal=${principal.kind} name=${name}`);
       sendJson(response, 200, {
         token,
         url: livekitPublicUrl(),

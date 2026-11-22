@@ -219,6 +219,9 @@ export default function Meeting({
 
   useEffect(() => {
     if (!real || left || session !== undefined || realAutoAttempted.current) return;
+    // A reload that remembered this tab's join is rejoined by the restore effect below; a second,
+    // concurrent join here would race it on the rotating seat cookie.
+    if (initialStored.current !== undefined) return;
     if (hostCheck === 'checking' || auth.status === 'loading') return;
     if (effectiveRealName === undefined || effectiveRealName.trim() === '') return;
     realAutoAttempted.current = true;
