@@ -10,6 +10,8 @@ export interface GatewayConfig {
   embedApiKey?: string;
   chatModel: string;
   embedModel: string;
+  /** Ask the model for this many dimensions (models that can shorten their output, e.g. qwen3-embedding). */
+  embedDimensions?: number;
 }
 
 const DEFAULT_CHAT_MODEL = 'x-test-2';
@@ -34,7 +36,16 @@ export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Gate
     embedApiKey: env.KAKI_EMBED_API_KEY || fallbackKey || apiKey,
     chatModel: env.KAKI_LLM_MODEL || DEFAULT_CHAT_MODEL,
     embedModel: env.KAKI_EMBED_MODEL || DEFAULT_EMBED_MODEL,
+    ...(env.KAKI_EMBED_DIMENSIONS ? { embedDimensions: parseEmbedDimensions(env.KAKI_EMBED_DIMENSIONS) } : {}),
   };
+}
+
+function parseEmbedDimensions(raw: string): number {
+  const value = Number(raw);
+  if (value !== 1024) {
+    throw new Error(`KAKI_EMBED_DIMENSIONS must be 1024 (the stored vector size), got "${raw}"`);
+  }
+  return value;
 }
 
 function requireConfig(config: GatewayConfig | undefined): GatewayConfig {
@@ -110,7 +121,11 @@ export async function embedTexts(
     const response = await postJson<EmbeddingResponse>(
       embedConfig,
       '/embeddings',
-      { model: config.embedModel, input: batch },
+      {
+        model: config.embedModel,
+        input: batch,
+        ...(config.embedDimensions ? { dimensions: config.embedDimensions } : {}),
+      },
       'Company search embeddings',
       EMBED_TIMEOUT_MS,
     );
