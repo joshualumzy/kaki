@@ -580,7 +580,6 @@ export default function Meeting({
               real={real}
               {...(realMeetingId === undefined ? {} : { meetingId: realMeetingId })}
               {...(session.meetingCode === undefined ? {} : { meetingCode: session.meetingCode })}
-              viewerName={session.name}
               onOpenKaki={() => setPane('kaki')}
               onKakiBadgeChange={setKakiBadgeCount}
             />

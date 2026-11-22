@@ -4,6 +4,7 @@ import { Avatar } from '../../ui';
 import { QrCode } from '../MeetingOverlays';
 import { newClientLineId } from './stageModel';
 import { useRealRoom } from './realRoom';
+import { distinctDisplayNames } from './people';
 
 /**
  * The real meeting's bottom bar. Practice keeps its own controls: this bar is only ever rendered
@@ -12,11 +13,9 @@ import { useRealRoom } from './realRoom';
 export function RealMeetingBar({
   meetingId,
   meetingCode,
-  viewerName,
 }: {
   meetingId: string;
   meetingCode?: string;
-  viewerName: string;
 }) {
   const livekitRoom = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
@@ -34,6 +33,7 @@ export function RealMeetingBar({
   const { meetingState, send, isHost } = meeting;
   const offTheRecord = meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const people = meetingState?.participants ?? [];
+  const shownNames = distinctDisplayNames(people);
   const inviteUrl = `${origin}/m/${encodeURIComponent(meetingId)}${
     meetingCode === undefined || meetingCode === ''
       ? ''
@@ -221,9 +221,9 @@ export function RealMeetingBar({
             <ul className="kd-real-people">
               {people.map((person) => (
                 <li key={`${person.name}-${person.seat}`}>
-                  <Avatar name={person.displayName || person.name} photoUrl={person.photoUrl} size="sm" />
-                  <span>{person.displayName || person.name}</span>
-                  {person.name.trim().toLowerCase() === viewerName.trim().toLowerCase() ? (
+                  <Avatar name={shownNames.get(person.seat) ?? person.name} photoUrl={person.photoUrl} size="sm" />
+                  <span>{shownNames.get(person.seat) ?? person.name}</span>
+                  {person.seat === meeting.role ? (
                     <small>· You</small>
                   ) : null}
                 </li>

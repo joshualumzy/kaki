@@ -23,11 +23,12 @@ import {
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
 import { ConnectedTypeBar } from './TypeBar';
-import { CaptionedTile, StageContext } from './CaptionedTile';
+import { CaptionedTile, PendingTile, StageContext } from './CaptionedTile';
 import { RealMeetingBar } from './RealMeetingBar';
 import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 import { MutedHint } from './MutedHint';
 import { useRealRoom } from './realRoom';
+import { distinctDisplayNames, peopleNotInRoom } from './people';
 import { activeStageTaskFor, newClientLineId, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 import { textOnlyNote, transcriptChunks } from './captions';
 import { WingmanActNow } from './WingmanPanel';
@@ -41,7 +42,6 @@ export function MeetingGrid({
   real = false,
   meetingId,
   meetingCode,
-  viewerName,
 }: {
   role: string;
   onOpenKaki?: () => void;
@@ -52,7 +52,6 @@ export function MeetingGrid({
   real?: boolean;
   meetingId?: string;
   meetingCode?: string;
-  viewerName?: string;
 }) {
   const scenario = useScenario();
   const room = useRoomContext();
@@ -71,6 +70,11 @@ export function MeetingGrid({
   );
   const sendTypedLine = useCallback((text: string) => sendHumanLine(text, 'typed'), [sendHumanLine]);
   const participants = useParticipants().filter((participant) => !isKakiListener(participant.identity));
+  // A real meeting lists everyone the server seated, even before their LiveKit connection arrives.
+  const pendingPeople = useMemo(
+    () => (real ? peopleNotInRoom(meetingState?.participants ?? [], participants) : []),
+    [real, meetingState?.participants, participants],
+  );
   const tracks = visibleStageTracks(
     useTracks(
       [
@@ -157,11 +161,15 @@ export function MeetingGrid({
   const voiceNote = offTheRecord ? null : textOnlyNote(chunks, now);
   const avatars = useMemo(() => {
     const map = new Map<string, { displayName: string; photoUrl: string | null }>();
-    for (const person of meetingState?.participants ?? []) {
-      const entry = { displayName: person.displayName || person.name, photoUrl: person.photoUrl };
-      map.set(person.name.trim().toLowerCase(), entry);
-      map.set(person.seat.trim().toLowerCase(), entry);
-    }
+    const people = meetingState?.participants ?? [];
+    const shown = distinctDisplayNames(people);
+    const entryFor = (person: (typeof people)[number]) => ({
+      displayName: shown.get(person.seat) ?? (person.displayName || person.name),
+      photoUrl: person.photoUrl,
+    });
+    // Seats go in last: a seat is unique, a name can be shared by two people.
+    for (const person of people) map.set(person.name.trim().toLowerCase(), entryFor(person));
+    for (const person of people) map.set(person.seat.trim().toLowerCase(), entryFor(person));
     return map;
   }, [meetingState?.participants]);
   const facilitatorName = useMemo(() => {
@@ -385,6 +393,13 @@ export function MeetingGrid({
           </GridLayout>
           {real && meetingId !== undefined ? <RealWaitingOverlay meetingId={meetingId} /> : null}
         </div>
+        {pendingPeople.length > 0 && (
+          <div className="kd-pending-tiles" aria-label="Joining the meeting">
+            {pendingPeople.map((person) => (
+              <PendingTile key={person.seat} person={person} name={avatars.get(person.seat.trim().toLowerCase())?.displayName} />
+            ))}
+          </div>
+        )}
         {voiceNote !== null && (
           <div className="kd-caption-note" role="status" aria-live="polite">
             {voiceNote}
@@ -447,7 +462,6 @@ export function MeetingGrid({
           <RealMeetingBar
             meetingId={meetingId ?? ''}
             {...(meetingCode === undefined ? {} : { meetingCode })}
-            viewerName={viewerName ?? ''}
           />
         ) : (
           <>

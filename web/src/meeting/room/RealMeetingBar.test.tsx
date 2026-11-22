@@ -59,7 +59,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 function renderBar(): void {
-  render(<RealMeetingBar meetingId="mtg-1" meetingCode="K7QX" viewerName="Ada Lovelace" />);
+  render(<RealMeetingBar meetingId="mtg-1" meetingCode="K7QX" />);
 }
 
 describe('real meeting bar', () => {

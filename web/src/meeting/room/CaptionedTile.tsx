@@ -12,6 +12,7 @@ import {
   type SpeechStatusMessage,
 } from '@kaki/shared';
 import { Avatar } from '../../ui';
+import type { MeetingStateParticipant } from '@kaki/shared';
 import { Orb, orbPalette } from './Orb';
 import { captionFor, transcriptNameFor, type TranscriptChunk } from './captions';
 import { colleagueStance, reactionForColleague } from './stageModel';
@@ -86,10 +87,11 @@ export function CaptionedTile() {
       : scenario.roles.find((role) => role.id === participantRole)?.label ?? participantRole;
   const avatarInfo =
     !isAi && avatars !== undefined
-      ? avatars.get(participant.identity.trim().toLowerCase()) ??
+      ? // The seat is unique; a shared name would pick the wrong person's photo and label.
         (participant.metadata === undefined || participant.metadata.trim() === ''
           ? undefined
-          : avatars.get(participant.metadata.trim().toLowerCase()))
+          : avatars.get(participant.metadata.trim().toLowerCase())) ??
+        avatars.get(participant.identity.trim().toLowerCase())
       : undefined;
   const displayName = avatarInfo?.displayName ?? (participant.name || participant.identity);
   // Never repeat a role whose label is already the person's display name.
@@ -132,6 +134,18 @@ export function CaptionedTile() {
           {caption}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A person the server has seated whose camera connection has not arrived yet. */
+export function PendingTile({ person, name }: { person: MeetingStateParticipant; name: string | undefined }) {
+  const shown = name ?? (person.displayName || person.name);
+  return (
+    <div className="kd-tile kd-tile-pending" data-state="idle" data-identity={person.name}>
+      <Avatar name={shown} photoUrl={person.photoUrl} size="sm" />
+      <span>{shown}</span>
+      <small>Joining…</small>
     </div>
   );
 }

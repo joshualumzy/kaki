@@ -92,7 +92,7 @@ afterEach(cleanup);
 
 describe('real meeting stage', () => {
   it('uses the real bottom bar and never the practice controls', () => {
-    render(<MeetingGrid role="chef" real meetingId="mtg-1" viewerName="Ada" />);
+    render(<MeetingGrid role="chef" real meetingId="mtg-1" />);
 
     expect(screen.getByTestId('real-bar')).toBeTruthy();
     expect(mocks.typeBarRendered).toBe(false);
@@ -114,9 +114,24 @@ describe('real meeting stage', () => {
       },
     ];
     mocks.meetingState = state({ offTheRecord: { since: new Date().toISOString() } });
-    render(<MeetingGrid role="chef" real meetingId="mtg-1" viewerName="Ada" />);
+    render(<MeetingGrid role="chef" real meetingId="mtg-1" />);
 
     expect(screen.queryByText(/This must never be shown/)).toBeNull();
     expect(screen.getByText(/Off the record: nothing is being written down/)).toBeTruthy();
+  });
+
+  it('shows a placeholder tile for a seated person LiveKit does not have yet', () => {
+    mocks.meetingState = state({
+      participants: [
+        { name: 'ada', displayName: 'Ada', seat: 'chef', photoUrl: null },
+        { name: 'sam', displayName: 'Sam', seat: 'cashier', photoUrl: null },
+        { name: 'sam', displayName: 'Sam', seat: 'cashier-2', photoUrl: null },
+      ],
+    });
+    render(<MeetingGrid role="chef" real meetingId="mtg-1" />);
+
+    const pending = screen.getByLabelText('Joining the meeting');
+    expect(pending.textContent).toContain('Sam');
+    expect(pending.textContent).toContain('Sam (2)');
   });
 });
