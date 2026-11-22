@@ -4,6 +4,7 @@ import { roleAudience } from '../../src/core/audience';
 import {
   projectedEvent,
   wantsEvent,
+  wantsOwnerSeatNote,
   wantsPracticeEvent,
   wantsProjectedEvent,
 } from '../../src/core/eventProjection';
@@ -44,5 +45,11 @@ describe('Wingman note projection', () => {
 
   it('never lets the owner screen see a private note meant for a seat', () => {
     expect(wantsEvent(note, { kind: 'screen' })).toBe(false);
+  });
+
+  it('reaches an owner screen only for the seat that owner holds', () => {
+    expect(wantsOwnerSeatNote(note, 'chef')).toBe(true);
+    expect(wantsOwnerSeatNote(note, 'cashier')).toBe(false);
+    expect(wantsOwnerSeatNote(note, undefined)).toBe(false);
   });
 });

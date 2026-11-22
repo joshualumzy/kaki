@@ -760,7 +760,14 @@ export function createAuth({
         if (principal.kind !== 'host') {
           return { ok: false, message: 'Only the meeting owner can follow the shared screen' };
         }
-        return { ok: true, participant, principal, sessionTokenHash };
+        // An owner who also holds a seat reads that seat's private Wingman notes on this screen.
+        return {
+          ok: true,
+          participant,
+          principal,
+          sessionTokenHash,
+          ...(principal.seat === undefined ? {} : { seat: principal.seat }),
+        };
       }
       if (audience.kind === 'participant') {
         // A participant projection is bound to one seat; the hub redacts every other seat's work.

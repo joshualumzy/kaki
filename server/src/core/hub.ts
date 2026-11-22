@@ -11,7 +11,7 @@ import {
 import type { Principal } from '../http/access';
 import { audienceFor, audienceLabel, roleAudience, type ClientAudience } from './audience';
 import { PRACTICE_SCREEN_COMMANDS, rejectionFor, runnerMaySend } from './commandPermissions';
-import { projectedEvent, wantsEvent, wantsPracticeEvent, wantsProjectedEvent } from './eventProjection';
+import { projectedEvent, wantsEvent, wantsOwnerSeatNote, wantsPracticeEvent, wantsProjectedEvent } from './eventProjection';
 import {
   parseServiceMessage,
   rawDataToString,
@@ -304,7 +304,7 @@ export function createHub(
         if (!wantsPracticeEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, true);
       } else {
-        if (!wantsEvent(event, audience)) continue;
+        if (!wantsEvent(event, audience) && !(audience.kind === 'screen' && wantsOwnerSeatNote(event, seat))) continue;
         visible = event;
       }
       if (visible === undefined) continue;
@@ -542,7 +542,7 @@ export function createHub(
         // another seat's task drafts stay private too.
         if (!wantsPracticeEvent(event, seat)) continue;
         visible = projectedEvent(event, seat, true);
-      } else if (wantsEvent(event, audience)) {
+      } else if (wantsEvent(event, audience) || (audience.kind === 'screen' && wantsOwnerSeatNote(event, seat))) {
         visible = event;
       }
       if (visible !== undefined) {

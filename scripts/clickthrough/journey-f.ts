@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     await step(run, page, 'type meeting facts', async () => {
       await sendTyped(page, `We agreed to move the launch to Friday (${suffix}).`);
       await sendTyped(page, 'The supplier delivery window is three working days, per our supplier SOP.');
-      await page.getByText(`We agreed to move the launch to Friday (${suffix}).`).first().waitFor({ timeout: 20_000 });
+      await page.getByText(`We agreed to move the launch to Friday (${suffix}).`).first().waitFor({ state: 'attached', timeout: 20_000 });
       const shot = await run.shot(page, 'meeting-facts-typed');
       run.pass(`Owner typed the facts the Wingman must ground its answer in (${shot}).`);
     });

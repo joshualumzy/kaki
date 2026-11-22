@@ -26,6 +26,16 @@ export function wantsPracticeEvent(event: KakiEvent, seat: string | undefined): 
   return wantsEvent(event, { kind: 'screen' });
 }
 
+/** An owner's screen also carries the private Wingman notes of the seat that owner holds. */
+export function wantsOwnerSeatNote(event: KakiEvent, seat: string | undefined): boolean {
+  return (
+    seat !== undefined &&
+    event.type === 'WINGMAN_NOTE' &&
+    event.audience.kind === 'role' &&
+    event.audience.role === seat
+  );
+}
+
 /** A participant's view of an event that may carry another seat's private work. */
 export function wantsProjectedEvent(event: KakiEvent, seat: string | undefined): boolean {
   if (seat === undefined) {
