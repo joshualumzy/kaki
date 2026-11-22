@@ -1,3 +1,4 @@
+export { Avatar, colourFor, initialsFor } from './Avatar';
 export { resolveArtifactUrl } from './artifactUrl';
 export { Button } from './Button';
 export { Card } from './Card';

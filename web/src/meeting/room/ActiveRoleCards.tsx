@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { assigneeLabel, type KakiCommand, type Scenario, type Task } from '@kaki/shared';
 import { useKaki, useScenario, type KakiRejection } from '../../kaki';
-import { artifactLinkText, Button, Card, RejectionBanner, StatusPill, resolveArtifactUrl, taskStatusText } from '../../ui';
+import { Avatar, artifactLinkText, Button, Card, RejectionBanner, StatusPill, resolveArtifactUrl, taskStatusText } from '../../ui';
 import './activeRoleCards.css';
 
 function needsAction(task: Task): boolean {
@@ -103,7 +103,26 @@ export function ActiveRoleCards({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   // Topic changes and the closing line go to the shared projection, never to a role's private feed.
-  const { events: screenEvents } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
+  const { events: screenEvents, meetingState } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
+  const peopleBySeat = useMemo(() => {
+    const map = new Map<string, { displayName: string; photoUrl: string | null }>();
+    for (const person of meetingState?.participants ?? []) {
+      map.set(person.seat.trim().toLowerCase(), {
+        displayName: person.displayName || person.name,
+        photoUrl: person.photoUrl,
+      });
+    }
+    return map;
+  }, [meetingState?.participants]);
+  const avatarFor = (task: Task): { name: string; photoUrl?: string | null } | undefined => {
+    const assignee = task.assignee ?? task.suggestedAssignee;
+    if (assignee === undefined) return undefined;
+    const person = peopleBySeat.get(assignee.trim().toLowerCase());
+    return {
+      name: person?.displayName ?? assigneeLabel(scenario, assignee, viewer),
+      ...(person === undefined ? {} : { photoUrl: person.photoUrl }),
+    };
+  };
   let currentAgendaTitle: string | undefined;
   let meetingEnded = false;
   for (const event of screenEvents) {
@@ -192,6 +211,7 @@ export function ActiveRoleCards({
                   send={send}
                   rejection={rejection}
                   viewer={viewer}
+                  avatar={avatarFor(item)}
                 />
               );
             }
@@ -230,6 +250,7 @@ export function ActiveRoleCards({
                   send={send}
                   rejection={rejection}
                   viewer={viewer}
+                  avatar={avatarFor(item)}
                 />
               </div>
             );
@@ -250,6 +271,7 @@ function TaskCard(props: {
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
   viewer?: { name: string; seatName?: string };
+  avatar?: { name: string; photoUrl?: string | null };
   id?: string;
 }) {
   const { task, send, rejection } = props;
@@ -283,6 +305,7 @@ function TaskCardBody({
   send,
   rejection,
   viewer,
+  avatar,
   id,
 }: {
   task: Task;
@@ -290,6 +313,7 @@ function TaskCardBody({
   send: (command: KakiCommand) => void;
   rejection: KakiRejection | null;
   viewer?: { name: string; seatName?: string };
+  avatar?: { name: string; photoUrl?: string | null };
   id?: string;
 }) {
   const [body, setBody] = useState(task.draft?.body ?? '');
@@ -355,7 +379,10 @@ function TaskCardBody({
       <h2 className="card-title phone-task-title">{task.title}</h2>
       <p className="task-meta">
         <StatusPill status={task.status} />
-        <span>{assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Avatar name={avatar?.name ?? assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)} photoUrl={avatar?.photoUrl} size="sm" />
+          {assigneeLabel(scenario, task.assignee ?? task.suggestedAssignee, viewer)}
+        </span>
       </p>
       {task.context.trim() === '' ||
       (viewer !== undefined &&

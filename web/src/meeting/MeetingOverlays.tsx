@@ -232,7 +232,7 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
               </span>
             </div>
             <div className="kd-lobby-qr">
-              <RoleQrCode value={inviteLink} label="the meeting" />
+              <QrCode value={inviteLink} label="the meeting" />
               <p className="kd-hint">Scan to join on a phone.</p>
             </div>
             {copyProblem === undefined ? null : <p className="kd-alert">{copyProblem}</p>}
@@ -278,7 +278,8 @@ export function OwnerLobby({ initialCode, onStarted }: { initialCode?: string; o
 }
 
 /** A QR code for a join link. */
-function RoleQrCode({ value, label }: { value: string; label: string }) {
+/** Draw a value as a QR image, with a plain failure message when the browser cannot render it. */
+export function QrCode({ value, label }: { value: string; label: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 

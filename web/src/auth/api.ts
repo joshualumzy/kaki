@@ -13,6 +13,7 @@ export type Me =
   | { authEnabled: false }
   | { authEnabled: true; kind: 'user'; user: MeUser }
   | { authEnabled: true; kind: 'host' | 'participant'; role?: string }
+  | { authEnabled: true; kind: 'guest'; name: string }
   | ({ authEnabled: true; kind: null; reason?: string } & Partial<MeetingEnded>);
 
 function meUser(value: unknown): MeUser | undefined {
@@ -51,6 +52,9 @@ export async function fetchMe(signal?: AbortSignal): Promise<Me> {
         return { authEnabled: true, kind: 'user', user };
       }
       if (body.kind === 'host') return { authEnabled: true, kind: 'host' };
+      if (body.kind === 'guest') {
+        return { authEnabled: true, kind: 'guest', name: typeof body.name === 'string' ? body.name : '' };
+      }
       if (body.kind === 'participant') {
         return typeof body.role === 'string'
           ? { authEnabled: true, kind: 'participant', role: body.role }

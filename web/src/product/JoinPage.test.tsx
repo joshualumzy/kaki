@@ -61,6 +61,7 @@ function scheduledInfo(overrides: Record<string, unknown> = {}): Record<string, 
 
 afterEach(() => {
   cleanup();
+  window.sessionStorage.clear();
   vi.unstubAllGlobals();
   mocks.state = { status: 'ready', me: { authEnabled: true, kind: null } };
 });
@@ -125,6 +126,24 @@ describe('JoinPage', () => {
     await waitFor(() =>
       expect(screen.getByTestId('location').textContent).toBe('/m/mtg-1/room'),
     );
+  });
+
+  it('remembers the invite code from the link for the room', async () => {
+    installFetch({
+      'GET /api/meetings/mtg-1/info': () => reply(scheduledInfo()),
+    });
+    render(
+      <MemoryRouter initialEntries={['/m/mtg-1?code=K7QX']}>
+        <Routes>
+          <Route path="/m/:id" element={<JoinPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('heading', { name: 'Weekly sync' });
+    expect(JSON.parse(String(window.sessionStorage.getItem('kaki.real.mtg-1')))).toMatchObject({
+      code: 'K7QX',
+    });
   });
 
   it('shows a plain page for an unknown link', async () => {

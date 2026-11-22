@@ -8,7 +8,7 @@ import {
 } from '@kaki/shared';
 import { useKaki, useScenario } from '../../kaki';
 import { clearAllStoredJoins } from './rejoinSession';
-import { artifactLinkText, resolveArtifactUrl, taskStatusText } from '../../ui';
+import { Avatar, artifactLinkText, resolveArtifactUrl, taskStatusText } from '../../ui';
 import { MeetingRecordCard, isRecord, type RecordEvent } from './MeetingRecordCard';
 import { CurrentTopicCard, type FactEvent } from './CurrentTopicCard';
 import { HostBrief } from './HostBrief';
@@ -43,7 +43,7 @@ export function MeetingPanel({
   const hasAiColleagues = (scenario.npcs ?? []).length > 0;
   // The same socket as the shared screen: it is the one allowed to send host commands, so a host here
   // needs auth off or a signed-in host (the page cannot connect otherwise).
-  const { events, tasks, connected, rejection, send, speechByTopic } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
+  const { events, tasks, connected, rejection, send, speechByTopic, meetingState } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
   // Only the person the server authorises to drive the shared screen may advance or end the meeting.
   // Everyone else gets no controls at all, rather than controls the server refuses.
   const canControlMeeting = sharedAudience === 'screen';
@@ -191,6 +191,16 @@ export function MeetingPanel({
     end.current?.scrollIntoView?.({ block: 'end' });
   }, [entries.length, hasActiveVisitorTask]);
 
+  const peopleBySeat = useMemo(() => {
+    const map = new Map<string, { displayName: string; photoUrl: string | null }>();
+    for (const person of meetingState?.participants ?? []) {
+      map.set(person.seat.trim().toLowerCase(), {
+        displayName: person.displayName || person.name,
+        photoUrl: person.photoUrl,
+      });
+    }
+    return map;
+  }, [meetingState?.participants]);
   const visibleTasks = useMemo(
     () => [...tasks.values()].filter((task) => task.status !== 'DISMISSED' && task.status !== 'SUPERSEDED'),
     [tasks],
@@ -278,7 +288,7 @@ export function MeetingPanel({
         </div>
       )}
       {meetingEnded && (
-        <section className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
+        <section id="minutes" className="kd-role kd-topic-card" aria-label="End-of-meeting minutes">
           <p className="kd-role-eyebrow">
             {minutesPublished
               ? '🎉 Kaki Host · Meeting Minutes & Live Artifacts Ready'
@@ -299,17 +309,17 @@ export function MeetingPanel({
                       ? 'Minutes draft ready for review.'
                       : 'Preparing the minutes draft…'}
           </p>
-          {minutesTask !== undefined && !minutesPublished && (
-            <p style={{ marginBottom: 10 }}>
-              Assigned to{' '}
-              {assigneeLabel(
-                scenario,
-                minutesTask.assignee ?? minutesTask.suggestedAssignee,
-                viewer,
-              )}
-              .
-            </p>
-          )}
+          {minutesTask !== undefined && !minutesPublished && (() => {
+            const assignee = minutesTask.assignee ?? minutesTask.suggestedAssignee;
+            const label = assigneeLabel(scenario, assignee, viewer);
+            const person = assignee === undefined ? undefined : peopleBySeat.get(assignee.trim().toLowerCase());
+            return (
+              <p style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Avatar name={person?.displayName ?? label} photoUrl={person?.photoUrl} size="sm" />
+                <span>Assigned to {label}.</span>
+              </p>
+            );
+          })()}
           {minutesTask?.error !== undefined && (
             <p role="alert" className="kd-alert">
               {minutesTask.error}

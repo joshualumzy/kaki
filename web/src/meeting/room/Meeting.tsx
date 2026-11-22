@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
 import { joinSeatRoles } from '@kaki/shared';
-import { useKaki, useRefreshScenario, useScenario } from '../../kaki';
+import { useMe } from '../../auth/useMe';
+import { meetingApiPath, useKaki, useRefreshScenario, useScenario } from '../../kaki';
 import { fetchWithTimeout } from '../../net/withTimeout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { JoinForm } from './JoinForm';
@@ -19,11 +20,15 @@ import {
   clearStoredJoin,
   disconnectOutcome,
   formatGraceRemaining,
+  readRealJoin,
   readStoredJoin,
   REJOIN_GRACE_MS,
   storeJoin,
+  storeRealJoinName,
+  storeRealMeetingCode,
   type StoredJoin,
 } from './rejoinSession';
+import { RealRoomStateProvider } from './realRoom';
 import './demo.css';
 
 /** Echo cancellation is what lets the server tell a person talking over the AI from the AI's own playback. */
@@ -32,7 +37,7 @@ const ROOM_OPTIONS: RoomOptions = {
 };
 
 /** Which journey this page is: the practice demo, a team participant, or the meeting owner. */
-type MeetingVariant = 'practice' | 'participant' | 'owner';
+type MeetingVariant = 'practice' | 'participant' | 'owner' | 'real';
 
 interface Session {
   token: string;
@@ -104,11 +109,16 @@ function storedFromSession(session: Session): StoredJoin {
 export default function Meeting({
   variant = 'practice',
   initialCode,
+  meetingId,
 }: {
   variant?: MeetingVariant;
   initialCode?: string;
+  /** A real meeting's row id: its rooms, routes and sockets all live under `/api/meetings/:id`. */
+  meetingId?: string;
 }) {
   const scenario = useScenario();
+  const real = variant === 'real' || meetingId !== undefined;
+  const auth = useMe(0, real);
   const refreshScenario = useRefreshScenario();
   // The same seats the server offers: the setup's person seats when it names them, else every
   // human seat and the host's chair when a person can take it.
@@ -150,6 +160,78 @@ export default function Meeting({
   useEffect(() => {
     activeSession.current = session;
   }, [session]);
+
+  // A real meeting has no role picker: the signed-in person's Google name (or the guest name the
+  // server recorded) is used, and the room takes a free person seat automatically.
+  const realMeetingId = real ? meetingId : undefined;
+  const storedReal = useMemo(
+    () => (realMeetingId === undefined ? {} : readRealJoin(realMeetingId)),
+    [realMeetingId],
+  );
+  const [realNameEntry, setRealNameEntry] = useState('');
+  const [realCodeEntry, setRealCodeEntry] = useState(storedReal.code ?? '');
+  const [hostCheck, setHostCheck] = useState<'checking' | 'host' | 'guest'>(
+    realMeetingId === undefined ? 'guest' : 'checking',
+  );
+  const [hostCode, setHostCode] = useState<string | undefined>(storedReal.code);
+  const [left, setLeft] = useState(false);
+  const [leftSession, setLeftSession] = useState<Session | undefined>();
+  const realAutoAttempted = useRef(false);
+  const signedInName =
+    auth.status === 'ready' && auth.me.authEnabled
+      ? auth.me.kind === 'user'
+        ? auth.me.user.name
+        : auth.me.kind === 'guest'
+          ? auth.me.name
+          : undefined
+      : undefined;
+  const effectiveRealName = signedInName ?? storedReal.name ?? realNameEntry;
+  const effectiveRealCode =
+    realCodeEntry.trim() !== '' ? realCodeEntry.trim() : hostCode;
+  const isHost = hostCheck === 'host';
+
+  useEffect(() => {
+    if (realMeetingId === undefined) return;
+    let cancelled = false;
+    fetchWithTimeout(meetingApiPath(realMeetingId, '/api/meeting-code'), {}, 8_000)
+      .then(async (response) => {
+        if (cancelled) return;
+        if (!response.ok) {
+          setHostCheck('guest');
+          return;
+        }
+        const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
+        const code = typeof body?.code === 'string' ? body.code.trim() : '';
+        if (code !== '') {
+          setHostCode(code);
+          storeRealMeetingCode(realMeetingId, code);
+        }
+        setHostCheck('host');
+      })
+      .catch(() => {
+        if (!cancelled) setHostCheck('guest');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [realMeetingId]);
+
+  useEffect(() => {
+    if (!real || left || session !== undefined || realAutoAttempted.current) return;
+    if (hostCheck === 'checking' || auth.status === 'loading') return;
+    if (effectiveRealName === undefined || effectiveRealName.trim() === '') return;
+    const seat = roles[0]?.id;
+    if (seat === undefined) return;
+    realAutoAttempted.current = true;
+    void join(
+      effectiveRealName.trim(),
+      seat,
+      { microphone: false, camera: false },
+      effectiveRealCode,
+      { real: true },
+    );
+  }, [real, left, session, hostCheck, auth.status, effectiveRealName, effectiveRealCode, roles]);
+
   const linkCode = useMemo(
     () => initialCode ?? new URLSearchParams(window.location.search).get('code') ?? '',
     [initialCode],
@@ -169,9 +251,10 @@ export default function Meeting({
     roleId: string,
     media: MediaChoice,
     meetingCode?: string,
-    options: { reconnecting?: boolean } = {},
+    options: { reconnecting?: boolean; real?: boolean } = {},
   ): Promise<void> {
     const reconnecting = options.reconnecting === true;
+    const realJoin = options.real === true || real;
     if (reconnecting) {
       setRejoinState('reconnecting');
       setRejoinProblem(undefined);
@@ -181,34 +264,52 @@ export default function Meeting({
       setRealInProgress(false);
     }
     try {
-      const response = await fetchWithTimeout(
-        '/api/livekit/token',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            participantName: name,
-            participantRole: roleId,
-            ...(practice ? { kind: 'practice' } : {}),
-            ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }),
-          }),
-        },
-        12_000,
-      );
-      const body = (await response.json().catch(() => ({}))) as {
-        token?: unknown;
-        url?: unknown;
-        error?: unknown;
-        needsCode?: unknown;
-        meetingCode?: unknown;
-        resumed?: unknown;
-        started?: unknown;
-        realInProgress?: unknown;
-      };
-      if (body.needsCode === true) setNeedsCode(true);
-      if (body.realInProgress === true) setRealInProgress(true);
-      if (!response.ok || typeof body.token !== 'string') {
-        throw new Error(typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`);
+      // A real meeting has no seat picker, so try its person seats in turn until one is free. The
+      // first candidate is the one chosen for this person; a refusal before any commit moves on.
+      const seats = realJoin
+        ? [roleId, ...roles.map((role) => role.id).filter((id) => id !== roleId)]
+        : [roleId];
+      let joined: { body: Record<string, unknown>; role: string } | undefined;
+      let lastProblem: string | undefined;
+      for (const seat of seats) {
+        const response = await fetchWithTimeout(
+          realJoin && realMeetingId !== undefined
+            ? meetingApiPath(realMeetingId, '/api/livekit/token')
+            : '/api/livekit/token',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              participantName: name,
+              participantRole: seat,
+              ...(meetingCode === undefined || meetingCode === '' ? {} : { meetingCode }),
+              ...(!realJoin && practice ? { kind: 'practice' } : {}),
+            }),
+          },
+          12_000,
+        );
+        const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (body.needsCode === true) setNeedsCode(true);
+        if (body.realInProgress === true) setRealInProgress(true);
+        if (response.ok && typeof body.token === 'string') {
+          joined = { body, role: seat };
+          break;
+        }
+        lastProblem =
+          typeof body.error === 'string' ? body.error : `Could not join (HTTP ${response.status}).`;
+        const canTryAnotherSeat =
+          realJoin &&
+          seats.length > 1 &&
+          response.status !== 403 &&
+          /seat|place for|pick another role|taken/i.test(lastProblem);
+        if (!canTryAnotherSeat) throw new Error(lastProblem);
+      }
+      if (joined === undefined) throw new Error(lastProblem ?? 'Could not join this meeting.');
+      const { body, role: joinedRole } = joined;
+      const joiningCode =
+        meetingCode ?? (typeof body.meetingCode === 'string' ? body.meetingCode : undefined);
+      if (realJoin && realMeetingId !== undefined && joiningCode !== undefined && joiningCode !== '') {
+        storeRealMeetingCode(realMeetingId, joiningCode);
       }
       try {
         await refreshScenario();
@@ -218,15 +319,13 @@ export default function Meeting({
       setPane('meeting');
       // The server owns whether the meeting has started: a started (or resumed) meeting goes straight in.
       setStarted(body.started === true || body.resumed === true);
-      const effectiveCode =
-        meetingCode ?? (typeof body.meetingCode === 'string' ? body.meetingCode : undefined);
       setSession({
-        token: body.token,
+        token: body.token as string,
         serverUrl: typeof body.url === 'string' ? body.url : `ws://${window.location.hostname}:7880`,
-        role: roleId,
+        role: joinedRole,
         name,
         media,
-        ...(effectiveCode === undefined ? {} : { meetingCode: effectiveCode }),
+        ...(joiningCode === undefined ? {} : { meetingCode: joiningCode }),
       });
       setRestore(undefined);
       setRejoinState('idle');
@@ -234,10 +333,13 @@ export default function Meeting({
       setRejoinDeadline(undefined);
       storeJoin(variant, {
         name,
-        role: roleId,
+        role: joinedRole,
         media,
-        ...(effectiveCode === undefined ? {} : { meetingCode: effectiveCode }),
+        ...(joiningCode === undefined ? {} : { meetingCode: joiningCode }),
       });
+      if (realJoin && realMeetingId !== undefined) {
+        storeRealJoinName(realMeetingId, name);
+      }
     } catch (joinError) {
       const message = joinError instanceof Error ? joinError.message : String(joinError);
       if (reconnecting) {
@@ -267,6 +369,29 @@ export default function Meeting({
     void join(restore.name, restore.role, restore.media, restore.meetingCode, { reconnecting: true });
   }, [restore]);
 
+  if (left && leftSession !== undefined) {
+    return (
+      <LeftScreen
+        meetingTitle={scenario.meetingTitle}
+        minutesHref={realMeetingId === undefined ? '#minutes' : `/m/${encodeURIComponent(realMeetingId)}/room#minutes`}
+        onRejoin={() => {
+          const target = leftSession;
+          setLeft(false);
+          setLeftSession(undefined);
+          setSession(undefined);
+          setError(undefined);
+          void join(
+            target.name,
+            target.role,
+            target.media,
+            target.meetingCode,
+            real ? { real: true } : {},
+          );
+        }}
+      />
+    );
+  }
+
   if (session === undefined && restore !== undefined) {
     return (
       <RejoinScreen
@@ -289,6 +414,65 @@ export default function Meeting({
   }
 
   if (session === undefined) {
+    if (real) {
+      const ask =
+        effectiveRealName === undefined || effectiveRealName.trim() === ''
+          ? 'name'
+          : needsCode && error !== undefined
+            ? 'code'
+            : undefined;
+      const submitEntry = (value: string): void => {
+        if (ask === 'name') {
+          const trimmed = value.trim();
+          if (trimmed === '') return;
+          setRealNameEntry(trimmed);
+          if (realMeetingId !== undefined) storeRealJoinName(realMeetingId, trimmed);
+          realAutoAttempted.current = false;
+          const seat = roles[0]?.id;
+          if (seat !== undefined) {
+            void join(trimmed, seat, { microphone: false, camera: false }, effectiveRealCode, {
+              real: true,
+            });
+          }
+          return;
+        }
+        const trimmed = value.trim();
+        if (trimmed === '') return;
+        setRealCodeEntry(trimmed);
+        setNeedsCode(false);
+        if (realMeetingId !== undefined) storeRealMeetingCode(realMeetingId, trimmed);
+        realAutoAttempted.current = false;
+        const seat = roles[0]?.id;
+        if (seat !== undefined && effectiveRealName !== undefined) {
+          void join(effectiveRealName.trim(), seat, { microphone: false, camera: false }, trimmed, {
+            real: true,
+          });
+        }
+      };
+      return (
+        <RealEntryCard
+          title={scenario.meetingTitle}
+          ask={ask}
+          busy={busy}
+          problem={error}
+          initialValue={ask === 'name' ? (effectiveRealName ?? '') : (effectiveRealCode ?? '')}
+          onSubmit={submitEntry}
+          onRetry={() => {
+            realAutoAttempted.current = false;
+            const seat = roles[0]?.id;
+            if (seat !== undefined && effectiveRealName !== undefined) {
+              void join(
+                effectiveRealName.trim(),
+                seat,
+                { microphone: false, camera: false },
+                effectiveRealCode,
+                { real: true },
+              );
+            }
+          }}
+        />
+      );
+    }
     if (practice) {
       return (
         <JoinForm
@@ -325,9 +509,17 @@ export default function Meeting({
 
   const seatRole = scenario.roles.find((candidate) => candidate.id === session.role);
   // The meeting is opened by Start, wherever the person sits; a meeting already started goes straight in.
-  const needsStart = !started;
+  const needsStart = real ? false : !started;
+  // The owner reads the shared screen; a real participant reads their own projection.
+  const sharedAudience: 'screen' | 'participant' = real
+    ? isHost
+      ? 'screen'
+      : 'participant'
+    : variant === 'participant'
+      ? 'participant'
+      : 'screen';
 
-  return (
+  const roomView = (
     <div className="kd-meeting" data-pane={pane} data-needs-start={needsStart} data-variant={variant}>
       <div className="kd-stage">
         <LiveKitRoom
@@ -341,7 +533,14 @@ export default function Meeting({
             const target = activeSession.current;
             if (target === undefined) return;
             const outcome = disconnectOutcome(reason);
-            if (outcome.kind === 'none') return;
+            if (outcome.kind === 'none') {
+              // A deliberate leave must not leave a dead meeting on screen: offer the way back in.
+              activeSession.current = undefined;
+              setLeftSession(target);
+              setLeft(true);
+              setSession(undefined);
+              return;
+            }
             activeSession.current = undefined;
             if (outcome.kind === 'rejoin') {
               beginReconnect(storedFromSession(target));
@@ -369,7 +568,11 @@ export default function Meeting({
           <ErrorBoundary>
             <MeetingGrid
               role={session.role}
-              sharedAudience={variant === 'participant' ? 'participant' : 'screen'}
+              sharedAudience={sharedAudience}
+              real={real}
+              {...(realMeetingId === undefined ? {} : { meetingId: realMeetingId })}
+              {...(session.meetingCode === undefined ? {} : { meetingCode: session.meetingCode })}
+              viewerName={session.name}
               onOpenKaki={() => setPane('kaki')}
               onKakiBadgeChange={setKakiBadgeCount}
             />
@@ -397,7 +600,7 @@ export default function Meeting({
       <Dock
         meetingCode={session.meetingCode}
         role={seatRole}
-        sharedAudience={variant === 'participant' ? 'participant' : 'screen'}
+        sharedAudience={sharedAudience}
         started={!needsStart}
         practice={practice}
         viewer={{
@@ -419,6 +622,14 @@ export default function Meeting({
         </button>
       </nav>
     </div>
+  );
+
+  return real && realMeetingId !== undefined ? (
+    <RealRoomStateProvider role={session.role} isHost={isHost}>
+      {roomView}
+    </RealRoomStateProvider>
+  ) : (
+    roomView
   );
 }
 
@@ -496,6 +707,113 @@ function RejoinScreen({
           Leave and join as someone else
         </button>
       </div>
+    </div>
+  );
+}
+
+/** The way back into a meeting after the person deliberately left it. */
+function LeftScreen({
+  meetingTitle,
+  minutesHref,
+  onRejoin,
+}: {
+  meetingTitle: string;
+  minutesHref: string;
+  onRejoin(): void;
+}) {
+  return (
+    <div className="kd-join" role="region" aria-label="You left the meeting">
+      <div className="kd-card">
+        <div className="kd-live">
+          <span className="kd-dot" />
+          Meeting left
+        </div>
+        <h1 className="kd-title">You left the meeting</h1>
+        <p className="kd-sub">{meetingTitle}</p>
+        <p className="kd-hint">Rejoin with the same name and seat, or read what Kaki wrote down.</p>
+        <button type="button" className="kd-go" onClick={onRejoin}>
+          Rejoin
+        </button>
+        <p className="kd-hint">
+          <a href={minutesHref}>See the meeting minutes</a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** The small entry card a real meeting needs only when the name or invite code is missing. */
+function RealEntryCard({
+  title,
+  ask,
+  busy,
+  problem,
+  initialValue,
+  onSubmit,
+  onRetry,
+}: {
+  title: string;
+  ask: 'name' | 'code' | undefined;
+  busy: boolean;
+  problem: string | undefined;
+  initialValue: string;
+  onSubmit(value: string): void;
+  onRetry(): void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  useEffect(() => setValue(initialValue), [initialValue]);
+  return (
+    <div className="kd-join">
+      <form
+        className="kd-card"
+        onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          if (ask === undefined || value.trim() === '') return;
+          onSubmit(value);
+        }}
+      >
+        <div className="kd-live">
+          <span className="kd-dot" />
+          Real meeting
+        </div>
+        <h1 className="kd-title">
+          {ask === 'name'
+            ? 'What is your name?'
+            : ask === 'code'
+              ? 'Enter the meeting code'
+              : 'Joining the meeting…'}
+        </h1>
+        <p className="kd-sub">{title}</p>
+        {ask === undefined ? null : (
+          <label className="kd-label" style={{ display: 'block', marginBottom: 14 }}>
+            {ask === 'name' ? 'Your name' : 'Meeting code'}
+            <input
+              className="kd-field"
+              value={value}
+              autoFocus
+              maxLength={ask === 'name' ? 40 : 8}
+              autoComplete={ask === 'name' ? 'name' : 'off'}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </label>
+        )}
+        {problem === undefined ? null : (
+          <p className="kd-alert" role="alert">
+            {problem}
+          </p>
+        )}
+        {ask === undefined ? (
+          busy ? null : (
+            <button type="button" className="kd-go" onClick={onRetry}>
+              Try again
+            </button>
+          )
+        ) : (
+          <button type="submit" className="kd-go" disabled={busy || value.trim() === ''}>
+            {busy ? 'Joining…' : 'Join the meeting'}
+          </button>
+        )}
+      </form>
     </div>
   );
 }

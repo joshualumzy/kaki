@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMe } from '../auth/useMe';
 import { Button, Card } from '../ui';
+import { storeRealJoinName, storeRealMeetingCode } from '../meeting/room/rejoinSession';
 import { getMeetingInfo, joinMeeting, type MeetingInfo } from './api';
 import './product.css';
 
@@ -9,6 +10,8 @@ import './product.css';
 export function JoinPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const inviteCode = searchParams.get('code') ?? '';
   const [reloadKey, setReloadKey] = useState(0);
   const auth = useMe();
   const [info, setInfo] = useState<MeetingInfo | null>(null);
@@ -17,6 +20,10 @@ export function JoinPage() {
   const [name, setName] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+
+  useEffect(() => {
+    if (inviteCode.trim() !== '') storeRealMeetingCode(id, inviteCode.trim());
+  }, [id, inviteCode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +65,8 @@ export function JoinPage() {
     setJoining(true);
     setJoinError(null);
     try {
-      await joinMeeting(id, asName === undefined ? undefined : asName.trim());
+      const joined = await joinMeeting(id, asName === undefined ? undefined : asName.trim());
+      storeRealJoinName(id, joined.name);
       navigate(`/m/${encodeURIComponent(id)}/room`, { replace: true });
     } catch (joinFailure) {
       setJoinError(
@@ -178,14 +186,3 @@ export function JoinPage() {
   );
 }
 
-/** The meeting room is built in the next step; this keeps the join flow complete today. */
-export function MeetingRoomPlaceholder() {
-  const { id = '' } = useParams();
-  return (
-    <main className="page product-page product-page-narrow">
-      <Card title="The meeting room arrives in the next step">
-        <p className="product-hint">Meeting {id}</p>
-      </Card>
-    </main>
-  );
-}

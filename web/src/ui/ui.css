@@ -245,3 +245,32 @@ body::before {
     radial-gradient(900px 560px at 8% -5%, var(--bg-glow-a), transparent 60%),
     radial-gradient(800px 560px at 100% 105%, var(--bg-glow-b), transparent 60%);
 }
+
+
+.kaki-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-bg-raised);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  user-select: none;
+  border: 1px solid color-mix(in srgb, #fff 28%, transparent);
+}
+
+.kaki-avatar[data-size='sm'] { width: 22px; height: 22px; font-size: 9px; }
+.kaki-avatar[data-size='lg'] { width: 40px; height: 40px; font-size: 14px; }
+
+.kaki-avatar-initials {
+  background: hsl(var(--avatar-hue, 210) 52% 46%);
+}

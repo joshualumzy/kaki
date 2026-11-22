@@ -10,6 +10,7 @@ import {
 import { parseScenario, type Scenario } from '@kaki/shared';
 import { fetchWithTimeout } from '../net/withTimeout';
 import { Button, Card } from '../ui';
+import { meetingApiPath } from './meetingScope';
 import { scenarioRevision, subscribeScenarioRevision } from './scenarioRevision';
 
 type ScenarioState =
@@ -31,8 +32,8 @@ export function viewForPath(pathname: string): ScenarioView {
   return pathname === '/practice' || pathname === '/demo' ? 'practice' : 'meeting';
 }
 
-function scenarioUrl(view: ScenarioView): string {
-  return view === 'practice' ? '/api/scenario?kind=practice' : '/api/scenario';
+function scenarioUrl(view: ScenarioView, meetingId?: string): string {
+  return view === 'practice' ? '/api/scenario?kind=practice' : meetingApiPath(meetingId, '/api/scenario');
 }
 
 /** How long to keep retrying while the API server is starting behind the reverse proxy. */
@@ -52,15 +53,19 @@ type Attempt =
   | { status: 'ready'; scenario: Scenario }
   | { status: 'starting'; error: unknown };
 
-async function attemptScenario(view: ScenarioView, timeoutMs: number): Promise<Attempt> {
+async function attemptScenario(
+  view: ScenarioView,
+  meetingId: string | undefined,
+  timeoutMs: number,
+): Promise<Attempt> {
   let response: Response;
   try {
-    response = await fetchWithTimeout(scenarioUrl(view), {}, timeoutMs);
+    response = await fetchWithTimeout(scenarioUrl(view, meetingId), {}, timeoutMs);
   } catch (error) {
     return { status: 'starting', error };
   }
   if (!response.ok) {
-    const error = new Error(`GET ${scenarioUrl(view)} failed (${response.status})`);
+    const error = new Error(`GET ${scenarioUrl(view, meetingId)} failed (${response.status})`);
     if (SERVER_STARTING_STATUSES.has(response.status)) return { status: 'starting', error };
     throw error;
   }
@@ -69,6 +74,7 @@ async function attemptScenario(view: ScenarioView, timeoutMs: number): Promise<A
 
 async function fetchScenario(
   view: ScenarioView,
+  meetingId?: string,
   { onRetry }: { onRetry?: () => void } = {},
 ): Promise<Scenario> {
   const startedAt = Date.now();
@@ -77,6 +83,7 @@ async function fetchScenario(
     const remaining = Math.max(0, deadline - Date.now());
     const attempt = await attemptScenario(
       view,
+      meetingId,
       Math.max(1, Math.min(SERVER_START_ATTEMPT_TIMEOUT_MS, remaining)),
     );
     if (attempt.status === 'ready') return attempt.scenario;
@@ -91,17 +98,20 @@ async function fetchScenario(
  * the answer: when it changes the provider loads again, so a page can never keep a scenario that
  * describes an older meeting or an older plan.
  */
-function loadScenario(view: ScenarioView, onRetry?: () => void): Promise<Scenario> {
-  return fetchScenario(view, { onRetry });
+function loadScenario(view: ScenarioView, meetingId: string | undefined, onRetry?: () => void): Promise<Scenario> {
+  return fetchScenario(view, meetingId, { onRetry });
 }
 
 /** Fetch the active scenario for the meeting the browser knows and make it available to every page. */
 export function ScenarioProvider({
   children,
   view = 'meeting',
+  meetingId,
 }: {
   children: ReactNode;
   view?: ScenarioView;
+  /** A real meeting's scenario lives under `/api/meetings/:id`; absent is the legacy meeting. */
+  meetingId?: string;
 }) {
   const [state, setState] = useState<ScenarioState>({ status: 'loading' });
   const [starting, setStarting] = useState(false);
@@ -128,7 +138,7 @@ export function ScenarioProvider({
       setStarting(false);
       setState({ status: 'loading' });
     }
-    loadScenario(view, () => {
+    loadScenario(view, meetingId, () => {
       if (!cancelled && loadId.current === id) setStarting(true);
     })
       .then((scenario) => {
@@ -154,7 +164,7 @@ export function ScenarioProvider({
     return () => {
       cancelled = true;
     };
-  }, [view, revision, retryCount]);
+  }, [view, revision, retryCount, meetingId]);
 
   if (state.status === 'loading') {
     return (
@@ -186,7 +196,7 @@ export function ScenarioProvider({
   async function refresh(): Promise<Scenario> {
     const id = (loadId.current += 1);
     const askedRevision = scenarioRevision();
-    const fresh = await fetchScenario(view);
+    const fresh = await fetchScenario(view, meetingId);
     // Only the newest load may apply, and only if no invalidation happened while it was in flight:
     // otherwise a manual refresh could put back the meeting the provider has already left behind.
     if (loadId.current === id && scenarioRevision() === askedRevision) {

@@ -24,6 +24,10 @@ import {
 import { useKaki, useScenario } from '../../kaki';
 import { ConnectedTypeBar } from './TypeBar';
 import { CaptionedTile, StageContext } from './CaptionedTile';
+import { RealMeetingBar } from './RealMeetingBar';
+import { RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
+import { MutedHint } from './MutedHint';
+import { useRealRoom } from './realRoom';
 import { activeStageTaskFor, cardFactForItem, newClientLineId, starterChipsFromAgendaItem, tracksWithSpeakerFirst, visibleStageTracks } from './stageModel';
 import { textOnlyNote, transcriptChunks } from './captions';
 
@@ -33,15 +37,27 @@ export function MeetingGrid({
   onOpenKaki,
   onKakiBadgeChange,
   sharedAudience = 'screen',
+  real = false,
+  meetingId,
+  meetingCode,
+  viewerName,
 }: {
   role: string;
   onOpenKaki?: () => void;
   onKakiBadgeChange?: (count: number) => void;
   /** A team participant reads the seat-bound projection; the owner and practice keep the screen. */
   sharedAudience?: 'screen' | 'participant';
+  /** A real meeting replaces the practice controls with its own bottom bar. */
+  real?: boolean;
+  meetingId?: string;
+  meetingCode?: string;
+  viewerName?: string;
 }) {
   const scenario = useScenario();
   const room = useRoomContext();
+  const realRoom = useRealRoom();
+  const meetingState = realRoom?.meetingState;
+  const offTheRecord = real && meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const { isMicrophoneEnabled, localParticipant } = useLocalParticipant();
   const { events, send: sendToServer, rejection: commandRejection } = useKaki({ kind: 'role', role });
   const { events: screenEvents, latestRecord, speechByTopic, tasks: screenTasks } = useKaki(sharedAudience === 'participant' ? { kind: 'participant' } : { kind: 'screen' });
@@ -136,8 +152,17 @@ export function MeetingGrid({
     }
     return undefined;
   }, [speechStatus.outage, ownSpeechFailure]);
-  const chunks = useMemo(() => transcriptChunks(events), [events]);
-  const voiceNote = textOnlyNote(chunks, now);
+  const chunks = useMemo(() => (offTheRecord ? [] : transcriptChunks(events)), [events, offTheRecord]);
+  const voiceNote = offTheRecord ? null : textOnlyNote(chunks, now);
+  const avatars = useMemo(() => {
+    const map = new Map<string, { displayName: string; photoUrl: string | null }>();
+    for (const person of meetingState?.participants ?? []) {
+      const entry = { displayName: person.displayName || person.name, photoUrl: person.photoUrl };
+      map.set(person.name.trim().toLowerCase(), entry);
+      map.set(person.seat.trim().toLowerCase(), entry);
+    }
+    return map;
+  }, [meetingState?.participants]);
   const facilitatorName = useMemo(() => {
     const hostRole = scenario.roles.find((r) => r.facilitator === true);
     if (hostRole === undefined) return 'the host';
@@ -215,9 +240,9 @@ export function MeetingGrid({
   const stage = useMemo(
     () => ({
       scenario, chunks, events, now, npcState, speechStatus, waitingForHuman,
-      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex,
+      activeItemOwnerRole: activeOwnerRole, activeAgendaIndex, avatars, offTheRecord,
     }),
-    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex],
+    [scenario, chunks, events, now, npcState, speechStatus, waitingForHuman, activeOwnerRole, activeAgendaIndex, avatars, offTheRecord],
   );
 
   const wingmanFactPreview = useMemo(() => {
@@ -394,18 +419,19 @@ export function MeetingGrid({
   return (
     <StageContext.Provider value={stage}>
       <div className="kd-stage-col">
-        {npcState.kind === 'error' && (
+        {real ? <RealRoomBanners /> : null}
+        {!real && npcState.kind === 'error' && (
           <div role="alert" className="kd-banner" data-tone="error">
             The AI attendees hit a problem: {npcState.message}
           </div>
         )}
-        {speechRecording === false && (
+        {!real && speechRecording === false && (
           <div role="alert" className="kd-banner" data-tone="error">
             Speech is not being recorded: the AI service is not connected. Start it with{' '}
             <code>npm run npc</code>.
           </div>
         )}
-        {speechNotice !== undefined && (
+        {!offTheRecord && speechNotice !== undefined && (
           <div role="alert" className="kd-banner" data-tone="error">
             {speechNotice.text}{' '}
             <button
@@ -416,12 +442,12 @@ export function MeetingGrid({
             </button>
           </div>
         )}
-        {(scenario.npcs ?? []).length > 0 && !aiPresent && (
+        {!real && (scenario.npcs ?? []).length > 0 && !aiPresent && (
           <div className="kd-banner">
             Waiting for the AI attendees. Start them with <code>npm run npc</code>.
           </div>
         )}
-        {wingmanBannerVisible && wingmanGlideNudge !== undefined && (
+        {!offTheRecord && wingmanBannerVisible && wingmanGlideNudge !== undefined && (
           <div
             className="kd-wingman-glide"
             role="status"
@@ -484,7 +510,7 @@ export function MeetingGrid({
             </div>
           </div>
         )}
-        {stageToastVisible && activeStageToast !== undefined && (
+        {!offTheRecord && stageToastVisible && activeStageToast !== undefined && (
           <div
             className="kd-stage-toast"
             role="status"
@@ -525,7 +551,7 @@ export function MeetingGrid({
             {voiceNote}
           </div>
         )}
-        {(idleAfterBriefing || showStarterIdeas) && !meetingWrappedUp && !topicSettled && (
+        {!real && (idleAfterBriefing || showStarterIdeas) && !meetingWrappedUp && !topicSettled && (
           <div className="kd-turn-bar" role="region" aria-label="Your turn and starter questions">
             <div className="kd-turn-row">
               <span className="kd-turn-pill">
@@ -577,17 +603,29 @@ export function MeetingGrid({
             )}
           </div>
         )}
-        <ConnectedTypeBar
-          micOnline={isMicrophoneEnabled}
-          paused={serverPaused}
-          onTextSent={sendTypedLine}
-          pauseRejection={commandRejection}
-          lineRejection={commandRejection}
-          onPauseChange={(paused) => sendToServer({ type: 'SET_PAUSED', paused })}
-        />
-        <ControlBar controls={{ screenShare: false, chat: false }} />
+        <MutedHint />
+        {real ? (
+          <RealMeetingBar
+            meetingId={meetingId ?? ''}
+            {...(meetingCode === undefined ? {} : { meetingCode })}
+            viewerName={viewerName ?? ''}
+          />
+        ) : (
+          <>
+            <ConnectedTypeBar
+              micOnline={isMicrophoneEnabled}
+              paused={serverPaused}
+              onTextSent={sendTypedLine}
+              pauseRejection={commandRejection}
+              lineRejection={commandRejection}
+              onPauseChange={(paused) => sendToServer({ type: 'SET_PAUSED', paused })}
+            />
+            <ControlBar controls={{ screenShare: false, chat: false }} />
+          </>
+        )}
         <RoomAudioRenderer />
       </div>
+      {real && meetingId !== undefined ? <RealWaitingOverlay meetingId={meetingId} /> : null}
     </StageContext.Provider>
   );
 }

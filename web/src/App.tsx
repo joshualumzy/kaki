@@ -7,8 +7,9 @@ import { LandingPage } from './landing/LandingPage';
 import { OwnerMeetingPage } from './meeting/OwnerMeetingPage';
 import { ParticipantJoinPage } from './meeting/ParticipantJoinPage';
 import Meeting from './meeting/room/Meeting';
-import { JoinPage, MeetingRoomPlaceholder } from './product/JoinPage';
+import { JoinPage } from './product/JoinPage';
 import { NewMeetingPage } from './product/NewMeetingPage';
+import { RealMeetingRoom } from './product/RealMeetingRoom';
 import { SignInPage } from './product/SignInPage';
 import { WorkspacePage } from './product/WorkspacePage';
 import './product/product.css';
@@ -43,7 +44,7 @@ export function App() {
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/new" element={<NewMeetingPage />} />
         <Route path="/workspaces/:id" element={<WorkspacePage />} />
-        <Route path="/m/:id/room" element={<MeetingRoomPlaceholder />} />
+        <Route path="/m/:id/room" element={<RealMeetingRoom />} />
         <Route path="/m/:id" element={<JoinPage />} />
         <Route
           path="*"

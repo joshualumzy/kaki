@@ -73,6 +73,61 @@ export function clearStoredJoin(variant: string): void {
   }
 }
 
+const REAL_PREFIX = 'kaki.real.';
+
+/** The invite code and typed name a real meeting's room needs after the join page or a reload. */
+export interface RealJoinDetails {
+  name?: string;
+  code?: string;
+}
+
+function realKey(meetingId: string): string {
+  return `${REAL_PREFIX}${meetingId}`;
+}
+
+/** Remember the meeting code from an invite link so the room can use it after navigation. */
+export function storeRealMeetingCode(meetingId: string, code: string): void {
+  const store = storage();
+  if (store === undefined) return;
+  try {
+    const current = readRealJoin(meetingId);
+    store.setItem(realKey(meetingId), JSON.stringify({ ...current, code }));
+  } catch (error) {
+    console.warn('kaki rejoin: could not remember this meeting code', error);
+  }
+}
+
+/** Remember the name a guest typed on the join page for this meeting's room. */
+export function storeRealJoinName(meetingId: string, name: string): void {
+  const store = storage();
+  if (store === undefined) return;
+  try {
+    const current = readRealJoin(meetingId);
+    store.setItem(realKey(meetingId), JSON.stringify({ ...current, name }));
+  } catch (error) {
+    console.warn('kaki rejoin: could not remember this meeting name', error);
+  }
+}
+
+/** The name and code this tab last used for a real meeting, if they can still be read. */
+export function readRealJoin(meetingId: string): RealJoinDetails {
+  const store = storage();
+  if (store === undefined) return {};
+  const raw = store.getItem(realKey(meetingId));
+  if (raw === null) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const record = parsed as Record<string, unknown>;
+    return {
+      ...(typeof record.name === 'string' && record.name.trim() !== '' ? { name: record.name } : {}),
+      ...(typeof record.code === 'string' && record.code.trim() !== '' ? { code: record.code } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 /** Forget every tab's remembered join, so "start a new meeting" never restores the old one. */
 export function clearAllStoredJoins(): void {
   const store = storage();
@@ -81,7 +136,7 @@ export function clearAllStoredJoins(): void {
     const keys: string[] = [];
     for (let index = 0; index < store.length; index += 1) {
       const key = store.key(index);
-      if (key !== null && key.startsWith(PREFIX)) keys.push(key);
+      if (key !== null && (key.startsWith(PREFIX) || key.startsWith(REAL_PREFIX))) keys.push(key);
     }
     for (const key of keys) store.removeItem(key);
   } catch {

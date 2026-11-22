@@ -13,10 +13,11 @@ const ME_TIMEOUT_MS = 8_000;
 /**
  * Load who this browser is signed in as. `reloadKey` re-runs the check when a page offers a retry.
  */
-export function useMe(reloadKey = 0): MeState {
+export function useMe(reloadKey = 0, enabled = true): MeState {
   const [state, setState] = useState<MeState>({ status: 'loading' });
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ME_TIMEOUT_MS);
@@ -43,7 +44,7 @@ export function useMe(reloadKey = 0): MeState {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [reloadKey]);
+  }, [reloadKey, enabled]);
 
   return state;
 }

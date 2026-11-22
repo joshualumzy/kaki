@@ -11,6 +11,7 @@ import {
   type Scenario,
   type SpeechStatusMessage,
 } from '@kaki/shared';
+import { Avatar } from '../../ui';
 import { Orb, orbPalette } from './Orb';
 import { captionFor, transcriptNameFor, type TranscriptChunk } from './captions';
 import { colleagueStance, reactionForColleague } from './stageModel';
@@ -26,6 +27,10 @@ export interface Stage {
   waitingForHuman: boolean;
   activeItemOwnerRole?: string;
   activeAgendaIndex: number;
+  /** Real-meeting people by identity and by seat, so a tile can show the right photo. */
+  avatars?: Map<string, { displayName: string; photoUrl: string | null }>;
+  /** While the room is off the record, no caption or reaction may appear on any tile. */
+  offTheRecord?: boolean;
 }
 
 /** Carries the stage values to the tiles without passing them through every component. */
@@ -39,7 +44,7 @@ function useStage(): Stage {
 
 /** One participant tile with its live caption, speaking state and reaction badge. */
 export function CaptionedTile() {
-  const { scenario, chunks, events, now, npcState, speechStatus } = useStage();
+  const { scenario, chunks, events, now, npcState, speechStatus, avatars, offTheRecord } = useStage();
   const participant = useTrackRefContext().participant;
   const localParticipant = useLocalParticipant().localParticipant;
   const isYou = localParticipant !== undefined && participant.identity === localParticipant.identity;
@@ -79,21 +84,30 @@ export function CaptionedTile() {
     : participantRole === undefined
       ? undefined
       : scenario.roles.find((role) => role.id === participantRole)?.label ?? participantRole;
-  const displayName = participant.name || participant.identity;
+  const avatarInfo =
+    !isAi && avatars !== undefined
+      ? avatars.get(participant.identity.trim().toLowerCase()) ??
+        (participant.metadata === undefined || participant.metadata.trim() === ''
+          ? undefined
+          : avatars.get(participant.metadata.trim().toLowerCase()))
+      : undefined;
+  const displayName = avatarInfo?.displayName ?? (participant.name || participant.identity);
   // Never repeat a role whose label is already the person's display name.
   const shownRoleTitle = roleTitle === displayName ? undefined : roleTitle;
   const stance = isAi && attendee !== undefined
     ? colleagueStance(scenario, attendee.name)
     : undefined;
-  const reaction = isAi
-    ? reactionForColleague(participant.identity, events, now)
-    : undefined;
+  const reaction = offTheRecord
+    ? undefined
+    : isAi
+      ? reactionForColleague(participant.identity, events, now)
+      : undefined;
 
   return (
     <div className="kd-tile" data-state={state} data-ai={isAi} data-speech={speechState ?? 'none'} data-identity={participant.identity} style={{ ['--c' as string]: `var(${orbPalette(isAi ? aiIndex : 1)[0]})` }}>
       {isAi ? <Orb state={state} palette={orbPalette(aiIndex)} /> : <ParticipantTile style={{ width: '100%', height: '100%' }} />}
       <div className="kd-who">
-        <i />
+        {isAi ? <i /> : <Avatar name={displayName} photoUrl={avatarInfo?.photoUrl} size="sm" />}
         <div className="kd-who-text">
           <div className="kd-who-line">
             <span>{isAi ? participant.identity : `${displayName}${isYou ? ' (You)' : ''}`}</span>
@@ -113,7 +127,7 @@ export function CaptionedTile() {
         </div>
       )}
       {isAi && <div className="kd-state">{state}</div>}
-      {caption !== null && (
+      {!offTheRecord && caption !== null && (
         <div key={caption} className="kd-caption">
           {caption}
         </div>
