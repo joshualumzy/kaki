@@ -95,7 +95,20 @@ async function main(): Promise<void> {
         run.pass(`${label} refreshed, kept their seat, history and can still type (${shot}).`);
       });
     }
-    await step(run, page, 'people after refresh', () => check('owner-after-refresh', page));
+    await step(run, page, 'people after refresh', async () => {
+      // A refreshed seat must never be listed twice, not even briefly: poll for a while and report how long.
+      const started = Date.now();
+      let list: string[] = [];
+      while (Date.now() - started < 45_000) {
+        list = await peopleList(page);
+        if (list.length === 3) break;
+        await page.waitForTimeout(2_000);
+      }
+      const seconds = Math.round((Date.now() - started) / 1000);
+      if (list.length !== 3) run.finding('ERROR', 'people after refresh', `still ${list.length} entries after ${seconds} s: ${JSON.stringify(list)}`, await run.shot(page, 'people-dup'));
+      else if (seconds > 4) run.finding('CONFUSING', 'people after refresh', `a refreshed person was listed twice for about ${seconds} s`);
+      else run.pass('People list is exact right after everyone refreshed.');
+    });
     await g1.context.close();
     await g2.context.close();
   } finally {

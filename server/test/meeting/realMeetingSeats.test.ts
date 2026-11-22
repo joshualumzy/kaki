@@ -207,6 +207,33 @@ describe('real meeting seats', () => {
     );
   });
 
+  it('keeps one holder per person when two same-named guests each refresh', async () => {
+    const { app, base, store } = await build();
+    const owner = await signIn(store, 'Ada');
+    const meeting = await app.registry.create({
+      workspaceId: 'workspace-1',
+      ownerUserId: owner.userId,
+      title: 'Weekly planning',
+    });
+    await seat(base, meeting.id, owner.cookie, 'Ada');
+    const seats: Array<{ seat: string; cookie: string }> = [];
+    for (let index = 0; index < 2; index += 1) {
+      const joined = await request(base, `/api/meetings/${meeting.id}/join`, {
+        method: 'POST',
+        body: { name: 'Sam' },
+      });
+      const cookie = cookiePair(setCookies(joined), 'kaki_session');
+      if (cookie === undefined) throw new Error('the guest got no cookie');
+      seats.push(await seat(base, meeting.id, cookie, 'Sam'));
+    }
+    for (const guest of seats) {
+      const again = await seat(base, meeting.id, guest.cookie, 'Sam');
+      expect(again.seat).toBe(guest.seat);
+    }
+    const instance = await app.registry.get(meeting.id);
+    expect(instance?.session.holders()).toHaveLength(3);
+  });
+
   it('gives a refresh or rejoin the same seat back, for the owner and a guest', async () => {
     const { app, base, store } = await build();
     const owner = await signIn(store, 'Ada');
