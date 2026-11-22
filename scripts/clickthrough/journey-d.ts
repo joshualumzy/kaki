@@ -45,7 +45,7 @@ async function main(): Promise<void> {
       await join.click();
       const startedWaiting = Date.now();
       const outcome = await Promise.race([
-        page.getByText('Before the meeting starts').waitFor({ timeout: 90_000 }).then(() => 'briefing' as const),
+        page.getByRole('button', { name: /Next: How to play/ }).waitFor({ timeout: 90_000 }).then(() => 'briefing' as const),
         page.locator('.kd-meeting[data-needs-start="false"]').waitFor({ timeout: 90_000 }).then(() => 'running' as const),
       ]).catch(() => 'none' as const);
       const waited = Date.now() - startedWaiting;
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
         const rejoin = page.getByRole('button', { name: 'Rejoin', exact: true });
         if (await rejoin.isVisible().catch(() => false)) {
           await rejoin.click();
-          await page.getByText('Before the meeting starts').waitFor({ timeout: 60_000 }).catch(() => undefined);
+          await page.getByRole('button', { name: /Next: How to play/ }).waitFor({ timeout: 60_000 }).catch(() => undefined);
           const shot = await run.shot(page, 'practice-rejoined-from-left');
           run.pass(`After leaving, /practice offered Rejoin and got back in (${shot}).`);
           return;
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
       const nameBox = page.locator('#join-name');
       await nameBox.fill(`Practice Guest ${suffix}`);
       await join.click();
-      await page.getByText('Before the meeting starts').waitFor({ timeout: 90_000 });
+      await page.getByRole('button', { name: /Next: How to play/ }).waitFor({ timeout: 90_000 });
       const shot = await run.shot(page, 'practice-reopened');
       run.pass(`Coming back to /practice starts a fresh practice meeting with a briefing (${joinShot}, ${shot}).`);
     });
