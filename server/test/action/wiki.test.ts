@@ -204,8 +204,7 @@ describe('wiki action module', () => {
     const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl, timeoutMs: 50, today: () => '2026-11-03' });
     const ready = await draftAndRun(tasks);
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
-    expect(failed.error).toContain('timed out');
-    expect(failed.error).toContain('safe to retry');
+    expect(failed.error).toBe("Couldn't post to the wiki. Nothing was changed. Press Retry.");
   });
 
   it('fails in plain words when the wiki cannot be reached', async () => {
@@ -215,7 +214,8 @@ describe('wiki action module', () => {
     const tasks = setup({ llm: createFakeLlm(() => reply), wiki: settings, fetchImpl });
     const ready = await draftAndRun(tasks);
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
-    expect(failed.error).toContain('The wiki is not answering');
+    expect(failed.error).toBe("Couldn't reach the wiki. Nothing was sent. Press Retry.");
+    expect(failed.error).not.toMatch(/ECONNREFUSED|fetch failed/);
   });
 
   it('fails with a clear message when not configured', async () => {

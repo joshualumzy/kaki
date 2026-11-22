@@ -112,7 +112,7 @@ export function createMattermostModule({
       throw new ActionError(
         timeout.aborted
           ? `Mattermost timed out after ${timeoutMs} ms`
-          : `could not reach Mattermost: ${plainReason(error, 'Mattermost')}`,
+          : plainReason(error, 'Mattermost'),
       );
     }
   }

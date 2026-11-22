@@ -349,7 +349,7 @@ describe('mattermost action module', () => {
 
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
-    expect(failed.error).toMatch(/could not reach Mattermost/i);
+    expect(failed.error).toMatch(/Couldn't reach Mattermost/);
   });
 
   it('fails when Mattermost replies without a post id', async () => {

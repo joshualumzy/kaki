@@ -172,7 +172,7 @@ export function createGiteaModule({
         throw new ActionError(
           timeout.aborted
             ? `Gitea timed out after ${timeoutMs} ms; check Gitea before retrying, the issue may already exist`
-            : `could not reach Gitea: ${plainReason(error, 'Gitea')}`,
+            : plainReason(error, 'Gitea'),
         );
       }
 

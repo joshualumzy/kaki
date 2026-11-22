@@ -299,7 +299,7 @@ describe('email action module', () => {
     tasks.transition(ready.id, 'RUNNING');
     const failed = await waitForStatus(tasks, ready.id, 'FAILED');
     expect(failed.error).toBe(
-      'could not send the email: The mail server is not answering. Check that it is running, then press Retry. (connect ECONNREFUSED 127.0.0.1:1025)',
+      "Couldn't reach the mail server. Nothing was sent. Press Retry.",
     );
 
     tasks.transition(failed.id, 'RUNNING');

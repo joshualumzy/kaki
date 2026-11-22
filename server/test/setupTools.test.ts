@@ -222,7 +222,7 @@ describe('setup tool status and probes', () => {
     const { status, body } = await probe(kind, CONFIGURED_ENV, refusedFetch());
     expect(status).toBe(200);
     expect(body).toMatchObject({ kind, ok: false, problem: 'unreachable' });
-    expect(body.message).toMatch(/not answering|could not be reached|not reach/i);
+    expect(body.message).toMatch(/Couldn't reach/);
   });
 
   it.each(KINDS)('reports %s as a timeout when the tool does not answer in time', async (kind) => {

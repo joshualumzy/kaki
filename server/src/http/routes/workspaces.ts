@@ -97,7 +97,7 @@ async function readToolTest(
   body: unknown,
   env: NodeJS.ProcessEnv,
 ): Promise<ToolTestValues | { error: string; status: number }> {
-  if (!isObject(body)) return { error: 'Body must be a JSON object', status: 400 };
+  if (!isObject(body)) return { error: "Something went wrong sending that. Reload and try again.", status: 400 };
   const connector = connectorFor(kind);
   const normalized = connector.normalizeSettings(body.settings);
   if (!normalized.ok) return { error: normalized.error, status: 400 };
@@ -221,7 +221,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         return;
       }
       if (!isObject(body.value) || typeof body.value.done !== 'boolean') {
-        sendJson(response, 400, { error: 'Send { "done": true or false }.' });
+        sendJson(response, 400, { error: "Something went wrong sending that. Reload and try again." });
         return;
       }
       const todos = await meetings.setTodoDone?.(meetingId, todoId, body.value.done);
@@ -430,7 +430,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       return;
     }
     if (!isObject(parsed.value)) {
-      sendJson(response, 400, { error: 'Body must be a JSON object' });
+      sendJson(response, 400, { error: "Something went wrong sending that. Reload and try again." });
       return;
     }
     const name = workspaceName(parsed.value.name);
@@ -530,7 +530,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       return;
     }
     if (!isObject(parsed.value)) {
-      sendJson(response, 400, { error: 'Body must be a JSON object' });
+      sendJson(response, 400, { error: "Something went wrong sending that. Reload and try again." });
       return;
     }
     const name = workspaceName(parsed.value.name);

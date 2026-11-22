@@ -51,7 +51,7 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     return;
   }
   if (!isObject(parsed.value)) {
-    sendJson(response, 400, { error: 'Body must be a JSON object' });
+    sendJson(response, 400, { error: "Something went wrong sending that. Reload and try again." });
     return;
   }
   const rawWorkspaceId = parsed.value.workspaceId;
@@ -182,7 +182,7 @@ export async function handleMeetingJoin(call: RouteCall): Promise<void> {
     return;
   }
   if (!isObject(parsed.value)) {
-    sendJson(response, 400, { error: 'Body must be a JSON object' });
+    sendJson(response, 400, { error: "Something went wrong sending that. Reload and try again." });
     return;
   }
   const name = guestName(parsed.value.name);

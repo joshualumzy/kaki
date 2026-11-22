@@ -165,8 +165,10 @@ class WikiTimeout extends ActionError {
   }
 }
 
-function wikiError(message: string): ActionError {
-  return new ActionError(message);
+const POST_FAILED = "Couldn't post to the wiki. Nothing was changed. Press Retry.";
+
+function wikiError(message: string, plain = POST_FAILED): ActionError {
+  return new ActionError(message, plain);
 }
 
 const PROBE_LOGIN_QUERY = `mutation Login($username: String!, $password: String!, $strategy: String!) {
@@ -288,7 +290,7 @@ export function createWikiModule({
       });
     } catch (error) {
       if (timeout.aborted) throw new WikiTimeout(timeoutMs);
-      throw wikiError(`could not reach the wiki: ${plainReason(error, 'The wiki')}`);
+      throw wikiError(`could not reach the wiki: ${errorMessage(error)}`, plainReason(error, 'The wiki'));
     }
     if (!response.ok) throw wikiError(`The wiki returned HTTP ${response.status}`);
     let body: unknown;
@@ -357,6 +359,7 @@ export function createWikiModule({
       } catch (lookupError) {
         throw wikiError(
           `${error.message} and could not be checked afterwards (${errorMessage(lookupError)}); check the wiki for ${path} before retrying`,
+          "Couldn't confirm the wiki page was saved. Check the wiki before retrying.",
         );
       }
       if (recent.pages.list.some((page) => page.path === path)) return undefined;
@@ -406,7 +409,7 @@ export function createWikiModule({
       try {
         reply = await llm.complete(messages, { json: true, signal });
       } catch (error) {
-        throw new ActionError(`Could not draft the page: ${errorMessage(error)}`);
+        throw new ActionError(`Could not draft the page: ${errorMessage(error)}`, "Couldn't draft the wiki page. Press Retry.");
       }
       const draft = parseDraft(reply);
       if (draft === undefined) throw new ActionError('The LLM did not return usable JSON with a title and body');

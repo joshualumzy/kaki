@@ -335,7 +335,7 @@ export function createEmailModule({
           messageId,
         });
       } catch (error) {
-        throw new ActionError(`could not send the email: ${plainReason(error, 'The mail server')}`);
+        throw new ActionError(plainReason(error, 'the mail server'));
       }
 
       return viewUrl(settings, messageId, signal);

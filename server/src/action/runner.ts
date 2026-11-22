@@ -5,7 +5,12 @@ import type { WorkspaceTools } from '../workspace/tools';
 import { withActionFooter } from './footer';
 
 /** An expected action failure whose message can go straight onto the task. */
-export class ActionError extends Error {}
+export class ActionError extends Error {
+  /** A sentence safe to show on the card; the message stays in the log. */
+  constructor(message: string, readonly plain?: string) {
+    super(message);
+  }
+}
 
 /** What one action module supplies: how to draft it and how to run the approved draft. */
 interface ActionModuleOptions {
@@ -35,20 +40,40 @@ interface ActionModuleOptions {
 
 type TaskPatch = Parameters<TaskStore['transition']>[2];
 
-/** The error in plain words for a person: a connection failure says what to do, with the technical detail after it. */
-export function plainReason(error: unknown, service: string): string {
+const CONNECTION_FAILURE = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|fetch failed/i;
+
+/** The error in plain words for a person; the raw detail goes to the log only. */
+export function plainReason(error: unknown, subject: string): string {
+  const service = subject.replace(/^The /, 'the ');
   const raw = errorMessage(error);
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
-  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|fetch failed/i.test(`${raw} ${cause}`)) {
-    return `${service} is not answering. Check that it is running, then press Retry. (${cause === '' ? raw : `${raw}: ${cause}`})`;
+  if (CONNECTION_FAILURE.test(`${raw} ${cause}`)) {
+    console.warn(`kaki: could not reach ${service}: ${cause === '' ? raw : `${raw}: ${cause}`}`);
+    return `Couldn't reach ${service}. Nothing was sent. Press Retry.`;
   }
-  return raw;
+  console.warn(`kaki: ${service} failed: ${raw}`);
+  return `Something went wrong with ${service}. Nothing was sent. Press Retry.`;
 }
 
-/** A failed send keeps a plain state on the card; a timeout says plainly that nothing was sent. */
-export function sentFailureMessage(error: unknown): string {
-  const message = errorMessage(error);
-  return /\btimed out\b/i.test(message) ? `Not sent: ${message}` : message;
+/** What a send does, in words for the failure text on a card. */
+const SEND_PHRASE: Record<ActionKind, string> = {
+  gitea_issue: 'create the Gitea issue',
+  mattermost_post: 'post to Mattermost',
+  email: 'send the email',
+  wiki_page: 'post to the wiki',
+  calendar_event: 'add the calendar event',
+};
+
+/** A failed send shows a plain sentence on the card: an authored ActionError says its own sentence (`plain` when the log needs more detail than the card), anything else is generic. */
+export function sendFailureMessage(error: unknown, kind: ActionKind): string {
+  if (error instanceof ActionError) return error.plain ?? error.message;
+  return `Couldn't ${SEND_PHRASE[kind]}. Nothing was changed. Press Retry.`;
+}
+
+/** A failed draft shows a plain sentence on the card. */
+export function draftFailureMessage(error: unknown): string {
+  if (error instanceof ActionError) return error.plain ?? error.message;
+  return "Couldn't draft this. Press Retry.";
 }
 
 /** Facts for the task's recorded agenda item, without guessing from task words. */
@@ -115,8 +140,8 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
         }
       }
 
-      function fail(task: Task, message: string): void {
-        console.warn(`kaki ${name}: "${task.title}" failed: ${message}`);
+      function fail(task: Task, message: string, cause?: unknown): void {
+        console.warn(`kaki ${name}: "${task.title}" failed: ${cause === undefined ? message : errorMessage(cause)}`);
         apply(task, 'FAILED', { error: message }, 'record the failure');
       }
 
@@ -161,7 +186,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             tools = await workspaceTools();
           } catch (error) {
-            fail(task, errorMessage(error));
+            fail(task, "Couldn't load this workspace's tools. Press Retry.", error);
             return;
           }
           const reason = configReason(tools);
@@ -173,7 +198,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             result = await draft(task, shutdown.signal, activeScenario(), visitorFor(task), memory, tools);
           } catch (error) {
-            fail(task, errorMessage(error));
+            fail(task, draftFailureMessage(error), error);
             return;
           }
           if (!isCurrent(task)) return;
@@ -194,7 +219,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             tools = await workspaceTools();
           } catch (error) {
-            fail(task, errorMessage(error));
+            fail(task, "Couldn't load this workspace's tools. Press Retry.", error);
             return;
           }
           const reason = configReason(tools);
@@ -227,7 +252,7 @@ export function createActionModule({ name, kind, unconfiguredReason, draft, run 
           try {
             artifactUrl = await run(runnable, shutdown.signal, activeScenario(), visitorFor(task), tools);
           } catch (error) {
-            fail(task, sentFailureMessage(error));
+            fail(task, sendFailureMessage(error, kind), error);
             return;
           }
           if (!isCurrent(task)) return;

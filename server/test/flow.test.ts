@@ -277,7 +277,7 @@ describe('task flows', () => {
       draft: { ...draft, body: 'Please FAIL on purpose.' },
     });
     const failed = await waitForEvent(chef, isStatus(task.id, 'FAILED'), 'failure', 5_000);
-    expect(taskOf(failed).error).toMatch(/could not send the email/i);
+    expect(taskOf(failed).error).toMatch(/mail server.*Nothing was sent/i);
 
     send(chef, {
       type: 'RETRY_ACTION',
