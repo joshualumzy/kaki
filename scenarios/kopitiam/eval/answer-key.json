@@ -1,0 +1,201 @@
+{
+  "scenario": "kopitiam",
+  "meetingTitle": "Raffles Place Flagship Opening Day",
+  "topics": [
+    {
+      "title": "One counter staff short for the opening rush",
+      "shouldNote": [
+        "The call on how the counter is covered from 8 to 10 while one person is short.",
+        "Whether the rest-day staff member is called in, and the double pay that comes with it.",
+        "Any fallback the room agreed, such as an agency temp, a manager covering, a smaller counter menu, or less free kopi.",
+        "A to-do for the person who will arrange cover, call the staff member, or set up a temp login, with its owner.",
+        "A to-do to tell the floor team or change the opening plan before 8, if the room agreed one.",
+        "Any condition attached to the cover, such as a later start time or a limit on the free-kopi offer."
+      ],
+      "shouldWingman": [
+        {
+          "moment": "A colleague asks the guest by name to take on a follow-up for the counter cover.",
+          "kind": "asked_you"
+        },
+        {
+          "moment": "The guest is handed a to-do for the counter cover.",
+          "kind": "given"
+        },
+        {
+          "moment": "A workspace record about rest-day pay, the roster, or an earlier temp login becomes relevant while cover is being decided.",
+          "kind": "record"
+        }
+      ],
+      "shouldOfferTool": [
+        "A to-do to open a work item or issue for the temp's till login or counter setup.",
+        "A to-do to post the cover plan or a staff update in the team chat.",
+        "A to-do to email the agency or the staff member about cover.",
+        "A to-do to update the staff rota or an opening checklist page on the wiki.",
+        "A to-do to book the temp or agency shift on the team calendar."
+      ],
+      "shouldStaySilent": [
+        "Small talk about the morning or the free-kopi crowd that does not change the cover plan.",
+        "A passing idea nobody takes up.",
+        "A promise to think about the roster later with no concrete deliverable or tool fit.",
+        "A phone call to a person that no connected tool can make.",
+        "A repeat of a cover point already in the record."
+      ]
+    },
+    {
+      "title": "Old regulars and the new kopi prices",
+      "shouldNote": [
+        "The call on what the shop does for old regulars while keeping the new price.",
+        "Which approach the room chose, such as an old-price hour, a regulars' price button, a seniors' discount, or keeping the price and explaining it.",
+        "Any rule agreed for who counts as a regular.",
+        "A to-do for the person who will add or change the till price button.",
+        "A to-do to reply to the public post, put up a counter note, or offer regulars a first kopi.",
+        "Any limit attached to the regulars' offer, such as a time window or a one-per-person rule."
+      ],
+      "shouldWingman": [
+        {
+          "moment": "A colleague asks the guest by name to decide who counts as a regular or to handle the public reply.",
+          "kind": "asked_you"
+        },
+        {
+          "moment": "The guest is handed a to-do for the till button, the counter note, or the public reply.",
+          "kind": "given"
+        },
+        {
+          "moment": "A workspace record about the old price, the old shop's regulars, or the public post becomes relevant to the price decision.",
+          "kind": "record"
+        }
+      ],
+      "shouldOfferTool": [
+        "A to-do to open a work item or issue for the regulars' price button on the till.",
+        "A to-do to post about the price or the regulars' offer in the team chat.",
+        "A to-do to email regulars, a customer, or the food blogger.",
+        "A to-do to update the menu or price page on the wiki.",
+        "A to-do to set up a regulars' event or a review on the calendar."
+      ],
+      "shouldStaySilent": [
+        "Nostalgic small talk about the old shop that does not change the price call.",
+        "A vague wish to do something for the regulars with no owner or deliverable.",
+        "A promise to look at the numbers later with no concrete next step.",
+        "A phone call to a regular or a customer that no connected tool can make.",
+        "A repeat of a price point already in the record."
+      ]
+    },
+    {
+      "title": "Laptop campers and the breakfast seat crunch",
+      "shouldNote": [
+        "The call on how to keep breakfast seats turning without putting floor staff in a fight.",
+        "Which measure the room chose, such as booth power or Wi-Fi limits, a laptop zone at the window bar, a minimum spend, or an office deal.",
+        "Any rule agreed for enforcement or exceptions, such as signs, receipt checks, or a time limit.",
+        "A to-do for the person who will change the socket timer or Wi-Fi codes.",
+        "A to-do to put out stools, add signs, or brief floor staff.",
+        "Any timing agreed for when the seat rule starts or is reviewed."
+      ],
+      "shouldWingman": [
+        {
+          "moment": "A colleague asks the guest by name to decide what to change before 8.",
+          "kind": "asked_you"
+        },
+        {
+          "moment": "The guest is handed a to-do for the sockets, Wi-Fi, stools, or signs.",
+          "kind": "given"
+        },
+        {
+          "moment": "A workspace record about the window-bar seats, yesterday's lost sales, or the offices upstairs becomes relevant to the seat rule.",
+          "kind": "record"
+        }
+      ],
+      "shouldOfferTool": [
+        "A to-do to open a work item or issue for the socket timer or Wi-Fi code change.",
+        "A to-do to post the seat policy or a staff update in the team chat.",
+        "A to-do to email the offices upstairs about a bulk or office deal.",
+        "A to-do to update the seating or customer FAQ page on the wiki.",
+        "A to-do to book a follow-up with the offices on the calendar."
+      ],
+      "shouldStaySilent": [
+        "Anecdotes about laptop users that do not change the seat rule.",
+        "A passing idea nobody takes up.",
+        "A promise to watch the floor later with no concrete deliverable.",
+        "A phone call to a customer or the building office that no connected tool can make.",
+        "A repeat of a seat point already in the record."
+      ]
+    },
+    {
+      "title": "Food safety complaint before the 9 AM inspection",
+      "shouldNote": [
+        "The call on whether to open at 8 without the affected set, open later after the inspection, or open with an honest note.",
+        "What the room agreed for the customer, such as an apology, a refund, the clinic bill, or another gesture.",
+        "What the room agreed for the inspection, such as the logs, the affected set off the till and kiosk, or a fridge alert.",
+        "A to-do for the person who will pull the affected set or set up a temperature alert.",
+        "A to-do to prepare the disposal and fridge logs or brief staff for the officer.",
+        "Any limit on what the shop admits or promises to the customer."
+      ],
+      "shouldWingman": [
+        {
+          "moment": "A colleague asks the guest by name to decide what to pull or fix before opening.",
+          "kind": "asked_you"
+        },
+        {
+          "moment": "The guest is handed a to-do for the customer reply, the inspection prep, or the fridge alert.",
+          "kind": "given"
+        },
+        {
+          "moment": "A workspace record about the fridge log, the disposal log, or the insurer's goodwill policy becomes relevant to the call.",
+          "kind": "record"
+        }
+      ],
+      "shouldOfferTool": [
+        "A to-do to open a work item or issue for the fridge alert or taking the affected set off the till and kiosk.",
+        "A to-do to email the customer an apology, refund, or clinic-bill arrangement.",
+        "A to-do to post an honest counter or team update in the team chat.",
+        "A to-do to update the food-safety or incident page on the wiki.",
+        "A to-do to book the inspector, technician, or a follow-up on the calendar."
+      ],
+      "shouldStaySilent": [
+        "Speculation about the cause that does not change the opening, customer, or inspection call.",
+        "Blame or jokes about the cleaner, the customer, or a colleague.",
+        "A vague promise to look into it with no owner or deliverable.",
+        "A phone call to the customer, the officer, or the insurer that no connected tool can make.",
+        "A repeat of a fact already noted from the logs."
+      ]
+    },
+    {
+      "title": "Delivery app commission squeeze",
+      "shouldNote": [
+        "The call on how to stop losing money on delivered sets without losing the office orders.",
+        "Which option the room chose, such as raising the app price, office platters, a direct pickup code, or pausing single sets.",
+        "Any rule agreed for the platter limit, the pickup discount, or when the app change goes live.",
+        "A to-do for the person who will change the app menu before 8.",
+        "A to-do to tell office managers about the direct code or the platter offer.",
+        "Any limit on how many platters or trays the shop can promise."
+      ],
+      "shouldWingman": [
+        {
+          "moment": "A colleague asks the guest by name to decide between the app options.",
+          "kind": "asked_you"
+        },
+        {
+          "moment": "The guest is handed a to-do for the app change or the office message.",
+          "kind": "given"
+        },
+        {
+          "moment": "A workspace record about the commission, the tray count, or the office managers becomes relevant to the order plan.",
+          "kind": "record"
+        }
+      ],
+      "shouldOfferTool": [
+        "A to-do to open a work item or issue for the app menu or pickup-code change.",
+        "A to-do to post the office or platter offer in the team chat.",
+        "A to-do to email the office managers the direct order code.",
+        "A to-do to update the delivery or office-orders page on the wiki.",
+        "A to-do to book a follow-up with the offices on the calendar."
+      ],
+      "shouldStaySilent": [
+        "General chat about the delivery app or the lunch rush that does not change the order plan.",
+        "A passing idea nobody takes up.",
+        "A promise to check the numbers later with no concrete deliverable.",
+        "A phone call to the delivery app or an office manager that no connected tool can make.",
+        "A repeat of a commission, price, or tray fact already in the record."
+      ]
+    }
+  ]
+}

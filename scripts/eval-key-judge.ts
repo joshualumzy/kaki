@@ -13,7 +13,7 @@ type Options = { report: string; key: string; emptyWorkspace: boolean };
 
 function parseOptions(argv: readonly string[]): Options {
   let report: string | undefined;
-  let key = 'planning/overnight/answer-key.json';
+  let key = 'scenarios/kopitiam/eval/answer-key.json';
   let emptyWorkspace = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
@@ -33,7 +33,7 @@ function parseOptions(argv: readonly string[]): Options {
     }
   }
   if (report === undefined) {
-    throw new Error('Usage: npm run eval:key -- <playtest-report.md> [--key planning/overnight/answer-key.json] [--empty-workspace]');
+    throw new Error('Usage: npm run eval:key -- <playtest-report.md> [--key scenarios/kopitiam/eval/answer-key.json] [--empty-workspace]');
   }
   return { report, key, emptyWorkspace };
 }

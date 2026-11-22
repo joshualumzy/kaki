@@ -54,7 +54,7 @@ The journeys expect the web app at http://localhost:5173.
 ### Answer-key eval
 
 `npm run eval:key -- <playtest-report.md>` (`scripts/eval-key-judge.ts`) takes the report of an AI-guest playtest and has a
-model judge each topic against the answer key `planning/overnight/answer-key.json` (change it with `--key`). Add
+model judge each topic against the answer key `scenarios/kopitiam/eval/answer-key.json` (change it with `--key`). Add
 `--empty-workspace` when the workspace had no records. It writes `<report>-eval.json` next to the report.
 
 ## 3. Real people
