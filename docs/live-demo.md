@@ -19,6 +19,26 @@ served under a name that does not contain "deepseek"; unset keeps the old name-b
 `KAKI_LLM_FIRST_CHUNK_MS` (default 12 s) and `KAKI_LLM_IDLE_MS` (default 10 s) are the streamed reply's
 first-chunk and between-chunk deadlines; `KAKI_LLM_TIMEOUT_MS` stays the whole-request timeout for `complete`.
 
+## The live product (sign-in mode)
+
+Besides the practice demo, the same server runs the real product: Google sign-in, personal workspaces, the read-only sample
+workspace Nanyang Kopi, and real meetings with any number of people and no AI colleagues. Guests join by invite link without an
+account. Real meetings are opened from the workspace page; `/practice` and `/demo` work as above, with no sign-in.
+
+Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here; see `.env.example`):
+
+| Key | What it does |
+|---|---|
+| `KAKI_AUTH` | Turns sign-in mode on. Needs `POSTGRES_URL`. |
+| `KAKI_GOOGLE_CLIENT_ID`, `KAKI_GOOGLE_CLIENT_SECRET` | Google sign-in. Without them the sign-in page says Google is not set up. |
+| `KAKI_PUBLIC_URL` | The address people open; Google sends them back to it after sign-in. |
+| `KAKI_SECRET_KEY` | Encrypts the tool logins saved in a workspace. |
+| `KAKI_SERVICE_TOKEN` | Shared secret between the server and `npm run npc`. Use the same value for both. |
+| `KAKI_MAX_OPEN_MEETINGS` | How many real meetings the server keeps open at once (default 10). |
+
+Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki for <name>, approved in <meeting title>"
+(`server/src/action/footer.ts`). Ended meetings keep their minutes and to-dos in the workspace history.
+
 ## A visit, start to finish
 
 1. **Join.** The visitor picks a name, a seat and whether to use the microphone. Kaki selects a crisp 2-item agenda (`KAKI_AGENDA_ITEMS`, default `2`, each item with its scenario minutes, 5 in Kopitiam) tailored to that role.
