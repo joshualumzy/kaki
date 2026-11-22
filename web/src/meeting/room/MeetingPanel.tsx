@@ -372,7 +372,7 @@ export function MeetingPanel({
         </>
       ) : (
         <>
-          <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} showOpenQuestions={isHost} />
+          <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} showOpenQuestions={meetingEnded} />
           {!meetingEnded && isHost && (
             <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started canAdvance={canControlMeeting} />
           )}

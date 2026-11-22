@@ -45,7 +45,7 @@ export interface MeetingStateSnapshot {
   /** Set while the room is off the record; anyone in the meeting may resume. */
   offTheRecord: OffTheRecordState | null;
   participants: MeetingStateParticipant[];
-  /** A loud, plain-words warning when the AI runner cannot hear the room. */
+  /** A loud, plain-words notice while notes are paused: the runner cannot hear, or the notetaker is catching up. */
   notesPaused: string | null;
   /** The latest quiet agenda-clock note (a real meeting has no spoken time cues). */
   cue: MeetingStateCue | null;

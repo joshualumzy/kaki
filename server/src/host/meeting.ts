@@ -13,6 +13,8 @@ import { loadReplay, startReplay, type ReplayLine } from './replay';
 
 const TICK_MS = 1_000;
 const DEFAULT_NOTETAKER_INTERVAL_MS = 4_500;
+/** The loud, plain-words notice everyone sees while the notetaker catches up. */
+const NOTES_PAUSED_TEXT = 'Notes paused, catching up';
 /** Republish an unchanged record after this much meeting time so clients can resync their clocks. */
 const HEARTBEAT_MEETING_SECONDS = 30;
 /** Talk time is compared at this granularity, so every transcript line does not cause a publish. */
@@ -60,6 +62,7 @@ export function createMeetingModule({
       session,
       meetingKind,
       quietCue,
+      notesPaused,
     }: KakiContext) {
       const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
       // A real meeting keeps Kaki silent: no spoken opening, cues or closing, only quiet state notes.
@@ -87,6 +90,8 @@ export function createMeetingModule({
         },
         // The "can you..." -> the one visitor shortcut only makes sense with a single person in the room.
         visitorOwnerShortcut: () => (meetingDetails?.().holders.length ?? 0) < 2,
+        // A failed or slow pass is the room's business, not a silent gap in the notes.
+        onPausedChange: (paused) => notesPaused?.(paused ? NOTES_PAUSED_TEXT : null),
       });
       if (llm === undefined) console.warn('kaki host: no LLM configured; the notetaker only tracks talk time');
 

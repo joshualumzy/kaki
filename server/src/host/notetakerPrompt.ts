@@ -145,6 +145,7 @@ export function notetakerReplySchema(scenario: Scenario): { name: string; schema
   const nullableRole = { type: ['string', 'null'], enum: [...roles, null] };
   const nullableActionKind = { type: ['string', 'null'], enum: [...ACTION_KINDS, null] };
   const nullableString = { type: ['string', 'null'] };
+  const agendaIndices = scenario.agenda.map((_item, index) => index);
   return {
     name: 'notetaker_reply',
     schema: {
@@ -152,7 +153,11 @@ export function notetakerReplySchema(scenario: Scenario): { name: string; schema
       additionalProperties: false,
       required: ['agendaIndex', 'newQuestions', 'answeredQuestions', 'newTasks', 'revisions'],
       properties: {
-        agendaIndex: { type: 'integer' },
+        // Null means the talk is not about any agenda item: no agenda label is forced onto it.
+        agendaIndex:
+          agendaIndices.length === 0
+            ? { type: 'null' }
+            : { type: ['integer', 'null'], enum: [...agendaIndices, null] },
         newQuestions: {
           type: 'array',
           items: {
@@ -240,6 +245,14 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
   const agenda = scenario.agenda.map(
     (item, index) => `${index}. ${item.title} (${item.minutes} min, owner: ${item.ownerRole})`,
   );
+  const agendaLines =
+    agenda.length === 0
+      ? ['There is no agenda for this meeting: use no agenda labels and return agendaIndex null.']
+      : ['Agenda (a hint only; use the number on the left):', ...agenda];
+  const agendaRule =
+    agenda.length === 0
+      ? 'There is no agenda: label nothing and return agendaIndex null.'
+      : 'An item gets an agenda item\'s title only when its talk is actually about that item; otherwise label it "Other topics". Never force an agenda label onto talk that is not about that item.';
 
   return [
     `You are the notetaker for "${scenario.meetingTitle}"${scenario.organisation === undefined ? '' : ` at ${scenario.organisation}`}.`,
@@ -248,8 +261,7 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     'Roles (use the id on the left):',
     ...roles,
     '',
-    'Agenda (use the number on the left):',
-    ...agenda,
+    ...agendaLines,
     '',
     'Action kinds (pick the one that matches the nature of the follow-up deliverable):',
     '- gitea_issue: a software bug or engineering ticket in the code/issue tracker ONLY (never use gitea_issue for marketing, budgets, external partners, procurement, or non-software operations)',
@@ -259,14 +271,15 @@ export function systemPrompt(scenario: Scenario, lines: TranscriptLine[] = []): 
     '- calendar_event: schedule a follow-up meeting, review session, workshop or reminder at a specific date and time',
     '',
     'Reply shape:',
-    '{"agendaIndex": number, "newQuestions": [{"text": string, "forRole": role id}],',
+    '{"agendaIndex": number or null, "newQuestions": [{"text": string, "forRole": role id}],',
     ' "answeredQuestions": [{"id": question id, "evidence": string}], "newTasks": [{"title": string, "context": string,',
     ` "suggestedAssignee": role id, "actionKind": ${ACTION_KINDS.map((kind) => `"${kind}"`).join(' | ')},`,
     ' "evidence": string, "decisionEvidence": string, "duplicateOf": task id}],',
     ' "revisions": [{"oldDecisionEvidence": string, "changeEvidence": string, "taskIds": [task id]}]}',
     '',
     'Rules:',
-    '- agendaIndex: the agenda item being discussed at the end of the new lines.',
+    '- agendaIndex: the agenda item the new lines are actually about, or null when they are not about any agenda item.',
+    `- ${agendaRule}`,
     '- newQuestions: the open problems the group still needs answered or decided after these lines, whether or not anyone phrased them as a question. They include a question nobody answered, and a point the group said it does not know, has not agreed, or has left unresolved. Write each as a full,',
     '  self-contained question ending in a question mark that explicitly names the current agenda topic (for example "What supplier lead time do we need to confirm?" rather than just "What lead time do you need me to confirm?").',
     '  forRole is the role best placed to answer (always set forRole to one of the role ids listed above — if a participant asks the room a question, set forRole to the speaker\'s own role or the owner of the current agenda item so Kaki can search company records for them; never omit forRole).',

@@ -38,6 +38,8 @@ export interface KakiContext {
   meetingKind?(): 'real' | 'practice' | undefined;
   /** A quiet note for the shared meeting state; real meetings have no spoken cues. */
   quietCue?(text: string): void;
+  /** The loud, plain-words notice shown to everyone, or null once the notes are healthy again. */
+  notesPaused?(text: string | null): void;
   /** The setup, code and seat holders the app server owns, saved alongside the meeting record. */
   meetingDetails?(): SavedMeetingDetails;
   /**

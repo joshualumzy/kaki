@@ -831,6 +831,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   // revision it may never have managed to save.
   /** The latest quiet agenda note for a real meeting; null until the clock raises one. */
   let meetingCue: MeetingStateSnapshot['cue'] = null;
+  /** Set while the notetaker's own model is failing or too slow; the room shows it in plain words. */
+  let notetakerNotesPaused: string | null = null;
   /** A real meeting cannot be heard while the runner's control socket is away: say so loudly. */
   const notesPausedMessage = "Kaki can't hear the room right now";
   function runnerIsDown(): boolean {
@@ -852,7 +854,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         seat: holder.seat,
         photoUrl: holder.photoUrl ?? null,
       })),
-      notesPaused: runnerIsDown() ? notesPausedMessage : null,
+      // A missing runner is the more basic failure; otherwise the notetaker's own catch-up shows.
+      notesPaused: runnerIsDown() ? notesPausedMessage : notetakerNotesPaused,
       cue: meetingCue,
     };
   }
@@ -902,6 +905,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       // field (the runner cleared its copy and must be able to adopt the republished version).
       runnerStateSignature = undefined;
       meetingCue = null;
+      notetakerNotesPaused = null;
       publishRunnerState();
       publishMeetingState();
       return;
@@ -1591,6 +1595,11 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         meetingKind: () => (session.kind() === 'practice' ? 'practice' : runnerKind === 'real' ? 'real' : undefined),
         quietCue: (text: string) => {
           meetingCue = { text, at: new Date().toISOString() };
+          publishMeetingState();
+        },
+        notesPaused: (text: string | null) => {
+          if (notetakerNotesPaused === text) return;
+          notetakerNotesPaused = text;
           publishMeetingState();
         },
         packFree,

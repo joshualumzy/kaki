@@ -922,6 +922,55 @@ describe('MeetingPanel', () => {
     expect(screen.getByLabelText('End-of-meeting minutes')).toBeTruthy();
     expect(screen.queryByText('Open meeting minutes in Wiki ↗')).toBeNull();
   });
+
+  it('keeps unanswered questions off the live view and shows them only when the meeting ends', () => {
+    const question = {
+      id: 'q-cash',
+      text: 'How do we take cash?',
+      forRole: 'operations_director',
+      agendaIndex: 0,
+    };
+    const live: KakiEvent = {
+      type: 'MEETING_RECORD_UPDATED',
+      audience: { kind: 'all' },
+      payload: {
+        agendaIndex: 0,
+        openQuestions: [question],
+        elapsedSeconds: 5,
+        speakerTalkSeconds: {},
+      },
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [live],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    const view = render(
+      <MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} isHost />,
+    );
+
+    expect(screen.queryByText('How do we take cash?')).toBeNull();
+    expect(screen.queryByText(/Open questions/)).toBeNull();
+    view.unmount();
+
+    const ended: KakiEvent = {
+      ...live,
+      payload: { ...live.payload, ended: true },
+    };
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: [ended],
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: 'Wei Ling' }} role={scenario.roles[0]} isHost />);
+
+    expect(screen.getByText('Unanswered questions · 1')).toBeTruthy();
+    expect(screen.getByText('How do we take cash?')).toBeTruthy();
+  });
 });
 
 describe('the host briefing', () => {

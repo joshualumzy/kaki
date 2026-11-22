@@ -7,13 +7,18 @@
 import '../env';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { KakiEvent, Role, Task } from '@kaki/shared';
+import type { KakiEvent, Role } from '@kaki/shared';
 import type { Hub } from '../core/hub';
 import { notetakerLlmFromEnv } from '../services/llm';
 import { loadScenario, scenarioDir, scenarioFolder } from '../core/loadScenario';
 import { createTaskStore } from '../meeting/tasks';
 import { createNotetaker } from './notetaker';
 import { loadReplay } from './replay';
+import {
+  judgeNotetaker,
+  notetakerFailures,
+  type ExpectedNotetakerItems,
+} from './eval/judgeNotetaker';
 
 if (process.argv.includes('--ami')) {
   const { runAmiEval } = await import('./eval/evalAmi');
@@ -21,18 +26,7 @@ if (process.argv.includes('--ami')) {
   process.exit(process.exitCode ?? 0);
 }
 
-interface ExpectedTask {
-  name: string;
-  assignee: Role;
-  keywords: string[];
-}
-
-interface Expected {
-  /** Tasks the notetaker must find, once each. */
-  tasks: ExpectedTask[];
-  /** Real follow-ups it may also find; anything outside both lists fails the run. */
-  acceptedTasks?: ExpectedTask[];
-  questions: Array<{ name: string; keywords: string[] }>;
+interface Expected extends ExpectedNotetakerItems {
   quietRoles: Role[];
 }
 
@@ -43,11 +37,6 @@ const silentHub: Hub = {
   clearRetained: () => {},
   close: () => {},
 };
-
-function mentionsAll(text: string, keywords: string[]): boolean {
-  const haystack = text.toLowerCase();
-  return keywords.every((keyword) => haystack.includes(keyword.toLowerCase()));
-}
 
 const llm = notetakerLlmFromEnv();
 if (llm === undefined) {
@@ -93,28 +82,26 @@ console.log(`Open questions (${state.openQuestions.length}):`);
 for (const question of state.openQuestions) console.log(`  - ${question.text} → ${question.forRole ?? '?'}`);
 console.log(`Quiet roles: ${state.quietRoles.join(', ') || '(none)'}\n`);
 
-const matchesTask = (task: Task, want: ExpectedTask) =>
-  task.suggestedAssignee === want.assignee && mentionsAll(`${task.title} ${task.context}`, want.keywords);
+const foundTasks = found.map((task) => ({
+  title: task.title,
+  context: task.context,
+  suggestedAssignee: task.suggestedAssignee,
+}));
+const foundQuestions = state.openQuestions.map((question) => ({
+  text: question.text,
+  ...(question.forRole === undefined ? {} : { forRole: question.forRole }),
+}));
 
-const failures: string[] = [];
-for (const want of expected.tasks) {
-  const matches = found.filter((task) => matchesTask(task, want));
-  if (matches.length === 0) failures.push(`missing task: ${want.name}`);
-  if (matches.length > 1) failures.push(`duplicate task: ${want.name} (${matches.length}×)`);
-}
-for (const want of expected.acceptedTasks ?? []) {
-  const matches = found.filter((task) => matchesTask(task, want));
-  if (matches.length > 1) failures.push(`duplicate task: ${want.name} (${matches.length}×)`);
-}
-const known = [...expected.tasks, ...(expected.acceptedTasks ?? [])];
-for (const task of found) {
-  if (!known.some((want) => matchesTask(task, want))) failures.push(`unexpected task: ${task.title}`);
-}
-for (const want of expected.questions) {
-  if (!state.openQuestions.some((question) => mentionsAll(question.text, want.keywords))) {
-    failures.push(`missing question: ${want.name}`);
-  }
-}
+// Meaning decides a match: the model compares the found items with replay/expected.json, not words or keywords.
+console.log('Judging the found items against the expected items by meaning...');
+const verdict = await judgeNotetaker(llm, {
+  meeting: scenario.meetingTitle,
+  foundTasks,
+  foundQuestions,
+  expected,
+});
+
+const failures = notetakerFailures(expected, { tasks: foundTasks }, verdict);
 for (const role of expected.quietRoles) {
   if (!state.quietRoles.includes(role)) failures.push(`not flagged as quiet: ${role}`);
 }

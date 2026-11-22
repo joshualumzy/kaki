@@ -34,7 +34,7 @@ function formatMinutes(totalSeconds: number): string {
   return `${minutes}:${String(Math.floor(totalSeconds % 60)).padStart(2, '0')}`;
 }
 
-/** The compact Host card: the clock, agenda steps, and open questions for the current agenda item. */
+/** The compact Host card: the clock, agenda steps, and (once the meeting ends) its unanswered questions. */
 export function MeetingRecordCard({
   record,
   scenario,
@@ -86,7 +86,9 @@ export function MeetingRecordCard({
       )}
       {showOpenQuestions && openQuestions.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <p className="eyebrow" style={{ marginBottom: 4 }}>Open questions · {openQuestions.length}</p>
+          <p className="eyebrow" style={{ marginBottom: 4 }}>
+            {ended ? 'Unanswered questions' : 'Open questions'} · {openQuestions.length}
+          </p>
           <ul className="sc-questions" style={{ margin: 0, paddingLeft: 18 }}>
             {openQuestions.map((question) => (
               <li key={question.id}>

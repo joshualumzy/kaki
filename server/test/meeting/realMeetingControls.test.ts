@@ -13,6 +13,7 @@ import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import type { StoredMeeting } from '../../src/persist/state';
 import type { MeetingModules } from '../../src/modules';
+import { createFakeLlm, type LlmClient } from '../../src/services/llm';
 import { testScenario } from '../fixtures/scenario';
 import { portOf, waitFor } from '../helpers';
 
@@ -109,10 +110,21 @@ function connect(
   });
 }
 
-function fakeModules(clock: AgendaClock): MeetingModules {
+interface FakeModuleOptions {
+  llm?: LlmClient;
+  notetakerIntervalMs?: number;
+}
+
+function fakeModules(clock: AgendaClock, options: FakeModuleOptions = {}): MeetingModules {
   const snapshot = () => clock.snapshot();
   return {
-    modules: [createMeetingModule({ clock, notetakerIntervalMs: 60_000 })],
+    modules: [
+      createMeetingModule({
+        clock,
+        notetakerIntervalMs: options.notetakerIntervalMs ?? 60_000,
+        ...(options.llm === undefined ? {} : { llm: options.llm }),
+      }),
+    ],
     meetingElapsedSeconds: () => (snapshot().started ? snapshot().meetingElapsedSeconds : undefined),
     meetingAgendaIndex: () => (snapshot().started ? snapshot().agendaIndex : undefined),
     meetingPaused: () => (snapshot().started ? snapshot().paused === true : undefined),
@@ -158,7 +170,7 @@ afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
 
-async function buildApp(options: { now?: () => number } = {}): Promise<Built> {
+async function buildApp(options: { now?: () => number; meetingModule?: FakeModuleOptions } = {}): Promise<Built> {
   const store = createMemoryAuthStore();
   const meetingCode = createMeetingCodeSource('K7M2Q9');
   const auth = createAuth({ store, meetingCode });
@@ -175,7 +187,7 @@ async function buildApp(options: { now?: () => number } = {}): Promise<Built> {
     meetings,
     serviceToken: SERVICE_TOKEN,
     roomRoster: async () => [],
-    meetingModules: () => fakeModules(clock),
+    meetingModules: () => fakeModules(clock, options.meetingModule),
   });
   apps.push(app);
   return { app, base: `http://127.0.0.1:${portOf(app)}`, port: portOf(app), store, meetings, clock };
@@ -511,5 +523,80 @@ describe('real meeting controls', () => {
       const state = lastState(screen);
       return state?.type === 'MEETING_STATE' && state.payload.notesPaused !== null ? state : undefined;
     }, 'the runner-down warning again');
+  });
+
+  it('shows the notes catching up when the notetaker fails, then clears it on the next good pass', async () => {
+    let down = true;
+    const llm = createFakeLlm(() => {
+      if (down) throw new Error('model gateway unavailable');
+      return JSON.stringify({
+        agendaIndex: 0,
+        newQuestions: [],
+        answeredQuestionIds: [],
+        answeredQuestions: [],
+        newTasks: [],
+        revisions: [],
+      });
+    });
+    const built = await buildApp({ meetingModule: { llm, notetakerIntervalMs: 40 } });
+    const owner = await signIn(built.store, 'Ada');
+    const meetingId = await createAndOpen(built, owner);
+    const screen = await connect(built.port, meetingId, { audience: 'screen' }, owner.cookie);
+    sockets.push(screen);
+    const joined = await join(built, meetingId, owner.cookie, 'Ada', 'chef');
+    const started = await request(built.base, `/api/meetings/${meetingId}/meeting/start`, {
+      method: 'POST',
+      cookie: joined.cookie,
+    });
+    expect(started.status).toBe(200);
+
+    const control = new WebSocket(`ws://127.0.0.1:${built.port}/ws?audience=service-control`, {
+      headers: { authorization: `Bearer ${SERVICE_TOKEN}` },
+    });
+    await new Promise<void>((resolve, reject) => {
+      control.once('open', () => resolve());
+      control.once('error', reject);
+    });
+    await waitFor(() => {
+      const state = lastState(screen);
+      return state?.type === 'MEETING_STATE' && state.payload.notesPaused === null ? state : undefined;
+    }, 'the runner-up state');
+
+    const spoken = await request(built.base, `/api/meetings/${meetingId}/runner/emit`, {
+      method: 'POST',
+      token: SERVICE_TOKEN,
+      body: {
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: { speaker: 'Ada (Chef)', text: 'Prep is done for the morning.', timestamp: new Date().toISOString() },
+      },
+    });
+    expect(spoken.status).toBe(200);
+    const paused = await waitFor(() => {
+      const state = lastState(screen);
+      return state?.type === 'MEETING_STATE' && state.payload.notesPaused === 'Notes paused, catching up'
+        ? state
+        : undefined;
+    }, 'the notetaker catch-up notice');
+    if (paused.type !== 'MEETING_STATE') throw new Error('not a state event');
+    expect(paused.payload.notesPaused).toBe('Notes paused, catching up');
+
+    down = false;
+    const recovered = await request(built.base, `/api/meetings/${meetingId}/runner/emit`, {
+      method: 'POST',
+      token: SERVICE_TOKEN,
+      body: {
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: { speaker: 'Bao (Cashier)', text: 'Bao, please check the till later.', timestamp: new Date().toISOString() },
+      },
+    });
+    expect(recovered.status).toBe(200);
+    await waitFor(() => {
+      const state = lastState(screen);
+      return state?.type === 'MEETING_STATE' && state.payload.notesPaused === null ? state : undefined;
+    }, 'the notes healthy again');
+
+    control.close();
   });
 });

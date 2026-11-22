@@ -64,6 +64,8 @@ const MAX_PENDING_LINES = 200;
 const MAX_AGENDA_CONTEXT_LINES = 80;
 /** Extra passes allowed when the model leaves out the required `revisions` list; after this it is given up on. */
 const REVISION_FAILURE_LIMIT = 2;
+/** A pass that takes longer than this while lines wait counts as slow: everyone sees the notes catching up. */
+const DEFAULT_SLOW_PASS_MS = 30_000;
 /** The notetaker's part of the Meeting Record. */
 interface NotetakerState {
   openQuestions: Question[];
@@ -125,6 +127,10 @@ interface NotetakerOptions {
    * Omit to use the scenario's attendees, which is right for a standalone notetaker or the demo.
    */
   attendingRoles?: () => ReadonlySet<Role> | undefined;
+  /** Called when the notes start or stop falling behind; the room shows its own plain-words notice. */
+  onPausedChange?: (paused: boolean) => void;
+  /** How long a pass may run before the notes count as paused; defaults to 30 s. */
+  slowPassMs?: number;
 }
 /** Create the notetaker; call `run` every 5–10 s while the meeting is on. */
 export function createNotetaker({
@@ -138,6 +144,8 @@ export function createNotetaker({
   onAgendaIndex,
   visitorOwnerShortcut = () => true,
   attendingRoles,
+  onPausedChange,
+  slowPassMs = DEFAULT_SLOW_PASS_MS,
 }: NotetakerOptions): Notetaker {
   const verifier = verifierClient ?? llm;
   let pending: TranscriptLine[] = [];
@@ -158,6 +166,9 @@ export function createNotetaker({
   let lastError: string | undefined;
   // How many passes in a row have failed only because the reply had no usable `revisions` list.
   let revisionFailures = 0;
+  // True while a pass has failed or is taking so long that its lines are visibly waiting.
+  let paused = false;
+  let slowPassTimer: ReturnType<typeof setTimeout> | undefined;
   const talkByItem = new Map<number, Partial<Record<Role, number>>>();
   const talkTotals = new Map<Role, number>();
   let talkTotal = 0;
@@ -170,6 +181,38 @@ export function createNotetaker({
         .join('|')})\\)`,
       'g',
     );
+
+  /** Tell the room when the notes fall behind; the notice is the caller's, so this only reports the state. */
+  function setPaused(next: boolean): void {
+    if (paused === next) return;
+    paused = next;
+    try {
+      onPausedChange?.(next);
+    } catch (error) {
+      console.error('kaki notetaker: reporting the notes state failed', error);
+    }
+  }
+
+  function clearSlowPassTimer(): void {
+    if (slowPassTimer === undefined) return;
+    clearTimeout(slowPassTimer);
+    slowPassTimer = undefined;
+  }
+
+  /** A pass that is still running after the limit is visible as paused, never silently stuck. */
+  function startSlowPassTimer(startedIn: number): void {
+    clearSlowPassTimer();
+    slowPassTimer = setTimeout(() => {
+      slowPassTimer = undefined;
+      if (startedIn !== generation || !running) return;
+      console.warn(
+        `kaki notetaker: the model call has not finished after ${Math.round(slowPassMs / 1000)} s; ` +
+          'notes are paused and new lines are queued for the next pass',
+      );
+      setPaused(true);
+    }, slowPassMs);
+    slowPassTimer.unref?.();
+  }
 
   function addTalk(index: number, role: Role, seconds: number): void {
     const item = talkByItem.get(index) ?? {};
@@ -629,6 +672,7 @@ export function createNotetaker({
       pending = [];
       inFlight = batch;
       const startedIn = generation;
+      startSlowPassTimer(startedIn);
       const currentAgendaIndex = agendaIndex();
       if (currentAgendaIndex !== contextAgendaIndex) {
         contextAgendaIndex = currentAgendaIndex;
@@ -664,6 +708,7 @@ export function createNotetaker({
               `kaki notetaker: ${reply.revisionsError}; keeping these lines for another pass ` +
                 `(${revisionFailures}/${REVISION_FAILURE_LIMIT})`,
             );
+            setPaused(true);
           } else {
             // Give the lines a visible exit so the meeting can never stall on them. Today's behaviour:
             // no card or decision changes, one review issue goes on the record, and the agenda may move on.
@@ -680,6 +725,8 @@ export function createNotetaker({
             console.warn(
               `kaki notetaker: giving up on these lines after ${REVISION_FAILURE_LIMIT} failed passes; ${reply.revisionsError}`,
             );
+            // The lines no longer wait; the review issue on the record is the visible outcome.
+            setPaused(false);
             succeeded = true;
           }
         } else {
@@ -688,6 +735,7 @@ export function createNotetaker({
           status = 'ok';
           lastError = undefined;
           revisionFailures = 0;
+          setPaused(false);
           succeeded = true;
         }
       } catch (error) {
@@ -697,7 +745,9 @@ export function createNotetaker({
         status = 'stale';
         lastError = error instanceof Error ? error.message : String(error);
         console.warn(`kaki notetaker: keeping the last good record; ${lastError}`);
+        setPaused(true);
       } finally {
+        clearSlowPassTimer();
         running = false;
         inFlight = undefined;
       }
@@ -708,6 +758,8 @@ export function createNotetaker({
 
     reset() {
       generation += 1;
+      clearSlowPassTimer();
+      setPaused(false);
       pending = [];
       inFlight = undefined;
       recentGrounded = [];
@@ -749,6 +801,8 @@ export function createNotetaker({
 
     restore(saved) {
       generation += 1;
+      clearSlowPassTimer();
+      setPaused(false);
       // The saved batch was older than anything still pending, so it is analysed first again.
       pending = [...saved.inFlight, ...saved.pending].map((line) => ({ ...line }));
       inFlight = undefined;

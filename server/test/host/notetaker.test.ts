@@ -313,6 +313,21 @@ describe('notetaker record keeping', () => {
     expect(system).not.toMatch(/streamer|publisher|playtest/i);
   });
 
+  it('treats the agenda as a hint and never forces an agenda label', () => {
+    const system = systemPrompt(scenario);
+    expect(system).toMatch(/agenda \(a hint only/i);
+    expect(system).toMatch(/Other topics/);
+    expect(system).toMatch(/never force an agenda label/i);
+
+    const withoutAgenda = systemPrompt({ ...scenario, agenda: [] });
+    expect(withoutAgenda).toMatch(/no agenda/i);
+    expect(withoutAgenda).toMatch(/agendaIndex null/i);
+  });
+
+  it('accepts a null agendaIndex, so off-agenda talk is never labelled with an item', () => {
+    expect(parseNotetakerReply(reply({ agendaIndex: null }), scenario).agendaIndex).toBeUndefined();
+  });
+
   it('keeps a re-asked question when the same reply closes the older wording', async () => {
     const { notetaker } = setup((_messages, call) =>
       [
@@ -2482,5 +2497,69 @@ describe('grounded recovery from a verified assignment decision line', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toContain('The oven tripped again this morning.');
     expect(seen[0]).toContain('I will check the temperature log.');
+  });
+});
+
+describe('notetaker catching up', () => {
+  it('reports paused on a failed pass and clears it on the next good pass', async () => {
+    let down = true;
+    const llm = createFakeLlm(() => {
+      if (down) throw new Error('gateway unreachable');
+      return reply({});
+    });
+    const onPausedChange = vi.fn();
+    const notetaker = createNotetaker({
+      scenario: () => scenario,
+      tasks: createTaskStore({ hub: quietHub(), scenario }),
+      llm,
+      verify: lexicalVerify,
+      agendaIndex: () => 0,
+      onPausedChange,
+    });
+
+    notetaker.addChunk({ speaker: 'Mei', text: 'Let us begin.' });
+    await notetaker.run();
+
+    expect(notetaker.state().status).toBe('stale');
+    expect(onPausedChange).toHaveBeenLastCalledWith(true);
+
+    down = false;
+    await notetaker.run();
+
+    expect(notetaker.state().status).toBe('ok');
+    expect(onPausedChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reports paused when a pass runs past the slow limit, then clears when it completes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let release: ((text: string) => void) | undefined;
+    const llm = createFakeLlm(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const onPausedChange = vi.fn();
+    const notetaker = createNotetaker({
+      scenario: () => scenario,
+      tasks: createTaskStore({ hub: quietHub(), scenario }),
+      llm,
+      verify: lexicalVerify,
+      agendaIndex: () => 0,
+      onPausedChange,
+      slowPassMs: 20,
+    });
+
+    notetaker.addChunk({ speaker: 'Mei', text: 'Let us begin.' });
+    const pass = notetaker.run();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(onPausedChange).toHaveBeenLastCalledWith(true);
+    release!(reply({}));
+    await pass;
+
+    expect(notetaker.state().status).toBe('ok');
+    expect(onPausedChange).toHaveBeenLastCalledWith(false);
+    warn.mockRestore();
   });
 });
