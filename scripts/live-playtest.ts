@@ -846,8 +846,17 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
     `);
     lastNavigationAt = Date.now();
     await page.goto(`${BASE}/demo?mode=live`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    const response = await page.request.get(`${BASE}/api/scenario?kind=practice`, { timeout: 10_000 });
-    if (!response.ok()) throw new Error(`/api/scenario?kind=practice returned HTTP ${response.status()}`);
+    // The page has already asked for this visitor's own practice meeting and its id is on the
+    // stage, so every read below follows that meeting, never another visitor's.
+    const practiceNode = page.locator('[data-practice-meeting-id]').first();
+    await practiceNode.waitFor({ state: 'attached', timeout: 20_000 });
+    const practiceMeetingId = await practiceNode.getAttribute('data-practice-meeting-id');
+    if (practiceMeetingId === null || practiceMeetingId === '') {
+      throw new Error('The practice page did not name its meeting');
+    }
+    const scenarioUrl = `${BASE}/api/meetings/${encodeURIComponent(practiceMeetingId)}/scenario?kind=practice`;
+    const response = await page.request.get(scenarioUrl, { timeout: 10_000 });
+    if (!response.ok()) throw new Error(`${scenarioUrl} returned HTTP ${response.status()}`);
     scenario = await response.json() as Scenario;
     // The seats the join form offers (one shared function), minus the chair: the robot plays a guest, not Sam.
     const playable = joinSeatRoles(scenario).filter((role) => role.facilitator !== true);
@@ -866,8 +875,8 @@ export async function runLivePlaytest(parsed: PlaytestOptions, hooks: PlaytestHo
       await checkPhoneLayout('after join');
       await keepShot('after join');
     }
-    const activeResponse = await page.request.get(`${BASE}/api/scenario?kind=practice`, { timeout: 10_000 });
-    if (!activeResponse.ok()) throw new Error(`Post-join /api/scenario?kind=practice returned HTTP ${activeResponse.status()}`);
+    const activeResponse = await page.request.get(scenarioUrl, { timeout: 10_000 });
+    if (!activeResponse.ok()) throw new Error(`Post-join ${scenarioUrl} returned HTTP ${activeResponse.status()}`);
     scenario = await activeResponse.json() as Scenario;
     hostName = scenario.npcs?.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
     // The server records a person's lines under the name they joined with, never the seat's character name.

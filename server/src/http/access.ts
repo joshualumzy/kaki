@@ -139,12 +139,16 @@ export function accessProblem(
     case 'public':
       return undefined;
 
-    case 'dev':
-      if (!context.devRoutes || !context.loopback || !context.rawPath.startsWith('/dev/')) {
+    case 'dev': {
+      // The local dev routes answer both at the legacy `/dev/...` paths and under one meeting's
+      // own prefix, so a dev tool can name exactly which meeting it is poking.
+      const prefixedDev = /^\/api\/meetings\/[^/?#]+\/dev\//.test(context.rawPath);
+      if (!context.devRoutes || !context.loopback || !(context.rawPath.startsWith('/dev/') || prefixedDev)) {
         return { status: 404, error: 'Not found' };
       }
       if (context.authEnabled) return { status: 404, error: 'Not found' };
       return undefined;
+    }
 
     case 'service':
       // A configured service token always gates its routes, whether user sign-in is on or off.

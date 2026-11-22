@@ -1,5 +1,5 @@
 import type { RoutedRoute } from './routeCall';
-import { handleLivekitToken, handleMeetingClose, handleMeetingCode, handleMeetingEndPractice, handleMeetingOpen, handleMeetingParticipants, handleMeetingStart, handleMeetingState } from './routes/meeting';
+import { handleLivekitToken, handleMeetingClose, handleMeetingCode, handleMeetingOpen, handleMeetingParticipants, handleMeetingStart, handleMeetingState } from './routes/meeting';
 import { handleCalendarEvent, handleMattermostOpen, handleScenario, handleScenarioFull } from './routes/scenario';
 import { handleEmit, handleHumanLine, handleMeetingMemory, handleSettleTopic, handleSuggestTask } from './routes/runner';
 import { handleGetSetup, handleGetSetupTools, handleImportCalendar, handlePutSetup, handleSetupBlank, handleSetupToolTest } from './routes/setup';
@@ -19,7 +19,6 @@ export function buildMeetingRouteTable({ devRoutes }: { devRoutes: boolean }): R
     { method: 'POST', path: '/api/meeting/start', access: 'host-or-practice', handle: handleMeetingStart },
     { method: 'POST', path: '/api/meeting/open', access: 'host', handle: handleMeetingOpen },
     { method: 'POST', path: '/api/meeting/close', access: 'host', handle: handleMeetingClose },
-    { method: 'POST', path: '/api/meeting/end-practice', access: 'host', handle: handleMeetingEndPractice },
     { method: 'GET', path: '/api/mattermost/open', access: 'session', handle: handleMattermostOpen },
     { method: 'GET', path: '/api/calendar/:id', access: 'public', handle: handleCalendarEvent },
     { method: 'GET', path: '/api/scenario', access: 'public', handle: handleScenario },

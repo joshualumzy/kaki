@@ -1,6 +1,5 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scenario } from '@kaki/shared';
@@ -215,42 +214,20 @@ describe('Meeting join', () => {
     expect(await screen.findByRole('region', { name: 'Before the meeting starts' })).toBeTruthy();
     expect(document.querySelector('[data-needs-start="true"]')).toBeTruthy();
   });
-  it('joins a practice meeting with kind practice', async () => {
+  it('joins this visitor’s own practice meeting under its prefixed path', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
       ok: true,
       status: 200,
       json: async () => ({ token: 'token', url: 'ws://localhost:7880', meetingCode: 'ABCD', started: false }),
     }));
     vi.stubGlobal('fetch', fetchMock);
-    render(<Meeting />);
+    render(<Meeting practiceMeetingId="practice-1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/meetings/practice-1/livekit/token');
     const init = fetchMock.mock.calls[0]?.[1];
     expect(JSON.parse(String(init?.body))).toMatchObject({ kind: 'practice' });
-  });
-
-  it('shows the realMeeting refusal and the way back home', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: false,
-      status: 409,
-      json: async () => ({
-        error: 'A team meeting is in progress right now. Try practice again later.',
-        realInProgress: true,
-      }),
-    })));
-    render(
-      <MemoryRouter>
-        <Meeting />
-      </MemoryRouter>,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Join now' }));
-
-    expect(await screen.findByRole('alert')).toHaveProperty(
-      'textContent',
-      'A team meeting is in progress right now. Try practice again later.',
-    );
-    expect(screen.getByRole('link', { name: 'Back to Kaki' }).getAttribute('href')).toBe('/');
   });
 
   it('waits for the owner instead of showing the story in a team meeting', async () => {
@@ -322,34 +299,6 @@ describe('Meeting rejoin', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Leave and join as someone else' }));
     expect(await screen.findByRole('button', { name: 'Join team' })).toBeTruthy();
     expect(window.sessionStorage.getItem(storedKey)).toBeNull();
-  });
-
-  it('shows a plain sentence when practice is busy, never the raw code', async () => {
-    window.sessionStorage.setItem(
-      'kaki.join.practice',
-      JSON.stringify({
-        name: 'Ana',
-        role: 'operations_director',
-        media: { microphone: false, camera: false },
-        meetingCode: 'ABCD',
-      }),
-    );
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: false,
-      status: 409,
-      json: async () => ({
-        error: 'practice-busy',
-        message:
-          'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
-      }),
-    })));
-
-    render(<Meeting />);
-
-    expect(await screen.findByRole('alert')).toHaveProperty(
-      'textContent',
-      'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
-    );
   });
 
   it('lets the person rejoin by hand after the automatic attempt fails', async () => {

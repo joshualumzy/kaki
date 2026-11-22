@@ -14,7 +14,7 @@ describe('plainFailureMessage', () => {
   });
   it('maps raw server codes to sentences and drops unknown ones', () => {
     expect(plainServerText('meeting-not-found')).toBe('This meeting does not exist.');
-    expect(plainServerText('practice-busy')).toContain('practice meeting');
+    expect(plainServerText('practice-full')).toContain('practice rooms');
     expect(plainServerText('some-new-code')).toBeUndefined();
     expect(plainFailureMessage(409, 'some-new-code')).toBe("That didn't work. Try again.");
   });

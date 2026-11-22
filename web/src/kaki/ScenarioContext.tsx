@@ -37,7 +37,11 @@ export function viewForPath(pathname: string): ScenarioView {
 }
 
 function scenarioUrl(view: ScenarioView, meetingId?: string): string {
-  return view === 'practice' ? '/api/scenario?kind=practice' : meetingApiPath(meetingId, '/api/scenario');
+  // A practice meeting is its own prefixed instance now, so its pack comes from that meeting;
+  // without an id it is the legacy practice path.
+  return view === 'practice'
+    ? meetingApiPath(meetingId, '/api/scenario?kind=practice')
+    : meetingApiPath(meetingId, '/api/scenario');
 }
 
 /** How long to keep retrying while the API server is starting behind the reverse proxy. */

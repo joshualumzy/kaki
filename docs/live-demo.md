@@ -5,6 +5,8 @@ scenario profiles and decides who speaks, one at a time. The person can talk ove
 to Kaki as an ordinary transcript line, so the host, wingman and action agents work from the same conversation.
 
 Quick start: `cp .env.example .env` and fill the required keys, then `npm start`, then open http://localhost:5173/demo in Chrome or Edge.
+Each visitor gets their own practice room: a refresh or a second tab returns to the same one, and when
+the practice cap is full the page shows a plain message with Retry.
 `npm stop` stops the server, web app and AI attendees; `npm stop -- --stack` also stops Docker.
 (Or run `npm run stack:up`, `npm run dev`, and `npm run npc` separately.)
 The required keys are in `.env.example`. Terms are in `CONTEXT.md`.
@@ -37,6 +39,8 @@ Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here
 | `KAKI_MAX_OPEN_MEETINGS` | How many real meetings the server keeps open at once (default 10). |
 | `KAKI_MAX_OPEN_MEETINGS_PER_USER` | How many real meetings one owner keeps open at once (default 2). |
 | `KAKI_MAX_MEETINGS_PER_DAY` | How many meetings one owner may create per day (default 20). |
+| `KAKI_MAX_PRACTICE` | How many practice meetings may run at once (default 5). They count toward `KAKI_MAX_OPEN_MEETINGS`, and the rest of that cap stays free for real meetings. |
+| `KAKI_PRACTICE_UNLOAD_MS` | How long an empty practice meeting stays loaded for its visitor to return (default 5 min); an ended one is unloaded at once. |
 
 Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki for <name>, approved in <meeting title>"
 (`server/src/action/footer.ts`). Ended meetings keep their minutes and to-dos in the workspace history.
@@ -47,7 +51,7 @@ Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki f
 2. **Briefing.** The stage shows a two-step briefing (`web/src/meeting/room/StartPrompt.tsx`): the visitor's role and today's calls, then
    how to play. The AI attendees are in the room but silent, and anything the visitor says or types is ignored. The role card and situation
    are also in the unified Kaki Wingman dock on the right.
-3. **Start.** Pressing the button posts `/api/meeting/start`. The server prepares the cast and marks the meeting started; only then does Sam,
+3. **Start.** The practice page first gets this visitor's own meeting from `POST /api/practice`, then pressing the button posts that meeting's `/api/meetings/<id>/meeting/start`. The server prepares the cast and marks the meeting started; only then does Sam,
    the facilitator-seat AI attendee, speak the welcome, which names the visitor's role and responsibility, the first agenda item, and hands
    over by name to that item's owner (`server/src/host/opening.ts`).
 4. **The item.** If the item is not the visitor's, the characters talk it through for a newcomer unless the visitor speaks first.

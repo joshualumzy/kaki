@@ -302,12 +302,14 @@ describe('real meeting seats', () => {
     expect(instance?.session.holders()).toHaveLength(2);
   });
 
-  it('keeps the practice meeting’s roles and AI colleagues exactly as they were', async () => {
-    const { app } = await build();
-    const practice = app.registry.legacy().session.active();
-    expect(practice.roles.map((role) => role.id)).toEqual(['chef', 'cashier']);
-    expect(practice.roles.map((role) => role.label)).toEqual(['Chef', 'Cashier']);
-    expect(practice.agenda.map((item) => item.title)).toEqual(['Prep']);
+  it('gives each visitor’s practice meeting the pack’s roles and agenda exactly as they were', async () => {
+    const { app, base } = await build();
+    const created = await request(base, '/api/practice', { method: 'POST' });
+    const { meetingId } = (await created.json()) as { meetingId: string };
+    const practice = app.registry.findPractice(meetingId)?.session.active();
+    expect(practice?.roles.map((role) => role.id)).toEqual(['chef', 'cashier']);
+    expect(practice?.roles.map((role) => role.label)).toEqual(['Chef', 'Cashier']);
+    expect(practice?.agenda.map((item) => item.title)).toEqual(['Prep']);
   });
 
   it('keeps a real meeting’s guest and signed-in seats when the practice meeting’s code changes', async () => {

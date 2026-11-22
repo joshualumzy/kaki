@@ -76,6 +76,8 @@ export interface MeetingInstance {
   workspaceId: string;
   /** The kind this instance runs at the AI runner; the legacy instance runs everything. */
   runnerKind: 'real' | 'practice';
+  /** True for a practice meeting that belongs to one visitor (prefixed paths, not the legacy one). */
+  perVisitorPractice: boolean;
   session: MeetingSession;
   hub: MeetingHub;
   tasks: TaskStore;
@@ -103,9 +105,15 @@ export interface MeetingInstanceDeps {
   /** The registry key; new meetings use their row id, the legacy instance is 'meeting'. */
   id: string;
   workspaceId: string;
-  /** True only for the legacy practice instance, which also keeps today's unprefixed paths. */
-  legacy: boolean;
-  /** The pack this meeting runs; the legacy practice instance keeps it unchanged. */
+  /**
+   * Where this instance's routes live: the legacy instance keeps today's unprefixed `/api/...`
+   * paths, the demo room and the sign-in seat binding; every other instance serves the same
+   * handlers under `/api/meetings/:id`.
+   */
+  paths: 'legacy' | 'prefixed';
+  /** Which journey this instance is for: a real product meeting or a practice meeting. */
+  kind: 'real' | 'practice';
+  /** The pack this meeting runs; a practice instance always keeps it unchanged. */
   scenario: Scenario;
   /** The row a real product meeting was created from: its own title and agenda, never the pack. */
   meetingRow?: MeetingRow;
@@ -152,7 +160,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   const {
     id,
     workspaceId,
-    legacy,
+    paths,
+    kind,
     scenario,
     meetingRow,
     modules,
@@ -185,16 +194,18 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     onEnded,
     onMinutes,
   } = deps;
-  const runnerKind: 'real' | 'practice' = legacy ? 'practice' : 'real';
+  const legacyPaths = paths === 'legacy';
+  const runnerKind: 'real' | 'practice' = kind;
+  const perVisitorPractice = kind === 'practice' && !legacyPaths;
   let lastActivity = Date.now();
   let people = 0;
   const touch = (): void => {
     lastActivity = Date.now();
   };
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
-  // A real product meeting owns its own empty scenario. The legacy instance keeps today's pack.
+  // A real product meeting owns its own empty scenario. A practice instance keeps today's pack.
   const baseScenario =
-    legacy || meetingRow === undefined
+    legacyPaths || meetingRow === undefined
       ? scenario
       : realBaseScenario(meetingRow);
   const fullScenario = {
@@ -213,7 +224,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   let restoredRoles: Scenario['roles'] | undefined;
   if (savedMeeting !== undefined) {
     // A malformed save must give the friendly message before its roles are derived from it.
-    assertReadableSavedSetup(savedMeeting, fullScenario, !legacy);
+    assertReadableSavedSetup(savedMeeting, fullScenario, !legacyPaths);
     const sealed =
       savedMeeting.phase === 'running' || savedMeeting.phase === 'ended' ? savedMeeting.sealed : undefined;
     restoredRoles = sealed === undefined ? undefined : setupScenarioRoles(fullScenario, sealed);
@@ -225,7 +236,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             ...fullScenario.roles,
             ...restoredRoles.filter((role) => !fullScenario.roles.some((packRole) => packRole.id === role.id)),
           ];
-    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, !legacy);
+    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, !legacyPaths);
     if (meetingCode.fixed) {
       if (savedMeeting.meetingCode !== meetingCode.value) {
         console.log('kaki persist: KAKI_MEETING_CODE replaced the saved meeting code');
@@ -236,10 +247,10 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   const restoredAgendaIndex =
     savedMeeting?.phase === 'running' ? savedMeeting.state.clock.agendaIndex : 0;
-  const meeting = { id: legacy ? (savedMeeting?.meetingId ?? randomUUID()) : id };
-  /** The LiveKit room: the legacy demo room, or one room per real meeting. */
+  const meeting = { id: legacyPaths ? (savedMeeting?.meetingId ?? randomUUID()) : id };
+  /** The LiveKit room: the legacy demo room, or one room per meeting. */
   const roomNameFor = (meetingId: string): string =>
-    legacy ? demoRoomName(session.active(), meetingId) : `kaki-${id}`;
+    legacyPaths ? demoRoomName(session.active(), meetingId) : `kaki-${id}`;
   const roomName = (): string => roomNameFor(meeting.id);
   /** A fresh copy of the pack; the active scenario is a value, never the pack object itself. */
   function packScenario(): Scenario {
@@ -383,14 +394,25 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     roomPoll.close();
     rejoin.close();
   };
-  /** The practice visitor's Start capability, read from the cookie the practice join issued. */
+  /**
+   * The practice visitor's capability, read from the cookie. A per-visitor practice cookie names
+   * its own meeting (`<meetingId>.<capability>`), so another practice's cookie is never accepted
+   * here. The legacy practice instance keeps its token-only cookie until it is removed.
+   */
   function practicePrincipal(request: IncomingMessage): Principal | undefined {
     if (session.kind() !== 'practice') return undefined;
     const token = session.practiceStartToken();
     if (token === undefined) return undefined;
     if (session.practiceGeneration() !== session.generation()) return undefined;
-    const given = cookieValue(request, PRACTICE_COOKIE);
-    return given !== undefined && tokenMatches(given, token) ? { kind: 'practice' } : undefined;
+    const raw = cookieValue(request, PRACTICE_COOKIE);
+    if (raw === undefined) return undefined;
+    let given = raw;
+    if (perVisitorPractice) {
+      const dot = raw.indexOf('.');
+      if (dot === -1 || raw.slice(0, dot) !== id) return undefined;
+      given = raw.slice(dot + 1);
+    }
+    return tokenMatches(given, token) ? { kind: 'practice' } : undefined;
   }
   let roomCleanupWarned = false;
   /**
@@ -452,7 +474,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       if (auth === undefined) return isLoopbackAddress(request.socket.remoteAddress)
         ? { ok: true, principal: { kind: 'service' } }
         : { ok: false, message: 'Service sign-in required' };
-      return auth.authorize(request, audience, legacy ? undefined : id);
+      return auth.authorize(request, audience, legacyPaths ? undefined : id);
     }
     if (runnerRequest) {
       if (audience.kind === 'screen') {
@@ -495,8 +517,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       return { ok: false, message: 'Practice access belongs to its practice meeting only' };
     }
-    return auth.authorize(request, audience, legacy ? undefined : id, {
-      ...(legacy ? {} : { anyOfferedSeat: true }),
+    return auth.authorize(request, audience, legacyPaths ? undefined : id, {
+      ...(legacyPaths ? {} : { anyOfferedSeat: true }),
     });
   };
   const authorizeUpgrade = async (
@@ -562,7 +584,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   });
   // Sign-in and phone seats belong to the legacy meeting only until step 3/4 add guests to real
   // meetings; binding them from a second instance would make one meeting answer as the other.
-  if (legacy) {
+  if (legacyPaths) {
     auth?.bindMeetingIdentity(() => meeting.id);
     auth?.bindOfferedSeats(() => joinSeatRoles(visibleScenario()).map((role) => role.id));
     auth?.bindJoinGuard({
@@ -726,7 +748,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     // A new meeting identity means the opened room is gone; its public lobby snapshot must not
     // carry into the next one. The first arrival's reset keeps the identity, so it keeps the plan.
     lobbySnapshot = undefined;
-    meeting.id = randomUUID();
+    // A per-visitor practice is one meeting of its own, addressed by its registry id: a reset
+    // (New meeting) keeps that id so its prefixed routes and room stay resolvable.
+    if (!perVisitorPractice) meeting.id = randomUUID();
     return meeting.id;
   }
 
@@ -757,12 +781,12 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     defaultSeat: holderPersonSeat,
     clearGrace: () => rejoin.reset(),
     onCredentialChange,
-    ...(legacy ? {} : { allowEmptyScenario: true }),
+    ...(kind === 'real' ? { allowEmptyScenario: true } : {}),
     ...(persistence === undefined ? {} : { persistence }),
   });
-  // A real meeting is fixed at creation: it is never a practice meeting. The legacy instance keeps
+  // A real meeting is fixed at creation: it is never a practice meeting. A practice instance keeps
   // today's journeys (an owner opens real, or a visitor starts practice) until step 6 removes them.
-  if (!legacy) {
+  if (kind === 'real') {
     session.setKind('real');
     if (session.holders().length > 0) {
       session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
@@ -770,7 +794,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   }
   /** Show the people now in a real meeting: one plain seat per person, named by them. */
   function refreshRealPeople(): void {
-    if (legacy) return;
+    if (kind !== 'real') return;
     session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
     // The web validates speaker roles against its scenario, so a person who joins must also be
     // told to reload it; otherwise their lines are dropped as unknown roles on everyone's screen.
@@ -1720,14 +1744,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
 
   }
 
-  /** The practice meeting is busy while it is starting or running: another visitor waits. */
-  function practiceBusy(): boolean {
-    if (!legacy || session.kind() !== 'practice') return false;
-    const phase = session.phase();
-    // An abandoned practice meeting has nobody in it, so its seat is free for the next visitor.
-    return phase === 'starting' || (phase === 'running' && !session.abandoned());
-  }
-
   /** Everything a route handler may use for this one meeting. */
   function requestContext(): RequestContext {
     return {
@@ -1739,7 +1755,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       ...(pickedAgenda === undefined ? {} : { pickedAgenda }),
       devRoutes,
       ...(auth === undefined ? {} : { auth }),
-      ...(legacy ? {} : { authMeetingId: id }),
+      ...(legacyPaths ? {} : { authMeetingId: id }),
       ...(serviceToken === undefined ? {} : { serviceToken }),
       routes,
       idle,
@@ -1758,7 +1774,6 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       watchRoom,
       roomName,
       roomNameFor,
-      practiceBusy,
       practicePrincipal,
       ...(meetingElapsedSeconds === undefined ? {} : { meetingElapsedSeconds }),
       ...(meetingAgendaIndex === undefined ? {} : { meetingAgendaIndex }),
@@ -1766,7 +1781,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       runnerStateChanged: () => publishRunnerState(),
       meetingStateChanged: () => publishMeetingState(),
       meetingKind: () => session.kind(),
-      realMeeting: !legacy,
+      realMeeting: kind === 'real',
+      perVisitorPractice,
       refreshRealPeople,
       quietCue: (text: string) => {
         meetingCue = { text, at: new Date().toISOString() };
@@ -1883,6 +1899,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     id,
     workspaceId,
     runnerKind,
+    perVisitorPractice,
     session,
     hub,
     tasks,
@@ -1892,7 +1909,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     },
     ...(persistence === undefined ? {} : { persistence }),
     handle(request, response, rest) {
-      const canonical = rest.startsWith('/') ? rest : `/api/${rest}`;
+      // The prefixed dev routes live under the meeting's own prefix but keep their `/dev/...`
+      // path, so a local tool names exactly the meeting it is poking.
+      const canonical = rest.startsWith('/')
+        ? rest
+        : rest.startsWith('dev/')
+          ? `/${rest}`
+          : `/api/${rest}`;
       return handleRoutedRequest(request, response, requestContext(), canonical);
     },
     handleUpgrade(request, socket, head) {

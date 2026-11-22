@@ -30,11 +30,12 @@ function cookieFrom(response: Response): string {
   return value;
 }
 
-function connect(port: number, role: string, cookie?: string): Promise<SocketResult> {
+function connect(port: number, role: string, cookie?: string, meetingId?: string): Promise<SocketResult> {
   const headers: Record<string, string> = {};
   if (cookie !== undefined) headers.cookie = cookie;
+  const meetingQuery = meetingId === undefined ? '' : `&meeting=${encodeURIComponent(meetingId)}`;
   const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}`,
+    `ws://127.0.0.1:${port}/ws?role=${encodeURIComponent(role)}${meetingQuery}`,
     Object.keys(headers).length === 0 ? undefined : { headers },
   );
   const messages: KakiEvent[] = [];
@@ -92,7 +93,7 @@ function tasksById(messages: readonly KakiEvent[]): Map<string, Task> {
 }
 
 function taskWithDraft(
-  app: KakiApp,
+  tasks: KakiApp['tasks'],
   input: {
     title: string;
     context: string;
@@ -109,11 +110,11 @@ function taskWithDraft(
   };
   const task =
     input.purpose === 'meeting_minutes'
-      ? app.tasks.suggestWithPurpose(suggestion, input.purpose)
-      : app.tasks.suggest(suggestion);
-  app.tasks.transition(task.id, 'DISPATCHED', { assignee: input.assignee });
-  app.tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
-  return app.tasks.transition(task.id, 'DRAFT_READY', {
+      ? tasks.suggestWithPurpose(suggestion, input.purpose)
+      : tasks.suggest(suggestion);
+  tasks.transition(task.id, 'DISPATCHED', { assignee: input.assignee });
+  tasks.transition(task.id, 'CLAIMED', { mode: 'ACTION_AGENT' });
+  return tasks.transition(task.id, 'DRAFT_READY', {
     draft: { target: 'Wiki: meeting notes', subject: input.title, body: input.body },
   });
 }
@@ -130,19 +131,19 @@ describe('participant projection', () => {
     expect(chef).toBeTruthy();
     expect(cashier).toBeTruthy();
 
-    const own = taskWithDraft(app, {
+    const own = taskWithDraft(app.tasks, {
       title: 'Own job',
       context: 'OWN CONTEXT',
       assignee: 'chef',
       body: 'OWN DRAFT',
     });
-    const other = taskWithDraft(app, {
+    const other = taskWithDraft(app.tasks, {
       title: 'Other job',
       context: 'OTHER CONTEXT',
       assignee: 'cashier',
       body: 'OTHER DRAFT',
     });
-    const minutes = taskWithDraft(app, {
+    const minutes = taskWithDraft(app.tasks, {
       title: 'Publish meeting minutes to the team wiki',
       context: 'MINUTES CONTEXT',
       assignee: 'cashier',
@@ -274,15 +275,21 @@ describe('participant projection', () => {
 
   it('redacts other seats\' task drafts from a practice screen while keeping the visitor\'s own', async () => {
     const { app, port } = await authApp();
-    const practice = await request(port, '/api/livekit/token', 'POST', {
-      participantName: 'Ada',
-      participantRole: 'chef',
-      kind: 'practice',
-    });
+    const created = await request(port, '/api/practice', 'POST');
+    const practiceCookie = cookieFrom(created);
+    const { meetingId } = (await created.json()) as { meetingId: string };
+    const practice = await request(
+      port,
+      `/api/meetings/${meetingId}/livekit/token`,
+      'POST',
+      { participantName: 'Ada', participantRole: 'chef', kind: 'practice' },
+      practiceCookie,
+    );
     expect(practice.status).toBe(200);
-    const practiceCookie = cookieFrom(practice);
+    const instance = app.registry.findPractice(meetingId);
+    if (instance === undefined) throw new Error('the practice meeting did not load');
 
-    app.hub.publish(
+    instance.hub.publish(
       {
         type: 'WINGMAN_NOTE',
         audience: { kind: 'role', role: 'chef' },
@@ -290,7 +297,7 @@ describe('participant projection', () => {
       },
       { retainKey: 'note:practice:chef' },
     );
-    app.hub.publish(
+    instance.hub.publish(
       {
         type: 'WINGMAN_NOTE',
         audience: { kind: 'role', role: 'cashier' },
@@ -299,20 +306,20 @@ describe('participant projection', () => {
       { retainKey: 'note:practice:cashier' },
     );
 
-    const own = taskWithDraft(app, {
+    const own = taskWithDraft(instance.tasks, {
       title: 'Practice own job',
       context: 'PRACTICE OWN CONTEXT',
       assignee: 'chef',
       body: 'PRACTICE OWN DRAFT',
     });
-    const other = taskWithDraft(app, {
+    const other = taskWithDraft(instance.tasks, {
       title: 'Practice other job',
       context: 'PRACTICE OTHER CONTEXT',
       assignee: 'cashier',
       body: 'PRACTICE OTHER DRAFT',
     });
 
-    const screen = await connect(port, 'screen', practiceCookie);
+    const screen = await connect(port, 'screen', practiceCookie, meetingId);
     if (!screen.ok) throw new Error('practice screen did not open');
     await waitFor(
       () =>

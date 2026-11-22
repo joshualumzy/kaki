@@ -7,8 +7,7 @@ export const COULD_NOT_JOIN = "Couldn't join. Try again.";
 /** Server error codes that must never reach a person as written, with the sentence they get. */
 const CODE_SENTENCES: Readonly<Record<string, string>> = {
   'meeting-not-found': 'This meeting does not exist.',
-  'practice-busy':
-    'Someone is using the practice meeting right now. It frees up when they finish, usually within 15 minutes.',
+  'practice-full': 'All practice rooms are in use right now. Please try again in a few minutes.',
 };
 
 /** A machine code such as "meeting-not-found": lowercase words joined by hyphens, no spaces. */

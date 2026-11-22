@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 import { LiveKitRoom, useRoomContext } from '@livekit/components-react';
 import '@livekit/components-styles';
 import { ConnectionState, RoomEvent, type RoomOptions } from 'livekit-client';
@@ -114,25 +113,33 @@ export default function Meeting({
   variant = 'practice',
   initialCode,
   meetingId,
+  practiceMeetingId,
 }: {
   variant?: MeetingVariant;
   initialCode?: string;
   /** A real meeting's row id: its rooms, routes and sockets all live under `/api/meetings/:id`. */
   meetingId?: string;
+  /** This visitor's own practice meeting, resolved from their cookie before the room mounts. */
+  practiceMeetingId?: string;
 }) {
   const scenario = useScenario();
-  const real = variant === 'real' || meetingId !== undefined;
+  const practice = variant === 'practice';
+  const real = variant === 'real';
+  // The meeting id every prefixed path, room and socket follows: a real meeting's row, or this
+  // visitor's own practice. A legacy page has none and keeps the unprefixed paths.
+  const apiMeetingId = real ? meetingId : practice ? practiceMeetingId : undefined;
+  // A stored join belongs to one practice meeting, so an old practice is never restored into a new one.
+  const joinVariant = practice && practiceMeetingId !== undefined ? `${variant}.${practiceMeetingId}` : variant;
   const auth = useMe(0, real);
   const refreshScenario = useRefreshScenario();
   // The same seats the server offers: the setup's person seats when it names them, else every
   // human seat and the host's chair when a person can take it.
   const roles = useMemo(() => joinSeatRoles(scenario), [scenario]);
-  const practice = variant === 'practice';
   const [session, setSession] = useState<Session | undefined>(() => hotData?.session);
   // A reload must not throw the person back to the name/seat form: remember the join this tab used
   // and ask the server for a fresh token for the same name and seat.
   const initialStored = useRef<StoredJoin | undefined>(
-    hotData?.session === undefined ? readStoredJoin(variant) : undefined,
+    hotData?.session === undefined ? readStoredJoin(joinVariant) : undefined,
   );
   const [restore, setRestore] = useState<StoredJoin | undefined>(initialStored.current);
   const [rejoinState, setRejoinState] = useState<'idle' | 'reconnecting' | 'failed'>(
@@ -148,7 +155,6 @@ export default function Meeting({
   const activeSession = useRef<Session | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [realInProgress, setRealInProgress] = useState(false);
   const [needsCode, setNeedsCode] = useState(false);
   const [pane, setPane] = useState<'meeting' | 'kaki'>(() => hotData?.pane ?? 'meeting');
   const [kakiBadgeCount, setKakiBadgeCount] = useState(0);
@@ -268,7 +274,6 @@ export default function Meeting({
     } else {
       setBusy(true);
       setError(undefined);
-      setRealInProgress(false);
     }
     try {
       // A real meeting has no seat picker, so try its person seats in turn until one is free. The
@@ -280,9 +285,7 @@ export default function Meeting({
       let lastProblem: string | undefined;
       for (const seat of seats) {
         const response = await fetchWithTimeout(
-          realJoin && realMeetingId !== undefined
-            ? meetingApiPath(realMeetingId, '/api/livekit/token')
-            : '/api/livekit/token',
+          meetingApiPath(apiMeetingId, '/api/livekit/token'),
           {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -297,7 +300,6 @@ export default function Meeting({
         );
         const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
         if (body.needsCode === true) setNeedsCode(true);
-        if (body.realInProgress === true) setRealInProgress(true);
         if (response.ok && typeof body.token === 'string') {
           joined = {
             body,
@@ -342,7 +344,7 @@ export default function Meeting({
       setRejoinState('idle');
       setRejoinProblem(undefined);
       setRejoinDeadline(undefined);
-      storeJoin(variant, {
+      storeJoin(joinVariant, {
         name,
         role: joinedRole,
         media,
@@ -421,7 +423,7 @@ export default function Meeting({
           void join(restore.name, restore.role, restore.media, restore.meetingCode, { reconnecting: true })
         }
         onLeave={() => {
-          clearStoredJoin(variant);
+          clearStoredJoin(joinVariant);
           setRestore(undefined);
           setRejoinState('idle');
           setRejoinProblem(undefined);
@@ -500,13 +502,6 @@ export default function Meeting({
           error={offersSeats ? error : seatsError}
           askCode={needsCode}
           initialCode={linkCode}
-          errorAction={
-            realInProgress ? (
-              <p className="kd-hint">
-                <Link to="/">Back to Kaki</Link>
-              </p>
-            ) : undefined
-          }
           onJoin={(name, roleId, media, code) => void join(name, roleId, media, code)}
         />
       );
@@ -563,7 +558,7 @@ export default function Meeting({
               beginReconnect(storedFromSession(target));
               return;
             }
-            clearStoredJoin(variant);
+            clearStoredJoin(joinVariant);
             setSession(undefined);
             setError(outcome.message);
           }}
@@ -610,6 +605,7 @@ export default function Meeting({
               role={seatRole}
               viewerName={session.name}
               seatName={scenario.attendees.find((attendee) => attendee.role === session.role)?.displayName}
+              meetingId={apiMeetingId}
               onStarted={() => setStarted(true)}
             />
           )}

@@ -15,6 +15,16 @@ export class MeetingBusyError extends Error {
   }
 }
 
+/** A practice request refused because every practice room is in use right now. */
+export class PracticeFullError extends Error {
+  readonly code = 'practice-full';
+  constructor(
+    message = 'All practice rooms are in use right now. Please try again in a few minutes.',
+  ) {
+    super(message);
+  }
+}
+
 /** The `meetings` rows this server can load and list. */
 export interface MeetingStore {
   create(input: {
@@ -57,8 +67,10 @@ export interface MeetingRegistry {
   }): Promise<MeetingRow>;
   /** The loaded instance, or one rebuilt from its row; undefined when no such meeting exists. */
   get(id: string): Promise<MeetingInstance | undefined>;
-  /** The practice/owner instance of today, always loaded. */
-  legacy(): MeetingInstance;
+  /** Open one fresh, memory-only practice meeting for a visitor. */
+  createPractice(): Promise<MeetingInstance>;
+  /** The loaded practice meeting with this id, or undefined when it is not a practice one. */
+  findPractice(id: string): MeetingInstance | undefined;
   list(workspaceId: string): Promise<MeetingRow[]>;
   /**
    * The id of the open or scheduled real meeting whose code this is, or undefined. A loaded meeting
@@ -83,16 +95,22 @@ interface MeetingRegistryDeps {
   store: MeetingStore;
   /** Build an instance from its row; persistence is already loaded for it. */
   buildInstance(row: MeetingRow, persistence: MeetingPersistence | undefined): Promise<MeetingInstance>;
+  /** Build a fresh, memory-only practice instance with this registry id. */
+  buildPracticeInstance(id: string): Promise<MeetingInstance>;
   /** Load the meeting's saved state; absent means memory only. */
   persistenceFor?(id: string): Promise<MeetingPersistence | undefined>;
   /** The id of the meeting whose saved state holds this code; absent means loaded meetings only. */
   findSavedIdByCode?(code: string): Promise<string | undefined>;
   maxOpen?: number;
+  /** How many practice meetings may be open at once; the rest of `maxOpen` stays for real meetings. */
+  maxPractice?: number;
   /** How many real meetings one owner may keep open at once. */
   maxOpenPerUser?: number;
   /** How many meetings one owner may create per day. */
   maxMeetingsPerDay?: number;
   unloadMs?: number;
+  /** How long an empty practice meeting stays for its visitor to return; shorter than a real one. */
+  practiceUnloadMs?: number;
   sweepMs?: number;
   now?: () => number;
   log?: (message: string) => void;
@@ -105,9 +123,11 @@ interface MeetingRegistryDeps {
 }
 
 const DEFAULT_MAX_OPEN = 10;
+const DEFAULT_MAX_PRACTICE = 5;
 const DEFAULT_MAX_OPEN_PER_USER = 2;
 const DEFAULT_MAX_MEETINGS_PER_DAY = 20;
 const DEFAULT_UNLOAD_MS = 30 * 60_000;
+const DEFAULT_PRACTICE_UNLOAD_MS = 5 * 60_000;
 const DEFAULT_SWEEP_MS = 60_000;
 
 function positiveEnvNumber(name: string, fallback: number): number {
@@ -131,6 +151,8 @@ export function newMeetingId(): string {
 /** Create the registry over a meeting store; nothing is restored eagerly. */
 export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistry {
   const maxOpen = deps.maxOpen ?? positiveEnvNumber('KAKI_MAX_OPEN_MEETINGS', DEFAULT_MAX_OPEN);
+  const maxPractice =
+    deps.maxPractice ?? positiveEnvNumber('KAKI_MAX_PRACTICE', DEFAULT_MAX_PRACTICE);
   const maxOpenPerUser =
     deps.maxOpenPerUser ??
     positiveEnvNumber('KAKI_MAX_OPEN_MEETINGS_PER_USER', DEFAULT_MAX_OPEN_PER_USER);
@@ -138,6 +160,9 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     deps.maxMeetingsPerDay ??
     positiveEnvNumber('KAKI_MAX_MEETINGS_PER_DAY', DEFAULT_MAX_MEETINGS_PER_DAY);
   const unloadMs = deps.unloadMs ?? positiveEnvNumber('KAKI_MEETING_UNLOAD_MS', DEFAULT_UNLOAD_MS);
+  const practiceUnloadMs =
+    deps.practiceUnloadMs ??
+    positiveEnvNumber('KAKI_PRACTICE_UNLOAD_MS', DEFAULT_PRACTICE_UNLOAD_MS);
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((message: string) => console.log(message));
   const loaded = new Map<string, MeetingInstance>();
@@ -153,6 +178,8 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   const creating = new Map<string, Promise<unknown>>();
   const persistences = new Map<string, MeetingPersistence>();
   const loading = new Map<string, Promise<MeetingInstance | undefined>>();
+  /** Practice instances being built right now, so two simultaneous opens cannot both slip under the cap. */
+  let practiceCreating = 0;
   let closed = false;
 
   const openMeeting = (instance: MeetingInstance): OpenMeeting => ({
@@ -162,6 +189,8 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
   });
 
   const openCount = (): number => loaded.size + 1; // the legacy instance is always open
+  const practiceCount = (): number =>
+    [...loaded.values()].filter((instance) => instance.runnerKind === 'practice').length;
 
   /** The start of the current UTC day, the boundary of the daily creation cap. */
   const startOfDay = (): Date => {
@@ -315,7 +344,33 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
       return (await isLive(savedId)) ? savedId : undefined;
     },
 
-    legacy: () => deps.legacy,
+    async createPractice() {
+      if (closed) throw new Error('the meeting registry is closed');
+      const practiceOpen = practiceCount() + practiceCreating;
+      if (practiceOpen >= maxPractice) {
+        log(`kaki meetings: refusing a practice meeting: ${practiceOpen} are already open`);
+        throw new PracticeFullError();
+      }
+      if (openCount() + practiceCreating >= maxOpen) {
+        log(`kaki meetings: refusing a practice meeting: ${openCount()} meetings are already open`);
+        throw new MeetingBusyError();
+      }
+      practiceCreating += 1;
+      try {
+        const instance = await deps.buildPracticeInstance(newMeetingId());
+        loaded.set(instance.id, instance);
+        deps.onOpened?.(openMeeting(instance));
+        deps.onWorkspaceOpened?.(instance.workspaceId);
+        return instance;
+      } finally {
+        practiceCreating -= 1;
+      }
+    },
+
+    findPractice(id) {
+      const instance = loaded.get(id);
+      return instance !== undefined && instance.runnerKind === 'practice' ? instance : undefined;
+    },
 
     list: (workspaceId) => deps.store.list(workspaceId),
 
@@ -364,8 +419,16 @@ export function createMeetingRegistry(deps: MeetingRegistryDeps): MeetingRegistr
     const at = now();
     for (const instance of [...loaded.values()]) {
       if (instance.connectedPeople() > 0) continue;
-      if (at - instance.lastActivityAt() < unloadMs) continue;
-      log(`kaki meetings: unloading ${instance.id}; nobody has been there for ${Math.round(unloadMs / 60_000)} min`);
+      const practice = instance.runnerKind === 'practice';
+      // A practice meeting that has ended is a throwaway: unload it as soon as its visitor has gone.
+      const ended = practice && instance.session.phase() === 'ended';
+      const idleFor = practice ? practiceUnloadMs : unloadMs;
+      if (!ended && at - instance.lastActivityAt() < idleFor) continue;
+      log(
+        ended
+          ? `kaki meetings: unloading the ended practice meeting ${instance.id}`
+          : `kaki meetings: unloading ${instance.id}; nobody has been there for ${Math.round(idleFor / 60_000)} min`,
+      );
       void registry.unload(instance.id).catch((error: unknown) =>
         log(`kaki meetings: unloading ${instance.id} failed: ${String(error)}`),
       );

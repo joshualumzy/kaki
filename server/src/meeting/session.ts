@@ -41,8 +41,8 @@ type MeetingKind = 'real' | 'practice';
 interface PracticeGrant {
   /** The unguessable value carried by the visitor's cookie; absent when sign-in is off. */
   token?: string;
-  /** The seat the practice visitor took. */
-  seat: string;
+  /** The seat the practice visitor took; absent until they join. */
+  seat?: string;
   /** The meeting generation that granted it; every handoff makes it stale. */
   generation?: number;
 }
@@ -103,6 +103,8 @@ export interface MeetingSession {
   setKind(kind: MeetingKind): void;
   /** Open a practice meeting and grant its one visitor the Start capability. */
   beginPractice(grant: PracticeGrant): void;
+  /** Record the seat a practice visitor took, keeping the capability it was created with. */
+  bindPracticeSeat(seat: string): void;
   /** The practice visitor's Start token; undefined outside an auth-mode practice meeting. */
   practiceStartToken(): string | undefined;
   /** The generation the practice capability was granted in; a handoff makes it stale. */
@@ -416,10 +418,14 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       if (meetingKind !== 'practice') bumpGeneration();
       meetingKind = 'practice';
       practiceGrant = {
-        seat: grant.seat,
+        ...(grant.seat === undefined ? {} : { seat: grant.seat }),
         generation,
         ...(grant.token === undefined ? {} : { token: grant.token }),
       };
+    },
+    bindPracticeSeat(seat) {
+      if (meetingKind !== 'practice') return;
+      practiceGrant = { ...(practiceGrant ?? { generation }), seat };
     },
     practiceStartToken: () => practiceGrant?.token,
     practiceGeneration: () => practiceGrant?.generation,
