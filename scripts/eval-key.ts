@@ -128,7 +128,7 @@ function wingmanKind(value: unknown, label: string): WingmanKind {
   return value as WingmanKind;
 }
 
-/** Validate the judge-only answer key loaded from planning/. */
+/** Validate the judge-only answer key loaded from scenarios/kopitiam/eval/. */
 export function parseAnswerKey(value: unknown): AnswerKey {
   if (!isObject(value)) throw new Error('answer key must be a JSON object');
   const scenario = nonEmptyString(value.scenario, 'answer key scenario');
