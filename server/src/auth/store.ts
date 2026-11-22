@@ -95,6 +95,8 @@ export interface AuthStore {
   replaceSession(input: { session: SessionRecord; replaces: string }): Promise<void>;
   /** Whether this exact session still holds the role's seat in the meeting generation. */
   seatHeldBy(input: { meetingId: string; role: string; holder: string }): Promise<boolean>;
+  /** The session token hash that holds a seat, so the same signed-in person can reclaim it. */
+  seatHolder(input: { meetingId: string; role: string }): Promise<string | undefined>;
   /** Release every seat held by one session, or one meeting's seats when `meetingId` is given. */
   releaseSeats(input: { holder?: string; meetingId?: string }): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
@@ -286,6 +288,10 @@ export function createMemoryAuthStore(now: () => number = Date.now): AuthStore {
     async seatHeldBy({ meetingId, role, holder }) {
       const seat = seats.get(seatKey(meetingId, role));
       return seat !== undefined && seat.holder === holder && seat.expiresAt > now();
+    },
+    async seatHolder({ meetingId, role }) {
+      const seat = seats.get(seatKey(meetingId, role));
+      return seat !== undefined && seat.expiresAt > now() ? seat.holder : undefined;
     },
     async releaseSeats({ holder, meetingId }) {
       for (const [key, seat] of seats) {

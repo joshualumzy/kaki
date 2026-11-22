@@ -281,6 +281,9 @@ function fitPackContentToAttendees(meeting: Scenario): void {
 interface MeetingScenarioFromSetupOptions {
   /** The agenda order to run; defaults to the setup's own order. */
   agendaOrder?: readonly string[];
+  /** A real product meeting may have no agenda and no roles yet. */
+  allowEmptyAgenda?: boolean;
+  allowEmptyRoles?: boolean;
 }
 
 /**
@@ -415,7 +418,11 @@ export function deriveMeetingScenario(
     };
   }
   try {
-    parseScenario(meeting, { requireOrganisation: false });
+    parseScenario(meeting, {
+      requireOrganisation: false,
+      ...(options.allowEmptyAgenda === true ? { allowEmptyAgenda: true } : {}),
+      ...(options.allowEmptyRoles === true ? { allowEmptyRoles: true } : {}),
+    });
     return { ok: true, scenario: meeting };
   } catch (error) {
     return { ok: false, errors: scenarioSetupErrors(meeting, setup, error) };

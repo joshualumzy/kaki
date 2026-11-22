@@ -47,7 +47,12 @@ export interface Auth {
    * Allow or reject a `/ws?role=` or `/ws?audience=` upgrade for the requested audience. When a
    * meeting id is given, a phone session must belong to exactly that meeting, never another one.
    */
-  authorize(request: IncomingMessage, audience: ClientAudience, meetingId?: string): Promise<AuthDecision>;
+  authorize(
+    request: IncomingMessage,
+    audience: ClientAudience,
+    meetingId?: string,
+    options?: { anyOfferedSeat?: boolean },
+  ): Promise<AuthDecision>;
   /** The resolved host or seat principal behind a request; undefined otherwise. */
   resolvePrincipal(request: IncomingMessage, meetingId?: string): Promise<Principal | undefined>;
   /**
@@ -566,6 +571,7 @@ export function createAuth({
           kind: 'guest',
           meetingId: session.meetingId ?? '',
           name: session.displayName ?? '',
+          guestId: session.tokenHash,
         },
       };
     }
@@ -590,6 +596,23 @@ export function createAuth({
       if (ended) return { ok: false, ended: true };
     }
     let principal = principalFor(session, meetingId);
+    if (principal.kind === 'host' && session.userId !== null && session.userId !== undefined) {
+      principal = {
+        ...principal,
+        userId: session.userId,
+        ...(session.displayName === null || session.displayName === undefined
+          ? {}
+          : { name: session.displayName }),
+      };
+    } else if (principal.kind === 'seat') {
+      principal = {
+        ...principal,
+        ...(session.userId === null || session.userId === undefined ? {} : { userId: session.userId }),
+        ...(session.displayName === null || session.displayName === undefined
+          ? {}
+          : { name: session.displayName }),
+      };
+    }
     if (principal.kind === 'seat') {
       // A session that no longer owns its claim is not a seat, whatever role it recorded.
       if (!(await sessionOwnsSeat(session, principal.role))) return { ok: false, ended: false };
@@ -678,7 +701,7 @@ export function createAuth({
       return false;
     },
 
-    async authorize(request, audience, meetingId) {
+    async authorize(request, audience, meetingId, options = {}) {
       const resolved = await resolveRequest(request, meetingId);
       if (!resolved.ok) {
         return { ok: false, message: resolved.ended ? MEETING_ENDED_MESSAGE : 'Sign in required' };
@@ -721,7 +744,7 @@ export function createAuth({
       const role = audience.kind === 'role' ? audience.role : undefined;
       const holdsSeat =
         role !== undefined &&
-        seatIsOffered(role) &&
+        (options.anyOfferedSeat === true || seatIsOffered(role)) &&
         ((principal.kind === 'seat' && principal.role === role) ||
           (principal.kind === 'host' && principal.seat === role));
       if (!holdsSeat) {

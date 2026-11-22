@@ -27,9 +27,16 @@ function mattermostPublicBase(internal: URL, env: NodeJS.ProcessEnv = process.en
  * and return undefined, so the caller decides what to refuse or fall back to — never silently
  * substituting another pack for the meeting people are actually in.
  */
-function servableScenario(scenario: Scenario, label: string): Scenario | undefined {
+function servableScenario(
+  scenario: Scenario,
+  label: string,
+  allowEmpty = false,
+): Scenario | undefined {
   try {
-    return parseScenario(scenario, { requireOrganisation: false });
+    return parseScenario(scenario, {
+      requireOrganisation: false,
+      ...(allowEmpty ? { allowEmptyAgenda: true, allowEmptyRoles: true } : {}),
+    });
   } catch (error) {
     console.error(`kaki scenario: ${label} is invalid; refusing to serve it`, error);
     return undefined;
@@ -82,7 +89,7 @@ export async function handleScenario(call: RouteCall): Promise<void> {
       : projectScenario(active, seat);
   // A broken scenario is a server bug: refuse it (the browser shows its error card with a way
   // to setup) rather than serving an unprojected pack whose private fields would leak.
-  const served = servableScenario(visible, 'the meeting scenario');
+  const served = servableScenario(visible, 'the meeting scenario', context.realMeeting);
   if (served === undefined) {
     sendJson(response, 500, { error: 'The meeting scenario is broken; the owner must fix the setup.' });
     return;
@@ -107,7 +114,7 @@ export async function handleScenarioFull(call: RouteCall): Promise<void> {
   sendJson(
     response,
     200,
-    servableScenario(active, 'the runner scenario') ?? context.fullScenario,
+    servableScenario(active, 'the runner scenario', context.realMeeting) ?? context.fullScenario,
   );
   return;
 }

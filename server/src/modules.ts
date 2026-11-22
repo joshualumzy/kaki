@@ -3,6 +3,7 @@ import { createActionModules } from './action';
 import type { KakiModule } from './core/modules';
 import { createHostModules, type MeetingPauseControl } from './host';
 import type { MeetingRow } from './meeting/types';
+import { realBaseScenario } from './meeting/realMeeting';
 import type { WorkspaceToolSource, WorkspaceTools } from './workspace/tools';
 import { createWingmanModules } from './wingman';
 
@@ -26,10 +27,11 @@ export interface MeetingModules {
  */
 export function createMeetingModules(
   meeting: MeetingRow,
-  scenario: Scenario,
+  _scenario: Scenario,
   toolSource: WorkspaceToolSource,
 ): MeetingModules {
-  const host = createHostModules({ ...scenario });
+  // A real meeting's clock and notetaker follow its own title and agenda, never the demo pack.
+  const host = createHostModules(realBaseScenario(meeting));
   return {
     modules: [...host.modules, ...createWingmanModules(), ...createActionModules()],
     tools: () => toolSource.toolsFor(meeting.workspaceId),

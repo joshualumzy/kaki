@@ -34,11 +34,11 @@ export type Principal =
   | { kind: 'anonymous' }
   /** A host may also hold a seat they took; they keep every host power either way. */
   | { kind: 'host'; seat?: string; userId?: string; name?: string }
-  | { kind: 'seat'; role: string }
+  | { kind: 'seat'; role: string; userId?: string; name?: string }
   /** A signed-in product user; only a meeting's owner or workspace admin becomes its host. */
   | { kind: 'user'; userId: string; name: string }
   /** A visitor bound to exactly one meeting; never a member of its workspace. */
-  | { kind: 'guest'; meetingId: string; name: string }
+  | { kind: 'guest'; meetingId: string; name: string; guestId?: string }
   /**
    * The one visitor in a practice meeting, holding nothing but the right to start that meeting.
    * It ends with the practice meeting and never opens setup, tools, owner routes or a real meeting.

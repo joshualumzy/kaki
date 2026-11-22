@@ -510,6 +510,7 @@ export async function createApp({
       workspaceId: row.workspaceId,
       legacy: false,
       scenario,
+      meetingRow: row,
       modules: built.modules,
       tools: built.tools ?? (() => toolSource.toolsFor(row.workspaceId)),
       routes: newMeetingRoutes,

@@ -71,6 +71,8 @@ interface MeetingSessionDeps {
   saved?: StoredMeeting;
   /** The scenario a brand-new server boots with. */
   initialScenario: Scenario;
+  /** A real product meeting may start with no roles or agenda; a demo pack never does. */
+  allowEmptyScenario?: boolean;
   /** The current identity, used when a reset keeps it (the first arrival). */
   meetingId(): string;
   /** The code clients need for the current meeting, saved with it. */
@@ -109,6 +111,8 @@ export interface MeetingSession {
   practiceSeat(): string | undefined;
   /** The immutable scenario of the meeting now; read it through this getter every time. */
   active(): Scenario;
+  /** Replace a real meeting's scenario as people take their plain seats; never changes its agenda. */
+  refreshRealScenario(scenario: Scenario): void;
   /** The scenario Start sealed and is waiting to commit; only present while phase is starting. */
   candidate(): Scenario | undefined;
   /** The setup the owner is editing for the next meeting. */
@@ -219,7 +223,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
 
   /** Every scenario the session will hand to a consumer must parse; fail loudly at the source. */
   function checked(scenario: Scenario): Scenario {
-    parseScenario(scenario, { requireOrganisation: false });
+    parseScenario(scenario, {
+      requireOrganisation: false,
+      ...(deps.allowEmptyScenario === true
+        ? { allowEmptyAgenda: true, allowEmptyRoles: true }
+        : {}),
+    });
     return scenario;
   }
 
@@ -416,6 +425,11 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
     practiceGeneration: () => practiceGrant?.generation,
     practiceSeat: () => practiceGrant?.seat,
     active: () => active,
+    refreshRealScenario(next) {
+      if (meetingKind !== 'real') return;
+      if (phase !== 'lobby' && phase !== 'running') return;
+      active = checked(next);
+    },
     candidate: () => pending,
     draft: () => draft,
     setDraft(next) {
@@ -443,9 +457,12 @@ export function createMeetingSession(deps: MeetingSessionDeps): MeetingSession {
       const name = holder.name.trim().toLowerCase();
       const seat = holder.seat.trim().toLowerCase();
       if (name === '' || seat === '') return;
+      // A real meeting seats people, not names: two people who share a name each keep their own seat.
+      const sameNameReplaces = meetingKind !== 'real';
       holders = holders.filter(
         (existing) =>
-          existing.name.trim().toLowerCase() !== name && existing.seat.trim().toLowerCase() !== seat,
+          existing.seat.trim().toLowerCase() !== seat &&
+          (!sameNameReplaces || existing.name.trim().toLowerCase() !== name),
       );
       const displayName = holder.displayName?.trim() || holder.name.trim();
       const photoUrl = holder.photoUrl?.trim();

@@ -26,6 +26,8 @@ interface RoomJoin {
   roomName: string;
   participantName: string;
   participantRole?: string;
+  /** A stable, unique room identity when two people may share a display name; defaults to the name. */
+  participantIdentity?: string;
 }
 
 /** A join request that cannot be turned into a token, with a message for the person. */
@@ -54,10 +56,11 @@ export async function createRoomToken(join: RoomJoin, reservedNames: readonly st
   const name = join.participantName.trim();
   const problem = joinNameProblem(name, reservedNames);
   if (problem !== undefined) throw new JoinError(problem);
+  const identity = join.participantIdentity?.trim() || name;
 
   const { key, secret } = livekitCredentials();
   const token = new AccessToken(key, secret, {
-    identity: name,
+    identity,
     name,
     metadata: join.participantRole,
   });
@@ -81,7 +84,10 @@ export function livekitRoster(): RoomRoster {
   return async (roomName) => {
     try {
       const participants = await client.listParticipants(roomName);
-      return participants.map((p) => ({ name: p.identity, role: p.metadata || undefined }));
+      return participants.map((p) => ({
+        name: p.name || p.identity,
+        role: p.metadata || undefined,
+      }));
     } catch {
       return undefined;
     }

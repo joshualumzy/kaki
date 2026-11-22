@@ -83,11 +83,21 @@ interface Socket {
   close(): void;
 }
 
-function connect(port: number, meetingId: string, role: string, cookie?: string): Promise<Socket> {
+function connect(
+  port: number,
+  meetingId: string,
+  role: string,
+  cookie?: string,
+  audience?: 'screen' | 'participant' | 'lifecycle',
+): Promise<Socket> {
   const headers: Record<string, string> = {};
   if (cookie !== undefined) headers.cookie = cookie;
+  const channel =
+    audience === undefined
+      ? `role=${encodeURIComponent(role)}`
+      : `audience=${encodeURIComponent(audience)}`;
   const ws = new WebSocket(
-    `ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(meetingId)}&role=${encodeURIComponent(role)}`,
+    `ws://127.0.0.1:${port}/ws?meeting=${encodeURIComponent(meetingId)}&${channel}`,
     Object.keys(headers).length === 0 ? undefined : { headers },
   );
   const messages: Socket['messages'] = [];
@@ -187,8 +197,8 @@ describe('many meetings at once', () => {
     const instanceB = await app.registry.get(meetingB.id);
     if (instanceA === undefined || instanceB === undefined) throw new Error('the meetings did not load');
 
-    const socketA = await connect(port, meetingA.id, 'chef');
-    const socketB = await connect(port, meetingB.id, 'chef');
+    const socketA = await connect(port, meetingA.id, '', undefined, 'screen');
+    const socketB = await connect(port, meetingB.id, '', undefined, 'screen');
     sockets.push(socketA, socketB);
 
     await joinAndStart(port, meetingA.id, 'Ana');
@@ -209,7 +219,7 @@ describe('many meetings at once', () => {
     const suggested = await request(port, `/api/meetings/${meetingA.id}/runner/suggest-task`, 'POST', {
       title: 'Fix the broken signup form',
       context: 'The signup form is broken on mobile.',
-      suggestedAssignee: 'chef',
+      suggestedAssignee: instanceA.session.holders()[0]?.seat,
       actionKind: 'gitea_issue',
     }, runnerHeaders());
     expect(suggested.status).toBe(200);
@@ -349,12 +359,12 @@ describe('many meetings at once', () => {
     const cookie = `kaki_session=${token}`;
 
     // The seat works on its own meeting...
-    const own = await connect(port, meetingA.id, 'chef', cookie);
+    const own = await connect(port, meetingA.id, 'chef', cookie, 'participant');
     sockets.push(own);
     // ...and is refused on the other meeting, over HTTP and the WebSocket upgrade.
     const refusedHttp = await request(port, `/api/meetings/${meetingB.id}/meeting/participants`, 'GET', undefined, { cookie });
     expect(refusedHttp.status).toBe(401);
-    await expect(connect(port, meetingB.id, 'chef', cookie)).rejects.toThrow();
+    await expect(connect(port, meetingB.id, 'chef', cookie, 'participant')).rejects.toThrow();
 
     const unknownHttp = await request(port, '/api/meetings/does-not-exist/meeting/state');
     expect(unknownHttp.status).toBe(404);

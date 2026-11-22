@@ -41,7 +41,12 @@ import type { IdleTracker } from '../core/idle';
 import type { KakiModule } from '../core/modules';
 import type { WorkspaceTools } from '../workspace/tools';
 import type { MeetingPersistence } from '../persist/persistence';
-import type { ArchivedMeetingTodo } from './types';
+import type { ArchivedMeetingTodo, MeetingRow } from './types';
+import {
+  realBaseScenario,
+  realMeetingSetup,
+  realScenarioWithPeople,
+} from './realMeeting';
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
 import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
@@ -98,8 +103,10 @@ export interface MeetingInstanceDeps {
   workspaceId: string;
   /** True only for the legacy practice instance, which also keeps today's unprefixed paths. */
   legacy: boolean;
-  /** The pack this meeting runs. */
+  /** The pack this meeting runs; the legacy practice instance keeps it unchanged. */
   scenario: Scenario;
+  /** The row a real product meeting was created from: its own title and agenda, never the pack. */
+  meetingRow?: MeetingRow;
   /** Fresh modules for this instance; started once and stopped on dispose. */
   modules: KakiModule[];
   /** The workspace's tool connections, read by Action and never from the environment. */
@@ -145,6 +152,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     workspaceId,
     legacy,
     scenario,
+    meetingRow,
     modules,
     tools,
     routes,
@@ -182,12 +190,17 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     lastActivity = Date.now();
   };
   const agendaPick = process.env.KAKI_AGENDA_PICK?.trim();
+  // A real product meeting owns its own empty scenario. The legacy instance keeps today's pack.
+  const baseScenario =
+    legacy || meetingRow === undefined
+      ? scenario
+      : realBaseScenario(meetingRow);
   const fullScenario = {
-    ...scenario,
-    agenda: [...scenario.agenda],
-    roles: [...scenario.roles],
-    attendees: [...scenario.attendees],
-    ...(scenario.npcs === undefined ? {} : { npcs: [...scenario.npcs] }),
+    ...baseScenario,
+    agenda: [...baseScenario.agenda],
+    roles: [...baseScenario.roles],
+    attendees: [...baseScenario.attendees],
+    ...(baseScenario.npcs === undefined ? {} : { npcs: [...baseScenario.npcs] }),
   };
   const pickedAgenda = agendaPick ? resolveAgendaPick(fullScenario, agendaPick) : undefined;
   // The draft the setup screen starts from, rebuilt from the packaged scenario for every new meeting.
@@ -198,7 +211,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   let restoredRoles: Scenario['roles'] | undefined;
   if (savedMeeting !== undefined) {
     // A malformed save must give the friendly message before its roles are derived from it.
-    assertReadableSavedSetup(savedMeeting, fullScenario);
+    assertReadableSavedSetup(savedMeeting, fullScenario, !legacy);
     const sealed =
       savedMeeting.phase === 'running' || savedMeeting.phase === 'ended' ? savedMeeting.sealed : undefined;
     restoredRoles = sealed === undefined ? undefined : setupScenarioRoles(fullScenario, sealed);
@@ -210,7 +223,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             ...fullScenario.roles,
             ...restoredRoles.filter((role) => !fullScenario.roles.some((packRole) => packRole.id === role.id)),
           ];
-    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles });
+    assertReadableSavedMeeting(savedMeeting, { ...fullScenario, roles: validationRoles }, !legacy);
     if (meetingCode.fixed) {
       if (savedMeeting.meetingCode !== meetingCode.value) {
         console.log('kaki persist: KAKI_MEETING_CODE replaced the saved meeting code');
@@ -475,7 +488,9 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       }
       return { ok: false, message: 'Practice access belongs to its practice meeting only' };
     }
-    return auth.authorize(request, audience, legacy ? undefined : id);
+    return auth.authorize(request, audience, legacy ? undefined : id, {
+      ...(legacy ? {} : { anyOfferedSeat: true }),
+    });
   };
   const hub = createHub(null, () => session.active(), {
     noServer: true,
@@ -691,11 +706,22 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     defaultSeat: holderPersonSeat,
     clearGrace: () => rejoin.reset(),
     onCredentialChange,
+    ...(legacy ? {} : { allowEmptyScenario: true }),
     ...(persistence === undefined ? {} : { persistence }),
   });
   // A real meeting is fixed at creation: it is never a practice meeting. The legacy instance keeps
   // today's journeys (an owner opens real, or a visitor starts practice) until step 6 removes them.
-  if (!legacy) session.setKind('real');
+  if (!legacy) {
+    session.setKind('real');
+    if (session.holders().length > 0) {
+      session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
+    }
+  }
+  /** Show the people now in a real meeting: one plain seat per person, named by them. */
+  function refreshRealPeople(): void {
+    if (legacy) return;
+    session.refreshRealScenario(realScenarioWithPeople(fullScenario, session.holders()));
+  }
   // The task store belongs to the meeting, so a reset forgets its cards too. The session clears
   // every retained key (including 'task:') after these hooks run.
   session.onReset(() => {
@@ -1458,11 +1484,22 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
             body: { error: 'This meeting has ended; press New meeting to start the next one.' },
           };
         }
-        // Re-validate the whole draft before anything is applied or the runner is asked, so a bad edit
-        // made outside the setup screen fails Start loudly and leaves the meeting untouched. A
-        // practice meeting never reads the owner's draft: it always runs the demo pack.
-        let sealed: MeetingSetup | undefined;
-        if (session.kind() !== 'practice') {
+        let candidate: Scenario;
+        let sealed: MeetingSetup;
+        if (runnerKind === 'real') {
+          // Start needs someone in the meeting: an owner cannot open an empty room.
+          if (session.holders().length === 0) {
+            return { status: 409, body: { error: 'Join the meeting before pressing Start.' } };
+          }
+          // A real product meeting has no pack to prepare: its people are its seats, and its own
+          // title and agenda are the plan. Nobody picks a role, so the draft has nothing to seal.
+          const holders = session.holders();
+          candidate = realScenarioWithPeople(fullScenario, holders);
+          sealed = realMeetingSetup(fullScenario, holders);
+        } else {
+          // Re-validate the whole draft before anything is applied or the runner is asked, so a bad edit
+          // made outside the setup screen fails Start loudly and leaves the meeting untouched. A
+          // practice meeting never reads the owner's draft: it always runs the demo pack.
           const parsed = parseMeetingSetup(session.draft(), {
             npcProfileIds: demoPackNpcProfileIds(fullScenario),
           });
@@ -1475,55 +1512,55 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
               },
             };
           }
+          // Start needs someone in the meeting: an owner cannot open an empty room.
+          if (session.holders().length === 0) {
+            return { status: 409, body: { error: 'Join the meeting before pressing Start.' } };
+          }
           // An untouched draft follows the live meeting; an owner-edited one is applied exactly as written.
-          if (session.draftTouched()) sealed = parsed.value;
-        }
-        // Start needs someone in the meeting: an owner cannot open an empty room.
-        if (session.holders().length === 0) {
-          return { status: 409, body: { error: 'Join the meeting before pressing Start.' } };
-        }
-        if (sealed === undefined) {
-          sealed = untouchedSetup(
-            session.kind() === 'practice' ? session.holders()[0]?.seat : undefined,
-          );
-        }
-        // Everyone already seated must have a person seat in the setup about to become the meeting.
-        const personRoles = new Set(personSeatRoles(sealed));
-        const stranded = session.holders().find((holder) => !personRoles.has(holder.seat));
-        if (stranded !== undefined) {
-          const role = sealed.roles.find((candidate) => candidate.id === stranded.seat);
-          const packRole = fullScenario.roles.find((candidate) => candidate.id === stranded.seat);
-          // The room is empty and the grace is over: that seat holder has left for good, so say what
-          // really happened instead of naming them as if they were still in the meeting.
-          const left = rejoin.isEmpty() && !rejoin.wouldHold();
-          if (left) {
+          const touchedSeal = session.draftTouched() ? parsed.value : undefined;
+          sealed =
+            touchedSeal ??
+            untouchedSetup(
+              session.kind() === 'practice' ? session.holders()[0]?.seat : undefined,
+            );
+          // Everyone already seated must have a person seat in the setup about to become the meeting.
+          const personRoles = new Set(personSeatRoles(sealed));
+          const stranded = session.holders().find((holder) => !personRoles.has(holder.seat));
+          if (stranded !== undefined) {
+            const role = sealed.roles.find((candidate) => candidate.id === stranded.seat);
+            const packRole = fullScenario.roles.find((candidate) => candidate.id === stranded.seat);
+            // The room is empty and the grace is over: that seat holder has left for good, so say what
+            // really happened instead of naming them as if they were still in the meeting.
+            const left = rejoin.isEmpty() && !rejoin.wouldHold();
+            if (left) {
+              return {
+                status: 409,
+                body: {
+                  error: `${stranded.name} has left the meeting, so their seat is not in this setup. Ask them to rejoin, or reset the meeting.`,
+                },
+              };
+            }
             return {
               status: 409,
               body: {
-                error: `${stranded.name} has left the meeting, so their seat is not in this setup. Ask them to rejoin, or reset the meeting.`,
+                error: `This meeting's setup has no place for ${role?.label ?? packRole?.label ?? stranded.seat}; the owner set the seats.`,
               },
             };
           }
-          return {
-            status: 409,
-            body: {
-              error: `This meeting's setup has no place for ${role?.label ?? packRole?.label ?? stranded.seat}; the owner set the seats.`,
-            },
-          };
+          // A setup that passes field validation can still describe a meeting the scenario rules refuse.
+          const derived = deriveMeetingScenario(fullScenario, sealed);
+          if (!derived.ok) {
+            return {
+              status: 422,
+              body: {
+                error: 'This setup describes a meeting that cannot run, so the meeting was not started. Fix the setup and try again.',
+                errors: derived.errors,
+              },
+            };
+          }
+          // Seal the meeting as a new value; the live scenario keeps serving everyone until this commits.
+          candidate = derived.scenario;
         }
-        // A setup that passes field validation can still describe a meeting the scenario rules refuse.
-        const derived = deriveMeetingScenario(fullScenario, sealed);
-        if (!derived.ok) {
-          return {
-            status: 422,
-            body: {
-              error: 'This setup describes a meeting that cannot run, so the meeting was not started. Fix the setup and try again.',
-              errors: derived.errors,
-            },
-          };
-        }
-        // Seal the meeting as a new value; the live scenario keeps serving everyone until this commits.
-        const candidate = derived.scenario;
         const activeAi = (candidate.npcs ?? []).length > 0;
         // Server-side recognition is the runner's job, so even a meeting with no AI cast needs it
         // to hear anyone at all. Without it, refuse loudly instead of opening a silent meeting.
@@ -1634,6 +1671,8 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       runnerStateChanged: () => publishRunnerState(),
       meetingStateChanged: () => publishMeetingState(),
       meetingKind: () => session.kind(),
+      realMeeting: !legacy,
+      refreshRealPeople,
       quietCue: (text: string) => {
         meetingCue = { text, at: new Date().toISOString() };
         publishMeetingState();

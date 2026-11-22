@@ -82,14 +82,14 @@ export async function handleCreateMeeting(call: RouteCall): Promise<void> {
     }
     scheduledFor = new Date(rawScheduledFor).toISOString();
   }
-  if (workspaceId === SAMPLE_WORKSPACE_ID) {
-    sendJson(response, 403, { error: "The sample workspace can't take new meetings." });
-    return;
-  }
-  const membership = await store.getMembership({ workspaceId, userId: principal.userId });
-  if (membership === undefined) {
-    sendJson(response, 403, { error: 'You are not a member of that workspace.' });
-    return;
+  // The sample workspace is built in rather than a row, so it has no membership record; every
+  // signed-in person may still hold a real meeting there, and practice stays one click away.
+  if (workspaceId !== SAMPLE_WORKSPACE_ID) {
+    const membership = await store.getMembership({ workspaceId, userId: principal.userId });
+    if (membership === undefined) {
+      sendJson(response, 403, { error: 'You are not a member of that workspace.' });
+      return;
+    }
   }
 
   const status: MeetingStatus =

@@ -357,6 +357,15 @@ export function createPostgresAuthStore(pool: Pool): AuthStore {
       return result.rowCount !== null && result.rowCount > 0;
     },
 
+    async seatHolder({ meetingId, role }) {
+      const result = await pool.query<{ holder: string }>(
+        `select holder from seat_claims
+          where meeting_id = $1 and role = $2 and expires_at > now()`,
+        [meetingId, role],
+      );
+      return result.rows[0]?.holder;
+    },
+
     async releaseSeats({ holder, meetingId }) {
       if (holder !== undefined) {
         await pool.query('delete from seat_claims where holder = $1', [holder]);

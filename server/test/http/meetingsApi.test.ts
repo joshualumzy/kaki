@@ -193,19 +193,19 @@ describe('meetings API', () => {
     expect(pastInfo.status).toBe('open');
   });
 
-  it('refuses the sample workspace, non-members, bad titles and bad dates', async () => {
+  it('allows the sample workspace but refuses non-members, bad titles and bad dates', async () => {
     const { base, store } = await buildApp();
     const ada = await signIn(store, 'Ada');
     const ben = await signIn(store, 'Ben');
     const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
 
-    expect(
-      (await request(base, '/api/meetings', {
-        method: 'POST',
-        cookie: ada.cookie,
-        body: { workspaceId: SAMPLE_WORKSPACE_ID, title: 'Nope' },
-      })).status,
-    ).toBe(403);
+    const sample = await request(base, '/api/meetings', {
+      method: 'POST',
+      cookie: ada.cookie,
+      body: { workspaceId: SAMPLE_WORKSPACE_ID, title: 'Nanyang sync' },
+    });
+    expect(sample.status).toBe(200);
+    expect((await sample.json()) as { id: string }).toMatchObject({ id: expect.any(String) });
 
     expect(
       (await request(base, '/api/meetings', {
@@ -275,6 +275,7 @@ describe('meetings API', () => {
       kind: 'guest',
       meetingId: meetingA.id,
       name: 'Guest',
+      guestId: expect.any(String),
     });
     expect(await auth.resolvePrincipal(fakeRequest(cookie!), meetingB.id)).toBeUndefined();
     // A guest is not a legacy-meeting participant either.

@@ -220,11 +220,16 @@ async function buildApp(
   return { app, base: `http://127.0.0.1:${portOf(app)}`, port: portOf(app), store, meetings, clock };
 }
 
-async function createAndOpen(built: Built, owner: SignedIn): Promise<string> {
+async function createAndOpen(
+  built: Built,
+  owner: SignedIn,
+  agenda: Array<{ title: string; minutes?: number }> = [],
+): Promise<string> {
   const meeting = await built.app.registry.create({
     workspaceId: 'workspace-1',
     ownerUserId: owner.user.id,
     title: 'Weekly planning',
+    ...(agenda.length === 0 ? {} : { agenda }),
   });
   expect(
     (await request(built.base, `/api/meetings/${meeting.id}/meeting/open`, {
@@ -242,7 +247,7 @@ async function join(
   name: string,
   role: string,
   meetingCode?: string,
-): Promise<{ response: Response; cookie: string | undefined; meetingCode: string }> {
+): Promise<{ response: Response; cookie: string | undefined; meetingCode: string; seat: string }> {
   const response = await request(built.base, `/api/meetings/${meetingId}/livekit/token`, {
     method: 'POST',
     ...(cookie === undefined ? {} : { cookie }),
@@ -252,11 +257,12 @@ async function join(
       ...(meetingCode === undefined ? {} : { meetingCode }),
     },
   });
-  const body = (await response.json()) as { meetingCode?: string };
+  const body = (await response.json()) as { meetingCode?: string; participantRole?: string };
   return {
     response,
     cookie: cookiePair(setCookies(response), 'kaki_session') ?? cookie,
     meetingCode: body.meetingCode ?? '',
+    seat: body.participantRole ?? role,
   };
 }
 
@@ -282,7 +288,7 @@ describe('real meeting controls', () => {
     expect(waiting.payload.ownerName).toBe('Ada');
     expect(waiting.payload.started).toBe(false);
     expect(waiting.payload.participants).toEqual([
-      { name: 'ada', displayName: 'Ada', seat: 'chef', photoUrl: OWNER_PICTURE },
+      { name: 'ada', displayName: 'Ada', seat: joined.seat, photoUrl: OWNER_PICTURE },
     ]);
 
     const started = await request(built.base, `/api/meetings/${meetingId}/meeting/start`, {
@@ -382,7 +388,7 @@ describe('real meeting controls', () => {
     const guestCookie = cookiePair(setCookies(guestJoin), 'kaki_session');
     const guest = await join(built, meetingId, guestCookie, 'Guest', 'cashier', ownerJoin.meetingCode);
     expect(guest.response.status).toBe(200);
-    const guestSocket = await connect(built.port, meetingId, { role: 'cashier' }, guest.cookie);
+    const guestSocket = await connect(built.port, meetingId, { role: guest.seat }, guest.cookie);
     sockets.push(guestSocket);
 
     guestSocket.ws.send(JSON.stringify({ type: 'END_MEETING' }));
@@ -489,7 +495,7 @@ describe('real meeting controls', () => {
     let now = 0;
     const built = await buildApp({ now: () => now });
     const owner = await signIn(built.store, 'Ada');
-    const meetingId = await createAndOpen(built, owner);
+    const meetingId = await createAndOpen(built, owner, [{ title: 'Budget', minutes: 10 }]);
     const screen = await connect(built.port, meetingId, { audience: 'screen' }, owner.cookie);
     sockets.push(screen);
     const joined = await join(built, meetingId, owner.cookie, 'Ada', 'chef');
@@ -627,75 +633,20 @@ describe('real meeting controls', () => {
     control.close();
   });
 
-  it("waits for the runner to connect before asking it to open a real meeting, so the owner's first press works", async () => {
+  it('starts a real meeting without asking the runner to prepare AI colleagues', async () => {
     const built = await buildApp({ scenario: aiScenario, startAckTimeoutMs: 4_000 });
     const owner = await signIn(built.store, 'Ada');
     const meetingId = await createAndOpen(built, owner);
     const joined = await join(built, meetingId, owner.cookie, 'Ada', 'chef');
     expect(joined.response.status).toBe(200);
 
-    const prepares: Array<{ requestId: string; attempt: string; meetingId: string }> = [];
-    let control: WebSocket | undefined;
-    let service: WebSocket | undefined;
-    try {
-      const starting = request(built.base, `/api/meetings/${meetingId}/meeting/start`, {
-        method: 'POST',
-        cookie: joined.cookie,
-      });
-      // The runner process needs a moment after the meeting row is created; the first press must wait.
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      control = new WebSocket(`ws://127.0.0.1:${built.port}/ws?audience=service-control`, {
-        headers: { authorization: `Bearer ${SERVICE_TOKEN}` },
-      });
-      await new Promise<void>((resolve, reject) => {
-        control!.once('open', () => resolve());
-        control!.once('error', reject);
-      });
-      service = new WebSocket(
-        `ws://127.0.0.1:${built.port}/ws?meeting=${encodeURIComponent(meetingId)}&audience=service`,
-        { headers: { authorization: `Bearer ${SERVICE_TOKEN}` } },
-      );
-      service.on('message', (data) => {
-        const message = JSON.parse(data.toString()) as {
-          kind?: string;
-          request?: { requestId?: string; attempt?: string; meetingId?: string };
-        };
-        const prepare = message.request;
-        if (
-          message.kind !== 'prepare' ||
-          prepare?.requestId === undefined ||
-          prepare.attempt === undefined ||
-          prepare.meetingId === undefined
-        ) {
-          return;
-        }
-        prepares.push({
-          requestId: prepare.requestId,
-          attempt: prepare.attempt,
-          meetingId: prepare.meetingId,
-        });
-        service!.send(
-          JSON.stringify({
-            kind: 'ready',
-            requestId: prepare.requestId,
-            attempt: prepare.attempt,
-            meetingId: prepare.meetingId,
-          }),
-        );
-      });
-      await new Promise<void>((resolve, reject) => {
-        service!.once('open', () => resolve());
-        service!.once('error', reject);
-      });
-
-      const started = await starting;
-      expect(started.status).toBe(200);
-      expect(prepares).toHaveLength(1);
-      expect(prepares[0]?.meetingId).toBe(meetingId);
-    } finally {
-      service?.close();
-      control?.close();
-    }
+    const started = await request(built.base, `/api/meetings/${meetingId}/meeting/start`, {
+      method: 'POST',
+      cookie: joined.cookie,
+    });
+    expect(started.status).toBe(200);
+    const instance = await built.app.registry.get(meetingId);
+    expect(instance?.session.active().npcs ?? []).toHaveLength(0);
   });
 
   it("admits a guest who arrived through the meeting's own link without a typed code", async () => {
@@ -719,7 +670,7 @@ describe('real meeting controls', () => {
     expect(seated.status).toBe(200);
   });
 
-  it('tells a real-meeting owner in plain words when Kaki never connects', async () => {
+  it('starts a real meeting even when no runner is connected, because it has no AI colleagues', async () => {
     const built = await buildApp({ scenario: aiScenario, startAckTimeoutMs: 150 });
     const owner = await signIn(built.store, 'Ada');
     const meetingId = await createAndOpen(built, owner);
@@ -730,10 +681,7 @@ describe('real meeting controls', () => {
       method: 'POST',
       cookie: joined.cookie,
     });
-    expect(started.status).toBe(503);
-    const body = (await started.json()) as { error?: string; retryable?: boolean };
-    expect(body.error).toBe('Kaki is still getting ready for this meeting. Try again in a few seconds.');
-    expect(body.error).not.toMatch(/npm run npc/);
-    expect(body.retryable).toBe(true);
+    expect(started.status).toBe(200);
+    expect((await started.json()) as { started?: boolean }).toMatchObject({ started: true });
   });
 });

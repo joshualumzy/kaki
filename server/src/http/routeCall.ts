@@ -121,6 +121,10 @@ export interface RequestContext {
   meetingStateChanged(): void;
   /** The journey this meeting runs, read at the moment of use. */
   meetingKind(): 'real' | 'practice' | undefined;
+  /** True for a real product meeting, false for the legacy practice/owner instance. */
+  realMeeting: boolean;
+  /** Show the people now in a real meeting, one plain seat under each person's name. */
+  refreshRealPeople(): void;
   /** Record a quiet agenda-clock note for the shared meeting state. */
   quietCue(text: string): void;
   /** True while the room is off the record: nothing is transcribed, analysed or stored. */

@@ -19,14 +19,14 @@ function readOptionalStringArray(value: unknown, label: string, problems: string
   if (!isStringArray(value)) problems.push(`${label} must be a non-empty array of non-empty strings when present`);
 }
 
-function readRoles(value: unknown, problems: string[]): Set<string> {
+function readRoles(value: unknown, problems: string[], allowEmpty = false): Set<string> {
   const roleIds = new Set<string>();
   if (!Array.isArray(value)) {
     problems.push('roles must be an array');
     return roleIds;
   }
   if (value.length === 0) {
-    problems.push('roles must contain at least one role');
+    if (!allowEmpty) problems.push('roles must contain at least one role');
     return roleIds;
   }
 
@@ -190,13 +190,14 @@ function readAgenda(
   hostNames: Set<string>,
   agendaTitles: Set<string>,
   problems: string[],
+  allowEmpty = false,
 ): void {
   if (!Array.isArray(value)) {
     problems.push('agenda must be an array');
     return;
   }
   if (value.length === 0) {
-    problems.push('agenda must contain at least one agenda item');
+    if (!allowEmpty) problems.push('agenda must contain at least one agenda item');
     return;
   }
 
@@ -386,6 +387,10 @@ interface ParseScenarioOptions {
    * an owner-written meeting with a blank organisation field has none.
    */
   requireOrganisation?: boolean;
+  /** A real product meeting may have no agenda yet; a demo pack must always carry one. */
+  allowEmptyAgenda?: boolean;
+  /** A real product meeting starts with no roles until people join it. */
+  allowEmptyRoles?: boolean;
 }
 
 /** Validate unknown JSON as a scenario, throwing once with every problem found. */
@@ -405,7 +410,7 @@ export function parseScenario(value: unknown, options: ParseScenarioOptions = {}
     problems.push('speechRegister must be a non-empty string when present');
   }
 
-  const roleIds = readRoles(value.roles, problems);
+  const roleIds = readRoles(value.roles, problems, options.allowEmptyRoles === true);
   readAttendees(value.attendees, roleIds, problems);
   const attendeeNames = new Set<string>(
     Array.isArray(value.attendees)
@@ -438,7 +443,15 @@ export function parseScenario(value: unknown, options: ParseScenarioOptions = {}
       ? value.agenda.flatMap((item) => (isObject(item) && isNonEmptyString(item.title) ? [item.title] : []))
       : [],
   );
-  readAgenda(value.agenda, roleIds, attendeeNames, hostNames, agendaTitles, problems);
+  readAgenda(
+    value.agenda,
+    roleIds,
+    attendeeNames,
+    hostNames,
+    agendaTitles,
+    problems,
+    options.allowEmptyAgenda === true,
+  );
   readOptionalStringArray(value.background, 'background', problems);
   if (value.excludedPairs !== undefined) {
     if (!Array.isArray(value.excludedPairs) || value.excludedPairs.length === 0) {

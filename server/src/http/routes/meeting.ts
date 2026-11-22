@@ -19,6 +19,7 @@ import { MEETING_CODE_RATE_LIMIT_MESSAGE } from '../../meeting/meetingCode';
 import { admission, type Admission } from '../../meeting/rejoin';
 import { createRoomToken, joinNameProblem, JoinError, livekitPublicUrl } from '../../services/livekit';
 import { SAMPLE_WORKSPACE_ID } from '../../workspace/constants';
+import { realPersonName, realSeatId } from '../../meeting/realMeeting';
 
 /** The one message for a role id this meeting does not offer: name it and list the offered seats. */
 function notAHumanSeat(wanted: string, offered: ReadonlyArray<{ id: string; label: string }>): string {
@@ -91,9 +92,143 @@ async function syncDemoVisitorProfile(participantName: string): Promise<void> {
   }
 }
 
+/**
+ * Join a real product meeting: no role picker and no typed code. Each person takes a stable plain
+ * seat under their own name, so a refresh or rejoin returns to the same seat and two people who
+ * share a name both get in.
+ */
+async function handleRealLivekitToken(call: RouteCall): Promise<void> {
+  const { request, response, context, principal } = call;
+  const parsed = await readJsonBody(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    sendJson(response, parsed.status, { error: parsed.error });
+    return;
+  }
+  const body = parsed.value as Record<string, unknown> | null;
+  if (typeof body !== 'object' || body === null) {
+    sendJson(response, 400, { error: 'Body must be a JSON object' });
+    return;
+  }
+  const typedName = typeof body.participantName === 'string' ? body.participantName.trim() : '';
+  if (body.kind === 'practice') {
+    sendJson(response, 409, { error: 'This is a real meeting; practice has its own page.' });
+    return;
+  }
+  const name = realPersonName(principal, typedName);
+  if (name === '') {
+    sendJson(response, 400, { error: 'Your name is required to join this meeting.' });
+    return;
+  }
+  const nameProblem = joinNameProblem(name, [KAKI_LISTENER_IDENTITY]);
+  if (nameProblem !== undefined) {
+    sendJson(response, 400, { error: nameProblem });
+    return;
+  }
+
+  try {
+    await context.admit(async () => {
+      if (context.session.kind() !== 'real') {
+        sendJson(response, 409, { error: NO_TEAM_MEETING_MESSAGE });
+        return;
+      }
+      if (context.session.phase() === 'starting') {
+        sendJson(response, 409, {
+          error: 'The meeting is starting; try again in a moment.',
+          retryable: true,
+        });
+        return;
+      }
+      const phase = context.session.phase();
+      if (phase === 'ended') {
+        sendJson(response, 409, { error: 'This meeting has ended.' });
+        return;
+      }
+      const hadPeople = context.session.holders().length > 0;
+      const meetingId = context.meeting.id;
+      const roomName = context.roomNameFor(meetingId);
+      const seatId = realSeatId(principal, name, meetingId);
+      // The person's Google photo, when they have an account; the room shows it beside their name.
+      let photoUrl: string | undefined;
+      let email: string | undefined;
+      if (
+        context.auth !== undefined &&
+        (principal.kind === 'host' || principal.kind === 'user') &&
+        principal.userId !== undefined
+      ) {
+        const user = await context.auth.store.findUserById(principal.userId);
+        photoUrl = user?.picture ?? undefined;
+        email = user?.email;
+      }
+      const token = await createRoomToken(
+        {
+          roomName,
+          participantName: name,
+          participantIdentity: seatId,
+          participantRole: seatId,
+        },
+        [KAKI_LISTENER_IDENTITY],
+      );
+      if (context.auth !== undefined && principal.kind !== 'service') {
+        const accountUserId =
+          principal.kind === 'user' || principal.kind === 'host' || principal.kind === 'seat'
+            ? principal.userId
+            : undefined;
+        let entered = await context.auth.enterSeat(request, response, seatId, meetingId);
+        if (!entered && accountUserId !== undefined) {
+          // The same signed-in person on a new browser still owns their seat: release the claim
+          // held by their older session, then take the same seat again.
+          const holder = await context.auth.store.seatHolder({ meetingId, role: seatId });
+          const older = holder === undefined ? undefined : await context.auth.store.findSession(holder);
+          if (holder !== undefined && older?.userId === accountUserId) {
+            await context.auth.store.releaseSeats({ holder });
+            entered = await context.auth.enterSeat(request, response, seatId, meetingId);
+          }
+        }
+        if (!entered) {
+          sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });
+          return;
+        }
+      }
+      context.reservations.add({ participantName: name, seatId });
+      context.session.addHolder({
+        name,
+        seat: seatId,
+        ...(photoUrl === undefined ? {} : { photoUrl }),
+        ...(email === undefined ? {} : { email }),
+      });
+      context.refreshRealPeople();
+      context.runnerStateChanged();
+      context.meetingStateChanged();
+      if (hadPeople) context.rejoin.occupied();
+      else context.rejoin.joined();
+      context.scheduleSave();
+      context.watchRoom(roomName);
+      console.log(`[join] seat=${seatId} room=${roomName} real=true`);
+      sendJson(response, 200, {
+        token,
+        url: livekitPublicUrl(),
+        participantRole: seatId,
+        resumed: phase === 'running',
+        started: phase === 'running',
+      });
+    });
+  } catch (error) {
+    if (error instanceof JoinError) {
+      sendJson(response, 400, { error: error.message });
+      return;
+    }
+    throw error;
+  }
+  return;
+}
+
 /** Issues a LiveKit join token after the meeting code and seat admission checks. */
 export async function handleLivekitToken(call: RouteCall): Promise<void> {
   const { request, response, context, principal } = call;
+  if (context.realMeeting) {
+    await handleRealLivekitToken(call);
+    return;
+  }
   const codeIp = clientAddress(request);
   if (context.meetingCodeAttempts.isLimited(codeIp)) {
     sendJson(response, 429, { error: MEETING_CODE_RATE_LIMIT_MESSAGE });
