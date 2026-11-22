@@ -63,8 +63,12 @@ export interface RequestContext {
   }) => Promise<void>;
   /** Guest-join attempts per client address, owned by the app. */
   guestJoinAttempts?: AttemptLimiter;
-  /** The meeting registry, for the server-wide lookup of a meeting by its code. */
-  registry?: Pick<MeetingRegistry, 'findByCode'>;
+  /** Paid model requests for Tell Kaki, per account and address, owned by the app. */
+  tellKakiAttempts?: AttemptLimiter;
+  /** Paid calendar reads for agenda import, per account and address, owned by the app. */
+  agendaFromCalendarAttempts?: AttemptLimiter;
+  /** The meeting registry, for the server-wide lookup of a meeting by its code or a new meeting. */
+  registry?: Pick<MeetingRegistry, 'findByCode' | 'create'>;
   /**
    * The meeting a session must belong to, when this is not the legacy meeting. A phone session
    * for meeting A resolves to nobody on meeting B's routes.

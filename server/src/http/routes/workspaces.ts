@@ -156,11 +156,11 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
       sendJson(response, 500, { error: 'Meeting storage is unavailable.' });
       return;
     }
-    // The sample workspace is built in and read-only: it has no members and no list, but a person
-    // may read the minutes of a real meeting they own there.
+    // The sample workspace is built in and read-only: it has no members, but a person may list
+    // their own real meetings there and read their minutes. They may not edit its to-dos.
     const isSample = historyWorkspaceId === SAMPLE_WORKSPACE_ID;
-    if (isSample && (method !== 'GET' || meetingId === undefined || todoId !== undefined)) {
-      sendJson(response, 403, { error: "The sample workspace's meetings are built in" });
+    if (isSample && (method !== 'GET' || todoId !== undefined)) {
+      sendJson(response, 403, { error: "The sample workspace's meetings are read-only" });
       return;
     }
     const membership = isSample
@@ -178,6 +178,7 @@ export async function handleWorkspaces(call: RouteCall): Promise<void> {
         200,
         rows
           .filter((row) => row.status === 'ended')
+          .filter((row) => !isSample || row.ownerUserId === userId)
           .map((row) => ({
             id: row.id,
             title: row.title,

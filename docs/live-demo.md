@@ -35,6 +35,8 @@ Sign-in mode is on when `KAKI_AUTH=1`. Set these keys in `.env` (names only here
 | `KAKI_SECRET_KEY` | Encrypts the tool logins saved in a workspace. |
 | `KAKI_SERVICE_TOKEN` | Shared secret between the server and `npm run npc`. Use the same value for both. |
 | `KAKI_MAX_OPEN_MEETINGS` | How many real meetings the server keeps open at once (default 10). |
+| `KAKI_MAX_OPEN_MEETINGS_PER_USER` | How many real meetings one owner keeps open at once (default 2). |
+| `KAKI_MAX_MEETINGS_PER_DAY` | How many meetings one owner may create per day (default 20). |
 
 Sign-in mode refuses the dev routes. Approved posts are signed "Posted by Kaki for <name>, approved in <meeting title>"
 (`server/src/action/footer.ts`). Ended meetings keep their minutes and to-dos in the workspace history.

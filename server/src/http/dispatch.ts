@@ -1,5 +1,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { accessProblem, bearerToken, isLoopbackAddress, matchRoute, tokenMatches, type Principal, type Route } from './access';
+import {
+  accessProblem,
+  bearerToken,
+  crossSiteProblem,
+  isLoopbackAddress,
+  matchRoute,
+  tokenMatches,
+  type Principal,
+  type Route,
+} from './access';
 import { sendJson } from './http';
 import type { RequestContext } from './routeCall';
 import { CommandError } from '../core/hub';
@@ -63,6 +72,11 @@ export async function handleRoutedRequest(
     const match = matchRoute(context.routes, method, path);
     if (match === undefined) {
       sendJson(response, 404, { error: 'Not found' });
+      return;
+    }
+    const crossSite = crossSiteProblem(request, match.route, context.auth !== undefined);
+    if (crossSite !== undefined) {
+      sendJson(response, crossSite.status, { error: crossSite.error });
       return;
     }
     const principal = await resolvePrincipal(request, context);

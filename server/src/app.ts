@@ -7,6 +7,7 @@ import {
   assertSafeBind,
   assertSafeMattermost,
   bearerToken,
+  isCrossSiteRequest,
   isLoopbackAddress,
   matchRoute,
   tokenMatches,
@@ -128,6 +129,12 @@ export interface CreateAppOptions {
   meetingModules?: (meeting: MeetingRow) => MeetingModules;
   /** How many meetings may be open at once; defaults to KAKI_MAX_OPEN_MEETINGS or 10. */
   maxOpenMeetings?: number;
+  /** How many real meetings one owner may keep open at once; defaults to KAKI_MAX_OPEN_MEETINGS_PER_USER or 2. */
+  maxOpenMeetingsPerUser?: number;
+  /** How many meetings one owner may create per day; defaults to KAKI_MAX_MEETINGS_PER_DAY or 20. */
+  maxMeetingsPerDay?: number;
+  /** How many paid model or calendar requests one user or address may make a minute; defaults to 10. */
+  llmRequestsPerMinute?: number;
   /** How long a meeting with nobody connected stays loaded; defaults to KAKI_MEETING_UNLOAD_MS or 30 min. */
   meetingUnloadMs?: number;
   /** How often the registry looks for idle meetings; defaults to 60 s. */
@@ -379,6 +386,9 @@ export async function createApp({
   llm: llmOption,
   meetingModules,
   maxOpenMeetings,
+  maxOpenMeetingsPerUser,
+  maxMeetingsPerDay,
+  llmRequestsPerMinute = 10,
   meetingUnloadMs,
   meetingSweepMs,
   rejoinGraceMs,
@@ -448,6 +458,10 @@ export async function createApp({
       windowMs: MEETING_CODE_WINDOW_MS,
     });
   const guestJoinAttempts = createAttemptLimiter({ limit: 20, windowMs: 60_000 });
+  // Paid work: one bucket per endpoint, keyed by both the account and the address that asked.
+  const llmRequestLimit = Number.isFinite(llmRequestsPerMinute) && llmRequestsPerMinute > 0 ? llmRequestsPerMinute : 10;
+  const tellKakiAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
+  const agendaFromCalendarAttempts = createAttemptLimiter({ limit: llmRequestLimit, windowMs: 60_000 });
 
   if (auth !== undefined) {
     auth.bindMeetingHost(async (meetingId, userId) => {
@@ -562,6 +576,8 @@ export async function createApp({
     ...(persistenceFor === undefined ? {} : { persistenceFor }),
     ...(findSavedIdByCode === undefined ? {} : { findSavedIdByCode }),
     ...(maxOpenMeetings === undefined ? {} : { maxOpen: maxOpenMeetings }),
+    ...(maxOpenMeetingsPerUser === undefined ? {} : { maxOpenPerUser: maxOpenMeetingsPerUser }),
+    ...(maxMeetingsPerDay === undefined ? {} : { maxMeetingsPerDay }),
     ...(meetingUnloadMs === undefined ? {} : { unloadMs: meetingUnloadMs }),
     ...(meetingSweepMs === undefined ? {} : { sweepMs: meetingSweepMs }),
     onOpened: (meeting) => runnerControl.opened(meeting),
@@ -582,6 +598,8 @@ export async function createApp({
     toolSource,
     indexWorkspaceTool,
     guestJoinAttempts,
+    tellKakiAttempts,
+    agendaFromCalendarAttempts,
     registry,
     serviceToken,
     routes: serverRoutes,
@@ -646,6 +664,13 @@ export async function createApp({
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (url.pathname !== '/ws') {
       refuseUpgrade(socket, 404, 'Not Found');
+      return;
+    }
+    // A browser's WebSocket handshake carries its Origin; a runner or other non-browser client
+    // sends none and may pass. A cross-site page may not open a socket with a person's cookie.
+    if (auth !== undefined && isCrossSiteRequest(request)) {
+      console.warn('kaki server: refused a cross-site WebSocket upgrade');
+      refuseUpgrade(socket, 403, 'Forbidden');
       return;
     }
     if (url.searchParams.get('audience') === 'service-control') {
@@ -714,6 +739,8 @@ export async function createApp({
         console.error('kaki server: the meetings store failed to stop', error),
       );
       guestJoinAttempts.clearAll();
+      tellKakiAttempts.clearAll();
+      agendaFromCalendarAttempts.clearAll();
       runnerControl.close();
       await closeServer(server);
       await auth?.close().catch((error: unknown) =>

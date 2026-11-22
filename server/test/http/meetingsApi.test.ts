@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createApp, type KakiApp } from '../../src/app';
+import { createApp, type CreateAppOptions, type KakiApp } from '../../src/app';
 import { createAuth, type Auth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
 import { createMemoryAuthStore, type AuthStore, type UserRecord } from '../../src/auth/store';
@@ -39,7 +39,9 @@ async function signIn(store: AuthStore, name: string): Promise<SignedIn> {
   return { user, cookie: `kaki_session=${token}` };
 }
 
-async function buildApp(): Promise<{
+async function buildApp(
+  options: Omit<CreateAppOptions, 'scenario' | 'speechRecognition' | 'auth' | 'meetingCode' | 'meetings'> = {},
+): Promise<{
   base: string;
   store: AuthStore;
   auth: Auth;
@@ -55,6 +57,7 @@ async function buildApp(): Promise<{
     auth,
     meetingCode,
     meetings,
+    ...options,
   });
   apps.push(app);
   return { base: `http://127.0.0.1:${portOf(app)}`, store, auth, meetings };
@@ -376,10 +379,93 @@ describe('meetings API', () => {
     expect(owner.status).toBe(200);
     expect(await owner.json()).toMatchObject({ minutes: 'We agreed.', canEdit: false });
     expect((await request(base, path, { cookie: ben.cookie })).status).toBe(404);
-    // The sample workspace stays read-only otherwise: no list, no to-do edits.
+
+    const benMeeting = await createMeeting(base, ben.cookie, SAMPLE_WORKSPACE_ID, 'Ben chat');
+    await meetings.markEnded!(benMeeting.id, new Date().toISOString());
+    const listPath = `/api/workspaces/${SAMPLE_WORKSPACE_ID}/meetings`;
+    const adaList = await request(base, listPath, { cookie: ada.cookie });
+    expect(adaList.status).toBe(200);
+    expect((await adaList.json()) as Array<{ id: string }>).toEqual([
+      expect.objectContaining({ id: meeting.id, title: 'Sample chat', status: 'ended' }),
+    ]);
+    const benList = await request(base, listPath, { cookie: ben.cookie });
+    expect((await benList.json()) as Array<{ id: string }>).toEqual([
+      expect.objectContaining({ id: benMeeting.id, title: 'Ben chat', status: 'ended' }),
+    ]);
+    // The sample workspace stays read-only otherwise: its to-dos cannot be edited.
     expect(
-      (await request(base, `/api/workspaces/${SAMPLE_WORKSPACE_ID}/meetings`, { cookie: ada.cookie })).status,
+      (await request(
+        base,
+        `/api/workspaces/${SAMPLE_WORKSPACE_ID}/meetings/${meeting.id}/todos/any`,
+        { method: 'POST', cookie: ada.cookie, body: { done: true } },
+      )).status,
     ).toBe(403);
+  });
+
+  it('caps how many real meetings one owner keeps open at once, and frees a slot when one ends', async () => {
+    const { base, store } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
+    const first = await createMeeting(base, ada.cookie, team.workspace.id, 'One');
+    const second = await createMeeting(base, ada.cookie, team.workspace.id, 'Two');
+    const third = await createMeeting(base, ada.cookie, team.workspace.id, 'Three');
+    const state = (id: string) =>
+      request(base, `/api/meetings/${id}/meeting/state`);
+
+    expect((await state(first.id)).status).toBe(200);
+    expect((await state(second.id)).status).toBe(200);
+    const blocked = await state(third.id);
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toEqual({
+      error: 'busy',
+      message: 'You already have 2 meetings open. End one to start another.',
+    });
+
+    const app = apps[apps.length - 1]!;
+    await app.registry.unload(first.id);
+    expect((await state(third.id)).status).toBe(200);
+  });
+
+  it('caps how many meetings one owner creates in a day, without limiting another owner', async () => {
+    const { base, store } = await buildApp({ maxMeetingsPerDay: 2 });
+    const ada = await signIn(store, 'Ada');
+    const ben = await signIn(store, 'Ben');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
+    await createMeeting(base, ada.cookie, team.workspace.id, 'One');
+    await createMeeting(base, ada.cookie, team.workspace.id, 'Two');
+
+    const blocked = await request(base, '/api/meetings', {
+      method: 'POST',
+      cookie: ada.cookie,
+      body: { workspaceId: team.workspace.id, title: 'Three' },
+    });
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toEqual({
+      error: 'busy',
+      message: 'You can create up to 2 meetings a day. Try again tomorrow.',
+    });
+
+    expect(
+      (await request(base, '/api/meetings', {
+        method: 'POST',
+        cookie: ben.cookie,
+        body: { workspaceId: SAMPLE_WORKSPACE_ID, title: 'Ben one' },
+      })).status,
+    ).toBe(200);
+  });
+
+  it('opens the shared demo Mattermost sign-in only in the sample workspace', async () => {
+    const { base, store } = await buildApp();
+    const ada = await signIn(store, 'Ada');
+    const team = await store.createWorkspace({ name: 'Team', createdBy: ada.user.id });
+    const meeting = await createMeeting(base, ada.cookie, team.workspace.id, 'Real work');
+    const target = encodeURIComponent('http://mattermost.test/kopitiam/channels/town-square');
+
+    const denied = await request(base, `/api/meetings/${meeting.id}/mattermost/open?url=${target}`, {
+      cookie: ada.cookie,
+    });
+    expect(denied.status).toBe(403);
+    expect(((await denied.json()) as { error: string }).error).toContain('sample workspace');
   });
 
   it('refuses a guest join for an ended meeting without giving a name cookie', async () => {

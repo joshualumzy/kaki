@@ -203,6 +203,72 @@ export function accessProblem(
   }
 }
 
+function headerText(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const text = raw?.trim();
+  return text === undefined || text === '' ? undefined : text;
+}
+
+/** The host browsers use for this site, from KAKI_PUBLIC_URL; undefined when it is unset or invalid. */
+function configuredHost(env: NodeJS.ProcessEnv): string | undefined {
+  const raw = env.KAKI_PUBLIC_URL?.trim();
+  if (raw === undefined || raw === '') return undefined;
+  try {
+    return new URL(raw).host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the browser's fetch metadata says this request came from another site. A non-browser
+ * client sends neither header, so it is not refused; it also cannot carry a person's cookie by
+ * accident. When Sec-Fetch-Site is absent, compare the Origin host with KAKI_PUBLIC_URL, or with
+ * the Host this request arrived on when no public URL is configured.
+ */
+export function isCrossSiteRequest(
+  request: IncomingMessage,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const fetchSite = headerText(request.headers['sec-fetch-site']);
+  if (fetchSite !== undefined) {
+    const site = fetchSite.toLowerCase();
+    return site !== 'same-origin' && site !== 'none';
+  }
+  const origin = headerText(request.headers.origin);
+  if (origin === undefined) return false;
+  const expected = configuredHost(env) ?? headerText(request.headers.host)?.toLowerCase();
+  if (expected === undefined) return true;
+  try {
+    return new URL(origin).host.toLowerCase() !== expected;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The CSRF guard for sign-in mode: a state-changing request, or the Mattermost demo sign-in (a
+ * GET that sets shared cookies), must come from this site. Reads stay open because the Google
+ * OAuth callback is a cross-site top-level GET that must still work.
+ */
+export function crossSiteProblem(
+  request: IncomingMessage,
+  route: Pick<Route, 'method' | 'path'>,
+  authEnabled: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): AccessProblem | undefined {
+  if (!authEnabled) return undefined;
+  const method = route.method.toUpperCase();
+  const stateChanging = method !== 'GET' && method !== 'HEAD';
+  const mattermostOpen = method === 'GET' && route.path === '/api/mattermost/open';
+  if (!stateChanging && !mattermostOpen) return undefined;
+  if (!isCrossSiteRequest(request, env)) return undefined;
+  return {
+    status: 403,
+    error: 'This request came from another site, so Kaki refused it. Open Kaki directly and try again.',
+  };
+}
+
 /** The service token a runner presented, from the Authorization header only. Never the URL. */
 export function bearerToken(request: IncomingMessage): string | undefined {
   const header = request.headers.authorization;
