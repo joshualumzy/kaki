@@ -139,7 +139,7 @@ describe('WorkspacePage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Team workspace' })).toBeTruthy();
     expect(
-      screen.getByText(/No meetings yet — start one with/),
+      screen.getByText(/No meetings yet. Start one with/),
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'New meeting' }).getAttribute('href')).toBe('/new');
     expect(screen.getByText(/share its link or QR code so people can join/)).toBeTruthy();

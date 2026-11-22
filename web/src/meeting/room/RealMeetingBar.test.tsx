@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   disconnect: vi.fn(async () => undefined),
+  micRejects: false,
   isHost: false,
   meetingState: {
     meetingId: 'mtg-1',
@@ -38,7 +39,9 @@ vi.mock('../MeetingOverlays', () => ({
 vi.mock('@livekit/components-react', () => ({
   useLocalParticipant: () => ({
     localParticipant: {
-      setMicrophoneEnabled: vi.fn(async () => undefined),
+      setMicrophoneEnabled: vi.fn(async () => {
+        if (mocks.micRejects) throw new DOMException('denied', 'NotAllowedError');
+      }),
       setCameraEnabled: vi.fn(async () => undefined),
     },
     isMicrophoneEnabled: true,
@@ -53,6 +56,7 @@ beforeEach(() => {
   mocks.send.mockReset();
   mocks.disconnect.mockReset();
   mocks.isHost = false;
+  mocks.micRejects = false;
   mocks.meetingState.offTheRecord = null;
 });
 
@@ -72,6 +76,17 @@ describe('real meeting bar', () => {
     expect(screen.queryByRole('button', { name: /End for everyone/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Pause/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Lock in my decision/ })).toBeNull();
+  });
+
+  it('says how to allow a blocked microphone and points at Type', async () => {
+    mocks.micRejects = true;
+    renderBar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mic on' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("browser's site settings");
+    expect(alert.textContent).toContain('use Type');
   });
 
   it('turns the record off and back on for anyone in the room', () => {

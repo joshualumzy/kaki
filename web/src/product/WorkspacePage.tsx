@@ -313,79 +313,75 @@ export function WorkspacePage() {
 
               <section className="card product-section product-meetings" aria-label="Meetings">
                 <h2 className="product-section-title">Meetings</h2>
-                {!detail.readOnly && detail.meetings.length === 0 ? (
-                  <p className="product-hint">
-                    No meetings yet — start one with{' '}
-                    <Link className="product-link" to="/new">
-                      New meeting
-                    </Link>
-                    , then share its link or QR code so people can join.
-                  </p>
+                {detail.meetings.filter((meeting) => meeting.status !== 'ended').length === 0 ? (
+                  detail.readOnly ? (
+                    <p className="product-hint">The sample workspace&apos;s meetings are built in.</p>
+                  ) : detail.meetings.length === 0 ? (
+                    <p className="product-hint">
+                      No meetings yet. Start one with{' '}
+                      <Link className="product-link" to="/new">
+                        New meeting
+                      </Link>
+                      , then share its link or QR code so people can join.
+                    </p>
+                  ) : (
+                    <p className="product-hint">No upcoming meetings yet.</p>
+                  )
                 ) : (
-                  <>
-                    {detail.meetings.filter((meeting) => meeting.status !== 'ended').length === 0 ? (
-                      <p className="product-hint">
-                        {detail.readOnly
-                          ? "The sample workspace's meetings are built in."
-                          : 'No upcoming meetings yet.'}
-                      </p>
-                    ) : (
-                      <ul className="product-meeting-list">
-                        {detail.meetings
-                          .filter((meeting) => meeting.status !== 'ended')
-                          .map((meeting) => (
-                            <li key={meeting.id} className="product-meeting">
-                              <div className="product-meeting-main">
-                                <p className="product-row-title">{meeting.title}</p>
-                                <p className="product-hint">
-                                  {meeting.scheduledFor === null
-                                    ? 'Open now'
-                                    : `Scheduled for ${whenText(meeting.scheduledFor)}`}
-                                </p>
-                                <p className="product-invite-link">
-                                  <a href={`/m/${encodeURIComponent(meeting.id)}`}>
-                                    {fullLink(meeting.id)}
-                                  </a>
-                                </p>
-                              </div>
-                              <Button variant="ghost" onClick={() => void copyMeeting(meeting.id)}>
-                                {copiedId === meeting.id ? 'Copy again' : 'Copy link'}
-                              </Button>
-                            </li>
-                          ))}
-                      </ul>
-                    )}
-                    <h3 className="product-section-subtitle">Past meetings</h3>
-                    {detail.readOnly ? (
-                      <p className="product-hint">The sample workspace&apos;s meetings are built in.</p>
-                    ) : detail.meetings.filter((meeting) => meeting.status === 'ended').length === 0 ? (
-                      <p className="product-hint">No past meetings yet.</p>
-                    ) : (
-                      <ul className="product-meeting-list">
-                        {detail.meetings
-                          .filter((meeting) => meeting.status === 'ended')
-                          .map((meeting) => (
-                            <li key={meeting.id} className="product-meeting">
-                              <div className="product-meeting-main">
-                                <Link
-                                  className="product-row-title"
-                                  to={`/workspaces/${encodeURIComponent(detail.id)}/meetings/${encodeURIComponent(meeting.id)}`}
-                                >
-                                  {meeting.title}
-                                </Link>
-                                <p className="product-hint">Ended · minutes and to-dos</p>
-                              </div>
-                              <Link
-                                className="product-open"
-                                to={`/workspaces/${encodeURIComponent(detail.id)}/meetings/${encodeURIComponent(meeting.id)}`}
-                              >
-                                Open
-                              </Link>
-                            </li>
-                          ))}
-                      </ul>
-                    )}
-                  </>
+                  <ul className="product-meeting-list">
+                    {detail.meetings
+                      .filter((meeting) => meeting.status !== 'ended')
+                      .map((meeting) => (
+                        <li key={meeting.id} className="product-meeting">
+                          <div className="product-meeting-main">
+                            <p className="product-row-title">{meeting.title}</p>
+                            <p className="product-hint">
+                              {meeting.scheduledFor === null
+                                ? 'Open now'
+                                : `Scheduled for ${whenText(meeting.scheduledFor)}`}
+                            </p>
+                            <p className="product-invite-link">
+                              <a href={`/m/${encodeURIComponent(meeting.id)}`}>
+                                {fullLink(meeting.id)}
+                              </a>
+                            </p>
+                          </div>
+                          <Button variant="ghost" onClick={() => void copyMeeting(meeting.id)}>
+                            {copiedId === meeting.id ? 'Copy again' : 'Copy link'}
+                          </Button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+                <h3 className="product-section-subtitle">Past meetings</h3>
+                {detail.readOnly ? (
+                  <p className="product-hint">The sample workspace&apos;s meetings are built in.</p>
+                ) : detail.meetings.filter((meeting) => meeting.status === 'ended').length === 0 ? (
+                  <p className="product-hint">No past meetings yet.</p>
+                ) : (
+                  <ul className="product-meeting-list">
+                    {detail.meetings
+                      .filter((meeting) => meeting.status === 'ended')
+                      .map((meeting) => (
+                        <li key={meeting.id} className="product-meeting">
+                          <div className="product-meeting-main">
+                            <Link
+                              className="product-row-title"
+                              to={`/workspaces/${encodeURIComponent(detail.id)}/meetings/${encodeURIComponent(meeting.id)}`}
+                            >
+                              {meeting.title}
+                            </Link>
+                            <p className="product-hint">Ended · minutes and to-dos</p>
+                          </div>
+                          <Link
+                            className="product-open"
+                            to={`/workspaces/${encodeURIComponent(detail.id)}/meetings/${encodeURIComponent(meeting.id)}`}
+                          >
+                            Open
+                          </Link>
+                        </li>
+                      ))}
+                  </ul>
                 )}
                 {copyNote === null ? null : (
                   <p className="product-note" role="status">

@@ -121,7 +121,7 @@ describe('NewMeetingPage', () => {
 
     expect(
       await screen.findByText(
-        /A workspace is where meetings, minutes and connected tools live/,
+        /A workspace holds your meetings, minutes and connected tools/,
       ),
     ).toBeTruthy();
     expect(screen.getByText(/Nanyang Kopi\s+sample is read-only and has its tools ready/)).toBeTruthy();

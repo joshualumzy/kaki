@@ -89,7 +89,7 @@ describe('real meeting notices', () => {
     render(<RealRoomBanners />);
 
     expect(screen.getByText(/You're the only one here/)).toBeTruthy();
-    expect(screen.getByText(/tap Invite to share the link or QR code/)).toBeTruthy();
+    expect(screen.getByText(/Tap Invite to share the link or QR code/)).toBeTruthy();
 
     cleanup();
     mocks.meetingState.participants = [

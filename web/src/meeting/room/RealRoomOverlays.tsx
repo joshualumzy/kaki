@@ -27,7 +27,7 @@ export function RealRoomBanners() {
     <div className="kd-real-banners">
       {alone ? (
         <div className="kd-real-banner" data-tone="solo" role="status">
-          You&apos;re the only one here — tap Invite to share the link or QR code, so someone can
+          You&apos;re the only one here. Tap Invite to share the link or QR code, so someone can
           join from a phone.
         </div>
       ) : null}
