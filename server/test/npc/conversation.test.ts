@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../../src/services/llm';
-import { NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
+import { claimsStepGivenToOther, NpcConversation, type ConversationOptions, type NpcPorts, type NpcUiState } from '../../src/npc/conversation';
 import type { Utterance } from '../../src/npc/director';
 import { readGuestLine, type GuestReaderInput, type GuestReading } from '../../src/npc/guestReader';
 import { testScenario } from '../fixtures/scenario';
@@ -1523,6 +1523,82 @@ describe('robustness with real people', () => {
     expect(h.transcript).toContainEqual(['Bao', 'Of course, I will share the decision with the team.']);
     expect(h.logs).not.toContainEqual(expect.stringContaining('dropped a sentence that gives the visitor\'s follow-up'));
     h.conversation.close();
+  });
+
+  it('drops a colleague claiming a step the visitor gave someone else', async () => {
+    const toAda = {
+      kind: 'idea' as const,
+      addressee: 'Ada',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: { action: { covered: false }, catchAddressed: { covered: false }, practical: { covered: false } },
+    };
+    const h = harness(scenario, 0, () => toAda);
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    await h.say('Add the regulars price tonight, and Bao will test the rule before 8.');
+    const call = await waitForCall(h, 0);
+    call.push("Ada: I'd sooner be the one testing that button before eight. I'll put the button on the till tonight.");
+    call.end();
+    await h.flush();
+    await finishPlaying(h);
+    const said = h.transcript.map(([, text]) => text);
+    expect(said.join(' ')).toContain("I'll put the button on the till tonight.");
+    expect(h.transcript.some(([speaker, text]) => speaker === 'Ada' && /test/i.test(text))).toBe(false);
+    expect(h.logs.filter((text) => text.includes('claims a step the visitor gave someone else'))).toHaveLength(1);
+    h.conversation.close();
+  });
+
+  it('keeps the assignee taking their own step, and steps nobody was given', async () => {
+    const toAda = {
+      kind: 'idea' as const,
+      addressee: 'Ada',
+      answersOpenQuestion: false,
+      relevantFactIds: [],
+      relevantCatchIds: [],
+      readiness: { action: { covered: false }, catchAddressed: { covered: false }, practical: { covered: false } },
+    };
+    const h = harness(scenario, 0, () => toAda);
+    h.conversation.setHuman({ name: 'Josh', role: 'chef' });
+    await h.say('Bao will test the rule before 8.');
+    const call = await waitForCall(h, 0);
+    call.push("Ada: I'll print the new price cards. I can help Bao with anything he needs.");
+    call.end();
+    await h.flush();
+    await finishPlaying(h);
+    const said = h.transcript.map(([, text]) => text).join(' ');
+    expect(said).toContain("I'll print the new price cards.");
+    expect(said).toContain('I can help Bao with anything he needs.');
+    expect(h.logs.some((text) => text.includes('claims a step the visitor gave someone else'))).toBe(false);
+    h.conversation.close();
+  });
+
+  describe('which colleague sentences count as claiming a step given to someone else', () => {
+    const names = ['Ada', 'Bao', 'Mei', 'Josh'];
+    it.each([
+      ['Bao will test the rule before 8.', "I'd sooner be the one testing that button."],
+      ['Bao will test the rule before 8.', "I'll test it myself tonight."],
+      ['Let Mei print the price cards.', 'I can print them faster.'],
+      ['Bao will test the rule before 8.', "I'll be the one to test it tonight."],
+      ['Bao will test the rule before 8.', "I'd rather be the one to test it."],
+    ])('drops: visitor "%s", Ada "%s"', (guest, line) => {
+      expect(claimsStepGivenToOther(line, 'Ada', [guest], names)).toBe(true);
+    });
+    it.each([
+      // Naming someone else's step while claiming a different one.
+      ['Bao will test the rule before 8.', "I'll print the cards so Bao can test them tonight."],
+      ['Bao will test the rule before 8.', "Bao will test it, and I'll prep the price cards."],
+      // Same general verb, different job.
+      ['Mei will check the fridge temps.', "I'll check the till float tonight."],
+      ['Mei will tell the regulars.', "I'll tell the kitchen crew."],
+      ['Mei will post the notice.', "I'll update the poster by the counter."],
+      // The visitor moved the step to Ada.
+      ['Bao will test the rule. Actually Ada, you test it instead.', "Sure, I'll test it then."],
+      // "be the one" without a claim before it.
+      ['Mei will test the rule before 8.', 'That could be the one test that matters.'],
+    ])('keeps: visitor "%s", Ada "%s"', (guest, line) => {
+      expect(claimsStepGivenToOther(line, 'Ada', [guest], names)).toBe(false);
+    });
   });
 
   it('keeps a second AI question to the visitor who has gone quiet, and says so loudly', async () => {

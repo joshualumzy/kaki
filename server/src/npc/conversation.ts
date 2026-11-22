@@ -355,6 +355,73 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
   return undefined;
 }
 
+/**
+ * The verb a colleague volunteers for, straight after the claim ("I'll test it", "I'll be the one to test it",
+ * "I'd sooner be the one testing that"). Only that verb counts, so "I'll print the cards so Bao can test them"
+ * claims printing, not testing. "be the one" only counts after a claim, so "that could be the one test that
+ * matters" claims nothing.
+ */
+const SELF_CLAIM_VERB_RE =
+  /\b(?:i['’]ll|i will|i can|let me|i['’]d (?:sooner|rather))\s+(?:be the one\s+(?:to\s+)?)?(?:also\s+|just\s+|go\s+)?([a-z]+)/gi;
+
+/**
+ * Verbs too general to tell one step from another ("take", "check", "tell"): never used to match a claimed step,
+ * since "Mei will check the fridge" and "I'll check the till" are different jobs.
+ */
+const GENERIC_STEP_STEMS = new Set([
+  'take', 'handle', 'sort', 'make', 'have', 'keep', 'help', 'look', 'work', 'just', 'also', 'then', 'need',
+  'check', 'tell', 'call', 'post', 'talk', 'speak', 'chat', 'update', 'follow', 'sure',
+].map((verb) => verb.slice(0, 4)));
+
+/** The first four letters of a step's verb, so "test", "tests" and "testing" match. */
+function stepStem(word: string): string | undefined {
+  const stem = word.toLowerCase().slice(0, 4);
+  return word.length >= 4 && !GENERIC_STEP_STEMS.has(stem) ? stem : undefined;
+}
+
+/**
+ * The verbs of steps a visitor line gives to `name` ("Mei will test the rule" gives Mei "test"; "Ada, you test it
+ * instead" gives Ada "test", so a step the visitor moves can be taken by its new owner).
+ */
+function stepsGivenTo(text: string, name: string): Set<string> {
+  const who = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const stems = new Set<string>();
+  if (who.length === 0) return stems;
+  const re = new RegExp(
+    `\\b(?:${who}(?:['’]ll| will| to| can| should)|let ${who}|get ${who} to|${who},? (?:can|could|would|will) you|${who},? please|${who}, you)\\s+(?:also\\s+|just\\s+)?([a-z]+)`,
+    'gi',
+  );
+  for (const match of text.matchAll(re)) {
+    const stem = stepStem(match[1] ?? '');
+    if (stem !== undefined) stems.add(stem);
+  }
+  return stems;
+}
+
+/**
+ * A colleague's sentence that claims a step the visitor explicitly gave someone else on this topic ("Mei will test
+ * the rule" -> Arjun: "I'd sooner be the one testing that"). Steps nobody was given, and the assignee's own, pass.
+ */
+export function claimsStepGivenToOther(
+  text: string,
+  speaker: string,
+  guestLines: readonly string[],
+  names: readonly string[],
+): boolean {
+  const claimed = [...text.matchAll(SELF_CLAIM_VERB_RE)].map((match) => match[1] ?? '');
+  if (claimed.length === 0) return false;
+  const givenToSpeaker = new Set(guestLines.flatMap((line) => [...stepsGivenTo(line, speaker)]));
+  const givenToOthers = new Set(
+    names
+      .filter((name) => name !== speaker)
+      .flatMap((name) => guestLines.flatMap((line) => [...stepsGivenTo(line, name)])),
+  );
+  return claimed.some((word) => {
+    const stem = stepStem(word);
+    return stem !== undefined && givenToOthers.has(stem) && !givenToSpeaker.has(stem);
+  });
+}
+
 /** The host is pointing the visitor at their follow-up card. */
 const CARD_POINT_RE =
   /\b(?:your card|the card|card on the right|screen on the right|panel on the right|right-hand panel|on your screen)\b/i;
@@ -3275,6 +3342,10 @@ export class NpcConversation<Clip> {
             (HOST_IMPERATIVE_START_RE.test(sentence) || addressesVisitor(sentence, this.human?.name))))) {
       return `[card] dropped host send-instruction: ${sentence}`;
     }
+    if (this.human !== undefined &&
+        claimsStepGivenToOther(sentence, speaker, this.guestLinesByTopic.get(this.currentItem()?.title) ?? [], this.names)) {
+      return `[owner] ${speaker}: dropped a sentence that claims a step the visitor gave someone else: "${sentence}"`;
+    }
     if (this.human !== undefined) {
       const addressed = addressedShareTarget(sentence, this.names);
       if (addressed !== undefined || MODEL_SHARE_TAKEOVER_RE.test(sentence)) {
@@ -5068,6 +5139,11 @@ export class NpcConversation<Clip> {
           (HOST_SEND_PLACE_RE.test(trimmed) || (HOST_SEND_INSTRUCTION_RE.test(trimmed) &&
             (HOST_IMPERATIVE_START_RE.test(trimmed) || addressesVisitor(trimmed, this.human?.name))))) {
         this.ports.log?.(`[card] dropped host send-instruction: ${trimmed}`);
+        return;
+      }
+      if (this.human !== undefined &&
+          claimsStepGivenToOther(trimmed, utterance.speaker, this.guestLinesByTopic.get(this.currentItem()?.title) ?? [], this.names)) {
+        this.ports.log?.(`[owner] ${utterance.speaker}: dropped a sentence that claims a step the visitor gave someone else: "${trimmed}"`);
         return;
       }
       if (this.human !== undefined) {
