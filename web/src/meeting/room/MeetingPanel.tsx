@@ -272,6 +272,12 @@ export function MeetingPanel({
   return (
     <div className="page kd-host kd-meeting-panel">
       {!connected && <p className="connection-banner">Reconnecting…</p>}
+      {real && realRoom !== null && !realRoom.isHost && (
+        <div className="kd-guest-context" aria-label="About this meeting">
+          <b>{scenario.meetingTitle}</b>
+          {meetingState?.ownerName ? <small>Hosted by {meetingState.ownerName}</small> : null}
+        </div>
+      )}
       {isHost && <HostBrief scenario={scenario} practice={practice} />}
       {rejection !== null && rejection.commandType !== 'ASK_WINGMAN' && (
         <p className="connection-banner" role="alert">
@@ -415,7 +421,11 @@ export function MeetingPanel({
         <>
           {isHost && <HostCueCard scenario={scenario} agendaIndex={0} started={false} canAdvance={canControlMeeting} />}
           <p className="empty-state">
-            {started
+            {real
+              ? meetingState?.waitingForOwner === true
+                ? `Waiting for ${meetingState.ownerName?.trim() || 'the owner'} to start.`
+                : 'Nothing has been said yet. The notes begin with the first thing said.'
+              : started
               ? `🎙️ ${facilitatorName} (Host) is opening the meeting — listen in, Kaki will cue you when it’s your turn.`
               : 'The meeting has not started yet. The agenda clock begins with the first thing said.'}
           </p>

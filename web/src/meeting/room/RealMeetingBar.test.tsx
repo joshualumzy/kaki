@@ -132,4 +132,15 @@ describe('real meeting bar', () => {
     }
     mocks.meetingState.phase = 'running';
   });
+
+  it('keeps everything but Leave inactive for a guest before the meeting starts', () => {
+    mocks.meetingState.waitingForOwner = true;
+    renderBar();
+
+    for (const label of ['Mic', 'Camera', 'Type', 'Off the record', 'Invite']) {
+      expect((screen.getByRole('button', { name: new RegExp(`^${label}`) }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect((screen.getByRole('button', { name: /Leave/ }) as HTMLButtonElement).disabled).toBe(false);
+    mocks.meetingState.waitingForOwner = false;
+  });
 });

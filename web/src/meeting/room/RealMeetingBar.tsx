@@ -32,6 +32,8 @@ export function RealMeetingBar({
   if (meeting === null) return null;
   const { meetingState, send, isHost } = meeting;
   const ended = meetingState?.phase === 'ended';
+  // Before the owner starts the meeting, only Leave (and the owner's Invite) do anything.
+  const waiting = meetingState?.waitingForOwner === true;
   const offTheRecord = meetingState?.offTheRecord !== null && meetingState?.offTheRecord !== undefined;
   const people = meetingState?.participants ?? [];
   const shownNames = distinctDisplayNames(people);
@@ -106,6 +108,7 @@ export function RealMeetingBar({
               className="kd-bar-btn"
               data-on={isMicrophoneEnabled}
               aria-pressed={isMicrophoneEnabled}
+              disabled={waiting}
               onClick={() => void toggleMicrophone()}
             >
               {isMicrophoneEnabled ? 'Mic on' : 'Mic off'}
@@ -115,6 +118,7 @@ export function RealMeetingBar({
               className="kd-bar-btn"
               data-on={isCameraEnabled}
               aria-pressed={isCameraEnabled}
+              disabled={waiting}
               onClick={() => void toggleCamera()}
             >
               {isCameraEnabled ? 'Camera on' : 'Camera off'}
@@ -124,6 +128,7 @@ export function RealMeetingBar({
               className="kd-bar-btn"
               data-on={typeOpen}
               aria-expanded={typeOpen}
+              disabled={waiting}
               onClick={() => setTypeOpen((open) => !open)}
             >
               Type
@@ -133,6 +138,7 @@ export function RealMeetingBar({
               className="kd-bar-btn"
               data-on={offTheRecord}
               aria-pressed={offTheRecord}
+              disabled={waiting}
               onClick={() => send({ type: 'SET_OFF_THE_RECORD', on: !offTheRecord })}
             >
               {offTheRecord ? 'Back on the record' : 'Off the record'}
@@ -142,6 +148,7 @@ export function RealMeetingBar({
               className="kd-bar-btn"
               data-on={inviteOpen}
               aria-expanded={inviteOpen}
+              disabled={waiting && !isHost}
               onClick={() => setInviteOpen((open) => !open)}
             >
               Invite
