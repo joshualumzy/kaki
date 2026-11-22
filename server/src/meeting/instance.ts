@@ -804,6 +804,25 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     order: string[];
   }
   const humanLineIds = new Map<string, HumanLineMemory>();
+  /**
+   * A real meeting keeps its latest typed or spoken lines on the hub, so a person who refreshes or
+   * rejoins sees the recent conversation again instead of an empty transcript. Practice rooms and
+   * their AI runner hear lines live only.
+   */
+  const RETAINED_LINES = 50;
+  const retainedLineKeys: string[] = [];
+  let retainedLineCount = 0;
+  function retainRecentLine(): { retainKey: string } | undefined {
+    if (session.kind() !== 'real') return undefined;
+    retainedLineCount += 1;
+    const retainKey = `line:${retainedLineCount}:`;
+    retainedLineKeys.push(retainKey);
+    if (retainedLineKeys.length > RETAINED_LINES) {
+      const oldest = retainedLineKeys.shift();
+      if (oldest !== undefined) hub.clearRetained(oldest);
+    }
+    return { retainKey };
+  }
   const humanLineTimes = new Map<string, number[]>();
   hub.subscribe((event) => {
     if (event.type !== 'MEETING_RESET') return;
@@ -892,19 +911,22 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       if (oldest !== undefined) memory.ids.delete(oldest);
     }
     humanLineIds.set(key, memory);
-    hub.publish({
-      type: 'TRANSCRIPT_CHUNK',
-      audience: { kind: 'all' },
-      payload: {
-        speaker,
-        text: cleaned,
-        timestamp: speechStartedAt ?? new Date().toISOString(),
-        speakerRole: holder.seat,
-        ...(speechStartedAt === undefined ? {} : { speechStartedAt }),
-        ...(speechEndedAt === undefined ? {} : { speechEndedAt }),
-        ...(overlap === true ? { overlap: true } : {}),
+    hub.publish(
+      {
+        type: 'TRANSCRIPT_CHUNK',
+        audience: { kind: 'all' },
+        payload: {
+          speaker,
+          text: cleaned,
+          timestamp: speechStartedAt ?? new Date().toISOString(),
+          speakerRole: holder.seat,
+          ...(speechStartedAt === undefined ? {} : { speechStartedAt }),
+          ...(speechEndedAt === undefined ? {} : { speechEndedAt }),
+          ...(overlap === true ? { overlap: true } : {}),
+        },
       },
-    });
+      retainRecentLine(),
+    );
   }
 
   /** The seat a socket writes as: its own role, or the host's chair when a person hosts the screen. */
