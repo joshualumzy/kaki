@@ -1577,6 +1577,8 @@ describe('robustness with real people', () => {
       ['Bao will test the rule before 8.', "I'd sooner be the one testing that button."],
       ['Bao will test the rule before 8.', "I'll test it myself tonight."],
       ['Let Mei print the price cards.', 'I can print them faster.'],
+      ['Bao will test the rule before 8.', "I'll be the one to test it tonight."],
+      ['Bao will test the rule before 8.', "I'd rather be the one to test it."],
     ])('drops: visitor "%s", Ada "%s"', (guest, line) => {
       expect(claimsStepGivenToOther(line, 'Ada', [guest], names)).toBe(true);
     });
@@ -1590,6 +1592,8 @@ describe('robustness with real people', () => {
       ['Mei will post the notice.', "I'll update the poster by the counter."],
       // The visitor moved the step to Ada.
       ['Bao will test the rule. Actually Ada, you test it instead.', "Sure, I'll test it then."],
+      // "be the one" without a claim before it.
+      ['Mei will test the rule before 8.', 'That could be the one test that matters.'],
     ])('keeps: visitor "%s", Ada "%s"', (guest, line) => {
       expect(claimsStepGivenToOther(line, 'Ada', [guest], names)).toBe(false);
     });

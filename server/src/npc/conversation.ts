@@ -345,11 +345,13 @@ function addressedShareTarget(text: string, names: readonly string[]): string | 
 }
 
 /**
- * The verb a colleague volunteers for, straight after the claim ("I'll test it", "I'd sooner be the one testing
- * that"). Only that verb counts, so "I'll print the cards so Bao can test them" claims printing, not testing.
+ * The verb a colleague volunteers for, straight after the claim ("I'll test it", "I'll be the one to test it",
+ * "I'd sooner be the one testing that"). Only that verb counts, so "I'll print the cards so Bao can test them"
+ * claims printing, not testing. "be the one" only counts after a claim, so "that could be the one test that
+ * matters" claims nothing.
  */
 const SELF_CLAIM_VERB_RE =
-  /\b(?:i['’]ll|i will|i can|let me|i['’]d (?:sooner|rather)(?: be the one)?|be the one)\s+(?:also\s+|just\s+|go\s+)?([a-z]+)/gi;
+  /\b(?:i['’]ll|i will|i can|let me|i['’]d (?:sooner|rather))\s+(?:be the one\s+(?:to\s+)?)?(?:also\s+|just\s+|go\s+)?([a-z]+)/gi;
 
 /**
  * Verbs too general to tell one step from another ("take", "check", "tell"): never used to match a claimed step,
