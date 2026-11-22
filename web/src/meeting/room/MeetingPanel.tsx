@@ -42,6 +42,7 @@ export function MeetingPanel({
   started = false,
   sharedAudience = 'screen',
   practice = false,
+  real = false,
   onWingmanBadgeChange,
 }: {
   viewer: TranscriptViewer;
@@ -51,6 +52,8 @@ export function MeetingPanel({
   sharedAudience?: 'screen' | 'participant';
   /** A practice meeting keeps the pack's host story; a team meeting briefs on its own plan. */
   practice?: boolean;
+  /** A real meeting's End lives in the room bar only, and an empty agenda has nothing to advance. */
+  real?: boolean;
   /** Reports the quiet Wingman note count so the room can show it on the Wingman button. */
   onWingmanBadgeChange?(count: number): void;
 }) {
@@ -283,21 +286,25 @@ export function MeetingPanel({
       )}
       {canControlMeeting && (
         <div className="kd-host-controls">
-          <button
-            type="button"
-            className="kd-chip"
-            disabled={
-              record === undefined ||
-              meetingEnded ||
-              record.payload.agendaIndex + 1 >= scenario.agenda.length
-            }
-            onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
-          >
-            Next agenda item
-          </button>
-          <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'END_MEETING' })}>
-            End meeting
-          </button>
+          {scenario.agenda.length > 0 && (
+            <button
+              type="button"
+              className="kd-chip"
+              disabled={
+                record === undefined ||
+                meetingEnded ||
+                record.payload.agendaIndex + 1 >= scenario.agenda.length
+              }
+              onClick={() => send({ type: 'NEXT_AGENDA_ITEM' })}
+            >
+              Next agenda item
+            </button>
+          )}
+          {!real && (
+            <button type="button" className="kd-chip" disabled={record === undefined || meetingEnded} onClick={() => send({ type: 'END_MEETING' })}>
+              End meeting
+            </button>
+          )}
         </div>
       )}
       {meetingEnded && (
@@ -411,7 +418,13 @@ export function MeetingPanel({
         </>
       ) : (
         <>
-          <MeetingRecordCard record={record} scenario={scenario} ended={meetingEnded} showOpenQuestions={meetingEnded} />
+          <MeetingRecordCard
+            record={record}
+            scenario={scenario}
+            ended={meetingEnded}
+            showOpenQuestions={meetingEnded}
+            hideWhenEmptyAgenda={real}
+          />
           {!meetingEnded && isHost && (
             <HostCueCard scenario={scenario} agendaIndex={record.payload.agendaIndex} started canAdvance={canControlMeeting} />
           )}

@@ -608,6 +608,7 @@ export default function Meeting({
         sharedAudience={sharedAudience}
         started={!needsStart}
         practice={practice}
+        real={real}
         onWingmanBadgeChange={setWingmanBadgeCount}
         viewer={{
           name: session.name,

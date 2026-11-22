@@ -21,6 +21,7 @@ export function Dock({
   started = false,
   sharedAudience = 'screen',
   practice = false,
+  real = false,
   onWingmanBadgeChange,
 }: {
   role: ScenarioRole | undefined;
@@ -30,6 +31,8 @@ export function Dock({
   sharedAudience?: 'screen' | 'participant';
   /** A practice meeting keeps the pack's host story; a team meeting briefs on its own plan. */
   practice?: boolean;
+  /** A real meeting has no pack briefing and shows each person's own name, never a role label. */
+  real?: boolean;
   /** Reports the quiet Wingman note count for the room's Wingman badge. */
   onWingmanBadgeChange?(count: number): void;
 }) {
@@ -49,7 +52,9 @@ export function Dock({
             <span>
               {role === undefined
                 ? scenario.meetingTitle
-                : `${viewer.name} (${role.label})`}
+                : real
+                  ? viewer.name
+                  : `${viewer.name} (${role.label})`}
             </span>
           </span>
           {meetingCode !== undefined && (
@@ -60,18 +65,20 @@ export function Dock({
         </div>
       </div>
       <div className="kd-dock-body">
-        <details
-          className="kd-briefing"
-          open={briefingOpen}
-          onToggle={(event) => setBriefingOpen(event.currentTarget.open)}
-        >
-          <summary className="kd-briefing-summary">
-            <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
-            <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
-          </summary>
-          <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
-          <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
-        </details>
+        {!real && (
+          <details
+            className="kd-briefing"
+            open={briefingOpen}
+            onToggle={(event) => setBriefingOpen(event.currentTarget.open)}
+          >
+            <summary className="kd-briefing-summary">
+              <span>Briefing · {role === undefined ? scenario.meetingTitle : `Your role (${role.label}) & the situation`}</span>
+              <span className="kd-briefing-toggle">{briefingOpen ? 'Hide' : 'Show'}</span>
+            </summary>
+            <RoleCard role={role} viewerName={viewer.name} seatName={viewer.seatName} />
+            <SituationCard scenario={scenario} viewerName={viewer.name} viewerRoleId={role?.id} />
+          </details>
+        )}
         <ErrorBoundary>
           {role !== undefined && (
             <ActiveRoleCards role={role.id} viewer={viewer} sharedAudience={sharedAudience} />
@@ -85,6 +92,7 @@ export function Dock({
             started={started}
             sharedAudience={sharedAudience}
             practice={practice}
+            real={real}
             {...(onWingmanBadgeChange === undefined ? {} : { onWingmanBadgeChange })}
           />
         </ErrorBoundary>

@@ -182,4 +182,14 @@ describe('speakerLabel', () => {
     expect(speakerLabel('Arjun', viewer, scenario)).toBe('Arjun · Lead Programmer');
     expect(speakerLabel('Wei Ling', viewer, scenario)).toBe('Joshua (you) · Operations Director');
   });
+
+  it('shows a plain real-meeting seat by name once, never "Name · Name"', async () => {
+    const { speakerLabel } = await import('./captions');
+    const real: Scenario = {
+      ...scenario,
+      roles: [{ id: 'person_1', label: 'Joyce' }],
+      attendees: [{ name: 'Joyce', role: 'person_1', displayName: 'Joyce' }],
+    };
+    expect(speakerLabel('Joyce', undefined, real)).toBe('Joyce');
+  });
 });

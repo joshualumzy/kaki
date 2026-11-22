@@ -26,6 +26,8 @@ export interface SpeakDecision {
   followUp?: boolean;
   /** This clarify line asks which of two offered options the guest means; it is not a new offer. */
   whichOne?: boolean;
+  /** This clarify line re-asks a live confirmation or offer, so saying it must not clear that gate (#68). */
+  gateReask?: boolean;
   reason: string;
 }
 
@@ -422,6 +424,16 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
   // A short listener sound said while someone else was talking means "go on": no reply and no gate answer.
   if (reading.kind === 'backchannel') return wait('a listener backchannel; the room carries on', true);
 
+  // The guest answered a confirmation or offer, but their line could not be read: ask again rather than
+  // guess, so a "yes" lost to a slow model is not taken as a "no" (#68).
+  if (reading.failed === true && (view.confirmationAsked || view.offerAsked) && host !== undefined) {
+    return {
+      ...speak(host, 'clarify', line.eventId, "the guest's answer could not be read; ask for it again", undefined, undefined,
+        'You did not catch their answer. In one short line, ask again whether that is their call. Do not restate the call in full.'),
+      gateReask: true,
+    };
+  }
+
   const confirmationCall = view.confirmationCall ?? mergedReadiness(view).action.evidence;
   if (view.confirmationAsked && reading.kind === 'agree' && confirmationCall !== undefined) {
     return {
@@ -492,6 +504,9 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
   // Two offers are the cap. A question or an addressed line is still answered normally; a covered call is
   // confirmed; anything else closes the topic honestly rather than offering a third time.
   if (view.offers >= MAX_OFFERS) {
+    if (askedHostDirectly(view, reading)) {
+      return speak(view.host!, 'answer', line.eventId, `the guest asked ${view.host} directly`);
+    }
     if (reading.addressee !== undefined && reading.addressee !== view.host &&
         isColleague(view, reading.addressee)) {
       return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
@@ -521,6 +536,12 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
 
   if (reading.kind === 'park') return parkDecision(view, line, reading);
 
+  // A line put to a colleague by name is theirs to answer, even when the reader could not tell what it was.
+  if ((reading.kind === 'unsure' || reading.kind === 'off_topic') && reading.addressee !== undefined &&
+      reading.addressee !== view.host && isColleague(view, reading.addressee)) {
+    return speak(reading.addressee, 'answer', line.eventId, `the guest addressed ${reading.addressee}`);
+  }
+
   if (reading.kind === 'unsure') {
     const helpLines = view.readings.filter((entry) => entry.reading.kind === 'unsure').length;
     if (helpLines >= 3) {
@@ -538,6 +559,11 @@ function guestLineDecision(view: MeetingView, line: HeardLine, reading: GuestRea
       ? unresolved('the guest is off topic, but no host is present to steer back', line.eventId)
       : speak(host, 'clarify', line.eventId, "steer back to this topic's decision in one line", undefined, undefined,
         'Steer back to this topic and its decision in one short line. Do not answer the off-topic remark.');
+  }
+
+  // A question put to the host by name is the host's to answer, not a colleague's (#67).
+  if (askedHostDirectly(view, reading)) {
+    return speak(view.host!, 'answer', line.eventId, `the guest asked ${view.host} directly`);
   }
 
   // The host is the one Sam is speaking to, so a line addressed to the host is the guest answering Sam,
@@ -829,4 +855,9 @@ export function projectHeard(view: MeetingView, line: HeardLine, factIds: readon
     guestLastLine: line.speaker === view.guest ? line : view.guestLastLine,
     catchRaised: view.catchRaised || line.catch || catches.some((entry) => entry.raised),
   };
+}
+
+/** True when the guest put a question to the host by name. */
+function askedHostDirectly(view: MeetingView, reading: GuestReading): boolean {
+  return reading.kind === 'question' && view.host !== undefined && reading.addressee === view.host;
 }

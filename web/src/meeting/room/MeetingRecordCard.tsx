@@ -40,17 +40,21 @@ export function MeetingRecordCard({
   scenario,
   ended = false,
   showOpenQuestions = true,
+  hideWhenEmptyAgenda = false,
 }: {
   record: RecordEvent;
   scenario: Scenario;
   ended?: boolean;
   showOpenQuestions?: boolean;
+  /** A real meeting with no agenda has no clock or item to show, so the card stays out of the way. */
+  hideWhenEmptyAgenda?: boolean;
 }) {
   const { agendaIndex, openQuestions, paused, reviewIssues = [] } = record.payload;
   const elapsed = useCountUp(record.payload.elapsedSeconds, record, ended || paused === true);
   const item = scenario.agenda[agendaIndex];
   const limit = (item?.minutes ?? 0) * 60;
   const over = limit > 0 && elapsed >= limit;
+  if (hideWhenEmptyAgenda && scenario.agenda.length === 0) return null;
 
   return (
     <Card>

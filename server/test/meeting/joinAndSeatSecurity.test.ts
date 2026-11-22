@@ -437,6 +437,61 @@ describe('security round 2', () => {
     expect(await meetingState(app)).toEqual(before);
   });
 
+  it('says a seat is being kept when its holder left inside the grace', async () => {
+    const { app } = await authApp({
+      roomRoster: async () => [],
+      rejoinGraceMs: 45_000,
+      rejoinPollMs: 5,
+      admissionReservationMs: 20,
+    });
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    const seated = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef' },
+      host,
+    );
+    expect(seated.status).toBe(200);
+
+    // Ada's tab is gone: no cookie arrives with the retry, but the grace still keeps her seat.
+    const back = await post(app, '/api/livekit/token', {
+      participantName: 'Ada',
+      participantRole: 'chef',
+      meetingCode: MEETING_CODE,
+    });
+    expect(back.status).toBe(409);
+    const error = ((await back.json()) as { error: string }).error;
+    expect(error).toContain('being kept for someone who just left');
+    expect(error).toContain('45 seconds');
+  });
+
+  it('says a seat is being kept on the phone join route too', async () => {
+    const { app } = await authApp({
+      roomRoster: async () => [],
+      rejoinGraceMs: 120_000,
+      rejoinPollMs: 5,
+      admissionReservationMs: 20,
+    });
+    const host = await signInAsHost(app);
+    expect((await post(app, '/api/meeting/open', {}, host)).status).toBe(200);
+    const seated = await post(
+      app,
+      '/api/livekit/token',
+      { participantName: 'Ada', participantRole: 'chef' },
+      host,
+    );
+    expect(seated.status).toBe(200);
+
+    // The poll sees the room empty: the grace starts and keeps Ada's seat for her.
+    await settle(50);
+    const back = await post(app, '/api/join', { code: MEETING_CODE, role: 'chef' });
+    expect(back.status).toBe(409);
+    const error = ((await back.json()) as { error: string }).error;
+    expect(error).toContain('being kept for someone who just left');
+    expect(error).toContain('2 minutes');
+  });
+
   it('uses one atomic seat record for participants and the host’s seat', async () => {
     const { app } = await authApp({
       scenario: hostSeatScenario(),

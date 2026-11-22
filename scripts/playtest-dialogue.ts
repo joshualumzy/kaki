@@ -70,7 +70,9 @@ async function simulateAgendaItem(item: AgendaItem, scenario: Scenario): Promise
 
   // Sam speaks the opening lead
   const host = cast.find((npc) => npc.role === 'host')?.attendee ?? 'Sam';
-  const opener = liveNextItemLine(scenario, item.title, { name: human.name, seat: 'Wei Ling' });
+  // Same as runner.ts: when a colleague briefs the item, Sam does not also hand it to someone by name.
+  const opener = liveNextItemLine(scenario, item.title, { name: human.name, seat: 'Wei Ling' },
+    conversation.briefsOnTopic(item.title));
   conversation.announce(host, opener);
 
   // Wait for the two colleagues to complete their briefing turn

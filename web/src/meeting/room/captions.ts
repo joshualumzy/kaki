@@ -169,5 +169,9 @@ export function speakerLabel(speaker: string, viewer: TranscriptViewer | undefin
       (isViewer && viewer.seatName !== undefined && candidate.name.trim().toLowerCase() === viewer.seatName.trim().toLowerCase()),
   );
   const roleObj = attendee === undefined ? undefined : scenario.roles.find((role) => role.id === attendee.role);
-  return roleObj === undefined ? baseName : `${baseName} · ${roleObj.label}`;
+  // A plain seat's label is the person's own name, so showing both would read "Name · Name".
+  if (roleObj === undefined || roleObj.label.trim().toLowerCase() === cleanSpeaker.toLowerCase()) {
+    return baseName;
+  }
+  return `${baseName} · ${roleObj.label}`;
 }

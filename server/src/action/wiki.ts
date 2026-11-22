@@ -41,10 +41,13 @@ export interface WikiModuleOptions {
   today?: () => string;
 }
 
-/** Server time as HH:MM, with no timezone, exactly as the minutes print it. */
+/**
+ * A time as HH:MM in the meeting's own local time zone, exactly as the page shows its date. The
+ * minutes are read next to the page, so a UTC clock there would name a different hour.
+ */
 function clockTime(iso: string): string {
   const time = new Date(iso);
-  return `${String(time.getUTCHours()).padStart(2, '0')}:${String(time.getUTCMinutes()).padStart(2, '0')}`;
+  return `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
 }
 
 /** Format the complete end-of-meeting minutes as Markdown for the team wiki. */
@@ -56,16 +59,17 @@ export function buildMeetingMinutes(
   allTasks: readonly Task[],
   offTheRecordSpans: readonly OffTheRecordSpan[] = [],
 ): string {
-  const sections: string[] = [
-    `# ${scenario.meetingTitle} — Meeting Minutes`,
-    `**Date:** ${date}`,
-    '',
-    '## Agenda Covered',
-    ...scenario.agenda.map((item, idx) => {
-      const decisionSuffix = item.decision !== undefined ? ` — ${item.decision}` : '';
-      return `${idx + 1}. **${item.title}** (${item.minutes} min · ${roleLabel(scenario, item.ownerRole)})${decisionSuffix}`;
-    }),
-  ];
+  const sections: string[] = [`# ${scenario.meetingTitle} — Meeting Minutes`, `**Date:** ${date}`];
+  if (scenario.agenda.length > 0) {
+    sections.push(
+      '',
+      '## Agenda Covered',
+      ...scenario.agenda.map((item, idx) => {
+        const decisionSuffix = item.decision !== undefined ? ` — ${item.decision}` : '';
+        return `${idx + 1}. **${item.title}** (${item.minutes} min · ${roleLabel(scenario, item.ownerRole)})${decisionSuffix}`;
+      }),
+    );
+  }
 
   const activeTasks = allTasks.filter(
     (task) => task.status !== 'DISMISSED' && task.purpose === undefined,

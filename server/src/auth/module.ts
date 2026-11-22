@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Pool } from 'pg';
-import { isObject, MEETING_ENDED_MESSAGE, NO_TEAM_MEETING_MESSAGE } from '@kaki/shared';
+import {
+  isObject,
+  MEETING_ENDED_MESSAGE,
+  NO_TEAM_MEETING_MESSAGE,
+  seatKeptForDepartedMessage,
+} from '@kaki/shared';
 import type { ClientAudience } from '../core/audience';
 import { clientAddress, publicUrlIsHttps, type Principal } from '../http/access';
 import { readJsonBody, sendJson } from '../http/http';
@@ -103,6 +108,11 @@ interface JoinGuard {
    * lifecycle change can then never land between this request's checks and its seat claim.
    */
   admit<T>(task: () => Promise<T>): Promise<T>;
+  /**
+   * How long this seat is still kept for a holder who left and the grace is open, or undefined
+   * when the seat is not being held for a departed person.
+   */
+  departedSeatGraceMs(seat: string): number | undefined;
 }
 
 /** Everything the auth module needs, injected so tests can use an in-memory store. */
@@ -153,7 +163,15 @@ function principalFor(session: SessionRecord, meetingId: string): Principal {
     const seat = session.role !== null && session.meetingId === meetingId ? session.role : undefined;
     return seat === undefined ? { kind: 'host' } : { kind: 'host', seat };
   }
-  return { kind: 'seat', role: session.role ?? '' };
+  // A guest session becomes a participant when it takes a seat, but it carries no user id:
+  // that is the one mark that separates a visitor from a signed-in member behind the same seat.
+  return {
+    kind: 'seat',
+    role: session.role ?? '',
+    ...(session.userId === null || session.userId === undefined
+      ? { guest: true }
+      : { userId: session.userId }),
+  };
 }
 
 /** Create the auth feature: endpoints, session cookies and WebSocket gating. */
@@ -526,6 +544,11 @@ export function createAuth({
             error: 'The meeting changed while you were joining; try again in a moment.',
             retryable: true,
           });
+          return;
+        }
+        const departedGraceMs = joinGuard?.departedSeatGraceMs(role);
+        if (departedGraceMs !== undefined) {
+          sendJson(response, 409, { error: seatKeptForDepartedMessage(departedGraceMs) });
           return;
         }
         sendJson(response, 409, { error: 'That seat is taken. Pick another role.' });

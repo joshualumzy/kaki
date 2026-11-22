@@ -49,7 +49,7 @@ import {
 } from './realMeeting';
 import type { MeetingCodeSource } from './meetingCode';
 import { assertReadableSavedMeeting, assertReadableSavedSetup } from '../persist/state';
-import { createRejoinGuard, createRoomPoll, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
+import { createRejoinGuard, createRoomPoll, departedSeatGraceMs, rejoinGraceMsFromEnv, roomPollIntervalMs, REJOIN_POLL_MS } from './rejoin';
 import { buildRunnerMeetingSnapshot, hostIsHumanFromSession } from './runnerState';
 import { createMeetingSession, type MeetingSession } from './session';
 import { createTaskStore, type TaskStore } from './tasks';
@@ -423,12 +423,17 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
   };
   const isHumanSeat = (role: string): boolean =>
     session.holders().some((holder) => holder.seat === role);
+  /**
+   * Whether the person in each seat is a guest, learned from the principal that authorized their
+   * socket. A seat's own ask always arrives over such a socket, so the map is current when read.
+   */
+  const seatGuests = new Map<string, boolean>();
   const runnerMayUseAudience = (audience: ClientAudience): boolean => {
     const role = audienceRole(audience);
     return role !== undefined && aiVoiceRoles().has(role) && !isHumanSeat(role);
   };
   /** One WebSocket authorization path: the runner token first, then the same session principal as HTTP. */
-  const authorizeUpgrade = async (
+  const authorizeUpgradeBase = async (
     request: IncomingMessage,
     audience: ClientAudience,
   ): Promise<Awaited<ReturnType<Auth['authorize']>>> => {
@@ -492,6 +497,43 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       ...(legacy ? {} : { anyOfferedSeat: true }),
     });
   };
+  const authorizeUpgrade = async (
+    request: IncomingMessage,
+    audience: ClientAudience,
+  ): Promise<Awaited<ReturnType<Auth['authorize']>>> => {
+    const decision = await authorizeUpgradeBase(request, audience);
+    if (decision.ok) {
+      const principal = decision.principal;
+      const seat =
+        audienceRole(audience) ??
+        decision.seat ??
+        (principal?.kind === 'seat' ? principal.role : undefined) ??
+        (principal?.kind === 'host' ? principal.seat : undefined);
+      if (seat !== undefined) {
+        if (principal?.kind === 'seat' && principal.guest !== true) {
+          // A seat without an account, or a signed-in person outside this workspace, is never a
+          // workspace member. A failure to check membership fails closed as a guest.
+          const userId = principal.userId;
+          let guest = userId === undefined;
+          if (userId !== undefined && auth !== undefined) {
+            try {
+              guest =
+                (await auth.store.getMembership({ workspaceId, userId })) ===
+                undefined;
+            } catch (error) {
+              console.warn(`kaki meetings: could not read a seat holder's workspace membership`, error);
+              guest = true;
+            }
+          }
+          seatGuests.set(seat, guest);
+        } else {
+          // A guest principal is a guest; a host seat and every other kind is not.
+          seatGuests.set(seat, principal?.kind === 'guest');
+        }
+      }
+    }
+    return decision;
+  };
   const hub = createHub(null, () => session.active(), {
     noServer: true,
     authorize: authorizeUpgrade,
@@ -526,6 +568,13 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
       practiceSeat: () => session.practiceSeat(),
       hasPracticeCapability: (request) => practicePrincipal(request) !== undefined,
       admit,
+      departedSeatGraceMs: (seat) =>
+        departedSeatGraceMs({
+          seat,
+          holders: session.holders(),
+          graceActive: rejoin.graceActive(),
+          graceMs: rejoin.graceMs(),
+        }),
     });
     auth?.onSessionEnded((sessionTokenHash) => hub.endSession?.(sessionTokenHash));
   }
@@ -1124,6 +1173,21 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
     return personSeatRoles(setup).length;
   }
 
+  /**
+   * The roles for a view that keeps the live agenda: every role the live cast or agenda still names
+   * stays, and a role the next draft defines takes precedence. A blank draft names no roles, so the
+   * finished meeting's registry (including a role the owner added) must not be dropped from the
+   * live view the owner is still looking at.
+   */
+  function rolesKeepingLive(live: Scenario['roles'], next: Scenario['roles']): Scenario['roles'] {
+    const nextById = new Map(next.map((role) => [role.id, role]));
+    const liveIds = new Set(live.map((role) => role.id));
+    return [
+      ...live.map((role) => nextById.get(role.id) ?? role),
+      ...next.filter((role) => !liveIds.has(role.id)),
+    ];
+  }
+
   /** The scenario an owner-edited setup describes, with its AI seats treated as AI-only. */
   function scenarioFromSetup(setup: MeetingSetup): Scenario {
     return meetingScenarioFromSetup(fullScenario, setup);
@@ -1185,7 +1249,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         ? {
             ...active,
             meetingTitle: setup.title.trim() === '' ? active.meetingTitle : setup.title,
-            roles: derived.roles,
+            roles: rolesKeepingLive(active.roles, derived.roles),
             agenda: active.agenda,
             joinSeats,
           }
@@ -1727,6 +1791,7 @@ export async function createMeetingInstance(deps: MeetingInstanceDeps): Promise<
         },
         packFree,
         meetingDetails: () => session.snapshot(),
+        seatIsGuest: (role) => seatGuests.get(role),
         ...(onMinutes === undefined
           ? {}
           : {

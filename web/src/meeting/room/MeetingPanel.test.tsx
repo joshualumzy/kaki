@@ -1034,3 +1034,45 @@ describe('the host briefing', () => {
     expect(screen.getByText(packDecision)).toBeTruthy();
   });
 });
+
+describe('MeetingPanel real meeting', () => {
+  const recordOnly: KakiEvent[] = [{
+    type: 'MEETING_RECORD_UPDATED',
+    audience: { kind: 'all' },
+    payload: { agendaIndex: 0, openQuestions: [], elapsedSeconds: 5, speakerTalkSeconds: {} },
+  }];
+
+  function renderReal(agenda: Scenario['agenda'], real: boolean): void {
+    mocks.useScenario.mockReturnValue({ ...scenario, agenda });
+    mocks.useKaki.mockReturnValue(withSpeech({
+      events: recordOnly,
+      tasks: new Map(),
+      connected: true,
+      rejection: null,
+      send: vi.fn(),
+    }));
+    render(<MeetingPanel viewer={{ name: 'Joshua', seatName: undefined }} role={scenario.roles[0]} real={real} />);
+  }
+
+  it('keeps one End in the bar, and hides the empty agenda clock and controls', () => {
+    renderReal([], true);
+    expect(screen.queryByRole('button', { name: 'End meeting' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Next agenda item' })).toBeNull();
+    expect(screen.queryByText(/Now · item/)).toBeNull();
+    expect(screen.queryByText(/of 0:00/)).toBeNull();
+  });
+
+  it('still offers Next agenda item for a real meeting that has an agenda', () => {
+    renderReal(scenario.agenda, true);
+    expect(screen.getByRole('button', { name: 'Next agenda item' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'End meeting' })).toBeNull();
+    expect(screen.getByText(/Now · item 1 of 1/)).toBeTruthy();
+  });
+
+  it('leaves the practice controls exactly as they were', () => {
+    renderReal(scenario.agenda, false);
+    expect(screen.getByRole('button', { name: 'End meeting' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Next agenda item' })).toBeTruthy();
+  });
+});
+

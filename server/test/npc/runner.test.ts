@@ -2,9 +2,8 @@ import { CONTROL_TOPIC, defaultMeetingSetup, KAKI_LISTENER_IDENTITY, meetingScen
 import { describe, expect, it, vi } from 'vitest';
 import { loadScenario } from '../../src/core/loadScenario';
 import { openingLine } from '../../src/host/opening';
-import { DEFAULT_TOPIC_TIME_BUDGET_MS } from '../../src/npc/conversation';
 import { createMeetingSync } from '../../src/npc/meetingSync';
-import { startNpcRunner, visitorDispatchLine } from '../../src/npc/runner';
+import { startNpcRunner } from '../../src/npc/runner';
 import type { Recognizer } from '../../src/npc/utterance';
 import { runnerSnapshot } from '../fixtures/runnerSnapshot';
 
@@ -80,24 +79,8 @@ vi.mock('@livekit/rtc-node', () => {
   };
 });
 
-describe('visitorDispatchLine', () => {
-  it('points at the card once on the first dispatch and is brief after', () => {
-    expect(visitorDispatchLine('Daniel', 1)).toBe(
-      "Daniel, the follow-up's on your screen whenever you want to send it.",
-    );
-    expect(visitorDispatchLine('Daniel', 2)).toBe(
-      "Daniel, the follow-up's still on your screen whenever you're ready.",
-    );
-  });
-
-  it('never reads the formal task title aloud', () => {
-    const title = 'Reply to trial-day customer by 7:30 with goodwill payment, no admission';
-    for (const count of [1, 2]) expect(visitorDispatchLine('Daniel', count)).not.toContain(title);
-  });
-});
-
-describe('startNpcRunner visitor pointer count', () => {
-  it('points at the card once per topic, however many dispatches arrive', async () => {
+describe('startNpcRunner task dispatch to the visitor', () => {
+  it('says nothing when a task lands on the visitor: Kaki\'s pop-up points at it, not Sam', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
     const transcript: string[] = [];
@@ -118,18 +101,17 @@ describe('startNpcRunner visitor pointer count', () => {
       await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
       await runner.markStarted();
       await vi.waitFor(() => expect(transcript.some((line) => line.startsWith('Welcome to'))).toBe(true));
-      const dispatch = (title: string): string =>
-        `Daniel, I've sent you a task: ${title}. Accept or decline it on your phone.`;
+      const spokenBefore = transcript.length;
+      const done = vi.fn();
 
-      runner.announce(dispatch('Send the note'));
-      await vi.waitFor(() => expect(transcript.filter((line) => line.includes("the follow-up's on your screen"))).toHaveLength(1));
-      runner.announce(dispatch('Book the call'));
+      runner.announce("Daniel, I've sent you a task: Send the note. Accept or decline it on your phone.", done);
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(transcript.filter((line) => line.includes("on your screen"))).toHaveLength(1);
 
-      runner.agendaMoved(scenario.agenda[1]?.title);
-      runner.announce(dispatch('Check the till'));
-      await vi.waitFor(() => expect(transcript.filter((line) => line.includes("the follow-up's on your screen"))).toHaveLength(2));
+      // No decision is committed here, so the card claim is refused and reported as not delivered.
+      expect(done).toHaveBeenCalledTimes(1);
+      expect(done).toHaveBeenCalledWith(false);
+      const after = transcript.slice(spokenBefore).join(' ');
+      expect(after).not.toMatch(/on your (?:screen|phone)|follow-up|Send the note/i);
     } finally {
       await runner.stop();
     }
@@ -874,7 +856,7 @@ describe('startNpcRunner serialized start', () => {
 
         await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
         // Opening the topic is a real initialization, not just the default agenda item: its timer is armed.
-        expect(timeoutSpy.mock.calls.some((call) => call[1] === DEFAULT_TOPIC_TIME_BUDGET_MS)).toBe(true);
+        expect(timeoutSpy.mock.calls.some((call) => call[1] === scenario.agenda[0]!.minutes * 60_000)).toBe(true);
       } finally {
         timeoutSpy.mockRestore();
       }
@@ -1030,6 +1012,49 @@ describe('setup edits before Start', () => {
 });
 
 describe('an ended meeting on reconnect', () => {
+  it('starts the next practice meeting fresh when the same id is live again', async () => {
+    rooms.length = 0;
+    const scenario = await loadScenario('kopitiam');
+    const transcript: string[] = [];
+    const log: string[] = [];
+    const runner = await startNpcRunner({
+      scenario,
+      livekitUrl: 'ws://offline.invalid',
+      stream: async function* () {},
+      synthesize: async () => new Int16Array(),
+      postTranscript: (_speaker, text) => transcript.push(text),
+      postTranscriptUpdate: () => undefined,
+      log: (line) => log.push(line),
+      responseDelayMs: 0,
+      speakerGapMs: 0,
+      sentenceGapMs: 0,
+    });
+    try {
+      const participant = { identity: 'visitor-1', name: 'Daniel', metadata: 'operations_director' };
+      rooms[0]!.emit('participantConnected', participant);
+      await vi.waitFor(() => expect(runner.plays('Arjun')).toBe(true));
+      await runner.markStarted({ meetingId: 'meeting-1' });
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
+
+      runner.reconcileMeeting(
+        runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'ended', started: false, version: 3 }),
+      );
+      expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1);
+
+      await runner.prepareMeeting({
+        meetingId: 'meeting-1',
+        attempt: 'attempt-2',
+        snapshot: runnerSnapshot(scenario, { meetingId: 'meeting-1', phase: 'running', started: true, version: 4 }),
+      });
+      await runner.markStarted({ meetingId: 'meeting-1' });
+
+      await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(2));
+      expect(log.some((line) => line.includes('live again'))).toBe(true);
+    } finally {
+      await runner.stop();
+    }
+  });
+
   it('stops the conversation and never speaks the closing line on catch-up', async () => {
     rooms.length = 0;
     const scenario = await loadScenario('kopitiam');
@@ -1299,7 +1324,7 @@ describe('meeting sync with the real runner', () => {
         await vi.waitFor(() => expect(transcript.filter((line) => line.startsWith('Welcome to'))).toHaveLength(1));
         await vi.waitFor(() => expect(runner.onCurrentAgenda(scenario.agenda[0]!.title)).toBe(true));
         // Opening the topic is a real initialization: its timer is armed, not just the default item.
-        expect(timeoutSpy.mock.calls.some((call) => call[1] === DEFAULT_TOPIC_TIME_BUDGET_MS)).toBe(true);
+        expect(timeoutSpy.mock.calls.some((call) => call[1] === scenario.agenda[0]!.minutes * 60_000)).toBe(true);
 
         // The retained event catches up afterwards; it must not welcome the guest a second time.
         sync.started({ meetingId: 'meeting-1', agendaIndex: 0, resumed: false });

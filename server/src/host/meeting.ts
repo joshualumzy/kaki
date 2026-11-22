@@ -3,6 +3,7 @@ import { audienceRole } from '../core/audience';
 import { CommandError } from '../core/hub';
 import type { LlmClient } from '../services/llm';
 import type { KakiContext, KakiModule } from '../core/modules';
+import { connectedKinds } from '../action/fit';
 import { createAgendaClock, type AgendaClock } from './clock';
 import { installAutoDispatch } from './autoDispatch';
 import { hostIsHumanFromSession } from '../meeting/runnerState';
@@ -63,6 +64,7 @@ export function createMeetingModule({
       meetingKind,
       quietCue,
       notesPaused,
+      tools,
     }: KakiContext) {
       const clock = sharedClock ?? createAgendaClock({ agenda: activeScenario().agenda, speed });
       // A real meeting keeps Kaki silent: no spoken opening, cues or closing, only quiet state notes.
@@ -157,7 +159,10 @@ export function createMeetingModule({
             : () => hostIsHumanFromSession(session, activeScenario()),
           holdUntilSettled: holdSuggestionsUntilSettled,
           speaks: () => !realMeeting(),
-          agendaIndex: () => clock.snapshot().agendaIndex });
+          agendaIndex: () => clock.snapshot().agendaIndex,
+          // A card whose tool this workspace has not connected stays a plain to-do, never "sent".
+          connected: async (kind) =>
+            connectedKinds(tools === undefined ? undefined : await tools()).includes(kind) });
 
       let lastSignature: string | undefined;
       let lastPublishedAt = 0;

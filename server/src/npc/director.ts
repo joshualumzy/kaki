@@ -257,7 +257,7 @@ export function buildSystemPrompt(
             ...itemRules(scenario, human, host.attendee, currentTitle, agendaDecision, alreadyAsked),
             ...(human !== undefined
               ? [
-                  `- When ${human.name} settles the item, confirm their call in their words, without adding promises or figures. Never tell the visitor to send, post, email or share the note, decision or follow-up themselves; the system points them at the card after you speak. The visitor owns this follow-up card and its draft; no colleague says they will draft, post, send or email it themselves. If the visitor already volunteered, acknowledge that without another request. After the visitor has made the call, colleagues only react briefly: agree, name a small worry as a statement, or offer to do their part. Ask no new questions once the call is made. Stop after confirming.`,
+                  `- When ${human.name} settles the item, confirm their call in their words, without adding promises or figures. Never tell the visitor to send, post, email or share the note, decision or follow-up themselves; the system points them at the card after you speak. The visitor owns this follow-up card and its draft; no colleague says they will draft, post, send or email it themselves. If the visitor already volunteered, acknowledge that without another request. After the visitor has made the call, colleagues only react briefly: agree, name a small worry as a statement, or offer to do their part. A step ${human.name} gave someone by name stays theirs: no one else claims it, offers to swap it, or says they would rather do it. Ask no new questions once the call is made. Stop after confirming.`,
                 ]
               : [
                   '- When the person has decided something (including a practical alternative of their own), the others accept it once made and say what they will do about it; they do not reopen it unless something new makes it wrong.',
@@ -292,6 +292,7 @@ export function buildSystemPrompt(
 /** Strip anything that would be read out loud badly: markdown, emoji, stage directions, and spaced dashes that TTS rushes through. */
 export function cleanSpoken(text: string): string {
   return text
+    .replace(/<\/?[a-z][^>\n]{0,20}>/gi, ' ') // <br>, <p>: markup the model leaked
     .replace(/(\*\*|__)([^*_\n]+)\1/g, '$2') // **bold** keeps its words
     .replace(/\*[^*\n]{1,40}\*/g, ' ') // *smiles*
     .replace(/\([^)\n]{1,40}\)/g, ' ') // (smiles)
@@ -301,6 +302,20 @@ export function cleanSpoken(text: string): string {
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Tag names left behind when the model leaks HTML (",br"): letters, but nothing a voice would say as a line. */
+const MARKUP_WORDS = new Set(['br', 'hr', 'p', 'b', 'i', 'u', 'em', 'li', 'ul', 'ol', 'td', 'tr', 'th', 'div', 'span']);
+
+/**
+ * True when a line has at least one word a voice can say: a number, a non-Latin word, or a Latin word of two or more
+ * letters that is not a leaked tag name. Consonant-only words ("GST", "HDB", "Hmm") count. Fragments such as ",br" or
+ * "-" are not lines.
+ */
+export function hasSpeakableWord(text: string): boolean {
+  return text.split(/[^\p{L}\p{N}']+/u).some((word) =>
+    /\p{N}/u.test(word) || /[^\u0000-\u024F']/u.test(word) ||
+    (word.replace(/'/g, '').length >= 2 && !MARKUP_WORDS.has(word.toLowerCase())));
 }
 
 /** Phrases that only appear when the model talks about its instructions instead of speaking as a character. */
@@ -459,6 +474,10 @@ export class TurnParser {
         return;
       }
       if (META_LEAK.test(spoken)) return;
+      if (/[\p{L}\p{N}]/u.test(spoken) && !hasSpeakableWord(spoken)) {
+        this.log?.(`[unspeakable] dropped a fragment with no word to say: ${JSON.stringify(spoken)}`);
+        return;
+      }
       if (/[\p{L}\p{N}]/u.test(spoken) && this.speaker !== undefined) {
         this.sentenceCount += 1;
         if (this.pendingVisitorQuestion !== undefined) {

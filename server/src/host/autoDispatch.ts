@@ -1,4 +1,4 @@
-import { roleLabel, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
+import { ACTION_KIND_LABELS, roleLabel, type ActionKind, type KakiEvent, type Scenario, type Task } from '@kaki/shared';
 import type { Hub } from '../core/hub';
 import type { TaskStore } from '../meeting/tasks';
 
@@ -38,11 +38,6 @@ export function dispatchLine(name: string, title: string, count: number): string
 export function colleagueAskNote(host: string, name: string, title: string): string {
   const intent = title.trim().replace(/[.!?]+$/, '');
   return `[The Note Taker has a follow-up for ${name} from this topic: "${intent}". Begin your reply with "${host}:". ${host} asks ${name} by name, in ONE short spoken sentence, to take it on, using the words the room has been using — never the task title's wording, no report phrases, no quotes. Ask a question, and do not mention a phone, the task list, or this note.]`;
-}
-
-/** The note the AI host points the visitor at their follow-up card from; the card is pointed at once per topic. */
-export function guestCardNote(host: string, guest: string): string {
-  return `[The follow-up the room just agreed on is now on ${guest}'s card. Begin your reply with "${host}:". In ONE short spoken sentence, ${host} tells ${guest} in ${host}'s own words that the follow-up is on their screen and they can send it whenever they are ready. Do not read out a task title or report wording, and do not mention this note.]`;
 }
 
 /** What Sam should say when a task goes to a colleague in the room; no note means the colleague speaks for themselves. */
@@ -96,6 +91,7 @@ export function installAutoDispatch({
   holdUntilSettled = () => false,
   speaks = () => true,
   agendaIndex,
+  connected,
 }: {
   hub: Hub;
   tasks: TaskStore;
@@ -117,6 +113,12 @@ export function installAutoDispatch({
    * A plain boolean is accepted for callers that own the decision themselves.
    */
   holdUntilSettled?: boolean | (() => boolean);
+  /**
+   * Whether a tool kind is connected in this meeting's workspace. A task whose tool is not
+   * connected never looks sent: it stays SUGGESTED with the reason on its card. Omitted by
+   * callers that do not have a workspace (tests, the replay harness).
+   */
+  connected?: (kind: ActionKind) => Promise<boolean>;
 }): () => void {
   let sent = 0;
   let active = true;
@@ -124,17 +126,22 @@ export function installAutoDispatch({
     typeof holdUntilSettled === 'function' ? holdUntilSettled() : holdUntilSettled;
   const settledTopics = new Set<string>();
   const held = new Map<string, Task>();
+  const checking = new Set<string>();
   /** The agenda item the meeting is on when no clock is supplied, learned from the shared record. */
   let recordAgendaIndex = 0;
   const currentAgendaIndex = (): number => agendaIndex?.() ?? recordAgendaIndex;
-  const dispatch = (task: Task): void => {
-    if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return;
-    const scenario = activeScenario();
+  const canDispatch = (task: Task): boolean => {
+    if (!active || task.status !== 'SUGGESTED' || hostIsHuman()) return false;
     // Server-owned meeting cards (the minutes and the notes send-out) already wait on a person; never offer them as a new task.
-    if (task.purpose !== undefined) return;
+    if (task.purpose !== undefined) return false;
+    const scenario = activeScenario();
     const role = scenario.roles.find((candidate) => candidate.id === task.suggestedAssignee);
     const present = scenario.attendees.some((attendee) => attendee.role === task.suggestedAssignee);
-    if (role === undefined || role.facilitator === true || !present) return;
+    return role !== undefined && role.facilitator !== true && present;
+  };
+  const performDispatch = (task: Task): void => {
+    if (!canDispatch(task)) return;
+    const scenario = activeScenario();
     tasks.transition(task.id, 'DISPATCHED', { assignee: task.suggestedAssignee });
     if (speaks()) {
       const cue: KakiEvent = {
@@ -145,6 +152,48 @@ export function installAutoDispatch({
       hub.publish(cue);
     }
     sent += 1;
+  };
+  const markUnavailable = (task: Task, reason: string): void => {
+    const current = tasks.get(task.id);
+    if (current === undefined || current.status !== 'SUGGESTED') return;
+    tasks.setActionFit(current.id, { status: 'none', reason, toolMissing: true }, current.updatedAt);
+    console.warn(`kaki auto-dispatch: "${current.title}" stays a plain to-do: ${reason}`);
+  };
+  const dispatch = (task: Task): void => {
+    if (!canDispatch(task)) return;
+    const kind = task.actionKind;
+    if (kind === undefined || connected === undefined) {
+      performDispatch(task);
+      return;
+    }
+    if (checking.has(task.id)) return;
+    checking.add(task.id);
+    void connected(kind)
+      .then((isConnected) => {
+        if (!active) return;
+        const current = tasks.get(task.id);
+        if (current === undefined || current.status !== 'SUGGESTED') return;
+        if (!isConnected) {
+          markUnavailable(current, `No ${ACTION_KIND_LABELS[kind]} connected in this workspace. Connect one so Kaki can send this.`);
+          return;
+        }
+        performDispatch(current);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        console.error(`kaki auto-dispatch: could not check whether ${kind} is connected`, error);
+        const current = tasks.get(task.id);
+        if (current === undefined || current.status !== 'SUGGESTED') return;
+        tasks.setActionFit(
+          current.id,
+          {
+            status: 'error',
+            reason: `Kaki could not read this workspace's tools: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          current.updatedAt,
+        );
+      })
+      .finally(() => checking.delete(task.id));
   };
   const release = (title?: string, priorityId?: string): void => {
     const candidates = [...held.values()].filter((task) => title === undefined || task.agendaItemTitle === title);

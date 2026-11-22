@@ -294,47 +294,73 @@ describe('wiki action module', () => {
     expect(llm.calls).toHaveLength(0);
   });
 
-  it('marks each off-the-record span with its times and no content', () => {
+  it('marks each off-the-record span in the meeting local time, not UTC', () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = 'Asia/Singapore';
+    try {
+      const minutes = buildMeetingMinutes(
+        testScenario,
+        '2026-11-03',
+        [{ speaker: 'Mei (Chef)', text: 'On the record.' }],
+        [],
+        [],
+        [
+          { from: '2026-11-03T10:05:00.000Z', to: '2026-11-03T10:07:00.000Z' },
+          { from: '2026-11-03T10:20:00.000Z', to: '2026-11-03T10:21:30.000Z' },
+        ],
+      );
+      expect(minutes).toContain('- Off the record 18:05–18:07');
+      expect(minutes).toContain('- Off the record 18:20–18:21');
+      expect(minutes).not.toContain('secret');
+    } finally {
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
+  });
+
+  it('leaves out the Agenda Covered heading when the meeting had no agenda', () => {
     const minutes = buildMeetingMinutes(
-      testScenario,
+      { ...testScenario, agenda: [] },
       '2026-11-03',
-      [{ speaker: 'Mei (Chef)', text: 'On the record.' }],
+      [{ speaker: 'Mei (Chef)', text: 'A quick call with no agenda.' }],
       [],
       [],
-      [
-        { from: '2026-11-03T10:05:00.000Z', to: '2026-11-03T10:07:00.000Z' },
-        { from: '2026-11-03T10:20:00.000Z', to: '2026-11-03T10:21:30.000Z' },
-      ],
     );
-    expect(minutes).toContain('- Off the record 10:05–10:07');
-    expect(minutes).toContain('- Off the record 10:20–10:21');
-    expect(minutes).not.toContain('secret');
+    expect(minutes).not.toContain('Agenda Covered');
+    expect(minutes).toContain('## Action Items & Follow-Ups');
   });
 
   it('drafts the minutes from the ended record of a real meeting, with no spoken closing', async () => {
-    const tasks = setup(
-      { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
-      false,
-      {
-        seats: [{ name: 'Bao', seat: 'cashier' }],
-        offTheRecordSpans: [{ from: '2026-11-03T10:05:00.000Z', to: '2026-11-03T10:06:00.000Z' }],
-      },
-    );
-    tasks.hub.publish({
-      type: 'MEETING_RECORD_UPDATED',
-      audience: { kind: 'screen' },
-      payload: {
-        agendaIndex: 0,
-        openQuestions: [],
-        elapsedSeconds: 60,
-        speakerTalkSeconds: {},
-        ended: true,
-      },
-    });
+    const previousTz = process.env.TZ;
+    process.env.TZ = 'Asia/Singapore';
+    try {
+      const tasks = setup(
+        { llm: createFakeLlm(() => reply), wiki: settings, fetchImpl: wikiFetch(), minutesDelayMs: 10, today: () => '2026-11-03' },
+        false,
+        {
+          seats: [{ name: 'Bao', seat: 'cashier' }],
+          offTheRecordSpans: [{ from: '2026-11-03T10:05:00.000Z', to: '2026-11-03T10:06:00.000Z' }],
+        },
+      );
+      tasks.hub.publish({
+        type: 'MEETING_RECORD_UPDATED',
+        audience: { kind: 'screen' },
+        payload: {
+          agendaIndex: 0,
+          openQuestions: [],
+          elapsedSeconds: 60,
+          speakerTalkSeconds: {},
+          ended: true,
+        },
+      });
 
-    const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'the real meeting minutes task');
-    expect(minutesTask.status).toBe('DRAFT_READY');
-    expect(minutesTask.draft?.body).toContain('- Off the record 10:05–10:06');
+      const minutesTask = await waitFor(() => minutesTaskIn(tasks), 'the real meeting minutes task');
+      expect(minutesTask.status).toBe('DRAFT_READY');
+      expect(minutesTask.draft?.body).toContain('- Off the record 18:05–18:06');
+    } finally {
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
   });
 
   it('drafts the minutes even when the meeting closed with an empty transcript', async () => {

@@ -222,6 +222,25 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         search !== undefined &&
         !(ctx.packFree?.() === true && workspaceId === SAMPLE_WORKSPACE_ID);
 
+      let unknownGuestWarned = false;
+      /**
+       * A guest in a real meeting gets answers and notes from this meeting only: nothing the
+       * workspace holds may reach them. Practice and the legacy demo keep their sample workspace.
+       * An unknown identity fails closed as a guest, loudly once.
+       */
+      const isGuest = (role: Role): boolean => {
+        if (ctx.meetingKind?.() !== 'real') return false;
+        const guest = ctx.seatIsGuest?.(role);
+        if (guest !== undefined) return guest;
+        if (!unknownGuestWarned) {
+          unknownGuestWarned = true;
+          console.warn(
+            'kaki wingman: the seat holder is unknown, so they are treated as a guest and workspace records stay private',
+          );
+        }
+        return true;
+      };
+
       function publishNote(role: Role, payload: WingmanNotePayload, retainKey: string): void {
         ctx.hub.publish(
           { type: 'WINGMAN_NOTE', audience: { kind: 'role', role }, payload },
@@ -339,7 +358,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         role: Role,
         limit: number,
       ): Promise<Fact[]> {
-        if (search === undefined || !searchEnabled()) return [];
+        if (search === undefined || !searchEnabled() || isGuest(role)) return [];
         try {
           const facts = await search(question, role);
           return facts.slice(0, limit);
@@ -355,11 +374,13 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         lastRecordLineCount = transcript.length;
         const latest = transcript[transcript.length - 1];
         if (latest === undefined || isAiHostLine(ctx.activeScenario(), latest)) return;
-        for (const person of peopleInMeeting(ctx)) void judgeRecord(person);
+        for (const person of peopleInMeeting(ctx)) {
+          if (!isGuest(person.role)) void judgeRecord(person);
+        }
       }
 
       async function judgeRecord(person: Person): Promise<void> {
-        if (stopped || llm === undefined) return;
+        if (stopped || llm === undefined || isGuest(person.role)) return;
         if (recordRunning.has(person.role)) return;
         const previous = recordCheckedAt.get(person.role);
         if (previous !== undefined && now() - previous < recordRateLimitMs) return;
@@ -455,7 +476,7 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
 
         let facts: Fact[] = [];
         let searchFailed = false;
-        if (search !== undefined && searchEnabled()) {
+        if (search !== undefined && searchEnabled() && !isGuest(person.role)) {
           try {
             facts = (await search(question, person.role)).slice(0, MAX_RECORD_FACTS);
           } catch (error) {
@@ -623,10 +644,19 @@ export function createWingmanModule(options: WingmanModuleOptions = {}): KakiMod
         }
       });
 
-      // A person's role socket and a practice meeting's own screen both act as that person's seat.
+      // A person's role socket and a meeting's own screen both act as that person's seat. A real
+      // meeting's screen is the host's: it acts as the facilitator's plain seat when that person is
+      // in the room, so the owner can ask their own Wingman just as any participant can.
       function seatOf(sender: { kind: string; role?: Role }): Role | undefined {
         if (sender.kind === 'role') return sender.role;
-        if (sender.kind === 'screen') return ctx.session?.practiceSeat();
+        if (sender.kind === 'screen') {
+          const practice = ctx.session?.practiceSeat();
+          if (practice !== undefined) return practice;
+          const facilitator = ctx.activeScenario().roles.find((role) => role.facilitator === true);
+          if (facilitator === undefined) return undefined;
+          const held = (ctx.meetingDetails?.().holders ?? []).some((holder) => holder.seat === facilitator.id);
+          return held ? facilitator.id : undefined;
+        }
         return undefined;
       }
 

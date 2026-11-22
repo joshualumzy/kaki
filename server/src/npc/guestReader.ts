@@ -50,6 +50,11 @@ export interface GuestReading {
   readiness: GuestReadiness;
   /** The zero-based index of the offered choice the guest picked, after validation. */
   chosenOption?: number;
+  /**
+   * The reader failed (timeout, gateway error) and this is the stand-in `unsure` reading. It says nothing about
+   * what the guest meant, so it must never count as a "no" to a pending confirmation or offer (#68).
+   */
+  failed?: true;
 }
 
 /** The exact call or choice Sam put to the guest in an open offer. */
@@ -184,8 +189,8 @@ function validateReading(
   const knownFactIds = new Set(input.colleagues.flatMap((colleague) => colleague.facts.map((fact) => fact.id)));
   const knownCatchIds = new Set(input.colleagues.flatMap((colleague) => colleague.catches.map((entry) => entry.id)));
 
-  const addressee = typeof value.addressee === 'string' && present.has(value.addressee.trim())
-    ? value.addressee.trim()
+  const addressee = typeof value.addressee === 'string'
+    ? presentNameFor(value.addressee, [...present])
     : undefined;
   if (typeof value.addressee === 'string' && value.addressee.trim().length > 0 && addressee === undefined) {
     log(`[reader] dropped unknown addressee "${value.addressee.slice(0, 80)}"`);
@@ -225,6 +230,33 @@ function validateReading(
     },
     ...(chosenOption === undefined ? {} : { chosenOption }),
   };
+}
+
+/** A name with its vowels dropped after the first letter: "Mei", "May" and "Mae" all sound alike as "m". */
+function nameSkeleton(name: string): string {
+  const lower = name.toLowerCase().replace(/[^a-z]/g, '');
+  return lower.length === 0 ? '' : lower[0] + lower.slice(1).replace(/[aeiouyh]/g, '');
+}
+
+/**
+ * The present colleague a heard name stands for. Speech recognition spells names by sound ("Mei" comes back as
+ * "May"), so a name matches by its exact spelling first, then by its sound when only one colleague sounds like it.
+ */
+export function presentNameFor(heard: string, present: readonly string[]): string | undefined {
+  const name = heard.trim();
+  if (name.length === 0) return undefined;
+  const exact = present.find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  if (exact !== undefined) return exact;
+  const skeleton = nameSkeleton(name);
+  if (skeleton.length === 0) return undefined;
+  const alike = present.filter((candidate) => nameSkeleton(candidate) === skeleton);
+  return alike.length === 1 ? alike[0] : undefined;
+}
+
+/** The colleague a line opens by calling on, as in "Arjun, what happens to our listing?", if any. */
+export function calledOnByName(line: string, present: readonly string[]): string | undefined {
+  const match = /^\s*(?:(?:hey|ok|okay|so|and|uh|um)[,\s]+)?([A-Za-z]+)\s*[,:]/i.exec(line);
+  return match === null ? undefined : presentNameFor(match[1]!, present);
 }
 
 function unsureReading(): GuestReading {
@@ -443,7 +475,14 @@ export async function readGuestLine(input: GuestReaderInput, ports: GuestReaderP
   }
 
   log(`[reader] failed: ${failure}; treating the line as unsure`);
-  const reading = unsureReading();
+  // With no reading, a colleague the guest called on by name still owns the reply.
+  const calledOn = calledOnByName(input.line, input.colleagues.map((colleague) => colleague.name));
+  if (calledOn !== undefined) log(`[reader] the line calls on ${calledOn} by name; they answer it`);
+  const reading: GuestReading = {
+    ...unsureReading(),
+    ...(calledOn === undefined ? {} : { addressee: calledOn }),
+    failed: true,
+  };
   logReader(log, reading, Date.now() - startedAt);
   return reading;
 }

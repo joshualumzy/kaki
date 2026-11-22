@@ -51,6 +51,13 @@ describe('LandingPage', () => {
     expect(screen.getByRole('link', { name: 'Try a practice meeting' }).getAttribute('href')).toBe('/practice');
   });
 
+  it('shows a six-character example meeting code', () => {
+    renderPage();
+    const input = screen.getByLabelText('Got an invite? Enter the meeting code') as HTMLInputElement;
+    expect(input.placeholder).toBe('K7M2Q9');
+    expect(input.placeholder).toHaveLength(6);
+  });
+
   it('takes an invite code to the participant join page', () => {
     renderPage();
     fireEvent.change(screen.getByLabelText('Got an invite? Enter the meeting code'), {

@@ -14,22 +14,30 @@ export function HostBrief({ scenario, practice }: { scenario: Scenario; practice
           <>
             <p>In this meeting:</p>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {scenario.attendees.map((attendee) => (
-                <li key={attendee.name}>
-                  {attendee.name} · {roleLabel(scenario, attendee.role)}
-                </li>
-              ))}
+              {scenario.attendees.map((attendee) => {
+                const label = roleLabel(scenario, attendee.role);
+                return (
+                  <li key={attendee.name}>
+                    {attendee.name}
+                    {label.trim().toLowerCase() === attendee.name.trim().toLowerCase() ? '' : ` · ${label}`}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}
-        <p>Agenda:</p>
-        <ol style={{ margin: 0, paddingLeft: 18 }}>
-          {scenario.agenda.map((item) => (
-            <li key={item.title}>
-              {item.title} · {item.minutes} min · {roleLabel(scenario, item.ownerRole)}
-            </li>
-          ))}
-        </ol>
+        {scenario.agenda.length > 0 && (
+          <>
+            <p>Agenda:</p>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              {scenario.agenda.map((item) => (
+                <li key={item.title}>
+                  {item.title} · {item.minutes} min · {roleLabel(scenario, item.ownerRole)}
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
       </section>
     );
   }

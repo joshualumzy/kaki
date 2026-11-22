@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { KakiEvent, Scenario } from '@kaki/shared';
+import type { KakiEvent, Role, Scenario } from '@kaki/shared';
 import { createApp, type KakiApp } from '../../src/app';
 import { createAuth } from '../../src/auth/module';
 import { hashToken } from '../../src/auth/password';
@@ -12,6 +12,7 @@ import { createMemoryMeetingStore, type MeetingStore } from '../../src/meeting/r
 import { createMeetingCodeSource } from '../../src/meeting/meetingCode';
 import { createMeetingPersistence, type MeetingPersistence } from '../../src/persist/persistence';
 import type { StoredMeeting } from '../../src/persist/state';
+import type { KakiModule } from '../../src/core/modules';
 import type { MeetingModules } from '../../src/modules';
 import { createFakeLlm, type LlmClient } from '../../src/services/llm';
 import { testScenario } from '../fixtures/scenario';
@@ -195,6 +196,7 @@ async function buildApp(
     meetingModule?: FakeModuleOptions;
     scenario?: Scenario;
     startAckTimeoutMs?: number;
+    modules?: MeetingModules['modules'];
   } = {},
 ): Promise<Built> {
   const store = createMemoryAuthStore();
@@ -214,7 +216,13 @@ async function buildApp(
     serviceToken: SERVICE_TOKEN,
     roomRoster: async () => [],
     ...(options.startAckTimeoutMs === undefined ? {} : { startAckTimeoutMs: options.startAckTimeoutMs }),
-    meetingModules: () => fakeModules(clock, options.meetingModule),
+    meetingModules: () => {
+      const built = fakeModules(clock, options.meetingModule);
+      return {
+        ...built,
+        modules: [...built.modules, ...(options.modules ?? [])],
+      };
+    },
   });
   apps.push(app);
   return { app, base: `http://127.0.0.1:${portOf(app)}`, port: portOf(app), store, meetings, clock };
@@ -367,6 +375,37 @@ describe('real meeting controls', () => {
       () => screen.messages.find((event) => event.type === 'TRANSCRIPT_CHUNK' && event.payload.text === 'Back on the record.'),
       'the resumed transcript line',
     );
+  });
+
+  it('tells a module which seat holders are guests and which are signed in', async () => {
+    let lookup: ((role: Role) => boolean | undefined) | undefined;
+    const capture: KakiModule = {
+      name: 'capture-seat-identity',
+      start(ctx) {
+        lookup = ctx.seatIsGuest;
+      },
+    };
+    const built = await buildApp({ modules: [capture] });
+    const owner = await signIn(built.store, 'Ada');
+    const meetingId = await createAndOpen(built, owner);
+    const ownerJoin = await join(built, meetingId, owner.cookie, 'Ada', 'chef');
+    expect(ownerJoin.response.status).toBe(200);
+    const ownerSocket = await connect(built.port, meetingId, { role: ownerJoin.seat }, ownerJoin.cookie);
+    sockets.push(ownerSocket);
+
+    const guestJoin = await request(built.base, `/api/meetings/${meetingId}/join`, {
+      method: 'POST',
+      body: { name: 'Guest' },
+    });
+    expect(guestJoin.status).toBe(200);
+    const guestCookie = cookiePair(setCookies(guestJoin), 'kaki_session');
+    const guest = await join(built, meetingId, guestCookie, 'Guest', 'cashier', ownerJoin.meetingCode);
+    expect(guest.response.status).toBe(200);
+    const guestSocket = await connect(built.port, meetingId, { role: guest.seat }, guest.cookie);
+    sockets.push(guestSocket);
+
+    await waitFor(() => lookup?.(ownerJoin.seat) === false, 'the signed-in seat identity');
+    await waitFor(() => lookup?.(guest.seat) === true, 'the guest seat identity');
   });
 
   it('refuses End from a guest and lets the owner end the meeting for everyone', async () => {
