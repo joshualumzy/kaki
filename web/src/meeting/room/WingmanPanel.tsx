@@ -1,6 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection } from '../../kaki';
+import { DID_NOT_WORK, plainServerText } from '../../net/plainFailure';
+
+/** How long an ask may go unanswered before the panel says so. */
+const ASK_WAIT_MS = 20_000;
 
 const KIND_LABELS: Record<WingmanNotePayload['kind'], string> = {
   answer: 'Answer',
@@ -55,21 +59,53 @@ export function WingmanPanel({
   onQuietCountChange?(count: number): void;
 }) {
   const [question, setQuestion] = useState('');
+  // The ask in flight: what the panel showed when it was sent, so any new note or refusal ends the wait.
+  const [waiting, setWaiting] = useState<{
+    knownIds: ReadonlySet<string>;
+    rejection: KakiRejection | null | undefined;
+  } | null>(null);
+  const [timedOut, setTimedOut] = useState(false);
+  const [notSent, setNotSent] = useState(false);
   const quietCount = notes.filter((note) => note.urgency === 'quiet').length;
 
   useEffect(() => {
     onQuietCountChange?.(quietCount);
   }, [quietCount, onQuietCountChange]);
 
+  useEffect(() => {
+    if (waiting === null) return;
+    if (askRejection !== waiting.rejection || notes.some((note) => !waiting.knownIds.has(note.id))) {
+      setWaiting(null);
+      setTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setTimedOut(true), ASK_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [waiting, notes, askRejection]);
+
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const trimmed = question.trim();
     if (trimmed === '') return;
-    onAsk(trimmed);
+    setTimedOut(false);
+    setNotSent(false);
+    if (!onAsk(trimmed)) {
+      setWaiting(null);
+      setNotSent(true);
+      return;
+    }
+    setWaiting({ knownIds: new Set(notes.map((note) => note.id)), rejection: askRejection });
   }
 
   const problem =
-    askRejection?.commandType === 'ASK_WINGMAN' ? askRejection.reason : undefined;
+    notSent || (askRejection?.commandType === 'ASK_WINGMAN' && askRejection.reason === 'not connected')
+    ? 'Your question was not sent. Check your connection and ask again.'
+    : timedOut
+      ? "Wingman didn't answer. Ask again."
+      : askRejection?.commandType === 'ASK_WINGMAN'
+        ? (plainServerText(askRejection.reason) ?? DID_NOT_WORK)
+        : undefined;
+  const thinking = waiting !== null && !timedOut;
 
   return (
     <section className="kd-role kd-wingman" aria-label="Wingman">
@@ -103,6 +139,11 @@ export function WingmanPanel({
           </button>
         </div>
       </form>
+      {thinking && (
+        <p className="kd-hint" role="status">
+          Wingman is thinking…
+        </p>
+      )}
       {problem !== undefined && (
         <p className="kd-wingman-problem" role="alert">
           {problem}

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WingmanNotePayload } from '@kaki/shared';
 import { WingmanActNow, WingmanPanel } from './WingmanPanel';
@@ -79,6 +79,34 @@ describe('WingmanPanel', () => {
       />,
     );
     expect(screen.getByRole('alert').textContent).toContain('Only a person in a seat can ask the Wingman');
+  });
+});
+
+describe('WingmanPanel waiting', () => {
+  it('says Wingman is thinking, then gives up after 20 seconds and keeps the question', () => {
+    vi.useFakeTimers();
+    try {
+      render(<WingmanPanel notes={[]} onAsk={() => true} onDismiss={() => undefined} />);
+      const field = screen.getByLabelText('Ask Kaki about this meeting') as HTMLInputElement;
+      fireEvent.change(field, { target: { value: 'What did we decide?' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+      expect(screen.getByText('Wingman is thinking…')).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(20_000);
+      });
+      expect(screen.getByRole('alert').textContent).toBe("Wingman didn't answer. Ask again.");
+      expect(field.value).toBe('What did we decide?');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says so when the question could not be sent', () => {
+    render(<WingmanPanel notes={[]} onAsk={() => false} onDismiss={() => undefined} />);
+    fireEvent.change(screen.getByLabelText('Ask Kaki about this meeting'), { target: { value: 'Hi?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(screen.getByRole('alert').textContent).toContain('not sent');
+    expect(screen.queryByText('Wingman is thinking…')).toBeNull();
   });
 });
 
