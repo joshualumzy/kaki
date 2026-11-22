@@ -9,6 +9,8 @@ export interface RealRoomValue {
   role: string;
   isHost: boolean;
   meetingId: string;
+  /** Set when the server closed the connection because the meeting ended while this seat was away. */
+  endedWhileAway: string | undefined;
 }
 
 const RealRoomContext = createContext<RealRoomValue | null>(null);
@@ -25,9 +27,9 @@ export function RealRoomStateProvider({
   meetingId: string;
   children: ReactNode;
 }) {
-  const { meetingState, send } = useKaki(isHost ? { kind: 'screen' } : { kind: 'participant' });
+  const { meetingState, send, ended } = useKaki(isHost ? { kind: 'screen' } : { kind: 'participant' });
   return (
-    <RealRoomContext.Provider value={{ meetingState, send, role, isHost, meetingId }}>
+    <RealRoomContext.Provider value={{ meetingState, send, role, isHost, meetingId, endedWhileAway: ended }}>
       {children}
     </RealRoomContext.Provider>
   );

@@ -1,3 +1,4 @@
+import { plainServerText } from '../net/plainFailure';
 import { ErrorText } from './ErrorText';
 import { useEffect, useState } from 'react';
 import { Button } from '../ui';
@@ -111,7 +112,7 @@ function settingsFor(spec: ToolSpec, form: FormState): Record<string, unknown> {
 function statusText(tool: ToolStatus | undefined): string {
   if (tool === undefined) return 'Not connected';
   if (tool.connected) return 'Connected';
-  if (tool.error !== undefined) return tool.error;
+  if (tool.error !== undefined) return plainServerText(tool.error) ?? 'The connection failed.';
   return 'Not connected';
 }
 

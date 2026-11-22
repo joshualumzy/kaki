@@ -6,6 +6,9 @@ import { fetchWithTimeout } from '../../net/withTimeout';
 import { meetingApiPath } from '../../kaki';
 import { useRealRoom } from './realRoom';
 
+/** How long the ended panel waits for the notes lookup before saying the minutes are late. */
+const MINUTES_WAIT_MS = 60_000;
+
 const COULD_NOT_START = "Couldn't start the meeting. Try again.";
 
 /** The loud, plain-words notices a real meeting shows above the stage. */
@@ -98,29 +101,52 @@ export function RealWaitingOverlay({ meetingId }: { meetingId: string }) {
 /** The one panel a real meeting shows after it ends: where the minutes are, or a thank-you. */
 export function RealEndedPanel({ meetingId }: { meetingId: string }) {
   const room = useRealRoom();
-  if (room?.meetingState?.phase !== 'ended') return null;
-  return <EndedPanelBody meetingId={meetingId} ownerName={room.meetingState.ownerName?.trim() ?? ''} />;
+  const endedWhileAway = room?.endedWhileAway !== undefined && room.meetingState?.phase !== 'ended';
+  if (room === null || (room.meetingState?.phase !== 'ended' && !endedWhileAway)) return null;
+  return (
+    <EndedPanelBody
+      meetingId={meetingId}
+      ownerName={room.meetingState?.ownerName?.trim() ?? ''}
+      title={endedWhileAway ? 'This meeting ended while you were away' : 'Meeting ended'}
+    />
+  );
 }
 
-function EndedPanelBody({ meetingId, ownerName }: { meetingId: string; ownerName: string }) {
+function EndedPanelBody({
+  meetingId,
+  ownerName,
+  title,
+}: {
+  meetingId: string;
+  ownerName: string;
+  title: string;
+}) {
   const [workspaceId, setWorkspaceId] = useState<string | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    setFailed(false);
+    setSlow(false);
+    // Looking up where the notes are kept must not wait forever: after a minute say they are late.
+    const slowTimer = window.setTimeout(() => setSlow(true), MINUTES_WAIT_MS);
     getMeetingInfo(meetingId)
       .then((info) => {
         if (!cancelled) setWorkspaceId(info.historyWorkspaceId);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        console.error('kaki web: could not look up where the meeting notes are kept', error);
         if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(slowTimer);
     };
-  }, [meetingId]);
+  }, [meetingId, attempt]);
   return (
     <section className="kd-role kd-topic-card" aria-label="Meeting ended">
-      <p className="kd-role-eyebrow">Meeting ended</p>
+      <p className="kd-role-eyebrow">{title}</p>
       {typeof workspaceId === 'string' ? (
         <Link
           className="artifact-link"
@@ -132,10 +158,18 @@ function EndedPanelBody({ meetingId, ownerName }: { meetingId: string; ownerName
         <p>
           Thanks for joining. The notes are kept by {ownerName === '' ? 'the owner' : ownerName}.
         </p>
-      ) : failed ? (
-        <p role="alert" className="kd-alert">
-          Could not check where the notes are kept. Reload this page to try again.
-        </p>
+      ) : failed || slow ? (
+        <>
+          <p role="alert" className="kd-alert">
+            Minutes are taking longer than usual. They'll appear in the meeting history when ready.
+          </p>
+          <button type="button" className="kd-chip" onClick={() => setAttempt((count) => count + 1)}>
+            Try again
+          </button>{' '}
+          <Link className="artifact-link" to={`/m/${encodeURIComponent(meetingId)}`}>
+            Open the meeting page
+          </Link>
+        </>
       ) : (
         <p className="kd-hint">Checking where the notes are kept…</p>
       )}

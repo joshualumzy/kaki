@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { plainRejection } from '../../net/plainFailure';
 import {
   assigneeLabel,
   roleLabel,
@@ -280,7 +281,7 @@ export function MeetingPanel({
 
   return (
     <div className="page kd-host kd-meeting-panel">
-      {!connected && <p className="connection-banner">Reconnecting…</p>}
+      <ConnectionBanner connected={connected} />
       {real && realRoom !== null && !realRoom.isHost && (
         <div className="kd-guest-context" aria-label="About this meeting">
           <b>{scenario.meetingTitle}</b>
@@ -290,7 +291,7 @@ export function MeetingPanel({
       {isHost && <HostBrief scenario={scenario} practice={practice} />}
       {rejection !== null && rejection.commandType !== 'ASK_WINGMAN' && (
         <p className="connection-banner" role="alert">
-          {rejection.commandType}: {rejection.reason}
+          {real ? plainRejection(rejection.reason) : `${rejection.commandType}: ${rejection.reason}`}
         </p>
       )}
       {role !== undefined && (
@@ -578,4 +579,29 @@ function actionKindBadge(task: Task): string | undefined {
     default:
       return undefined;
   }
+}
+
+/** How long the panel keeps saying "Reconnecting…" before it admits Kaki cannot be reached. */
+const UNREACHABLE_AFTER_MS = 30_000;
+
+function ConnectionBanner({ connected }: { connected: boolean }) {
+  const [unreachable, setUnreachable] = useState(false);
+  useEffect(() => {
+    if (connected) {
+      setUnreachable(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setUnreachable(true), UNREACHABLE_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [connected]);
+  if (connected) return null;
+  if (!unreachable) return <p className="connection-banner">Reconnecting…</p>;
+  return (
+    <p className="connection-banner" role="alert">
+      Can't reach Kaki. Your meeting is saved. Check your internet or reload.{' '}
+      <button type="button" className="kd-chip" onClick={() => window.location.reload()}>
+        Reload
+      </button>
+    </p>
+  );
 }

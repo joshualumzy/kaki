@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KakiEvent, Scenario, Task, WingmanNotePayload } from '@kaki/shared';
 import type { KakiRejection } from '../../kaki';
@@ -127,6 +127,22 @@ describe('MeetingPanel team meetings', () => {
     }));
     render(<MeetingPanel viewer={{ name: 'Owner', seatName: 'Owner' }} role={scenario.roles[0]} />);
   }
+
+  it('says Kaki cannot be reached after 30 seconds without a connection, with a Reload button', () => {
+    vi.useFakeTimers();
+    try {
+      mocks.useKaki.mockReturnValue(withSpeech({ events, tasks: new Map(), connected: false, rejection: null, send: vi.fn() }));
+      render(<MeetingPanel viewer={{ name: 'Owner', seatName: 'Owner' }} role={scenario.roles[0]} />);
+      expect(screen.getByText('Reconnecting…')).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(screen.getByRole('alert').textContent).toContain("Can't reach Kaki. Your meeting is saved.");
+      expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('stays silent about AI colleagues in a team meeting with no AI cast', () => {
     renderWith(recordOnly, false);

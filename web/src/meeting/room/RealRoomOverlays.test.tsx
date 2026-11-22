@@ -1,10 +1,12 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   isHost: false,
+  endedWhileAway: undefined as string | undefined,
   meetingState: {
     meetingId: 'mtg-1',
     phase: 'lobby',
@@ -24,14 +26,18 @@ vi.mock('./realRoom', () => ({
     send: mocks.send,
     role: 'chef',
     isHost: mocks.isHost,
+    endedWhileAway: mocks.endedWhileAway,
   }),
 }));
 
-vi.mock('../../product/api', () => ({ getMeetingInfo: vi.fn(async () => ({ historyWorkspaceId: null })) }));
+const info = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock('../../product/api', () => ({ getMeetingInfo: info.get }));
 
 import { RealEndedPanel, RealRoomBanners, RealWaitingOverlay } from './RealRoomOverlays';
 
 beforeEach(() => {
+  info.get.mockReset();
+  info.get.mockResolvedValue({ historyWorkspaceId: null });
   mocks.send.mockReset();
   mocks.isHost = false;
   mocks.meetingState.offTheRecord = null;
@@ -124,6 +130,29 @@ describe('real meeting notices', () => {
 });
 
 describe('ended real meeting', () => {
+  it('says the minutes are late and offers Try again when the notes lookup fails', async () => {
+    mocks.meetingState.phase = 'ended';
+    info.get.mockRejectedValue(new Error('boom'));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <MemoryRouter>
+        <RealEndedPanel meetingId="mtg-1" />
+      </MemoryRouter>,
+    );
+    expect((await screen.findByRole('alert')).textContent).toContain('Minutes are taking longer than usual');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open the meeting page' })).toBeTruthy();
+    mocks.meetingState.phase = 'lobby';
+  });
+
+  it('says the meeting ended while the guest was away', async () => {
+    mocks.endedWhileAway = 'This meeting has ended; scan the new code.';
+    render(<RealEndedPanel meetingId="mtg-1" />);
+    expect(screen.getByText('This meeting ended while you were away')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Thanks for joining/)).toBeTruthy());
+    mocks.endedWhileAway = undefined;
+  });
+
   it('thanks a guest and says the owner keeps the notes', async () => {
     mocks.meetingState.phase = 'ended';
     render(<RealEndedPanel meetingId="mtg-1" />);

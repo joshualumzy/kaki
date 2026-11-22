@@ -37,3 +37,9 @@ export const ROOM_CONNECT_PROBLEM =
   "We couldn't connect your audio and video. Check your internet, then press Rejoin.";
 export const MEDIA_BLOCKED_PROBLEM =
   'Your microphone (or camera) is blocked. Click the lock icon in the address bar to allow it, then press the mic button.';
+
+/** A server refusal of a command, in words a person can act on. */
+export function plainRejection(reason: string): string {
+  if (reason === 'not connected') return "You're not connected right now. Try again in a moment.";
+  return plainServerText(reason) ?? DID_NOT_WORK;
+}

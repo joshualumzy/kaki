@@ -299,7 +299,7 @@ function testResult(body: Record<string, unknown> | null, fallback: string): { o
   }
   return {
     ok: body.ok,
-    message: typeof body.message === 'string' ? body.message : body.ok ? 'The connection works.' : 'The connection failed.',
+    message: plainServerText(body.message) ?? (body.ok ? 'The connection works.' : 'The connection failed.'),
   };
 }
 
