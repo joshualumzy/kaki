@@ -324,8 +324,11 @@ export async function inviteLink(page: Page): Promise<string> {
 }
 
 export async function sendTyped(page: Page, line: string): Promise<void> {
-  await page.getByRole('button', { name: 'Type', exact: true }).click();
   const box = page.getByLabel('Type to the meeting');
+  // The Type button toggles: pressing it while the box is open would close it again.
+  if (!(await box.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Type', exact: true }).click();
+  }
   await box.waitFor({ timeout: 10_000 });
   await box.fill(line);
   await box.press('Enter');

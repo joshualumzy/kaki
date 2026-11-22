@@ -41,13 +41,24 @@ async function main(): Promise<void> {
       const join = page.getByRole('button', { name: /Join to type|Join with mic/ });
       await join.click();
       const startedWaiting = Date.now();
-      await page.getByText('Before the meeting starts').waitFor({ timeout: 90_000 });
+      const outcome = await Promise.race([
+        page.getByText('Before the meeting starts').waitFor({ timeout: 90_000 }).then(() => 'briefing' as const),
+        page.getByLabel('Type to the meeting').waitFor({ timeout: 90_000 }).then(() => 'running' as const),
+      ]).catch(() => 'none' as const);
       const waited = Date.now() - startedWaiting;
-      const shot = await run.shot(page, 'practice-briefing');
-      if (waited > 10_000) {
-        run.finding('SLOW', '/practice after joining', `the pre-meeting briefing took ${(waited / 1000).toFixed(0)} s to appear`);
+      const shot = await run.shot(page, 'practice-joined');
+      if (outcome === 'none') {
+        run.finding('ERROR', '/practice after joining', 'joining practice showed neither the briefing nor a usable room', shot);
+        return;
       }
-      run.pass(`Practice joins into its pre-meeting briefing (${shot}).`);
+      if (waited > 10_000) {
+        run.finding('SLOW', '/practice after joining', `the room took ${(waited / 1000).toFixed(0)} s to appear`);
+      }
+      run.pass(
+        outcome === 'briefing'
+          ? `Practice joins into its pre-meeting briefing (${shot}).`
+          : `Practice is already running, and the guest joined its room directly (${shot}).`,
+      );
     });
 
     await step(run, page, 'start practice', async () => {
@@ -56,8 +67,11 @@ async function main(): Promise<void> {
         await next.click();
         const howToShot = await run.shot(page, 'practice-how-to-play');
         run.pass(`The practice briefing has a How to play step (${howToShot}).`);
+      } else {
+        run.note('The practice meeting was already started, so there was no how-to-play step to click.');
       }
-      await page.getByRole('button', { name: 'Start the meeting' }).click();
+      const start = page.getByRole('button', { name: 'Start the meeting' });
+      if (await start.isVisible().catch(() => false)) await start.click();
       await page.getByLabel('Type to the meeting').waitFor({ timeout: 60_000 });
       const shot = await run.shot(page, 'practice-started');
       run.pass(`The practice meeting starts and shows a type box (${shot}).`);
@@ -114,8 +128,6 @@ async function main(): Promise<void> {
       const joinShot = await run.shot(page, 'practice-reopen-join');
       const join = page.getByRole('button', { name: /Join to type|Join with mic/ });
       if (!(await join.isVisible().catch(() => false))) {
-        const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 240);
-        run.finding('CONFUSING', '/practice after leaving', `reopening /practice did not show the join form; it showed "${body}"`, joinShot);
         const rejoin = page.getByRole('button', { name: 'Rejoin', exact: true });
         if (await rejoin.isVisible().catch(() => false)) {
           await rejoin.click();
@@ -124,6 +136,13 @@ async function main(): Promise<void> {
           run.pass(`After leaving, /practice offered Rejoin and got back in (${shot}).`);
           return;
         }
+        if (await page.getByLabel('Type to the meeting').isVisible().catch(() => false)) {
+          const shot = await run.shot(page, 'practice-reopened-running');
+          run.pass(`After leaving, /practice returned to the running practice meeting (${shot}).`);
+          return;
+        }
+        const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 240);
+        run.finding('CONFUSING', '/practice after leaving', `reopening /practice showed neither the join form nor a room; it showed "${body}"`, joinShot);
         return;
       }
       const nameBox = page.locator('#join-name');

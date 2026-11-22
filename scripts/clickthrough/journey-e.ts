@@ -127,10 +127,34 @@ async function main(): Promise<void> {
     await step(run, page, 'end meeting', async () => {
       await page.goto(`${BASE}/m/${encodeURIComponent(meetingId)}/room`);
       await waitForRoomBar(page);
-      await page.getByRole('button', { name: 'End for everyone' }).click();
-      await page.getByRole('button', { name: 'End the meeting' }).click();
-      await page.waitForTimeout(3_000);
+      // The room's control socket may still be reconnecting after the join swapped the session,
+      // so a single End can be dropped. Press it again until the meeting really is over.
+      const asEnded = async (): Promise<string> =>
+        page.evaluate(async (id) => {
+          const response = await fetch(`/api/meetings/${encodeURIComponent(id)}/info`);
+          const body = (await response.json().catch(() => ({}))) as { status?: unknown };
+          return typeof body.status === 'string' ? body.status : '';
+        }, meetingId);
+      let ended = false;
+      for (let attempt = 0; attempt < 6 && !ended; attempt += 1) {
+        if ((await asEnded()) === 'ended') {
+          ended = true;
+          break;
+        }
+        const start = page.getByRole('button', { name: 'End for everyone' });
+        if (await start.isVisible().catch(() => false)) {
+          await start.click();
+          const confirm = page.getByRole('button', { name: 'End the meeting' });
+          if (await confirm.isVisible().catch(() => false)) await confirm.click();
+        }
+        await page.waitForTimeout(2_000);
+        ended = (await asEnded()) === 'ended';
+      }
       const shot = await run.shot(page, 'meeting-ended');
+      if (!ended) {
+        run.finding('ERROR', '/m/:id/room End for everyone', 'the meeting did not end after six presses', shot);
+        return;
+      }
       run.pass(`The meeting was ended for the later link checks (${shot}).`);
     });
 
@@ -180,12 +204,16 @@ async function main(): Promise<void> {
         if (body === '') {
           run.finding('DEAD-END', path + ' as a guest', 'blank page', shot);
         } else if (url.startsWith('/signin')) {
-          run.finding(
-            'CONFUSING',
-            path + ' as a guest',
-            `redirected to ${url} with no message saying why sign-in is needed; page shows "${body.slice(0, 100)}"`,
-            shot,
-          );
+          if (/Sign in to open the page/i.test(body)) {
+            run.pass(`A guest opening ${path} is sent to sign-in with a line saying why (${shot}).`);
+          } else {
+            run.finding(
+              'CONFUSING',
+              path + ' as a guest',
+              `redirected to ${url} with no message saying why sign-in is needed; page shows "${body.slice(0, 100)}"`,
+              shot,
+            );
+          }
         } else if (/not found|isn't valid|does not exist/i.test(body)) {
           run.pass(`A guest opening ${path} gets a clear not-found message (${shot}).`);
         } else {

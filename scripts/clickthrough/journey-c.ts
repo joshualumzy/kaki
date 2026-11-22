@@ -26,11 +26,12 @@ async function main(): Promise<void> {
   const run = new Run(JOURNEY);
   const browser = await launch();
   const suffix = stamp();
+  const ownerName = `Owner Three ${suffix}`;
   const title = `Sample to-do clickthrough ${suffix}`;
 
   try {
     const owner = await signedInPerson(browser, run, {
-      name: `Owner Three ${suffix}`,
+      name: ownerName,
       email: `owner3-${suffix}@clickthrough.test`,
     });
     const page = owner.page;
@@ -64,10 +65,10 @@ async function main(): Promise<void> {
     });
 
     let link = '';
-    await step(run, page, 'fallback meeting', async () => {
-      link = await createMeeting(page, title);
-      const shot = await run.shot(page, 'personal-meeting-created');
-      run.note(`Because the sample workspace cannot take a meeting, the to-do test continued in My workspace (${shot}).`);
+    await step(run, page, 'meeting in the sample workspace', async () => {
+      link = await createMeeting(page, title, { workspaceId: SAMPLE_ID });
+      const shot = await run.shot(page, 'sample-meeting-created');
+      run.pass(`A meeting can be created in the Nanyang Kopi sample workspace (${shot}).`);
     });
     if (link === '') return;
 
@@ -84,7 +85,7 @@ async function main(): Promise<void> {
       }
     });
 
-    const line = 'Sam, please send the supplier the updated order by Friday.';
+    const line = "I'll send the supplier the updated order by Friday.";
     await step(run, page, 'type the to-do line', async () => {
       if (!roomReady) return;
       await sendTyped(page, line);
@@ -93,69 +94,82 @@ async function main(): Promise<void> {
       run.pass(`The to-do line can be typed into the meeting (${shot}).`);
     });
 
-    await step(run, page, 'wait for to-do card', async () => {
+    await step(run, page, 'dispatch the to-do and press its button', async () => {
       if (!roomReady) return;
       const started = Date.now();
-      let found = '';
-      let shot = '';
-      while (Date.now() - started < 90_000) {
-        const body = await page.locator('body').innerText().catch(() => '');
-        if (/Do it for me|Let Kaki do it|Accept · I'll do it|Accept · I’ll do it/i.test(body)) {
-          found = 'action';
-          break;
-        }
-        if (/supplier/i.test(body) && /(to-?do|action|task|Sam)/i.test(body)) {
-          found = 'card';
-          break;
-        }
-        await page.waitForTimeout(5_000);
-      }
-      shot = await run.shot(page, 'to-do-wait-result');
-      const body = await page.locator('body').innerText().catch(() => '');
+      const card = page.locator('.kd-task-card').first();
+      const cardShown = await card.waitFor({ timeout: 90_000 }).then(() => true).catch(() => false);
+      const cardShot = await run.shot(page, 'to-do-card');
       const seconds = Math.round((Date.now() - started) / 1000);
-      if (found === '') {
+      if (!cardShown) {
         run.finding(
           'SLOW',
           '/m/:id/room to-do card',
-          `no to-do card or action button appeared within 90 s of typing the line (waited ${seconds} s)`,
-          shot,
+          `no to-do card appeared within 90 s of typing the line (waited ${seconds} s)`,
+          cardShot,
         );
         return;
       }
-      run.pass(`A to-do card appeared after about ${seconds} s (${shot}).`);
-      const action = page.getByRole('button', { name: /Do it for me/i }).first();
-      if (await action.isVisible().catch(() => false)) {
-        const label = (await action.innerText()).trim();
-        const beforeShot = await run.shot(page, 'action-button-visible');
-        await action.click();
-        run.pass(`The "${label}" action was available and was pressed (${beforeShot}).`);
-        const end = Date.now() + 60_000;
-        let outcome = '';
+      const title = (await card.locator('b').first().innerText().catch(() => '')).trim();
+      run.pass(`A to-do card appeared after about ${seconds} s: "${title.slice(0, 120)}" (${cardShot}).`);
+
+      // A real meeting has no AI colleague to pick the card up: the owner dispatches it, then acts.
+      const picker = card.locator('select').first();
+      if (await picker.isVisible().catch(() => false)) {
+        const labels = await picker.locator('option').evaluateAll((options) =>
+          options.map((option) => ({ value: (option as HTMLOptionElement).value, label: option.textContent?.trim() ?? '' })),
+        );
+        const mine = labels.find((option) => option.label.includes(ownerName)) ?? labels[labels.length - 1] ?? labels[0];
+        if (mine !== undefined) await picker.selectOption(mine.value);
+        await card.getByRole('button', { name: 'Dispatch', exact: true }).click();
+      }
+
+      const action = page
+        .getByRole('button', { name: /Do it for me|Accept · Let Kaki do it|Accept · I[’']ll do it/ })
+        .first();
+      const actionShown = await action.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
+      if (!actionShown) {
+        run.finding('CONFUSING', '/m/:id/room to-do card', 'a to-do card appeared, but there was no action button for it', cardShot);
+        return;
+      }
+      const label = (await action.innerText()).trim();
+      const beforeShot = await run.shot(page, 'action-button-visible');
+      await action.click();
+      run.pass(`The "${label}" action was available and was pressed (${beforeShot}).`);
+
+      // Kaki drafts first; the draft is what proves the button works without anything being sent.
+      const draft = page.locator('.draft-body').first();
+      const drafted = await draft.waitFor({ timeout: 90_000 }).then(() => true).catch(() => false);
+      const draftShot = await run.shot(page, 'action-draft');
+      if (!drafted) {
+        const body = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
+        run.finding('SLOW', '/m/:id/room action button', `no draft appeared within 90 s of pressing the action; page said "${body.slice(0, 200)}"`, draftShot);
+        return;
+      }
+      run.pass(`Kaki produced a reviewable draft instead of sending it (${draftShot}).`);
+
+      const approve = page.getByRole('button', { name: /Approve & publish|Approve &amp; publish/ }).first();
+      const canApprove = await approve.isVisible().catch(() => false);
+      run.pass(`The draft can be reviewed before sending (${draftShot}).`);
+      if (canApprove) {
+        await approve.click();
+        const end = Date.now() + 45_000;
+        let guarded = '';
         while (Date.now() < end) {
-          const after = await page.locator('body').innerText().catch(() => '');
-          if (/drafted|draft ready|Draft Ready|sent|published|failed|could not|error|not sent/i.test(after)) {
-            outcome = after.match(/[^\n]*(drafted|draft ready|Draft Ready|sent|published|failed|could not|error|not sent)[^\n]*/i)?.[0] ?? '';
+          const after = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
+          const match = /[^.]*(draft-only|nothing was sent|not sent)[^.]*/i.exec(after);
+          if (match !== null) {
+            guarded = match[0].trim();
             break;
           }
           await page.waitForTimeout(3_000);
         }
         const afterShot = await run.shot(page, 'action-result');
-        if (outcome === '') {
-          run.finding('SLOW', '/m/:id/room action button', 'nothing visible happened within 60 s of pressing the action', afterShot);
+        if (guarded === '') {
+          run.finding('CONFUSING', '/m/:id/room action publish', 'the draft-only meeting gave no visible "nothing was sent" answer after Approve & publish', afterShot);
         } else {
-          run.pass(`Pressing the action showed: "${outcome.trim().slice(0, 140)}" (${afterShot}).`);
+          run.pass(`Approving showed: "${guarded.slice(0, 160)}" (${afterShot}).`);
         }
-      } else {
-        const bodyText = body.replace(/\s+/g, ' ');
-        const onlyOwner = /Only .* can send this/i.test(bodyText);
-        run.finding(
-          'CONFUSING',
-          '/m/:id/room to-do card',
-          onlyOwner
-            ? 'the to-do card is addressed to Sam, so the meeting owner only sees "Only Sam can send this" and has no action button'
-            : 'a to-do card appeared, but there was no action button for it',
-          shot,
-        );
       }
     });
   } finally {
